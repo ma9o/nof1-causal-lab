@@ -9,25 +9,32 @@
     "src"
   ],
   "scripts": {
-    "type-check": "tsc --noEmit",
+    "check": "bun run --parallel --no-exit-on-error codegen:check lint type-check",
     "lint": "biome check .",
     "lint:fix": "biome check --fix .",
     "format": "biome format --write .",
     "format:check": "biome format .",
-    "codegen:contracts:json": "uv run --directory ../../apps/data-pipeline python scripts/export_schemas.py",
-    "codegen:contracts:typescript": "bun run scripts/generate.ts",
+    "type-check": "tsc --noEmit",
+
+    "codegen": "bun run --parallel --no-exit-on-error codegen:contracts codegen:agent-api && bun run codegen:client",
+    "codegen:check": "bun run --parallel --no-exit-on-error codegen:contracts:json:check codegen:contracts:typescript:check codegen:agent-api:check codegen:client:check",
     "codegen:contracts": "bun run codegen:contracts:json && bun run codegen:contracts:typescript",
+    "codegen:contracts:json": "uv run --directory ../../apps/data-pipeline python -m scripts.export_schemas",
+    "codegen:contracts:json:check": "bun run codegen:contracts:json --check",
+    "codegen:contracts:typescript": "bun run scripts/generate.ts",
+    "codegen:contracts:typescript:check": "bun run codegen:contracts:typescript --check",
     "codegen:agent-api": "uv run --directory ../../apps/data-pipeline python scripts/export_agent_api.py",
-    "codegen": "bun run --parallel --no-exit-on-error codegen:contracts codegen:agent-api",
-    "codegen:check:contracts-json": "uv run --directory ../../apps/data-pipeline python scripts/export_schemas.py --check",
-    "codegen:check:contracts-typescript": "bun run scripts/generate.ts --check",
-    "codegen:check:agent-api": "uv run --directory ../../apps/data-pipeline python scripts/export_agent_api.py --check",
-    "codegen:check": "bun run --parallel --no-exit-on-error codegen:check:contracts-json codegen:check:contracts-typescript codegen:check:agent-api",
-    "check": "bun run --parallel --no-exit-on-error codegen:check lint type-check"
+    "codegen:agent-api:check": "bun run codegen:agent-api --check",
+    "codegen:client": "bun run scripts/generate-client.ts",
+    "codegen:client:check": "bun run codegen:client --check"
   },
   "devDependencies": {
     "@nof1-causal-lab/typescript-config": "workspace:*",
     "json-schema-to-typescript": "^15.0.4",
+    "openapi-typescript": "^7.13.0",
     "typescript": "^5"
+  },
+  "dependencies": {
+    "openapi-fetch": "0.16.0"
   }
 }

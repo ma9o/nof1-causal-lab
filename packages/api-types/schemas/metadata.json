@@ -1,4 +1,1063 @@
 {
+  "machine": {
+    "artifact_ids": [
+      "question",
+      "raw_data",
+      "latent_structure",
+      "measurement_structure",
+      "causal_design",
+      "structural_plan",
+      "identification_report",
+      "measurements",
+      "panel",
+      "validation_report",
+      "statistical_model_spec",
+      "compiled_ssm",
+      "posterior",
+      "baseline_report",
+      "saved_scenarios"
+    ],
+    "topological_artifact_order": [
+      "raw_data",
+      "question",
+      "saved_scenarios",
+      "latent_structure",
+      "measurement_structure",
+      "measurements",
+      "panel",
+      "causal_design",
+      "structural_plan",
+      "identification_report",
+      "validation_report",
+      "statistical_model_spec",
+      "compiled_ssm",
+      "posterior",
+      "baseline_report"
+    ],
+    "topological_transition_order": [
+      "raw_data",
+      "latent_structure",
+      "measurement_structure",
+      "measurements",
+      "statistical_model_spec",
+      "posterior",
+      "baseline_report"
+    ],
+    "contexts": [
+      {
+        "context_id": "navigator",
+        "layer": "navigator",
+        "label": "Human/LLM navigator, web UI, SDK, or curl client",
+        "parent_id": null,
+        "owns": [],
+        "allowed_tools": [],
+        "runtime_state": []
+      },
+      {
+        "context_id": "action-registry",
+        "layer": "registry",
+        "label": "Transport-independent action contracts",
+        "parent_id": "navigator",
+        "owns": [],
+        "allowed_tools": [],
+        "runtime_state": []
+      },
+      {
+        "context_id": "episode-machine",
+        "layer": "machine",
+        "label": "Serialized artifact transition machine",
+        "parent_id": "action-registry",
+        "owns": [],
+        "allowed_tools": [],
+        "runtime_state": []
+      },
+      {
+        "context_id": "ingestion",
+        "layer": "delegated",
+        "label": "Ingestion file/code loop",
+        "parent_id": "episode-machine",
+        "owns": [
+          "raw_data"
+        ],
+        "allowed_tools": [
+          "list_files",
+          "read_file_sample",
+          "execute_python",
+          "submit_table"
+        ],
+        "runtime_state": [
+          "prepared_input_dir",
+          "sandbox",
+          "result_df",
+          "column_descriptions"
+        ]
+      },
+      {
+        "context_id": "latent-structure",
+        "layer": "delegated",
+        "label": "Latent structure proposal loop",
+        "parent_id": "episode-machine",
+        "owns": [
+          "latent_structure"
+        ],
+        "allowed_tools": [
+          "validate_latent_structure"
+        ],
+        "runtime_state": [
+          "question",
+          "latent_structure_draft"
+        ]
+      },
+      {
+        "context_id": "measurement-structure",
+        "layer": "delegated",
+        "label": "Measurement structure proposal loop",
+        "parent_id": "episode-machine",
+        "owns": [
+          "measurement_structure"
+        ],
+        "allowed_tools": [
+          "validate_measurement_structure"
+        ],
+        "runtime_state": [
+          "latent_structure",
+          "dataset_schema",
+          "measurement_structure_draft"
+        ]
+      },
+      {
+        "context_id": "measurement",
+        "layer": "delegated",
+        "label": "Indicator extraction worker fan-out",
+        "parent_id": "episode-machine",
+        "owns": [
+          "measurements",
+          "panel"
+        ],
+        "allowed_tools": [
+          "validate_extractions"
+        ],
+        "runtime_state": [
+          "indicator_plan",
+          "worker_statuses",
+          "extracted_values"
+        ]
+      },
+      {
+        "context_id": "statistical-model-spec",
+        "layer": "delegated",
+        "label": "Model/prior reducer",
+        "parent_id": "episode-machine",
+        "owns": [
+          "statistical_model_spec"
+        ],
+        "allowed_tools": [
+          "search_literature",
+          "submit_construct"
+        ],
+        "runtime_state": [
+          "deterministic_skeleton",
+          "construct_order",
+          "current_construct",
+          "attempt",
+          "checkpoint_ref",
+          "accepted_constructs",
+          "rebase"
+        ]
+      },
+      {
+        "context_id": "inference",
+        "layer": "delegated",
+        "label": "Exact nonlinear SSM inference job",
+        "parent_id": "episode-machine",
+        "owns": [
+          "posterior"
+        ],
+        "allowed_tools": [],
+        "runtime_state": [
+          "sampler_config",
+          "diagnostics",
+          "fitted_artifact"
+        ]
+      },
+      {
+        "context_id": "ranking",
+        "layer": "delegated",
+        "label": "Baseline causal ranking",
+        "parent_id": "episode-machine",
+        "owns": [
+          "baseline_report"
+        ],
+        "allowed_tools": [
+          "get_model_info",
+          "simulate"
+        ],
+        "runtime_state": [
+          "identified_treatments",
+          "effect_summaries"
+        ]
+      }
+    ],
+    "actions": [
+      {
+        "action_id": "nav.state",
+        "namespace": "nav",
+        "name": "state",
+        "kind": "read",
+        "mode": "read",
+        "context_id": "navigator",
+        "consumes": [],
+        "produces": [],
+        "produces_optional": [],
+        "derives": [],
+        "move": null,
+        "query": null,
+        "lower_context_id": null
+      },
+      {
+        "action_id": "nav.timeline",
+        "namespace": "nav",
+        "name": "timeline",
+        "kind": "read",
+        "mode": "read",
+        "context_id": "navigator",
+        "consumes": [],
+        "produces": [],
+        "produces_optional": [],
+        "derives": [],
+        "move": null,
+        "query": null,
+        "lower_context_id": null
+      },
+      {
+        "action_id": "nav.events",
+        "namespace": "nav",
+        "name": "events",
+        "kind": "read",
+        "mode": "read",
+        "context_id": "navigator",
+        "consumes": [],
+        "produces": [],
+        "produces_optional": [],
+        "derives": [],
+        "move": null,
+        "query": null,
+        "lower_context_id": null
+      },
+      {
+        "action_id": "nav.get",
+        "namespace": "nav",
+        "name": "get",
+        "kind": "read",
+        "mode": "read",
+        "context_id": "navigator",
+        "consumes": [],
+        "produces": [],
+        "produces_optional": [],
+        "derives": [],
+        "move": null,
+        "query": null,
+        "lower_context_id": null
+      },
+      {
+        "action_id": "nav.versions",
+        "namespace": "nav",
+        "name": "versions",
+        "kind": "read",
+        "mode": "read",
+        "context_id": "navigator",
+        "consumes": [],
+        "produces": [],
+        "produces_optional": [],
+        "derives": [],
+        "move": null,
+        "query": null,
+        "lower_context_id": null
+      },
+      {
+        "action_id": "nav.diff",
+        "namespace": "nav",
+        "name": "diff",
+        "kind": "read",
+        "mode": "read",
+        "context_id": "navigator",
+        "consumes": [],
+        "produces": [],
+        "produces_optional": [],
+        "derives": [],
+        "move": null,
+        "query": null,
+        "lower_context_id": null
+      },
+      {
+        "action_id": "episode.create",
+        "namespace": "episode",
+        "name": "create",
+        "kind": "produce",
+        "mode": "direct",
+        "context_id": "navigator",
+        "consumes": [],
+        "produces": [
+          "question"
+        ],
+        "produces_optional": [],
+        "derives": [],
+        "move": {
+          "kind": "write",
+          "artifact_id": "question"
+        },
+        "query": null,
+        "lower_context_id": null
+      },
+      {
+        "action_id": "episode.attach_data",
+        "namespace": "episode",
+        "name": "attach_data",
+        "kind": "external",
+        "mode": "direct",
+        "context_id": "navigator",
+        "consumes": [],
+        "produces": [],
+        "produces_optional": [],
+        "derives": [],
+        "move": null,
+        "query": null,
+        "lower_context_id": null
+      },
+      {
+        "action_id": "episode.ingest_data",
+        "namespace": "episode",
+        "name": "ingest_data",
+        "kind": "produce",
+        "mode": "delegated",
+        "context_id": "navigator",
+        "consumes": [],
+        "produces": [
+          "raw_data"
+        ],
+        "produces_optional": [],
+        "derives": [],
+        "move": {
+          "kind": "run",
+          "artifact_id": "raw_data"
+        },
+        "query": null,
+        "lower_context_id": "ingestion"
+      },
+      {
+        "action_id": "episode.refresh",
+        "namespace": "episode",
+        "name": "refresh",
+        "kind": "driver",
+        "mode": "async",
+        "context_id": "navigator",
+        "consumes": [],
+        "produces": [],
+        "produces_optional": [],
+        "derives": [],
+        "move": null,
+        "query": null,
+        "lower_context_id": null
+      },
+      {
+        "action_id": "specify.latent_structure",
+        "namespace": "specify",
+        "name": "latent_structure",
+        "kind": "produce",
+        "mode": "delegated",
+        "context_id": "navigator",
+        "consumes": [
+          "question"
+        ],
+        "produces": [
+          "latent_structure"
+        ],
+        "produces_optional": [],
+        "derives": [
+          "causal_design",
+          "structural_plan",
+          "identification_report",
+          "validation_report",
+          "compiled_ssm"
+        ],
+        "move": {
+          "kind": "run",
+          "artifact_id": "latent_structure"
+        },
+        "query": null,
+        "lower_context_id": "latent-structure"
+      },
+      {
+        "action_id": "specify.measurement",
+        "namespace": "specify",
+        "name": "measurement",
+        "kind": "produce",
+        "mode": "delegated",
+        "context_id": "navigator",
+        "consumes": [
+          "question",
+          "raw_data",
+          "latent_structure"
+        ],
+        "produces": [
+          "measurement_structure"
+        ],
+        "produces_optional": [],
+        "derives": [
+          "causal_design",
+          "structural_plan",
+          "identification_report",
+          "validation_report",
+          "compiled_ssm"
+        ],
+        "move": {
+          "kind": "run",
+          "artifact_id": "measurement_structure"
+        },
+        "query": null,
+        "lower_context_id": "measurement-structure"
+      },
+      {
+        "action_id": "specify.edit",
+        "namespace": "specify",
+        "name": "edit",
+        "kind": "produce",
+        "mode": "direct",
+        "context_id": "navigator",
+        "consumes": [
+          "measurement_structure"
+        ],
+        "produces": [
+          "measurement_structure"
+        ],
+        "produces_optional": [],
+        "derives": [
+          "causal_design",
+          "structural_plan",
+          "identification_report",
+          "validation_report",
+          "compiled_ssm"
+        ],
+        "move": {
+          "kind": "write",
+          "artifact_id": "measurement_structure"
+        },
+        "query": null,
+        "lower_context_id": null
+      },
+      {
+        "action_id": "specify.identify",
+        "namespace": "specify",
+        "name": "identify",
+        "kind": "check",
+        "mode": "direct",
+        "context_id": "navigator",
+        "consumes": [
+          "causal_design"
+        ],
+        "produces": [],
+        "produces_optional": [],
+        "derives": [
+          "identification_report"
+        ],
+        "move": null,
+        "query": null,
+        "lower_context_id": null
+      },
+      {
+        "action_id": "measure.extract",
+        "namespace": "measure",
+        "name": "extract",
+        "kind": "produce",
+        "mode": "delegated",
+        "context_id": "navigator",
+        "consumes": [
+          "question",
+          "raw_data",
+          "measurement_structure"
+        ],
+        "produces": [
+          "measurements"
+        ],
+        "produces_optional": [
+          "panel"
+        ],
+        "derives": [],
+        "move": {
+          "kind": "run",
+          "artifact_id": "measurements"
+        },
+        "query": null,
+        "lower_context_id": "measurement"
+      },
+      {
+        "action_id": "fit.specify",
+        "namespace": "fit",
+        "name": "specify",
+        "kind": "produce",
+        "mode": "delegated",
+        "context_id": "navigator",
+        "consumes": [
+          "question",
+          "structural_plan",
+          "identification_report",
+          "panel",
+          "validation_report"
+        ],
+        "produces": [
+          "statistical_model_spec"
+        ],
+        "produces_optional": [],
+        "derives": [
+          "compiled_ssm"
+        ],
+        "move": {
+          "kind": "run",
+          "artifact_id": "statistical_model_spec"
+        },
+        "query": null,
+        "lower_context_id": "statistical-model-spec"
+      },
+      {
+        "action_id": "fit.infer",
+        "namespace": "fit",
+        "name": "infer",
+        "kind": "produce",
+        "mode": "async",
+        "context_id": "navigator",
+        "consumes": [
+          "compiled_ssm",
+          "panel"
+        ],
+        "produces": [
+          "posterior"
+        ],
+        "produces_optional": [],
+        "derives": [],
+        "move": {
+          "kind": "run",
+          "artifact_id": "posterior"
+        },
+        "query": null,
+        "lower_context_id": "inference"
+      },
+      {
+        "action_id": "fit.check",
+        "namespace": "fit",
+        "name": "check",
+        "kind": "check",
+        "mode": "direct",
+        "context_id": "navigator",
+        "consumes": [
+          "compiled_ssm"
+        ],
+        "produces": [],
+        "produces_optional": [],
+        "derives": [],
+        "move": null,
+        "query": null,
+        "lower_context_id": null
+      },
+      {
+        "action_id": "analyze.rank",
+        "namespace": "analyze",
+        "name": "rank",
+        "kind": "produce",
+        "mode": "delegated",
+        "context_id": "navigator",
+        "consumes": [
+          "posterior",
+          "causal_design",
+          "identification_report"
+        ],
+        "produces": [
+          "baseline_report"
+        ],
+        "produces_optional": [],
+        "derives": [],
+        "move": {
+          "kind": "run",
+          "artifact_id": "baseline_report"
+        },
+        "query": null,
+        "lower_context_id": "ranking"
+      },
+      {
+        "action_id": "analyze.simulate",
+        "namespace": "analyze",
+        "name": "simulate",
+        "kind": "query",
+        "mode": "direct",
+        "context_id": "navigator",
+        "consumes": [
+          "posterior",
+          "causal_design",
+          "identification_report"
+        ],
+        "produces": [],
+        "produces_optional": [],
+        "derives": [],
+        "move": null,
+        "query": {
+          "context_id": "ranking",
+          "tool_name": "simulate",
+          "freshness_checked": true
+        },
+        "lower_context_id": null
+      },
+      {
+        "action_id": "analyze.counterfactual",
+        "namespace": "analyze",
+        "name": "counterfactual",
+        "kind": "query",
+        "mode": "direct",
+        "context_id": "navigator",
+        "consumes": [
+          "posterior",
+          "causal_design",
+          "identification_report"
+        ],
+        "produces": [],
+        "produces_optional": [],
+        "derives": [],
+        "move": null,
+        "query": {
+          "context_id": "ranking",
+          "tool_name": "simulate",
+          "freshness_checked": true
+        },
+        "lower_context_id": null
+      },
+      {
+        "action_id": "analyze.ppc",
+        "namespace": "analyze",
+        "name": "ppc",
+        "kind": "check",
+        "mode": "direct",
+        "context_id": "navigator",
+        "consumes": [
+          "posterior",
+          "panel"
+        ],
+        "produces": [],
+        "produces_optional": [],
+        "derives": [],
+        "move": null,
+        "query": null,
+        "lower_context_id": null
+      },
+      {
+        "action_id": "analyze.save",
+        "namespace": "analyze",
+        "name": "save",
+        "kind": "produce",
+        "mode": "direct",
+        "context_id": "navigator",
+        "consumes": [
+          "posterior"
+        ],
+        "produces": [
+          "saved_scenarios"
+        ],
+        "produces_optional": [],
+        "derives": [],
+        "move": {
+          "kind": "write",
+          "artifact_id": "saved_scenarios"
+        },
+        "query": null,
+        "lower_context_id": null
+      }
+    ],
+    "roots": [
+      {
+        "artifact_id": "question",
+        "write_pins": []
+      },
+      {
+        "artifact_id": "saved_scenarios",
+        "write_pins": []
+      }
+    ],
+    "transitions": [
+      {
+        "transition_id": "raw_data",
+        "consumes": [],
+        "produces": [
+          "raw_data"
+        ],
+        "produces_optional": [],
+        "creation_class": "batch_llm",
+        "writable": false
+      },
+      {
+        "transition_id": "latent_structure",
+        "consumes": [
+          "question"
+        ],
+        "produces": [
+          "latent_structure"
+        ],
+        "produces_optional": [],
+        "creation_class": "judgment",
+        "writable": true
+      },
+      {
+        "transition_id": "measurement_structure",
+        "consumes": [
+          "question",
+          "raw_data",
+          "latent_structure"
+        ],
+        "produces": [
+          "measurement_structure"
+        ],
+        "produces_optional": [],
+        "creation_class": "judgment",
+        "writable": true
+      },
+      {
+        "transition_id": "measurements",
+        "consumes": [
+          "question",
+          "raw_data",
+          "measurement_structure"
+        ],
+        "produces": [
+          "measurements"
+        ],
+        "produces_optional": [
+          "panel"
+        ],
+        "creation_class": "batch_llm",
+        "writable": false
+      },
+      {
+        "transition_id": "statistical_model_spec",
+        "consumes": [
+          "question",
+          "structural_plan",
+          "identification_report",
+          "panel",
+          "validation_report"
+        ],
+        "produces": [
+          "statistical_model_spec"
+        ],
+        "produces_optional": [],
+        "creation_class": "judgment",
+        "writable": true
+      },
+      {
+        "transition_id": "posterior",
+        "consumes": [
+          "compiled_ssm",
+          "panel"
+        ],
+        "produces": [
+          "posterior"
+        ],
+        "produces_optional": [],
+        "creation_class": "deterministic",
+        "writable": false
+      },
+      {
+        "transition_id": "baseline_report",
+        "consumes": [
+          "posterior",
+          "causal_design",
+          "identification_report"
+        ],
+        "produces": [
+          "baseline_report"
+        ],
+        "produces_optional": [],
+        "creation_class": "judgment",
+        "writable": true
+      }
+    ],
+    "derivations": [
+      {
+        "produces": "causal_design",
+        "from": [
+          "latent_structure",
+          "measurement_structure"
+        ],
+        "optional": false
+      },
+      {
+        "produces": "structural_plan",
+        "from": [
+          "causal_design"
+        ],
+        "optional": false
+      },
+      {
+        "produces": "identification_report",
+        "from": [
+          "causal_design"
+        ],
+        "optional": true
+      },
+      {
+        "produces": "validation_report",
+        "from": [
+          "panel",
+          "causal_design"
+        ],
+        "optional": false
+      },
+      {
+        "produces": "compiled_ssm",
+        "from": [
+          "statistical_model_spec",
+          "structural_plan"
+        ],
+        "optional": false
+      }
+    ],
+    "files": {
+      "question": {
+        "json": {
+          "question": "question.json"
+        },
+        "parquet": {},
+        "pickle": {}
+      },
+      "raw_data": {
+        "json": {
+          "profile": "profile.json"
+        },
+        "parquet": {
+          "raw": "raw.parquet"
+        },
+        "pickle": {}
+      },
+      "latent_structure": {
+        "json": {
+          "latent_structure": "latent-structure.json"
+        },
+        "parquet": {},
+        "pickle": {}
+      },
+      "measurement_structure": {
+        "json": {
+          "measurement_structure": "measurement_structure.json"
+        },
+        "parquet": {},
+        "pickle": {}
+      },
+      "causal_design": {
+        "json": {
+          "causal_design": "causal_design.json"
+        },
+        "parquet": {},
+        "pickle": {}
+      },
+      "structural_plan": {
+        "json": {
+          "structural_plan": "structural-plan.json"
+        },
+        "parquet": {},
+        "pickle": {}
+      },
+      "identification_report": {
+        "json": {
+          "identification_report": "identification_report.json"
+        },
+        "parquet": {},
+        "pickle": {}
+      },
+      "measurements": {
+        "json": {
+          "measurements": "measurements.json"
+        },
+        "parquet": {},
+        "pickle": {}
+      },
+      "panel": {
+        "json": {},
+        "parquet": {
+          "panel": "panel.parquet"
+        },
+        "pickle": {}
+      },
+      "validation_report": {
+        "json": {
+          "validation_report": "validation_report.json"
+        },
+        "parquet": {},
+        "pickle": {}
+      },
+      "statistical_model_spec": {
+        "json": {
+          "statistical_model_spec": "statistical_model_spec.json"
+        },
+        "parquet": {},
+        "pickle": {}
+      },
+      "compiled_ssm": {
+        "json": {
+          "compiled_ssm": "compiled-ssm.json",
+          "report": "report.json"
+        },
+        "parquet": {},
+        "pickle": {}
+      },
+      "posterior": {
+        "json": {
+          "diagnostics": "diagnostics.json"
+        },
+        "parquet": {},
+        "pickle": {
+          "fitted": "fitted.pkl"
+        }
+      },
+      "baseline_report": {
+        "json": {
+          "baseline_report": "baseline_report.json"
+        },
+        "parquet": {},
+        "pickle": {}
+      },
+      "saved_scenarios": {
+        "json": {
+          "saved_scenarios": "saved_scenarios.json"
+        },
+        "parquet": {},
+        "pickle": {}
+      }
+    }
+  },
+  "artifactIds": [
+    "question",
+    "raw_data",
+    "latent_structure",
+    "measurement_structure",
+    "causal_design",
+    "structural_plan",
+    "identification_report",
+    "measurements",
+    "panel",
+    "validation_report",
+    "statistical_model_spec",
+    "compiled_ssm",
+    "posterior",
+    "baseline_report",
+    "saved_scenarios"
+  ],
+  "artifactFiles": {
+    "question": {
+      "json": {
+        "question": "question.json"
+      },
+      "parquet": {},
+      "pickle": {}
+    },
+    "raw_data": {
+      "json": {
+        "profile": "profile.json"
+      },
+      "parquet": {
+        "raw": "raw.parquet"
+      },
+      "pickle": {}
+    },
+    "latent_structure": {
+      "json": {
+        "latent_structure": "latent-structure.json"
+      },
+      "parquet": {},
+      "pickle": {}
+    },
+    "measurement_structure": {
+      "json": {
+        "measurement_structure": "measurement_structure.json"
+      },
+      "parquet": {},
+      "pickle": {}
+    },
+    "causal_design": {
+      "json": {
+        "causal_design": "causal_design.json"
+      },
+      "parquet": {},
+      "pickle": {}
+    },
+    "structural_plan": {
+      "json": {
+        "structural_plan": "structural-plan.json"
+      },
+      "parquet": {},
+      "pickle": {}
+    },
+    "identification_report": {
+      "json": {
+        "identification_report": "identification_report.json"
+      },
+      "parquet": {},
+      "pickle": {}
+    },
+    "measurements": {
+      "json": {
+        "measurements": "measurements.json"
+      },
+      "parquet": {},
+      "pickle": {}
+    },
+    "panel": {
+      "json": {},
+      "parquet": {
+        "panel": "panel.parquet"
+      },
+      "pickle": {}
+    },
+    "validation_report": {
+      "json": {
+        "validation_report": "validation_report.json"
+      },
+      "parquet": {},
+      "pickle": {}
+    },
+    "statistical_model_spec": {
+      "json": {
+        "statistical_model_spec": "statistical_model_spec.json"
+      },
+      "parquet": {},
+      "pickle": {}
+    },
+    "compiled_ssm": {
+      "json": {
+        "compiled_ssm": "compiled-ssm.json",
+        "report": "report.json"
+      },
+      "parquet": {},
+      "pickle": {}
+    },
+    "posterior": {
+      "json": {
+        "diagnostics": "diagnostics.json"
+      },
+      "parquet": {},
+      "pickle": {
+        "fitted": "fitted.pkl"
+      }
+    },
+    "baseline_report": {
+      "json": {
+        "baseline_report": "baseline_report.json"
+      },
+      "parquet": {},
+      "pickle": {}
+    },
+    "saved_scenarios": {
+      "json": {
+        "saved_scenarios": "saved_scenarios.json"
+      },
+      "parquet": {},
+      "pickle": {}
+    }
+  },
   "observationHyperparametersByDistribution": {
     "student_t": [
       "obs_df"

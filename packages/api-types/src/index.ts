@@ -4,12 +4,6 @@
 
 import type { ArtifactViewId } from "./transitions";
 
-export type {
-  CausalDesign,
-  IdentifiabilityStatus,
-  IdentifiedTreatmentStatus,
-  NonIdentifiableTreatmentStatus,
-} from "./causal-design";
 export type { ArtifactStatus, ArtifactViewState, PipelineRun, RunStatus } from "./run";
 export type {
   ArtifactId,
@@ -21,71 +15,127 @@ export type {
 export { ARTIFACT_IDS, ARTIFACT_VIEW_IDS, TRANSITION_META, TRANSITIONS } from "./transitions";
 
 // ---------------------------------------------------------------------------
-// Generated from Python contracts
-// Re-exported with aliases where the generated name differs from frontend usage
+// Generated from Python, using the same type names in both languages
 // ---------------------------------------------------------------------------
 
-// Artifact contracts re-exported as view data aliases (frontend convention)
-// Latent structure types
-// Measurement structure types
-// Causal design types
-// Worker / extraction types
-// Validation types
-// Statistical model spec types
-// Prior types
-// LLM trace types
-// Inference diagnostic types
+// Persisted artifacts and their domain values
 export type {
+  AggregationFunction,
   ArtifactEnvelope,
+  ArtifactFileSpec,
+  ArtifactFreshness,
+  ArtifactRef,
   ArtifactVersionInfo,
-  BaselineReportContract as BaselineReportData,
+  AutoRunResponse,
+  BaselineReportArtifact,
+  BaselineReportVisualization,
   CapabilitiesResponse,
+  CausalDesign,
   CausalEdge,
+  CompiledParameterBinding,
+  CompiledSSMArtifact,
+  ConstantDriftMechanism,
   Construct,
+  ConstructId,
+  ConstructRef,
   DistributionFamily,
-  EdgeSource,
+  DynamicsMechanism,
+  EdgeId,
+  EdgeRef,
+  EffectSummary,
+  EffectTrajectoryPoint,
   EnergyDiagnostics,
   EnergyHistogram,
+  EpisodeState,
+  EpisodeStatus,
+  EstimatedCoefficient,
+  EventsResponse,
+  FactSource,
+  FitSummary,
+  FixedCoefficient,
+  HillEdgeMechanism,
+  IdentifiabilityStatus,
+  IdentificationReport,
+  IdentifiedTreatmentStatus,
   Indicator,
-  IndicatorAuditContract as IndicatorAudit,
-  IndicatorEmpiricalProfileContract as IndicatorEmpiricalProfile,
-  IndicatorValidationContract as IndicatorValidation,
-  InferenceMetadataContract as InferenceMetadata,
+  IndicatorAudit,
+  IndicatorEmpiricalProfile,
+  IndicatorId,
+  IndicatorRef,
+  IndicatorValidation,
+  InferenceMetadata,
+  JournalStatus,
+  JsonObject,
+  JsonScalar,
+  JsonValue,
   KnownInput,
+  LatentClampInput,
   LatentStructure,
-  LatentStructureContract as LatentStructureData,
-  LikelihoodSource,
+  LatentStructureArtifact,
   LikelihoodSpec,
+  LinearEdgeMechanism,
   LinkFunction,
+  LiteratureSource,
   LLMTrace,
   LOODiagnostics,
+  MachineDescription,
   MCMCDiagnostics,
   MCMCParamDiagnostic,
+  MeasurementDtype,
   MeasurementStructure,
-  MeasurementStructureContract as MeasurementStructureData,
-  MeasurementsContract as MeasurementsPersistedData,
+  MeasurementStructureArtifact,
+  MeasurementsArtifact,
+  MechanismCoefficient,
+  ModelRef,
+  ModelSnapshot,
+  Move,
+  MoveOutcome,
+  NodePotentialMechanism,
+  NonIdentifiableTreatmentStatus,
   ParameterConstraint,
   ParameterRole,
   ParameterSpec,
-  PosteriorContract as PosteriorData,
+  PosteriorArtifact,
+  PosteriorAssessment,
+  PosteriorDrawsInfo,
+  PosteriorEstimate,
   PosteriorMarginal,
   PosteriorPair,
+  PosteriorPredictiveChecks,
+  PosteriorProvenance,
   PPCOverlay,
-  PPCResultContract as PPCResult,
   PPCTestStat,
   PPCWarning,
   PriorDistributionFamily,
   PriorPredictiveDiagnostic,
   PriorProposal,
   PriorSource,
+  Provenance,
+  QuestionArtifact,
   RankHistogram,
   RankHistogramChain,
-  RawDataContract as RawDataPersistedData,
+  RawDataArtifact,
+  ResumeRef,
+  RetractedArtifact,
   Role,
+  RuntimeEvent,
+  SavedScenario,
+  SavedScenariosArtifact,
+  ScenarioEvaluation,
+  ScenarioEvaluationId,
+  ScenarioEvaluationResult,
+  ScenarioQueryId,
+  ScenarioResult,
+  ScenarioStartResult,
   ScientificOnlyConstruct,
+  SimulateScenarioInput,
+  SimulateScenarioResult,
+  SimulateScenarioToolResult,
   SMCDiagnostics,
+  SourceValidity,
+  StartEpisodeResponse,
   StatisticalModelSpec,
-  StatisticalModelSpecContract as StatisticalModelSpecPersistedData,
+  StatisticalModelSpecArtifact,
   StructuralDisposition,
   StructuralEdge,
   StructuralInducedDependency,
@@ -94,76 +144,72 @@ export type {
   StructuralPlan,
   StructuralSemanticCatalog,
   TemporalStatus,
+  TimelineResponse,
+  ToolError,
   TraceChain,
   TraceData,
   TraceMessage,
   TraceUsage,
-  TreatmentEffectContract as TreatmentEffect,
+  TransitionRecord,
+  TransitionTraceIndex,
+  TreatmentEffect,
   UploadResponse,
-  ValidationIssueContract as ValidationIssue,
-  ValidationReportContract as ValidationReportData,
-  WorkerStatusContract as WorkerStatus,
+  ValidationIssue,
+  ValidationReportArtifact,
+  WindowExpression,
+  WorkerStatus,
   WorkspaceEntry,
   WorkspaceList,
 } from "./generated/models";
 
+export type StatisticalModelSpecPersistedViewData =
+  import("./generated/models").StatisticalModelSpecArtifact;
 export type {
-  BaselineReportVisualizationContract as BaselineReportVisualization,
-  EffectSummaryContract as EffectSummary,
-  EffectTrajectoryPointContract as EffectTrajectoryPoint,
-  LatentClampInput,
-  ScenarioStartResultContract as ScenarioStartResult,
-  SimulateScenarioResultContract as SimulateScenarioResult,
-  SimulateScenarioToolResultContract as SimulateScenarioToolResult,
-  ToolErrorContract as ToolError,
-} from "./generated/tool-results";
+  ArtifactViews,
+  EntityRef,
+  HistogramBin,
+  MeasurementStructureViewData,
+  MeasurementsData,
+  ModelSpecLikelihoodDiagnostics,
+  ObservationRecord,
+  ParameterCoordinate,
+  RawDataColumnDescription,
+  RawDataData,
+  RawDataDateRange,
+  ScenarioClamp,
+  ScenarioQuery,
+  StateEquation,
+  StatisticalModelSpecData,
+} from "./generated/models";
 
-export type StatisticalModelSpecPersistedViewData = Omit<
-  import("./generated/models").StatisticalModelSpecContract,
-  "resolved_priors"
-> & {
-  resolved_priors: import("./generated/models").PriorProposal[];
-};
-export interface HistogramBin {
-  binCenter: number;
-  count: number;
-}
-
-export interface ModelSpecLikelihoodDiagnostics {
-  variable: string;
-  profile: import("./generated/models").IndicatorEmpiricalProfileContract | null;
-  histogram: HistogramBin[];
-}
-
-export type StatisticalModelSpecData = StatisticalModelSpecPersistedViewData & {
-  likelihood_diagnostics: {
-    [k: string]: ModelSpecLikelihoodDiagnostics | undefined;
-  };
-};
-
-export type MeasurementStructureViewData =
-  import("./generated/models").MeasurementStructureContract & {
-    causal_design: import("./causal-design").CausalDesign;
-    structural_plan: import("./generated/models").StructuralPlan;
-  };
+import type {
+  MeasurementStructureViewData,
+  MeasurementsData,
+  RawDataData,
+  StatisticalModelSpecData,
+} from "./generated/models";
 
 export interface ArtifactViewDataMap {
   raw_data: RawDataData;
-  latent_structure: import("./generated/models").LatentStructureContract;
+  latent_structure: import("./generated/models").LatentStructureArtifact;
   measurement_structure: MeasurementStructureViewData;
   measurements: MeasurementsData;
-  validation_report: import("./generated/models").ValidationReportContract;
+  validation_report: import("./generated/models").ValidationReportArtifact;
   statistical_model_spec: StatisticalModelSpecData;
-  posterior: import("./generated/models").PosteriorContract;
-  baseline_report: import("./generated/models").BaselineReportContract;
+  posterior: import("./generated/models").PosteriorArtifact;
+  baseline_report: import("./generated/models").BaselineReportArtifact;
 }
 
 export type ArtifactViewData<K extends ArtifactViewId = ArtifactViewId> = ArtifactViewDataMap[K];
 
 // Distribution catalog metadata (codegen'd from Python)
 export type { ObservationHyperparameter } from "./generated/metadata";
-export { OBSERVATION_HYPERPARAMETERS_BY_DISTRIBUTION } from "./generated/metadata";
-// Tool definitions (codegen'd from Python ToolContract)
+export {
+  ARTIFACT_FILE_SPECS,
+  MACHINE_DESCRIPTION,
+  OBSERVATION_HYPERPARAMETERS_BY_DISTRIBUTION,
+} from "./generated/metadata";
+// Tool definitions (codegen'd from Python ToolDefinition)
 export type { ToolDefinition } from "./generated/tools";
 export { CONTEXT_TOOLS, INTERACTIVE_CONTEXTS } from "./generated/tools";
 
@@ -177,71 +223,5 @@ export interface ArtifactData<T = unknown> {
 export type ValidationSeverity = "error" | "warning" | "info";
 export type CellStatus = "ok" | "warning" | "error";
 export type CausalGranularity = "hourly" | "daily" | "weekly" | "monthly" | "yearly";
-export type MeasurementDtype = "continuous" | "binary" | "count" | "ordinal" | "categorical";
 
-export interface RawDataDateRange {
-  start: string;
-  end: string;
-}
-
-export interface RawDataColumnDescription {
-  name: string;
-  dtype: string;
-  description: string;
-}
-
-export interface RawDataData {
-  n_records: number;
-  n_columns: number;
-  date_range: RawDataDateRange;
-  sample: {
-    [k: string]: (string | null) | undefined;
-  }[];
-  column_descriptions: RawDataColumnDescription[];
-}
-
-export interface ObservationRecord {
-  indicator: string;
-  value: number | boolean | string | null;
-  anchor_time: string | null;
-  support_kind?: string | null;
-  summary_operator?: string | null;
-  anchor_policy?: string | null;
-  observation_window?: string | null;
-  support_start?: string | null;
-  support_end?: string | null;
-}
-
-export interface MeasurementsData {
-  workers: import("./generated/models").WorkerStatusContract[];
-  per_indicator_counts: {
-    [k: string]: number | undefined;
-  };
-  combined_extractions_sample: ObservationRecord[];
-}
-
-export type AggregationFunction =
-  | "mean"
-  | "sum"
-  | "min"
-  | "max"
-  | "std"
-  | "var"
-  | "last"
-  | "first"
-  | "count"
-  | "median"
-  | "p10"
-  | "p25"
-  | "p75"
-  | "p90"
-  | "p99"
-  | "skew"
-  | "kurtosis"
-  | "iqr"
-  | "range"
-  | "cv"
-  | "entropy"
-  | "instability"
-  | "trend"
-  | "n_unique";
+export { createModelClient } from "./client";

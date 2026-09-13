@@ -198,6 +198,141 @@ move outcomes.
 curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/events"
 ```
 
+### GET `/api/episodes/{workspace_id}/model`
+
+Batch canonical aggregates in one committed read transaction.
+
+Omit `at_seq` for the latest applied move, or select a committed journal sequence.
+Zero selects the empty model. Rejected/raised attempts are not revisions (404).
+Use the returned `seq` for subsequent aggregate or collection reads at the same revision.
+
+**Parameters**
+
+- `workspace_id` (path, required)
+- `at_seq` (query, optional)
+
+```bash
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/model"
+```
+
+### GET `/api/episodes/{workspace_id}/model/constructs`
+
+Authored constructs, using their canonical domain type.
+
+**Parameters**
+
+- `workspace_id` (path, required)
+- `at_seq` (query, optional)
+
+```bash
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/model/constructs"
+```
+
+### GET `/api/episodes/{workspace_id}/model/edges`
+
+Authored edges, using their canonical domain type.
+
+**Parameters**
+
+- `workspace_id` (path, required)
+- `at_seq` (query, optional)
+
+```bash
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/model/edges"
+```
+
+### GET `/api/episodes/{workspace_id}/model/indicators`
+
+Authored indicators whose owners survive at the selected revision.
+
+**Parameters**
+
+- `workspace_id` (path, required)
+- `at_seq` (query, optional)
+
+```bash
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/model/indicators"
+```
+
+### GET `/api/episodes/{workspace_id}/model/latent-structure`
+
+Canonical latent structure, including its default outcome, at the selected revision.
+
+**Parameters**
+
+- `workspace_id` (path, required)
+- `at_seq` (query, optional)
+
+```bash
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/model/latent-structure"
+```
+
+### GET `/api/episodes/{workspace_id}/model/measurement-structure`
+
+Measurement definitions, clock, and declarations with their shared provenance.
+
+**Parameters**
+
+- `workspace_id` (path, required)
+- `at_seq` (query, optional)
+
+```bash
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/model/measurement-structure"
+```
+
+### GET `/api/episodes/{workspace_id}/model/parameters`
+
+Scientific parameter definitions from the selected compiler, without inference execution.
+
+**Parameters**
+
+- `workspace_id` (path, required)
+- `at_seq` (query, optional)
+
+```bash
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/model/parameters"
+```
+
+### GET `/api/episodes/{workspace_id}/model/posterior`
+
+Canonical posterior with compatible parameter coordinates and its own fit assessment.
+
+**Parameters**
+
+- `workspace_id` (path, required)
+- `at_seq` (query, optional)
+
+```bash
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/model/posterior"
+```
+
+### GET `/api/episodes/{workspace_id}/model/specification`
+
+Canonical specification with prior results compatible with the selected compiler.
+
+**Parameters**
+
+- `workspace_id` (path, required)
+- `at_seq` (query, optional)
+
+```bash
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/model/specification"
+```
+
+### GET `/api/episodes/{workspace_id}/model/views/{artifact_id}`
+
+One display projection from the selected committed model revision.
+
+**Parameters**
+
+- `workspace_id` (path, required)
+- `artifact_id` (path, required)
+- `at_seq` (query, optional)
+
+```bash
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/model/views/ARTIFACT_ID"
+```
+
 ### POST `/api/episodes/{workspace_id}/moves`
 
 Propose one move; blocks until it is applied, rejected, or raises.

@@ -1,22 +1,5 @@
-export const ARTIFACT_IDS = [
-  "question",
-  "raw_data",
-  "latent_structure",
-  "measurement_structure",
-  "causal_design",
-  "structural_plan",
-  "identification_report",
-  "measurements",
-  "panel",
-  "validation_report",
-  "statistical_model_spec",
-  "compiled_ssm",
-  "posterior",
-  "baseline_report",
-  "saved_scenarios",
-] as const;
-
-export type ArtifactId = (typeof ARTIFACT_IDS)[number];
+export { ARTIFACT_IDS } from "./generated/metadata";
+export type { ArtifactId } from "./generated/models";
 
 export const ARTIFACT_VIEW_IDS = [
   "raw_data",

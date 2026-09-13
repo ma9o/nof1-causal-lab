@@ -16,11 +16,9 @@ type JsonSchema = any;
 const ROOT = dirname(dirname(resolve(import.meta.filename)));
 const SCHEMA_PATH = resolve(ROOT, "schemas", "contracts.json");
 const TOOLS_SCHEMA_PATH = resolve(ROOT, "schemas", "tools.json");
-const TOOL_RESULTS_SCHEMA_PATH = resolve(ROOT, "schemas", "tool-results.json");
 const METADATA_PATH = resolve(ROOT, "schemas", "metadata.json");
 const OUTPUT_PATH = resolve(ROOT, "src", "generated", "models.ts");
 const TOOLS_OUTPUT_PATH = resolve(ROOT, "src", "generated", "tools.ts");
-const TOOL_RESULTS_OUTPUT_PATH = resolve(ROOT, "src", "generated", "tool-results.ts");
 const METADATA_OUTPUT_PATH = resolve(ROOT, "src", "generated", "metadata.ts");
 const checkOnly = process.argv.includes("--check");
 const changedPaths: string[] = [];
@@ -72,6 +70,31 @@ function collapseRefs(schema: JsonSchema): JsonSchema {
     result[key] = collapseRefs(value);
   }
   return result;
+}
+
+/** json-schema-to-typescript ignores sibling properties beside oneOf/anyOf.
+ * Express their JSON Schema conjunction as an explicit TypeScript intersection.
+ */
+function intersectUnionProperties(schema: JsonSchema): JsonSchema {
+  if (typeof schema !== "object" || schema === null) return schema;
+  if (Array.isArray(schema)) return schema.map(intersectUnionProperties);
+
+  const result = Object.fromEntries(
+    Object.entries(schema).map(([key, value]) => [key, intersectUnionProperties(value)]),
+  );
+  const keyword = "oneOf" in result ? "oneOf" : "anyOf";
+  if (!("properties" in result) || !(keyword in result)) return result;
+
+  const { properties, required, additionalProperties, oneOf, anyOf, allOf = [], ...rest } = result;
+  return {
+    ...rest,
+    allOf: [
+      ...allOf,
+      { type: "object", properties, required, additionalProperties },
+      ...(oneOf ? [{ oneOf }] : []),
+      ...(anyOf ? [{ anyOf }] : []),
+    ],
+  };
 }
 
 /**
@@ -149,11 +172,11 @@ function generateTools(): void {
     "/**",
     " * AUTO-GENERATED — DO NOT EDIT",
     " *",
-    " * Generated from Python ToolContract definitions via:",
-    " *   cd apps/data-pipeline && uv run python scripts/export_schemas.py",
+    " * Generated from Python ToolDefinition definitions via:",
+    " *   cd apps/data-pipeline && uv run python -m scripts.export_schemas",
     " *   cd packages/api-types && bun run scripts/generate.ts",
     " *",
-    " * Source of truth: apps/data-pipeline/src/nof1_causal_lab/flows/artifact_contracts.py",
+    " * Source of truth: apps/data-pipeline/src/nof1_causal_lab/flows/context_tools.py",
     " */",
     "",
     "export interface ToolDefinition {",
@@ -205,40 +228,6 @@ function generateTools(): void {
   }
 }
 
-async function generateToolResults(): Promise<void> {
-  const rawSchema = JSON.parse(readFileSync(TOOL_RESULTS_SCHEMA_PATH, "utf-8"));
-  const schema = stripFieldTitles(collapseRefs(rawSchema));
-
-  const ts = await compile(schema, "CausalSSMToolResults", {
-    bannerComment:
-      "/* eslint-disable */\n" +
-      "/**\n" +
-      " * AUTO-GENERATED — DO NOT EDIT\n" +
-      " *\n" +
-      " * Generated from Python tool result models via:\n" +
-      " *   cd apps/data-pipeline && uv run python scripts/export_schemas.py\n" +
-      " *   cd packages/api-types && bun run scripts/generate.ts\n" +
-      " *\n" +
-      " * Source of truth: apps/data-pipeline/src/nof1_causal_lab/flows/artifact_contracts.py\n" +
-      " */",
-    additionalProperties: false,
-    strictIndexSignatures: true,
-    enableConstEnums: false,
-    unknownAny: false,
-    style: {
-      semi: true,
-      singleQuote: false,
-    },
-  });
-
-  writeOrCheck(TOOL_RESULTS_OUTPUT_PATH, ts);
-
-  const count = (ts.match(/export (interface|type)/g) || []).length;
-  if (!checkOnly) {
-    console.log(`Generated ${count} tool-result types/interfaces → ${TOOL_RESULTS_OUTPUT_PATH}`);
-  }
-}
-
 function generateMetadata(): void {
   const metadata = JSON.parse(readFileSync(METADATA_PATH, "utf-8"));
   const byDist = metadata.observationHyperparametersByDistribution;
@@ -248,11 +237,16 @@ function generateMetadata(): void {
     " * AUTO-GENERATED — DO NOT EDIT",
     " *",
     " * Generated from Python distribution catalog via:",
-    " *   cd apps/data-pipeline && uv run python scripts/export_schemas.py",
+    " *   cd apps/data-pipeline && uv run python -m scripts.export_schemas",
     " *   cd packages/api-types && bun run scripts/generate.ts",
     " *",
     " * Source of truth: apps/data-pipeline/src/nof1_causal_lab/distributions.py",
     " */",
+    "",
+    'import type { ArtifactId, ArtifactFileSpec, MachineDescription } from "./models";',
+    `export const MACHINE_DESCRIPTION: MachineDescription = ${JSON.stringify(metadata.machine, null, 2)};`,
+    `export const ARTIFACT_IDS = ${JSON.stringify(metadata.artifactIds)} as const satisfies readonly ArtifactId[];`,
+    `export const ARTIFACT_FILE_SPECS: Record<ArtifactId, ArtifactFileSpec> = ${JSON.stringify(metadata.artifactFiles, null, 2)};`,
     "",
     `const _OBS_HYPERS_BY_DIST = ${JSON.stringify(byDist, null, 2)} as const;`,
     "",
@@ -272,7 +266,7 @@ function generateMetadata(): void {
 
 async function main() {
   const rawSchema = JSON.parse(readFileSync(SCHEMA_PATH, "utf-8"));
-  const schema = stripFieldTitles(collapseRefs(rawSchema));
+  const schema = intersectUnionProperties(stripFieldTitles(collapseRefs(rawSchema)));
 
   const ts = await compile(schema, "CausalSSMContracts", {
     bannerComment:
@@ -281,14 +275,14 @@ async function main() {
       " * AUTO-GENERATED — DO NOT EDIT\n" +
       " *\n" +
       " * Generated from Python Pydantic models via:\n" +
-      " *   cd apps/data-pipeline && uv run python scripts/export_schemas.py\n" +
+      " *   cd apps/data-pipeline && uv run python -m scripts.export_schemas\n" +
       " *   cd packages/api-types && bun run scripts/generate.ts\n" +
       " *\n" +
-      " * Source of truth: apps/data-pipeline/src/nof1_causal_lab/flows/artifact_contracts.py\n" +
+      " * Source of truth: apps/data-pipeline/src/nof1_causal_lab/artifacts/catalog.py\n" +
       " * plus facade API models exported from apps/data-pipeline/src/nof1_causal_lab/episode_api.py\n" +
       " */",
     additionalProperties: false,
-    strictIndexSignatures: true,
+    strictIndexSignatures: false,
     enableConstEnums: false,
     unreachableDefinitions: true,
     unknownAny: false,
@@ -308,7 +302,6 @@ async function main() {
 
   // Generate tool definitions
   generateTools();
-  await generateToolResults();
   generateMetadata();
 
   if (checkOnly && changedPaths.length > 0) {
