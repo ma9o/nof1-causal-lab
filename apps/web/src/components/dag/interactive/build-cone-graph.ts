@@ -45,6 +45,7 @@ export function buildSimulationGraph(
     persistenceNodes: string[];
   },
 ): SimulationGraph {
+  const byId = new Map(constructs.map((construct) => [construct.id, construct]));
   const present = new Set(constructs.map((c) => c.name));
   const timeVaryingNames = new Set(
     constructs
@@ -52,7 +53,9 @@ export function buildSimulationGraph(
       .map((construct) => construct.name),
   );
   const indCount = (node: string) =>
-    opts.indicators.filter((ind) => ind.construct_name === node).length;
+    opts.indicators.filter(
+      (ind) => ind.construct_id === constructs.find((construct) => construct.name === node)!.id,
+    ).length;
 
   const selfTap = opts.persistenceNodes.filter((name) => present.has(name));
   // A fitted persistence parameter materializes a t−1 → t self edge without
@@ -61,9 +64,15 @@ export function buildSimulationGraph(
     ? buildGhostLinks(selfTap.map((id) => ({ from: id, to: id })))
     : { ghosts: [] as string[], edges: [] as { source: string; target: string }[] };
   const causalLinks = unrollCausalLinks(
-    edges.filter(
-      (edge) => edge.cause !== edge.effect && present.has(edge.cause) && present.has(edge.effect),
-    ),
+    edges
+      .map((edge) => ({
+        cause: byId.get(edge.cause_id)!.name,
+        effect: byId.get(edge.effect_id)!.name,
+        lagged: edge.lagged,
+      }))
+      .filter(
+        (edge) => edge.cause !== edge.effect && present.has(edge.cause) && present.has(edge.effect),
+      ),
     opts.showUnroll ? timeVaryingNames : new Set<string>(),
   );
   const ghosts = new Set([...causalLinks.ghosts, ...selfLinks.ghosts]);

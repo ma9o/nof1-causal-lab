@@ -1,16 +1,10 @@
 import { getToolServerUrl } from "@/lib/runtime-urls";
-import type { ArtifactEnvelope } from "@nof1-causal-lab/api-types";
-import type { EpisodeArtifactId } from "@/lib/episode-types";
+import type { ArtifactEnvelope, ArtifactId } from "@nof1-causal-lab/api-types";
+import { ARTIFACT_FILE_SPECS } from "@nof1-causal-lab/api-types";
 
-export type { EpisodeArtifactId } from "@/lib/episode-types";
+export type { ArtifactId } from "@nof1-causal-lab/api-types";
 
 type FileKind = "json" | "parquet" | "pickle";
-
-type ArtifactFileSpec = {
-  json?: Record<string, string>;
-  parquet?: Record<string, string>;
-  pickle?: Record<string, string>;
-};
 
 export class ArtifactNotFoundError extends Error {
   constructor(message: string) {
@@ -21,25 +15,7 @@ export class ArtifactNotFoundError extends Error {
 
 const TOOL_SERVER = getToolServerUrl();
 
-const ARTIFACT_FILE_SPECS: Record<EpisodeArtifactId, ArtifactFileSpec> = {
-  question: { json: { question: "question.json" } },
-  raw_data: { json: { profile: "profile.json" }, parquet: { raw: "raw.parquet" } },
-  latent_structure: { json: { latent_structure: "latent-structure.json" } },
-  measurement_structure: { json: { measurement_structure: "measurement_structure.json" } },
-  causal_design: { json: { causal_design: "causal_design.json" } },
-  structural_plan: { json: { structural_plan: "structural-plan.json" } },
-  identification_report: { json: { identification_report: "identification_report.json" } },
-  measurements: { json: { measurements: "measurements.json" } },
-  panel: { parquet: { panel: "panel.parquet" } },
-  validation_report: { json: { validation_report: "validation_report.json" } },
-  statistical_model_spec: { json: { statistical_model_spec: "statistical_model_spec.json" } },
-  compiled_ssm: { json: { compiled_ssm: "compiled-ssm.json", report: "report.json" } },
-  posterior: { json: { diagnostics: "diagnostics.json" }, pickle: { fitted: "fitted.pkl" } },
-  baseline_report: { json: { baseline_report: "baseline_report.json" } },
-  saved_scenarios: { json: { saved_scenarios: "saved_scenarios.json" } },
-};
-
-function artifactFileName(artifactId: EpisodeArtifactId, kind: FileKind, key: string): string {
+function artifactFileName(artifactId: ArtifactId, kind: FileKind, key: string): string {
   const filename = ARTIFACT_FILE_SPECS[artifactId][kind]?.[key];
   if (!filename) {
     throw new ArtifactNotFoundError(`${artifactId} has no declared ${kind} file '${key}'`);
@@ -49,7 +25,7 @@ function artifactFileName(artifactId: EpisodeArtifactId, kind: FileKind, key: st
 
 async function fetchArtifact(
   workspaceId: string,
-  artifactId: EpisodeArtifactId,
+  artifactId: ArtifactId,
 ): Promise<ArtifactEnvelope> {
   const response = await fetch(
     `${TOOL_SERVER}/api/episodes/${encodeURIComponent(workspaceId)}/artifacts/${encodeURIComponent(
@@ -68,7 +44,7 @@ async function fetchArtifact(
 
 async function fetchArtifactFile(
   workspaceId: string,
-  artifactId: EpisodeArtifactId,
+  artifactId: ArtifactId,
   filename: string,
 ): Promise<Uint8Array> {
   const response = await fetch(
@@ -88,7 +64,7 @@ async function fetchArtifactFile(
 
 export async function readArtifactJson<T>(
   workspaceId: string,
-  artifactId: EpisodeArtifactId,
+  artifactId: ArtifactId,
   key: string,
 ): Promise<T> {
   const filename = artifactFileName(artifactId, "json", key);
@@ -101,7 +77,7 @@ export async function readArtifactJson<T>(
 
 export async function readArtifactBinary(
   workspaceId: string,
-  artifactId: EpisodeArtifactId,
+  artifactId: ArtifactId,
   kind: Exclude<FileKind, "json">,
   key: string,
 ): Promise<{ data: Uint8Array; filename: string }> {

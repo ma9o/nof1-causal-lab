@@ -1,17 +1,17 @@
-import type { Meta } from "@storybook/nextjs-vite";
+import type { LatentStructureArtifact } from "@nof1-causal-lab/api-types";
 import { TRANSITIONS } from "@nof1-causal-lab/api-types";
-import type { LatentStructureData } from "@nof1-causal-lab/api-types";
+import type { Meta } from "@storybook/nextjs-vite";
+import { demoLatentStructure } from "../../__fixtures__/demo-artifacts";
+import { demoTraces } from "../../__fixtures__/demo-traces";
 import {
   createCompletedOutputStory,
   createOutputStatusStory,
   outputStoryDecorators,
 } from "../output-story-helpers";
 import LatentStructureView from "./latent-structure-view";
-import { demoLatentStructure } from "../../__fixtures__/demo-artifacts";
-import { demoTraces } from "../../__fixtures__/demo-traces";
 
 const output = TRANSITIONS.find((s) => s.id === "latent_structure")!;
-const data = demoLatentStructure as LatentStructureData;
+const data = demoLatentStructure as LatentStructureArtifact;
 
 const meta = {
   title: "Pipeline/Outputs/Latent Structure/Panel",

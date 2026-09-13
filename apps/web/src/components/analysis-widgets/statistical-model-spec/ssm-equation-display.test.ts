@@ -1,47 +1,27 @@
-import type { ParameterSpec, PriorProposal } from "@nof1-causal-lab/api-types";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-
+import {
+  equations,
+  parameters,
+  structuralPlan,
+} from "./__fixtures__/statistical-model-spec-fixtures";
 import { SSMEquationDisplay } from "./ssm-equation-display";
 
-const parameters: ParameterSpec[] = [
-  {
-    name: "rho_sleep",
-    role: "ar_coefficient",
-    constraint: "unit_interval",
-    description: "Persistence for sleep.",
-  },
-  {
-    name: "sigma_sleep",
-    role: "residual_sd",
-    constraint: "positive",
-    description: "Innovation scale for sleep.",
-  },
-];
-
-const priors: PriorProposal[] = [
-  {
-    parameter: "rho_sleep",
-    distribution: "Beta",
-    params: { alpha: 2, beta: 2 },
-    sources: [],
-    reasoning: "Daily persistence prior.",
-  },
-];
-
 describe("SSMEquationDisplay", () => {
-  it("marks missing semantic priors as not authored", () => {
+  it("renders backend equations as continuous-time dynamics", () => {
     const markup = renderToStaticMarkup(
       createElement(SSMEquationDisplay, {
         likelihoods: [],
+        equations,
+        structuralPlan,
         parameters,
-        priors,
+        priors: [],
       }),
     );
 
-    expect(markup).toContain("Not authored");
-    expect(markup).toContain(String.raw`\mu_{0,\,\text{sleep}}:\ \text{Not authored}`);
-    expect(markup).toContain(String.raw`\sigma_{0,\,\text{sleep}}:\ \text{Not authored}`);
+    expect(markup).toContain("Continuous-time dynamics");
+    expect(markup).toContain("Brownian motion");
+    expect(markup).not.toContain("AR(1)");
   });
 });

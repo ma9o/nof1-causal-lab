@@ -1,8 +1,14 @@
 "use client";
 
-import type { CausalEdge, Construct, Indicator, KnownInput } from "@nof1-causal-lab/api-types";
-import { useCallback, useEffect, useMemo, useState } from "react";
 import { useDagLayout } from "@/lib/hooks/use-dag-layout";
+import type {
+  CausalEdge,
+  Construct,
+  PosteriorEstimate,
+  Indicator,
+  KnownInput,
+} from "@nof1-causal-lab/api-types";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { DagCanvasFrame, DagSvg } from "../core/dag-canvas";
 import { DagDirectionToggle } from "../core/dag-direction-toggle";
 import { DagZoomControls } from "../core/dag-zoom-controls";
@@ -13,7 +19,7 @@ import {
   getNodeActionSeries,
   getNodeReferenceSeries,
 } from "../intervention-dag-semantics";
-import type { AnalysisSimulationResult, EdgePosterior } from "../intervention-dag-types";
+import type { AnalysisSimulationResult } from "../intervention-dag-types";
 import type { ConstructStatus } from "../structure-dag";
 import { baseId, buildSimulationGraph, CARD_H, CARD_W } from "./build-cone-graph";
 import { IndicatorStack } from "./indicator-stack";
@@ -37,8 +43,8 @@ interface InteractiveDagProps {
   edges: CausalEdge[];
   indicators?: Indicator[];
   knownInputs?: KnownInput[];
-  edgePosteriors?: Record<string, EdgePosterior>;
-  persistencePosteriors?: Record<string, EdgePosterior>;
+  edgePosteriors?: Record<string, PosteriorEstimate>;
+  persistencePosteriors?: Record<string, PosteriorEstimate>;
   identifiableTreatments?: string[];
   result: AnalysisSimulationResult;
   height?: number;
@@ -69,7 +75,7 @@ export function InteractiveDag({
   nodeStatuses,
   onNodeClick,
 }: InteractiveDagProps) {
-  const outcome = result.outcome;
+  const outcome = result.result.outcome_label;
   const [dir, setDir] = useState<"LR" | "TB">("LR");
   const [localShowIndicators, setLocalShowIndicators] = useState(false);
   const showIndicators = indicatorsVisible ?? localShowIndicators;
@@ -114,12 +120,15 @@ export function InteractiveDag({
     [identifiableTreatments],
   );
   const knownInputSet = useMemo(
-    () => new Set(knownInputs.map((input) => input.construct)),
-    [knownInputs],
+    () =>
+      new Set(
+        knownInputs.map((input) => constructs.find((item) => item.id === input.construct_id)!.name),
+      ),
+    [knownInputs, constructs],
   );
 
-  // Active interventions are read directly from the current backend result.
-  const interventions = currentResult.clamps;
+  // Active interventions belong to the current resolved query.
+  const interventions = currentResult.query.clamps;
   const maximumPosteriorMean = useMemo(
     () =>
       Math.max(
@@ -343,8 +352,8 @@ export function InteractiveDag({
               const isPrev = nd.id !== base;
               const construct = byName.get(base);
               if (!construct) return null;
-              const referenceSeries = getNodeReferenceSeries(currentResult, base) ?? [];
-              const actionSeries = getNodeActionSeries(currentResult, base) ?? [];
+              const referenceSeries = getNodeReferenceSeries(currentResult, construct.id) ?? [];
+              const actionSeries = getNodeActionSeries(currentResult, construct.id) ?? [];
               const nodeInterventions = isPrev
                 ? []
                 : interventions.filter((clamp) => clamp.variable === base);
@@ -377,7 +386,7 @@ export function InteractiveDag({
                     name={base}
                     kind={construct.role === "endogenous" ? "endo" : "exo"}
                     vary={construct.temporal_status === "time_varying" ? "varying" : "invariant"}
-                    isTarget={construct.is_outcome}
+                    isTarget={construct.id === result.query.outcome.id}
                     isPrev={isPrev}
                     days={days}
                     reference={referenceSeries}
@@ -401,7 +410,7 @@ export function InteractiveDag({
                   {showIndicators && !isPrev ? (
                     <IndicatorStack
                       indicators={indicators.filter(
-                        (indicator) => indicator.construct_name === base,
+                        (indicator) => indicator.construct_id === construct.id,
                       )}
                     />
                   ) : null}
@@ -573,7 +582,7 @@ export function InteractiveDag({
             fontSize: 11.5,
           }}
         >
-          {`End-state result · effect ${currentResult.summary.mean.toFixed(3)} [${currentResult.summary.lower_95.toFixed(3)}, ${currentResult.summary.upper_95.toFixed(3)}] · no trajectory projection requested.`}
+          {`End-state result · effect ${currentResult.result.summary.mean.toFixed(3)} [${currentResult.result.summary.lower_95.toFixed(3)}, ${currentResult.result.summary.upper_95.toFixed(3)}] · no trajectory projection requested.`}
         </div>
       )}
     </div>

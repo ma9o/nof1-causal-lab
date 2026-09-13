@@ -1,45 +1,37 @@
 import { describe, expect, it } from "vitest";
-import { constructs, edges } from "../__fixtures__/dag-base-fixtures";
+import { constructs, edges, design } from "../__fixtures__/dag-base-fixtures";
 import { buildLayeredCausalGraph } from "./build-layered-causal-graph";
-import { causalEdgeKey } from "./layered-causal-graph-model";
 
 describe("buildLayeredCausalGraph", () => {
-  it("keeps lagged, contemporaneous, and persistence topology distinct", () => {
-    const built = buildLayeredCausalGraph({ constructs, edges });
-
-    expect(
-      built.edgeMeta.get(
-        causalEdgeKey("internalizing_symptom_burden", "patient_taper_preference_beliefs", true),
-      ),
-    ).toMatchObject({
-      source: "internalizing_symptom_burden__p",
-      target: "patient_taper_preference_beliefs",
-      lagged: true,
-      isSelf: false,
-    });
-    expect(
-      built.edgeMeta.get(
-        causalEdgeKey("external_stressful_events", "perceived_stress_burden", false),
-      ),
-    ).toMatchObject({
-      source: "external_stressful_events",
-      target: "perceived_stress_burden",
-      lagged: false,
-      isSelf: false,
-    });
-    expect(built.edgeMeta.get("self:internalizing_symptom_burden")).toMatchObject({
-      source: "internalizing_symptom_burden__p",
-      target: "internalizing_symptom_burden",
+  it("keeps authored edges and persistence in distinct temporal slots", () => {
+    const built = buildLayeredCausalGraph(constructs, edges);
+    const varying = new Set(
+      constructs.filter((item) => item.temporal_status === "time_varying").map((item) => item.id),
+    );
+    for (const edge of edges) {
+      expect(built.edgeMeta.get(edge.id)).toMatchObject({
+        source: edge.lagged && varying.has(edge.cause_id) ? `${edge.cause_id}__p` : edge.cause_id,
+        target: edge.effect_id,
+        isSelf: false,
+      });
+    }
+    const outcome = constructs.find((item) => item.id === design.latent.default_outcome?.id)!;
+    expect(built.edgeMeta.get(`self:${outcome.id}`)).toMatchObject({
+      source: `${outcome.id}__p`,
+      target: outcome.id,
       lagged: true,
       isSelf: true,
     });
   });
 
-  it("builds topology only from structure", () => {
-    const built = buildLayeredCausalGraph({ constructs, edges });
-    expect([...built.nodeMeta.values()].filter((node) => node.kind === "construct")).toHaveLength(
-      constructs.length,
+  it("preserves topology and graph identity when every display name changes", () => {
+    const before = buildLayeredCausalGraph(constructs, edges);
+    const after = buildLayeredCausalGraph(
+      constructs.map((item, index) => ({ ...item, name: `renamed ${index}` })),
+      edges,
     );
-    expect([...built.edgeMeta.values()].filter((edge) => !edge.isSelf)).toHaveLength(edges.length);
+    expect(after.graph).toEqual(before.graph);
+    expect(after.edgeMeta).toEqual(before.edgeMeta);
+    expect(after.segmentMeta).toEqual(before.segmentMeta);
   });
 });

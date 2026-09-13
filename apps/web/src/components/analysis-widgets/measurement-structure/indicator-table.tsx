@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { InfoTable } from "@/components/ui/info-table";
-import type { Indicator } from "@nof1-causal-lab/api-types";
+import type { Indicator, Construct } from "@nof1-causal-lab/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 
 const col = createColumnHelper<Indicator>();
@@ -30,15 +30,23 @@ const columns = [
   }),
 ];
 
-export function IndicatorTable({ indicators }: { indicators: Indicator[] }) {
+export function IndicatorTable({
+  indicators,
+  constructs,
+}: {
+  indicators: Indicator[];
+  constructs: Construct[];
+}) {
   return (
     <InfoTable
       columns={columns as ColumnDef<Indicator, unknown>[]}
       data={indicators}
-      groupBy={(row) => row.construct_name}
+      groupBy={(row) => row.construct_id}
       renderGroupHeader={(construct, rows) => (
         <>
-          <span className="text-sm font-semibold">{construct}</span>
+          <span className="text-sm font-semibold">
+            {constructs.find((item) => item.id === construct)!.name}
+          </span>
           <span className="ml-2 text-xs text-muted-foreground">
             {rows.length} indicator{rows.length !== 1 && "s"}
           </span>

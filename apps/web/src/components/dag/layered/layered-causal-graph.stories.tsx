@@ -1,81 +1,33 @@
-import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import {
-  demoLatentStructure,
-  demoMeasurementStructure,
-  demoPosterior,
-  demoStatisticalModelSpec,
-} from "@/components/__fixtures__/demo-artifacts";
-import { demoTraces } from "@/components/__fixtures__/demo-traces";
-import {
-  buildEdgePosteriors,
-  buildPersistencePosteriors,
-  buildBaselineReportScenarios,
-} from "@/components/pipeline/output-views/baseline-report-scenarios";
+import { demoModelSnapshot, demoSnapshotAt } from "@/components/__fixtures__/demo-artifacts";
+import { buildModelQueries } from "@/components/model/queries";
+import type { ConstructId } from "@nof1-causal-lab/api-types";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { LayeredCausalGraph } from "./layered-causal-graph";
-import type { LayeredCausalGraphModel } from "./layered-causal-graph-model";
+import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { useState } from "react";
+import { LayeredCausalGraph, type LayeredCausalGraphProps } from "./layered-causal-graph";
 
-const structureModel: LayeredCausalGraphModel = {
-  structure: demoLatentStructure.latent_structure,
-};
-
-const measurementModel: LayeredCausalGraphModel = {
-  ...structureModel,
-  measurement: {
-    measurement: demoMeasurementStructure.measurement_structure,
-    knownInputs: demoMeasurementStructure.known_inputs,
-    scientificOnlyConstructs: demoMeasurementStructure.scientific_only_constructs,
-  },
-};
-
-const designModel: LayeredCausalGraphModel = {
-  ...measurementModel,
-  design: {
-    causalDesign: demoMeasurementStructure.causal_design,
-    structuralPlan: demoMeasurementStructure.structural_plan,
-  },
-};
-
-const specificationModel: LayeredCausalGraphModel = {
-  ...designModel,
-  specification: {
-    modelSpec: demoStatisticalModelSpec,
-  },
-};
-
-const edgePosteriors = buildEdgePosteriors({
-  latentStructure: demoLatentStructure,
-  modelSpec: demoStatisticalModelSpec,
-  posterior: demoPosterior,
-});
-const persistencePosteriors = buildPersistencePosteriors({
-  modelSpec: demoStatisticalModelSpec,
-  posterior: demoPosterior,
-});
-
-const fitModel: LayeredCausalGraphModel = {
-  ...specificationModel,
-  fit: {
-    posterior: demoPosterior,
-    edgePosteriors,
-    persistencePosteriors,
-  },
-};
-
-const scenarios = buildBaselineReportScenarios({ trace: demoTraces.baseline_report });
-const simulationResult = scenarios[0]?.result;
-if (!simulationResult) {
-  throw new Error("The canonical DEMO trace must contain a materialized simulation result.");
+/** Stories own the selection the way the asset view does. */
+function SelectableLayeredCausalGraph(
+  props: Omit<LayeredCausalGraphProps, "selectedNode" | "onSelectNode">,
+) {
+  const [selectedNode, setSelectedNode] = useState<ConstructId | null>(null);
+  return (
+    <LayeredCausalGraph {...props} selectedNode={selectedNode} onSelectNode={setSelectedNode} />
+  );
 }
 
-const simulationModel: LayeredCausalGraphModel = {
-  ...fitModel,
-  simulation: { result: simulationResult },
-};
+const structureModel = demoSnapshotAt(3);
+const measurementModel = demoSnapshotAt(4);
+const designModel = demoSnapshotAt(4);
+const specificationModel = demoSnapshotAt(7);
+const fitModel = demoSnapshotAt(8);
+const simulationResult = buildModelQueries(demoModelSnapshot).find(
+  (query) => query.simulation,
+)?.simulation;
 
 const meta = {
   title: "DAG/Layered Causal Graph",
-  component: LayeredCausalGraph,
+  component: SelectableLayeredCausalGraph,
   tags: ["svg-materialize"],
   parameters: {
     layout: "fullscreen",
@@ -97,7 +49,7 @@ const meta = {
       </TooltipProvider>
     ),
   ],
-} satisfies Meta<typeof LayeredCausalGraph>;
+} satisfies Meta<typeof SelectableLayeredCausalGraph>;
 
 export default meta;
 
@@ -130,5 +82,5 @@ export const Fit: Story = {
 
 export const Simulation: Story = {
   name: "6 · + Simulation",
-  args: { model: simulationModel },
+  args: { model: demoModelSnapshot, simulation: simulationResult },
 };

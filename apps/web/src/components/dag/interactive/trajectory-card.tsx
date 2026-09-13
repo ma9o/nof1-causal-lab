@@ -1,11 +1,12 @@
 "use client";
 
-import type { LatentClampInput } from "@nof1-causal-lab/api-types";
+import { formatPosteriorIntervalLabel } from "@/lib/utils/format";
+
+import type { PosteriorEstimate, LatentClampInput } from "@nof1-causal-lab/api-types";
 import { ticks } from "d3-array";
 import { useState } from "react";
 import { DAG_COLORS, signColor } from "../core/palette";
 import { formatClampValue } from "../intervention-dag-semantics";
-import type { EdgePosterior } from "../intervention-dag-types";
 import type { ConstructStatus } from "../structure-dag";
 
 const {
@@ -38,8 +39,8 @@ interface TrajectoryCardProps {
   status?: ConstructStatus;
   /** Compiled as an observed transition input rather than a latent state. */
   knownInput?: boolean;
-  /** Fitted baseline daily-persistence posterior for an executable latent state. */
-  persistence?: EdgePosterior;
+  /** Fitted continuous-time decay-rate posterior for an executable latent state. */
+  persistence?: PosteriorEstimate;
   /** do() control state. */
   interactive?: boolean;
   onSetDo?: (value: number) => void;
@@ -91,7 +92,7 @@ export function TrajectoryCard({
         </text>
         <text x={14} y={43} fontSize={9.5} fill={MUTED}>
           {persistence
-            ? `fitted daily persistence · ρ ${persistence.mean.toFixed(2)}`
+            ? `fitted decay rate · ${persistence.mean.toFixed(2)}`
             : "previous-time construct"}
         </text>
       </g>
@@ -201,7 +202,7 @@ export function TrajectoryCard({
           fontFamily="ui-monospace, monospace"
           fill={MUTED}
         >
-          {`ρ ${persistence.mean.toFixed(2)} [${persistence.ci_lower.toFixed(2)}, ${persistence.ci_upper.toFixed(2)}]`}
+          {`decay ${persistence.mean.toFixed(2)} [${persistence.lower.toFixed(2)}, ${persistence.upper.toFixed(2)}] ${formatPosteriorIntervalLabel(persistence)}`}
         </text>
       ) : null}
 

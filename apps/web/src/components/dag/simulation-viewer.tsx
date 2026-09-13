@@ -1,16 +1,5 @@
 "use client";
 
-import type {
-  CausalEdge,
-  Construct,
-  Indicator,
-  KnownInput,
-  TreatmentEffect,
-} from "@nof1-causal-lab/api-types";
-import { Bot, TriangleAlert } from "lucide-react";
-import { useMemo } from "react";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { ManifestProjection } from "@/components/analysis-widgets/posterior/treatment-effect-visuals";
 import { TreatmentRankingTable } from "@/components/analysis-widgets/posterior/treatment-ranking-table";
 import type { BaselineReportScenario } from "@/components/pipeline/output-views/baseline-report-scenarios";
@@ -20,9 +9,20 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import type {
+  CausalEdge,
+  Construct,
+  PosteriorEstimate,
+  Indicator,
+  KnownInput,
+  TreatmentEffect,
+} from "@nof1-causal-lab/api-types";
+import { Bot, TriangleAlert } from "lucide-react";
+import { useMemo } from "react";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { InteractiveDag } from "./interactive/interactive-dag";
 import type { SimulateFn } from "./interactive/simulate-input";
-import type { EdgePosterior } from "./intervention-dag-types";
 import { ScenarioRail } from "./scenario-rail";
 import type { ConstructStatus } from "./structure-dag";
 
@@ -31,8 +31,8 @@ export interface SimulationViewerGraph {
   edges: CausalEdge[];
   indicators?: Indicator[];
   knownInputs?: KnownInput[];
-  edgePosteriors?: Record<string, EdgePosterior>;
-  persistencePosteriors?: Record<string, EdgePosterior>;
+  edgePosteriors?: Record<string, PosteriorEstimate>;
+  persistencePosteriors?: Record<string, PosteriorEstimate>;
   identifiableTreatments?: string[];
   nodeStatuses?: Record<string, ConstructStatus>;
   indicatorsVisible?: boolean;
@@ -109,7 +109,7 @@ function ScenarioDetail({
         onSimulate={onSimulate}
         onNodeClick={onNodeClick}
       />
-      <SimulationWarnings warnings={scenario.result.warnings} />
+      <SimulationWarnings warnings={scenario.result.result.warnings} />
       {scenario.manifestEffects ? (
         <ManifestProjection
           manifestEffects={scenario.manifestEffects}

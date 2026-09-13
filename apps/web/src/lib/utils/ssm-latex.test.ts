@@ -1,10 +1,9 @@
-import type { LikelihoodSpec, ParameterSpec, PriorProposal } from "@nof1-causal-lab/api-types";
+import type { PriorProposal } from "@nof1-causal-lab/api-types";
 import { describe, expect, it } from "vitest";
 import {
   confounderGroupLatex,
-  confounderGroups,
+  type LabeledLikelihood,
   distName,
-  extractConfounder,
   likelihoodLine,
   linkInverse,
   observationEquationLatex,
@@ -12,12 +11,8 @@ import {
   observationParameterSymbol,
   observationPriorLatex,
   paramSymbol,
-  parseCorrelation,
-  parseFixedEffect,
   priorLatex,
   priorLine,
-  stateEquationRows,
-  stateNames,
   textify,
 } from "./ssm-latex";
 import type { ConfounderGroup } from "./ssm-latex";
@@ -78,21 +73,45 @@ describe("distName", () => {
 
 describe("likelihoodLine", () => {
   it("renders gaussian likelihood", () => {
-    const lik = { variable: "mood", distribution: "gaussian", link: "identity" } as LikelihoodSpec;
+    const lik = {
+      standardized: false,
+      reasoning: "",
+      sources: [],
+      indicator_id: "indicator:mood",
+      label: "mood",
+      distribution: "gaussian",
+      link: "identity",
+    } as LabeledLikelihood;
     const result = likelihoodLine(lik);
     expect(result).toContain("\\mathcal{N}");
     expect(result).toContain("\\sigma");
   });
 
   it("renders poisson likelihood", () => {
-    const lik = { variable: "steps", distribution: "poisson", link: "log" } as LikelihoodSpec;
+    const lik = {
+      standardized: false,
+      reasoning: "",
+      sources: [],
+      indicator_id: "indicator:steps",
+      label: "steps",
+      distribution: "poisson",
+      link: "log",
+    } as LabeledLikelihood;
     const result = likelihoodLine(lik);
     expect(result).toContain("\\text{Poisson}");
     expect(result).toContain("\\exp");
   });
 
   it("renders beta likelihood with phi", () => {
-    const lik = { variable: "ratio", distribution: "beta", link: "logit" } as LikelihoodSpec;
+    const lik = {
+      standardized: false,
+      reasoning: "",
+      sources: [],
+      indicator_id: "indicator:ratio",
+      label: "ratio",
+      distribution: "beta",
+      link: "logit",
+    } as LabeledLikelihood;
     const result = likelihoodLine(lik);
     expect(result).toContain("\\text{Beta}");
     expect(result).toContain("\\phi");
@@ -100,10 +119,14 @@ describe("likelihoodLine", () => {
 
   it("renders gamma likelihood with explicit shape-scale notation", () => {
     const lik = {
-      variable: "last_activity_clock_time",
+      standardized: false,
+      reasoning: "",
+      sources: [],
+      indicator_id: "indicator:last_activity_clock_time",
+      label: "last_activity_clock_time",
       distribution: "gamma",
       link: "log",
-    } as LikelihoodSpec;
+    } as LabeledLikelihood;
     const result = likelihoodLine(lik);
     expect(result).toContain("\\text{Gamma}");
     expect(result).toContain("\\kappa");
@@ -112,10 +135,14 @@ describe("likelihoodLine", () => {
 
   it("renders non-gaussian measurement error inside the likelihood when requested", () => {
     const lik = {
-      variable: "sleep_problem_search_count",
+      standardized: false,
+      reasoning: "",
+      sources: [],
+      indicator_id: "indicator:sleep_problem_search_count",
+      label: "sleep_problem_search_count",
       distribution: "negative_binomial",
       link: "log",
-    } as LikelihoodSpec;
+    } as LabeledLikelihood;
     const result = likelihoodLine(lik, "sleep_quality", { includeMeasurementError: true });
     expect(result).toContain("\\text{NegBin}");
     expect(result).toContain("\\sigma_{\\text{sleep problem search count}}^{2}");
@@ -123,7 +150,15 @@ describe("likelihoodLine", () => {
   });
 
   it("includes construct name when provided", () => {
-    const lik = { variable: "mood", distribution: "gaussian", link: "identity" } as LikelihoodSpec;
+    const lik = {
+      standardized: false,
+      reasoning: "",
+      sources: [],
+      indicator_id: "indicator:mood",
+      label: "mood",
+      distribution: "gaussian",
+      link: "identity",
+    } as LabeledLikelihood;
     const result = likelihoodLine(lik, "affect");
     expect(result).toContain("\\lambda");
     expect(result).toContain("affect");
@@ -168,10 +203,14 @@ describe("observationParameterSymbol", () => {
       observationParameterSymbol({
         parameterName: "obs_sd_sleep",
         likelihood: {
-          variable: "sleep",
+          standardized: false,
+          reasoning: "",
+          sources: [],
+          indicator_id: "indicator:sleep",
+          label: "sleep",
           distribution: "gaussian",
           link: "identity",
-        } as LikelihoodSpec,
+        } as LabeledLikelihood,
       }),
     ).toBe("\\sigma_{\\text{sleep}}");
   });
@@ -181,10 +220,14 @@ describe("observationParameterSymbol", () => {
       observationParameterSymbol({
         parameterName: "obs_concentration",
         likelihood: {
-          variable: "appointment_attendance",
+          standardized: false,
+          reasoning: "",
+          sources: [],
+          indicator_id: "indicator:appointment_attendance",
+          label: "appointment_attendance",
           distribution: "beta",
           link: "logit",
-        } as LikelihoodSpec,
+        } as LabeledLikelihood,
       }),
     ).toBe("\\phi");
   });
@@ -193,13 +236,13 @@ describe("observationParameterSymbol", () => {
 describe("priorLine", () => {
   it("renders normal prior", () => {
     const prior = {
-      parameter: "beta_X_Y",
+      parameter_id: "parameter:beta_X_Y",
       distribution: "Normal",
       params: { mu: 0, sigma: 1 },
       sources: [],
       reasoning: "",
     } as PriorProposal;
-    const result = priorLine(prior);
+    const result = priorLine(prior, "beta_X_Y");
     expect(result).toContain("\\beta");
     expect(result).toContain("\\mathcal{N}");
     expect(result).toContain("0");
@@ -208,25 +251,25 @@ describe("priorLine", () => {
 
   it("renders half-normal prior", () => {
     const prior = {
-      parameter: "sigma_mood",
+      parameter_id: "parameter:sigma_mood",
       distribution: "HalfNormal",
       params: { sigma: 2 },
       sources: [],
       reasoning: "",
     } as PriorProposal;
-    const result = priorLine(prior);
+    const result = priorLine(prior, "sigma_mood");
     expect(result).toContain("\\text{HalfNormal}");
   });
 
   it("renders log-normal prior", () => {
     const prior = {
-      parameter: "sigma_mood",
+      parameter_id: "parameter:sigma_mood",
       distribution: "LogNormal",
       params: { mu: 0, sigma: 0.5 },
       sources: [],
       reasoning: "",
     } as PriorProposal;
-    const result = priorLine(prior);
+    const result = priorLine(prior, "sigma_mood");
     expect(result).toContain("\\text{LogNormal}");
   });
 });
@@ -234,13 +277,13 @@ describe("priorLine", () => {
 describe("priorLatex", () => {
   it("strips alignment markers from priorLine output", () => {
     const prior = {
-      parameter: "beta_X_Y",
+      parameter_id: "parameter:beta_X_Y",
       distribution: "Normal",
       params: { mu: 0, sigma: 1 },
       sources: [],
       reasoning: "",
     } as PriorProposal;
-    const result = priorLatex(prior);
+    const result = priorLatex(prior, "beta_X_Y");
     expect(result).not.toContain("&");
     expect(result).toContain("\\sim");
     expect(result).toContain("\\mathcal{N}");
@@ -250,18 +293,23 @@ describe("priorLatex", () => {
 describe("observationPriorLatex", () => {
   it("renders observation-family priors with row-relative symbols", () => {
     const result = observationPriorLatex({
+      parameterName: "obs_concentration",
       prior: {
-        parameter: "obs_concentration",
+        parameter_id: "parameter:obs_concentration",
         distribution: "Gamma",
         params: { concentration: 5, rate: 0.5 },
         sources: [],
         reasoning: "",
       } as PriorProposal,
       likelihood: {
-        variable: "appointment_attendance",
+        standardized: false,
+        reasoning: "",
+        sources: [],
+        indicator_id: "indicator:appointment_attendance",
+        label: "appointment_attendance",
         distribution: "beta",
         link: "logit",
-      } as LikelihoodSpec,
+      } as LabeledLikelihood,
     });
 
     expect(result).toContain("\\phi");
@@ -276,10 +324,14 @@ describe("observationParameterDefinitionLatex", () => {
       observationParameterDefinitionLatex({
         parameterName: "obs_sd_sleep_problem_search_count",
         likelihood: {
-          variable: "sleep_problem_search_count",
+          standardized: false,
+          reasoning: "",
+          sources: [],
+          indicator_id: "indicator:sleep_problem_search_count",
+          label: "sleep_problem_search_count",
           distribution: "negative_binomial",
           link: "log",
-        } as LikelihoodSpec,
+        } as LabeledLikelihood,
       }),
     ).toContain("\\sigma_{\\text{sleep problem search count}}");
   });
@@ -289,10 +341,14 @@ describe("observationEquationLatex", () => {
   it("renders gamma shape directly in the main likelihood line", () => {
     const result = observationEquationLatex({
       likelihood: {
-        variable: "last_activity_clock_time",
+        standardized: false,
+        reasoning: "",
+        sources: [],
+        indicator_id: "indicator:last_activity_clock_time",
+        label: "last_activity_clock_time",
         distribution: "gamma",
         link: "log",
-      } as LikelihoodSpec,
+      } as LabeledLikelihood,
       parameterNames: ["obs_shape"],
     });
 
@@ -304,10 +360,14 @@ describe("observationEquationLatex", () => {
   it("moves non-gaussian measurement error into the main likelihood line when obs_sd is present", () => {
     const result = observationEquationLatex({
       likelihood: {
-        variable: "sleep_problem_search_count",
+        standardized: false,
+        reasoning: "",
+        sources: [],
+        indicator_id: "indicator:sleep_problem_search_count",
+        label: "sleep_problem_search_count",
         distribution: "negative_binomial",
         link: "log",
-      } as LikelihoodSpec,
+      } as LabeledLikelihood,
       constructName: "sleep_quality",
       parameterNames: [
         "lambda_sleep_problem_search_count_sleep_quality",
@@ -324,95 +384,6 @@ describe("observationEquationLatex", () => {
   });
 });
 
-describe("stateNames", () => {
-  it("extracts from AR coefficients", () => {
-    const params = [
-      { name: "rho_stress", role: "ar_coefficient" },
-      { name: "rho_sleep", role: "ar_coefficient" },
-    ] as ParameterSpec[];
-    expect(stateNames(params)).toEqual(["stress", "sleep"]);
-  });
-
-  it("falls back to residual_sd", () => {
-    const params = [
-      { name: "sigma_stress", role: "residual_sd" },
-      { name: "sigma_sleep", role: "residual_sd" },
-    ] as ParameterSpec[];
-    expect(stateNames(params)).toEqual(["stress", "sleep"]);
-  });
-
-  it("returns empty for no matching params", () => {
-    expect(stateNames([])).toEqual([]);
-  });
-});
-
-describe("parseFixedEffect", () => {
-  it("parses source and target", () => {
-    const result = parseFixedEffect("beta_stress_sleep", ["stress", "sleep"]);
-    expect(result).toEqual({ source: "stress", target: "sleep" });
-  });
-
-  it("returns null for no match", () => {
-    expect(parseFixedEffect("beta_unknown", ["stress"])).toBeNull();
-  });
-
-  it("handles multi-word state names", () => {
-    const result = parseFixedEffect("beta_daily_stress_sleep_quality", [
-      "daily_stress",
-      "sleep_quality",
-    ]);
-    expect(result).toEqual({ source: "daily_stress", target: "sleep_quality" });
-  });
-});
-
-describe("parseCorrelation", () => {
-  it("parses two states", () => {
-    const result = parseCorrelation("cor_stress_sleep", ["stress", "sleep"]);
-    expect(result).toEqual({ s1: "stress", s2: "sleep" });
-  });
-
-  it("returns null for unknown states", () => {
-    expect(parseCorrelation("cor_a_b", ["stress", "sleep"])).toBeNull();
-  });
-});
-
-describe("extractConfounder", () => {
-  it("extracts confounder name from description", () => {
-    const desc = "Correlation (marginalized confounder: genetics)";
-    expect(extractConfounder(desc)).toBe("genetics");
-  });
-
-  it("returns null when no confounder", () => {
-    expect(extractConfounder("Some other description")).toBeNull();
-  });
-});
-
-describe("confounderGroups", () => {
-  it("returns null for no correlation params", () => {
-    const params = [{ name: "beta_X_Y", role: "fixed_effect" }] as ParameterSpec[];
-    expect(confounderGroups(params)).toBeNull();
-  });
-
-  it("groups by confounder", () => {
-    const params = [
-      { name: "rho_stress", role: "ar_coefficient" },
-      { name: "rho_sleep", role: "ar_coefficient" },
-      {
-        name: "cor_stress_sleep",
-        role: "correlation",
-        description: "Correlation (marginalized confounder: genetics)",
-      },
-    ] as ParameterSpec[];
-    const groups = confounderGroups(params);
-    expect(groups).not.toBeNull();
-    expect(groups).toHaveLength(1);
-    const first = groups?.[0];
-    expect(first?.confounder).toBe("genetics");
-    expect(first?.states).toContain("stress");
-    expect(first?.states).toContain("sleep");
-  });
-});
-
 describe("confounderGroupLatex", () => {
   it("renders aligned LaTeX block", () => {
     const group: ConfounderGroup = {
@@ -426,24 +397,5 @@ describe("confounderGroupLatex", () => {
     expect(result).toContain("genetics");
     expect(result).toContain("\\varepsilon");
     expect(result).toContain("\\psi");
-  });
-});
-
-describe("stateEquationRows", () => {
-  it("builds equation rows per state", () => {
-    const params = [
-      { name: "rho_stress", role: "ar_coefficient" },
-      { name: "rho_sleep", role: "ar_coefficient" },
-      { name: "beta_stress_sleep", role: "fixed_effect" },
-      { name: "sigma_stress", role: "residual_sd" },
-      { name: "sigma_sleep", role: "residual_sd" },
-    ] as ParameterSpec[];
-
-    const rows = stateEquationRows(params);
-    expect(rows).toHaveLength(2);
-    expect(rows[0].state).toBe("stress");
-    expect(rows[1].state).toBe("sleep");
-    expect(rows[1].crossEffects).toHaveLength(1);
-    expect(rows[1].crossEffects[0].source).toBe("stress");
   });
 });

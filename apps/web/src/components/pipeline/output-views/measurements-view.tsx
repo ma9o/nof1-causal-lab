@@ -1,15 +1,22 @@
 import { DataTable } from "@/components/ui/data-table";
 import { ExploreDataframeButton } from "@/components/ui/explore-dataframe-button";
-import type { MeasurementsData } from "@nof1-causal-lab/api-types";
+import type { Indicator, MeasurementsData } from "@nof1-causal-lab/api-types";
 import { CheckCircle2, XCircle } from "lucide-react";
 
 export default function MeasurementsView({
   data,
   workspaceId,
+  indicators,
 }: {
   data: MeasurementsData;
+  indicators: Indicator[];
   workspaceId: string;
 }) {
+  const definitions = new Map(indicators.map((indicator) => [indicator.id, indicator]));
+  const rows = data.combined_extractions_sample.map(({ indicator_id, ...row }) => ({
+    indicator: definitions.get(indicator_id)!.name,
+    ...row,
+  }));
   const totalExtractions = Object.values(data.per_indicator_counts).reduce<number>(
     (sum, count) => sum + (count ?? 0),
     0,
@@ -65,7 +72,7 @@ export default function MeasurementsView({
           {totalExtractions.toLocaleString()}
         </p>
       )}
-      <DataTable rows={data.combined_extractions_sample} />
+      <DataTable rows={rows} />
     </div>
   );
 }

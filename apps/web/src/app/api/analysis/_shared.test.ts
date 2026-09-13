@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EpisodeStatus, TransitionRecord } from "@/lib/server/episode-runs";
+import { MACHINE_DESCRIPTION } from "@nof1-causal-lab/api-types";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/server/episode-runs", () => ({
   getMachineDescription: vi.fn(),
@@ -67,42 +68,7 @@ function transition(
 
 describe("buildAnalysisManifest", () => {
   beforeEach(() => {
-    vi.mocked(getMachineDescription).mockResolvedValue({
-      topological_artifact_order: [
-        "question",
-        "raw_data",
-        "latent_structure",
-        "measurement_structure",
-        "causal_design",
-        "identification_report",
-        "measurements",
-        "panel",
-        "validation_report",
-        "statistical_model_spec",
-        "compiled_ssm",
-        "posterior",
-        "baseline_report",
-        "saved_scenarios",
-      ],
-      topological_transition_order: [
-        "raw_data",
-        "latent_structure",
-        "measurement_structure",
-        "measurements",
-        "statistical_model_spec",
-        "posterior",
-        "baseline_report",
-      ],
-      transitions: [
-        { transition_id: "raw_data" },
-        { transition_id: "latent_structure" },
-        { transition_id: "measurement_structure" },
-        { transition_id: "measurements" },
-        { transition_id: "statistical_model_spec" },
-        { transition_id: "posterior" },
-        { transition_id: "baseline_report" },
-      ],
-    });
+    vi.mocked(getMachineDescription).mockResolvedValue(MACHINE_DESCRIPTION);
   });
 
   afterEach(() => {

@@ -14,5 +14,5 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  args: { energy: posteriorAuxKalmanMCMC.mcmc_diagnostics!.energy! },
+  args: { energy: posteriorAuxKalmanMCMC.assessment.mcmc_diagnostics!.energy! },
 };

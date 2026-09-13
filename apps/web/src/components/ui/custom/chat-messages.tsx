@@ -1,5 +1,6 @@
 "use client";
 
+import { parseSimulationResult } from "@/lib/simulation-result";
 import type { SimulateScenarioResult } from "@nof1-causal-lab/api-types";
 import type { UIMessage } from "ai";
 import { Bot, Check, Eye, User, Wrench } from "lucide-react";
@@ -24,29 +25,9 @@ export type SimulationResult = SimulateScenarioResult;
 
 const SIMULATION_TOOLS = new Set(["simulate"]);
 
-function asSimulationResult(output: unknown): SimulationResult | null {
-  // Live tool calls yield an object; a persisted trace stores the result as a
-  // JSON string in tool_result. Accept both.
-  let value = output;
-  if (typeof value === "string") {
-    try {
-      value = JSON.parse(value) as unknown;
-    } catch {
-      return null;
-    }
-  }
-  if (typeof value !== "object" || value === null) return null;
-  const candidate = value as { outcome?: unknown; clamps?: unknown; summary?: unknown };
-  return typeof candidate.outcome === "string" &&
-    Array.isArray(candidate.clamps) &&
-    candidate.summary != null
-    ? (value as SimulationResult)
-    : null;
-}
-
 function simulationHeadline(result: SimulationResult): string {
-  const { mean } = result.summary;
-  return `${mean >= 0 ? "+" : ""}${mean.toFixed(2)} SD on ${result.outcome}`;
+  const { mean } = result.result.summary;
+  return `${mean >= 0 ? "+" : ""}${mean.toFixed(2)} SD on ${result.result.outcome_label}`;
 }
 
 const TextPart = memo(function TextPart({ text }: { text: string }) {
@@ -272,7 +253,7 @@ function AssistantMessage({
           case "dynamic-tool": {
             const simulation =
               part.state === "output-available" && SIMULATION_TOOLS.has(part.toolName)
-                ? asSimulationResult(part.output)
+                ? parseSimulationResult(part.output)
                 : null;
             if (simulation && onSelectSimulation) {
               const callKey = part.toolCallId;

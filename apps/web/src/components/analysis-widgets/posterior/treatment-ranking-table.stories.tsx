@@ -1,10 +1,10 @@
+import type { BaselineReportArtifact } from "@nof1-causal-lab/api-types";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import type { BaselineReportData } from "@nof1-causal-lab/api-types";
 import { withContainer } from "@/components/story-decorators";
-import { TreatmentRankingTable } from "./treatment-ranking-table";
 import { demoBaselineReport } from "../../__fixtures__/demo-artifacts";
+import { TreatmentRankingTable } from "./treatment-ranking-table";
 
-const data = demoBaselineReport as BaselineReportData;
+const data = demoBaselineReport as BaselineReportArtifact;
 
 const meta = {
   title: "Pipeline/Outputs/Posterior/TreatmentRankingTable",

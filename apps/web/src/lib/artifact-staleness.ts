@@ -1,5 +1,5 @@
+import type { ArtifactFreshness } from "@/lib/api/analysis";
 import { TRANSITIONS, type ArtifactViewId } from "@nof1-causal-lab/api-types";
-import type { EpisodeArtifactStatus } from "@/lib/api/analysis";
 
 /** Stale artifact ids grouped by the artifact transition or derivation that produced them. */
 export type StaleArtifactsByProducer = Partial<Record<ArtifactViewId, string[]>>;
@@ -8,7 +8,7 @@ function isArtifactViewId(value: unknown): value is ArtifactViewId {
   return typeof value === "string" && TRANSITIONS.some((transition) => transition.id === value);
 }
 
-function producerArtifactId(producedBy: string | null): ArtifactViewId | null {
+function producerArtifactId(producedBy: string | null | undefined): ArtifactViewId | null {
   if (!producedBy) {
     return null;
   }
@@ -28,7 +28,7 @@ function producerArtifactId(producedBy: string | null): ArtifactViewId | null {
  * computed backend-side; this is pure presentation grouping.
  */
 export function groupStaleArtifactsByProducer(
-  artifacts: readonly EpisodeArtifactStatus[],
+  artifacts: readonly ArtifactFreshness[],
 ): StaleArtifactsByProducer {
   const byProducer: StaleArtifactsByProducer = {};
   for (const artifact of artifacts) {
@@ -41,6 +41,6 @@ export function groupStaleArtifactsByProducer(
   return byProducer;
 }
 
-export function hasStaleArtifacts(artifacts: readonly EpisodeArtifactStatus[]): boolean {
+export function hasStaleArtifacts(artifacts: readonly ArtifactFreshness[]): boolean {
   return Object.keys(groupStaleArtifactsByProducer(artifacts)).length > 0;
 }

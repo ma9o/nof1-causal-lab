@@ -1,4 +1,4 @@
-import type { JsonObject, JsonValue } from "@/lib/episode-types";
+import type { JsonObject, JsonValue } from "@nof1-causal-lab/api-types";
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

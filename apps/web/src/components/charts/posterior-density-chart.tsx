@@ -1,7 +1,7 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
-import { formatNumber } from "@/lib/utils/format";
+import { formatNumber, formatPosteriorIntervalLabel } from "@/lib/utils/format";
 import type { PosteriorMarginal } from "@nof1-causal-lab/api-types";
 import {
   Area,
@@ -31,6 +31,9 @@ export function PosteriorDensityChart({ marginal }: PosteriorDensityChartProps) 
         <Badge variant="outline" className="text-[10px]">
           {formatNumber(marginal.mean, 3)} +/- {formatNumber(marginal.sd, 3)}
         </Badge>
+        <span className="text-[10px] text-muted-foreground">
+          {formatPosteriorIntervalLabel(marginal)}
+        </span>
       </div>
       <div className="h-28 w-full">
         <ResponsiveContainer width="100%" height="100%">
@@ -47,15 +50,15 @@ export function PosteriorDensityChart({ marginal }: PosteriorDensityChartProps) 
               formatter={(value) => [formatNumber(Number(value), 3), "Density"]}
               labelFormatter={(label) => formatNumber(Number(label), 3)}
             />
-            {/* HDI shading would need a more complex approach; use reference lines */}
+            {/* The backend supplies the credible interval bounds. */}
             <ReferenceLine
-              x={marginal.hdi_3}
+              x={marginal.lower}
               stroke="var(--muted-foreground)"
               strokeDasharray="4 4"
               strokeWidth={1}
             />
             <ReferenceLine
-              x={marginal.hdi_97}
+              x={marginal.upper}
               stroke="var(--muted-foreground)"
               strokeDasharray="4 4"
               strokeWidth={1}

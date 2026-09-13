@@ -28,7 +28,7 @@ function inlineKatex(latex: string): string {
 // ── row type ─────────────────────────────────────────────
 
 interface ObsModelRow {
-  likelihood: LikelihoodSpec;
+  likelihood: import("@/lib/utils/ssm-latex").LabeledLikelihood;
   variable: string;
   construct: string | undefined;
   equationLatex: string;
@@ -99,7 +99,7 @@ export function ObsPriorList({
   likelihood,
   terms,
 }: {
-  likelihood: LikelihoodSpec;
+  likelihood: import("@/lib/utils/ssm-latex").LabeledLikelihood;
   terms: ModelSpecObservationPriorTerm[];
 }) {
   if (terms.length === 0) {
@@ -115,7 +115,11 @@ export function ObsPriorList({
           dangerouslySetInnerHTML={{
             __html: inlineKatex(
               term.prior
-                ? observationPriorLatex({ prior: term.prior, likelihood })
+                ? observationPriorLatex({
+                    prior: term.prior,
+                    parameterName: term.parameterName,
+                    likelihood,
+                  })
                 : `${observationParameterSymbol({ parameterName: term.parameterName, likelihood })}:\\ \\text{Not authored}`,
             ),
           }}
@@ -132,35 +136,36 @@ export function ObsModelTable({
   parameters,
   priors,
   indicators,
+  constructs,
 }: {
   likelihoods: LikelihoodSpec[];
   parameters: ParameterSpec[];
   priors: PriorProposal[];
   indicators?: Indicator[];
+  constructs: import("@nof1-causal-lab/api-types").Construct[];
 }) {
-  const indicatorConstructMap = indicators
-    ? Object.fromEntries(indicators.map((indicator) => [indicator.name, indicator.construct_name]))
-    : undefined;
-
   const rows: ObsModelRow[] = likelihoods.map((lik) => {
-    const construct = indicatorConstructMap?.[lik.variable];
-    const v = lik.variable;
-    const hasLoadingParam = construct
-      ? parameters.some((p) => p.role === "loading" && p.name === `lambda_${v}_${construct}`)
-      : false;
-    const loadingFixed = !!construct && !hasLoadingParam;
+    const indicator = indicators?.find((item) => item.id === lik.indicator_id);
+    const construct = constructs.find((item) => item.id === indicator?.construct_id)?.name;
+    const v = indicator?.name ?? lik.indicator_id;
+    const labeledLikelihood = { ...lik, label: v };
     const priorTerms = collectModelSpecObservationPriorTerms({
       likelihood: lik,
-      parameters,
       priors,
-      indicators,
+      parameters,
     });
+    const hasLoadingParam = priorTerms.some((term) =>
+      parameters.some(
+        (parameter) => parameter.name === term.parameterName && parameter.role === "loading",
+      ),
+    );
+    const loadingFixed = indicator != null && !hasLoadingParam;
     return {
-      likelihood: lik,
+      likelihood: labeledLikelihood,
       variable: v,
       construct,
       equationLatex: observationEquationLatex({
-        likelihood: lik,
+        likelihood: labeledLikelihood,
         constructName: construct,
         parameterNames: priorTerms.map((term) => term.parameterName),
       }).replace(/&/g, ""),

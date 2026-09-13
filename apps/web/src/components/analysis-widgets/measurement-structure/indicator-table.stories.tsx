@@ -10,6 +10,7 @@ const indicators = data.causal_design.measurement.indicators;
 const meta = {
   title: "Pipeline/Outputs/Measurement Structure/IndicatorTable",
   component: IndicatorTable,
+  args: { constructs: data.causal_design.latent.constructs },
   decorators: [withContainer("max-w-3xl")],
 } satisfies Meta<typeof IndicatorTable>;
 

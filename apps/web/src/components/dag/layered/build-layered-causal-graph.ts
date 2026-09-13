@@ -1,7 +1,6 @@
-import type { CausalEdge, Construct, LatentStructure } from "@nof1-causal-lab/api-types";
+import type { CausalEdge, Construct, ConstructId, EdgeId } from "@nof1-causal-lab/api-types";
 import type { DagGraphInput } from "@/lib/utils/dag-graph-layout";
-import { baseId, buildGhostLinks, splitEdgesWithGlyphs, unrollCausalLinks } from "../unroll";
-import { causalEdgeKey } from "./layered-causal-graph-model";
+import { splitEdgesWithGlyphs, ghostId, isGhost } from "../unroll";
 
 export const LAYERED_NODE_WIDTH = 250;
 export const LAYERED_NODE_HEIGHT = 132;
@@ -16,9 +15,9 @@ export type LayeredGraphNodeMeta =
   | { kind: "edge_slot"; edgeId: string };
 
 export interface LayeredGraphEdgeMeta {
-  id: string;
-  cause: string;
-  effect: string;
+  id: EdgeId | `self:${ConstructId}`;
+  cause: ConstructId;
+  effect: ConstructId;
   source: string;
   target: string;
   lagged: boolean;
@@ -50,54 +49,57 @@ function constructPartition(construct: Construct): 0 | 2 {
  * Build the permanent graph geometry exclusively from LatentStructure.
  * Every later artifact layer receives this same graph and can only decorate it.
  */
-export function buildLayeredCausalGraph(structure: LatentStructure): LayeredGraphBundle {
-  const constructByName = new Map(
-    structure.constructs.map((construct) => [construct.name, construct] as const),
-  );
-  for (const edge of structure.edges) {
-    if (!constructByName.has(edge.cause) || !constructByName.has(edge.effect)) {
+export function buildLayeredCausalGraph(
+  constructs: Construct[],
+  edges: CausalEdge[],
+): LayeredGraphBundle {
+  const constructById = new Map(constructs.map((construct) => [construct.id, construct] as const));
+  const historyById = new Map(constructs.map((construct) => [ghostId(construct.id), construct]));
+  for (const edge of edges) {
+    if (!constructById.has(edge.cause_id) || !constructById.has(edge.effect_id)) {
       throw new Error(
-        `Causal edge '${edge.cause}→${edge.effect}' references an unknown construct.`,
+        `Causal edge '${edge.cause_id}→${edge.effect_id}' references an unknown construct.`,
       );
     }
   }
 
-  const timeVaryingNames = new Set(
-    structure.constructs
+  const timeVaryingIds = new Set(
+    constructs
       .filter((construct) => construct.temporal_status === "time_varying")
-      .map((construct) => construct.name),
+      .map((construct) => construct.id),
   );
-  const selfDynamicConstructs = structure.constructs.filter(
+  const selfDynamicConstructs = constructs.filter(
     (construct) => construct.role === "endogenous" && construct.temporal_status === "time_varying",
   );
-  const causalLinks = unrollCausalLinks(
-    structure.edges.filter((edge) => edge.cause !== edge.effect),
-    timeVaryingNames,
-  );
-  const selfLinks = buildGhostLinks(
-    selfDynamicConstructs.map((construct) => ({
-      from: construct.name,
-      to: construct.name,
-    })),
-  );
-  const ghosts = new Set([...causalLinks.ghosts, ...selfLinks.ghosts]);
+  const causalLinks = edges
+    .filter((edge) => edge.cause_id !== edge.effect_id)
+    .map((edge) => ({
+      ...edge,
+      source:
+        edge.lagged && timeVaryingIds.has(edge.cause_id) ? ghostId(edge.cause_id) : edge.cause_id,
+      target: edge.effect_id,
+    }));
+  const ghosts = new Set([
+    ...causalLinks.filter((edge) => isGhost(edge.source)).map((edge) => edge.source),
+    ...selfDynamicConstructs.map((construct) => ghostId(construct.id)),
+  ]);
 
   const edgeDefinitions: Array<Omit<LayeredGraphEdgeMeta, "slotId">> = [
-    ...causalLinks.edges.map((edge) => ({
-      id: causalEdgeKey(edge.cause, edge.effect, edge.lagged),
-      cause: edge.cause,
-      effect: edge.effect,
+    ...causalLinks.map((edge) => ({
+      id: edge.id,
+      cause: edge.cause_id,
+      effect: edge.effect_id,
       source: edge.source,
       target: edge.target,
       lagged: edge.lagged,
       isSelf: false,
     })),
-    ...selfLinks.edges.map((edge) => ({
-      id: `self:${baseId(edge.source)}`,
-      cause: baseId(edge.source),
-      effect: baseId(edge.target),
-      source: edge.source,
-      target: edge.target,
+    ...selfDynamicConstructs.map((construct) => ({
+      id: `self:${construct.id}` as const,
+      cause: construct.id,
+      effect: construct.id,
+      source: ghostId(construct.id),
+      target: construct.id,
       lagged: true,
       isSelf: true,
     })),
@@ -115,17 +117,17 @@ export function buildLayeredCausalGraph(structure: LatentStructure): LayeredGrap
 
   const nodeMeta = new Map<string, LayeredGraphNodeMeta>();
   const nodes: DagGraphInput["nodes"] = [];
-  for (const construct of structure.constructs) {
-    nodeMeta.set(construct.name, { kind: "construct", construct });
+  for (const construct of constructs) {
+    nodeMeta.set(construct.id, { kind: "construct", construct });
     nodes.push({
-      id: construct.name,
+      id: construct.id,
       width: LAYERED_NODE_WIDTH,
       height: LAYERED_NODE_HEIGHT,
       layoutOptions: partition(constructPartition(construct)),
     });
   }
   for (const ghost of ghosts) {
-    const construct = constructByName.get(baseId(ghost));
+    const construct = historyById.get(ghost);
     if (!construct) {
       throw new Error(`Temporal copy '${ghost}' has no source construct.`);
     }
@@ -142,8 +144,8 @@ export function buildLayeredCausalGraph(structure: LatentStructure): LayeredGrap
   const segmentMeta = new Map<string, LayeredGraphSegmentMeta>();
   split.glyphNodes.forEach((slot, index) => {
     const definition = edgeDefinitions[index];
-    const sourceConstruct = constructByName.get(baseId(definition.source));
-    const targetConstruct = constructByName.get(baseId(definition.target));
+    const sourceConstruct = constructById.get(definition.cause);
+    const targetConstruct = constructById.get(definition.effect);
     if (!sourceConstruct || !targetConstruct) {
       throw new Error(`Edge slot '${slot.id}' has an unknown endpoint.`);
     }
@@ -184,8 +186,4 @@ export function buildLayeredCausalGraph(structure: LatentStructure): LayeredGrap
     edgeMeta,
     segmentMeta,
   };
-}
-
-export function sourceEdgeKey(edge: CausalEdge): string {
-  return causalEdgeKey(edge.cause, edge.effect, edge.lagged);
 }

@@ -2,10 +2,12 @@ import type {
   DistributionFamily,
   LikelihoodSpec,
   LinkFunction,
-  ParameterSpec,
   PriorDistributionFamily,
   PriorProposal,
+  StructuralPlan,
 } from "@nof1-causal-lab/api-types";
+
+export type LabeledLikelihood = LikelihoodSpec & { label: string };
 
 /** Convert snake_case to spaced text for use inside LaTeX \text{}. */
 export function textify(name: string): string {
@@ -47,11 +49,11 @@ export function distName(dist: string): string {
 
 /** Build a single observation-model line, inlining the latent construct when known. */
 export function likelihoodLine(
-  lik: LikelihoodSpec,
+  lik: LabeledLikelihood,
   constructName?: string,
   options?: { includeMeasurementError?: boolean },
 ): string {
-  const v = `\\text{${textify(lik.variable)}}`;
+  const v = `\\text{${textify(lik.label)}}`;
   const predictor = constructName
     ? `\\lambda_{${v}} \\, \\eta_{\\text{${textify(constructName)}}}(t)`
     : `\\mu_{${v}}`;
@@ -108,8 +110,8 @@ export function paramSymbol(name: string): string {
 }
 
 /** Strip the & alignment marker from a priorLine result for inline display. */
-export function priorLatex(prior: PriorProposal): string {
-  return priorLine(prior).replace(/&/g, "");
+export function priorLatex(prior: PriorProposal, parameterName: string): string {
+  return priorLine(prior, parameterName).replace(/&/g, "");
 }
 
 const PRIOR_DIST_LATEX: Record<PriorDistributionFamily, string> = {
@@ -133,8 +135,8 @@ function priorDistributionLatex(prior: PriorProposal): string {
 }
 
 /** Map a prior distribution name + params to LaTeX. */
-export function priorLine(prior: PriorProposal): string {
-  return `${paramSymbol(prior.parameter)} &\\sim ${priorDistributionLatex(prior)}`;
+export function priorLine(prior: PriorProposal, parameterName: string): string {
+  return `${paramSymbol(parameterName)} &\\sim ${priorDistributionLatex(prior)}`;
 }
 
 export function observationParameterSymbol({
@@ -142,14 +144,14 @@ export function observationParameterSymbol({
   likelihood,
 }: {
   parameterName: string;
-  likelihood: LikelihoodSpec;
+  likelihood: LabeledLikelihood;
 }): string {
-  const variableText = `\\text{${textify(likelihood.variable)}}`;
+  const variableText = `\\text{${textify(likelihood.label)}}`;
 
-  if (parameterName.startsWith(`lambda_${likelihood.variable}_`)) {
+  if (parameterName.startsWith(`lambda_${likelihood.label}_`)) {
     return `\\lambda_{${variableText}}`;
   }
-  if (parameterName === `obs_sd_${likelihood.variable}`) {
+  if (parameterName === `obs_sd_${likelihood.label}`) {
     return `\\sigma_{${variableText}}`;
   }
   if (parameterName === "obs_df") {
@@ -181,13 +183,15 @@ export function observationParameterSymbol({
 }
 
 export function observationPriorLatex({
+  parameterName,
   prior,
   likelihood,
 }: {
+  parameterName: string;
   prior: PriorProposal;
-  likelihood: LikelihoodSpec;
+  likelihood: LabeledLikelihood;
 }): string {
-  return `${observationParameterSymbol({ parameterName: prior.parameter, likelihood })} \\sim ${priorDistributionLatex(prior)}`;
+  return `${observationParameterSymbol({ parameterName, likelihood })} \\sim ${priorDistributionLatex(prior)}`;
 }
 
 function observationParameterShownInLikelihood({
@@ -196,13 +200,13 @@ function observationParameterShownInLikelihood({
   hasConstruct,
 }: {
   parameterName: string;
-  likelihood: LikelihoodSpec;
+  likelihood: LabeledLikelihood;
   hasConstruct: boolean;
 }): boolean {
-  if (parameterName.startsWith(`lambda_${likelihood.variable}_`)) {
+  if (parameterName.startsWith(`lambda_${likelihood.label}_`)) {
     return hasConstruct;
   }
-  if (parameterName === `obs_sd_${likelihood.variable}`) {
+  if (parameterName === `obs_sd_${likelihood.label}`) {
     return likelihood.distribution === "gaussian" || likelihood.distribution === "student_t";
   }
   if (parameterName === "obs_df") {
@@ -225,11 +229,11 @@ export function observationParameterDefinitionLatex({
   likelihood,
 }: {
   parameterName: string;
-  likelihood: LikelihoodSpec;
+  likelihood: LabeledLikelihood;
 }): string {
   const symbol = observationParameterSymbol({ parameterName, likelihood });
 
-  if (parameterName === `obs_sd_${likelihood.variable}`) {
+  if (parameterName === `obs_sd_${likelihood.label}`) {
     return `${symbol} &: \\text{measurement-error SD}`;
   }
   if (parameterName === "obs_df") {
@@ -265,11 +269,11 @@ export function observationEquationLatex({
   constructName,
   parameterNames,
 }: {
-  likelihood: LikelihoodSpec;
+  likelihood: LabeledLikelihood;
   constructName?: string;
   parameterNames?: string[];
 }): string {
-  const measurementErrorParameterName = `obs_sd_${likelihood.variable}`;
+  const measurementErrorParameterName = `obs_sd_${likelihood.label}`;
   const hasMeasurementError = (parameterNames ?? []).includes(measurementErrorParameterName);
   const mainLine = likelihoodLine(likelihood, constructName, {
     includeMeasurementError:
@@ -301,87 +305,29 @@ export function observationEquationLatex({
   return `\\begin{aligned}${[mainLine, ...supplementalLines].join(" \\\\ ")}\\end{aligned}`;
 }
 
-/** Extract latent state names from AR coefficient parameters. */
-export function stateNames(parameters: ParameterSpec[]): string[] {
-  const ar = parameters.filter((p) => p.role === "ar_coefficient");
-  if (ar.length > 0) {
-    return ar.map((p) => p.name.split("_").slice(1).join("_"));
-  }
-  return parameters
-    .filter((p) => p.role === "residual_sd")
-    .map((p) => p.name.split("_").slice(1).join("_"));
-}
-
-/** Parse a fixed_effect parameter name into source→target given known state names. */
-export function parseFixedEffect(
-  name: string,
-  knownStates: string[],
-): { source: string; target: string } | null {
-  const body = name.replace(/^beta_/, "");
-  for (const state of [...knownStates].sort((a, b) => b.length - a.length)) {
-    if (body.endsWith(`_${state}`)) {
-      return { source: body.slice(0, -(state.length + 1)), target: state };
-    }
-  }
-  return null;
-}
-
-/** Parse a cor_<s1>_<s2> parameter name into its two states. */
-export function parseCorrelation(
-  name: string,
-  knownStates: string[],
-): { s1: string; s2: string } | null {
-  const body = name.replace(/^cor_/, "");
-  for (const state1 of [...knownStates].sort((a, b) => b.length - a.length)) {
-    if (body.startsWith(`${state1}_`)) {
-      const rest = body.slice(state1.length + 1);
-      if (knownStates.includes(rest)) {
-        return { s1: state1, s2: rest };
-      }
-    }
-  }
-  return null;
-}
-
-/** Extract the marginalized confounder name from a correlation parameter description. */
-export function extractConfounder(description: string): string | null {
-  const m = description.match(/marginalized confounder:\s*(.+?)\)/);
-  return m ? m[1] : null;
-}
-
 export interface ConfounderGroup {
   confounder: string;
   states: string[];
   pairs: { s1: string; s2: string }[];
 }
 
-/** Group correlation parameters by their source confounder. */
-export function confounderGroups(parameters: ParameterSpec[]): ConfounderGroup[] | null {
-  const corParams = parameters.filter((p) => p.role === "correlation");
-  if (corParams.length === 0) return null;
-
-  const states = stateNames(parameters);
+export function confounderGroups(plan: StructuralPlan): ConfounderGroup[] {
   const groups = new Map<string, { states: Set<string>; pairs: { s1: string; s2: string }[] }>();
-
-  for (const p of corParams) {
-    const parsed = parseCorrelation(p.name, states);
-    if (!parsed) continue;
-    const confounder = extractConfounder(p.description ?? "") ?? "unknown";
-    let group = groups.get(confounder);
-    if (!group) {
-      group = { states: new Set(), pairs: [] };
-      groups.set(confounder, group);
+  for (const dependency of plan.induced_dependencies) {
+    if (dependency.kind !== "innovation_correlation") continue;
+    const [s1, s2] = dependency.between.map((id) => plan.semantics.constructs[id].name);
+    for (const id of dependency.source_confounder_ids) {
+      const group = groups.get(id) ?? { states: new Set<string>(), pairs: [] };
+      group.states.add(s1);
+      group.states.add(s2);
+      group.pairs.push({ s1, s2 });
+      groups.set(id, group);
     }
-    group.states.add(parsed.s1);
-    group.states.add(parsed.s2);
-    group.pairs.push(parsed);
   }
-
-  if (groups.size === 0) return null;
-  return [...groups.entries()].map(([confounder, { states: s, pairs }]) => ({
-    confounder,
-    states: [...s],
-    pairs,
+  return Array.from(groups, ([id, group]) => ({
+    confounder: plan.semantics.constructs[id].name,
+    states: [...group.states],
+    pairs: group.pairs,
   }));
 }
 
@@ -401,49 +347,4 @@ export function confounderGroupLatex(group: ConfounderGroup): string {
   }
 
   return `\\begin{aligned}\n${lines.join(" \\\\\n")}\n\\end{aligned}`;
-}
-
-// ── Per-state equation fragments for table display ───────
-
-export interface StateEquationRow {
-  state: string;
-  /** η(0) ~ N(μ₀, σ₀²) */
-  initialLatex: string;
-  /** ρ_s η_s(t-1) — the autoregressive term */
-  arTermLatex: string;
-  /** Each parent's cross-effect term */
-  crossEffects: Array<{ source: string; termLatex: string }>;
-  /** ε_s(t) ~ N(0, σ²) */
-  noiseLatex: string;
-}
-
-/** Build per-state equation fragments for tabular display. */
-export function stateEquationRows(parameters: ParameterSpec[]): StateEquationRow[] {
-  const states = stateNames(parameters);
-  const fixedEffects = parameters.filter((p) => p.role === "fixed_effect");
-
-  const effectsByTarget = new Map<string, string[]>();
-  for (const s of states) effectsByTarget.set(s, []);
-  for (const fe of fixedEffects) {
-    const parsed = parseFixedEffect(fe.name, states);
-    if (parsed) effectsByTarget.get(parsed.target)?.push(parsed.source);
-  }
-
-  return states.map((state) => {
-    const s = `\\text{${textify(state)}}`;
-    const parents = effectsByTarget.get(state) ?? [];
-    return {
-      state,
-      initialLatex: `\\eta_{${s}}(0) \\sim \\mathcal{N}(\\mu_{0,${s}},\\; \\sigma_{0,${s}}^{2})`,
-      arTermLatex: `\\rho_{${s}} \\, \\eta_{${s}}(t\\!-\\!1)`,
-      crossEffects: parents.map((src) => {
-        const srcTex = `\\text{${textify(src)}}`;
-        return {
-          source: src,
-          termLatex: `\\beta_{${srcTex} \\to ${s}} \\, \\eta_{${srcTex}}(t\\!-\\!1)`,
-        };
-      }),
-      noiseLatex: `\\varepsilon_{${s}}(t) \\sim \\mathcal{N}(0,\\, \\sigma_{${s}}^2)`,
-    };
-  });
 }

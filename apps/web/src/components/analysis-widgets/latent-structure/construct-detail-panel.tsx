@@ -5,17 +5,16 @@ import { Star } from "lucide-react";
 
 interface ConstructDetailPanelProps {
   construct: Construct;
+  isOutcome?: boolean;
 }
 
-export function ConstructDetailPanel({ construct }: ConstructDetailPanelProps) {
+export function ConstructDetailPanel({ construct, isOutcome = false }: ConstructDetailPanelProps) {
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center gap-2">
           <CardTitle className="text-base">{construct.name}</CardTitle>
-          {construct.is_outcome && (
-            <Star className="h-4 w-4 fill-foreground/75 text-foreground/75" />
-          )}
+          {isOutcome && <Star className="h-4 w-4 fill-foreground/75 text-foreground/75" />}
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -26,7 +25,7 @@ export function ConstructDetailPanel({ construct }: ConstructDetailPanelProps) {
             {construct.role}
           </Badge>
           <Badge variant="outline">{construct.temporal_status.replace("_", " ")}</Badge>
-          {construct.is_outcome && <Badge variant="warning">outcome</Badge>}
+          {isOutcome && <Badge variant="warning">outcome</Badge>}
         </div>
       </CardContent>
     </Card>

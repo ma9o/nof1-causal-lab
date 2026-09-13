@@ -41,19 +41,20 @@ interface EnrichedParamRow extends MCMCParamDiagnostic {
 
 /* ── Severity helpers ── */
 
-function rhatSeverity(value: number | number[]): "fail" | "warn" | undefined {
-  const v = Array.isArray(value) ? Math.max(...value) : value;
+function rhatSeverity(value: number | null): "fail" | "warn" | undefined {
+  if (value == null) return undefined;
+  const v = value;
   if (v >= RHAT_FAIL) return "fail";
   if (v >= RHAT_WARN) return "warn";
   return undefined;
 }
 
 function essSeverity(
-  value: number | number[] | undefined,
+  value: number | null | undefined,
   nSamples: number | null,
 ): "fail" | "warn" | undefined {
   if (value == null) return undefined;
-  const v = Array.isArray(value) ? Math.min(...value) : value;
+  const v = value;
   const total = nSamples ?? DEFAULT_N_SAMPLES;
   const ratio = v / total;
   if (ratio <= ESS_RATIO_FAIL) return "fail";
@@ -221,13 +222,14 @@ export function MCMCDiagnosticsPanel({ diagnostics }: MCMCDiagnosticsPanelProps)
         ),
         cell: (info) => {
           const v = info.getValue();
-          const val = Array.isArray(v) ? Math.max(...v) : v;
+          if (v == null) return <span className="text-muted-foreground">—</span>;
+          const val = v;
           return formatNumber(val, 3);
         },
         meta: {
           align: "right",
           mono: true,
-          severity: (v: number | number[]) => rhatSeverity(v),
+          severity: (v: number | null) => rhatSeverity(v),
         },
       }),
       col.accessor("ess_bulk", {
@@ -240,13 +242,13 @@ export function MCMCDiagnosticsPanel({ diagnostics }: MCMCDiagnosticsPanelProps)
         cell: (info) => {
           const v = info.getValue();
           if (v == null) return <span className="text-muted-foreground">—</span>;
-          const val = Array.isArray(v) ? Math.min(...v) : v;
+          const val = v;
           return formatNumber(val, 0);
         },
         meta: {
           align: "right",
           mono: true,
-          severity: (v: number | number[] | undefined) =>
+          severity: (v: number | null | undefined) =>
             essSeverity(v, diagnostics.num_samples ?? null),
         },
       }),
@@ -264,13 +266,13 @@ export function MCMCDiagnosticsPanel({ diagnostics }: MCMCDiagnosticsPanelProps)
           cell: (info) => {
             const v = info.getValue();
             if (v == null) return <span className="text-muted-foreground">—</span>;
-            const val = Array.isArray(v) ? Math.min(...v) : v;
+            const val = v;
             return formatNumber(val, 0);
           },
           meta: {
             align: "right",
             mono: true,
-            severity: (v: number | number[] | null | undefined) =>
+            severity: (v: number | null | undefined) =>
               essSeverity(v ?? undefined, diagnostics.num_samples ?? null),
           },
         }) as ColumnDef<EnrichedParamRow, unknown>,
@@ -289,7 +291,8 @@ export function MCMCDiagnosticsPanel({ diagnostics }: MCMCDiagnosticsPanelProps)
           cell: (info) => {
             const v = info.getValue();
             if (v == null) return <span className="text-muted-foreground">—</span>;
-            const val = Array.isArray(v) ? Math.max(...v) : v;
+            if (v == null) return <span className="text-muted-foreground">—</span>;
+            const val = v;
             return formatNumber(val, 4);
           },
           meta: { align: "right", mono: true },

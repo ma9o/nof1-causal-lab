@@ -1,5 +1,8 @@
 "use client";
 
+import { cn } from "@/lib/utils";
+import { formatNumber } from "@/lib/utils/format";
+import type { TreatmentEffect } from "@nof1-causal-lab/api-types";
 import {
   Bar,
   ComposedChart,
@@ -9,32 +12,27 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { cn } from "@/lib/utils";
-import { formatNumber } from "@/lib/utils/format";
-import { buildHistogram } from "@/lib/utils/histogram";
 
 type ManifestEffects = Record<string, number | undefined> | null | undefined;
 
 /** Posterior-draw histogram with zero and mean reference lines. */
 export function PosteriorHistogram({
-  draws,
+  bins,
   mean,
   className,
 }: {
-  draws: number[];
+  bins: TreatmentEffect["histogram"];
   mean: number | null;
   className?: string;
 }) {
-  if (draws.length === 0) return <span className="text-xs text-muted-foreground">--</span>;
-
-  const bins = buildHistogram(draws, Math.min(25, Math.ceil(Math.sqrt(draws.length))));
+  if (bins.length === 0) return <span className="text-xs text-muted-foreground">--</span>;
 
   return (
     <div className={cn("ml-auto h-16 w-44", className)}>
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={bins} margin={{ top: 2, right: 4, left: 0, bottom: 0 }}>
           <XAxis
-            dataKey="binCenter"
+            dataKey="bin_center"
             type="number"
             domain={["dataMin", "dataMax"]}
             tickFormatter={(v: number) => formatNumber(v, 2)}

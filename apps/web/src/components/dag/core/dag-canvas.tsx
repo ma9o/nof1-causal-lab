@@ -8,8 +8,17 @@ interface DagSvgProps
   zoom: number;
 }
 
-export function DagCanvasFrame({ children }: { children: ReactNode }) {
-  return <div style={CANVAS_FRAME}>{children}</div>;
+/** `fill` lets the frame take its container's height instead of the fixed workbench box. */
+export function DagCanvasFrame({
+  children,
+  fill = false,
+}: {
+  children: ReactNode;
+  fill?: boolean;
+}) {
+  return (
+    <div style={fill ? { ...CANVAS_FRAME, ...CANVAS_FRAME_FILL } : CANVAS_FRAME}>{children}</div>
+  );
 }
 
 export function DagSvg({
@@ -43,4 +52,11 @@ const CANVAS_FRAME: CSSProperties = {
   overflow: "auto",
   backgroundImage: `radial-gradient(${DAG_COLORS.line} .8px, transparent .8px)`,
   backgroundSize: "18px 18px",
+};
+
+const CANVAS_FRAME_FILL: CSSProperties = {
+  minHeight: 0,
+  maxHeight: "none",
+  height: "100%",
+  flex: "1 1 0%",
 };

@@ -24,6 +24,7 @@ export type ConstructStatus = "observed" | "marginalized" | "blocking";
 
 interface StructureDagProps {
   constructs: Construct[];
+  outcomeId?: string;
   edges: CausalEdge[];
   indicators?: Indicator[];
   /** Constructs compiled as observed transition inputs rather than latent states. */
@@ -128,6 +129,7 @@ interface StructureNodeProps {
   width: number;
   height: number;
   construct: Construct;
+  isOutcome: boolean;
   indicators: Indicator[];
   knownInput?: KnownInput;
   status?: ConstructStatus;
@@ -141,6 +143,7 @@ function StructureNode({
   width,
   height,
   construct,
+  isOutcome,
   indicators,
   knownInput,
   status,
@@ -151,8 +154,8 @@ function StructureNode({
   const vary = construct.temporal_status === "time_varying" ? "varying" : "invariant";
   const subtitle = `${isExo ? "theory exo" : "theory endo"} · ${vary}${knownInput ? " · known input" : isExo ? " · held" : ""}`;
 
-  const reserved = (construct.is_outcome ? 44 : 28) + (isPrev ? 36 : 0);
-  const title = `${construct.is_outcome ? "★ " : ""}${truncate(labelize(construct.name), Math.floor((width - reserved) / 6.6))}${isPrev ? " · t−1" : ""}`;
+  const reserved = (isOutcome ? 44 : 28) + (isPrev ? 36 : 0);
+  const title = `${isOutcome ? "★ " : ""}${truncate(labelize(construct.name), Math.floor((width - reserved) / 6.6))}${isPrev ? " · t−1" : ""}`;
   const indNameMax = Math.floor((width - 72) / 5.8);
   const showIndicators = !isPrev && indicators.length > 0;
 
@@ -164,7 +167,7 @@ function StructureNode({
       subtitle={subtitle}
       accent={nodeAccent(isPrev ? undefined : status, lit)}
       highlighted={lit}
-      outcome={construct.is_outcome}
+      outcome={isOutcome}
     >
       <title>{construct.name}</title>
       {showIndicators ? (
@@ -237,6 +240,7 @@ function LegendSwatch({ border, faded }: { border?: string; faded?: boolean }) {
  */
 export function StructureDag({
   constructs,
+  outcomeId,
   edges,
   indicators,
   knownInputs = [],
@@ -250,21 +254,25 @@ export function StructureDag({
   const [zoom, setZoom] = useState(0.69);
   const setZoomClamped = (z: number) => setZoom(Math.max(ZMIN, Math.min(ZMAX, z)));
 
+  const byId = useMemo(
+    () => new Map(constructs.map((construct) => [construct.id, construct])),
+    [constructs],
+  );
   const byName = useMemo(() => new Map(constructs.map((c) => [c.name, c])), [constructs]);
   const knownInputByName = useMemo(
-    () => new Map(knownInputs.map((input) => [input.construct, input])),
-    [knownInputs],
+    () => new Map(knownInputs.map((input) => [byId.get(input.construct_id)!.name, input])),
+    [knownInputs, byId],
   );
 
   const indicatorsByConstruct = useMemo(() => {
     const map = new Map<string, Indicator[]>();
     for (const ind of indicators ?? []) {
-      const list = map.get(ind.construct_name);
+      const list = map.get(byId.get(ind.construct_id)!.name);
       if (list) list.push(ind);
-      else map.set(ind.construct_name, [ind]);
+      else map.set(byId.get(ind.construct_id)!.name, [ind]);
     }
     return map;
-  }, [indicators]);
+  }, [indicators, byId]);
 
   const nodeWidth = indicatorsByConstruct.size > 0 ? NODE_W_WITH_INDICATORS : NODE_W;
 
@@ -278,7 +286,13 @@ export function StructureDag({
         .map((construct) => construct.name),
     );
     const causalLinks = unrollCausalLinks(
-      edges.filter((edge) => edge.cause !== edge.effect),
+      edges
+        .filter((edge) => edge.cause_id !== edge.effect_id)
+        .map((edge) => ({
+          cause: byId.get(edge.cause_id)!.name,
+          effect: byId.get(edge.effect_id)!.name,
+          lagged: edge.lagged,
+        })),
       timeVaryingNames,
     );
     const selfLinks = buildGhostLinks(
@@ -320,7 +334,7 @@ export function StructureDag({
       layoutOptions: DAG_LAYOUT_OPTIONS,
     };
     return { graph: built, glyphs: split.glyphs };
-  }, [constructs, edges, indicatorsByConstruct, nodeWidth, dir]);
+  }, [constructs, edges, indicatorsByConstruct, nodeWidth, dir, byId]);
 
   const { nodes, edges: routed, width: W, height: H, isLayouting } = useDagLayout(graph);
 
@@ -332,11 +346,11 @@ export function StructureDag({
     if (!selected) return null;
     const set = new Set<string>([selected]);
     for (const e of edges) {
-      if (e.cause === selected) set.add(e.effect);
-      if (e.effect === selected) set.add(e.cause);
+      if (byId.get(e.cause_id)!.name === selected) set.add(byId.get(e.effect_id)!.name);
+      if (byId.get(e.effect_id)!.name === selected) set.add(byId.get(e.cause_id)!.name);
     }
     return set;
-  }, [selected, edges]);
+  }, [selected, edges, byId]);
 
   const hoverEndpoints = useMemo(() => {
     const meta = hoverEdgeId ? glyphs.get(hoverEdgeId) : null;
@@ -356,10 +370,11 @@ export function StructureDag({
     (construct) =>
       construct.temporal_status === "time_varying" &&
       (construct.role === "endogenous" ||
-        edges.some((edge) => edge.lagged && edge.cause === construct.name)),
+        edges.some((edge) => edge.lagged && byId.get(edge.cause_id)!.name === construct.name)),
   );
   const hasCrossLagged = edges.some(
-    (edge) => edge.lagged && byName.get(edge.cause)?.temporal_status === "time_varying",
+    (edge) =>
+      edge.lagged && byName.get(byId.get(edge.cause_id)!.name)?.temporal_status === "time_varying",
   );
   const hasContemporaneous = edges.some((edge) => !edge.lagged);
   const statusValues = nodeStatuses ? Object.values(nodeStatuses) : [];
@@ -446,6 +461,7 @@ export function StructureDag({
                     width={nd.width}
                     height={nd.height}
                     construct={construct}
+                    isOutcome={construct.id === outcomeId}
                     indicators={indicatorsByConstruct.get(base) ?? []}
                     knownInput={knownInputByName.get(base)}
                     status={nodeStatuses?.[base]}

@@ -1,19 +1,12 @@
 "use client";
 
+import { Button } from "@/components/ui/button";
+import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
+import { formatNumber } from "@/lib/utils/format";
 import type { TreatmentEffect } from "@nof1-causal-lab/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
-import { formatNumber } from "@/lib/utils/format";
-import {
-  drawsCI,
-  meanDraws,
-  peakEffect,
-  probPositive,
-  timeToPeak,
-} from "@/lib/utils/treatment-effect-stats";
 import { ManifestProjection, PosteriorHistogram } from "./treatment-effect-visuals";
 
 const col = createColumnHelper<TreatmentEffect>();
@@ -23,10 +16,7 @@ export function TreatmentRankingTable({ results }: { results: TreatmentEffect[] 
 
   const sorted = useMemo(
     () =>
-      [...results].sort(
-        (a, b) =>
-          Math.abs(meanDraws(b.posterior_draws) ?? 0) - Math.abs(meanDraws(a.posterior_draws) ?? 0),
-      ),
+      [...results].sort((a, b) => Math.abs(b.summary?.mean ?? 0) - Math.abs(a.summary?.mean ?? 0)),
     [results],
   );
 
@@ -46,8 +36,8 @@ export function TreatmentRankingTable({ results }: { results: TreatmentEffect[] 
           />
         ),
         cell: ({ row }) => {
-          const v = meanDraws(row.original.posterior_draws);
-          return v === null ? "—" : formatNumber(v);
+          const summary = row.original.summary;
+          return summary === null ? "—" : formatNumber(summary.mean);
         },
         meta: {
           align: "right",
@@ -63,8 +53,10 @@ export function TreatmentRankingTable({ results }: { results: TreatmentEffect[] 
           />
         ),
         cell: ({ row }) => {
-          const ci = drawsCI(row.original.posterior_draws);
-          return ci === null ? "—" : `[${formatNumber(ci.lower)}, ${formatNumber(ci.upper)}]`;
+          const summary = row.original.summary;
+          return summary === null
+            ? "—"
+            : `[${formatNumber(summary.lower_95)}, ${formatNumber(summary.upper_95)}]`;
         },
         meta: {
           align: "right",
@@ -81,8 +73,8 @@ export function TreatmentRankingTable({ results }: { results: TreatmentEffect[] 
           />
         ),
         cell: ({ row }) => {
-          const probability = probPositive(row.original.posterior_draws);
-          return probability === null ? "—" : `${Math.round(probability * 100)}%`;
+          const summary = row.original.summary;
+          return summary === null ? "—" : `${Math.round(summary.prob_positive * 100)}%`;
         },
         meta: {
           align: "right",
@@ -98,8 +90,8 @@ export function TreatmentRankingTable({ results }: { results: TreatmentEffect[] 
           />
         ),
         cell: ({ row }) => {
-          const peak = peakEffect(row.original);
-          return peak === null ? "—" : formatNumber(peak);
+          const temporal = row.original.temporal;
+          return temporal == null ? "—" : formatNumber(temporal.peak_effect);
         },
         meta: {
           align: "right",
@@ -116,8 +108,8 @@ export function TreatmentRankingTable({ results }: { results: TreatmentEffect[] 
           />
         ),
         cell: ({ row }) => {
-          const days = timeToPeak(row.original);
-          return days === null ? "—" : `${formatNumber(days, 1)}d`;
+          const temporal = row.original.temporal;
+          return temporal == null ? "—" : `${formatNumber(temporal.time_to_peak_days, 1)}d`;
         },
         meta: {
           align: "right",
@@ -133,9 +125,9 @@ export function TreatmentRankingTable({ results }: { results: TreatmentEffect[] 
           />
         ),
         cell: ({ row }) => {
-          const draws = row.original.posterior_draws;
-          return draws && draws.length > 0 ? (
-            <PosteriorHistogram draws={draws} mean={meanDraws(draws)} />
+          const bins = row.original.histogram;
+          return bins.length > 0 ? (
+            <PosteriorHistogram bins={bins} mean={row.original.summary?.mean ?? null} />
           ) : (
             "—"
           );

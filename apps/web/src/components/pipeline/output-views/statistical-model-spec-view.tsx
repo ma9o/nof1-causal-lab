@@ -9,7 +9,13 @@ import type {
   StatisticalModelSpecData,
 } from "@nof1-causal-lab/api-types";
 
-function PriorPredictiveDiagnostics({ diagnostics }: { diagnostics: PriorPredictiveDiagnostic[] }) {
+function PriorPredictiveDiagnostics({
+  diagnostics,
+  names,
+}: {
+  diagnostics: PriorPredictiveDiagnostic[];
+  names: Record<string, string>;
+}) {
   if (diagnostics.length === 0) return null;
   return (
     <div className="space-y-3">
@@ -22,7 +28,7 @@ function PriorPredictiveDiagnostics({ diagnostics }: { diagnostics: PriorPredict
       <ul className="grid gap-2 md:grid-cols-2">
         {diagnostics.map((diagnostic, index) => (
           <li
-            key={`${diagnostic.check}:${diagnostic.target}:${index}`}
+            key={`${diagnostic.check}:${diagnostic.construct_id}:${index}`}
             className={
               diagnostic.passed
                 ? "rounded-md border border-success/25 bg-success/5 p-3"
@@ -34,7 +40,7 @@ function PriorPredictiveDiagnostics({ diagnostics }: { diagnostics: PriorPredict
               <span className="text-muted-foreground">{diagnostic.passed ? "PASS" : "REVIEW"}</span>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              {diagnostic.target}: {diagnostic.value}
+              {names[diagnostic.construct_id]}: {diagnostic.value}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">Target: {diagnostic.band}</p>
             {!diagnostic.passed && diagnostic.diagnosis.length > 0 && (
@@ -65,12 +71,16 @@ export default function StatisticalModelSpecView({
 
   return (
     <div className="space-y-4">
-      <SSMEquationDisplay
-        likelihoods={data.statistical_model_spec.likelihoods}
-        parameters={data.statistical_model_spec.parameters}
-        priors={authoredPriors}
-        indicators={indicators}
-      />
+      {data.structural_plan && (
+        <SSMEquationDisplay
+          equations={data.state_equations}
+          likelihoods={data.statistical_model_spec.likelihoods}
+          parameters={data.parameters}
+          priors={authoredPriors}
+          indicators={indicators}
+          structuralPlan={data.structural_plan}
+        />
+      )}
       {hasLikelihoodDiagnostics && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
@@ -80,20 +90,26 @@ export default function StatisticalModelSpecView({
           <MeasurementTable
             likelihoods={data.statistical_model_spec.likelihoods}
             diagnostics={data.likelihood_diagnostics}
-            priorPredictiveSamples={
-              (data.prior_predictive_samples ?? undefined) as Record<string, number[]> | undefined
-            }
+            indicators={indicators ?? []}
           />
         </div>
       )}
-      <PriorPredictiveDiagnostics diagnostics={data.prior_predictive_diagnostics ?? []} />
+      <PriorPredictiveDiagnostics
+        diagnostics={data.prior_predictive_diagnostics ?? []}
+        names={Object.fromEntries(
+          Object.values(data.structural_plan?.semantics.constructs ?? {}).map((construct) => [
+            construct.id,
+            construct.name,
+          ]),
+        )}
+      />
       {authoredPriors.length > 0 && (
         <div className="space-y-3">
           <div className="space-y-1">
             <h3 className="text-sm font-semibold">Authored Priors</h3>
             <p className="text-sm text-muted-foreground">
-              Only priors explicitly authored in the model-spec discrete-time view are shown here.
-              Terms without an authored prior are labeled as not authored in the semantic panels.
+              Priors are shown on each parameter’s declared authoring scale. The state equations
+              show any conversion to the continuous-time model scale.
             </p>
           </div>
           <PriorTable priors={authoredPriors} parameters={data.statistical_model_spec.parameters} />

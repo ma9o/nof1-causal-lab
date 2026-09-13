@@ -3,32 +3,34 @@
 import type {
   ArtifactViewId,
   ArtifactViewData as ArtifactViewPayload,
-  RawDataData,
-  LatentStructureData,
+  BaselineReportArtifact,
+  Indicator,
+  LatentStructureArtifact,
   MeasurementStructureViewData,
   MeasurementsData,
-  ValidationReportData,
+  PosteriorArtifact,
+  RawDataData,
   StatisticalModelSpecData,
-  PosteriorData,
-  BaselineReportData,
   TransitionMeta,
+  ValidationReportArtifact,
 } from "@nof1-causal-lab/api-types";
 import { type ComponentType, lazy, memo, type ReactNode, Suspense, useMemo } from "react";
-import { ErrorBoundary } from "@/components/ui/error-boundary";
-import type { AnalysisTransitionRun } from "@/lib/api/analysis";
 import { deriveConstructStatuses } from "@/components/dag/construct-statuses";
 import { createSimulateDispatch } from "@/components/dag/interactive/dispatch-simulate";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
+import type { AnalysisTransitionRun } from "@/lib/api/analysis";
 import { useWorkspaceView } from "@/lib/contexts/workspace-view-context";
-import type { TransitionRunStatus, TransitionTiming } from "@/lib/hooks/use-run-events";
 import { useArtifactView } from "@/lib/hooks/use-artifact-view";
 import { useLLMTrace } from "@/lib/hooks/use-llm-trace";
+import { useModelSnapshot } from "@/lib/hooks/use-model-snapshot";
+import type { TransitionRunStatus, TransitionTiming } from "@/lib/hooks/use-run-events";
 import { resolveTransitionObservedStatus } from "@/lib/transition-runtime";
+import { OutputPresentationShell } from "./output-presentation-shell";
 import {
+  buildBaselineReportScenarios,
   buildEdgePosteriors,
   buildPersistencePosteriors,
-  buildBaselineReportScenarios,
 } from "./output-views/baseline-report-scenarios";
-import { OutputPresentationShell } from "./output-presentation-shell";
 
 const RawDataView = lazy(() => import("./output-views/raw-data-view"));
 const LatentStructureView = lazy(() => import("./output-views/latent-structure-view"));
@@ -188,14 +190,24 @@ function ModelSpecConnectedContent({
   );
 }
 
-function PosteriorConnectedContent({
-  workspaceId,
-  data,
-}: {
-  workspaceId: string;
-  data: PosteriorData;
-}) {
-  return <PosteriorView workspaceId={workspaceId} data={data} />;
+function createIndicatorDataAdapter<TData>(
+  Component: ComponentType<{ data: TData; workspaceId: string; indicators: Indicator[] }>,
+) {
+  return function IndicatorDataAdapter({ workspaceId, data }: OutputViewAdapterProps) {
+    const { data: measurement } = useArtifactView<MeasurementStructureViewData>(
+      workspaceId,
+      "measurement_structure",
+      true,
+    );
+    if (!measurement) return null;
+    return (
+      <Component
+        workspaceId={workspaceId}
+        data={data as TData}
+        indicators={measurement.causal_design.measurement.indicators}
+      />
+    );
+  };
 }
 
 function BaselineReportConnectedContent({
@@ -203,10 +215,11 @@ function BaselineReportConnectedContent({
   data,
 }: {
   workspaceId: string;
-  data: BaselineReportData;
+  data: BaselineReportArtifact;
 }) {
   const { selectedScenarioKey, selectScenario, readOnly } = useWorkspaceView();
-  const { data: latentStructure } = useArtifactView<LatentStructureData>(
+  const snapshot = useModelSnapshot(workspaceId);
+  const { data: latentStructure } = useArtifactView<LatentStructureArtifact>(
     workspaceId,
     "latent_structure",
     true,
@@ -216,12 +229,7 @@ function BaselineReportConnectedContent({
     "measurement_structure",
     true,
   );
-  const { data: modelSpec } = useArtifactView<StatisticalModelSpecData>(
-    workspaceId,
-    "statistical_model_spec",
-    true,
-  );
-  const { data: posterior } = useArtifactView<PosteriorData>(workspaceId, "posterior", true);
+  const model = snapshot.data;
   const { data: llmTrace } = useLLMTrace(workspaceId, "baseline_report", true);
 
   // The scientific DAG remains the stable base. Fitted edge posteriors and simulation
@@ -234,15 +242,21 @@ function BaselineReportConnectedContent({
       edges: latentStructure?.latent_structure.edges ?? [],
       indicators: design?.measurement.indicators,
       knownInputs: design?.known_inputs,
-      edgePosteriors: buildEdgePosteriors({ latentStructure, modelSpec, posterior }),
-      persistencePosteriors: buildPersistencePosteriors({ modelSpec, posterior }),
+      edgePosteriors: buildEdgePosteriors({
+        latentStructure,
+        estimates: model?.fit?.value.edge_estimates ?? {},
+      }),
+      persistencePosteriors: buildPersistencePosteriors({
+        latentStructure,
+        estimates: model?.fit?.value.decay_estimates ?? {},
+      }),
       identifiableTreatments: data.intervention_results.map(({ treatment }) => treatment),
       nodeStatuses:
         design && measurementStructure
           ? deriveConstructStatuses(design, measurementStructure.structural_plan)
           : undefined,
     };
-  }, [data.intervention_results, latentStructure, measurementStructure, modelSpec, posterior]);
+  }, [data.intervention_results, latentStructure, measurementStructure, model]);
   const scenarios = useMemo(() => buildBaselineReportScenarios({ trace: llmTrace }), [llmTrace]);
   const onSimulate = useMemo(
     () => (readOnly ? undefined : createSimulateDispatch(workspaceId)),
@@ -265,21 +279,20 @@ const outputViewAdapters = {
   raw_data: ({ workspaceId, data }: OutputViewAdapterProps) => (
     <RawDataView workspaceId={workspaceId} data={data as RawDataData} />
   ),
-  latent_structure: createArtifactDataAdapter<LatentStructureData>(LatentStructureView),
+  latent_structure: createArtifactDataAdapter<LatentStructureArtifact>(LatentStructureView),
   measurement_structure:
     createArtifactDataAdapter<MeasurementStructureViewData>(MeasurementStructureView),
-  measurements: ({ workspaceId, data }: OutputViewAdapterProps) => (
-    <MeasurementsView workspaceId={workspaceId} data={data as MeasurementsData} />
-  ),
-  validation_report: createArtifactDataAdapter<ValidationReportData>(ValidationReportView),
+  measurements: createIndicatorDataAdapter<MeasurementsData>(MeasurementsView),
+  validation_report: createIndicatorDataAdapter<ValidationReportArtifact>(ValidationReportView),
   statistical_model_spec: ({ workspaceId, data }: OutputViewAdapterProps) => (
     <ModelSpecConnectedContent workspaceId={workspaceId} data={data as StatisticalModelSpecData} />
   ),
-  posterior: ({ workspaceId, data }: OutputViewAdapterProps) => (
-    <PosteriorConnectedContent workspaceId={workspaceId} data={data as PosteriorData} />
-  ),
+  posterior: createIndicatorDataAdapter<PosteriorArtifact>(PosteriorView),
   baseline_report: ({ workspaceId, data }: OutputViewAdapterProps) => (
-    <BaselineReportConnectedContent workspaceId={workspaceId} data={data as BaselineReportData} />
+    <BaselineReportConnectedContent
+      workspaceId={workspaceId}
+      data={data as BaselineReportArtifact}
+    />
   ),
 } satisfies Record<ArtifactViewId, (props: OutputViewAdapterProps) => ReactNode>;
 

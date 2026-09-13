@@ -50,7 +50,7 @@ export function deriveConstructStatuses(
       if (!status) {
         throw new Error(`StructuralPlan has no semantics for construct '${construct.name}'.`);
       }
-      return [construct.name, blocking.has(construct.name) ? "blocking" : status];
+      return [construct.name, blocking.has(construct.id) ? "blocking" : status];
     }),
   );
 }

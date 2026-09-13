@@ -1,14 +1,14 @@
+import type { LatentStructureArtifact } from "@nof1-causal-lab/api-types";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import type { LatentStructureData } from "@nof1-causal-lab/api-types";
 import { withContainer } from "@/components/story-decorators";
-import { ConstructDetailPanel } from "./construct-detail-panel";
 import { demoLatentStructure } from "../../__fixtures__/demo-artifacts";
+import { ConstructDetailPanel } from "./construct-detail-panel";
 
-const data = demoLatentStructure as LatentStructureData;
+const data = demoLatentStructure as LatentStructureArtifact;
 const constructs = data.latent_structure.constructs;
 const endogenous = constructs.find((c) => c.role === "endogenous")!;
 const exogenous = constructs.find((c) => c.role === "exogenous")!;
-const outcome = constructs.find((c) => c.is_outcome)!;
+const outcome = constructs.find((c) => c.id === data.latent_structure.default_outcome?.id)!;
 
 const meta = {
   title: "Pipeline/Outputs/Latent Structure/ConstructDetailPanel",
@@ -28,5 +28,5 @@ export const Exogenous: Story = {
 };
 
 export const Outcome: Story = {
-  args: { construct: outcome },
+  args: { construct: outcome, isOutcome: true },
 };

@@ -1,16 +1,17 @@
-import type { ArtifactViewId } from "@nof1-causal-lab/api-types";
 import type {
-  EpisodeArtifactStatus,
-  EpisodeEvent as EpisodeEventRecord,
-  EpisodeTransitionRecord,
-} from "@/lib/episode-types";
-export type {
-  EpisodeArtifactStatus,
-  EpisodeEvent as EpisodeEventRecord,
-  EpisodeMove,
-  EpisodeTransitionRecord,
-} from "@/lib/episode-types";
+  ArtifactFreshness,
+  ArtifactViewId,
+  Move,
+  RuntimeEvent,
+  TransitionRecord,
+} from "@nof1-causal-lab/api-types";
 import { apiFetch } from "./client";
+export type {
+  ArtifactFreshness,
+  Move,
+  RuntimeEvent,
+  TransitionRecord,
+} from "@nof1-causal-lab/api-types";
 
 export interface AnalysisTransitionExecution {
   stateType: string;
@@ -38,9 +39,11 @@ export interface EpisodeProgressPayload {
   workspaceId: string;
   autoRunning: boolean;
   seq: number;
-  artifacts: EpisodeArtifactStatus[];
-  transitions: EpisodeTransitionRecord[];
-  events: EpisodeEventRecord[];
+  artifacts: ArtifactFreshness[];
+  /** Moves the machine accepts right now, as the facade reports them. */
+  legal: Move[];
+  transitions: TransitionRecord[];
+  events: RuntimeEvent[];
 }
 
 export function getAnalysisManifestQueryKey(workspaceId: string) {

@@ -9,10 +9,10 @@ describe("deriveConstructStatuses", () => {
     const design = {
       latent: {
         constructs: ["state", "latent_u", "context", "blocked"].map((name) => ({
+          id: `construct:${name}`,
           name,
           description: name,
           role: "endogenous",
-          is_outcome: name === "state",
           temporal_status: "time_varying",
         })),
         edges: [],
@@ -22,15 +22,16 @@ describe("deriveConstructStatuses", () => {
       scientific_only_constructs: [{ construct: "context", reason: "Interpretation only" }],
       identifiability: {
         identifiable_treatments: {
-          state: {
+          "construct:state": {
+            status: "identified",
             method: "do_calculus",
             estimand: "P(y|do(x))",
-            marginalized_confounders: ["latent_u"],
+            marginalized_confounders: ["construct:latent_u"],
             instruments: [],
           },
         },
         non_identifiable_treatments: {
-          blocked: { confounders: ["latent_u"] },
+          "construct:blocked": { status: "not_identified", confounders: ["construct:latent_u"] },
         },
       },
     } as unknown as CausalDesign;

@@ -1,3 +1,4 @@
+import type { ConstructId } from "@nof1-causal-lab/api-types";
 import type { LatentClamp, AnalysisSimulationResult } from "./intervention-dag-types";
 
 function formatSignedAmount(value: number, digits = 1): string {
@@ -39,25 +40,25 @@ export function formatClampValue(clamp: LatentClamp): string {
 
 /** do(...) description joining every clamp in the scenario. */
 export function formatScenarioActionDescription(result: AnalysisSimulationResult): string {
-  return result.clamps
+  return result.query.clamps
     .map((clamp) => `do(${clamp.variable} ${formatClampValue(clamp)})`)
     .join(", ");
 }
 
 export function getEffectTrajectoryDays(result: AnalysisSimulationResult): number[] {
-  return result.effect_trajectory?.map((point) => point.day) ?? [];
+  return result.result.effect_trajectory?.map((point) => point.day) ?? [];
 }
 
 export function getNodeReferenceSeries(
   result: AnalysisSimulationResult,
-  nodeName: string,
+  nodeId: ConstructId,
 ): number[] | null {
-  return result.visualization?.reference_node_trajectories?.[nodeName] ?? null;
+  return result.result.visualization?.reference_node_trajectories?.[nodeId] ?? null;
 }
 
 export function getNodeActionSeries(
   result: AnalysisSimulationResult,
-  nodeName: string,
+  nodeId: ConstructId,
 ): number[] | null {
-  return result.visualization?.action_node_trajectories?.[nodeName] ?? null;
+  return result.result.visualization?.action_node_trajectories?.[nodeId] ?? null;
 }

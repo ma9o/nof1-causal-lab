@@ -17,5 +17,5 @@ export const WithSearchContext: Story = {
 };
 
 export const WithoutSearchContext: Story = {
-  args: { priors },
+  args: { priors, parameters },
 };

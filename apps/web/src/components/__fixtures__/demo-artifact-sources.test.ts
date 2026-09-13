@@ -1,7 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { SimulateScenarioResult } from "@nof1-causal-lab/api-types";
 import { describe, expect, it } from "vitest";
+import { demoModelSnapshot } from "./demo-artifacts";
 
 const repoRoot = fileURLToPath(new URL("../../../../../", import.meta.url));
 
@@ -38,25 +40,25 @@ describe("promoted DEMO fixture", () => {
       >;
     const fixtureLatent = read("fixture/artifacts/latent_structure.json") as {
       latent_structure: {
-        constructs: Array<{ name: string; role: string }>;
-        edges: Array<{ cause: string; effect: string }>;
+        constructs: Array<{ id: string; name: string; role: string }>;
+        edges: Array<{ cause_id: string; effect_id: string }>;
       };
     };
     const storedLatent = read("store/latent_structure/v1/latent-structure.json") as {
       latent_structure: {
-        edges: Array<{ cause: string; effect: string }>;
+        edges: Array<{ cause_id: string; effect_id: string }>;
       };
     };
     const fixtureMeasurement = read("fixture/artifacts/measurement_structure.json") as {
       measurement_structure: unknown;
-      known_inputs: Array<{ construct: string }>;
-      scientific_only_constructs: Array<{ construct: string }>;
+      known_inputs: Array<{ construct_id: string }>;
+      scientific_only_constructs: Array<{ construct_id: string }>;
     };
     const fixtureCausal = read("fixture/artifacts/causal_design.json").causal_design as {
       latent: unknown;
       measurement: unknown;
-      known_inputs: Array<{ construct: string }>;
-      scientific_only_constructs: Array<{ construct: string }>;
+      known_inputs: Array<{ construct_id: string }>;
+      scientific_only_constructs: Array<{ construct_id: string }>;
       estimation?: unknown;
     };
     const fixturePlan = read("fixture/artifacts/structural_plan.json").structural_plan as {
@@ -83,31 +85,36 @@ describe("promoted DEMO fixture", () => {
     ).toHaveLength(19);
 
     const constructsWithIncomingEdges = new Set(
-      fixtureLatent.latent_structure.edges.map(({ effect }) => effect),
+      fixtureLatent.latent_structure.edges.map(({ effect_id }) => effect_id),
     );
     expect(
       fixtureLatent.latent_structure.constructs
-        .filter(({ name, role }) => role === "endogenous" && !constructsWithIncomingEdges.has(name))
+        .filter(({ id, role }) => role === "endogenous" && !constructsWithIncomingEdges.has(id))
         .map(({ name }) => name),
       "The reduced story must not silently turn endogenous constructs into unexplained roots.",
     ).toEqual([]);
 
-    const selectedConstructNames = new Set(
-      fixtureLatent.latent_structure.constructs.map(({ name }) => name),
+    const selectedConstructIds = new Set(
+      fixtureLatent.latent_structure.constructs.map(({ id }) => id),
+    );
+    const labels = new Map(
+      fixtureLatent.latent_structure.constructs.map(({ id, name }) => [id, name]),
     );
     const storedInducedEdgeKeys = storedLatent.latent_structure.edges
       .filter(
-        ({ cause, effect }) =>
-          selectedConstructNames.has(cause) && selectedConstructNames.has(effect),
+        ({ cause_id, effect_id }) =>
+          selectedConstructIds.has(cause_id) && selectedConstructIds.has(effect_id),
       )
-      .map(({ cause, effect }) => `${cause}→${effect}`);
+      .map(({ cause_id, effect_id }) => `${labels.get(cause_id)}→${labels.get(effect_id)}`);
     const contractedEdgeKeys = [
       "natural_recovery_propensity→internalizing_symptom_burden",
       "taper_speed_dose_reduction→withdrawal_symptom_burden",
       "escitalopram_dose_taken→internalizing_symptom_burden",
     ];
     expect(
-      fixtureLatent.latent_structure.edges.map(({ cause, effect }) => `${cause}→${effect}`).sort(),
+      fixtureLatent.latent_structure.edges
+        .map(({ cause_id, effect_id }) => `${labels.get(cause_id)}→${labels.get(effect_id)}`)
+        .sort(),
     ).toEqual([...storedInducedEdgeKeys, ...contractedEdgeKeys].sort());
 
     const dispositions = fixturePlan.dispositions
@@ -143,18 +150,18 @@ describe("promoted DEMO fixture", () => {
 
     const causal = readFixture("artifacts/causal_design.json").causal_design as {
       latent: {
-        constructs: Array<{ name: string; temporal_status: string }>;
-        edges: Array<{ cause: string; effect: string }>;
+        constructs: Array<{ id: string; name: string; temporal_status: string }>;
+        edges: Array<{ cause_id: string; effect_id: string }>;
       };
-      measurement: { indicators: Array<{ name: string; construct_name: string }> };
+      measurement: { indicators: Array<{ name: string; construct_id: string }> };
       identifiability: { identifiable_treatments: Record<string, unknown> };
-      known_inputs: Array<{ construct: string }>;
-      scientific_only_constructs: Array<{ construct: string }>;
+      known_inputs: Array<{ construct_id: string }>;
+      scientific_only_constructs: Array<{ construct_id: string }>;
     };
     const plan = readFixture("artifacts/structural_plan.json").structural_plan as {
       semantics: {
         constructs: Record<string, { name: string }>;
-        edges: Record<string, { cause: string; effect: string }>;
+        edges: Record<string, { cause_id: string; effect_id: string }>;
         indicators: Record<string, { name: string }>;
       };
       state_order: string[];
@@ -163,16 +170,18 @@ describe("promoted DEMO fixture", () => {
     };
     const model = readFixture("artifacts/statistical_model_spec.json") as {
       statistical_model_spec: {
-        likelihoods: Array<{ variable: string }>;
-        parameters: Array<{ name: string; role: string }>;
+        likelihoods: Array<{ indicator_id: string }>;
+        parameters: Array<{ id: string; name: string; role: string }>;
       };
       authored_priors: Record<string, unknown>;
-      resolved_priors: Array<{ parameter: string }>;
+      resolved_priors: Array<{ parameter_id: string }>;
       prior_predictive_samples: Record<string, number[]>;
     };
     const posterior = readFixture("artifacts/posterior.json") as {
-      ppc: { overlays: Array<{ variable: string }> };
-      mcmc_diagnostics: { per_parameter: Array<{ parameter: string }> };
+      assessment: {
+        ppc: { overlays: Array<{ indicator_id: string }> };
+        mcmc_diagnostics: { per_parameter: Array<{ parameter: string }> };
+      };
       posterior_marginals: Array<{ parameter: string }>;
     };
     const report = readFixture("artifacts/baseline_report.json") as {
@@ -187,9 +196,11 @@ describe("promoted DEMO fixture", () => {
     );
     const executableEdges = plan.edges.map(({ source_id }) => plan.semantics.edges[source_id]);
     const edgeParameterNames = executableEdges.map(
-      ({ cause, effect }) => `beta_${cause}_${effect}`,
+      ({ cause_id, effect_id }) =>
+        `beta_${plan.semantics.constructs[cause_id].name}_${plan.semantics.constructs[effect_id].name}`,
     );
     const parameterNames = model.statistical_model_spec.parameters.map(({ name }) => name);
+    const parameterIds = model.statistical_model_spec.parameters.map(({ id }) => id);
 
     expect(Object.keys(model).sort()).toEqual([
       "authored_priors",
@@ -201,46 +212,52 @@ describe("promoted DEMO fixture", () => {
       "validation_warnings",
     ]);
     expect(Object.keys(posterior).sort()).toEqual([
+      "assessment",
+      "draws",
       "inference_metadata",
-      "loo_diagnostics",
-      "mcmc_diagnostics",
       "posterior_marginals",
       "posterior_pairs",
-      "ppc",
-      "smc_diagnostics",
+      "provenance",
     ]);
     expect(Object.keys(report).sort()).toEqual([
       "final_summary",
       "intervention_results",
       "saved_scenarios",
     ]);
-    expect(model.statistical_model_spec.likelihoods.map(({ variable }) => variable)).toEqual(
-      manifestIndicatorNames,
-    );
+    expect(
+      model.statistical_model_spec.likelihoods.map(({ indicator_id }) => indicator_id),
+    ).toEqual(plan.manifest_indicator_order);
     expect(Object.keys(model.prior_predictive_samples).sort()).toEqual(
-      [...manifestIndicatorNames].sort(),
+      [...plan.manifest_indicator_order].sort(),
     );
-    expect(Object.keys(model.authored_priors).sort()).toEqual([...parameterNames].sort());
-    expect(model.resolved_priors.map(({ parameter }) => parameter)).toEqual(parameterNames);
-    expect(posterior.ppc.overlays.map(({ variable }) => variable)).toEqual(manifestIndicatorNames);
-    expect(posterior.mcmc_diagnostics.per_parameter.map(({ parameter }) => parameter)).toEqual(
-      parameterNames,
+    expect(Object.keys(model.authored_priors).sort()).toEqual([...parameterIds].sort());
+    expect(model.resolved_priors.map(({ parameter_id }) => parameter_id)).toEqual(parameterIds);
+    expect(posterior.assessment.ppc.overlays.map(({ indicator_id }) => indicator_id)).toEqual(
+      plan.manifest_indicator_order,
     );
-    expect(posterior.posterior_marginals.map(({ parameter }) => parameter)).toEqual(parameterNames);
+    const coordinates = demoModelSnapshot.fit!.value.posterior.posterior_marginals!.map((marginal) => marginal.parameter).sort();
+    expect(
+      posterior.assessment.mcmc_diagnostics.per_parameter.map(({ parameter }) => parameter).sort(),
+    ).toEqual(coordinates);
+    expect(posterior.posterior_marginals.map(({ parameter }) => parameter).sort()).toEqual(
+      coordinates,
+    );
     expect(
       model.statistical_model_spec.parameters
         .filter(({ role }) => role === "fixed_effect")
         .map(({ name }) => name),
     ).toEqual(edgeParameterNames);
     expect(report.intervention_results.map(({ treatment }) => treatment).sort()).toEqual(
-      Object.keys(causal.identifiability.identifiable_treatments)
+      causal.latent.constructs
+        .filter((construct) => construct.id in causal.identifiability.identifiable_treatments)
+        .map((construct) => construct.name)
         .filter((treatment) => stateNameSet.has(treatment))
         .sort(),
     );
     expect(stateNames).toHaveLength(7);
     expect(manifestIndicatorNames).toHaveLength(10);
     expect(executableEdges).toHaveLength(13);
-    expect(parameterNames).toHaveLength(48);
+    expect(parameterNames).toHaveLength(45);
     expect(indicatorNames).toHaveLength(19);
     expect(stateNames).toContain("internalizing_symptom_burden");
   });
@@ -264,46 +281,32 @@ describe("promoted DEMO fixture", () => {
         (message): message is { tool_name: string; tool_result: string } =>
           message.tool_name === "simulate" && message.tool_result != null,
       )
-      .map((message) => JSON.parse(message.tool_result)) as Array<{
-      outcome: string;
-      visualization: {
-        reference_node_trajectories: Record<string, number[]>;
-        action_node_trajectories: Record<string, number[]>;
-        node_effect_trajectories: Record<string, number[]>;
-        start_state: Record<string, number>;
-      };
-      clamps: unknown[];
-      effect_trajectory: Array<{ day: number; effect: number }>;
-    }>;
+      .map((message) => JSON.parse(message.tool_result)) as SimulateScenarioResult[];
 
-    const stateNames = plan.state_order
-      .map((sourceId) => plan.semantics.constructs[sourceId].name)
-      .sort();
+    const stateIds = [...plan.state_order].sort();
 
     expect(simulations).toHaveLength(5);
-    for (const simulation of simulations) {
-      expect(simulation.outcome).toBe("internalizing_symptom_burden");
-      expect(simulation.clamps).toHaveLength(1);
-      expect(Object.keys(simulation.visualization).sort()).toEqual([
+    for (const { query, evaluation, result } of simulations) {
+      const visualization = result.visualization!;
+      const trajectory = result.effect_trajectory!;
+      expect(evaluation.query_id).toBe(query.id);
+      expect(result.evaluation_id).toBe(evaluation.id);
+      expect(result.outcome_label).toBe("internalizing_symptom_burden");
+      expect(query.clamps).toHaveLength(1);
+      expect(Object.keys(visualization).sort()).toEqual([
         "action_node_trajectories",
         "node_effect_trajectories",
         "reference_node_trajectories",
         "start_state",
       ]);
-      expect(Object.keys(simulation.visualization.reference_node_trajectories).sort()).toEqual(
-        stateNames,
-      );
-      expect(Object.keys(simulation.visualization.action_node_trajectories).sort()).toEqual(
-        stateNames,
-      );
-      expect(Object.keys(simulation.visualization.node_effect_trajectories).sort()).toEqual(
-        stateNames,
-      );
-      expect(Object.keys(simulation.visualization.start_state).sort()).toEqual(stateNames);
-      expect(simulation.effect_trajectory).toHaveLength(61);
+      expect(Object.keys(visualization.reference_node_trajectories!).sort()).toEqual(stateIds);
+      expect(Object.keys(visualization.action_node_trajectories!).sort()).toEqual(stateIds);
+      expect(Object.keys(visualization.node_effect_trajectories!).sort()).toEqual(stateIds);
+      expect(Object.keys(visualization.start_state!).sort()).toEqual(stateIds);
+      expect(trajectory).toHaveLength(61);
       expect(
-        Object.values(simulation.visualization.reference_node_trajectories).every(
-          (trajectory) => trajectory.length === simulation.effect_trajectory.length,
+        Object.values(visualization.reference_node_trajectories!).every(
+          (series) => series.length === trajectory.length,
         ),
       ).toBe(true);
     }

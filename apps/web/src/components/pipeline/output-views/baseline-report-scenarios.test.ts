@@ -1,17 +1,9 @@
-import type {
-  SimulateScenarioResult,
-  LatentStructureData,
-  StatisticalModelSpecData,
-  PosteriorData,
-} from "@nof1-causal-lab/api-types";
+import type { SimulateScenarioResult } from "@nof1-causal-lab/api-types";
 import type { UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
+import { demoLatentStructure, demoModelSnapshot } from "@/components/__fixtures__/demo-artifacts";
 import { demoBaselineTrace } from "@/components/dag/__fixtures__/baseline_report-materialized-fixture";
-import {
-  buildBaselineReportScenarios,
-  buildEdgePosteriors,
-  buildPersistencePosteriors,
-} from "./baseline-report-scenarios";
+import { buildBaselineReportScenarios, buildEdgePosteriors } from "./baseline-report-scenarios";
 
 const fixtureScenarios = buildBaselineReportScenarios({ trace: demoBaselineTrace });
 const interventionResult = fixtureScenarios.find((scenario) => scenario.key === "sim-5")?.result;
@@ -54,23 +46,27 @@ describe("buildBaselineReportScenarios — interventions from a persisted trace"
 
     const newest = scenarios[0];
     expect(newest.key).toBe("sim-5");
-    expect(newest.result.start.kind).toBe("baseline");
+    expect(newest.result.result.start.kind).toBe("baseline");
     expect(newest.title).toBe("do(taper_speed_dose_reduction set 0.9)");
     expect(newest.requestedHorizonDays).toBe(60);
     expect(newest.userQuery).toContain("taper speed is raised sharply");
     // The assistant text beside the tool call becomes the scenario blurb.
     expect(newest.blurb).toContain("Rapid taper");
     // String-coerced result round-trips to the structured object.
-    expect(newest.result.summary.mean).toBe(interventionResult.summary.mean);
-    expect(newest.result.visualization?.node_effect_trajectories).toBeDefined();
+    expect(newest.result.result.summary.mean).toBe(interventionResult.result.summary.mean);
+    expect(newest.result.result.visualization?.node_effect_trajectories).toBeDefined();
   });
 
   it("captures abducted counterfactual fields and manifest projection", () => {
     const scenarios = buildBaselineReportScenarios({ trace: demoBaselineTrace });
 
-    const counterfactual = scenarios.find((scenario) => scenario.result.start.kind === "abducted");
+    const counterfactual = scenarios.find(
+      (scenario) => scenario.result.result.start.kind === "abducted",
+    );
     expect(counterfactual?.key).toBe("sim-4");
-    expect(counterfactual?.result.summary.mean).toBe(counterfactualResult.summary.mean);
+    expect(counterfactual?.result.result.summary.mean).toBe(
+      counterfactualResult.result.summary.mean,
+    );
 
     // Manifest projection carried through on the set-mode simulation.
     const setMode = scenarios.find((scenario) => scenario.key === "sim-5");
@@ -82,7 +78,10 @@ describe("buildBaselineReportScenarios — trace ∪ extra messages", () => {
   it("dedupes by tool-call id with the extra-message copy winning and ranked newest", () => {
     const edited: SimulateScenarioResult = {
       ...interventionResult,
-      summary: { ...interventionResult.summary, mean: 0.99 },
+      result: {
+        ...interventionResult.result,
+        summary: { ...interventionResult.result.summary, mean: 0.99 },
+      },
     };
 
     const scenarios = buildBaselineReportScenarios({
@@ -95,7 +94,8 @@ describe("buildBaselineReportScenarios — trace ∪ extra messages", () => {
     expect(scenarios.filter((scenario) => scenario.key === "sim-5")).toHaveLength(1);
     // …the refinement copy wins and leads the interventions.
     expect(scenarios[0].key).toBe("sim-5");
-    expect(scenarios[0].result.summary.mean).toBe(0.99);
+    expect(scenarios[0].result.result.summary.mean).toBe(0.99);
+    expect(scenarios[0].requestedHorizonDays).toBe(edited.query.readout.horizon_days);
   });
 
   it("orders production-valid interventions newest-first", () => {
@@ -111,131 +111,40 @@ describe("buildBaselineReportScenarios — trace ∪ extra messages", () => {
   });
 });
 
-describe("buildEdgePosteriors", () => {
-  it("maps fixed-effect posterior marginals onto source→target edges", () => {
-    const edgePosteriors = buildEdgePosteriors({
-      latentStructure: {
-        latent_structure: {
-          constructs: [
-            {
-              name: "stress_load",
-              description: "Stress exposure",
-              role: "endogenous",
-              is_outcome: false,
-              temporal_status: "time_varying",
-            },
-            {
-              name: "sleep_quality",
-              description: "Sleep quality",
-              role: "endogenous",
-              is_outcome: true,
-              temporal_status: "time_varying",
-            },
-          ],
-          edges: [
-            {
-              cause: "stress_load",
-              effect: "sleep_quality",
-              description: "Stress affects sleep",
-              lagged: true,
-            },
-          ],
-        },
-      } as LatentStructureData,
-      modelSpec: {
-        statistical_model_spec: {
-          likelihoods: [],
-          parameters: [
-            {
-              name: "coefficient_42",
-              role: "fixed_effect",
-              constraint: "none",
-              description: "Effect of stress_load on sleep_quality",
-            },
-          ],
-        },
-        authored_priors: {},
-        resolved_priors: [],
-      } as unknown as StatisticalModelSpecData,
-      posterior: {
-        posterior_marginals: [
-          {
-            parameter: "coefficient_42",
-            x_values: [0.1, 0.2],
-            density: [1, 1],
-            mean: 0.2,
-            sd: 0.05,
-            hdi_3: 0.1,
-            hdi_97: 0.3,
-          },
-        ],
-      } as unknown as PosteriorData,
-    });
-
-    expect(edgePosteriors).toEqual({
-      "stress_load→sleep_quality": {
-        mean: 0.2,
-        ci_lower: 0.1,
-        ci_upper: 0.3,
-      },
-    });
-  });
-
-  it("returns an empty map without latent_structure", () => {
-    expect(buildEdgePosteriors({})).toEqual({});
+describe("simulation query ownership", () => {
+  it("does not display a result attached to a different query", () => {
+    const mismatched: SimulateScenarioResult = {
+      ...interventionResult,
+      result: { ...interventionResult.result, evaluation_id: counterfactualResult.evaluation.id },
+    };
+    expect(
+      buildBaselineReportScenarios({
+        extraMessages: [refinementSimMessage("mismatch", mismatched)],
+      }),
+    ).toEqual([]);
   });
 });
 
-describe("buildPersistencePosteriors", () => {
-  it("maps only backend-declared AR parameters onto fitted latent states", () => {
-    const persistence = buildPersistencePosteriors({
-      modelSpec: {
-        statistical_model_spec: {
-          likelihoods: [],
-          parameters: [
-            {
-              name: "rho_sleep_quality",
-              role: "ar_coefficient",
-              constraint: "unit_interval",
-              description: "Baseline daily persistence absent incoming feedback for sleep_quality",
-            },
-            {
-              name: "sigma_sleep_quality",
-              role: "residual_sd",
-              constraint: "positive",
-              description: "Residual scale for sleep_quality",
-            },
-          ],
-        },
-        authored_priors: {},
-        resolved_priors: [],
-      } as unknown as StatisticalModelSpecData,
-      posterior: {
-        posterior_marginals: [
-          {
-            parameter: "rho_sleep_quality",
-            x_values: [0.7, 0.8],
-            density: [1, 1],
-            mean: 0.76,
-            sd: 0.03,
-            hdi_3: 0.7,
-            hdi_97: 0.82,
-          },
-          {
-            parameter: "sigma_sleep_quality",
-            x_values: [0.1, 0.2],
-            density: [1, 1],
-            mean: 0.15,
-            sd: 0.02,
-            hdi_3: 0.11,
-            hdi_97: 0.19,
-          },
-        ],
-      } as unknown as PosteriorData,
-    });
-
-    expect(persistence).toEqual({
-      sleep_quality: { mean: 0.76, ci_lower: 0.7, ci_upper: 0.82 },
-    });
+describe("owned graph findings", () => {
+  it("uses persistent owners even when the display name changes", () => {
+    const structure = structuredClone(demoLatentStructure);
+    const edge = structure.latent_structure.edges.find(
+      (item) => demoModelSnapshot.fit!.value.edge_estimates[item.id],
+    )!;
+    structure.latent_structure.constructs.find((item) => item.id === edge.cause_id)!.name =
+      "renamed";
+    expect(
+      buildEdgePosteriors({
+        latentStructure: structure,
+        estimates: demoModelSnapshot.fit!.value.edge_estimates,
+      }),
+    ).toHaveProperty(
+      `renamed→${demoLatentStructure.latent_structure.constructs.find((item) => item.id === edge.effect_id)!.name}`,
+    );
+  });
+  it("does not parse parameter descriptions or invent absent findings", () => {
+    expect(buildEdgePosteriors({ latentStructure: demoLatentStructure, estimates: {} })).toEqual(
+      {},
+    );
   });
 });

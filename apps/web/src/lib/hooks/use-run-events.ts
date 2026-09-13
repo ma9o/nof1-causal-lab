@@ -1,20 +1,12 @@
 "use client";
 
-import type { ArtifactViewId } from "@nof1-causal-lab/api-types";
-import { TRANSITIONS } from "@nof1-causal-lab/api-types";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef } from "react";
 import {
-  type EpisodeEventRecord,
-  type EpisodeProgressPayload,
-  type EpisodeTransitionRecord,
   getEpisodeProgress,
+  type EpisodeProgressPayload,
+  type RuntimeEvent,
+  type TransitionRecord,
 } from "@/lib/api/analysis";
 import { groupStaleArtifactsByProducer, hasStaleArtifacts } from "@/lib/artifact-staleness";
-import {
-  TRANSITION_EVENT_FILTER_PREFIX,
-  type TransitionProgressStatus,
-} from "@/lib/transition-runtime";
 import {
   applyExtractionEvent,
   getExtractionStateQueryKey,
@@ -27,12 +19,17 @@ import {
   parseModelSpecAdmissionEvent,
   type ModelSpecAdmissionReplayState,
 } from "@/lib/model-spec-admission-runtime";
+import { type TransitionProgressStatus } from "@/lib/transition-runtime";
+import type { ArtifactViewId } from "@nof1-causal-lab/api-types";
+import { TRANSITIONS } from "@nof1-causal-lab/api-types";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useRef } from "react";
 import { isMockMode, simulatePipelineEvents } from "../api/mock-provider";
 import {
   applyTransitionUpdate,
   initialProgress,
-  type PipelineProgress,
   restartTransitionAttempt,
+  type PipelineProgress,
   type TransitionRunStatus,
 } from "./pipeline-progress";
 import { getArtifactViewQueryKey } from "./use-artifact-view";
@@ -78,10 +75,12 @@ export interface TransitionProgressEvent {
   error?: { type: string; message: string };
 }
 
-export function parseTransitionProgressEvent(
-  record: EpisodeEventRecord,
-): TransitionProgressEvent | null {
-  if (!record.event.startsWith(TRANSITION_EVENT_FILTER_PREFIX)) {
+export function parseTransitionProgressEvent(record: RuntimeEvent): TransitionProgressEvent | null {
+  if (
+    record.event !== "nof1-causal-lab.transition.running" &&
+    record.event !== "nof1-causal-lab.transition.completed" &&
+    record.event !== "nof1-causal-lab.transition.failed"
+  ) {
     return null;
   }
 
@@ -104,12 +103,12 @@ export function parseTransitionProgressEvent(
 }
 
 /** Adapt an episode event to the {event, occurred, payload} record telemetry parsers consume. */
-function toRuntimeEventRecord(record: EpisodeEventRecord) {
+function toRuntimeEventRecord(record: RuntimeEvent) {
   const timestampMs = cursorTimestampMs(record.cursor);
   return {
     event: record.event,
     occurred: timestampMs === undefined ? null : new Date(timestampMs).toISOString(),
-    payload: record.payload,
+    payload: { ...record.payload },
   };
 }
 
@@ -119,6 +118,7 @@ function invalidateArtifactView(
   artifactId: ArtifactViewId,
 ) {
   queryClient.invalidateQueries({ queryKey: getArtifactViewQueryKey(workspaceId, artifactId) });
+  queryClient.invalidateQueries({ queryKey: ["model-snapshot", workspaceId, "latest"] });
 }
 
 /**
@@ -129,7 +129,7 @@ function invalidateArtifactView(
  */
 function applyRunTransition(
   progress: PipelineProgress | undefined,
-  transition: EpisodeTransitionRecord,
+  transition: TransitionRecord,
   transitionOrder: readonly ArtifactViewId[],
 ): PipelineProgress | undefined {
   if (transition.move.kind !== "run") {

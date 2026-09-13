@@ -14,32 +14,20 @@
  */
 
 import type {
+  EffectSummary,
+  LatentStructureArtifact,
   LLMTrace,
-  LatentStructureData,
-  StatisticalModelSpecData,
-  PosteriorData,
+  PosteriorEstimate,
 } from "@nof1-causal-lab/api-types";
 import type { UIMessage } from "ai";
 import { formatScenarioActionDescription } from "@/components/dag/intervention-dag-semantics";
-import type {
-  EdgePosterior,
-  AnalysisSimulationResult,
-} from "@/components/dag/intervention-dag-types";
+import type { AnalysisSimulationResult } from "@/components/dag/intervention-dag-types";
+import { parseSimulationResult } from "@/lib/simulation-result";
 import { traceToUIMessages } from "@/lib/utils/trace-to-ui-messages";
 
 // ── scenario types ──────────────────────────────────────────────────────────
 
 export type ScenarioProvenance = "intervention";
-
-/** Summary statistics for the rail card + effect summary. */
-export interface ScenarioSummaryStats {
-  mean: number;
-  lower95: number;
-  upper95: number;
-  probPositive: number;
-  peakEffect: number | null;
-  timeToPeakDays: number | null;
-}
 
 export interface BaselineReportScenario {
   /** Stable selection key — the `simulate` tool-call id. */
@@ -48,7 +36,7 @@ export interface BaselineReportScenario {
   /** Concise label for the rail card. */
   title: string;
   outcome: string;
-  summary: ScenarioSummaryStats;
+  summary: EffectSummary;
   manifestEffects: Record<string, number> | null;
   result: AnalysisSimulationResult;
   requestedHorizonDays?: number;
@@ -62,83 +50,9 @@ export interface BaselineReportScenario {
 
 const SIMULATION_TOOLS = new Set(["simulate"]);
 
-function isSimulationResult(value: unknown): value is AnalysisSimulationResult {
-  if (typeof value !== "object" || value == null) {
-    return false;
-  }
-  const candidate = value as Partial<AnalysisSimulationResult> & { error?: unknown };
-  if (candidate.error != null) {
-    return false;
-  }
-  return (
-    typeof candidate.outcome === "string" &&
-    typeof candidate.summary === "object" &&
-    candidate.summary != null &&
-    Array.isArray(candidate.clamps) &&
-    candidate.clamps.length > 0 &&
-    typeof candidate.start === "object" &&
-    candidate.start != null
-  );
-}
-
-/**
- * Tool outputs arrive as objects from the live refinement chat but as JSON
- * strings from a persisted trace (`TraceMessage.tool_result` is a string).
- * Coerce both to the structured result.
- */
-function coerceSimOutput(output: unknown): AnalysisSimulationResult | null {
-  if (typeof output === "string") {
-    try {
-      const parsed = JSON.parse(output) as unknown;
-      return isSimulationResult(parsed) ? parsed : null;
-    } catch {
-      return null;
-    }
-  }
-  return isSimulationResult(output) ? output : null;
-}
-
-function normalizeManifest(
-  manifest: { [k: string]: number | undefined } | null | undefined,
-): Record<string, number> | null {
-  if (!manifest) {
-    return null;
-  }
-  const entries = Object.entries(manifest).filter(
-    (entry): entry is [string, number] => typeof entry[1] === "number",
-  );
-  return entries.length > 0 ? Object.fromEntries(entries) : null;
-}
-
-function readHorizonDays(input: unknown): number | undefined {
-  if (typeof input !== "object" || input == null) {
-    return undefined;
-  }
-  const query = (input as { query?: unknown }).query;
-  if (typeof query !== "object" || query == null) {
-    return undefined;
-  }
-  const horizon = (query as { horizon_days?: unknown }).horizon_days;
-  return typeof horizon === "number" ? horizon : undefined;
-}
-
-function peakOfTrajectory(
-  result: AnalysisSimulationResult,
-): { day: number; effect: number } | null {
-  const trajectory = result.effect_trajectory;
-  if (!trajectory || trajectory.length === 0) {
-    return null;
-  }
-  return trajectory.reduce(
-    (best, point) => (Math.abs(point.effect) > Math.abs(best.effect) ? point : best),
-    trajectory[0],
-  );
-}
-
 interface RawSimulation {
   toolCallId: string;
   result: AnalysisSimulationResult;
-  input: unknown;
   userQuery?: string;
   blurb?: string;
   order: number;
@@ -182,14 +96,13 @@ function collectSimulations(
       ) {
         continue;
       }
-      const result = coerceSimOutput(part.output);
+      const result = parseSimulationResult(part.output);
       if (!result) {
         continue;
       }
       into.set(part.toolCallId, {
         toolCallId: part.toolCallId,
         result,
-        input: part.input,
         userQuery: lastUserQuery,
         blurb,
         order: order++,
@@ -200,23 +113,15 @@ function collectSimulations(
 }
 
 function toScenario(raw: RawSimulation): BaselineReportScenario {
-  const peak = peakOfTrajectory(raw.result);
   return {
     key: raw.toolCallId,
     provenance: "intervention",
     title: formatScenarioActionDescription(raw.result),
-    outcome: raw.result.outcome,
-    summary: {
-      mean: raw.result.summary.mean,
-      lower95: raw.result.summary.lower_95,
-      upper95: raw.result.summary.upper_95,
-      probPositive: raw.result.summary.prob_positive,
-      peakEffect: peak ? peak.effect : null,
-      timeToPeakDays: peak ? peak.day : null,
-    },
-    manifestEffects: normalizeManifest(raw.result.manifest_effects),
+    outcome: raw.result.result.outcome_label,
+    summary: raw.result.result.summary,
+    manifestEffects: raw.result.result.manifest_effects ?? null,
     result: raw.result,
-    requestedHorizonDays: readHorizonDays(raw.input),
+    requestedHorizonDays: raw.result.query.readout.horizon_days,
     userQuery: raw.userQuery,
     blurb: raw.blurb,
   };
@@ -244,110 +149,39 @@ export function buildBaselineReportScenarios(args: {
 
 // ── edge posteriors (graph-level, scenario-independent) ──────────────────────
 
-function normalizeConstructLabel(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[\s_]+/g, " ");
-}
-
-function resolveConstructName(label: string, constructNames: string[]): string | null {
-  const normalizedLabel = normalizeConstructLabel(label);
-  return (
-    constructNames.find(
-      (constructName) => normalizeConstructLabel(constructName) === normalizedLabel,
-    ) ?? null
-  );
-}
-
-function parseFixedEffectDescription(
-  description: string,
-  constructNames: string[],
-): { source: string; target: string } | null {
-  const match = /^Effect of (.+?) on (.+?)(?: \(|$)/.exec(description);
-  if (!match) {
-    return null;
-  }
-  const source = resolveConstructName(match[1], constructNames);
-  const target = resolveConstructName(match[2], constructNames);
-  if (!source || !target) {
-    return null;
-  }
-  return { source, target };
-}
-
-/** Map fixed-effect posterior marginals onto `source→target` edge posteriors. */
+/** Translate canonical edge IDs to graph display labels; estimates are computed in Python. */
 export function buildEdgePosteriors({
   latentStructure,
-  modelSpec,
-  posterior,
+  estimates,
 }: {
-  latentStructure?: LatentStructureData;
-  modelSpec?: StatisticalModelSpecData;
-  posterior?: PosteriorData;
-}): Record<string, EdgePosterior> {
-  if (!latentStructure) {
-    return {};
-  }
-
-  const constructNames = latentStructure.latent_structure.constructs.map(
-    (construct) => construct.name,
+  latentStructure?: LatentStructureArtifact | null;
+  estimates: import("@nof1-causal-lab/api-types").FitSummary["edge_estimates"];
+}): Record<string, PosteriorEstimate> {
+  const names = new Map(
+    latentStructure?.latent_structure.constructs.map((construct) => [construct.id, construct.name]),
   );
-  const parametersByName = new Map(
-    (modelSpec?.statistical_model_spec.parameters ?? []).map((parameter) => [
-      parameter.name,
-      parameter,
-    ]),
+  return Object.fromEntries(
+    (latentStructure?.latent_structure.edges ?? []).flatMap((edge) => {
+      const estimate = estimates[edge.id];
+      return estimate
+        ? [[`${names.get(edge.cause_id)}→${names.get(edge.effect_id)}`, estimate]]
+        : [];
+    }),
   );
-  const marginals = posterior?.posterior_marginals ?? [];
-  const edgePosteriors: Record<string, EdgePosterior> = {};
-
-  for (const marginal of marginals) {
-    const parameter = parametersByName.get(marginal.parameter);
-    if (parameter?.role !== "fixed_effect") {
-      continue;
-    }
-    const parsed = parseFixedEffectDescription(parameter.description, constructNames);
-    if (!parsed) {
-      continue;
-    }
-    edgePosteriors[`${parsed.source}→${parsed.target}`] = {
-      mean: marginal.mean,
-      ci_lower: marginal.hdi_3,
-      ci_upper: marginal.hdi_97,
-    };
-  }
-
-  return edgePosteriors;
 }
 
-/** Map fitted `ar_coefficient` marginals onto their backend-declared latent states. */
+/** Decay estimates retain their runtime rate units. */
 export function buildPersistencePosteriors({
-  modelSpec,
-  posterior,
+  latentStructure,
+  estimates,
 }: {
-  modelSpec?: StatisticalModelSpecData;
-  posterior?: PosteriorData;
-}): Record<string, EdgePosterior> {
-  const parametersByName = new Map(
-    (modelSpec?.statistical_model_spec.parameters ?? []).map((parameter) => [
-      parameter.name,
-      parameter,
-    ]),
+  latentStructure?: LatentStructureArtifact | null;
+  estimates: import("@nof1-causal-lab/api-types").FitSummary["decay_estimates"];
+}): Record<string, PosteriorEstimate> {
+  return Object.fromEntries(
+    (latentStructure?.latent_structure.constructs ?? []).flatMap((construct) => {
+      const estimate = estimates[construct.id];
+      return estimate ? [[construct.name, estimate]] : [];
+    }),
   );
-  const persistencePosteriors: Record<string, EdgePosterior> = {};
-
-  for (const marginal of posterior?.posterior_marginals ?? []) {
-    const parameter = parametersByName.get(marginal.parameter);
-    if (parameter?.role !== "ar_coefficient" || !parameter.name.startsWith("rho_")) {
-      continue;
-    }
-    persistencePosteriors[parameter.name.slice("rho_".length)] = {
-      mean: marginal.mean,
-      ci_lower: marginal.hdi_3,
-      ci_upper: marginal.hdi_97,
-    };
-  }
-
-  return persistencePosteriors;
 }

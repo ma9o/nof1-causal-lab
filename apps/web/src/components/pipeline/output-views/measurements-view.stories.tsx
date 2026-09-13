@@ -1,3 +1,5 @@
+import { demoMeasurementStructure } from "@/components/__fixtures__/demo-artifacts";
+const indicators = demoMeasurementStructure.causal_design.measurement.indicators;
 import type { Meta } from "@storybook/nextjs-vite";
 import { TRANSITIONS } from "@nof1-causal-lab/api-types";
 import {
@@ -378,6 +380,7 @@ function AnimatedExtractionRunning() {
 }
 
 const meta = {
+  args: { indicators },
   title: "Pipeline/Outputs/Measurements/Panel",
   component: MeasurementsView,
   decorators: outputStoryDecorators,
@@ -423,7 +426,7 @@ export const Running1kWorkers = {
 
 export const Completed = createCompletedOutputStory({
   output,
-  args: { data, workspaceId },
+  args: { data, indicators, workspaceId },
   elapsedMs: 45_200,
   trace: demoTraces.measurements,
   renderContent: (args) => <MeasurementsView {...args} />,

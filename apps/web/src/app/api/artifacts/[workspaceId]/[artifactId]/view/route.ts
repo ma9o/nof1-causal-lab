@@ -1,7 +1,7 @@
-import { NextResponse } from "next/server";
-import { ArtifactNotFoundError } from "@/lib/server/artifacts";
 import { loadArtifactView } from "@/lib/artifact-view-loader";
+import { EpisodeRunError } from "@/lib/server/episode-runs";
 import { normalizeWorkspaceId } from "@/lib/workspace-id";
+import { NextResponse } from "next/server";
 
 export async function GET(
   _request: Request,
@@ -21,7 +21,7 @@ export async function GET(
   try {
     return NextResponse.json(await loadArtifactView(safeArtifactId, safeWorkspaceId));
   } catch (e: unknown) {
-    if (e instanceof ArtifactNotFoundError) {
+    if (e instanceof EpisodeRunError && e.status === 404) {
       return NextResponse.json({ error: `No data for ${artifactId}` }, { status: 404 });
     }
     return NextResponse.json(

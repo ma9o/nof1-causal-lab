@@ -2,7 +2,6 @@
 
 import { Badge } from "@/components/ui/badge";
 import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
-import { evaluatePdf } from "@/lib/utils/distributions";
 import { formatNumber } from "@/lib/utils/format";
 import type { ParameterSpec, PriorProposal } from "@nof1-causal-lab/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
@@ -12,7 +11,7 @@ import { type MouseEvent, useMemo, useState } from "react";
 import { SourceBadges } from "../source-badges";
 import { SparklineTooltip } from "./sparkline-tooltip";
 
-type PriorRow = PriorProposal;
+type PriorRow = PriorProposal & { parameter: string };
 
 const col = createColumnHelper<PriorRow>();
 const DENSITY_CHART_WIDTH = 144;
@@ -33,10 +32,7 @@ function densityPoints(points: PriorRow["density_points"]): DensityPoint[] {
 /** Compact inline density chart with axes. */
 function DensitySparkline({ prior }: { prior: PriorRow }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
-  const data = useMemo(
-    () => densityPoints(prior.density_points ?? evaluatePdf(prior.distribution, prior.params, 60)),
-    [prior],
-  );
+  const data = useMemo(() => densityPoints(prior.density_points), [prior]);
 
   if (data.length === 0) {
     return <span className="text-xs text-muted-foreground">--</span>;
@@ -187,6 +183,14 @@ const baseColumns = [
   }),
 ] as ColumnDef<PriorRow, unknown>[];
 
-export function PriorTable({ priors }: { priors: PriorProposal[]; parameters?: ParameterSpec[] }) {
-  return <InfoTable columns={baseColumns} data={priors} estimateRowHeight={72} />;
+export function PriorTable({
+  priors,
+  parameters,
+}: {
+  priors: PriorProposal[];
+  parameters: ParameterSpec[];
+}) {
+  const byId = new Map(parameters.map((parameter) => [parameter.id, parameter]));
+  const rows = priors.map((prior) => ({ ...prior, parameter: byId.get(prior.parameter_id)!.name }));
+  return <InfoTable columns={baseColumns} data={rows} estimateRowHeight={72} />;
 }

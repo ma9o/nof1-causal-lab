@@ -1,3 +1,5 @@
+import { demoMeasurementStructure } from "@/components/__fixtures__/demo-artifacts";
+const indicators = demoMeasurementStructure.causal_design.measurement.indicators;
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { withContainer } from "@/components/story-decorators";
 import { normalizeValidationReportData } from "./__fixtures__/normalize-validation-report";
@@ -7,6 +9,7 @@ import { demoValidationReport } from "../../__fixtures__/demo-artifacts";
 const data = normalizeValidationReportData(demoValidationReport);
 
 const meta = {
+  args: { indicators },
   title: "Pipeline/Outputs/Validation Report/IndicatorHealthTable",
   component: IndicatorHealthTable,
   decorators: [withContainer()],

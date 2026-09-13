@@ -1,8 +1,8 @@
 "use client";
 
-import { Badge } from "@/components/ui/badge";
-import type { PosteriorData } from "@nof1-causal-lab/api-types";
+import type { PosteriorArtifact } from "@nof1-causal-lab/api-types";
 import { useState } from "react";
+import { Badge } from "@/components/ui/badge";
 
 type InferenceMethod = "map" | "aux_kalman_mcmc" | "pit_particle_mgrad";
 
@@ -14,8 +14,8 @@ const METHODS: { id: InferenceMethod; label: string; disabled: boolean }[] = [
 
 interface MockMethodSwitcherProps {
   workspaceId: string;
-  baseData: PosteriorData;
-  onDataChange: (data: PosteriorData) => void;
+  baseData: PosteriorArtifact;
+  onDataChange: (data: PosteriorArtifact) => void;
 }
 
 export function MockMethodSwitcher({
@@ -24,7 +24,7 @@ export function MockMethodSwitcher({
   onDataChange,
 }: MockMethodSwitcherProps) {
   const [active, setActive] = useState<InferenceMethod>("map");
-  const [auxKalmanMCMCData, setAuxKalmanMCMCData] = useState<PosteriorData | null>(null);
+  const [auxKalmanMCMCData, setAuxKalmanMCMCData] = useState<PosteriorArtifact | null>(null);
 
   const handleSwitch = (method: InferenceMethod) => {
     if (method === active) return;

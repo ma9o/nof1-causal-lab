@@ -1,5 +1,14 @@
 "use client";
 
+import type {
+  Indicator,
+  LOODiagnostics,
+  MCMCDiagnostics,
+  PosteriorMarginal,
+  PosteriorPair,
+  PosteriorPredictiveChecks,
+  SMCDiagnostics,
+} from "@nof1-causal-lab/api-types";
 import { EnergyChart } from "@/components/charts/energy-chart";
 import { LOOPITChart } from "@/components/charts/loo-pit-chart";
 import { MCMCDiagnosticsPanel } from "@/components/charts/mcmc-diagnostics-panel";
@@ -17,18 +26,11 @@ import { Badge } from "@/components/ui/badge";
 import { StatTooltip } from "@/components/ui/stat-tooltip";
 import { VirtualizedChartGrid } from "@/components/ui/virtualized-chart-grid";
 import { formatNumber } from "@/lib/utils/format";
-import type {
-  LOODiagnostics,
-  MCMCDiagnostics,
-  PPCResult,
-  PosteriorMarginal,
-  PosteriorPair,
-  SMCDiagnostics,
-} from "@nof1-causal-lab/api-types";
 import { PPCWarningsTable } from "./ppc-warnings-table";
 
 interface DiagnosticsAccordionProps {
-  ppc?: PPCResult | null;
+  indicators: Indicator[];
+  ppc?: PosteriorPredictiveChecks | null;
   mcmcDiagnostics?: MCMCDiagnostics | null;
   smcDiagnostics?: SMCDiagnostics | null;
   looDiagnostics?: LOODiagnostics | null;
@@ -37,6 +39,7 @@ interface DiagnosticsAccordionProps {
 }
 
 export function DiagnosticsAccordion({
+  indicators,
   ppc,
   mcmcDiagnostics,
   smcDiagnostics,
@@ -124,6 +127,7 @@ export function DiagnosticsAccordion({
           <AccordionContent>
             <div className="space-y-6">
               <PPCWarningsTable
+                indicators={indicators}
                 warnings={ppc.per_variable_warnings}
                 testStats={ppc.test_stats ?? []}
                 overlays={ppc.overlays ?? []}
@@ -139,7 +143,7 @@ export function DiagnosticsAccordion({
           <AccordionTrigger className="text-sm">
             <span className="inline-flex items-center gap-1.5 flex-wrap">
               LOO Cross-Validation
-              <StatTooltip explanation="LOO-CV via PSIS using one-step-ahead predictive log-likelihoods from the filter (innovation decomposition). Each 'observation' is one complete timestep, not individual cells. Valid for SSMs because the innovation sequence is conditionally independent given parameters." />
+              <StatTooltip explanation="PSIS estimates how well the model interpolates a held-out measurement row using all other rows, including future measurements. Each row contains all observed indicators at that time. Pareto-k values assess whether the approximation is reliable." />
               <Badge
                 variant={
                   looDiagnostics.n_bad_k == null

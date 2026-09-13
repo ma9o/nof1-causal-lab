@@ -10,6 +10,9 @@ import { AlertTriangle } from "lucide-react";
 
 export default function MeasurementStructureView({ data }: { data: MeasurementStructureViewData }) {
   const spec = data.causal_design;
+  const names = new Map<string, string>(
+    spec.latent.constructs.map((construct) => [construct.id, construct.name]),
+  );
   const nonId = spec.identifiability?.non_identifiable_treatments ?? {};
   const nonIdEntries = Object.entries(nonId);
   const nodeStatuses = deriveConstructStatuses(spec, data.structural_plan);
@@ -28,13 +31,13 @@ export default function MeasurementStructureView({ data }: { data: MeasurementSt
               downstream intervention analysis. Identifiable treatments still remain.
             </p>
             <div className="space-y-1.5">
-              {nonIdEntries.map(([name, status]) => (
-                <div key={name} className="flex flex-wrap items-center gap-1.5 text-sm">
-                  <span className="font-medium">{name}</span>
+              {nonIdEntries.map(([id, status]) => (
+                <div key={id} className="flex flex-wrap items-center gap-1.5 text-sm">
+                  <span className="font-medium">{names.get(id)}</span>
                   <span className="text-warning/70">&larr;</span>
                   {status?.confounders.map((c) => (
                     <Badge key={c} variant="warning" className="text-xs">
-                      {c}
+                      {names.get(c)}
                     </Badge>
                   ))}
                   {status?.notes && (
@@ -47,13 +50,17 @@ export default function MeasurementStructureView({ data }: { data: MeasurementSt
         </Alert>
       )}
       <StructureDag
+        outcomeId={data.causal_design.latent.default_outcome?.id}
         constructs={spec.latent.constructs}
         edges={spec.latent.edges}
         indicators={spec.measurement.indicators}
         knownInputs={spec.known_inputs}
         nodeStatuses={nodeStatuses}
       />
-      <IndicatorTable indicators={spec.measurement.indicators} />
+      <IndicatorTable
+        constructs={spec.latent.constructs}
+        indicators={spec.measurement.indicators}
+      />
     </div>
   );
 }

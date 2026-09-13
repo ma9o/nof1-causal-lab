@@ -1,27 +1,29 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { LikelihoodSpec } from "@nof1-causal-lab/api-types";
+import type { LabeledLikelihood } from "@/lib/utils/ssm-latex";
 
 import { ObsPriorList } from "./obs-model-table";
 
 const gaussianLikelihood = {
-  variable: "sleep",
+  indicator_id: "indicator:sleep",
+  label: "sleep",
   distribution: "gaussian",
   link: "identity",
   standardized: false,
   reasoning: "",
   sources: [],
-} satisfies LikelihoodSpec;
+} satisfies LabeledLikelihood;
 
 const betaLikelihood = {
-  variable: "appointment_attendance",
+  indicator_id: "indicator:appointment_attendance",
+  label: "appointment_attendance",
   distribution: "beta",
   link: "logit",
   standardized: false,
   reasoning: "",
   sources: [],
-} satisfies LikelihoodSpec;
+} satisfies LabeledLikelihood;
 
 describe("ObsPriorList", () => {
   it("marks missing authored observation priors as not authored", () => {
@@ -53,7 +55,7 @@ describe("ObsPriorList", () => {
           {
             parameterName: "obs_concentration",
             prior: {
-              parameter: "obs_concentration",
+              parameter_id: "parameter:obs_concentration",
               distribution: "Gamma",
               params: { concentration: 5, rate: 0.5 },
               sources: [],

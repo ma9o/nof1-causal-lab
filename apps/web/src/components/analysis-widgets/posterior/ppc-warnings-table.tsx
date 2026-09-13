@@ -1,11 +1,9 @@
 "use client";
 
-import { HeaderWithTooltip } from "@/components/ui/info-table";
-import { InfoTable } from "@/components/ui/info-table";
+import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
 import { PPC_P_LOWER, PPC_P_UPPER } from "@/lib/constants/diagnostics";
 import { formatNumber } from "@/lib/utils/format";
-import { buildHistogram } from "@/lib/utils/histogram";
-import type { PPCOverlay, PPCTestStat, PPCWarning } from "@nof1-causal-lab/api-types";
+import type { Indicator, PPCOverlay, PPCTestStat, PPCWarning } from "@nof1-causal-lab/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 import {
   Area,
@@ -45,44 +43,48 @@ function buildRows(
   warnings: PPCWarning[],
   testStats: PPCTestStat[],
   overlays: PPCOverlay[],
+  indicators: Indicator[],
 ): PPCVariableRow[] {
   const map = new Map<string, PPCVariableRow>();
   for (const w of warnings) {
-    getOrCreate(map, w.variable).checks[w.check_type] = w;
+    getOrCreate(map, w.indicator_id).checks[w.check_type] = w;
   }
   for (const ts of testStats) {
-    getOrCreate(map, ts.variable).testStats[ts.stat_name as StatName] = ts;
+    getOrCreate(map, ts.indicator_id).testStats[ts.stat_name as StatName] = ts;
   }
   for (const ov of overlays) {
-    getOrCreate(map, ov.variable).overlay = ov;
+    getOrCreate(map, ov.indicator_id).overlay = ov;
   }
-  return Array.from(map.values());
+  const definitions = new Map<string, Indicator>(
+    indicators.map((indicator) => [indicator.id, indicator]),
+  );
+  return Array.from(map.values()).map((row) => ({
+    ...row,
+    variable: definitions.get(row.variable)!.name,
+  }));
 }
 
 // ── Shared helpers ───────────────────────────────────────
-
-function pValueForStat(stat: PPCTestStat): number {
-  if (stat.rep_values.length === 0) return NaN;
-  return stat.rep_values.filter((v) => v >= stat.observed_value).length / stat.rep_values.length;
-}
 
 // ── Test stat sparkline (mini histogram + p-value) ──────
 
 function TestStatSparkline({ stat }: { stat?: PPCTestStat }) {
   if (!stat) return <span className="text-xs text-muted-foreground">—</span>;
 
-  const bins = buildHistogram(stat.rep_values, 12);
-  const pValue = pValueForStat(stat);
+  const bins = stat.histogram;
+  const pValue = stat.p_value;
 
   return (
     <div className="space-y-1">
-      <span className="text-xs font-mono">p = {formatNumber(pValue, 2)}</span>
+      <span className="text-xs font-mono">
+        p = {pValue == null ? "—" : formatNumber(pValue, 2)}
+      </span>
       <div className="h-14 w-28">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={bins} margin={{ top: 2, right: 2, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" className="stroke-muted" vertical={false} />
             <XAxis
-              dataKey="binCenter"
+              dataKey="bin_center"
               type="number"
               domain={["dataMin", "dataMax"]}
               tick={false}
@@ -231,7 +233,8 @@ const columns: ColumnDef<PPCVariableRow, unknown>[] = [
         severity: (_v: unknown, row: PPCVariableRow) => {
           const stat = row.testStats[sn];
           if (!stat) return undefined;
-          const p = pValueForStat(stat);
+          const p = stat.p_value;
+          if (p == null) return undefined;
           return p < PPC_P_LOWER || p > PPC_P_UPPER ? "warn" : undefined;
         },
       },
@@ -245,12 +248,14 @@ export function PPCWarningsTable({
   warnings,
   testStats,
   overlays,
+  indicators,
 }: {
   warnings: PPCWarning[];
   testStats: PPCTestStat[];
   overlays: PPCOverlay[];
+  indicators: Indicator[];
 }) {
-  const rows = buildRows(warnings, testStats, overlays);
+  const rows = buildRows(warnings, testStats, overlays, indicators);
   if (rows.length === 0) return null;
 
   return <InfoTable columns={columns} data={rows} estimateRowHeight={80} sorting={false} />;

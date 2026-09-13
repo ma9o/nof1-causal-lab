@@ -1,8 +1,8 @@
+import type { ArtifactFreshness } from "@/lib/api/analysis";
 import { describe, expect, it } from "vitest";
-import type { EpisodeArtifactStatus } from "@/lib/api/analysis";
 import { groupStaleArtifactsByProducer, hasStaleArtifacts } from "./artifact-staleness";
 
-function artifact(overrides: Partial<EpisodeArtifactStatus>): EpisodeArtifactStatus {
+function artifact(overrides: Partial<ArtifactFreshness>): ArtifactFreshness {
   return {
     artifact_id: "latent_structure",
     exists: true,

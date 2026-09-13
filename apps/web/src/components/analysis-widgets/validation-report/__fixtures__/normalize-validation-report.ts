@@ -1,10 +1,10 @@
-import type { ValidationReportData } from "@nof1-causal-lab/api-types";
+import type { ValidationReportArtifact } from "@nof1-causal-lab/api-types";
 
-export function normalizeValidationReportData(value: unknown): ValidationReportData {
+export function normalizeValidationReportData(value: unknown): ValidationReportArtifact {
   const validationReport = value as {
     is_valid?: boolean;
-    indicators?: ValidationReportData["indicators"];
-    dataset_issues?: ValidationReportData["dataset_issues"];
+    indicators?: ValidationReportArtifact["indicators"];
+    dataset_issues?: ValidationReportArtifact["dataset_issues"];
     validation_report?: {
       is_valid?: boolean;
       issues?: Array<{
@@ -27,7 +27,7 @@ export function normalizeValidationReportData(value: unknown): ValidationReportD
     };
   };
 
-  if (validationReport.indicators) return validationReport as ValidationReportData;
+  if (validationReport.indicators) return validationReport as ValidationReportArtifact;
 
   const issues = validationReport.validation_report?.issues ?? [];
   const profiles = validationReport.validation_report?.per_indicator_health ?? [];

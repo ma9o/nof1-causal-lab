@@ -3,6 +3,7 @@ import { withContainer } from "@/components/story-decorators";
 import { ObsModelTable } from "./obs-model-table";
 import {
   indicators,
+  constructs,
   likelihoods,
   parameters,
   priors,
@@ -11,6 +12,7 @@ import {
 const meta = {
   title: "Pipeline/Outputs/Statistical Model Spec/ObsModelTable",
   component: ObsModelTable,
+  args: { constructs },
   decorators: [withContainer()],
 } satisfies Meta<typeof ObsModelTable>;
 

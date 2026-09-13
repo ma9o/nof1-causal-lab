@@ -1,26 +1,25 @@
-import type {
-  BaselineReportData,
-  LatentStructureData,
-  MeasurementsData,
-  MeasurementStructureViewData,
-  PosteriorData,
-  RawDataData,
-  StatisticalModelSpecData,
-  ValidationReportData,
-} from "@nof1-causal-lab/api-types";
-import { demoArtifactSources } from "./demo-artifact-sources";
+import type { ModelSnapshot, ArtifactViews } from "@nof1-causal-lab/api-types";
+import history from "../../../../../data/DEMO/fixture/model_history.json";
+import views from "../../../../../data/DEMO/fixture/artifact_views.json";
+import snapshot from "../../../../../data/DEMO/fixture/model_snapshot.json";
 
-export const demoRawData = demoArtifactSources.raw_data as RawDataData;
-export const demoLatentStructure = demoArtifactSources.latent_structure as LatentStructureData;
-export const demoMeasurementStructure = {
-  ...demoArtifactSources.measurement_structure,
-  causal_design: demoArtifactSources.causal_design,
-  structural_plan: demoArtifactSources.structural_plan,
-} as unknown as MeasurementStructureViewData;
-export const demoMeasurements = demoArtifactSources.measurements as MeasurementsData;
-export const demoValidationReport = demoArtifactSources.validation_report as ValidationReportData;
+/** Validated by the production snapshot reader during fixture generation. */
+export const demoModelSnapshot = snapshot as unknown as ModelSnapshot;
+const artifactViews = views as unknown as ArtifactViews;
+export const demoParameters = demoModelSnapshot.compiled_parameters!.value;
+export const demoRawData = artifactViews.raw_data!;
+export const demoLatentStructure = artifactViews.latent_structure!;
+export const demoMeasurementStructure = artifactViews.measurement_structure!;
+export const demoMeasurements = artifactViews.measurements!;
+export const demoValidationReport = artifactViews.validation_report!;
+export const demoStatisticalModelSpec = artifactViews.statistical_model_spec!;
+export const demoPosterior = artifactViews.posterior!;
+export const demoBaselineReport = artifactViews.baseline_report!;
 
-export const demoStatisticalModelSpec =
-  demoArtifactSources.statistical_model_spec as unknown as StatisticalModelSpecData;
-export const demoPosterior = demoArtifactSources.posterior as PosteriorData;
-export const demoBaselineReport = demoArtifactSources.baseline_report as BaselineReportData;
+/** Actual backend projections for each committed fixture revision. */
+export function demoSnapshotAt(seq: number): ModelSnapshot {
+  if (seq === 10) return demoModelSnapshot;
+  const revision = (history as unknown as Record<number, ModelSnapshot>)[seq];
+  if (!revision) throw new Error(`No committed DEMO revision ${seq}`);
+  return revision;
+}

@@ -60,7 +60,13 @@ describe("parseTransitionProgressEvent", () => {
     expect(
       parseTransitionProgressEvent({
         event: "nof1-causal-lab.extraction.worker",
-        payload: { context_id: "measurement", type: "worker", worker_id: 1, state: "running" },
+        payload: {
+          context_id: "measurement",
+          type: "worker",
+          worker_id: 1,
+          state: "running",
+          n_windows: 4,
+        },
         cursor,
       }),
     ).toBeNull();

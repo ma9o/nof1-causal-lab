@@ -6,9 +6,9 @@ import { normalizeWorkspaceId } from "@/lib/workspace-id";
  * GET /api/analysis/[workspaceId]/progress?after=<cursor>
  *
  * Server-side proxy over the episode facade for client polling: episode
- * status (auto_running plus the per-artifact freshness report), the
- * transition journal, and transition telemetry events after the given
- * cursor.
+ * status (auto_running, the per-artifact freshness report and the legal
+ * moves), the transition journal, and transition telemetry events after
+ * the given cursor.
  */
 export async function GET(
   request: Request,
@@ -35,6 +35,7 @@ export async function GET(
       autoRunning: status.auto_running,
       seq: status.seq,
       artifacts: status.artifacts,
+      legal: status.legal,
       transitions: timeline.transitions,
       events: events.events,
     });

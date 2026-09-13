@@ -1,6 +1,11 @@
 import type { LLMTrace } from "@nof1-causal-lab/api-types";
 import { NextResponse } from "next/server";
-import { EpisodeRunError, getArtifactTraceIndex, getEpisodeTrace } from "@/lib/server/episode-runs";
+import {
+  EpisodeRunError,
+  getArtifactTraceIndex,
+  getEpisodeTimeline,
+  getEpisodeTrace,
+} from "@/lib/server/episode-runs";
 import { normalizeWorkspaceId } from "@/lib/workspace-id";
 
 export const dynamic = "force-dynamic";
@@ -42,13 +47,34 @@ export async function GET(
     return NextResponse.json({ error: "Invalid workspaceId format" }, { status: 400 });
   }
 
-  const artifactId = new URL(request.url).searchParams.get("artifact")?.trim();
-  if (!artifactId) {
-    return NextResponse.json({ error: "Missing artifact id" }, { status: 400 });
+  const search = new URL(request.url).searchParams;
+  const artifactId = search.get("artifact")?.trim();
+  const seqParam = search.get("seq")?.trim();
+  if (!artifactId && !seqParam) {
+    return NextResponse.json({ error: "Missing artifact id or move seq" }, { status: 400 });
   }
 
   try {
-    const index = await getArtifactTraceIndex(safeWorkspaceId, artifactId);
+    if (seqParam) {
+      // GET ?seq=<n>: the traces of one journal move, whichever artifact version it produced.
+      const seq = Number(seqParam);
+      if (!Number.isInteger(seq) || seq < 1) {
+        return NextResponse.json({ error: "Invalid move seq" }, { status: 400 });
+      }
+      const timeline = await getEpisodeTimeline(safeWorkspaceId);
+      const record = timeline.transitions.find((transition) => transition.seq === seq);
+      if (!record) {
+        return NextResponse.json({ error: "No such move" }, { status: 404 });
+      }
+      if (record.trace_ids.length === 0) {
+        return NextResponse.json({ error: "No traces for this move" }, { status: 404 });
+      }
+      const traces = await Promise.all(
+        record.trace_ids.map((traceId) => getEpisodeTrace(safeWorkspaceId, seq, traceId)),
+      );
+      return NextResponse.json(mergeTraces(traces));
+    }
+    const index = await getArtifactTraceIndex(safeWorkspaceId, artifactId as string);
     if (index.trace_ids.length === 0) {
       return NextResponse.json({ error: "No traces for this artifact" }, { status: 404 });
     }

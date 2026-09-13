@@ -3,6 +3,7 @@ import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
 import { formatNumber } from "@/lib/utils/format";
 import type {
   CellStatus,
+  Indicator,
   IndicatorAudit,
   IndicatorEmpiricalProfile,
   IndicatorValidation,
@@ -99,11 +100,17 @@ function rowIssueSummary(row: IndicatorAuditRow): ColumnIssueSummary {
   return summarizeValidationIssues(row.validation);
 }
 
-function buildRows(audits: Record<string, IndicatorAudit | undefined>): IndicatorAuditRow[] {
+function buildRows(
+  audits: Record<string, IndicatorAudit | undefined>,
+  indicators: Indicator[],
+): IndicatorAuditRow[] {
+  const definitions = new Map<string, Indicator>(
+    indicators.map((indicator) => [indicator.id, indicator]),
+  );
   return Object.entries(audits)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([indicator, audit]) => ({
-      indicator,
+      indicator: definitions.get(indicator)!.name,
       profile: audit?.profile,
       validation: audit?.validation ?? { issues: [], checks: {} },
     }));
@@ -246,10 +253,12 @@ function buildColumns(summaries: Record<StatusField, ColumnIssueSummary>) {
 
 export function IndicatorHealthTable({
   audits,
+  indicators,
 }: {
   audits: Record<string, IndicatorAudit | undefined>;
+  indicators: Indicator[];
 }) {
-  const rows = useMemo(() => buildRows(audits), [audits]);
+  const rows = useMemo(() => buildRows(audits, indicators), [audits, indicators]);
   const summaries = useMemo(() => computeColumnSummaries(rows), [rows]);
   const columns = useMemo(() => buildColumns(summaries), [summaries]);
   return <InfoTable columns={columns as ColumnDef<IndicatorAuditRow, unknown>[]} data={rows} />;

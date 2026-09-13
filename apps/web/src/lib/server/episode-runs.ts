@@ -1,36 +1,41 @@
-import type { CapabilitiesResponse, LLMTrace } from "@nof1-causal-lab/api-types";
 import type {
-  EpisodeArtifactId,
-  EpisodeEvent,
-  EpisodeMove,
+  ArtifactId,
+  ArtifactViewData,
+  ArtifactViewId,
+  CapabilitiesResponse,
   EpisodeStatus,
   JsonObject,
+  LLMTrace,
   MachineDescription,
+  Move,
   MoveOutcome,
+  RuntimeEvent,
   TransitionRecord,
-} from "@/lib/episode-types";
+  TransitionTraceIndex,
+} from "@nof1-causal-lab/api-types";
 import { getToolServerUrl } from "@/lib/runtime-urls";
 
 export type {
-  EpisodeArtifactId,
-  EpisodeArtifactStatus,
-  EpisodeEvent,
-  EpisodeMove,
-  EpisodeProvenance,
+  ArtifactFreshness,
+  ArtifactId,
   EpisodeState,
   EpisodeStatus,
+  JournalStatus,
   JsonObject,
   MachineDescription,
+  Move,
   MoveOutcome,
+  Provenance,
   RetractedArtifact,
+  RuntimeEvent,
   TransitionRecord,
-  TransitionStatus,
-} from "@/lib/episode-types";
+  TransitionTraceIndex,
+} from "@nof1-causal-lab/api-types";
 
 const TOOL_SERVER = getToolServerUrl();
 
 /** Artifacts a human-edited result can write back into the machine. */
-export const WRITABLE_ARTIFACTS: Partial<Record<string, EpisodeArtifactId>> = {
+export const WRITABLE_ARTIFACTS: Partial<Record<string, ArtifactId>> = {
   latent_structure: "latent_structure",
   measurement_structure: "measurement_structure",
   statistical_model_spec: "statistical_model_spec",
@@ -54,7 +59,7 @@ async function episodeFetch<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!response.ok) {
     throw new EpisodeRunError(
-      response.status === 409 ? 409 : 502,
+      response.status === 409 || response.status === 404 ? response.status : 502,
       `Episode API error ${response.status}: ${await response.text()}`,
     );
   }
@@ -76,7 +81,7 @@ export async function startEpisode(
 
 export async function proposeMove(
   workspaceId: string,
-  move: EpisodeMove,
+  move: Move,
   payload?: JsonObject,
 ): Promise<MoveOutcome> {
   return episodeFetch(`/${workspaceId}/moves`, {
@@ -109,17 +114,9 @@ export async function getEpisodeTimeline(
 export async function getEpisodeEvents(
   workspaceId: string,
   after?: string | null,
-): Promise<{ workspace_id: string; events: EpisodeEvent[] }> {
+): Promise<{ workspace_id: string; events: RuntimeEvent[] }> {
   const search = after ? `?${new URLSearchParams({ after }).toString()}` : "";
   return episodeFetch(`/${workspaceId}/events${search}`);
-}
-
-export interface TransitionTraceIndex {
-  workspace_id: string;
-  artifact_id: string;
-  version: number;
-  seq: number;
-  trace_ids: string[];
 }
 
 export async function getArtifactTraceIndex(
@@ -175,4 +172,11 @@ export async function getFacadeCapabilities(): Promise<CapabilitiesResponse> {
     throw new EpisodeRunError(502, `Capabilities error ${response.status}`);
   }
   return response.json() as Promise<CapabilitiesResponse>;
+}
+
+export async function getModelView<K extends ArtifactViewId>(
+  workspaceId: string,
+  artifactId: K,
+): Promise<ArtifactViewData<K>> {
+  return episodeFetch(`/${workspaceId}/model/views/${artifactId}`);
 }

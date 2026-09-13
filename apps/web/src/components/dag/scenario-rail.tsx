@@ -10,7 +10,7 @@ function signed(value: number): string {
 }
 
 function provenanceLabel(scenario: BaselineReportScenario): string {
-  return scenario.result.start.kind === "abducted" ? "Counterfactual" : "Interventional";
+  return scenario.result.result.start.kind === "abducted" ? "Counterfactual" : "Interventional";
 }
 
 function ScenarioCard({
@@ -39,7 +39,7 @@ function ScenarioCard({
           {provenanceLabel(scenario)}
         </Badge>
         <span className="text-[10px] text-muted-foreground">
-          P&gt;0 {Math.round(scenario.summary.probPositive * 100)}%
+          P&gt;0 {Math.round(scenario.summary.prob_positive * 100)}%
         </span>
       </div>
       <div className="truncate font-mono text-[11px] text-foreground" title={scenario.title}>

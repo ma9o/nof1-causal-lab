@@ -1,11 +1,5 @@
 import type { LatentClampInput, SimulateScenarioResult } from "@nof1-causal-lab/api-types";
 
-export interface EdgePosterior {
-  mean: number;
-  ci_lower: number;
-  ci_upper: number;
-}
-
 /** A composable analysis scenario result: a start state + a list of timed latent clamps. */
 export type AnalysisSimulationResult = SimulateScenarioResult;
 

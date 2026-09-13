@@ -7,7 +7,7 @@ describe("summarizeValidationIssues", () => {
       summarizeValidationIssues({
         issues: [
           {
-            indicator: "sleep_quality",
+            subject: { kind: "indicator", id: "indicator:sleep_quality" },
             issue_type: "missing",
             severity: "warning",
             message: "No data extracted for this indicator",
@@ -23,13 +23,13 @@ describe("summarizeValidationIssues", () => {
       summarizeValidationIssues({
         issues: [
           {
-            indicator: "sleep_quality",
+            subject: { kind: "indicator", id: "indicator:sleep_quality" },
             issue_type: "low_n",
             severity: "warning",
             message: "Only 3 observations remain",
           },
           {
-            indicator: "sleep_quality",
+            subject: { kind: "indicator", id: "indicator:sleep_quality" },
             issue_type: "no_numeric",
             severity: "error",
             message: "No numeric values extracted",
