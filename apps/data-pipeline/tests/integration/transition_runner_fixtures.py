@@ -96,24 +96,13 @@ def statistical_model_spec() -> dict[str, Any]:
     }
 
 
-def authored_priors() -> dict[str, Any]:
-    return {
-        "rho_Stress": {
-            "parameter": "rho_Stress",
-            "distribution": "Normal",
-            "params": {"mu": 0.5, "sigma": 0.2},
-            "sources": [],
-            "reasoning": "Weakly informative persistence prior for the fixture.",
-        }
-    }
-
-
 def stage4_report() -> dict[str, Any]:
-    priors = authored_priors()
+    from nof1_causal_lab.artifacts.statistical_model_spec import StatisticalModelSpec
+    from nof1_causal_lab.models.prior_planning import complete_parameter_priors
+
+    model = complete_parameter_priors(StatisticalModelSpec.model_validate(statistical_model_spec()))
     return {
-        "statistical_model_spec": statistical_model_spec(),
-        "authored_priors": priors,
-        "resolved_priors": list(priors.values()),
+        "statistical_model_spec": model.model_dump(mode="json"),
         "prior_predictive_samples": {"stress_score": [0.1, 0.2], "sleep_score": [0.0, 0.1]},
     }
 

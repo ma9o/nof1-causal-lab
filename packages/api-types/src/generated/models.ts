@@ -232,6 +232,27 @@ export type PriorAuthoringTransform =
   | "site_wide"
   | "site_row";
 /**
+ * A JSON value transports a scalar or a recursive array or object.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "JsonValue".
+ */
+export type JsonValue = JsonScalar | JsonArray | JsonObject;
+/**
+ * A JSON scalar transports a string, number, boolean, or null.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "JsonScalar".
+ */
+export type JsonScalar = boolean | number | string | null;
+/**
+ * A JSON array transports an ordered collection of recursively typed values.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "JsonArray".
+ */
+export type JsonArray = JsonValue[];
+/**
  * A dynamics mechanism declares one contribution to continuous-time drift.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
@@ -265,140 +286,6 @@ export type InitializationPolicy = "stationary" | "free";
  * via the `definition` "ObservationInterceptPolicy".
  */
 export type ObservationInterceptPolicy = "fixed" | "free";
-/**
- * A prior proposal specifies a parameter's prior distribution with its rationale and
- * supporting evidence.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "PriorProposal".
- */
-export type PriorProposal = {
-  distribution: PriorDistributionFamily;
-  /**
-   * Arguments to the declared NumPyro family
-   */
-  params: {
-    [k: string]: number;
-  };
-  parameter_id: ParameterId;
-  /**
-   * Literature sources supporting this prior
-   */
-  sources: PriorSource[];
-  /**
-   * Justification for the chosen prior distribution and parameters
-   */
-  reasoning: string;
-  /**
-   * Observation interval (in days) that the DT prior is expressed in. Sourced from the study's measurement schedule (e.g., 7 for a weekly study). Used for DT→CT conversion of dynamic priors (e.g. beta/dt for cross-lags, -log(rho)/dt for baseline persistence).
-   */
-  reference_interval_days?: number | null;
-  /**
-   * Pre-computed density curve points [{x, y}, ...] for frontend visualization. Computed by the pipeline before persistence so the frontend doesn't need to approximate the PDF client-side.
-   */
-  density_points?: DensityPoint[] | null;
-} & (
-  | {
-      distribution: "Normal";
-      params: {
-        mu: number;
-        sigma: number;
-      };
-    }
-  | {
-      distribution: "HalfNormal";
-      params: {
-        sigma: number;
-      };
-    }
-  | {
-      distribution: "Beta";
-      params: {
-        alpha: number;
-        beta: number;
-      };
-    }
-  | {
-      distribution: "Uniform";
-      params: {
-        lower: number;
-        upper: number;
-      };
-    }
-  | {
-      distribution: "TruncatedNormal";
-      params: {
-        mu: number;
-        sigma: number;
-        lower: number;
-        upper: number;
-      };
-    }
-  | {
-      distribution: "Gamma";
-      params: {
-        concentration: number;
-        rate: number;
-      };
-    }
-  | {
-      distribution: "LogNormal";
-      params: {
-        mu: number;
-        sigma: number;
-      };
-    }
-  | {
-      distribution: "Exponential";
-      params: {
-        rate: number;
-      };
-    }
-  | {
-      distribution: "Delta";
-      params: {
-        value: number;
-      };
-    }
-);
-/**
- * This enumeration identifies the probability families permitted in authored prior
- * proposals.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "PriorDistributionFamily".
- */
-export type PriorDistributionFamily =
-  | "Normal"
-  | "HalfNormal"
-  | "Beta"
-  | "Uniform"
-  | "TruncatedNormal"
-  | "Gamma"
-  | "LogNormal"
-  | "Exponential"
-  | "Delta";
-/**
- * A JSON value transports a scalar or a recursive array or object.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "JsonValue".
- */
-export type JsonValue = JsonScalar | JsonArray | JsonObject;
-/**
- * A JSON scalar transports a string, number, boolean, or null.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "JsonScalar".
- */
-export type JsonScalar = boolean | number | string | null;
-/**
- * A JSON array transports an ordered collection of recursively typed values.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "JsonArray".
- */
-export type JsonArray = JsonValue[];
 /**
  * Runtime support class for a sample site.
  *
@@ -485,6 +372,23 @@ export type CompiledDistribution = {
       };
     }
 );
+/**
+ * This enumeration identifies the probability families permitted in authored prior
+ * proposals.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "PriorDistributionFamily".
+ */
+export type PriorDistributionFamily =
+  | "Normal"
+  | "HalfNormal"
+  | "Beta"
+  | "Uniform"
+  | "TruncatedNormal"
+  | "Gamma"
+  | "LogNormal"
+  | "Exponential"
+  | "Delta";
 /**
  * A parameter element identity identifies a logical scalar component across model revisions.
  *
@@ -1204,10 +1108,6 @@ export interface IndicatorRef {
  */
 export interface StatisticalModelSpecArtifact {
   statistical_model_spec: StatisticalModelSpec;
-  authored_priors: {
-    [k: string]: PriorProposal;
-  };
-  resolved_priors: PriorProposal[];
   search_queries?: {
     [k: string]: string;
   } | null;
@@ -1287,11 +1187,79 @@ export interface ParameterSpec {
   description: string;
   prior_transform: PriorAuthoringTransform;
   /**
+   * Native probability law; absent while the parameter is being specified.
+   */
+  prior?: NumPyroDistribution | null;
+  reference_interval_days?: number | null;
+  prior_reasoning: string;
+  prior_sources: PriorSource[];
+  prior_density_points?: DensityPoint[] | null;
+  /**
    * Logical scalar components and their labels, declared during compilation.
    */
   elements: {
     [k: string]: string;
   };
+}
+/**
+ * A native NumPyro probability distribution serialized by its constructor tree.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "NumPyroDistribution".
+ */
+export interface NumPyroDistribution {
+  distribution: string;
+  params: {
+    [k: string]: JsonValue;
+  };
+}
+/**
+ * A JSON object transports string-keyed recursively typed values.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "JsonObject".
+ */
+export interface JsonObject {
+  [k: string]: JsonValue;
+}
+/**
+ * A prior source records literature evidence used to justify a parameter's prior
+ * distribution.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "PriorSource".
+ */
+export interface PriorSource {
+  /**
+   * Title of the source (paper, meta-analysis, textbook, etc.)
+   */
+  title: string;
+  /**
+   * URL of the source if available
+   */
+  url?: string | null;
+  /**
+   * Relevant excerpt or paraphrase from the source
+   */
+  snippet: string;
+  /**
+   * Reported effect size if available (e.g., 'r=0.3', 'β=0.2')
+   */
+  effect_size?: string | null;
+  /**
+   * Observation/measurement interval of this study in days (daily=1, weekly=7, monthly=30)
+   */
+  study_interval_days?: number | null;
+}
+/**
+ * A density point stores one coordinate of a prior density curve for plotting.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "DensityPoint".
+ */
+export interface DensityPoint {
+  x: number;
+  y: number;
 }
 /**
  * Restoring drift -stiffness * (x - center) - quartic * (x - center)^3.
@@ -1360,45 +1328,6 @@ export interface HillEdgeMechanism {
   emax: MechanismCoefficient;
   ec50: MechanismCoefficient;
   n: MechanismCoefficient;
-}
-/**
- * A prior source records literature evidence used to justify a parameter's prior
- * distribution.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "PriorSource".
- */
-export interface PriorSource {
-  /**
-   * Title of the source (paper, meta-analysis, textbook, etc.)
-   */
-  title: string;
-  /**
-   * URL of the source if available
-   */
-  url?: string | null;
-  /**
-   * Relevant excerpt or paraphrase from the source
-   */
-  snippet: string;
-  /**
-   * Reported effect size if available (e.g., 'r=0.3', 'β=0.2')
-   */
-  effect_size?: string | null;
-  /**
-   * Observation/measurement interval of this study in days (daily=1, weekly=7, monthly=30)
-   */
-  study_interval_days?: number | null;
-}
-/**
- * A density point stores one coordinate of a prior density curve for plotting.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "DensityPoint".
- */
-export interface DensityPoint {
-  x: number;
-  y: number;
 }
 /**
  * A prior predictive diagnostic records the result of one exact model-admission check.
@@ -1483,15 +1412,6 @@ export interface SerializedSSMSpec {
   input_missing_policies?: ("zero" | "forward_fill")[] | null;
   input_lagged: boolean[];
   static_factor_names?: string[] | null;
-}
-/**
- * A JSON object transports string-keyed recursively typed values.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "JsonObject".
- */
-export interface JsonObject {
-  [k: string]: JsonValue;
 }
 /**
  * One directed continuous-time lag attached to a compiled edge.
@@ -2532,10 +2452,6 @@ export interface ObservationRecord {
  */
 export interface StatisticalModelSpecData {
   statistical_model_spec: StatisticalModelSpec;
-  authored_priors: {
-    [k: string]: PriorProposal;
-  };
-  resolved_priors: PriorProposal[];
   search_queries?: {
     [k: string]: string;
   } | null;
@@ -2546,7 +2462,6 @@ export interface StatisticalModelSpecData {
   prior_predictive_diagnostics: PriorPredictiveDiagnostic[];
   structural_plan?: StructuralPlan | null;
   state_equations: StateEquation[];
-  parameters: ParameterSpec[];
   likelihood_diagnostics: {
     [k: string]: ModelSpecLikelihoodDiagnostics;
   };

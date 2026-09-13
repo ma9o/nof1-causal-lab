@@ -2,7 +2,6 @@ import { FunctionalSpecLink } from "@/components/analysis-widgets/statistical-mo
 import { MeasurementTable } from "@/components/analysis-widgets/statistical-model-spec/measurement-table";
 import { PriorTable } from "@/components/analysis-widgets/statistical-model-spec/prior-table";
 import { SSMEquationDisplay } from "@/components/analysis-widgets/statistical-model-spec/ssm-equation-display";
-import { collectModelSpecUiPriors } from "@/lib/model-spec-data";
 import type {
   Indicator,
   PriorPredictiveDiagnostic,
@@ -64,7 +63,6 @@ export default function StatisticalModelSpecView({
   data: StatisticalModelSpecData;
   indicators?: Indicator[];
 }) {
-  const authoredPriors = collectModelSpecUiPriors(data);
   const hasLikelihoodDiagnostics = Object.values(data.likelihood_diagnostics).some(
     (diagnostics) => (diagnostics?.histogram.length ?? 0) > 0,
   );
@@ -75,8 +73,7 @@ export default function StatisticalModelSpecView({
         <SSMEquationDisplay
           equations={data.state_equations}
           likelihoods={data.statistical_model_spec.likelihoods}
-          parameters={data.parameters}
-          priors={authoredPriors}
+          parameters={data.statistical_model_spec.parameters}
           indicators={indicators}
           structuralPlan={data.structural_plan}
         />
@@ -103,16 +100,16 @@ export default function StatisticalModelSpecView({
           ]),
         )}
       />
-      {authoredPriors.length > 0 && (
+      {data.statistical_model_spec.parameters.length > 0 && (
         <div className="space-y-3">
           <div className="space-y-1">
-            <h3 className="text-sm font-semibold">Authored Priors</h3>
+            <h3 className="text-sm font-semibold">Parameter Priors</h3>
             <p className="text-sm text-muted-foreground">
               Priors are shown on each parameter’s declared authoring scale. The state equations
               show any conversion to the continuous-time model scale.
             </p>
           </div>
-          <PriorTable priors={authoredPriors} parameters={data.statistical_model_spec.parameters} />
+          <PriorTable parameters={data.statistical_model_spec.parameters} />
         </div>
       )}
     </div>

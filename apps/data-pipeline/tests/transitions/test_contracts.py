@@ -179,44 +179,14 @@ def valid_artifact_payloads() -> dict[str, dict[str, Any]]:
                         "role": "ar_coefficient",
                         "constraint": "unit_interval",
                         "description": "AR coefficient",
+                        "prior": {
+                            "distribution": "Beta",
+                            "params": {"concentration1": 2.0, "concentration0": 3.0},
+                        },
+                        "prior_reasoning": "Weakly informative",
                     }
                 ],
             },
-            "authored_priors": {
-                "parameter:067ff49138696d741faffe7e2dc6684225435e905b47cba9dbd3b216d7bbe749": {
-                    "parameter_id": "parameter:067ff49138696d741faffe7e2dc6684225435e905b47cba9dbd3b216d7bbe749",
-                    "distribution": "Normal",
-                    "params": {"mu": 0.0, "sigma": 0.3},
-                    "sources": [],
-                    "reasoning": "weakly informative",
-                }
-            },
-            "resolved_priors": [
-                {
-                    "parameter_id": "parameter:067ff49138696d741faffe7e2dc6684225435e905b47cba9dbd3b216d7bbe749",
-                    "distribution": "Normal",
-                    "params": {"mu": 0.0, "sigma": 0.3},
-                    "sources": [],
-                    "reasoning": "weakly informative",
-                },
-                {
-                    "parameter_id": "parameter:d77e4a1b0c7fcea313d4ec8447243b0bd8e30da13b2608fe153953a9e7819665",
-                    "distribution": "Normal",
-                    "params": {"mu": 0.0, "sigma": 2.0},
-                    "sources": [],
-                    "reasoning": "Default weakly informative prior for the initial state mean of Stress.",
-                },
-                {
-                    "parameter_id": "parameter:c222b3cc20c9b8103e8ad2e464ab87e5aec6c6f52973848da70de46eea9041aa",
-                    "distribution": "HalfNormal",
-                    "params": {"sigma": 2.0},
-                    "sources": [],
-                    "reasoning": (
-                        "Default weakly informative prior for the initial state standard deviation "
-                        "of Stress."
-                    ),
-                },
-            ],
             "prior_predictive_samples": {"indicator:3696aef3ff6f446744e5": [0.1, -0.2, 0.3]},
         },
         "posterior": {

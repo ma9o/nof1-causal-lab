@@ -317,10 +317,8 @@ def _derive_compiled_ssm(
     store: ArtifactStore,
     pins: dict[ArtifactId, int],
 ) -> ArtifactVersionInfo:
-    from nof1_causal_lab.artifacts.prior_proposal import PriorProposal
     from nof1_causal_lab.artifacts.statistical_model_spec import StatisticalModelSpec
     from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
-    from nof1_causal_lab.workers.prior_research import build_prior_plan_from_proposals
 
     structural_plan = _read_structural_plan(store, pins["structural_plan"])
     report = store.read_json_file(
@@ -331,13 +329,6 @@ def _derive_compiled_ssm(
     statistical_model_spec = StatisticalModelSpec.model_validate(report["statistical_model_spec"])
     compiled_ssm = compile_ssm_artifact(
         statistical_model_spec,
-        build_prior_plan_from_proposals(
-            statistical_model_spec,
-            {
-                key: PriorProposal.model_validate(value)
-                for key, value in report["authored_priors"].items()
-            },
-        ),
         structural_plan=structural_plan,
     )
     return store.write_version(

@@ -560,31 +560,6 @@ def rule_outcome_indicators_have_likelihoods(ctx: RunContext) -> list[LineageIss
     ]
 
 
-def rule_statistical_model_spec_priors_target_params(ctx: RunContext) -> list[LineageIssue]:
-    # Only ``authored_priors`` is constrained to ``statistical_model_spec.parameters``.
-    # ``resolved_priors`` is intentionally a superset: the SSM compiler adds
-    # implicit ``t0_mean_<latent>`` / ``t0_sd_<latent>`` rows for every latent
-    # construct via ``_build_compiled_initial_state_priors``, regardless of
-    # whether the parameter is tracked in ``statistical_model_spec.parameters``.
-    if "statistical_model_spec" not in ctx.artifacts:
-        return []
-    payload = ctx.artifacts["statistical_model_spec"]
-    params = payload.get("statistical_model_spec", {}).get("parameters", []) or []
-    param_names = {p["name"] for p in params if isinstance(p, dict) and "name" in p}
-    authored = set((payload.get("authored_priors") or {}).keys())
-    unknown = authored - param_names
-    if not unknown:
-        return []
-    return [
-        LineageIssue(
-            rule="statistical-model-spec-priors-target-params",
-            severity="error",
-            artifacts=("statistical_model_spec",),
-            message=f"authored_priors target unknown parameters: {sorted(unknown)}",
-        )
-    ]
-
-
 def rule_posterior_covers_statistical_model_spec_params(ctx: RunContext) -> list[LineageIssue]:
     if "statistical_model_spec" not in ctx.artifacts or "posterior" not in ctx.artifacts:
         return []
@@ -766,7 +741,6 @@ RULES: list[Callable[[RunContext], list[LineageIssue]]] = [
     rule_indicators_in_panel,
     rule_likelihood_variables_in_causal_design_indicators,
     rule_outcome_indicators_have_likelihoods,
-    rule_statistical_model_spec_priors_target_params,
     rule_posterior_covers_statistical_model_spec_params,
     rule_posterior_pairs_in_marginals,
     rule_baseline_report_treatments_known,

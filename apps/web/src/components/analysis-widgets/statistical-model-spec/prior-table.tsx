@@ -1,9 +1,11 @@
 "use client";
 
+import { formatNumber } from "@/lib/utils/format";
+
 import { Badge } from "@/components/ui/badge";
 import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
-import { formatNumber } from "@/lib/utils/format";
-import type { ParameterSpec, PriorProposal } from "@nof1-causal-lab/api-types";
+import { distributionArgumentText } from "@/lib/utils/distribution-format";
+import type { ParameterSpec } from "@nof1-causal-lab/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 import { scaleLinear } from "d3-scale";
 import { area, curveMonotoneX, line } from "d3-shape";
@@ -11,7 +13,7 @@ import { type MouseEvent, useMemo, useState } from "react";
 import { SourceBadges } from "../source-badges";
 import { SparklineTooltip } from "./sparkline-tooltip";
 
-type PriorRow = PriorProposal & { parameter: string };
+type PriorRow = ParameterSpec;
 
 const col = createColumnHelper<PriorRow>();
 const DENSITY_CHART_WIDTH = 144;
@@ -23,7 +25,7 @@ interface DensityPoint {
   y: number;
 }
 
-function densityPoints(points: PriorRow["density_points"]): DensityPoint[] {
+function densityPoints(points: PriorRow["prior_density_points"]): DensityPoint[] {
   return (points ?? []).flatMap((point) =>
     typeof point.x === "number" && typeof point.y === "number" ? [{ x: point.x, y: point.y }] : [],
   );
@@ -32,7 +34,7 @@ function densityPoints(points: PriorRow["density_points"]): DensityPoint[] {
 /** Compact inline density chart with axes. */
 function DensitySparkline({ prior }: { prior: PriorRow }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
-  const data = useMemo(() => densityPoints(prior.density_points), [prior]);
+  const data = useMemo(() => densityPoints(prior.prior_density_points), [prior]);
 
   if (data.length === 0) {
     return <span className="text-xs text-muted-foreground">--</span>;
@@ -89,7 +91,7 @@ function DensitySparkline({ prior }: { prior: PriorRow }) {
         className="h-full w-full"
         viewBox={`0 0 ${DENSITY_CHART_WIDTH} ${DENSITY_CHART_HEIGHT}`}
         role="img"
-        aria-label={`Prior density for ${prior.parameter}`}
+        aria-label={`Prior density for ${prior.name}`}
       >
         {areaPath && <path d={areaPath} fill="var(--primary)" opacity={0.15} />}
         {linePath && <path d={linePath} fill="none" stroke="var(--primary)" strokeWidth={1.5} />}
@@ -133,11 +135,12 @@ function DensitySparkline({ prior }: { prior: PriorRow }) {
 }
 
 const baseColumns = [
-  col.accessor("parameter", {
+  col.accessor("name", {
     header: "Parameter",
     cell: (info) => <span className="font-medium font-mono text-xs">{info.getValue()}</span>,
   }),
-  col.accessor("distribution", {
+  col.accessor((parameter) => parameter.prior?.distribution ?? "Unspecified", {
+    id: "distribution",
     header: "Distribution",
     cell: (info) => <Badge variant="outline">{info.getValue()}</Badge>,
   }),
@@ -145,12 +148,12 @@ const baseColumns = [
     id: "params",
     header: "Params",
     cell: ({ row }) => {
-      const params = row.original.params;
+      const params = row.original.prior?.params ?? {};
       return (
         <div className="flex flex-col gap-0.5 font-mono text-xs text-muted-foreground">
           {Object.entries(params).map(([k, v]) => (
             <span key={k}>
-              {k}={formatNumber(v, 2)}
+              {k}={distributionArgumentText(v)}
             </span>
           ))}
         </div>
@@ -162,7 +165,7 @@ const baseColumns = [
     header: "Density",
     cell: ({ row }) => <DensitySparkline prior={row.original} />,
   }),
-  col.accessor("reasoning", {
+  col.accessor("prior_reasoning", {
     header: "Reasoning",
     cell: (info) => (
       <span className="max-w-xs whitespace-normal text-xs text-muted-foreground">
@@ -178,19 +181,11 @@ const baseColumns = [
         tooltip="Literature sources supporting this prior choice. Click to open."
       />
     ),
-    cell: ({ row }) => <SourceBadges sources={row.original.sources} />,
+    cell: ({ row }) => <SourceBadges sources={row.original.prior_sources} />,
     meta: { align: "center" },
   }),
 ] as ColumnDef<PriorRow, unknown>[];
 
-export function PriorTable({
-  priors,
-  parameters,
-}: {
-  priors: PriorProposal[];
-  parameters: ParameterSpec[];
-}) {
-  const byId = new Map(parameters.map((parameter) => [parameter.id, parameter]));
-  const rows = priors.map((prior) => ({ ...prior, parameter: byId.get(prior.parameter_id)!.name }));
-  return <InfoTable columns={baseColumns} data={rows} estimateRowHeight={72} />;
+export function PriorTable({ parameters }: { parameters: ParameterSpec[] }) {
+  return <InfoTable columns={baseColumns} data={parameters} estimateRowHeight={72} />;
 }

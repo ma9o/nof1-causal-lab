@@ -1,5 +1,4 @@
 import type { MeasurementStructureViewData } from "@nof1-causal-lab/api-types";
-import { collectModelSpecUiPriors } from "@/lib/model-spec-data";
 import {
   demoMeasurementStructure,
   demoStatisticalModelSpec,
@@ -12,8 +11,7 @@ export const modelSpecData = demoStatisticalModelSpec;
 export const equations = modelSpecData.state_equations;
 
 export const likelihoods = modelSpecData.statistical_model_spec.likelihoods;
-export const parameters = modelSpecData.parameters;
-export const priors = collectModelSpecUiPriors(modelSpecData);
+export const parameters = modelSpecData.statistical_model_spec.parameters;
 export const indicators = measurementStructure.causal_design.measurement.indicators;
 export const likelihoodDiagnostics = modelSpecData.likelihood_diagnostics;
 export const priorPredictiveSamples = modelSpecData.prior_predictive_samples as

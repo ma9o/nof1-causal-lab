@@ -407,10 +407,10 @@ def elicitation(
     math,
     np,
 ):
-    from nof1_causal_lab.artifacts.prior import ExecutablePrior as _ExecutablePrior
     from nof1_causal_lab.models.model_mechanisms import (
         declare_dynamics_mechanisms as _declare_mechanisms,
     )
+    from nof1_causal_lab.models.prior_planning import parameter_with_prior as _parameter_with_prior
 
     _catalog = ParamCatalog.from_structural_plan(STRUCTURAL_PLAN)
     _indicator_ids = {item.name: item.id for item in STRUCTURAL_PLAN.semantics.indicators.values()}
@@ -510,19 +510,13 @@ def elicitation(
             name=c,
             likelihoods=_likelihoods,
             parameters=tuple(
-                ParameterSpec.model_validate(_catalog.metadata_for(_pn)) for _pn in priors
-            ),
-            mechanisms=_mechanisms_for(c),
-            priors={
-                _pn: _ExecutablePrior.model_validate(
-                    {
-                        **_law,
-                        "parameter_id": _catalog.metadata_for(_pn)["id"],
-                        "reference_interval_days": DT,
-                    }
+                _parameter_with_prior(
+                    ParameterSpec.model_validate(_catalog.metadata_for(_pn)),
+                    {**_law, "reference_interval_days": DT},
                 )
                 for _pn, _law in priors.items()
-            },
+            ),
+            mechanisms=_mechanisms_for(c),
             edge_parents=tuple(_parents[c]),
         )
 

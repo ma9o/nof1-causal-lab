@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import override
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
@@ -13,6 +14,7 @@ from nof1_causal_lab.distributions import (
     DistributionFamily,
 )
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+from nof1_causal_lab.numpyro_json import NumPyroDistribution  # noqa: TC001
 
 from .base import ArtifactPayload
 from .evidence import LiteratureSource  # noqa: TC001
@@ -25,7 +27,7 @@ from .identity import (  # noqa: TC001
 )
 from .mechanism import DynamicsMechanism, EstimatedCoefficient, mechanism_coefficients
 from .parameter import PriorAuthoringTransform, SiteKind
-from .prior_proposal import PriorProposal  # noqa: TC001
+from .prior import DensityPoint, PriorSource  # noqa: TC001
 
 
 class LinkFunction(StrEnum):
@@ -151,10 +153,25 @@ class ParameterSpec(BaseModel):
         description="Human-readable description of what this parameter represents"
     )
     prior_transform: PriorAuthoringTransform = PriorAuthoringTransform.IDENTITY
+    prior: NumPyroDistribution | None = Field(
+        default=None,
+        description="Native probability law; absent while the parameter is being specified.",
+    )
+    reference_interval_days: float | None = Field(default=None, gt=0)
+    prior_reasoning: str = ""
+    prior_sources: list[PriorSource] = Field(default_factory=list)
+    prior_density_points: list[DensityPoint] | None = None
     elements: dict[ParameterElementId, str] = Field(
         default_factory=dict,
         description="Logical scalar components and their labels, declared during compilation.",
     )
+
+    @override
+    def __eq__(self, other: object) -> bool:
+        """Compare native distributions by their exact persisted constructor trees."""
+        return isinstance(other, ParameterSpec) and self.model_dump(
+            mode="json"
+        ) == other.model_dump(mode="json")
 
 
 class StatisticalModelSpec(BaseModel):
@@ -393,20 +410,20 @@ class StatisticalModelSpecArtifact(ArtifactPayload):
     """
 
     statistical_model_spec: StatisticalModelSpec
-    authored_priors: dict[ParameterId, PriorProposal]
-    resolved_priors: list[PriorProposal]
     search_queries: dict[str, str] | None = None
     validation_warnings: list[str] | None = None
     prior_predictive_samples: dict[IndicatorId, list[float]] | None = None
     prior_predictive_diagnostics: list[PriorPredictiveDiagnostic] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def validate_prior_references(self) -> StatisticalModelSpecArtifact:
-        parameters = {parameter.id for parameter in self.statistical_model_spec.parameters}
-        for key, proposal in self.authored_priors.items():
-            if key != proposal.parameter_id or key not in parameters:
-                raise ValueError("Authored prior does not reference its declared parameter")
-        resolved_ids = [proposal.parameter_id for proposal in self.resolved_priors]
-        if len(resolved_ids) != len(set(resolved_ids)):
-            raise ValueError("Duplicate resolved prior parameter references")
+    def validate_complete_parameters(self) -> StatisticalModelSpecArtifact:
+        missing = [
+            parameter.id
+            for parameter in self.statistical_model_spec.parameters
+            if parameter.prior is None
+        ]
+        if missing:
+            raise ValueError(
+                f"Final model parameters require explicit prior distributions: {missing}"
+            )
         return self

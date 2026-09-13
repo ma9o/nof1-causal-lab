@@ -420,6 +420,10 @@ export interface components {
          * @enum {string}
          */
         InitializationPolicy: Domain.InitializationPolicy;
+        JsonArray: Domain.JsonArray;
+        JsonObject: Domain.JsonObject;
+        JsonScalar: Domain.JsonScalar;
+        JsonValue: Domain.JsonValue;
         /**
          * KnownInput
          * @description An observed-input declaration binds a construct to its measured driver trajectory.
@@ -532,6 +536,7 @@ export interface components {
          * @description Context on why a treatment effect is not identifiable.
          */
         NonIdentifiableTreatmentStatus: Domain.NonIdentifiableTreatmentStatus;
+        NumPyroDistribution: Domain.NumPyroDistribution;
         /**
          * ObservationInterceptPolicy
          * @description This policy determines whether eligible observation intercepts are fixed or freely
@@ -642,23 +647,10 @@ export interface components {
          */
         PriorAuthoringTransform: Domain.PriorAuthoringTransform;
         /**
-         * PriorDistributionFamily
-         * @description This enumeration identifies the probability families permitted in authored prior
-         *     proposals.
-         * @enum {string}
-         */
-        PriorDistributionFamily: Domain.PriorDistributionFamily;
-        /**
          * PriorPredictiveDiagnostic
          * @description A prior predictive diagnostic records the result of one exact model-admission check.
          */
         PriorPredictiveDiagnostic: Domain.PriorPredictiveDiagnostic;
-        /**
-         * PriorProposal
-         * @description A prior proposal specifies a parameter's prior distribution with its rationale and
-         *     supporting evidence.
-         */
-        PriorProposal: Domain.PriorProposal;
         /**
          * PriorSource
          * @description A prior source records literature evidence used to justify a parameter's prior

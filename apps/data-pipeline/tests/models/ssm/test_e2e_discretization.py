@@ -45,7 +45,7 @@ from nof1_causal_lab.models.ssm.dynamics.spec import (
 )
 from nof1_causal_lab.models.ssm.structure import Free
 from nof1_causal_lab.prior_distributions import prior_reference_value
-from tests.helpers import named_prior_payloads
+from tests.helpers import model_with_prior_payloads, named_prior_payloads
 from tests.ssm_spec_fixtures import (
     affine_test_evolution,
     block_ssm_spec,
@@ -105,8 +105,12 @@ def _compile_priors_for_test(
     edge_lag_days: dict[tuple[int, int], float] | None = None,
 ):
     prior_registry, index_maps, _diagnostics = compile_ssm_priors(
-        named_prior_payloads(StatisticalModelSpec.model_validate(statistical_model_spec), priors),
-        StatisticalModelSpec.model_validate(statistical_model_spec),
+        model_with_prior_payloads(
+            StatisticalModelSpec.model_validate(statistical_model_spec),
+            named_prior_payloads(
+                StatisticalModelSpec.model_validate(statistical_model_spec), priors
+            ),
+        ),
         ssm_spec,
         edge_lag_days=edge_lag_days,
         structural_plan=structural_plan,
@@ -1045,14 +1049,13 @@ class TestE2ESpecToDiscretization:
         from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
         from nof1_causal_lab.models.ssm.runtime import hydrate_compiled_model
         from nof1_causal_lab.utils.data import pivot_to_wide
-        from tests.helpers import make_prior_plan
+        from tests.helpers import make_prior_model
 
         typed_statistical_model_spec = StatisticalModelSpec.model_validate(
             two_construct_statistical_model_spec
         )
         compiled = compile_ssm_artifact(
-            typed_statistical_model_spec,
-            make_prior_plan(typed_statistical_model_spec, weekly_study_priors),
+            make_prior_model(typed_statistical_model_spec, weekly_study_priors),
             structural_plan=two_construct_structural_plan,
         )
 
@@ -1425,14 +1428,13 @@ class TestE2ESpecToDiscretization:
         )
         from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
         from nof1_causal_lab.models.ssm.runtime import hydrate_compiled_model
-        from tests.helpers import make_prior_plan
+        from tests.helpers import make_prior_model
 
         typed_statistical_model_spec = StatisticalModelSpec.model_validate(
             two_construct_statistical_model_spec
         )
         compiled = compile_ssm_artifact(
-            typed_statistical_model_spec,
-            make_prior_plan(typed_statistical_model_spec, weekly_study_priors),
+            make_prior_model(typed_statistical_model_spec, weekly_study_priors),
             two_construct_structural_plan,
         )
         model = hydrate_compiled_model(compiled, mock_data)

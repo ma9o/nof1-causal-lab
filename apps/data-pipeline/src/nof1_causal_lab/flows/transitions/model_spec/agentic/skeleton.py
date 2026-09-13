@@ -343,10 +343,9 @@ def _compiler_authoritative_model_spec_inventory(
     retained_construct_names: set[str],
 ) -> tuple[list[UncheckedJsonObject], list[UncheckedJsonObject]]:
     """Return the compiler-authoritative public model-spec prior inventory."""
-    from nof1_causal_lab.models.prior_planning import build_default_prior_plan
+    from nof1_causal_lab.models.prior_planning import complete_parameter_priors
     from nof1_causal_lab.models.ssm.compile.artifact import (
         compile_ssm_artifact,
-        resolve_executable_priors,
     )
 
     seed_by_name = {
@@ -395,8 +394,7 @@ def _compiler_authoritative_model_spec_inventory(
         }
     )
     compiled_ssm = compile_ssm_artifact(
-        provisional_statistical_model_spec,
-        build_default_prior_plan(provisional_statistical_model_spec),
+        complete_parameter_priors(provisional_statistical_model_spec),
         structural_plan=structural_plan,
     )
 
@@ -407,8 +405,8 @@ def _compiler_authoritative_model_spec_inventory(
     }
 
     final_inventory: dict[str, UncheckedJsonObject] = {}
-    for row in resolve_executable_priors(compiled_ssm):
-        parameter_name = definitions[row.parameter_id].name
+    for definition in compiled_ssm.parameters:
+        parameter_name = definition.name
         if not parameter_name or _is_compiler_default_only_parameter_name(parameter_name):
             continue
         parameter = seed_by_name.get(parameter_name)

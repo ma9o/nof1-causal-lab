@@ -12,7 +12,6 @@ from pydantic import TypeAdapter
 from nof1_causal_lab.artifacts.baseline_report import SavedScenariosArtifact  # noqa: TC001
 from nof1_causal_lab.artifacts.catalog import ARTIFACT_CONTRACTS
 from nof1_causal_lab.artifacts.causal_design import CausalDesignArtifact  # noqa: TC001
-from nof1_causal_lab.artifacts.compiled_ssm import CompiledSSMArtifact  # noqa: TC001
 from nof1_causal_lab.artifacts.effects import HistogramBin
 from nof1_causal_lab.artifacts.identity import ArtifactRef
 from nof1_causal_lab.artifacts.measurements import MeasurementsArtifact  # noqa: TC001
@@ -167,7 +166,9 @@ def read_artifact_views(
     if "statistical_model_spec" in payloads:
         spec = cast("StatisticalModelSpecArtifact", payloads["statistical_model_spec"])
         diagnostics = {}
-        if panel is not None and state.matches_inputs("statistical_model_spec", "panel", "validation_report"):
+        if panel is not None and state.matches_inputs(
+            "statistical_model_spec", "panel", "validation_report"
+        ):
             audits = cast("ValidationReportArtifact", payloads["validation_report"]).indicators
             for likelihood in spec.statistical_model_spec.likelihoods:
                 observations = panel.filter(pl.col("indicator_id") == likelihood.indicator_id)[
@@ -237,9 +238,6 @@ def read_artifact_views(
             ).structural_plan
             if state.matches_inputs("statistical_model_spec", "structural_plan")
             else None,
-            parameters=cast("CompiledSSMArtifact", payloads["compiled_ssm"]).parameters
-            if state.matches_inputs("compiled_ssm", "statistical_model_spec")
-            else [],
         )
     if "baseline_report" in values and "saved_scenarios" in payloads:
         values["baseline_report"] = values["baseline_report"].model_copy(

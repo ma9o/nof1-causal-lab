@@ -30,7 +30,6 @@ from nof1_causal_lab.artifacts.mechanism import (
     mechanism_coefficients,
 )
 from nof1_causal_lab.artifacts.parameter import SiteKind
-from nof1_causal_lab.artifacts.prior import ExecutablePrior
 from nof1_causal_lab.artifacts.statistical_model_spec import (
     DistributionFamily,
     LikelihoodSpec,
@@ -44,6 +43,7 @@ from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.flows.runtime_events import emit_model_spec_admission_event
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.models.model_semantics import should_auto_standardize_indicator
+from nof1_causal_lab.models.prior_planning import parameter_with_prior
 from nof1_causal_lab.models.ssm.compile.parameter_identity import declare_parameter
 from nof1_causal_lab.models.ssm.construct_admission import (
     AdmissionReport,
@@ -56,7 +56,7 @@ from nof1_causal_lab.models.ssm.construct_admission import (
     trial_admission_state,
 )
 from nof1_causal_lab.models.ssm.reachability import CHECK_MODES, CheckResult, stage_outcome
-from nof1_causal_lab.prior_distributions import distribution_schema_variants
+from nof1_causal_lab.prior_distributions import distribution_schema_variants, serialize_distribution
 from nof1_causal_lab.utils.observation_semantics import get_observation_semantics
 from nof1_causal_lab.utils.structural_plan import (
     get_edges,
@@ -505,16 +505,12 @@ def contribution_from_payload(
             'e.g. {"lambda_x": {"distribution": "Normal", "params": {"mu": 0, "sigma": 1}}} '
             "— got a non-object prior value."
         )
-    priors = {}
-    for parameter, prior_payload in raw_priors.items():
-        executable_payload = {
-            field: prior_payload[field]
-            for field in ("distribution", "params", "reference_interval_days")
-            if field in prior_payload
-        }
-        priors[str(parameter)] = ExecutablePrior.model_validate(
-            {"parameter_id": catalog.metadata_for(str(parameter))["id"], **executable_payload}
+    proposed = [
+        parameter_with_prior(
+            ParameterSpec.model_validate(catalog.metadata_for(str(name))), prior_payload
         )
+        for name, prior_payload in raw_priors.items()
+    ]
     dynamics_quantities = {
         SiteKind.DYNAMICS_DECAY,
         SiteKind.DYNAMICS_CINT,
@@ -526,7 +522,6 @@ def contribution_from_payload(
         SiteKind.HILL_N,
         SiteKind.INPUT_EFFECT,
     }
-    proposed = [ParameterSpec.model_validate(catalog.metadata_for(pn)) for pn in priors]
     authored_dynamics = {
         parameter.id for parameter in proposed if parameter.quantity in dynamics_quantities
     }
@@ -537,14 +532,16 @@ def contribution_from_payload(
         )
     parameters = tuple(
         [parameter for parameter in proposed if parameter.quantity not in dynamics_quantities]
-        + [ParameterSpec.model_validate(metadata_by_id[key]) for key in sorted(free_ids)]
+        + sorted(
+            (parameter for parameter in proposed if parameter.id in free_ids),
+            key=lambda parameter: parameter.id,
+        )
     )
     contribution = ConstructContribution(
         name=name,
         likelihoods=likelihoods,
         parameters=parameters,
         mechanisms=mechanisms,
-        priors=priors,
     )
     return _closed_loop_target(contribution, structural_plan, mechanisms)
 
@@ -598,7 +595,6 @@ def _design_for_state(
     restricted = restrict_structural_plan(structural_plan, set(model_state.names))
     compiled = compile_ssm_artifact(
         model_state.statistical_model_spec(restricted),
-        model_state.prior_plan(restricted),
         structural_plan=restricted,
     )
 
@@ -682,17 +678,15 @@ def _admission_plan_payload(
 
 def _admission_parameters_payload(contribution: ConstructContribution) -> list[UncheckedJsonObject]:
     """Authored priors of a submission as ``{name, distribution, params}`` for the UI table."""
-    params: list[UncheckedJsonObject] = []
-    for name, dist in contribution.priors.items():
-        raw = dist.get("params", {}) if isinstance(dist, dict) else {}
-        params.append(
-            {
-                "name": name,
-                "distribution": str(dist.get("distribution", "")) if isinstance(dist, dict) else "",
-                "params": {k: float(v) for k, v in raw.items() if isinstance(v, (int, float))},
-            }
-        )
-    return params
+
+    return [
+        {
+            "name": parameter.name,
+            **serialize_distribution(parameter.prior)[0].model_dump(mode="json"),
+        }
+        for parameter in contribution.parameters
+        if parameter.prior is not None
+    ]
 
 
 def _check_result_payload(result: CheckResult) -> UncheckedJsonObject:
@@ -839,7 +833,7 @@ class ConstructBuildState:
         locked_likelihoods = _locked_likelihood_by_variable(self.structural_plan, indicators)
         allowed = inventory.allowed_for(
             locked_likelihoods,
-            admitted_prior_names=self.admission.priors,
+            admitted_prior_names={parameter.name for parameter in self.admission.parameters},
         )
         unknown = [name for name in priors if name not in allowed]
         if unknown:
@@ -861,13 +855,12 @@ class ConstructBuildState:
         except ValueError as exc:
             return str(exc)
         pooled_families: dict[str, set[str]] = {}
-        for name, prior in {
-            **self.admission.priors,
-            **contribution.priors,
-        }.items():
-            site_name = inventory.catalog.site_for(name)
-            if site_name is not None:
-                pooled_families.setdefault(site_name, set()).add(prior.distribution.value)
+        for parameter in (*self.admission.parameters, *contribution.parameters):
+            site_name = inventory.catalog.site_for(parameter.name)
+            if site_name is not None and parameter.prior is not None:
+                pooled_families.setdefault(site_name, set()).add(
+                    serialize_distribution(parameter.prior)[0].distribution.value
+                )
         mixed_sites = {
             site_name: families
             for site_name, families in pooled_families.items()

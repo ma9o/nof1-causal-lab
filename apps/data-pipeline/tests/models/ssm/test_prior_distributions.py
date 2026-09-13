@@ -19,7 +19,7 @@ from nof1_causal_lab.prior_distributions import (
     prior_reference_value,
     serialize_distribution,
 )
-from tests.helpers import named_prior_payloads
+from tests.helpers import model_with_prior_payloads, named_prior_payloads
 
 
 def test_beta_persistence_has_exact_density_and_jacobian():
@@ -142,7 +142,6 @@ def test_compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law():
     from nof1_causal_lab.artifacts.parameter import SiteKind
     from nof1_causal_lab.artifacts.statistical_model_spec import StatisticalModelSpec
     from nof1_causal_lab.models.ssm.compile.artifact import (
-        resolve_executable_priors,
         serialize_ssm_spec,
     )
     from nof1_causal_lab.models.ssm.compile.parameter_identity import parameter_identity
@@ -194,7 +193,8 @@ def test_compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law():
             ],
         }
     )
-    priors, semantic_bindings, _ = compile_priors(
+    authored = model_with_prior_payloads(
+        authored,
         named_prior_payloads(
             authored,
             {
@@ -205,9 +205,8 @@ def test_compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law():
                 }
             },
         ),
-        authored,
-        spec,
     )
+    priors, semantic_bindings, _ = compile_priors(authored, spec)
     semantics = compile_prior_semantics(spec, priors)
     semantics = type(semantics).model_validate_json(semantics.model_dump_json())
     definitions, bindings, auxiliary = bind_parameters(
@@ -229,12 +228,11 @@ def test_compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law():
     )
     artifact = CompiledSSMArtifact.model_validate_json(artifact.model_dump_json())
     recovered = next(
-        prior
-        for prior in resolve_executable_priors(artifact)
-        if prior.parameter_id == authored.parameters[0].id
+        parameter for parameter in artifact.parameters if parameter.id == authored.parameters[0].id
     )
-    assert recovered.distribution.value == "Beta"
-    assert recovered.params == {"alpha": 2.0, "beta": 3.0}
+    assert isinstance(recovered.prior, dist.Beta)
+    np.testing.assert_allclose(recovered.prior.concentration1, 2.0)
+    np.testing.assert_allclose(recovered.prior.concentration0, 3.0)
     assert recovered.reference_interval_days == 7.0
     restored = load_prior_runtime_bundle(semantics)
     model = SSMModel(spec, priors=restored.priors)

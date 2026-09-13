@@ -574,8 +574,6 @@ class TestMeasurementStructureArtifactWrite:
                         "likelihoods": [],
                         "parameters": [],
                     },
-                    "authored_priors": {},
-                    "resolved_priors": [],
                     "prior_predictive_samples": {},
                 }
             },

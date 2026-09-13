@@ -530,7 +530,6 @@ async def validate_statistical_model_spec_barrier_activity(
                     "statistical_model_spec": state.admission.statistical_model_spec(
                         state.structural_plan
                     ).model_dump(mode="json"),
-                    "authored_priors": dict(state.admission.priors),
                 },
             },
             type="ModelCompileError",
@@ -661,11 +660,6 @@ async def finalize_statistical_model_spec_activity(
         ).model_dump(mode="json")
         materialized = materialize_model_spec_result(
             statistical_model_spec=statistical_model_spec,
-            authored_priors={
-                name: payload
-                for accepted in checkpoint.accepted_constructs
-                for name, payload in accepted.priors.items()
-            },
             data_for_model=state.data_for_model,
             indicator_audits=metadata["indicator_audits"],
             structural_plan=state.structural_plan,

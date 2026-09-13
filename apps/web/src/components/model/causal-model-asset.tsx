@@ -116,8 +116,9 @@ function ModelRevision({
   const snapshot = useMemo(() => modelPosition(model), [model]);
   const current = useMemo(() => modelPosition(currentModel), [currentModel]);
   const outcome =
-    entities.constructs.find((construct) => construct.id === model.latent_structure?.value.default_outcome?.id)
-      ?.name ?? null;
+    entities.constructs.find(
+      (construct) => construct.id === model.latent_structure?.value.default_outcome?.id,
+    )?.name ?? null;
   const queries = useMemo(() => buildModelQueries(model), [model]);
   const selectedQuery =
     selection.kind === "query" ? queries.find((query) => query.key === selection.key) : undefined;

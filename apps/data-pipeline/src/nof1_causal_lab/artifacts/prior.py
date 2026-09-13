@@ -1,48 +1,35 @@
-"""Typed executable prior plans and compiler diagnostics."""
+"""Scientific prior evidence, density display points, and validation findings."""
 
 from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
-from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
-
-from .distribution import DistributionSpec
-from .identity import ParameterId  # noqa: TC001
+from .evidence import LiteratureSource
 
 
-class ExecutablePrior(DistributionSpec):
-    """One authoring-scale prior consumed by the statistical-model compiler."""
+class DensityPoint(BaseModel):
+    """A density point stores one coordinate of a prior density curve for plotting."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    parameter_id: ParameterId
-    reference_interval_days: float | None = Field(default=None, gt=0)
+    x: float
+    y: float = Field(ge=0)
 
 
-class PriorPlan(BaseModel):
-    """Complete typed executable priors for a StatisticalModelSpec."""
+class PriorSource(LiteratureSource):
+    """A prior source records literature evidence used to justify a parameter's prior
+    distribution.
+    """
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    schema_version: Literal[1] = 1
-    priors: dict[ParameterId, ExecutablePrior]
-
-    @model_validator(mode="after")
-    def validate_parameter_keys(self) -> PriorPlan:
-        mismatches = sorted(key for key, prior in self.priors.items() if key != prior.parameter_id)
-        if mismatches:
-            raise ValueError(
-                f"PriorPlan keys must equal their executable prior parameter IDs: {mismatches}"
-            )
-        return self
-
-    def compiler_payloads(self) -> dict[str, UncheckedJsonObject]:
-        """Return compiler-owned fields without agent evidence or presentation metadata."""
-        return {
-            parameter: prior.model_dump(mode="json") for parameter, prior in self.priors.items()
-        }
+    effect_size: str | None = Field(
+        default=None, description="Reported effect size if available (e.g., 'r=0.3', 'β=0.2')"
+    )
+    study_interval_days: float | None = Field(
+        default=None,
+        description="Observation/measurement interval of this study in days (daily=1, weekly=7, monthly=30)",
+    )
 
 
 class PriorRepairScope(BaseModel):
@@ -110,9 +97,7 @@ class PriorValidationResult(BaseModel):
 
 
 __all__ = [
-    "ExecutablePrior",
     "PriorPathologyCertificate",
-    "PriorPlan",
     "PriorRepairScope",
     "PriorValidationResult",
 ]

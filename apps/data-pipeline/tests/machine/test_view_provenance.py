@@ -53,6 +53,9 @@ def test_posterior_coordinates_never_join_across_compiler_versions(monkeypatch, 
         )
     historical = read_model_snapshot("BINDINGS", at_seq=2)
     current = read_model_snapshot("BINDINGS")
+    assert historical.fit is not None
+    assert current.fit is not None
+    assert current.fit.value.posterior.assessment.mcmc_diagnostics is not None
     assert historical.fit.value.posterior.posterior_marginals
     assert historical.fit.source is not None
     assert historical.fit.source.artifact.version == 1
@@ -122,8 +125,6 @@ def test_likelihood_plot_preserves_prior_mass_and_requires_its_pinned_panel(
                     ],
                     "parameters": [],
                 },
-                "authored_priors": {},
-                "resolved_priors": [],
                 "prior_predictive_samples": {"indicator:8ab0e6245f029d222a9a": prior},
             }
         },

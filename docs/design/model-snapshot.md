@@ -69,8 +69,8 @@ execution topology and duplicate semantic catalog stay in artifact inspection.
 Its disposition collection is enough for model scopes.
 
 The authored parameter catalog belongs to `specification`; the compiled catalog
-belongs to `compiled_parameters`. These retain their distinct provenance. An
-uncompiled model still exposes its authored definitions. Parameter tables use
+belongs to `compiled_parameters`. These retain their distinct provenance. A model
+that has not been compiled still exposes its authored definitions. Parameter tables use
 the compiled catalog and compatible resolved prior and posterior findings.
 
 [`ModelReader`](../../apps/data-pipeline/src/nof1_causal_lab/machine/snapshots.py)
@@ -140,7 +140,7 @@ Artifact inspection uses `GET /api/episodes/{workspace_id}/model/views/{artifact
 separately. Aggregate reads retain canonical types while projecting compatible
 members: removed indicator owners are omitted, incompatible resolved priors and
 posterior coordinates are absent, and historical fit metadata and predictive
-checks remain available. The original immutable payload remains inspectable.
+checks remain available. The original immutable payload remains available for inspection.
 Provenance points to the supporting aggregate, rather than to an array position
 in the filtered read.
 

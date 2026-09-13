@@ -16,7 +16,6 @@ describe("SSMEquationDisplay", () => {
         equations,
         structuralPlan,
         parameters,
-        priors: [],
       }),
     );
 

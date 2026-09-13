@@ -4,7 +4,7 @@ The rules in this module protect the four promoted seams:
 
 1. The SSM compiler consumes ``StructuralPlan`` instead of reaching into
    structural planning or identification.
-2. The numerical SSM layer consumes ``PriorPlan`` and never worker schemas.
+2. The numerical SSM layer consumes parameters with native distributions and never worker schemas.
 3. Compilation and runtime hydration do not call each other.
 4. The executable model surface is independent of inference algorithms, while
    inference consumes that surface and cannot reach back through runtime.

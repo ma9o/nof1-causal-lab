@@ -9,10 +9,10 @@ import type {
   Indicator,
   LatentStructure,
   MeasurementStructureArtifact,
-  PosteriorArtifact,
-  StatisticalModelSpecArtifact,
   ModelSnapshot,
   ParameterSpec,
+  PosteriorArtifact,
+  StatisticalModelSpecArtifact,
 } from "./generated/models";
 
 type Expect<T extends true> = T;
@@ -46,7 +46,10 @@ export type GeneratedReadReusesBatch = Expect<
   Equal<ModelRead["responses"][200]["content"]["application/json"], ModelSnapshot>
 >;
 export type GeneratedReadReusesLatentAggregate = Expect<
-  Equal<LatentRead["responses"][200]["content"]["application/json"], Exclude<ModelSnapshot["latent_structure"], undefined>>
+  Equal<
+    LatentRead["responses"][200]["content"]["application/json"],
+    Exclude<ModelSnapshot["latent_structure"], undefined>
+  >
 >;
 export type GeneratedReadReusesConstructs = Expect<
   Equal<ConstructsRead["responses"][200]["content"]["application/json"], Construct[]>

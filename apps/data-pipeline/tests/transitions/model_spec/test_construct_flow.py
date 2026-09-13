@@ -15,7 +15,6 @@ import numpy as np
 import polars as pl
 
 from nof1_causal_lab.artifacts.causal_design import CausalDesign
-from nof1_causal_lab.artifacts.prior import ExecutablePrior
 from nof1_causal_lab.artifacts.statistical_model_spec import (
     DistributionFamily,
     LinkFunction,
@@ -39,6 +38,7 @@ from nof1_causal_lab.flows.transitions.model_spec.agentic.construct_prompt impor
     build_construct_messages,
 )
 from nof1_causal_lab.models.model_mechanisms import declare_dynamics_mechanisms
+from nof1_causal_lab.models.prior_planning import parameter_with_prior
 from nof1_causal_lab.models.ssm.construct_admission import (
     AdmissionReport,
     AdmissionState,
@@ -59,14 +59,14 @@ def _normal(mu: float, sigma: float) -> dict[str, Any]:
     return {"distribution": "Normal", "params": {"mu": mu, "sigma": sigma}}
 
 
-def _executable_prior(
+def _parameter_with_prior(
     parameter: str,
     payload: dict[str, Any],
     plan: StructuralPlan | None = None,
-) -> ExecutablePrior:
+) -> ParameterSpec:
     catalog = ParamCatalog.from_structural_plan(plan or _typed_structural_plan())
-    return ExecutablePrior.model_validate(
-        {"parameter_id": catalog.metadata_for(parameter)["id"], **payload}
+    return parameter_with_prior(
+        ParameterSpec.model_validate(catalog.metadata_for(parameter)), payload
     )
 
 
@@ -452,20 +452,22 @@ def test_submit_construct_rejects_mixed_family_in_pooled_site():
         order=["X", "Y", "Z"],
         admission=AdmissionState(
             names=("X",),
-            priors={
-                "sigma_X": _executable_prior(
-                    "sigma_X",
-                    {
-                        "distribution": "TruncatedNormal",
-                        "params": {
-                            "mu": 0.5,
-                            "sigma": 0.1,
-                            "lower": 0.1,
-                            "upper": 1.0,
+            parameters=tuple(
+                {
+                    "sigma_X": _parameter_with_prior(
+                        "sigma_X",
+                        {
+                            "distribution": "TruncatedNormal",
+                            "params": {
+                                "mu": 0.5,
+                                "sigma": 0.1,
+                                "lower": 0.1,
+                                "upper": 1.0,
+                            },
                         },
-                    },
-                )
-            },
+                    )
+                }.values()
+            ),
         ),
         cursor=1,
     )
@@ -630,20 +632,22 @@ def test_build_construct_messages_surfaces_params_and_feedback():
         order=["X", "Y", "Z"],
         admission=AdmissionState(
             names=("X",),
-            priors={
-                "sigma_X": _executable_prior(
-                    "sigma_X",
-                    {
-                        "distribution": "TruncatedNormal",
-                        "params": {
-                            "mu": 0.5,
-                            "sigma": 0.1,
-                            "lower": 0.1,
-                            "upper": 1.0,
+            parameters=tuple(
+                {
+                    "sigma_X": _parameter_with_prior(
+                        "sigma_X",
+                        {
+                            "distribution": "TruncatedNormal",
+                            "params": {
+                                "mu": 0.5,
+                                "sigma": 0.1,
+                                "lower": 0.1,
+                                "upper": 1.0,
+                            },
                         },
-                    },
-                )
-            },
+                    )
+                }.values()
+            ),
         ),
         cursor=1,  # active construct is Y, with X already admitted
     )
@@ -713,13 +717,15 @@ def test_build_construct_messages_surfaces_conditional_likelihood_parameters():
     assert "omit for threshold/categorical" in user
 
     state.admission = AdmissionState(
-        priors={
-            "obs_ordered_base_x1": _executable_prior(
-                "obs_ordered_base_x1",
-                _normal(0.0, 1.0),
-                spec,
-            )
-        }
+        parameters=tuple(
+            {
+                "obs_ordered_base_x1": _parameter_with_prior(
+                    "obs_ordered_base_x1",
+                    _normal(0.0, 1.0),
+                    spec,
+                )
+            }.values()
+        )
     )
     _system, user = build_construct_messages(
         state=state,

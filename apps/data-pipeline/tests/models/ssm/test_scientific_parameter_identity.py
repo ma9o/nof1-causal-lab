@@ -9,7 +9,7 @@ from nof1_causal_lab.artifacts.causal_design import CausalDesign
 from nof1_causal_lab.artifacts.statistical_model_spec import StatisticalModelSpec
 from nof1_causal_lab.flows.transitions.inference.subjects import reference_posterior_findings
 from nof1_causal_lab.flows.transitions.model_spec.agentic.skeleton import derive_deterministic_spec
-from nof1_causal_lab.models.prior_planning import build_default_prior_plan
+from nof1_causal_lab.models.prior_planning import complete_parameter_priors
 from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
 from nof1_causal_lab.models.structural import build_structural_plan
 
@@ -90,7 +90,7 @@ def _compile(design):
     spec = StatisticalModelSpec.model_validate(
         {"likelihoods": likelihoods, "parameters": parameters, "mechanisms": skeleton.mechanisms}
     )
-    return compile_ssm_artifact(spec, build_default_prior_plan(spec), plan), spec, plan
+    return compile_ssm_artifact(complete_parameter_priors(spec), plan), spec, plan
 
 
 def test_rename_preserves_parameter_and_element_identity():
@@ -118,7 +118,7 @@ def test_compiler_rejects_forged_owner():
     invalid = deepcopy(spec)
     invalid.parameters[0].owners[0] = invalid.parameters[1].owners[0]
     with pytest.raises(ValueError, match="inconsistent scientific identity"):
-        compile_ssm_artifact(invalid, build_default_prior_plan(invalid), plan)
+        compile_ssm_artifact(complete_parameter_priors(invalid), plan)
 
 
 def test_posterior_writer_uses_declared_subject_and_rejects_unknown_coordinate():
@@ -185,7 +185,7 @@ def test_shared_likelihood_parameter_owns_only_active_channels():
     model = state.statistical_model_spec(plan)
     shared = next(parameter for parameter in model.parameters if parameter.name == "obs_df")
     assert {owner.id for owner in shared.owners} == {"construct:a", "indicator:a"}
-    compiled = compile_ssm_artifact(model, build_default_prior_plan(model), plan)
+    compiled = compile_ssm_artifact(complete_parameter_priors(model), plan)
     assert (
         next(parameter.id for parameter in compiled.parameters if parameter.name == "obs_df")
         == shared.id
@@ -208,26 +208,24 @@ def test_shared_likelihood_parameter_owns_only_active_channels():
     }
     with pytest.raises(ValueError, match="active likelihood channels"):
         compile_ssm_artifact(
-            spec.model_copy(
-                update={
-                    "likelihoods": list(model.likelihoods),
-                    "parameters": [*spec.parameters, candidate],
-                }
+            complete_parameter_priors(
+                spec.model_copy(
+                    update={
+                        "likelihoods": list(model.likelihoods),
+                        "parameters": [*spec.parameters, candidate],
+                    }
+                )
             ),
-            build_default_prior_plan(expanded),
             plan,
         )
 
 
 def test_implicit_initial_state_priors_receive_definitions_at_compile_time():
     from nof1_causal_lab.artifacts.statistical_model_spec import InitializationPolicy
-    from nof1_causal_lab.flows.transitions.model_spec.prior_resolution import (
-        resolve_prior_proposals,
-    )
 
     _, spec, plan = _compile(_design())
     free = spec.model_copy(update={"initialization_policy": InitializationPolicy.FREE})
-    compiled = compile_ssm_artifact(free, build_default_prior_plan(free), plan)
+    compiled = compile_ssm_artifact(complete_parameter_priors(free), plan)
     initial = [
         parameter
         for parameter in compiled.parameters
@@ -235,19 +233,16 @@ def test_implicit_initial_state_priors_receive_definitions_at_compile_time():
     ]
     assert initial
     assert all(parameter.owners and parameter.elements for parameter in initial)
-    proposals = resolve_prior_proposals(compiled, authored_priors={})
-    assert {parameter.id for parameter in initial} <= {
-        proposal["parameter_id"] for proposal in proposals
-    }
+    assert all(parameter.prior is not None for parameter in initial)
 
 
 def test_parameter_labels_do_not_change_mechanisms_bindings_or_prior_laws():
     before, model, plan = _compile(_design())
-    priors = build_default_prior_plan(model)
-    renamed = deepcopy(model)
+    priors = complete_parameter_priors(model)
+    renamed = deepcopy(priors)
     for parameter in renamed.parameters:
         parameter.name = "A display label with no machine meaning"
-    after = compile_ssm_artifact(renamed, priors, plan)
+    after = compile_ssm_artifact(renamed, plan)
     assert before.spec == after.spec
     assert before.compiled_prior_semantics == after.compiled_prior_semantics
     assert before.parameter_bindings == after.parameter_bindings
@@ -319,12 +314,12 @@ def test_hill_and_fixed_coefficients_survive_parameter_renaming():
             + definitions,
         }
     )
-    priors = build_default_prior_plan(model)
-    before = compile_ssm_artifact(model, priors, plan)
-    renamed = deepcopy(model)
+    priors = complete_parameter_priors(model)
+    before = compile_ssm_artifact(priors, plan)
+    renamed = deepcopy(priors)
     for parameter in renamed.parameters:
         parameter.name = "hill_emax_misleading_name"
-    after = compile_ssm_artifact(renamed, priors, plan)
+    after = compile_ssm_artifact(renamed, plan)
     assert before.spec == after.spec
     assert before.compiled_prior_semantics == after.compiled_prior_semantics
     assert before.parameter_bindings == after.parameter_bindings
@@ -367,4 +362,4 @@ def test_known_input_mechanism_cannot_silently_double_its_effect():
     with pytest.raises(
         ValueError, match="One parameter cannot own multiple independent runtime sites"
     ):
-        compile_ssm_artifact(duplicated, build_default_prior_plan(duplicated), plan)
+        compile_ssm_artifact(complete_parameter_priors(duplicated), plan)

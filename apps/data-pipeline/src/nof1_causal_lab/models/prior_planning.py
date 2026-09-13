@@ -4,10 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from nof1_causal_lab.artifacts.prior import (
-    ExecutablePrior,
-    PriorPlan,
-)
 from nof1_causal_lab.artifacts.statistical_model_spec import (
     ParameterConstraint,
     ParameterRole,
@@ -15,12 +11,15 @@ from nof1_causal_lab.artifacts.statistical_model_spec import (
     StatisticalModelSpec,
 )
 from nof1_causal_lab.distributions import PriorDistributionFamily
+from nof1_causal_lab.prior_distributions import distribution_from_params
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    import numpyro.distributions as dist
+
+    from nof1_causal_lab.json_types import JsonObject
 
 
-def default_executable_prior(parameter: ParameterSpec) -> ExecutablePrior:
+def default_parameter_prior(parameter: ParameterSpec) -> dist.Distribution:
     """Choose the explicit authoring default for one semantic parameter."""
     if parameter.role == ParameterRole.AR_COEFFICIENT:
         distribution = PriorDistributionFamily.BETA
@@ -51,41 +50,53 @@ def default_executable_prior(parameter: ParameterSpec) -> ExecutablePrior:
         distribution = PriorDistributionFamily.HALF_NORMAL
         params = {"sigma": 1.0}
 
-    return ExecutablePrior(
-        parameter_id=parameter.id,
-        distribution=distribution,
-        params=params,
-    )
+    return distribution_from_params(distribution, params)
 
 
-def build_default_prior_plan(statistical_model_spec: StatisticalModelSpec) -> PriorPlan:
-    """Build a complete explicit plan from compiler-independent authoring defaults."""
-    return PriorPlan(
-        priors={
-            parameter.id: default_executable_prior(parameter)
-            for parameter in statistical_model_spec.parameters
+def complete_parameter_priors(model: StatisticalModelSpec) -> StatisticalModelSpec:
+    """Apply the model's explicit default policy to its still-unassigned parameters."""
+    return model.model_copy(
+        update={
+            "parameters": [
+                parameter
+                if parameter.prior is not None
+                else parameter.model_copy(
+                    update={
+                        "prior": default_parameter_prior(parameter),
+                        "prior_reasoning": "Default scientific prior policy.",
+                    }
+                )
+                for parameter in model.parameters
+            ]
         }
     )
 
 
-def build_prior_plan(
-    statistical_model_spec: StatisticalModelSpec,
-    authored_priors: Iterable[ExecutablePrior],
-) -> PriorPlan:
-    """Overlay typed authored priors on a complete explicit default plan."""
-    planned = dict(build_default_prior_plan(statistical_model_spec).priors)
-    parameter_names = set(planned)
-    for prior in authored_priors:
-        if prior.parameter_id not in parameter_names:
-            raise ValueError(
-                f"Prior {prior.parameter_id!r} does not correspond to StatisticalModelSpec."
-            )
-        planned[prior.parameter_id] = prior
-    return PriorPlan(priors=planned)
+def parameter_with_prior(parameter: ParameterSpec, payload: JsonObject) -> ParameterSpec:
+    """Attach a tool submission's distribution and scientific evidence to its parameter."""
+    from pydantic import TypeAdapter
 
+    from nof1_causal_lab.artifacts.prior import DensityPoint, PriorSource
 
-__all__ = [
-    "build_default_prior_plan",
-    "build_prior_plan",
-    "default_executable_prior",
-]
+    supplied_id = payload.get("parameter_id")
+    if supplied_id is not None and supplied_id != parameter.id:
+        raise ValueError(f"Prior for {parameter.name!r} references a different parameter")
+    params = payload["params"]
+    if not isinstance(params, dict):
+        raise ValueError("Prior constructor params must be a JSON object")
+    return ParameterSpec.model_validate(
+        {
+            **parameter.model_dump(mode="python"),
+            "prior": distribution_from_params(
+                PriorDistributionFamily(payload["distribution"]), params
+            ),
+            "reference_interval_days": payload.get("reference_interval_days"),
+            "prior_reasoning": payload.get("reasoning", ""),
+            "prior_sources": TypeAdapter(list[PriorSource]).validate_python(
+                payload.get("sources", [])
+            ),
+            "prior_density_points": TypeAdapter(list[DensityPoint] | None).validate_python(
+                payload.get("density_points")
+            ),
+        }
+    )

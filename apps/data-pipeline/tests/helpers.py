@@ -19,26 +19,48 @@ def invalid_dict_payload(value: object) -> Any:
     return value
 
 
-def make_prior_plan(statistical_model_spec, priors):
-    """Project test prior payloads into the strict executable compiler contract."""
-    from nof1_causal_lab.artifacts.prior import ExecutablePrior
-    from nof1_causal_lab.models.prior_planning import build_prior_plan
+def make_prior_model(statistical_model_spec, priors):
+    """Attach readable test prior inputs to their scientific parameter definitions."""
+    return model_with_prior_payloads(
+        statistical_model_spec, named_prior_payloads(statistical_model_spec, priors)
+    )
 
-    ids = {parameter.name: parameter.id for parameter in statistical_model_spec.parameters}
-    entries = []
-    for parameter, value in priors.items():
-        payload = value.model_dump(mode="json") if hasattr(value, "model_dump") else dict(value)
-        entries.append(
-            ExecutablePrior.model_validate(
-                {
-                    "parameter_id": ids[parameter],
-                    "distribution": payload["distribution"],
-                    "params": payload["params"],
-                    "reference_interval_days": payload.get("reference_interval_days"),
-                }
-            )
+
+def model_with_prior_payloads(model, payloads):
+    """Attach explicit ID-keyed law inputs for compiler behavior tests."""
+    from nof1_causal_lab.models.prior_planning import (
+        complete_parameter_priors,
+        parameter_with_prior,
+    )
+
+    if model is None:
+        if payloads:
+            raise ValueError("Prior inputs require a scientific model")
+        return None
+    by_id = {parameter.id: parameter for parameter in model.parameters}
+    unknown = payloads.keys() - by_id.keys()
+    if unknown:
+        raise ValueError(f"Prior input does not correspond to any parameter: {sorted(unknown)}")
+    return complete_parameter_priors(
+        model.model_copy(
+            update={
+                "parameters": [
+                    parameter_with_prior(parameter, payloads[parameter.id])
+                    if parameter.id in payloads
+                    else parameter
+                    for parameter in model.parameters
+                ]
+            }
         )
-    return build_prior_plan(statistical_model_spec, entries)
+    )
+
+
+def parameters_with_distributions(parameters, distributions):
+    """Attach native laws when a fixture writes its parameter table separately."""
+    return tuple(
+        parameter.model_copy(update={"prior": distributions[parameter.name]})
+        for parameter in parameters
+    )
 
 
 def make_structural_plan(
@@ -259,3 +281,21 @@ def declare_test_dynamics(model, plan, *, quartic_states=(), hill_edges=(), cent
             ),
         }
     )
+
+
+def trial_compile_statistical_model_spec(
+    statistical_model_spec,
+    structural_plan,
+) -> str | None:
+    """Read structural compiler failures in tests without invoking inference."""
+    from nof1_causal_lab.models.prior_planning import complete_parameter_priors
+    from nof1_causal_lab.models.ssm.compile import artifact as ssm_compiler
+
+    try:
+        ssm_compiler.compile_ssm_artifact(
+            complete_parameter_priors(statistical_model_spec),
+            structural_plan=structural_plan,
+        )
+    except (ValueError, KeyError, TypeError, RuntimeError) as exc:
+        return str(exc)
+    return None

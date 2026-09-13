@@ -189,7 +189,6 @@ class ModelReader:
         if not self.state.has("statistical_model_spec"):
             return None
         spec = cast("StatisticalModelSpecArtifact", self.selected("statistical_model_spec"))
-        compatible = self.state.matches_inputs("compiled_ssm", "statistical_model_spec")
         edge_ids = {item.id for item in self.edges()}
         return self.fact(
             spec.model_copy(
@@ -214,11 +213,6 @@ class ModelReader:
                             ],
                         }
                     ),
-                    "resolved_priors": [
-                        item
-                        for item in spec.resolved_priors
-                        if compatible and item.parameter_id in self._parameter_ids
-                    ],
                     "prior_predictive_diagnostics": [
                         item
                         for item in spec.prior_predictive_diagnostics

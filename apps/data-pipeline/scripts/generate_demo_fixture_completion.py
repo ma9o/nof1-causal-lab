@@ -40,10 +40,9 @@ from nof1_causal_lab.artifacts.causal_design import CausalDesign
 from nof1_causal_lab.artifacts.measurement_structure import MeasurementStructureArtifact
 from nof1_causal_lab.artifacts.posterior import PosteriorArtifact
 from nof1_causal_lab.artifacts.scenarios import SimulateScenarioInput
-from nof1_causal_lab.models.model_mechanisms import declare_dynamics_mechanisms
 from nof1_causal_lab.artifacts.statistical_model_spec import (
-    ParameterSpec,
     LinkFunction,
+    ParameterSpec,
     StatisticalModelSpecArtifact,
     validate_statistical_model_spec_dict,
 )
@@ -57,6 +56,7 @@ from nof1_causal_lab.flows.transitions.measurement_structure.grounding import (
     measurement_structure_grounding,
 )
 from nof1_causal_lab.flows.transitions.model_spec.assembly import validate_assembly
+from nof1_causal_lab.models.model_mechanisms import declare_dynamics_mechanisms
 from nof1_causal_lab.models.model_semantics import (
     indicator_requires_observation_intercept,
     should_auto_standardize_indicator,
@@ -794,7 +794,10 @@ def _build_statistical_model_spec(
     parameters = [
         {
             **parameter,
-            **{field: catalog[parameter["name"]][field] for field in ("id", "owners", "quantity", "prior_transform")},
+            **{
+                field: catalog[parameter["name"]][field]
+                for field in ("id", "owners", "quantity", "prior_transform")
+            },
         }
         for parameter in _build_parameters(constructs, edges, indicators, likelihoods)
     ]
@@ -805,7 +808,12 @@ def _build_statistical_model_spec(
         for edge in edges
     }
     priors = [_prior_for(parameter, edge_means) for parameter in parameters]
-    prior_by_name = {str(prior["parameter_id"]): prior for prior in priors}
+    from nof1_causal_lab.models.prior_planning import parameter_with_prior
+
+    parameters = [
+        parameter_with_prior(ParameterSpec.model_validate(parameter), prior).model_dump(mode="json")
+        for parameter, prior in zip(parameters, priors, strict=True)
+    ]
     samples = {
         str(indicator["id"]): _draw_likelihood_samples(
             indicator,
@@ -845,12 +853,16 @@ def _build_statistical_model_spec(
         "statistical_model_spec": {
             "likelihoods": likelihoods,
             "parameters": parameters,
-            "mechanisms": [mechanism.model_dump(mode="json") for mechanism in declare_dynamics_mechanisms(structural_plan, [ParameterSpec.model_validate(parameter) for parameter in parameters])],
+            "mechanisms": [
+                mechanism.model_dump(mode="json")
+                for mechanism in declare_dynamics_mechanisms(
+                    structural_plan,
+                    [ParameterSpec.model_validate(parameter) for parameter in parameters],
+                )
+            ],
             "initialization_policy": "stationary",
             "observation_intercept_policy": "free",
         },
-        "authored_priors": prior_by_name,
-        "resolved_priors": priors,
         "search_queries": None,
         "validation_warnings": [
             "Artificial downstream DEMO completion: values are for Storybook, not inference.",
@@ -1035,7 +1047,7 @@ def _posterior_center(parameter: JsonObject, prior: JsonObject) -> tuple[float, 
     mean, prior_sd = _prior_center(prior)
     role = str(parameter["role"])
     if role == "fixed_effect":
-        interval = prior["reference_interval_days"] or 1.0
+        interval = parameter["reference_interval_days"] or 1.0
         mean /= interval
         prior_sd /= interval
         mean *= 0.92 + 0.12 * _seed_fraction(f"posterior:{parameter['name']}")
@@ -1149,8 +1161,15 @@ def _build_posterior(
         test_stats.extend(indicator_stats)
 
     parameters = statistical_model_spec["statistical_model_spec"]["parameters"]
-    priors = statistical_model_spec["authored_priors"]
-    marginals = [_marginal(parameter, priors[str(parameter["id"])]) for parameter in parameters]
+    from nof1_causal_lab.prior_distributions import serialize_distribution
+
+    marginals = []
+    for parameter in parameters:
+        prior = ParameterSpec.model_validate(parameter).prior
+        assert prior is not None
+        marginals.append(
+            _marginal(parameter, serialize_distribution(prior)[0].model_dump(mode="json"))
+        )
     marginal_by_name = {str(item["parameter"]): item for item in marginals}
     diagnostics = []
     for parameter in parameters:
@@ -2054,10 +2073,6 @@ def _validate_outputs(outputs: dict[Path, JsonObject], sources: FixtureSources) 
     try:
         assembly = validate_assembly(
             model_payload["statistical_model_spec"],
-            {
-                parameter.name: model_payload["authored_priors"][parameter.id]
-                for parameter in validated_spec.parameters
-            },
             sources.structural_plan,
         )
     finally:
@@ -2066,6 +2081,9 @@ def _validate_outputs(outputs: dict[Path, JsonObject], sources: FixtureSources) 
         raise ValueError(
             f"Production model compiler rejected DEMO completion: {assembly.compile_error}"
         )
+
+    assert assembly.normalized_statistical_model_spec is not None
+    model_payload["statistical_model_spec"] = assembly.normalized_statistical_model_spec
 
     _bind_fixture_coordinates(outputs[ARTIFACT_ROOT / "posterior.json"], assembly.compiled_ssm)
     outputs[ARTIFACT_ROOT / "compiled_ssm.json"] = assembly.compiled_ssm.model_dump(mode="json")

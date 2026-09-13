@@ -12,7 +12,6 @@ from nof1_causal_lab.artifacts.latent_structure import LatentStructureArtifact
 from nof1_causal_lab.artifacts.measurements import ObservationRecord, WorkerStatus  # noqa: TC001
 from nof1_causal_lab.artifacts.posterior import PosteriorArtifact
 from nof1_causal_lab.artifacts.statistical_model_spec import (
-    ParameterSpec,
     StatisticalModelSpecArtifact,
 )
 from nof1_causal_lab.artifacts.structural_plan import StructuralPlan  # noqa: TC001
@@ -82,7 +81,6 @@ class StatisticalModelSpecData(StatisticalModelSpecArtifact):
 
     structural_plan: StructuralPlan | None = None
     state_equations: list[StateEquation] = Field(default_factory=list)
-    parameters: list[ParameterSpec] = Field(default_factory=list)
     likelihood_diagnostics: dict[IndicatorId, ModelSpecLikelihoodDiagnostics] = Field(
         default_factory=dict
     )

@@ -1,4 +1,4 @@
-import type { PriorProposal } from "@nof1-causal-lab/api-types";
+import type { NumPyroDistribution } from "@nof1-causal-lab/api-types";
 import { describe, expect, it } from "vitest";
 import {
   confounderGroupLatex,
@@ -236,12 +236,11 @@ describe("observationParameterSymbol", () => {
 describe("priorLine", () => {
   it("renders normal prior", () => {
     const prior = {
-      parameter_id: "parameter:beta_X_Y",
       distribution: "Normal",
-      params: { mu: 0, sigma: 1 },
+      params: { loc: 0, scale: 1 },
       sources: [],
       reasoning: "",
-    } as PriorProposal;
+    } as NumPyroDistribution;
     const result = priorLine(prior, "beta_X_Y");
     expect(result).toContain("\\beta");
     expect(result).toContain("\\mathcal{N}");
@@ -251,24 +250,22 @@ describe("priorLine", () => {
 
   it("renders half-normal prior", () => {
     const prior = {
-      parameter_id: "parameter:sigma_mood",
       distribution: "HalfNormal",
-      params: { sigma: 2 },
+      params: { scale: 2 },
       sources: [],
       reasoning: "",
-    } as PriorProposal;
+    } as NumPyroDistribution;
     const result = priorLine(prior, "sigma_mood");
     expect(result).toContain("\\text{HalfNormal}");
   });
 
   it("renders log-normal prior", () => {
     const prior = {
-      parameter_id: "parameter:sigma_mood",
       distribution: "LogNormal",
-      params: { mu: 0, sigma: 0.5 },
+      params: { loc: 0, scale: 0.5 },
       sources: [],
       reasoning: "",
-    } as PriorProposal;
+    } as NumPyroDistribution;
     const result = priorLine(prior, "sigma_mood");
     expect(result).toContain("\\text{LogNormal}");
   });
@@ -277,12 +274,11 @@ describe("priorLine", () => {
 describe("priorLatex", () => {
   it("strips alignment markers from priorLine output", () => {
     const prior = {
-      parameter_id: "parameter:beta_X_Y",
       distribution: "Normal",
-      params: { mu: 0, sigma: 1 },
+      params: { loc: 0, scale: 1 },
       sources: [],
       reasoning: "",
-    } as PriorProposal;
+    } as NumPyroDistribution;
     const result = priorLatex(prior, "beta_X_Y");
     expect(result).not.toContain("&");
     expect(result).toContain("\\sim");
@@ -295,12 +291,11 @@ describe("observationPriorLatex", () => {
     const result = observationPriorLatex({
       parameterName: "obs_concentration",
       prior: {
-        parameter_id: "parameter:obs_concentration",
         distribution: "Gamma",
         params: { concentration: 5, rate: 0.5 },
         sources: [],
         reasoning: "",
-      } as PriorProposal,
+      } as NumPyroDistribution,
       likelihood: {
         standardized: false,
         reasoning: "",

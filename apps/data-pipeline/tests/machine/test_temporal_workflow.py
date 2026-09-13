@@ -138,7 +138,6 @@ def machine_env(monkeypatch, tmp_path):
         del kwargs
         return {
             "statistical_model_spec": {"mechanisms": [], "likelihoods": [], "parameters": []},
-            "authored_priors": {},
         }
 
     monkeypatch.setattr(
@@ -152,7 +151,6 @@ def machine_env(monkeypatch, tmp_path):
             names=(*state.names, contribution.name),
             likelihoods=(*state.likelihoods, *contribution.likelihoods),
             parameters=(*state.parameters, *contribution.parameters),
-            priors={**state.priors, **contribution.priors},
             annotations=state.annotations,
         )
         report = construct_admission.AdmissionReport(

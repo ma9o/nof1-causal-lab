@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
     from nof1_causal_lab.artifacts.compiled_ssm import CompiledParameterBinding
     from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
-    from nof1_causal_lab.artifacts.prior import PriorPlan, PriorValidationResult
+    from nof1_causal_lab.artifacts.prior import PriorValidationResult
     from nof1_causal_lab.artifacts.statistical_model_spec import ParameterSpec, StatisticalModelSpec
     from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
     from nof1_causal_lab.models.ssm.model import SSMSpec
@@ -132,7 +132,6 @@ def _order_likelihoods_by_structural_plan(
 
 def compile_ssm_inputs_from_statistical_model_spec(
     statistical_model_spec: StatisticalModelSpec,
-    prior_plan: PriorPlan,
     *,
     structural_plan: StructuralPlan,
 ) -> tuple[
@@ -157,26 +156,24 @@ def compile_ssm_inputs_from_statistical_model_spec(
     )
     _require_explicit_causal_structure(ssm_spec, structural_plan=structural_plan)
 
-    expected_parameters = {parameter.id for parameter in ordered_statistical_model_spec.parameters}
-    planned_parameters = set(prior_plan.priors)
-    if planned_parameters != expected_parameters:
-        raise ValueError(
-            "PriorPlan must exactly cover StatisticalModelSpec parameters: "
-            f"missing={sorted(expected_parameters - planned_parameters)}, "
-            f"unknown={sorted(planned_parameters - expected_parameters)}."
-        )
+    from nof1_causal_lab.models.prior_planning import complete_parameter_priors
 
-    prior_registry, index_maps, diagnostics = compile_priors(
-        prior_plan.compiler_payloads(),
-        ordered_statistical_model_spec,
+    index_maps = build_semantic_prior_bindings(
+        ssm_spec, ordered_statistical_model_spec, structural_plan=structural_plan
+    )
+    parameters, bindings, auxiliary = bind_parameters(
+        index_maps, ssm_spec, structural_plan, ordered_statistical_model_spec.parameters
+    )
+    finalized = complete_parameter_priors(
+        ordered_statistical_model_spec.model_copy(update={"parameters": parameters})
+    )
+    prior_registry, _, diagnostics = compile_priors(
+        finalized,
         ssm_spec,
         edge_lag_days=edge_lag_days,
         structural_plan=structural_plan,
     )
-
-    parameters, bindings, auxiliary = bind_parameters(
-        index_maps, ssm_spec, structural_plan, statistical_model_spec.parameters
-    )
+    parameters = finalized.parameters
     diagnostics = _attach_compile_binding_provenance(diagnostics, bindings)
     return ssm_spec, prior_registry, bindings, diagnostics, edge_lag_days, parameters, auxiliary
 

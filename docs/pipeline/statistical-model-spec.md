@@ -2,7 +2,7 @@
 
 | Modality | Interactive | Produces |
 |---|---|---|
-| Semantic | Yes | `StatisticalModelSpec`, `PriorProposal` per parameter |
+| Semantic | Yes | `StatisticalModelSpec` with a native prior on each parameter |
 
 Translates the [`measurement_structure` transition `StructuralPlan`](measurement-structure.md#structuralplan) into a fully specified statistical model by choosing observation-model distributions for ambiguous indicators and eliciting Bayesian priors for every parameter, validated against prior predictive checks.
 
@@ -36,7 +36,7 @@ flowchart LR
     N -- yes --> P
     N -- no --> B{Shared full-model barrier}
     B -- reopen failed unit + descendants --> P
-    B -- pass --> F([StatisticalModelSpec + priors])
+    B -- pass --> F([StatisticalModelSpec])
 ```
 
 **Skeleton:** Before any LLM judgment, deterministic code derives the compiler-authoritative parameter catalog, admissible [likelihoods](../reference/statistical-model-spec/likelihoods.md), loading orientations, and fixed structural policy. The LLM cannot invent parameters or causal edges.
@@ -71,7 +71,7 @@ Only deterministic numerical failures are hard gates. Monte Carlo discrepancies 
 
 ### Checkpointing and Recovery
 
-Checkpoints are immutable execution sidecars, not incomplete public artifacts. They store the accepted dependency-closed set, exact input-version pins, validation outcomes, search state, repair feedback, and full-model barrier status. Concurrent submissions write immutable child checkpoints from their launch snapshots; one merge activity serializes each completion batch into the next master checkpoint. The public `statistical_model_spec` artifact is written only after every construct is admitted and the barrier passes.
+Checkpoints are immutable execution sidecars. Original LLM submissions and their revision history live in the state-machine records; each model parameter carries only its current prior and scientific evidence. They store the accepted dependency-closed set, exact input-version pins, validation outcomes, search state, repair feedback, and full-model barrier status. Concurrent submissions write immutable child checkpoints from their launch snapshots; one merge activity serializes each completion batch into the next master checkpoint. The public `statistical_model_spec` artifact is written only after every construct is admitted and the barrier passes.
 
 Temporal resumes an interrupted in-flight workflow from its recorded activity and child-workflow history. When a model-spec run terminates, its episode-journal record carries a typed run/checkpoint selection. The checkpoint layer resolves that selection when the outer orchestrator modifies an upstream artifact through normal machine moves and runs `statistical_model_spec` again.
 
@@ -118,16 +118,10 @@ For a study of classroom engagement and academic performance, the transition cou
 | `role` | [`ParameterRole`](../reference/statistical-model-spec/parameters.md#parameter-roles) | Role in the model |
 | `constraint` | [`ParameterConstraint`](../reference/statistical-model-spec/parameters.md#parameter-roles) | Domain constraint |
 | `description` | `str` | Human-readable description |
-
-### `PriorProposal`
-
-| Field | Type | Description |
-|---|---|---|
-| `parameter_id` | `ParameterId` | Referenced [parameter definition](#statisticalmodelspecparameterspec) |
-| `distribution`, `params` | Distribution specification | Prior law on the declared authoring scale |
-| `reference_interval_days` | `float` ∣ `null` | Elicitation interval for interval-based priors |
-| `reasoning`, `sources` | Evidence metadata | Rationale and supporting literature |
-| `density_points` | Density samples ∣ `null` | Backend-computed points for display |
+| `prior` | Native NumPyro `Distribution` ∣ `null` | Prior law on the declared authoring scale; unset during construction, required in the completed artifact |
+| `reference_interval_days` | `float` ∣ `null` | Positive elicitation interval for interval-based priors |
+| `prior_reasoning`, `prior_sources` | Evidence metadata | Current scientific rationale and supporting literature |
+| `prior_density_points` | Density samples ∣ `null` | Backend-computed points for display |
 
 ### StatisticalModelSpec
 

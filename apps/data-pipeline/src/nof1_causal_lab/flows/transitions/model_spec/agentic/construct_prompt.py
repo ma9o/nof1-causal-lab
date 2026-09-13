@@ -21,6 +21,7 @@ from nof1_causal_lab.artifacts.statistical_model_spec import ParameterSpec
 from nof1_causal_lab.distributions import constraint_domain
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.models.model_mechanisms import declare_dynamics_mechanisms
+from nof1_causal_lab.prior_distributions import serialize_distribution
 from nof1_causal_lab.utils.causal_design import (
     choose_reference_indicator,
     get_effective_observation_window,
@@ -100,7 +101,9 @@ def _canonical_parameter_names(
     inventory: AdmissionTurnInventory,
 ) -> list[str]:
     """The compiler-authoritative free parameters this construct may author priors for."""
-    return sorted(inventory.prior_names(state.admission.priors))
+    return sorted(
+        inventory.prior_names({parameter.name for parameter in state.admission.parameters})
+    )
 
 
 def _parameter_activation_note(parameter: UncheckedJsonObject) -> str:
@@ -577,9 +580,11 @@ def build_construct_messages(
         role, constraint = catalog.role_for(n)
         site_name = catalog.site_for(n)
         pooled_families = {
-            prior.distribution.value
-            for prior_name, prior in state.admission.priors.items()
-            if site_name is not None and catalog.site_for(prior_name) == site_name
+            serialize_distribution(parameter.prior)[0].distribution.value
+            for parameter in state.admission.parameters
+            if site_name is not None
+            and catalog.site_for(parameter.name) == site_name
+            and parameter.prior is not None
         }
         family_requirement = (
             f" — pooled compiler site `{site_name}`: MUST use "

@@ -173,8 +173,6 @@ describe("promoted DEMO fixture", () => {
         likelihoods: Array<{ indicator_id: string }>;
         parameters: Array<{ id: string; name: string; role: string }>;
       };
-      authored_priors: Record<string, unknown>;
-      resolved_priors: Array<{ parameter_id: string }>;
       prior_predictive_samples: Record<string, number[]>;
     };
     const posterior = readFixture("artifacts/posterior.json") as {
@@ -200,13 +198,10 @@ describe("promoted DEMO fixture", () => {
         `beta_${plan.semantics.constructs[cause_id].name}_${plan.semantics.constructs[effect_id].name}`,
     );
     const parameterNames = model.statistical_model_spec.parameters.map(({ name }) => name);
-    const parameterIds = model.statistical_model_spec.parameters.map(({ id }) => id);
 
     expect(Object.keys(model).sort()).toEqual([
-      "authored_priors",
       "prior_predictive_diagnostics",
       "prior_predictive_samples",
-      "resolved_priors",
       "search_queries",
       "statistical_model_spec",
       "validation_warnings",
@@ -230,12 +225,12 @@ describe("promoted DEMO fixture", () => {
     expect(Object.keys(model.prior_predictive_samples).sort()).toEqual(
       [...plan.manifest_indicator_order].sort(),
     );
-    expect(Object.keys(model.authored_priors).sort()).toEqual([...parameterIds].sort());
-    expect(model.resolved_priors.map(({ parameter_id }) => parameter_id)).toEqual(parameterIds);
     expect(posterior.assessment.ppc.overlays.map(({ indicator_id }) => indicator_id)).toEqual(
       plan.manifest_indicator_order,
     );
-    const coordinates = demoModelSnapshot.fit!.value.posterior.posterior_marginals!.map((marginal) => marginal.parameter).sort();
+    const coordinates = demoModelSnapshot
+      .fit!.value.posterior.posterior_marginals!.map((marginal) => marginal.parameter)
+      .sort();
     expect(
       posterior.assessment.mcmc_diagnostics.per_parameter.map(({ parameter }) => parameter).sort(),
     ).toEqual(coordinates);
@@ -245,8 +240,9 @@ describe("promoted DEMO fixture", () => {
     expect(
       model.statistical_model_spec.parameters
         .filter(({ role }) => role === "fixed_effect")
-        .map(({ name }) => name),
-    ).toEqual(edgeParameterNames);
+        .map(({ name }) => name)
+        .sort(),
+    ).toEqual([...edgeParameterNames].sort());
     expect(report.intervention_results.map(({ treatment }) => treatment).sort()).toEqual(
       causal.latent.constructs
         .filter((construct) => construct.id in causal.identifiability.identifiable_treatments)

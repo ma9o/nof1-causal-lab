@@ -196,12 +196,6 @@ class ModelSnapshot(SnapshotValue):
                 item.construct_id not in constructs for item in spec.prior_predictive_diagnostics
             ):
                 raise ValueError("Admission owner does not exist in the snapshot")
-            if any(item.parameter_id not in parameters for item in spec.resolved_priors):
-                raise ValueError("Prior finding has no compiled parameter definition")
-            if spec.resolved_priors and not self.state.matches_inputs(
-                "compiled_ssm", "statistical_model_spec"
-            ):
-                raise ValueError("Prior findings require the selected specification's compiler")
         if self.fit:
             fit = self.fit.value
             marginals = fit.posterior.posterior_marginals or []

@@ -6,7 +6,6 @@ import {
   constructs,
   likelihoods,
   parameters,
-  priors,
 } from "./__fixtures__/statistical-model-spec-fixtures";
 
 const meta = {
@@ -20,9 +19,9 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const WithIndicators: Story = {
-  args: { likelihoods, parameters, priors, indicators },
+  args: { likelihoods, parameters, indicators },
 };
 
 export const WithoutIndicators: Story = {
-  args: { likelihoods, parameters, priors },
+  args: { likelihoods, parameters },
 };

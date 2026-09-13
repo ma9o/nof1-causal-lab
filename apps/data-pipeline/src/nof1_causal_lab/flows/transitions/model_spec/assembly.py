@@ -29,7 +29,6 @@ _RECOVERABLE_MODEL_SPEC_ASSEMBLY_ERRORS = (
 )
 
 type Payload = UncheckedJsonObject
-type PriorPayloads = dict[str, Payload]
 
 
 @dataclass
@@ -53,7 +52,6 @@ class AssemblyValidation:
 
 def validate_assembly(
     statistical_model_spec: Payload,
-    authored_priors: PriorPayloads | None,
     structural_plan: StructuralPlan,
 ) -> AssemblyValidation:
     """Compile authored inputs and retain compiler-owned diagnostics.
@@ -61,44 +59,25 @@ def validate_assembly(
     Construct admission and the full-model barrier own statistical validation.
     Assembly intentionally cannot invoke the removed legacy whole-model PPC suite.
     """
-    from nof1_causal_lab.flows.transitions.model_spec.trial_compile import (
-        trial_compile_statistical_model_spec,
-    )
     from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
-    from nof1_causal_lab.workers.prior_research import build_prior_plan_from_payloads
 
     candidate_model = _prepare_statistical_model_spec(statistical_model_spec)
     candidate = candidate_model.model_dump(mode="json")
-    if authored_priors:
-        try:
-            compiled_ssm = compile_ssm_artifact(
-                candidate_model,
-                build_prior_plan_from_payloads(candidate_model, authored_priors),
-                structural_plan=structural_plan,
-            )
-        except _RECOVERABLE_MODEL_SPEC_ASSEMBLY_ERRORS as exc:
-            return AssemblyValidation(
-                normalized_statistical_model_spec=candidate,
-                compile_ok=False,
-                compile_error=str(exc),
-                diagnostics=_collect_compile_failure_diagnostics(exc),
-            )
-        compile_diagnostics = _collect_compile_diagnostics(compiled_ssm)
-    else:
-        compile_error = trial_compile_statistical_model_spec(candidate_model, structural_plan)
-        if compile_error:
-            return AssemblyValidation(
-                normalized_statistical_model_spec=candidate,
-                compile_ok=False,
-                compile_error=str(compile_error),
-                diagnostics=_collect_compile_failure_diagnostics(compile_error),
-            )
-        compiled_ssm = None
-        compile_diagnostics = []
-
+    try:
+        compiled_ssm = compile_ssm_artifact(candidate_model, structural_plan=structural_plan)
+    except _RECOVERABLE_MODEL_SPEC_ASSEMBLY_ERRORS as exc:
+        return AssemblyValidation(
+            normalized_statistical_model_spec=candidate,
+            compile_ok=False,
+            compile_error=str(exc),
+            diagnostics=_collect_compile_failure_diagnostics(exc),
+        )
+    candidate["parameters"] = [
+        parameter.model_dump(mode="json") for parameter in compiled_ssm.parameters
+    ]
     return AssemblyValidation(
         normalized_statistical_model_spec=candidate,
-        diagnostics=compile_diagnostics,
+        diagnostics=_collect_compile_diagnostics(compiled_ssm),
         compiled_ssm=compiled_ssm,
     )
 
@@ -211,7 +190,6 @@ def _collect_validation_warning_messages(validation: AssemblyValidation) -> list
 
 def compile_model_artifact(
     statistical_model_spec: Payload,
-    authored_priors: PriorPayloads,
     data_for_model: pl.DataFrame,
     structural_plan: StructuralPlan,
     compiled_ssm: CompiledSSMArtifact | None = None,
@@ -219,13 +197,11 @@ def compile_model_artifact(
     """Compile and verify the executable SSM artifact for model-spec output."""
     from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
     from nof1_causal_lab.models.ssm.runtime import prepare_model_runtime
-    from nof1_causal_lab.workers.prior_research import build_prior_plan_from_payloads
 
     try:
         candidate = _prepare_statistical_model_spec(statistical_model_spec)
         artifact = compiled_ssm or compile_ssm_artifact(
             candidate,
-            build_prior_plan_from_payloads(candidate, authored_priors),
             structural_plan=structural_plan,
         )
     except _RECOVERABLE_MODEL_SPEC_ASSEMBLY_ERRORS as exc:
@@ -258,7 +234,6 @@ def compile_model_artifact(
 def materialize_model_spec_result(
     *,
     statistical_model_spec: UncheckedJsonObject,
-    authored_priors: PriorPayloads,
     data_for_model: pl.DataFrame,
     indicator_audits: dict[str, UncheckedJsonObject] | None,
     structural_plan: StructuralPlan,
@@ -272,16 +247,12 @@ def materialize_model_spec_result(
     removed whole-model PPC suite cannot be requested; construct admission and the
     exact full-model barrier own validation.
     """
-    from nof1_causal_lab.flows.transitions.model_spec.prior_resolution import (
-        resolve_prior_proposals,
-    )
 
     if not skip_ppc:
         raise ValueError("Legacy whole-model prior-predictive validation has been removed.")
 
     validation = validation or validate_assembly(
         statistical_model_spec,
-        authored_priors,
         structural_plan,
     )
     del indicator_audits
@@ -290,20 +261,11 @@ def materialize_model_spec_result(
     )
     model_result = compile_model_artifact(
         normalized_statistical_model_spec,
-        authored_priors,
         data_for_model,
         structural_plan=structural_plan,
         compiled_ssm=validation.compiled_ssm,
     )
     compiled_ssm = model_result.pop("compiled_ssm", None)
-    resolved_priors = (
-        resolve_prior_proposals(
-            compiled_ssm,
-            authored_priors=authored_priors,
-        )
-        if compiled_ssm
-        else []
-    )
 
     prior_predictive_samples = (
         build_exact_prior_predictive_samples(compiled_ssm, data_for_model)
@@ -311,21 +273,15 @@ def materialize_model_spec_result(
         else {}
     )
 
+    if compiled_ssm is not None:
+        normalized_statistical_model_spec = {
+            **normalized_statistical_model_spec,
+            "parameters": [
+                parameter.model_dump(mode="json") for parameter in compiled_ssm.parameters
+            ],
+        }
     result = {
         "statistical_model_spec": normalized_statistical_model_spec,
-        "authored_priors": {
-            row["parameter_id"]: row
-            for row in resolved_priors
-            if row["parameter_id"]
-            in {
-                parameter.id
-                for parameter in compiled_ssm.parameters
-                if parameter.name in authored_priors
-            }
-        }
-        if compiled_ssm is not None
-        else {},
-        "resolved_priors": resolved_priors,
         "search_queries": search_queries or None,
         "validation_warnings": _collect_validation_warning_messages(validation) or None,
         "_structural_plan": structural_plan.model_dump(mode="json"),

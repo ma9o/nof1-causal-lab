@@ -22,7 +22,11 @@ export function EdgeScope({ context, id }: { context: ScopeContext; id: EdgeId }
   const cause = context.entities.constructById.get(edge.cause_id)!.name;
   const effect = context.entities.constructById.get(edge.effect_id)!.name;
   const parameters = parametersForOwner(context.model.compiled_parameters?.value ?? [], edge.id);
-  const priors = priorRows(parameters, context.model.specification?.value.resolved_priors ?? []);
+  const priorParameters = parametersForOwner(
+    context.model.specification?.value.statistical_model_spec.parameters ?? [],
+    id,
+  );
+  const priors = priorRows(priorParameters);
   const fitted = posteriorRows(parameters, context.model.fit?.value.posterior);
   return (
     <>

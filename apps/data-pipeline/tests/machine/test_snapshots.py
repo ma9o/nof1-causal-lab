@@ -140,6 +140,8 @@ def test_snapshot_exists_before_any_compilation(workspace):
 def test_ownership_and_sources_are_explicit_from_first_structure(workspace):
     _measured(workspace)
     snapshot = read_model_snapshot(workspace)
+    assert snapshot.measurement_structure is not None
+    assert snapshot.latent_structure is not None
     assert {entity.id for entity in _definitions(snapshot)} == {
         "construct:x",
         "construct:y",
@@ -174,6 +176,7 @@ def test_rename_preserves_identity_and_historical_content(workspace):
     indicator = next(entity for entity in _definitions(after) if entity.id == "indicator:x")
     assert indicator.construct_id == construct.id
     assert "construct_name" not in indicator.model_dump()
+    assert after.measurement_structure is not None
     assert after.measurement_structure.source.validity == "stale"
     assert after.measurement_structure.source.artifact.version == 1
 
@@ -201,6 +204,7 @@ def test_snapshot_serves_dispositions_only_while_the_plan_exists(workspace):
     plan = build_structural_plan(design)
     _commit(workspace, "structural_plan", {"structural_plan": plan.model_dump(mode="json")})
     planned = read_model_snapshot(workspace)
+    assert planned.dispositions is not None
     assert {item.source_id for item in planned.dispositions.value} == {
         item.id for item in _definitions(planned)
     }
@@ -344,8 +348,6 @@ def test_indicator_findings_follow_pinned_ids_when_names_are_reused(workspace, m
                 ],
                 "parameters": [],
             },
-            "authored_priors": {},
-            "resolved_priors": [],
         },
         pins={"structural_plan": 1},
     )
@@ -361,6 +363,8 @@ def test_indicator_findings_follow_pinned_ids_when_names_are_reused(workspace, m
 
     monkeypatch.setattr(ArtifactStore, "read_meta", reject_catalog_resolution)
     after = read_model_snapshot(workspace)
+    assert after.measurement_structure is not None
+    assert after.specification is not None
     indicator_x = next(
         entity
         for entity in after.measurement_structure.value.measurement_structure.indicators
@@ -420,17 +424,17 @@ def test_mechanisms_follow_ids_across_renames_and_replacements(workspace, mechan
                 "likelihoods": [],
                 "parameters": [],
             },
-            "authored_priors": {},
-            "resolved_priors": [],
         },
         pins={"measurement_structure": 1},
     )
     before = read_model_snapshot(workspace)
+    assert before.specification is not None
     original = before.specification.value.statistical_model_spec.mechanisms
     latent = _latent()
     latent["constructs"][0]["name"] = "Renamed X"
     _commit(workspace, "latent_structure", {"latent_structure": latent}, pins={"question": 1})
     renamed = read_model_snapshot(workspace)
+    assert renamed.specification is not None
     assert renamed.specification.value.statistical_model_spec.mechanisms == original
     invalid = renamed.model_dump(mode="json")
     invalid["specification"]["value"]["statistical_model_spec"]["mechanisms"][0][owner_field] = (
@@ -444,6 +448,7 @@ def test_mechanisms_follow_ids_across_renames_and_replacements(workspace, mechan
     latent["edges"][0]["cause_id"] = "construct:replacement"
     _commit(workspace, "latent_structure", {"latent_structure": latent}, pins={"question": 1})
     replaced = read_model_snapshot(workspace)
+    assert replaced.specification is not None
     assert replaced.specification.value.statistical_model_spec.mechanisms == []
     assert replaced.specification.source.validity == "stale"
     assert read_model_snapshot(workspace, at_seq=before.seq) == before
@@ -494,6 +499,8 @@ def test_identification_is_shared_and_follows_ids_across_renames(workspace):
         pins={"latent_structure": 1, "measurement_structure": 1},
     )
     before = read_model_snapshot(workspace)
+    assert before.latent_structure is not None
+    assert before.identification is not None
     construct = next(
         entity for entity in before.latent_structure.value.constructs if entity.id == "construct:x"
     )
@@ -516,6 +523,8 @@ def test_identification_is_shared_and_follows_ids_across_renames(workspace):
         pins={"latent_structure": 2, "measurement_structure": 1},
     )
     after = read_model_snapshot(workspace)
+    assert after.latent_structure is not None
+    assert after.identification is not None
     construct = next(
         entity for entity in after.latent_structure.value.constructs if entity.id == "construct:x"
     )
@@ -579,8 +588,12 @@ def test_collection_accessors_share_canonical_objects_and_one_revision(workspace
     latent = reader.selected("latent_structure")
     assert type(reader.constructs()[0]) is Construct
     assert reader.constructs()[0] is latent.latent_structure.constructs[0]
-    assert reader.latent_structure().value is latent.latent_structure
-    assert reader.measurement_structure().value is reader.selected("measurement_structure")
+    latent_read = reader.latent_structure()
+    measurement_read = reader.measurement_structure()
+    assert latent_read is not None
+    assert measurement_read is not None
+    assert latent_read.value is latent.latent_structure
+    assert measurement_read.value is reader.selected("measurement_structure")
     assert reader.edges()[0] is latent.latent_structure.edges[0]
     renamed = _latent()
     renamed["constructs"][0]["name"] = "Changed after opening the reader"
@@ -590,23 +603,43 @@ def test_collection_accessors_share_canonical_objects_and_one_revision(workspace
     assert ModelReader(workspace).constructs()[0].name == "Changed after opening the reader"
 
 
-@pytest.mark.parametrize("collection", ["constructs", "edges", "indicators", "parameters"])
-def test_collection_api_does_not_materialize_other_views(workspace, monkeypatch, collection):
+@pytest.mark.parametrize(
+    "accessor",
+    [
+        "constructs",
+        "edges",
+        "indicators",
+        "parameters",
+        "latent_structure",
+        "measurement_structure",
+        "specification",
+        "posterior",
+    ],
+)
+def test_model_accessors_do_not_materialize_other_views(workspace, monkeypatch, accessor):
     _measured(workspace)
-    expected = getattr(ModelReader(workspace), collection)()
+    expected = getattr(ModelReader(workspace), accessor)()
+    collection = isinstance(expected, tuple)
+    payload = (
+        [item.model_dump(mode="json") for item in expected]
+        if collection
+        else expected.model_dump(mode="json")
+        if expected
+        else None
+    )
 
     def reject_batch(*args, **kwargs):
         raise AssertionError("A collection read must not materialize panel, fit, or view data")
 
     monkeypatch.setattr(ModelReader, "snapshot", reject_batch)
     client = TestClient(create_read_facade_app())
-    path = f"/api/episodes/{workspace}/model/{collection}"
+    path = f"/api/episodes/{workspace}/model/{accessor.replace('_', '-')}"
     response = client.get(path + "?at_seq=3")
     assert response.status_code == 200
-    assert response.json() == [item.model_dump(mode="json") for item in expected]
+    assert response.json() == payload
     assert client.get(path + "?at_seq=99").status_code == 404
     assert client.get(path + "?at_seq=-1").status_code == 422
-    assert client.get(path + "?at_seq=0").json() == []
+    assert client.get(path + "?at_seq=0").json() == ([] if collection else None)
 
 
 @pytest.mark.parametrize("kind", ["construct", "indicator"])

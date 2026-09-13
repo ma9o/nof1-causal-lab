@@ -42,11 +42,11 @@ CONCERNS = {
             "artifacts.mechanism",
             "artifacts.parameter",
             "artifacts.prior",
-            "artifacts.prior_proposal",
             "artifacts.compiled_ssm",
             "artifacts.distribution",
             "artifacts.evidence",
             "distributions",
+            "numpyro_json",
         ),
     ),
     "inference_analysis": (
@@ -103,7 +103,6 @@ CORE_DOMAIN_OBJECTS = {
     "LikelihoodSpec": "The observation distribution linking model states to measurements.",
     "DynamicsMechanism": "The explicit scientific contribution to continuous-time drift.",
     "ParameterSpec": "A model quantity to estimate, with its scientific role and constraints.",
-    "PriorProposal": "Prior uncertainty and its scientific justification for a parameter.",
     "CompiledSSMArtifact": "The executable continuous-time state-space model.",
     "PosteriorArtifact": "The fitted joint posterior supported by exact model and data versions.",
     "ScenarioQuery": "The scientific intervention question, reusable across fits.",
@@ -118,6 +117,7 @@ CORE_DOMAIN_OBJECTS = {
 # Aliases and dataclasses need explicit role sentences: JSON Schema does not carry
 # their Python docstrings. These describe concepts, never infer prose from field names.
 ROLE_SENTENCES = {
+    "NumPyroDistribution": "A native NumPyro probability distribution serialized by its constructor tree.",
     "DynamicsMechanism": "A dynamics mechanism declares one contribution to continuous-time drift.",
     "MechanismCoefficient": "A mechanism coefficient is either fixed or bound to an estimated scientific parameter.",
     "ActionSpec": "An action declares a machine operation and its interaction context.",
@@ -161,6 +161,7 @@ ROLE_SENTENCES = {
 }
 
 ALIAS_MODULES = {
+    "NumPyroDistribution": "numpyro_json",
     "EntityRef": "artifacts.identity",
     "Move": "machine.moves",
     "RuntimeEvent": "flows.runtime_events",
@@ -186,7 +187,7 @@ def _layer_for(name: str, module: str) -> str:
         return "read_models"
     if module.startswith("nof1_causal_lab.machine.") or module.endswith("flows.runtime_events"):
         return "machine"
-    if module.endswith(("episode_api", "json_types", "utils.llm")):
+    if module.endswith(("episode_api", "json_types", "utils.llm", "numpyro_json")):
         return "transport"
     if name == "SimulateScenarioResult":
         return "transport"

@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING, Any, cast
 
 import jax.numpy as jnp
 import numpy as np
+import numpyro.distributions as dist
 import pytest
 
 from nof1_causal_lab.artifacts.causal_design import CausalDesign
-from nof1_causal_lab.artifacts.prior import ExecutablePrior
 from nof1_causal_lab.artifacts.statistical_model_spec import (
     DistributionFamily,
     LikelihoodSpec,
@@ -38,7 +38,7 @@ from nof1_causal_lab.utils.structural_plan import (
     get_state_names,
     restrict_structural_plan,
 )
-from tests.helpers import fixture_entity_id
+from tests.helpers import fixture_entity_id, parameters_with_distributions
 from tests.models.ssm.test_dag_to_ssm import _make_causal_design_dict
 
 if TYPE_CHECKING:
@@ -81,24 +81,12 @@ def _p(name: str) -> ParameterSpec:
     )
 
 
-def _normal(parameter: str, mu: float, sigma: float) -> ExecutablePrior:
-    return ExecutablePrior.model_validate(
-        {
-            "parameter_id": _p(parameter).id,
-            "distribution": "Normal",
-            "params": {"mu": mu, "sigma": sigma},
-        }
-    )
+def _normal(parameter: str, mu: float, sigma: float) -> dist.Distribution:
+    return dist.Normal(mu, sigma)
 
 
-def _halfnormal(parameter: str, sigma: float) -> ExecutablePrior:
-    return ExecutablePrior.model_validate(
-        {
-            "parameter_id": _p(parameter).id,
-            "distribution": "HalfNormal",
-            "params": {"sigma": sigma},
-        }
-    )
+def _halfnormal(parameter: str, sigma: float) -> dist.Distribution:
+    return dist.HalfNormal(sigma)
 
 
 def _mechanisms_for(name):
@@ -127,20 +115,22 @@ def _contrib_X() -> ConstructContribution:
         name="X",
         mechanisms=_mechanisms_for("X"),
         likelihoods=(_lik("x1"), _lik("x2")),
-        parameters=(
-            _p("rho_X"),
-            _p("sigma_X"),
-            _p("lambda_x2_X"),
-            _p("obs_sd_x1"),
-            _p("obs_sd_x2"),
+        parameters=parameters_with_distributions(
+            (
+                _p("rho_X"),
+                _p("sigma_X"),
+                _p("lambda_x2_X"),
+                _p("obs_sd_x1"),
+                _p("obs_sd_x2"),
+            ),
+            {
+                "rho_X": _normal("rho_X", 0.6, 0.1),
+                "sigma_X": _halfnormal("sigma_X", 0.5),
+                "lambda_x2_X": _normal("lambda_x2_X", 1.0, 0.2),
+                "obs_sd_x1": _halfnormal("obs_sd_x1", 0.3),
+                "obs_sd_x2": _halfnormal("obs_sd_x2", 0.3),
+            },
         ),
-        priors={
-            "rho_X": _normal("rho_X", 0.6, 0.1),
-            "sigma_X": _halfnormal("sigma_X", 0.5),
-            "lambda_x2_X": _normal("lambda_x2_X", 1.0, 0.2),
-            "obs_sd_x1": _halfnormal("obs_sd_x1", 0.3),
-            "obs_sd_x2": _halfnormal("obs_sd_x2", 0.3),
-        },
     )
 
 
@@ -149,16 +139,18 @@ def _contrib_child(name: str, indicator: str, parent: str) -> ConstructContribut
         name=name,
         mechanisms=_mechanisms_for(name),
         likelihoods=(_lik(indicator),),
-        parameters=(
-            _p(f"rho_{name}"),
-            _p(f"sigma_{name}"),
-            _p(f"beta_{parent}_{name}"),
+        parameters=parameters_with_distributions(
+            (
+                _p(f"rho_{name}"),
+                _p(f"sigma_{name}"),
+                _p(f"beta_{parent}_{name}"),
+            ),
+            {
+                f"rho_{name}": _normal(f"rho_{name}", 0.6, 0.1),
+                f"sigma_{name}": _halfnormal(f"sigma_{name}", 0.5),
+                f"beta_{parent}_{name}": _normal(f"beta_{parent}_{name}", 0.3, 0.1),
+            },
         ),
-        priors={
-            f"rho_{name}": _normal(f"rho_{name}", 0.6, 0.1),
-            f"sigma_{name}": _halfnormal(f"sigma_{name}", 0.5),
-            f"beta_{parent}_{name}": _normal(f"beta_{parent}_{name}", 0.3, 0.1),
-        },
         edge_parents=(parent,),
     )
 
@@ -482,7 +474,6 @@ def test_full_chain_builds_and_compiles_to_ssm_artifact():
     # the stage produces, and build a live, fittable 3-latent structure.
     compiled = compile_ssm_artifact(
         state.statistical_model_spec(structural_plan),
-        state.prior_plan(structural_plan),
         structural_plan,
     )
     assert compiled.spec is not None

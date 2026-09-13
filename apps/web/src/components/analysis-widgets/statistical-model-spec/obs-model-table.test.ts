@@ -1,3 +1,4 @@
+import { parameters } from "./__fixtures__/statistical-model-spec-fixtures";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -38,7 +39,7 @@ describe("ObsPriorList", () => {
     const markup = renderToStaticMarkup(
       createElement(ObsPriorList, {
         likelihood: gaussianLikelihood,
-        terms: [{ parameterName: "obs_sd_sleep" }],
+        terms: [{ ...parameters[0], name: "obs_sd_sleep", prior: null }],
       }),
     );
 
@@ -53,13 +54,11 @@ describe("ObsPriorList", () => {
         likelihood: betaLikelihood,
         terms: [
           {
-            parameterName: "obs_concentration",
+            ...parameters[0],
+            name: "obs_concentration",
             prior: {
-              parameter_id: "parameter:obs_concentration",
               distribution: "Gamma",
               params: { concentration: 5, rate: 0.5 },
-              sources: [],
-              reasoning: "",
             },
           },
         ],

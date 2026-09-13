@@ -1541,13 +1541,12 @@ class TestRuntimeStructuralSupport:
             }
         )
 
-        from nof1_causal_lab.models.prior_planning import build_default_prior_plan
+        from nof1_causal_lab.models.prior_planning import complete_parameter_priors
         from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
         from nof1_causal_lab.models.ssm.runtime import hydrate_compiled_model
 
         compiled = compile_ssm_artifact(
-            statistical_model_spec,
-            build_default_prior_plan(statistical_model_spec),
+            complete_parameter_priors(statistical_model_spec),
             structural_plan,
         )
         model = hydrate_compiled_model(compiled, X)

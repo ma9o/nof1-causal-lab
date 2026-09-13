@@ -2,7 +2,6 @@ import type {
   Indicator,
   LikelihoodSpec,
   ParameterSpec,
-  PriorProposal,
   StateEquation,
 } from "@nof1-causal-lab/api-types";
 import katex from "katex";
@@ -23,7 +22,6 @@ interface SsmEquationDisplayProps {
   likelihoods: LikelihoodSpec[];
   equations: StateEquation[];
   parameters: ParameterSpec[];
-  priors: PriorProposal[];
   indicators?: Indicator[];
   structuralPlan: import("@nof1-causal-lab/api-types").StructuralPlan;
 }
@@ -52,7 +50,6 @@ export function SSMEquationDisplay({
   equations,
   likelihoods,
   parameters,
-  priors,
   indicators,
   structuralPlan,
 }: SsmEquationDisplayProps) {
@@ -146,7 +143,6 @@ export function SSMEquationDisplay({
             <ObsModelTable
               likelihoods={likelihoods}
               parameters={parameters}
-              priors={priors}
               indicators={indicators}
               constructs={Object.values(structuralPlan.semantics.constructs)}
             />

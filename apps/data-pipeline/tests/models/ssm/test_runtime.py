@@ -43,7 +43,7 @@ from nof1_causal_lab.models.ssm.structure import (
     SparseMatrixBlockSpec,
     T0CholBlockSpec,
 )
-from tests.helpers import named_prior_payloads, native_axis_metadata
+from tests.helpers import model_with_prior_payloads, named_prior_payloads, native_axis_metadata
 from tests.ssm_spec_fixtures import (
     default_diffusion_block,
     default_input_effect_block,
@@ -147,10 +147,12 @@ class TestBuilderPriorConversion:
 
         with pytest.raises(ValueError, match="support within"):
             compile_priors(
-                named_prior_payloads(
-                    StatisticalModelSpec.model_validate(statistical_model_spec), priors
+                model_with_prior_payloads(
+                    StatisticalModelSpec.model_validate(statistical_model_spec),
+                    named_prior_payloads(
+                        StatisticalModelSpec.model_validate(statistical_model_spec), priors
+                    ),
                 ),
-                StatisticalModelSpec.model_validate(statistical_model_spec),
                 ssm_spec=ssm_spec,
             )
 
@@ -210,10 +212,12 @@ class TestBuilderPriorConversion:
         )
 
         prior_registry, _index_maps, _diagnostics = compile_priors(
-            named_prior_payloads(
-                StatisticalModelSpec.model_validate(statistical_model_spec), priors
+            model_with_prior_payloads(
+                StatisticalModelSpec.model_validate(statistical_model_spec),
+                named_prior_payloads(
+                    StatisticalModelSpec.model_validate(statistical_model_spec), priors
+                ),
             ),
-            StatisticalModelSpec.model_validate(statistical_model_spec),
             ssm_spec=ssm_spec,
         )
         t0_corr_prior = prior_registry["t0_var_lower_free"]
@@ -312,10 +316,12 @@ class TestBuilderPriorConversion:
         )
 
         prior_registry, index_maps, _diagnostics = compile_priors(
-            named_prior_payloads(
-                StatisticalModelSpec.model_validate(statistical_model_spec), priors
+            model_with_prior_payloads(
+                StatisticalModelSpec.model_validate(statistical_model_spec),
+                named_prior_payloads(
+                    StatisticalModelSpec.model_validate(statistical_model_spec), priors
+                ),
             ),
-            StatisticalModelSpec.model_validate(statistical_model_spec),
             ssm_spec=ssm_spec,
         )
         t0_mean_prior = prior_registry["t0_means_free"]
@@ -498,10 +504,12 @@ class TestBuilderPriorConversion:
         # Only the retained free covariance coordinate is a scientific parameter.
         statistical_model_spec["parameters"] = statistical_model_spec["parameters"][1:]
         prior_registry, index_maps, _diagnostics = compile_priors(
-            named_prior_payloads(
-                StatisticalModelSpec.model_validate(statistical_model_spec), priors
+            model_with_prior_payloads(
+                StatisticalModelSpec.model_validate(statistical_model_spec),
+                named_prior_payloads(
+                    StatisticalModelSpec.model_validate(statistical_model_spec), priors
+                ),
             ),
-            StatisticalModelSpec.model_validate(statistical_model_spec),
             ssm_spec=ssm_spec,
         )
         t0_corr_prior = prior_registry["t0_var_lower_free"]
@@ -649,10 +657,12 @@ class TestBuilderPriorConversion:
         )
 
         prior_registry, index_maps, _diagnostics = compile_priors(
-            named_prior_payloads(
-                StatisticalModelSpec.model_validate(statistical_model_spec), priors
+            model_with_prior_payloads(
+                StatisticalModelSpec.model_validate(statistical_model_spec),
+                named_prior_payloads(
+                    StatisticalModelSpec.model_validate(statistical_model_spec), priors
+                ),
             ),
-            StatisticalModelSpec.model_validate(statistical_model_spec),
             ssm_spec=ssm_spec,
         )
 
@@ -801,10 +811,12 @@ class TestBuilderPriorConversion:
 
         with pytest.raises(ValueError, match="could not resolve an authoring interval"):
             compile_priors(
-                named_prior_payloads(
-                    StatisticalModelSpec.model_validate(statistical_model_spec), priors
+                model_with_prior_payloads(
+                    StatisticalModelSpec.model_validate(statistical_model_spec),
+                    named_prior_payloads(
+                        StatisticalModelSpec.model_validate(statistical_model_spec), priors
+                    ),
                 ),
-                StatisticalModelSpec.model_validate(statistical_model_spec),
                 ssm_spec=ssm_spec,
             )
 

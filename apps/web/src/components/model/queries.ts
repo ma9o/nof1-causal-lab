@@ -36,7 +36,8 @@ export function buildModelQueries(model: ModelSnapshot): ModelQuery[] {
   const constructs = model.latent_structure?.value.constructs ?? [];
   const names = new Map(constructs.map((entity) => [entity.id, entity.name]));
   const outcome =
-    constructs.find((entity) => entity.id === model.latent_structure?.value.default_outcome?.id)?.name ?? null;
+    constructs.find((entity) => entity.id === model.latent_structure?.value.default_outcome?.id)
+      ?.name ?? null;
   const reportPosteriorVersion =
     model.state.current.baseline_report?.derived_from.posterior ?? null;
   const ranking = (model.baseline_report?.value.intervention_results ?? []).flatMap((result) => {

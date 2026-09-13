@@ -1,6 +1,6 @@
 # Parameters and Priors
 
-Defines the parameter roles, prior vocabulary, and default guidance for [`ParameterSpec`](../../pipeline/statistical-model-spec.md#parameterspec) and [`PriorProposal`](../../pipeline/statistical-model-spec.md) entries in a [`StatisticalModelSpec`](../../pipeline/statistical-model-spec.md#statisticalmodelspec).
+Defines the parameter roles, prior vocabulary, and default guidance for [`ParameterSpec`](../../pipeline/statistical-model-spec.md#statisticalmodelspecparameterspec) entries with native priors in a [`StatisticalModelSpec`](../../pipeline/statistical-model-spec.md#statisticalmodelspec).
 
 > All sections below are generated from `nof1_causal_lab.distributions`.
 > Edit the Python catalog and re-run `uv run python scripts/export_distribution_docs.py` instead of editing them manually.

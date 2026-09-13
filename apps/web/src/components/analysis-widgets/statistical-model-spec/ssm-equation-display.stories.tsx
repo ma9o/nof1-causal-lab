@@ -5,7 +5,6 @@ import {
   indicators,
   likelihoods,
   parameters,
-  priors,
   structuralPlan,
 } from "./__fixtures__/statistical-model-spec-fixtures";
 import { SSMEquationDisplay } from "./ssm-equation-display";
@@ -21,9 +20,9 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  args: { likelihoods, parameters, priors, indicators },
+  args: { likelihoods, parameters, indicators },
 };
 
 export const WithoutIndicators: Story = {
-  args: { likelihoods, parameters, priors },
+  args: { likelihoods, parameters },
 };

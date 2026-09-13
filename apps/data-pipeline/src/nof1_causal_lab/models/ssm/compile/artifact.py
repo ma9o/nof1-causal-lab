@@ -22,15 +22,10 @@ from nof1_causal_lab.artifacts.measurement_structure import (
     check_semantic_collisions,
     validate_measurement_structure,
 )
-from nof1_causal_lab.artifacts.prior import (
-    ExecutablePrior,
-    PriorPlan,
-)
 from nof1_causal_lab.artifacts.statistical_model_spec import (
     ParameterRole,
     StatisticalModelSpec,
 )
-from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 
 logger = logging.getLogger(__name__)
@@ -38,7 +33,6 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from nof1_causal_lab.artifacts.distribution import CompiledDistribution
     from nof1_causal_lab.artifacts.latent_structure import LatentStructure
     from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
     from nof1_causal_lab.models.ssm import SSMSpec
@@ -322,7 +316,6 @@ def _collect_statistical_model_spec_compile_errors(
 
 def _compile_validated_ssm_artifact(
     validated_statistical_model_spec: StatisticalModelSpec,
-    prior_plan: PriorPlan,
     *,
     structural_plan: StructuralPlan,
 ) -> CompiledSSMArtifact:
@@ -346,7 +339,6 @@ def _compile_validated_ssm_artifact(
         auxiliary,
     ) = compile_ssm_inputs_from_statistical_model_spec(
         validated_statistical_model_spec,
-        prior_plan,
         structural_plan=structural_plan,
     )
 
@@ -372,7 +364,6 @@ def _compile_validated_ssm_artifact(
 
 def compile_ssm_artifact(
     statistical_model_spec: StatisticalModelSpec,
-    prior_plan: PriorPlan,
     structural_plan: StructuralPlan,
 ) -> CompiledSSMArtifact:
     """Compile user-facing specs into an executable, serializable SSM artifact."""
@@ -385,61 +376,5 @@ def compile_ssm_artifact(
 
     return _compile_validated_ssm_artifact(
         statistical_model_spec,
-        prior_plan,
         structural_plan=structural_plan,
     )
-
-
-def _executable_prior_from_recipe(parameter: str, recipe: CompiledDistribution) -> ExecutablePrior:
-    """Recover the authored law and its reference interval without moment matching."""
-    family = recipe.distribution
-    operations = list(recipe.transforms)
-    reference_interval_days = None
-    if operations and operations[-1].kind == "persistence_to_decay":
-        reference_interval_days = operations.pop().scale
-    elif operations and operations[-1].kind == "affine":
-        scale = operations.pop()
-        if scale.loc != 0.0 or scale.scale <= 0.0:
-            raise ValueError("Compiled interval effects require a positive pure scaling")
-        reference_interval_days = 1.0 / scale.scale
-    if (
-        len(operations) == 1
-        and operations[0].kind == "exp"
-        and family == PriorDistributionFamily.NORMAL
-    ):
-        family = PriorDistributionFamily.LOG_NORMAL
-        operations.clear()
-    if operations:
-        raise ValueError(
-            f"Cannot express the compiled prior for {parameter!r} on the authoring surface"
-        )
-    return ExecutablePrior(
-        parameter_id=parameter,
-        distribution=family,
-        params=recipe.params,
-        reference_interval_days=reference_interval_days,
-    )
-
-
-def resolve_executable_priors(
-    compiled_ssm: CompiledSSMArtifact,
-    *,
-    authored_plan: PriorPlan | None = None,
-) -> list[ExecutablePrior]:
-    """Resolve prior rows from lossless distribution recipes and authored evidence."""
-    semantics = compiled_ssm.compiled_prior_semantics
-    site_by_name = {site.name: site for site in semantics.site_registry}
-    authored_priors = authored_plan.priors if authored_plan is not None else {}
-    resolved = list(authored_priors.values())
-    seen = set(authored_priors)
-    for binding in compiled_ssm.parameter_bindings:
-        parameter_id = binding.parameter_id
-        if parameter_id in seen:
-            continue
-        site = site_by_name[binding.site_name]
-        indices = next(iter(binding.coordinates.values())).indices
-        flat_index = int(np.ravel_multi_index(indices, tuple(site.shape))) if site.shape else 0
-        recipe = semantics.priors[site.name][flat_index]
-        resolved.append(_executable_prior_from_recipe(parameter_id, recipe))
-        seen.add(parameter_id)
-    return resolved

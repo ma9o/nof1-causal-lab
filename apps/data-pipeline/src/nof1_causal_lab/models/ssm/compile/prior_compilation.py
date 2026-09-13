@@ -22,8 +22,6 @@ from nof1_causal_lab.artifacts.prior import (
     PriorValidationResult,
 )
 from nof1_causal_lab.compilation_errors import AggregatedCompileError
-from nof1_causal_lab.distributions import PriorDistributionFamily
-from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.models.ssm.compile.common import (
     axis_names_with_fallback,
 )
@@ -44,7 +42,6 @@ from nof1_causal_lab.models.ssm.structure.sites import SemanticBinding, SiteDesc
 from nof1_causal_lab.prior_distributions import (
     batch_prior_distributions,
     deserialize_distribution,
-    distribution_from_params,
     interval_effect_to_rate,
     persistence_to_decay,
     prior_reference_value,
@@ -76,8 +73,6 @@ PriorFailureStage = Literal[
 _LOGM_IMAG_TOL = 1e-8
 _LOGM_RELATIVE_DEVIATION_WARNING_THRESHOLD = 0.2
 
-_NONDEGENERATE_TOL = 1e-12
-
 _DEGENERATE_PRIOR_PREAMBLE = (
     "model-spec priors must have strictly positive variance. Zero-width priors assert "
     "the parameter's value with infinite certainty, which is a structural claim "
@@ -85,35 +80,6 @@ _DEGENERATE_PRIOR_PREAMBLE = (
     "fixings, baseline policies) belong on the structural surface — the skeleton "
     "parameter list or statistical-model-spec policy toggles — not on the prior surface."
 )
-
-
-def _validate_nondegenerate_prior(
-    parameter: str,
-    distribution: PriorDistributionFamily | str,
-    raw_params: UncheckedJsonObject,
-) -> list[str]:
-    """Keep the scientific no-point-mass rule; NumPyro validates numeric arguments."""
-    if PriorDistributionFamily(distribution) == PriorDistributionFamily.DELTA:
-        return [
-            f"Prior {parameter!r}: Delta/point-mass priors are not supported. {_DEGENERATE_PRIOR_PREAMBLE}"
-        ]
-    law = distribution_from_params(distribution, raw_params)
-    # NumPyro's two-sided truncation has no variance property. Its positive
-    # base scale and nonzero truncation interval establish nondegeneracy.
-    variance_scale = (
-        np.minimum(
-            np.asarray(raw_params["sigma"]),
-            np.asarray(raw_params["upper"]) - np.asarray(raw_params["lower"]),
-        )
-        ** 2
-        if PriorDistributionFamily(distribution) == PriorDistributionFamily.TRUNCATED_NORMAL
-        else np.asarray(law.variance)
-    )
-    if np.any(variance_scale <= _NONDEGENERATE_TOL**2):
-        return [
-            f"Prior {parameter!r} must have strictly positive variance. {_DEGENERATE_PRIOR_PREAMBLE}"
-        ]
-    return []
 
 
 class PriorCompilationError(AggregatedCompileError):
@@ -220,7 +186,7 @@ def _resolve_model_clock_interval_days(
 def _resolve_cross_lag_interval_days(
     *,
     param_name: str,
-    prior_spec: UncheckedJsonObject,
+    parameter: ParameterSpec,
     ssm_spec: SSMSpec,
     edge_lag_days: dict[tuple[int, int], float] | None,
     structural_plan: StructuralPlan | None,
@@ -228,7 +194,7 @@ def _resolve_cross_lag_interval_days(
     cause_idx: int,
 ) -> float:
     """Resolve a positive authoring interval for cross-lag priors."""
-    ref_days = prior_spec.get("reference_interval_days")
+    ref_days = parameter.reference_interval_days
     if ref_days is not None:
         interval_days = float(ref_days)
         if interval_days <= 0:
@@ -269,20 +235,13 @@ def _format_interval_days(days: float) -> str:
     return f"{float(days):.1f}d"
 
 
-def _collect_source_intervals(prior_spec: UncheckedJsonObject) -> list[float]:
-    """Extract positive `study_interval_days` metadata from prior sources."""
-    intervals: list[float] = []
-    for source in prior_spec.get("sources") or []:
-        if not isinstance(source, dict):
-            continue
-        value = source.get("study_interval_days")
-        try:
-            days = float(value)
-        except (TypeError, ValueError):
-            continue
-        if days > 0:
-            intervals.append(days)
-    return sorted(intervals)
+def _collect_source_intervals(parameter: ParameterSpec) -> list[float]:
+    """Read interval evidence from the scientific parameter."""
+    return [
+        source.study_interval_days
+        for source in parameter.prior_sources
+        if source.study_interval_days is not None and source.study_interval_days > 0
+    ]
 
 
 def _interval_ratio(lhs: float, rhs: float) -> float:
@@ -322,12 +281,12 @@ def collect_interval_provenance_warnings(
     ssm_spec: SSMSpec,
     *,
     edge_lag_days: dict[tuple[int, int], float] | None = None,
-    raw_priors: dict[str, UncheckedJsonObject] | None = None,
+    parameters: dict[str, ParameterSpec] | None = None,
     authored_bindings: SemanticBindingRegistry | None = None,
 ) -> list[CompileDiagnostic]:
     """Collect deterministic interval-authoring diagnostics for lagged dynamics priors."""
     edge_lags = edge_lag_days or {}
-    if not edge_lags or not raw_priors:
+    if not edge_lags or not parameters:
         return []
     if authored_bindings is None:
         raise ValueError("Prior interval provenance requires explicit parameter-ID bindings")
@@ -353,9 +312,9 @@ def collect_interval_provenance_warnings(
         cause_name = latent_names[cause_idx]
         effect_name = latent_names[effect_idx]
         expected_lag_days = edge_lags[(effect_idx, cause_idx)]
-        prior_spec = raw_priors[parameter_id]
-        ref_days = prior_spec.get("reference_interval_days")
-        source_intervals = _collect_source_intervals(prior_spec)
+        parameter = parameters[parameter_id]
+        ref_days = parameter.reference_interval_days
+        source_intervals = _collect_source_intervals(parameter)
         if not source_intervals:
             continue
 
@@ -432,7 +391,7 @@ def collect_compile_diagnostics(
     ssm_spec: SSMSpec,
     *,
     edge_lag_days: dict[tuple[int, int], float] | None = None,
-    raw_priors: dict[str, UncheckedJsonObject] | None = None,
+    parameters: dict[str, ParameterSpec] | None = None,
     authored_bindings: SemanticBindingRegistry | None = None,
     prior_registry: dict[str, dist.Distribution] | None = None,
     offdiag_interval_days: dict[tuple[int, int], float] | None = None,
@@ -441,7 +400,7 @@ def collect_compile_diagnostics(
     diagnostics = collect_interval_provenance_warnings(
         ssm_spec,
         edge_lag_days=edge_lag_days,
-        raw_priors=raw_priors,
+        parameters=parameters,
         authored_bindings=authored_bindings,
     )
     if prior_registry is not None:
@@ -716,13 +675,21 @@ def _correlation_prior(prior: dist.Distribution) -> dist.Distribution:
 
 
 def compile_priors(
-    raw_priors: dict[str, UncheckedJsonObject],
     statistical_model_spec: StatisticalModelSpec | None,
     ssm_spec: SSMSpec | None,
     edge_lag_days: dict[tuple[int, int], float] | None = None,
     structural_plan: StructuralPlan | None = None,
 ) -> tuple[dict[str, dist.Distribution], SemanticBindingRegistry, list[CompileDiagnostic]]:
-    """Compile prior proposals into a site-keyed prior registry with explicit index maps."""
+    """Bind the model's native distributions to their declared execution coordinates."""
+    parameters = (
+        {parameter.id: parameter for parameter in statistical_model_spec.parameters}
+        if statistical_model_spec is not None
+        else {}
+    )
+    missing = [parameter.id for parameter in parameters.values() if parameter.prior is None]
+    if missing:
+        raise ValueError(f"Model parameters require explicit prior distributions: {missing}")
+
     active_sites = build_site_registry(ssm_spec) if ssm_spec is not None else []
     prior_entries: dict[str, dist.Distribution] = {
         site.name: default_prior_for_descriptor(site) for site in active_sites
@@ -750,32 +717,21 @@ def compile_priors(
             statistical_model_spec,
             structural_plan=structural_plan,
         )
-    elif raw_priors and statistical_model_spec is None:
-        raise ValueError(
-            "compile_priors() requires statistical_model_spec when compiling semantic prior proposals."
-        )
-    elif raw_priors and ssm_spec is None:
-        raise ValueError(
-            "compile_priors() requires a translated SSMSpec when compiling semantic prior "
-            "proposals."
-        )
+    elif statistical_model_spec is not None:
+        raise ValueError("Scientific prior compilation requires a translated SSMSpec")
     else:
         bindings = empty_prior_bindings()
     binding_by_parameter = bindings.by_parameter
     errors: list[str] = []
     offdiag_interval_days: dict[tuple[int, int], float] = {}
 
-    for param_name, prior_spec in raw_priors.items():
+    for param_name, parameter in parameters.items():
         try:
-            distribution = prior_spec["distribution"]
-            raw_prior_params = prior_spec["params"]
-            degenerate_issues = _validate_nondegenerate_prior(
-                param_name, distribution, raw_prior_params
-            )
-            if degenerate_issues:
-                errors.extend(degenerate_issues)
-                continue
-            prior = distribution_from_params(distribution, raw_prior_params)
+            prior = parameter.prior
+            assert prior is not None
+            prior.validate_args()
+            if isinstance(prior, dist.Delta):
+                raise ValueError(f"Prior {param_name!r}: {_DEGENERATE_PRIOR_PREAMBLE}")
             binding = binding_by_parameter.get(param_name)
             if binding is None:
                 role = role_by_name.get(param_name)
@@ -825,7 +781,7 @@ def compile_priors(
 
             if binding.transform == PriorAuthoringTransform.DT_PERSISTENCE_TO_CT_DECAY:
                 construct_name = binding.construct_names[0]
-                ref_days = prior_spec.get("reference_interval_days")
+                ref_days = parameter.reference_interval_days
                 resolved_ref_days = float(ref_days) if ref_days is not None else None
                 if resolved_ref_days is not None and resolved_ref_days <= 0:
                     errors.append(
@@ -851,7 +807,7 @@ def compile_priors(
                         "Dynamics effect prior compilation requires a translated SSMSpec runtime."
                     )
                 if binding.site_kind == SiteKind.INPUT_EFFECT:
-                    ref_days = prior_spec.get("reference_interval_days")
+                    ref_days = parameter.reference_interval_days
                     resolved_ref_days = float(ref_days) if ref_days is not None else None
                     if resolved_ref_days is not None and resolved_ref_days <= 0:
                         errors.append(
@@ -867,7 +823,7 @@ def compile_priors(
                 elif binding.effect_idx is not None and binding.cause_idx is not None:
                     dt = _resolve_cross_lag_interval_days(
                         param_name=param_name,
-                        prior_spec=prior_spec,
+                        parameter=parameter,
                         ssm_spec=ssm_spec,
                         edge_lag_days=edge_lag_days,
                         structural_plan=structural_plan,
@@ -917,7 +873,7 @@ def compile_priors(
         diagnostics = collect_compile_diagnostics(
             ssm_spec,
             edge_lag_days=edge_lag_days,
-            raw_priors=raw_priors,
+            parameters=parameters,
             authored_bindings=bindings,
             prior_registry=prior_registry,
             offdiag_interval_days=offdiag_interval_days,
@@ -982,7 +938,13 @@ def bind_parameters(
                     },
                     structural_plan,
                 )
-                definition = ParameterSpec.model_validate(candidate)
+                definition = ParameterSpec.model_validate(
+                    {
+                        **candidate,
+                        "prior": default_prior_for_descriptor(site),
+                        "prior_reasoning": f"Default scientific policy for {site.site_kind.value}.",
+                    }
+                )
                 definitions[definition.id] = definition
                 all_bindings[definition.id] = SemanticBinding(
                     parameter_name=definition.name,
@@ -1029,7 +991,13 @@ def bind_parameters(
                         f"Shared parameter {definition.name!r} must own exactly its active likelihood channels"
                     )
                 continue
-            definition = ParameterSpec.model_validate(candidate)
+            definition = ParameterSpec.model_validate(
+                {
+                    **candidate,
+                    "prior": default_prior_for_descriptor(site),
+                    "prior_reasoning": f"Default scientific policy for {site.site_kind.value}.",
+                }
+            )
             definitions[definition.id] = definition
             all_bindings[definition.id] = SemanticBinding(
                 parameter_name=site.name,

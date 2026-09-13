@@ -5014,6 +5014,27 @@
         "title": "NonIdentifiableTreatmentStatus",
         "description": "Context on why a treatment effect is not identifiable."
       },
+      "NumPyroDistribution": {
+        "properties": {
+          "distribution": {
+            "type": "string",
+            "title": "Distribution"
+          },
+          "params": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "type": "object",
+            "title": "Params"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "distribution",
+          "params"
+        ]
+      },
       "ObservationInterceptPolicy": {
         "type": "string",
         "enum": [
@@ -5414,6 +5435,56 @@
           "prior_transform": {
             "$ref": "#/components/schemas/PriorAuthoringTransform",
             "default": "identity"
+          },
+          "prior": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumPyroDistribution"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior",
+            "description": "Native probability law; absent while the parameter is being specified."
+          },
+          "reference_interval_days": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Interval Days"
+          },
+          "prior_reasoning": {
+            "type": "string",
+            "title": "Prior Reasoning",
+            "default": ""
+          },
+          "prior_sources": {
+            "items": {
+              "$ref": "#/components/schemas/PriorSource"
+            },
+            "type": "array",
+            "title": "Prior Sources"
+          },
+          "prior_density_points": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/DensityPoint"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior Density Points"
           },
           "elements": {
             "additionalProperties": {
@@ -5837,22 +5908,6 @@
         "title": "PriorAuthoringTransform",
         "description": "How an authored semantic prior is transformed before site attachment."
       },
-      "PriorDistributionFamily": {
-        "type": "string",
-        "enum": [
-          "Normal",
-          "HalfNormal",
-          "Beta",
-          "Uniform",
-          "TruncatedNormal",
-          "Gamma",
-          "LogNormal",
-          "Exponential",
-          "Delta"
-        ],
-        "title": "PriorDistributionFamily",
-        "description": "This enumeration identifies the probability families permitted in authored prior\nproposals."
-      },
       "PriorPredictiveDiagnostic": {
         "properties": {
           "check": {
@@ -5903,344 +5958,6 @@
         ],
         "title": "PriorPredictiveDiagnostic",
         "description": "A prior predictive diagnostic records the result of one exact model-admission check."
-      },
-      "PriorProposal": {
-        "oneOf": [
-          {
-            "properties": {
-              "distribution": {
-                "type": "string",
-                "const": "Normal"
-              },
-              "params": {
-                "properties": {
-                  "mu": {
-                    "type": "number"
-                  },
-                  "sigma": {
-                    "type": "number",
-                    "exclusiveMinimum": 0.0
-                  }
-                },
-                "additionalProperties": false,
-                "type": "object",
-                "required": [
-                  "mu",
-                  "sigma"
-                ]
-              }
-            },
-            "type": "object",
-            "required": [
-              "distribution",
-              "params"
-            ]
-          },
-          {
-            "properties": {
-              "distribution": {
-                "type": "string",
-                "const": "HalfNormal"
-              },
-              "params": {
-                "properties": {
-                  "sigma": {
-                    "type": "number",
-                    "exclusiveMinimum": 0.0
-                  }
-                },
-                "additionalProperties": false,
-                "type": "object",
-                "required": [
-                  "sigma"
-                ]
-              }
-            },
-            "type": "object",
-            "required": [
-              "distribution",
-              "params"
-            ]
-          },
-          {
-            "properties": {
-              "distribution": {
-                "type": "string",
-                "const": "Beta"
-              },
-              "params": {
-                "properties": {
-                  "alpha": {
-                    "type": "number",
-                    "exclusiveMinimum": 0.0
-                  },
-                  "beta": {
-                    "type": "number",
-                    "exclusiveMinimum": 0.0
-                  }
-                },
-                "additionalProperties": false,
-                "type": "object",
-                "required": [
-                  "alpha",
-                  "beta"
-                ]
-              }
-            },
-            "type": "object",
-            "required": [
-              "distribution",
-              "params"
-            ]
-          },
-          {
-            "properties": {
-              "distribution": {
-                "type": "string",
-                "const": "Uniform"
-              },
-              "params": {
-                "properties": {
-                  "lower": {
-                    "type": "number"
-                  },
-                  "upper": {
-                    "type": "number"
-                  }
-                },
-                "additionalProperties": false,
-                "type": "object",
-                "required": [
-                  "lower",
-                  "upper"
-                ]
-              }
-            },
-            "type": "object",
-            "required": [
-              "distribution",
-              "params"
-            ]
-          },
-          {
-            "properties": {
-              "distribution": {
-                "type": "string",
-                "const": "TruncatedNormal"
-              },
-              "params": {
-                "properties": {
-                  "mu": {
-                    "type": "number"
-                  },
-                  "sigma": {
-                    "type": "number",
-                    "exclusiveMinimum": 0.0
-                  },
-                  "lower": {
-                    "type": "number"
-                  },
-                  "upper": {
-                    "type": "number"
-                  }
-                },
-                "additionalProperties": false,
-                "type": "object",
-                "required": [
-                  "mu",
-                  "sigma",
-                  "lower",
-                  "upper"
-                ]
-              }
-            },
-            "type": "object",
-            "required": [
-              "distribution",
-              "params"
-            ]
-          },
-          {
-            "properties": {
-              "distribution": {
-                "type": "string",
-                "const": "Gamma"
-              },
-              "params": {
-                "properties": {
-                  "concentration": {
-                    "type": "number",
-                    "exclusiveMinimum": 0.0
-                  },
-                  "rate": {
-                    "type": "number",
-                    "exclusiveMinimum": 0.0
-                  }
-                },
-                "additionalProperties": false,
-                "type": "object",
-                "required": [
-                  "concentration",
-                  "rate"
-                ]
-              }
-            },
-            "type": "object",
-            "required": [
-              "distribution",
-              "params"
-            ]
-          },
-          {
-            "properties": {
-              "distribution": {
-                "type": "string",
-                "const": "LogNormal"
-              },
-              "params": {
-                "properties": {
-                  "mu": {
-                    "type": "number"
-                  },
-                  "sigma": {
-                    "type": "number",
-                    "exclusiveMinimum": 0.0
-                  }
-                },
-                "additionalProperties": false,
-                "type": "object",
-                "required": [
-                  "mu",
-                  "sigma"
-                ]
-              }
-            },
-            "type": "object",
-            "required": [
-              "distribution",
-              "params"
-            ]
-          },
-          {
-            "properties": {
-              "distribution": {
-                "type": "string",
-                "const": "Exponential"
-              },
-              "params": {
-                "properties": {
-                  "rate": {
-                    "type": "number",
-                    "exclusiveMinimum": 0.0
-                  }
-                },
-                "additionalProperties": false,
-                "type": "object",
-                "required": [
-                  "rate"
-                ]
-              }
-            },
-            "type": "object",
-            "required": [
-              "distribution",
-              "params"
-            ]
-          },
-          {
-            "properties": {
-              "distribution": {
-                "type": "string",
-                "const": "Delta"
-              },
-              "params": {
-                "properties": {
-                  "value": {
-                    "type": "number"
-                  }
-                },
-                "additionalProperties": false,
-                "type": "object",
-                "required": [
-                  "value"
-                ]
-              }
-            },
-            "type": "object",
-            "required": [
-              "distribution",
-              "params"
-            ]
-          }
-        ],
-        "properties": {
-          "distribution": {
-            "$ref": "#/components/schemas/PriorDistributionFamily"
-          },
-          "params": {
-            "additionalProperties": {
-              "type": "number"
-            },
-            "type": "object",
-            "title": "Params",
-            "description": "Arguments to the declared NumPyro family"
-          },
-          "parameter_id": {
-            "$ref": "#/components/schemas/ParameterId",
-            "description": "Scientific parameter this prior describes"
-          },
-          "sources": {
-            "items": {
-              "$ref": "#/components/schemas/PriorSource"
-            },
-            "type": "array",
-            "title": "Sources",
-            "description": "Literature sources supporting this prior"
-          },
-          "reasoning": {
-            "type": "string",
-            "title": "Reasoning",
-            "description": "Justification for the chosen prior distribution and parameters"
-          },
-          "reference_interval_days": {
-            "anyOf": [
-              {
-                "type": "number",
-                "exclusiveMinimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reference Interval Days",
-            "description": "Observation interval (in days) that the DT prior is expressed in. Sourced from the study's measurement schedule (e.g., 7 for a weekly study). Used for DT\u2192CT conversion of dynamic priors (e.g. beta/dt for cross-lags, -log(rho)/dt for baseline persistence)."
-          },
-          "density_points": {
-            "anyOf": [
-              {
-                "items": {
-                  "$ref": "#/components/schemas/DensityPoint"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Density Points",
-            "description": "Pre-computed density curve points [{x, y}, ...] for frontend visualization. Computed by the pipeline before persistence so the frontend doesn't need to approximate the PDF client-side."
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "distribution",
-          "params",
-          "parameter_id",
-          "reasoning"
-        ],
-        "title": "PriorProposal",
-        "description": "A prior proposal specifies a parameter's prior distribution with its rationale and\nsupporting evidence."
       },
       "PriorSource": {
         "properties": {
@@ -7631,23 +7348,6 @@
           "statistical_model_spec": {
             "$ref": "#/components/schemas/StatisticalModelSpec"
           },
-          "authored_priors": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/PriorProposal"
-            },
-            "propertyNames": {
-              "$ref": "#/components/schemas/ParameterId"
-            },
-            "type": "object",
-            "title": "Authored Priors"
-          },
-          "resolved_priors": {
-            "items": {
-              "$ref": "#/components/schemas/PriorProposal"
-            },
-            "type": "array",
-            "title": "Resolved Priors"
-          },
           "search_queries": {
             "anyOf": [
               {
@@ -7707,9 +7407,7 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "statistical_model_spec",
-          "authored_priors",
-          "resolved_priors"
+          "statistical_model_spec"
         ],
         "title": "StatisticalModelSpecArtifact",
         "description": "This artifact combines the statistical specification with prior proposals and admission\ndiagnostics."
@@ -7718,23 +7416,6 @@
         "properties": {
           "statistical_model_spec": {
             "$ref": "#/components/schemas/StatisticalModelSpec"
-          },
-          "authored_priors": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/PriorProposal"
-            },
-            "propertyNames": {
-              "$ref": "#/components/schemas/ParameterId"
-            },
-            "type": "object",
-            "title": "Authored Priors"
-          },
-          "resolved_priors": {
-            "items": {
-              "$ref": "#/components/schemas/PriorProposal"
-            },
-            "type": "array",
-            "title": "Resolved Priors"
           },
           "search_queries": {
             "anyOf": [
@@ -7808,13 +7489,6 @@
             "type": "array",
             "title": "State Equations"
           },
-          "parameters": {
-            "items": {
-              "$ref": "#/components/schemas/ParameterSpec"
-            },
-            "type": "array",
-            "title": "Parameters"
-          },
           "likelihood_diagnostics": {
             "additionalProperties": {
               "$ref": "#/components/schemas/ModelSpecLikelihoodDiagnostics"
@@ -7829,9 +7503,7 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "statistical_model_spec",
-          "authored_priors",
-          "resolved_priors"
+          "statistical_model_spec"
         ],
         "title": "StatisticalModelSpecData",
         "description": "A specification with observed likelihood diagnostics from its pinned inputs."

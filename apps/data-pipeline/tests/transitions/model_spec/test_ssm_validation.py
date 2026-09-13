@@ -9,13 +9,9 @@ import numpyro.distributions as dist
 
 from nof1_causal_lab.artifacts.causal_design import CausalDesign
 from nof1_causal_lab.artifacts.compiled_ssm import (
-    CompiledParameterBinding,
-    CompiledPriorSemantics,
     CompiledSSMArtifact,
-    CompiledStructure,
-    SerializedSSMSpec,
 )
-from nof1_causal_lab.artifacts.statistical_model_spec import ParameterSpec, StatisticalModelSpec
+from nof1_causal_lab.artifacts.statistical_model_spec import StatisticalModelSpec
 from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
 from nof1_causal_lab.models.ssm import SSMSpec
 from nof1_causal_lab.prior_distributions import (
@@ -24,8 +20,9 @@ from nof1_causal_lab.prior_distributions import (
     serialize_distribution,
 )
 from tests.helpers import (
-    make_prior_plan,
+    make_prior_model,
     make_structural_plan,
+    model_with_prior_payloads,
     named_prior_payloads,
     native_axis_metadata,
 )
@@ -115,36 +112,6 @@ def _mood_structural_plan() -> StructuralPlan:
     )
 
 
-def _compiled_prior_artifact(payload: dict[str, Any]) -> CompiledSSMArtifact:
-    """Build the minimal current artifact needed by prior-resolution tests."""
-    spec_payload = payload.get("spec", {})
-    latent_names = spec_payload.get("latent_names", [])
-    return CompiledSSMArtifact.model_construct(
-        schema_version=2,
-        structure=CompiledStructure.model_construct(
-            spec=SerializedSSMSpec.model_construct(
-                latent_names=latent_names,
-                n_latent=len(latent_names),
-                t0_means_block={"free_support": [True] * len(latent_names)},
-                t0_chol_block={"diag_support": [True] * len(latent_names)},
-            ),
-            edge_lag_days=[],
-            bindings=[],
-            anchor_certificates=[],
-        ),
-        compiled_prior_semantics=CompiledPriorSemantics.model_validate(
-            payload["compiled_prior_semantics"]
-        ),
-        observation_bindings={},
-        auxiliary_coordinates=[],
-        parameters=[ParameterSpec.model_validate(item) for item in payload["parameters"]],
-        parameter_bindings=[
-            CompiledParameterBinding.model_validate(item) for item in payload["parameter_bindings"]
-        ],
-        compile_diagnostics=[],
-    )
-
-
 def _prior_for_parameter(priors, index_maps, parameter):
     binding = next(
         item for item in index_maps.by_parameter.values() if item.parameter_name == parameter
@@ -222,8 +189,7 @@ class TestSSMModelConstruction:
 
         statistical_model_spec = _typed_statistical_model_spec(simple_statistical_model_spec)
         compiled = compile_ssm_artifact(
-            statistical_model_spec,
-            make_prior_plan(statistical_model_spec, simple_priors),
+            make_prior_model(statistical_model_spec, simple_priors),
             _mood_structural_plan(),
         )
         model = hydrate_compiled_model(compiled, pl.from_pandas(simple_data))
@@ -279,12 +245,8 @@ class TestModelSpecAssembly:
                     "model_built": True,
                     "model_type": "test",
                     "version": "0",
-                    "compiled_ssm": {"compiled_prior_semantics": {}, "parameter_bindings": []},
+                    "compiled_ssm": SimpleNamespace(parameters=[]),
                 },
-            ),
-            patch(
-                "nof1_causal_lab.flows.transitions.model_spec.prior_resolution.resolve_prior_proposals",
-                return_value=[],
             ),
             patch(
                 "nof1_causal_lab.flows.transitions.model_spec.assembly.build_exact_prior_predictive_samples",
@@ -293,7 +255,6 @@ class TestModelSpecAssembly:
         ):
             result = materialize_model_spec_result(
                 statistical_model_spec=simple_statistical_model_spec,
-                authored_priors=simple_priors,
                 data_for_model=_make_polars_data(),
                 indicator_audits=None,
                 structural_plan=_mood_structural_plan(),
@@ -312,14 +273,13 @@ class TestModelSpecAssembly:
         """Assembly compiles once and retains that artifact for materialization."""
         from nof1_causal_lab.flows.transitions.model_spec.assembly import validate_assembly
 
-        compiled_artifact = SimpleNamespace(compile_diagnostics=[])
+        compiled_artifact = SimpleNamespace(compile_diagnostics=[], parameters=[])
         with patch(
             "nof1_causal_lab.models.ssm.compile.artifact.compile_ssm_artifact",
             return_value=compiled_artifact,
         ) as compile_mock:
             validation = validate_assembly(
                 simple_statistical_model_spec,
-                simple_priors,
                 _mood_structural_plan(),
             )
 
@@ -334,11 +294,7 @@ class TestModelSpecAssembly:
         """Lagged DT/CT heuristics should surface as warnings, not compile errors."""
         from nof1_causal_lab.flows.transitions.model_spec.assembly import validate_assembly
 
-        compiled_artifact = {
-            "schema_version": 1,
-            "spec": {},
-            "compiled_prior_semantics": {},
-        }
+        compiled_artifact = SimpleNamespace(compile_diagnostics=[], parameters=[])
 
         with (
             patch(
@@ -362,7 +318,6 @@ class TestModelSpecAssembly:
         ):
             validation = validate_assembly(
                 simple_statistical_model_spec,
-                simple_priors,
                 _mood_structural_plan(),
             )
 
@@ -381,592 +336,6 @@ class TestModelSpecAssembly:
                 issue="Median one-lag response is much slower than the nominal lag.",
                 suggested_adjustment="Confirm that this slow response is intended.",
             ).model_dump()
-        ]
-
-    def test_resolve_prior_proposals_reads_compiled_semantics_per_state(self):
-        """Implicit initial-state priors should come from compiled semantics."""
-        from nof1_causal_lab.flows.transitions.model_spec.prior_resolution import (
-            resolve_prior_proposals,
-        )
-
-        compiled_ssm = _compiled_prior_artifact(
-            {
-                "spec": {"latent_names": ["stress", "sleep"]},
-                "compiled_prior_semantics": {
-                    "schema_version": 7,
-                    "site_registry": [
-                        {
-                            "name": "t0_means_free",
-                            "shape": [2],
-                            "support": "real",
-                            "assembly_group": "t0",
-                            "site_kind": "t0_means",
-                            "deterministic_name": "t0_means",
-                            "fixed_spec_field": "t0_means",
-                            "priors_field": "t0_means",
-                            "runtime_prior_key": "t0_means_free",
-                            "is_runtime_prior_controlled": True,
-                        },
-                        {
-                            "name": "t0_var_diag_free",
-                            "shape": [2],
-                            "support": "positive",
-                            "assembly_group": "t0",
-                            "site_kind": "t0_var_diag",
-                            "deterministic_name": "t0_cov",
-                            "fixed_spec_field": "t0_var",
-                            "priors_field": "t0_var_diag",
-                            "runtime_prior_key": "t0_var_diag_free",
-                            "is_runtime_prior_controlled": True,
-                        },
-                    ],
-                    "priors": {
-                        "t0_means_free": [
-                            {
-                                "distribution": "Normal",
-                                "params": {"mu": 0.0, "sigma": 2.0},
-                                "transforms": [],
-                            },
-                            {
-                                "distribution": "Normal",
-                                "params": {"mu": 1.0, "sigma": 3.0},
-                                "transforms": [],
-                            },
-                        ],
-                        "t0_var_diag_free": [
-                            {
-                                "distribution": "HalfNormal",
-                                "params": {"sigma": 4.0},
-                                "transforms": [],
-                            },
-                            {
-                                "distribution": "HalfNormal",
-                                "params": {"sigma": 5.0},
-                                "transforms": [],
-                            },
-                        ],
-                    },
-                },
-                "parameter_bindings": [
-                    {
-                        "parameter_id": "parameter:96d353f4c01af7bcb8618bb0bcda0e83d524b109eafbb875d3e6886c33d4592b",
-                        "coordinates": {
-                            "element:379252e1a0ba3f6c243f59b5ed174a04b33f40288156c509b2d2f49d1f73130b": {
-                                "site_name": "t0_means_free",
-                                "indices": [0],
-                            }
-                        },
-                        "site_name": "t0_means_free",
-                        "flat_index": 0,
-                        "site_kind": "t0_means",
-                        "prior_field": "t0_means",
-                        "transform": "identity",
-                        "construct_names": [],
-                        "indicator_names": [],
-                        "component_index": None,
-                        "effect_idx": None,
-                        "cause_idx": None,
-                    },
-                    {
-                        "parameter_id": "parameter:46608d1b7349d1939222ae192e6f6205f686d1837de6685cf34f12f590bcdb01",
-                        "coordinates": {
-                            "element:0ec8e71be472c9a01b8d9099d478c39580d325b86452b56d644e0d97614218e4": {
-                                "site_name": "t0_means_free",
-                                "indices": [1],
-                            }
-                        },
-                        "site_name": "t0_means_free",
-                        "flat_index": 1,
-                        "site_kind": "t0_means",
-                        "prior_field": "t0_means",
-                        "transform": "identity",
-                        "construct_names": [],
-                        "indicator_names": [],
-                        "component_index": None,
-                        "effect_idx": None,
-                        "cause_idx": None,
-                    },
-                    {
-                        "parameter_id": "parameter:f3f09d2dab4b05b42e736a00fbdceea4acb310b6ca6793ce00ed56b542bf6146",
-                        "coordinates": {
-                            "element:5ef2e1a4ff4d666b24468535c83057f6f1812b2e104f21d5fe437aea0e7fd7c1": {
-                                "site_name": "t0_var_diag_free",
-                                "indices": [0],
-                            }
-                        },
-                        "site_name": "t0_var_diag_free",
-                        "flat_index": 0,
-                        "site_kind": "t0_var_diag",
-                        "prior_field": "t0_var_diag",
-                        "transform": "identity",
-                        "construct_names": [],
-                        "indicator_names": [],
-                        "component_index": None,
-                        "effect_idx": None,
-                        "cause_idx": None,
-                    },
-                    {
-                        "parameter_id": "parameter:ebf0bf3a45ddac90be77292343d5ad604cdab82c43449a1c05601511575d3712",
-                        "coordinates": {
-                            "element:4669248c1893da6c150a429351c57bec80ced8b4e05a78d6ef03f10fb538475f": {
-                                "site_name": "t0_var_diag_free",
-                                "indices": [1],
-                            }
-                        },
-                        "site_name": "t0_var_diag_free",
-                        "flat_index": 1,
-                        "site_kind": "t0_var_diag",
-                        "prior_field": "t0_var_diag",
-                        "transform": "identity",
-                        "construct_names": [],
-                        "indicator_names": [],
-                        "component_index": None,
-                        "effect_idx": None,
-                        "cause_idx": None,
-                    },
-                ],
-                "parameters": [
-                    {
-                        "id": "parameter:96d353f4c01af7bcb8618bb0bcda0e83d524b109eafbb875d3e6886c33d4592b",
-                        "owners": [{"kind": "construct", "id": "construct:6b04dc42c531e7091eb8"}],
-                        "quantity": "t0_means",
-                        "name": "t0_mean_stress",
-                        "role": "initial_state_mean",
-                        "constraint": "none",
-                        "description": "t0_mean_stress",
-                        "elements": {
-                            "element:379252e1a0ba3f6c243f59b5ed174a04b33f40288156c509b2d2f49d1f73130b": "t0_mean_stress"
-                        },
-                        "prior_transform": "identity",
-                    },
-                    {
-                        "id": "parameter:46608d1b7349d1939222ae192e6f6205f686d1837de6685cf34f12f590bcdb01",
-                        "owners": [{"kind": "construct", "id": "construct:cdc0b2958a9512b2abad"}],
-                        "quantity": "t0_means",
-                        "name": "t0_mean_sleep",
-                        "role": "initial_state_mean",
-                        "constraint": "none",
-                        "description": "t0_mean_sleep",
-                        "elements": {
-                            "element:0ec8e71be472c9a01b8d9099d478c39580d325b86452b56d644e0d97614218e4": "t0_mean_sleep"
-                        },
-                        "prior_transform": "identity",
-                    },
-                    {
-                        "id": "parameter:f3f09d2dab4b05b42e736a00fbdceea4acb310b6ca6793ce00ed56b542bf6146",
-                        "owners": [{"kind": "construct", "id": "construct:6b04dc42c531e7091eb8"}],
-                        "quantity": "t0_var_diag",
-                        "name": "t0_sd_stress",
-                        "role": "initial_state_sd",
-                        "constraint": "positive",
-                        "description": "t0_sd_stress",
-                        "elements": {
-                            "element:5ef2e1a4ff4d666b24468535c83057f6f1812b2e104f21d5fe437aea0e7fd7c1": "t0_sd_stress"
-                        },
-                        "prior_transform": "identity",
-                    },
-                    {
-                        "id": "parameter:ebf0bf3a45ddac90be77292343d5ad604cdab82c43449a1c05601511575d3712",
-                        "owners": [{"kind": "construct", "id": "construct:cdc0b2958a9512b2abad"}],
-                        "quantity": "t0_var_diag",
-                        "name": "t0_sd_sleep",
-                        "role": "initial_state_sd",
-                        "constraint": "positive",
-                        "description": "t0_sd_sleep",
-                        "elements": {
-                            "element:4669248c1893da6c150a429351c57bec80ced8b4e05a78d6ef03f10fb538475f": "t0_sd_sleep"
-                        },
-                        "prior_transform": "identity",
-                    },
-                ],
-            }
-        )
-
-        assert resolve_prior_proposals(compiled_ssm, authored_priors={}) == [
-            {
-                "parameter_id": "parameter:96d353f4c01af7bcb8618bb0bcda0e83d524b109eafbb875d3e6886c33d4592b",
-                "distribution": "Normal",
-                "params": {"mu": 0.0, "sigma": 2.0},
-                "sources": [],
-                "reasoning": "Compiler-resolved prior for t0_mean_stress.",
-                "reference_interval_days": None,
-                "density_points": None,
-            },
-            {
-                "parameter_id": "parameter:46608d1b7349d1939222ae192e6f6205f686d1837de6685cf34f12f590bcdb01",
-                "distribution": "Normal",
-                "params": {"mu": 1.0, "sigma": 3.0},
-                "sources": [],
-                "reasoning": "Compiler-resolved prior for t0_mean_sleep.",
-                "reference_interval_days": None,
-                "density_points": None,
-            },
-            {
-                "parameter_id": "parameter:f3f09d2dab4b05b42e736a00fbdceea4acb310b6ca6793ce00ed56b542bf6146",
-                "distribution": "HalfNormal",
-                "params": {"sigma": 4.0},
-                "sources": [],
-                "reasoning": ("Compiler-resolved prior for t0_sd_stress."),
-                "reference_interval_days": None,
-                "density_points": None,
-            },
-            {
-                "parameter_id": "parameter:ebf0bf3a45ddac90be77292343d5ad604cdab82c43449a1c05601511575d3712",
-                "distribution": "HalfNormal",
-                "params": {"sigma": 5.0},
-                "sources": [],
-                "reasoning": ("Compiler-resolved prior for t0_sd_sleep."),
-                "reference_interval_days": None,
-                "density_points": None,
-            },
-        ]
-
-    def test_resolve_prior_proposals_preserves_authored_metadata_for_lossy_bindings(
-        self,
-        simple_statistical_model_spec,
-        simple_priors,
-    ):
-        """Resolved public priors should retain authored semantics when compilation is lossy."""
-        from nof1_causal_lab.flows.transitions.model_spec.prior_resolution import (
-            resolve_prior_proposals,
-        )
-        from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
-
-        typed_statistical_model_spec = _typed_statistical_model_spec(simple_statistical_model_spec)
-        compiled_ssm = compile_ssm_artifact(
-            typed_statistical_model_spec,
-            make_prior_plan(typed_statistical_model_spec, simple_priors),
-            _mood_structural_plan(),
-        )
-        resolved = {
-            next(p.name for p in compiled_ssm.parameters if p.id == prior["parameter_id"]): prior
-            for prior in resolve_prior_proposals(compiled_ssm, authored_priors=simple_priors)
-        }
-
-        assert resolved["rho_mood"]["distribution"] == "Beta"
-        assert resolved["rho_mood"]["params"] == {"alpha": 2.0, "beta": 2.0}
-        assert resolved["rho_mood"]["reasoning"] == "Weakly informative for AR coefficient"
-        assert resolved["sigma_mood"]["distribution"] == "HalfNormal"
-        assert resolved["sigma_mood"]["params"] == {"sigma": 1.0}
-
-    def test_resolve_prior_proposals_roundtrips_new_supported_prior_families(self):
-        """Compiled semantics should surface LogNormal and bounded real priors."""
-        from nof1_causal_lab.flows.transitions.model_spec.prior_resolution import (
-            resolve_prior_proposals,
-        )
-
-        compiled_ssm = _compiled_prior_artifact(
-            {
-                "compiled_prior_semantics": {
-                    "schema_version": 7,
-                    "site_registry": [
-                        {
-                            "name": "diffusion_diag_free",
-                            "shape": [1],
-                            "support": "positive",
-                            "assembly_group": "diffusion",
-                            "site_kind": "diffusion_diag",
-                            "deterministic_name": "diffusion",
-                            "fixed_spec_field": "diffusion",
-                            "priors_field": "diffusion_diag",
-                            "runtime_prior_key": "diffusion_diag_free",
-                            "is_runtime_prior_controlled": True,
-                        },
-                        {
-                            "name": "vf_0_weight",
-                            "shape": [1],
-                            "support": "real",
-                            "assembly_group": "dynamics",
-                            "site_kind": "dynamics_weight",
-                            "deterministic_name": None,
-                            "fixed_spec_field": None,
-                            "priors_field": "linear_edge_weight",
-                            "runtime_prior_key": "vf_0_weight",
-                            "is_runtime_prior_controlled": True,
-                        },
-                    ],
-                    "priors": {
-                        "diffusion_diag_free": [
-                            {
-                                "distribution": "LogNormal",
-                                "params": {"mu": 0.2, "sigma": 0.7},
-                                "transforms": [],
-                            }
-                        ],
-                        "vf_0_weight": [
-                            {
-                                "distribution": "Uniform",
-                                "params": {"lower": -1.0, "upper": 1.0},
-                                "transforms": [],
-                            }
-                        ],
-                    },
-                },
-                "parameter_bindings": [
-                    {
-                        "parameter_id": "parameter:146688c9f8e2c980c9e7963be61deb23225a81f828c204339c2164d1f51d441e",
-                        "coordinates": {
-                            "element:42ced717be677a25b5b5577561c3d4a62f61e0c465bac514af80bbd5df4f51cd": {
-                                "site_name": "diffusion_diag_free",
-                                "indices": [0],
-                            }
-                        },
-                        "site_name": "diffusion_diag_free",
-                        "flat_index": 0,
-                        "site_kind": "diffusion_diag",
-                        "prior_field": "diffusion_diag",
-                        "transform": "identity",
-                        "construct_names": [],
-                        "indicator_names": [],
-                        "component_index": None,
-                        "effect_idx": None,
-                        "cause_idx": None,
-                    },
-                    {
-                        "parameter_id": "parameter:9e6fbc798c5b59ce541a7cbb11486933125b473c0880869fd3fc04e02fbdc94d",
-                        "coordinates": {
-                            "element:385f22dac72b99dbca29b4f265bdfa8e68a5810930934c3f3eaa44ac9bf76bf9": {
-                                "site_name": "vf_0_weight",
-                                "indices": [0],
-                            }
-                        },
-                        "site_name": "vf_0_weight",
-                        "flat_index": 0,
-                        "site_kind": "dynamics_weight",
-                        "prior_field": "linear_edge_weight",
-                        "transform": "identity",
-                        "construct_names": [],
-                        "indicator_names": [],
-                        "component_index": None,
-                        "effect_idx": None,
-                        "cause_idx": None,
-                    },
-                ],
-                "parameters": [
-                    {
-                        "id": "parameter:146688c9f8e2c980c9e7963be61deb23225a81f828c204339c2164d1f51d441e",
-                        "owners": [{"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"}],
-                        "quantity": "diffusion_diag",
-                        "name": "sigma_mood",
-                        "role": "residual_sd",
-                        "constraint": "positive",
-                        "description": "sigma_mood",
-                        "elements": {
-                            "element:42ced717be677a25b5b5577561c3d4a62f61e0c465bac514af80bbd5df4f51cd": "sigma_mood"
-                        },
-                        "prior_transform": "identity",
-                    },
-                    {
-                        "id": "parameter:9e6fbc798c5b59ce541a7cbb11486933125b473c0880869fd3fc04e02fbdc94d",
-                        "owners": [
-                            {"kind": "construct", "id": "construct:6b04dc42c531e7091eb8"},
-                            {"kind": "construct", "id": "construct:cdc0b2958a9512b2abad"},
-                        ],
-                        "quantity": "dynamics_weight",
-                        "name": "cor_stress_sleep",
-                        "role": "fixed_effect",
-                        "constraint": "none",
-                        "description": "cor_stress_sleep",
-                        "elements": {
-                            "element:385f22dac72b99dbca29b4f265bdfa8e68a5810930934c3f3eaa44ac9bf76bf9": "cor_stress_sleep"
-                        },
-                        "prior_transform": "identity",
-                    },
-                ],
-            }
-        )
-
-        resolved = {
-            next(p.name for p in compiled_ssm.parameters if p.id == prior["parameter_id"]): prior
-            for prior in resolve_prior_proposals(compiled_ssm, authored_priors={})
-        }
-        assert resolved["sigma_mood"]["distribution"] == "LogNormal"
-        assert resolved["sigma_mood"]["params"]["mu"] == pytest.approx(0.2)
-        assert resolved["sigma_mood"]["params"]["sigma"] == pytest.approx(0.7)
-        assert resolved["cor_stress_sleep"]["distribution"] == "Uniform"
-        assert resolved["cor_stress_sleep"]["params"]["lower"] == pytest.approx(-1.0)
-        assert resolved["cor_stress_sleep"]["params"]["upper"] == pytest.approx(1.0)
-
-    def test_resolve_prior_proposals_preserves_normal_recipe(self):
-        """A Normal recipe remains Normal when projected back to authoring fields."""
-        from nof1_causal_lab.flows.transitions.model_spec.prior_resolution import (
-            resolve_prior_proposals,
-        )
-
-        compiled_ssm = _compiled_prior_artifact(
-            {
-                "compiled_prior_semantics": {
-                    "schema_version": 7,
-                    "site_registry": [
-                        {
-                            "name": "vf_0_weight",
-                            "shape": [1],
-                            "support": "real",
-                            "assembly_group": "dynamics",
-                            "site_kind": "dynamics_weight",
-                            "deterministic_name": None,
-                            "fixed_spec_field": None,
-                            "priors_field": "linear_edge_weight",
-                            "runtime_prior_key": "vf_0_weight",
-                            "is_runtime_prior_controlled": True,
-                        }
-                    ],
-                    "priors": {
-                        "vf_0_weight": [
-                            {
-                                "distribution": "Normal",
-                                "params": {"mu": 0.15, "sigma": 0.4},
-                                "transforms": [],
-                            }
-                        ]
-                    },
-                },
-                "parameter_bindings": [
-                    {
-                        "parameter_id": "parameter:5bc883c88217b4859aa1b3535c370f8f588d108722b29f2180827796b6c8926d",
-                        "coordinates": {
-                            "element:4c7fdf8715e78b7ac4e4815295e5c8c4d9a6b6e9f26638d5c0ff4500fc2d18fe": {
-                                "site_name": "vf_0_weight",
-                                "indices": [0],
-                            }
-                        },
-                        "site_name": "vf_0_weight",
-                        "flat_index": 0,
-                        "site_kind": "dynamics_weight",
-                        "prior_field": "linear_edge_weight",
-                        "transform": "identity",
-                        "construct_names": [],
-                        "indicator_names": [],
-                        "component_index": None,
-                        "effect_idx": None,
-                        "cause_idx": None,
-                    }
-                ],
-                "parameters": [
-                    {
-                        "id": "parameter:5bc883c88217b4859aa1b3535c370f8f588d108722b29f2180827796b6c8926d",
-                        "owners": [
-                            {"kind": "construct", "id": "construct:cdc0b2958a9512b2abad"},
-                            {"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"},
-                        ],
-                        "quantity": "dynamics_weight",
-                        "name": "beta_sleep_mood",
-                        "role": "fixed_effect",
-                        "constraint": "none",
-                        "description": "beta_sleep_mood",
-                        "elements": {
-                            "element:4c7fdf8715e78b7ac4e4815295e5c8c4d9a6b6e9f26638d5c0ff4500fc2d18fe": "beta_sleep_mood"
-                        },
-                        "prior_transform": "identity",
-                    }
-                ],
-            }
-        )
-
-        resolved = resolve_prior_proposals(compiled_ssm, authored_priors={})
-
-        assert len(resolved) == 1
-        (row,) = resolved
-        # float32-native: compare the numeric prior params with float32 tolerance,
-        # the rest of the structure exactly.
-        assert row["params"] == pytest.approx({"mu": 0.15, "sigma": 0.4})
-        assert {k: v for k, v in row.items() if k != "params"} == {
-            "parameter_id": "parameter:5bc883c88217b4859aa1b3535c370f8f588d108722b29f2180827796b6c8926d",
-            "distribution": "Normal",
-            "sources": [],
-            "reasoning": "Compiler-resolved prior for beta_sleep_mood.",
-            "reference_interval_days": None,
-            "density_points": None,
-        }
-
-    def test_resolve_prior_proposals_roundtrips_correlation_support_sites(self):
-        """Compiled correlation-support sites should reconstruct bounded real priors."""
-        from nof1_causal_lab.flows.transitions.model_spec.prior_resolution import (
-            resolve_prior_proposals,
-        )
-
-        compiled_ssm = _compiled_prior_artifact(
-            {
-                "compiled_prior_semantics": {
-                    "schema_version": 7,
-                    "site_registry": [
-                        {
-                            "name": "t0_var_lower_free",
-                            "shape": [1],
-                            "support": "correlation",
-                            "assembly_group": "t0",
-                            "site_kind": "t0_var_lower",
-                            "deterministic_name": "t0_cov",
-                            "fixed_spec_field": "t0_var",
-                            "priors_field": "t0_var_offdiag",
-                            "runtime_prior_key": "t0_var_lower_free",
-                            "is_runtime_prior_controlled": True,
-                        }
-                    ],
-                    "priors": {
-                        "t0_var_lower_free": [
-                            {
-                                "distribution": "Uniform",
-                                "params": {"lower": -1.0, "upper": 1.0},
-                                "transforms": [],
-                            }
-                        ]
-                    },
-                },
-                "parameter_bindings": [
-                    {
-                        "parameter_id": "parameter:ca850c671699ab0d0597065f0fbcb0982a08de6306746aeae78efdc9155388db",
-                        "coordinates": {
-                            "element:455400fa5bf2f54270a2bf91f00605f42ba36c31778d7b633bd620e465077da9": {
-                                "site_name": "t0_var_lower_free",
-                                "indices": [0],
-                            }
-                        },
-                        "site_name": "t0_var_lower_free",
-                        "flat_index": 0,
-                        "site_kind": "t0_var_lower",
-                        "prior_field": "t0_var_offdiag",
-                        "transform": "identity",
-                        "construct_names": [],
-                        "indicator_names": [],
-                        "component_index": None,
-                        "effect_idx": None,
-                        "cause_idx": None,
-                    }
-                ],
-                "parameters": [
-                    {
-                        "id": "parameter:ca850c671699ab0d0597065f0fbcb0982a08de6306746aeae78efdc9155388db",
-                        "owners": [
-                            {"kind": "construct", "id": "construct:cdc0b2958a9512b2abad"},
-                            {"kind": "construct", "id": "construct:6b04dc42c531e7091eb8"},
-                        ],
-                        "quantity": "t0_var_lower",
-                        "name": "cor0_sleep_stress",
-                        "role": "initial_state_correlation",
-                        "constraint": "correlation",
-                        "description": "cor0_sleep_stress",
-                        "elements": {
-                            "element:455400fa5bf2f54270a2bf91f00605f42ba36c31778d7b633bd620e465077da9": "cor0_sleep_stress"
-                        },
-                        "prior_transform": "identity",
-                    }
-                ],
-            }
-        )
-
-        resolved = resolve_prior_proposals(compiled_ssm, authored_priors={})
-
-        assert resolved == [
-            {
-                "parameter_id": "parameter:ca850c671699ab0d0597065f0fbcb0982a08de6306746aeae78efdc9155388db",
-                "distribution": "Uniform",
-                "params": {"lower": -1.0, "upper": 1.0},
-                "sources": [],
-                "reasoning": "Compiler-resolved prior for cor0_sleep_stress.",
-                "reference_interval_days": None,
-                "density_points": None,
-            }
         ]
 
 
@@ -993,10 +362,12 @@ class TestSSMPriorConversion:
         }
         ssm_spec = _default_ssm_spec(n_latent=1, n_manifest=1, latent_names=["mood"])
         ssm_priors, index_maps, _diagnostics = compile_ssm_priors(
-            named_prior_payloads(
-                _typed_statistical_model_spec(simple_statistical_model_spec), priors
+            model_with_prior_payloads(
+                _typed_statistical_model_spec(simple_statistical_model_spec),
+                named_prior_payloads(
+                    _typed_statistical_model_spec(simple_statistical_model_spec), priors
+                ),
             ),
-            _typed_statistical_model_spec(simple_statistical_model_spec),
             ssm_spec=ssm_spec,
         )
 
@@ -1024,10 +395,12 @@ class TestSSMPriorConversion:
         }
         with pytest.raises(ValueError, match="requires a translated SSMSpec"):
             compile_ssm_priors(
-                named_prior_payloads(
-                    _typed_statistical_model_spec(simple_statistical_model_spec), priors
+                model_with_prior_payloads(
+                    _typed_statistical_model_spec(simple_statistical_model_spec),
+                    named_prior_payloads(
+                        _typed_statistical_model_spec(simple_statistical_model_spec), priors
+                    ),
                 ),
-                _typed_statistical_model_spec(simple_statistical_model_spec),
                 ssm_spec=None,
             )
 
@@ -1041,8 +414,7 @@ class TestSSMPriorConversion:
             StatisticalModelSpec, "model_validate", wraps=StatisticalModelSpec.model_validate
         ) as validate:
             compile_ssm_inputs_from_statistical_model_spec(
-                statistical_model_spec,
-                make_prior_plan(statistical_model_spec, simple_priors),
+                make_prior_model(statistical_model_spec, simple_priors),
                 structural_plan=_mood_structural_plan(),
             )
 
@@ -1079,23 +451,14 @@ class TestSSMPriorConversion:
         }
         with pytest.raises(ValueError, match="requires a translated SSMSpec"):
             compile_ssm_priors(
-                named_prior_payloads(_typed_statistical_model_spec(spec), priors),
-                _typed_statistical_model_spec(spec),
+                model_with_prior_payloads(
+                    _typed_statistical_model_spec(spec),
+                    named_prior_payloads(_typed_statistical_model_spec(spec), priors),
+                ),
                 ssm_spec=None,
             )
 
-    def test_unbound_prior_name_fails_without_statistical_model_spec(self):
-        """Semantic prior compilation should fail fast when statistical_model_spec is missing."""
-        priors = {
-            "rho_x": {
-                "distribution": "Normal",
-                "params": {"mu": -0.3, "sigma": 0.5},
-            },
-        }
-        with pytest.raises(ValueError, match="requires statistical_model_spec"):
-            compile_ssm_priors(priors, None, ssm_spec=None)
-
-    def test_compile_priors_aggregates_independent_prior_errors(self):
+    def test_compile_priors_rejects_invalid_persistence_support(self):
         """Independent prior compile failures should be reported together."""
 
         statistical_model_spec = {
@@ -1144,24 +507,21 @@ class TestSSMPriorConversion:
         }
         ssm_spec = _default_ssm_spec(n_latent=1, n_manifest=1, latent_names=["mood"])
 
-        with pytest.raises(ValueError, match="Prior compilation failed") as exc_info:
+        with pytest.raises(ValueError, match=r"support within \[0, 1\]") as exc_info:
             compile_ssm_priors(
-                {
-                    **named_prior_payloads(
+                model_with_prior_payloads(
+                    _typed_statistical_model_spec(statistical_model_spec),
+                    named_prior_payloads(
                         _typed_statistical_model_spec(statistical_model_spec),
                         {"rho_mood": priors["rho_mood"]},
                     ),
-                    "parameter:unknown": priors["parameter:unknown"],
-                },
-                _typed_statistical_model_spec(statistical_model_spec),
+                ),
                 ssm_spec=ssm_spec,
             )
 
         message = str(exc_info.value)
-        assert "Prior compilation failed" in message
         assert "support within [0, 1]" in message
         assert "support within [0, 1]" in message
-        assert "parameter:unknown" in message
 
     def test_compile_ssm_artifact_rejects_unknown_scientific_owners(self):
         """Invalid scientific ownership is rejected before compilation."""
@@ -1324,8 +684,7 @@ class TestSSMPriorConversion:
         with pytest.raises(ValueError, match="unknown scientific owner") as exc_info:
             typed_statistical_model_spec = _typed_statistical_model_spec(statistical_model_spec)
             compile_ssm_artifact(
-                typed_statistical_model_spec,
-                make_prior_plan(typed_statistical_model_spec, priors),
+                make_prior_model(typed_statistical_model_spec, priors),
                 structural_plan=causal_design,
             )
 
@@ -1403,8 +762,10 @@ class TestSSMPriorConversion:
         }
         ssm_spec = _default_ssm_spec(n_latent=2, n_manifest=2, latent_names=["mood", "stress"])
         ssm_priors, index_maps, _diagnostics = compile_ssm_priors(
-            named_prior_payloads(_typed_statistical_model_spec(statistical_model_spec), priors),
-            _typed_statistical_model_spec(statistical_model_spec),
+            model_with_prior_payloads(
+                _typed_statistical_model_spec(statistical_model_spec),
+                named_prior_payloads(_typed_statistical_model_spec(statistical_model_spec), priors),
+            ),
             ssm_spec=ssm_spec,
         )
 
@@ -1470,8 +831,10 @@ class TestSSMPriorConversion:
         causal_design["semantics"]["model_clock"] = "1h"
         ssm_spec = _default_ssm_spec(n_latent=1, n_manifest=1, latent_names=["heart_rate"])
         ssm_priors, index_maps, _diagnostics = compile_ssm_priors(
-            named_prior_payloads(_typed_statistical_model_spec(statistical_model_spec), priors),
-            _typed_statistical_model_spec(statistical_model_spec),
+            model_with_prior_payloads(
+                _typed_statistical_model_spec(statistical_model_spec),
+                named_prior_payloads(_typed_statistical_model_spec(statistical_model_spec), priors),
+            ),
             ssm_spec=ssm_spec,
             structural_plan=StructuralPlan.model_validate(causal_design),
         )
@@ -1582,8 +945,10 @@ class TestSSMPriorConversion:
             edge_support=edge_support,
         )
         ssm_priors, index_maps, _diagnostics = compile_ssm_priors(
-            named_prior_payloads(_typed_statistical_model_spec(statistical_model_spec), priors),
-            _typed_statistical_model_spec(statistical_model_spec),
+            model_with_prior_payloads(
+                _typed_statistical_model_spec(statistical_model_spec),
+                named_prior_payloads(_typed_statistical_model_spec(statistical_model_spec), priors),
+            ),
             ssm_spec=ssm_spec,
             edge_lag_days={(0, 1): 1.0},
         )
@@ -1690,8 +1055,10 @@ class TestSSMPriorConversion:
         )
 
         _ssm_priors, _idx, diagnostics = compile_ssm_priors(
-            named_prior_payloads(_typed_statistical_model_spec(statistical_model_spec), priors),
-            _typed_statistical_model_spec(statistical_model_spec),
+            model_with_prior_payloads(
+                _typed_statistical_model_spec(statistical_model_spec),
+                named_prior_payloads(_typed_statistical_model_spec(statistical_model_spec), priors),
+            ),
             ssm_spec=ssm_spec,
             edge_lag_days={(0, 1): 1.0},
         )
@@ -1763,8 +1130,10 @@ class TestSSMPriorConversion:
         )
 
         _priors, _idx, diagnostics = compile_ssm_priors(
-            named_prior_payloads(_typed_statistical_model_spec(statistical_model_spec), priors),
-            _typed_statistical_model_spec(statistical_model_spec),
+            model_with_prior_payloads(
+                _typed_statistical_model_spec(statistical_model_spec),
+                named_prior_payloads(_typed_statistical_model_spec(statistical_model_spec), priors),
+            ),
             ssm_spec=ssm_spec,
             edge_lag_days={(1, 0): 1.0},
         )
@@ -1835,8 +1204,10 @@ class TestSSMPriorConversion:
         )
 
         _priors, _idx, diagnostics = compile_ssm_priors(
-            named_prior_payloads(_typed_statistical_model_spec(statistical_model_spec), priors),
-            _typed_statistical_model_spec(statistical_model_spec),
+            model_with_prior_payloads(
+                _typed_statistical_model_spec(statistical_model_spec),
+                named_prior_payloads(_typed_statistical_model_spec(statistical_model_spec), priors),
+            ),
             ssm_spec=ssm_spec,
             edge_lag_days={(1, 0): 1.0},
         )
@@ -1956,8 +1327,10 @@ class TestSSMPriorConversion:
             edge_support=edge_support,
         )
         ssm_priors, index_maps, _diagnostics = compile_ssm_priors(
-            named_prior_payloads(_typed_statistical_model_spec(statistical_model_spec), priors),
-            _typed_statistical_model_spec(statistical_model_spec),
+            model_with_prior_payloads(
+                _typed_statistical_model_spec(statistical_model_spec),
+                named_prior_payloads(_typed_statistical_model_spec(statistical_model_spec), priors),
+            ),
             ssm_spec=ssm_spec,
             structural_plan=StructuralPlan.model_validate(causal_design),
         )
@@ -2140,8 +1513,7 @@ class TestSSMPriorConversion:
         typed_statistical_model_spec = _typed_statistical_model_spec(statistical_model_spec)
         _ssm_spec, _ssm_priors, _bindings, diagnostics, _edge_lag_days, _parameters, _aux = (
             compile_ssm_inputs_from_statistical_model_spec(
-                typed_statistical_model_spec,
-                make_prior_plan(typed_statistical_model_spec, priors),
+                make_prior_model(typed_statistical_model_spec, priors),
                 structural_plan=causal_design,
             )
         )
@@ -2169,7 +1541,7 @@ class TestTrialCompile:
 
     def test_valid_spec_returns_none(self, simple_statistical_model_spec):
         """A well-formed spec compiles successfully with default priors."""
-        from nof1_causal_lab.flows.transitions.model_spec.trial_compile import (
+        from tests.helpers import (
             trial_compile_statistical_model_spec,
         )
 
@@ -2181,7 +1553,7 @@ class TestTrialCompile:
 
     def test_compile_failure_returns_error(self):
         """When compilation raises, trial_compile returns the error string."""
-        from nof1_causal_lab.flows.transitions.model_spec.trial_compile import (
+        from tests.helpers import (
             trial_compile_statistical_model_spec,
         )
 
@@ -2291,7 +1663,7 @@ class TestTrialCompile:
 
     def test_missing_ar_parameters_returns_error(self):
         """Compiler should reject StatisticalModelSpecs with no latent dimensionality signal."""
-        from nof1_causal_lab.flows.transitions.model_spec.trial_compile import (
+        from tests.helpers import (
             trial_compile_statistical_model_spec,
         )
 
@@ -2375,7 +1747,7 @@ class TestTrialCompile:
 
     def test_trial_compile_aggregates_initial_state_translation_errors(self):
         """Translation should report multiple initial-state correlation errors together."""
-        from nof1_causal_lab.flows.transitions.model_spec.trial_compile import (
+        from tests.helpers import (
             trial_compile_statistical_model_spec,
         )
 

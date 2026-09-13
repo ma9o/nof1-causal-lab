@@ -541,7 +541,9 @@ export function LayeredCausalGraph({
   const edgeDispositions = new Map(
     entities.edges.map((entity) => [
       entity.id,
-      designVisible ? model.dispositions?.value.find((item) => item.source_id === entity.id)?.disposition : undefined,
+      designVisible
+        ? model.dispositions?.value.find((item) => item.source_id === entity.id)?.disposition
+        : undefined,
     ]),
   );
   const indicatorsByConstruct = new Map<ConstructId, Indicator[]>();
@@ -568,8 +570,8 @@ export function LayeredCausalGraph({
           .map((check) => check.indicator_id)
       : [],
   );
-  const edgePosteriors = fitVisible ? model.fit?.value.edge_estimates ?? {} : {};
-  const persistencePosteriors = fitVisible ? model.fit?.value.decay_estimates ?? {} : {};
+  const edgePosteriors = fitVisible ? (model.fit?.value.edge_estimates ?? {}) : {};
+  const persistencePosteriors = fitVisible ? (model.fit?.value.decay_estimates ?? {}) : {};
   const maximumPosteriorMean = Math.max(
     0,
     ...Object.values(edgePosteriors).map((posterior) => Math.abs(posterior.mean)),
@@ -824,7 +826,8 @@ export function LayeredCausalGraph({
                     construct={construct}
                     isOutcome={
                       construct.id ===
-                      (simulation?.query.outcome.id ?? model.latent_structure?.value.default_outcome?.id)
+                      (simulation?.query.outcome.id ??
+                        model.latent_structure?.value.default_outcome?.id)
                     }
                     indicators={nodeIndicators}
                     likelihoodByVariable={likelihoodByVariable}

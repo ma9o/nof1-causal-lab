@@ -22,7 +22,7 @@ stage_outcome`; there is no status enum stored on any artifact.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from statistics import NormalDist
 from time import perf_counter_ns
 from typing import TYPE_CHECKING, Any
@@ -78,7 +78,6 @@ if TYPE_CHECKING:
     import numpyro.distributions as dist
 
     from nof1_causal_lab.artifacts.mechanism import DynamicsMechanism
-    from nof1_causal_lab.artifacts.prior import ExecutablePrior, PriorPlan
     from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
     from nof1_causal_lab.models.ssm.model import SSMSpec
 
@@ -99,7 +98,6 @@ class ConstructContribution:
     likelihoods: tuple[LikelihoodSpec, ...] = ()
     parameters: tuple[ParameterSpec, ...] = ()
     mechanisms: tuple[DynamicsMechanism, ...] = ()
-    priors: Mapping[str, ExecutablePrior] = field(default_factory=dict)
     edge_parents: tuple[str, ...] = ()
     hill_parents: tuple[str, ...] = ()
 
@@ -112,7 +110,6 @@ class AdmissionState:
     likelihoods: tuple[LikelihoodSpec, ...] = ()
     parameters: tuple[ParameterSpec, ...] = ()
     mechanisms: tuple[DynamicsMechanism, ...] = ()
-    priors: Mapping[str, ExecutablePrior] = field(default_factory=dict)
     annotations: tuple[str, ...] = ()
 
     def statistical_model_spec(self, structural_plan: StructuralPlan) -> StatisticalModelSpec:
@@ -123,22 +120,6 @@ class AdmissionState:
             likelihoods=likelihoods,
             mechanisms=list(self.mechanisms),
             parameters=define_model_parameters(list(self.parameters), likelihoods, structural_plan),
-        )
-
-    def prior_plan(self, structural_plan: StructuralPlan) -> PriorPlan:
-        from nof1_causal_lab.models.prior_planning import build_prior_plan
-
-        model = self.statistical_model_spec(structural_plan)
-        finalized_ids = {
-            candidate.id: definition.id
-            for candidate, definition in zip(self.parameters, model.parameters, strict=True)
-        }
-        return build_prior_plan(
-            model,
-            [
-                prior.model_copy(update={"parameter_id": finalized_ids[prior.parameter_id]})
-                for prior in self.priors.values()
-            ],
         )
 
 
@@ -280,7 +261,6 @@ def _compile_partial(
     spec, registry, _bindings, _diagnostics, _edge_lag, _parameters, _auxiliary = (
         compile_ssm_inputs_from_statistical_model_spec(
             state.statistical_model_spec(restricted),
-            state.prior_plan(restricted),
             structural_plan=restricted,
         )
     )
@@ -524,7 +504,6 @@ def trial_admission_state(
         likelihoods=(*state.likelihoods, *contribution.likelihoods),
         parameters=(*state.parameters, *contribution.parameters),
         mechanisms=(*state.mechanisms, *contribution.mechanisms),
-        priors={**dict(state.priors), **dict(contribution.priors)},
         annotations=state.annotations,
     )
 

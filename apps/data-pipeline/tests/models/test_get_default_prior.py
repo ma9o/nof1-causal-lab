@@ -1,5 +1,6 @@
 """Tests for explicit compiler-independent prior defaults."""
 
+import numpyro.distributions as dist
 import pytest
 from jsonschema import Draft202012Validator
 from pydantic import ValidationError
@@ -7,16 +8,15 @@ from pydantic import ValidationError
 from nof1_causal_lab.artifacts.distribution import CompiledDistribution
 from nof1_causal_lab.artifacts.identity import ConstructRef
 from nof1_causal_lab.artifacts.parameter import SiteKind
-from nof1_causal_lab.artifacts.prior import ExecutablePrior
-from nof1_causal_lab.artifacts.prior_proposal import PriorProposal
 from nof1_causal_lab.artifacts.statistical_model_spec import (
     ParameterConstraint,
     ParameterRole,
     ParameterSpec,
 )
 from nof1_causal_lab.distributions import PriorDistributionFamily
-from nof1_causal_lab.models.prior_planning import default_executable_prior
+from nof1_causal_lab.models.prior_planning import default_parameter_prior
 from nof1_causal_lab.models.ssm.compile.parameter_identity import parameter_identity
+from nof1_causal_lab.prior_distributions import serialize_distribution
 
 
 def _make_param(
@@ -37,7 +37,7 @@ def _make_param(
     )
 
 
-class TestDefaultExecutablePrior:
+class TestDefaultParameterPrior:
     @pytest.mark.parametrize(
         (
             "role",
@@ -121,25 +121,16 @@ class TestDefaultExecutablePrior:
         expected_params: dict[str, float],
     ):
         p = _make_param(role=role, constraint=constraint)
-        result = default_executable_prior(p)
+        result = serialize_distribution(default_parameter_prior(p))[0]
         assert result.distribution == expected_distribution
         assert result.params == expected_params
 
-    def test_parameter_id_propagated(self):
-        p = _make_param(name="sigma_residual")
-        result = default_executable_prior(p)
-        assert result.parameter_id == p.id
-
-    def test_returns_compiler_facing_prior(self):
-        p = _make_param()
-        result = default_executable_prior(p)
-        assert isinstance(result, ExecutablePrior)
+    def test_returns_native_distribution(self):
+        assert isinstance(default_parameter_prior(_make_param()), dist.Distribution)
 
     @pytest.mark.parametrize(
         ("contract", "metadata"),
         [
-            (PriorProposal, {"parameter_id": "parameter:" + "0" * 64, "reasoning": "test"}),
-            (ExecutablePrior, {"parameter_id": "parameter:" + "0" * 64}),
             (CompiledDistribution, {}),
         ],
     )

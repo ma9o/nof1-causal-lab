@@ -41,18 +41,31 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
   const inEdges = entities.edges.filter((edge) => edge.effect_id === id);
   const outEdges = entities.edges.filter((edge) => edge.cause_id === id);
   const indicators = entities.indicators.filter((indicator) => indicator.construct_id === id);
-  const scientificOnly = model.measurement_structure?.value.scientific_only_constructs.find((item) => item.construct_id === id);
+  const scientificOnly = model.measurement_structure?.value.scientific_only_constructs.find(
+    (item) => item.construct_id === id,
+  );
   const disposition = context.model.dispositions?.value.find((item) => item.source_id === id);
-  const finding = model.identification?.value.identifiable_treatments[id] ?? model.identification?.value.non_identifiable_treatments[id];
+  const finding =
+    model.identification?.value.identifiable_treatments[id] ??
+    model.identification?.value.non_identifiable_treatments[id];
   const identified = finding?.status === "identified" ? finding : null;
   const notIdentified = finding?.status === "not_identified" ? finding : null;
   const parameters = parametersForOwner(context.model.compiled_parameters?.value ?? [], id);
-  const priors = priorRows(parameters, context.model.specification?.value.resolved_priors ?? []);
-  const admission = model.specification?.value.prior_predictive_diagnostics.filter((item) => item.construct_id === id) ?? [];
+  const priorParameters = parametersForOwner(
+    context.model.specification?.value.statistical_model_spec.parameters ?? [],
+    id,
+  );
+  const priors = priorRows(priorParameters);
+  const admission =
+    model.specification?.value.prior_predictive_diagnostics.filter(
+      (item) => item.construct_id === id,
+    ) ?? [];
   const fitted = posteriorRows(parameters, context.model.fit?.value.posterior);
   const rankingQuery = queries.find((query) => query.key === rankingQueryKey(id));
   const effect = rankingQuery?.posterior ?? null;
-  const temporal = model.baseline_report?.value.intervention_results.find((effect) => effect.treatment_id === id)?.temporal;
+  const temporal = model.baseline_report?.value.intervention_results.find(
+    (effect) => effect.treatment_id === id,
+  )?.temporal;
   const namesFor = (ids: ConstructId[]) =>
     ids.map((id) => entities.constructById.get(id)?.name ?? id).join(", ");
   const posteriorStatus = context.artifacts.find(

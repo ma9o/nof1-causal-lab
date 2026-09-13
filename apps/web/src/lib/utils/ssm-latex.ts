@@ -1,9 +1,10 @@
+import { distributionArgumentText } from "./distribution-format";
 import type {
   DistributionFamily,
   LikelihoodSpec,
   LinkFunction,
   PriorDistributionFamily,
-  PriorProposal,
+  NumPyroDistribution,
   StructuralPlan,
 } from "@nof1-causal-lab/api-types";
 
@@ -110,7 +111,7 @@ export function paramSymbol(name: string): string {
 }
 
 /** Strip the & alignment marker from a priorLine result for inline display. */
-export function priorLatex(prior: PriorProposal, parameterName: string): string {
+export function priorLatex(prior: NumPyroDistribution, parameterName: string): string {
   return priorLine(prior, parameterName).replace(/&/g, "");
 }
 
@@ -126,8 +127,10 @@ const PRIOR_DIST_LATEX: Record<PriorDistributionFamily, string> = {
   Delta: "\\Delta",
 };
 
-function priorDistributionLatex(prior: PriorProposal): string {
-  const vals = Object.values(prior.params).map((v) => String(v));
+function priorDistributionLatex(prior: NumPyroDistribution): string {
+  const vals = Object.values(prior.params)
+    .map(distributionArgumentText)
+    .map((value) => value.replaceAll("_", "\\_"));
   const d =
     PRIOR_DIST_LATEX[prior.distribution as PriorDistributionFamily] ??
     `\\text{${prior.distribution}}`;
@@ -135,7 +138,7 @@ function priorDistributionLatex(prior: PriorProposal): string {
 }
 
 /** Map a prior distribution name + params to LaTeX. */
-export function priorLine(prior: PriorProposal, parameterName: string): string {
+export function priorLine(prior: NumPyroDistribution, parameterName: string): string {
   return `${paramSymbol(parameterName)} &\\sim ${priorDistributionLatex(prior)}`;
 }
 
@@ -188,7 +191,7 @@ export function observationPriorLatex({
   likelihood,
 }: {
   parameterName: string;
-  prior: PriorProposal;
+  prior: NumPyroDistribution;
   likelihood: LabeledLikelihood;
 }): string {
   return `${observationParameterSymbol({ parameterName, likelihood })} \\sim ${priorDistributionLatex(prior)}`;

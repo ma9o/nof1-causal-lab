@@ -108,7 +108,7 @@ export type {
   PPCWarning,
   PriorDistributionFamily,
   PriorPredictiveDiagnostic,
-  PriorProposal,
+  NumPyroDistribution,
   PriorSource,
   Provenance,
   QuestionArtifact,

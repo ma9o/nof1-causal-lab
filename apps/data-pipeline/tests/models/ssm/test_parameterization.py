@@ -43,13 +43,13 @@ from nof1_causal_lab.models.ssm.structure import (
     T0CholBlockSpec,
 )
 from nof1_causal_lab.prior_distributions import distribution_from_params
-from tests.helpers import named_prior_payloads
+from tests.helpers import model_with_prior_payloads, named_prior_payloads
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
     from nof1_causal_lab.sampler_config import SamplerConfigOverride
 from nof1_causal_lab.artifacts.parameter import PriorAuthoringTransform, SiteKind
-from tests.helpers import make_prior_plan, native_axis_metadata
+from tests.helpers import make_prior_model, native_axis_metadata
 from tests.ssm_spec_fixtures import (
     default_diffusion_block,
     default_input_effect_block,
@@ -972,16 +972,18 @@ class TestCompiledArtifactIntegration:
             match="must bind to one active site through its scientific owners",
         ):
             compile_priors(
-                named_prior_payloads(
+                model_with_prior_payloads(
                     statistical_model_spec,
-                    {
-                        "obs_ordered_base": {
-                            "distribution": "Normal",
-                            "params": {"mu": 0.0, "sigma": 1.0},
-                        }
-                    },
+                    named_prior_payloads(
+                        statistical_model_spec,
+                        {
+                            "obs_ordered_base": {
+                                "distribution": "Normal",
+                                "params": {"mu": 0.0, "sigma": 1.0},
+                            }
+                        },
+                    ),
                 ),
-                statistical_model_spec,
                 spec,
             )
 
@@ -1061,28 +1063,30 @@ class TestCompiledArtifactIntegration:
             }
         )
         priors, bindings, _diagnostics = compile_priors(
-            named_prior_payloads(
+            model_with_prior_payloads(
                 statistical_model_spec,
-                {
-                    "obs_ordered_base_short_scale": {
-                        "distribution": "Normal",
-                        "params": {"mu": -1.0, "sigma": 0.5},
+                named_prior_payloads(
+                    statistical_model_spec,
+                    {
+                        "obs_ordered_base_short_scale": {
+                            "distribution": "Normal",
+                            "params": {"mu": -1.0, "sigma": 0.5},
+                        },
+                        "obs_ordered_gaps_short_scale": {
+                            "distribution": "HalfNormal",
+                            "params": {"sigma": 2.0},
+                        },
+                        "obs_ordered_base_long_scale": {
+                            "distribution": "Normal",
+                            "params": {"mu": -3.0, "sigma": 1.0},
+                        },
+                        "obs_ordered_gaps_long_scale": {
+                            "distribution": "HalfNormal",
+                            "params": {"sigma": 0.5},
+                        },
                     },
-                    "obs_ordered_gaps_short_scale": {
-                        "distribution": "HalfNormal",
-                        "params": {"sigma": 2.0},
-                    },
-                    "obs_ordered_base_long_scale": {
-                        "distribution": "Normal",
-                        "params": {"mu": -3.0, "sigma": 1.0},
-                    },
-                    "obs_ordered_gaps_long_scale": {
-                        "distribution": "HalfNormal",
-                        "params": {"sigma": 0.5},
-                    },
-                },
+                ),
             ),
-            statistical_model_spec,
             spec,
         )
 
@@ -1115,8 +1119,7 @@ class TestCompiledArtifactIntegration:
 
         statistical_model_spec, priors = statistical_model_spec_and_priors
         artifact = compile_ssm_artifact(
-            statistical_model_spec,
-            make_prior_plan(statistical_model_spec, priors),
+            make_prior_model(statistical_model_spec, priors),
             _mood_structural_plan(),
         )
         assert not hasattr(artifact, "priors")
@@ -1267,8 +1270,7 @@ class TestCompiledArtifactIntegration:
         structural_plan = build_structural_plan(CausalDesign.model_validate(causal_design))
         typed_statistical_model_spec = StatisticalModelSpec.model_validate(statistical_model_spec)
         artifact = compile_ssm_artifact(
-            typed_statistical_model_spec,
-            make_prior_plan(typed_statistical_model_spec, priors),
+            make_prior_model(typed_statistical_model_spec, priors),
             structural_plan,
         )
 
@@ -1304,8 +1306,7 @@ class TestCompiledArtifactIntegration:
 
         statistical_model_spec, priors = statistical_model_spec_and_priors
         artifact = compile_ssm_artifact(
-            statistical_model_spec,
-            make_prior_plan(statistical_model_spec, priors),
+            make_prior_model(statistical_model_spec, priors),
             _mood_structural_plan(),
         )
         model = hydrate_compiled_model(
@@ -1326,8 +1327,7 @@ class TestCompiledArtifactIntegration:
 
         statistical_model_spec, priors = statistical_model_spec_and_priors
         artifact = compile_ssm_artifact(
-            statistical_model_spec,
-            make_prior_plan(statistical_model_spec, priors),
+            make_prior_model(statistical_model_spec, priors),
             _mood_structural_plan(),
         )
         payload = artifact.model_dump(mode="json")
@@ -1346,8 +1346,7 @@ class TestCompiledArtifactIntegration:
 
         statistical_model_spec, priors = statistical_model_spec_and_priors
         artifact = compile_ssm_artifact(
-            statistical_model_spec,
-            make_prior_plan(statistical_model_spec, priors),
+            make_prior_model(statistical_model_spec, priors),
             _mood_structural_plan(),
         )
         payload = artifact.model_dump(mode="json")
@@ -1371,8 +1370,7 @@ class TestCompiledArtifactIntegration:
 
         statistical_model_spec, priors = statistical_model_spec_and_priors
         artifact = compile_ssm_artifact(
-            statistical_model_spec,
-            make_prior_plan(statistical_model_spec, priors),
+            make_prior_model(statistical_model_spec, priors),
             _mood_structural_plan(),
         )
 
@@ -1416,8 +1414,7 @@ class TestCompiledArtifactIntegration:
 
         statistical_model_spec, priors = statistical_model_spec_and_priors
         artifact = compile_ssm_artifact(
-            statistical_model_spec,
-            make_prior_plan(statistical_model_spec, priors),
+            make_prior_model(statistical_model_spec, priors),
             _mood_structural_plan(),
         )
         model = hydrate_compiled_model(

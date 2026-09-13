@@ -1,20 +1,16 @@
 # SSM Compilation Pipeline
 
-The structural front first translates a scientific [`CausalDesign`](../pipeline/measurement-structure.md#causaldesign) into a versioned [`StructuralPlan`](../pipeline/measurement-structure.md#structuralplan). The application projects evidence-rich `PriorProposal` rows into a typed `PriorPlan`. The SSM compiler then consumes only the [`StatisticalModelSpec`](../pipeline/statistical-model-spec.md#statisticalmodelspec), `PriorPlan`, and `StructuralPlan`, producing a `CompiledSSMArtifact` for the [`posterior` transition](../pipeline/inference.md).
+The structural front first translates a scientific [`CausalDesign`](../pipeline/measurement-structure.md#causaldesign) into a versioned [`StructuralPlan`](../pipeline/measurement-structure.md#structuralplan). Each [parameter](../pipeline/statistical-model-spec.md#statisticalmodelspecparameterspec) carries its native NumPyro prior and current evidence. The SSM compiler consumes the [`StatisticalModelSpec`](../pipeline/statistical-model-spec.md#statisticalmodelspec) and `StructuralPlan`, producing a `CompiledSSMArtifact` for the [`posterior` transition](../pipeline/inference.md).
 
 ```mermaid
 graph TD
     StatisticalModelSpec(["StatisticalModelSpec"])
-    PriorProposal(["PriorProposal"])
-    PriorPlan(["PriorPlan"])
     CausalDesign(["CausalDesign"])
     StructuralPlan(["StructuralPlan"])
 
     CausalDesign --> plan["build_structural_plan() — models/structural"]
     plan --> StructuralPlan
-    PriorProposal --> prior_plan["build_prior_plan() — models/prior_planning.py"]
-    prior_plan --> PriorPlan
-    StatisticalModelSpec & PriorPlan & StructuralPlan --> validate
+    StatisticalModelSpec & StructuralPlan --> validate
 
     subgraph compile_ssm_artifact ["compile_ssm_artifact() — compile/artifact.py"]
         validate["validate_statistical_model_spec_for_compilation()"]
@@ -24,10 +20,11 @@ graph TD
             translate["translate_spec() — compile/spec_translation.py"]
             translate --> translate_out(["SSMSpec + edge_lag_days"])
             translate_out --> prior_idx["build_semantic_prior_bindings() — compile/prior_indexing.py"]
-            prior_idx --> priors["compile_priors() — compile/prior_compilation.py"]
+            prior_idx --> bind["bind_parameters() — scientific definitions and coordinates"]
+            bind --> defaults["complete_parameter_priors() — explicit default policy"]
+            defaults --> priors["compile_priors() — compile/prior_compilation.py"]
             translate_out --> priors
             priors --> priors_out(["NumPyro distributions + SemanticBindingRegistry"])
-            priors_out --> bind["bind_parameters() — compile/prior_compilation.py"]
             bind --> bind_out(["parameter_bindings"])
             priors_out --> attach_diag["_attach_compile_binding_provenance()"]
             bind_out --> attach_diag
@@ -61,7 +58,6 @@ graph TD
     assemble --> execute
 
     click StatisticalModelSpec "../pipeline/statistical-model-spec.md#statisticalmodelspec"
-    click PriorProposal "../pipeline/statistical-model-spec.md#priorproposal"
     click CausalDesign "../pipeline/measurement-structure.md#causaldesign"
     click StructuralPlan "../pipeline/measurement-structure.md#structuralplan"
 ```
@@ -73,7 +69,6 @@ graph TD
 | [`StatisticalModelSpec`](../pipeline/statistical-model-spec.md#statisticalmodelspec) | `artifacts/statistical_model_spec.py` | User-facing statistical model spec: parameters, likelihoods, roles |
 | [`CausalDesign`](../pipeline/measurement-structure.md#causaldesign) | `artifacts/causal_design.py` | Scientific DAG, measurement semantics, and authored executable dispositions |
 | [`StructuralPlan`](../pipeline/measurement-structure.md#structuralplan) | `artifacts/structural_plan.py` | Versioned executable structure and semantic catalog keyed by stable source IDs |
-| `PriorPlan` | `artifacts/prior.py` | Complete, family-validated executable priors keyed exactly to `StatisticalModelSpec` parameters |
 | `SSMSpec` | `models/ssm/model.py` | SSM artifact: dimensions, names, distributions, structure blocks, and composite drift spec |
 | `SiteDescriptor` | `models/ssm/structure/sites.py` | Canonical sample-site identity: name, shape, support, semantic kind, assembly group, and prior binding field |
 | `dict[str, numpyro.distributions.Distribution]` | `models/ssm/priors.py` | Native laws keyed by sample site, shared by inference and prior prediction |
@@ -140,7 +135,7 @@ This is now a strict internal helper: it requires both a translated `SSMSpec` an
 
 ## `validation_report` derivation: Prior Compilation (`compile/prior_compilation.py`)
 
-Translates a complete typed `PriorPlan` into site-keyed NumPyro distributions with the correct parameterization. Evidence, citations, and agent-facing rationales stay in `PriorProposal`; only family-validated executable fields cross the compiler boundary.
+Binds the native distributions on [scientific parameters](../pipeline/statistical-model-spec.md#statisticalmodelspecparameterspec) to NumPyro sample-site coordinates and applies the declared authoring transforms. Default policy supplies still-unassigned priors before numerical lowering. Parameter identity, rationale, and citations travel with the same parameter; no authored/resolved prior inventories are constructed.
 
 **Critical transformations:**
 
@@ -149,9 +144,11 @@ Translates a complete typed `PriorPlan` into site-keyed NumPyro distributions wi
 - **Cross-lag effects:** The complete distribution is rescaled by a native affine transform, preserving its family and bounds. The positive interval is resolved in this order: `reference_interval_days`, then compiled `edge_lag_days`, then the structural-plan model clock. If none exists, compilation raises instead of silently assuming `1.0d`.
 - **Site binding:** compiled priors attach to canonical `SiteDescriptor`s. Structure blocks and dynamics components use the same prior materialization path.
 
-Authored proposals, executable priors, and compiled recipes share [`DistributionSpec`](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/distribution.py): the family and its complete numeric arguments are validated together by NumPyro. Its JSON schema derives inline family-specific signatures from native argument metadata, without separate parameter classes. The application retains family approval, scientific domains, parameter ownership, and evidence. NumPyro owns argument constraints, distribution moments, densities, sampling, and transform Jacobians. Nonlinear transformed reference values used by compile diagnostics are anchors, not claims about the transformed distribution's mean.
+The scientific field is a native NumPyro `Distribution`. The Pydantic annotation in [`numpyro_json.py`](../../apps/data-pipeline/src/nof1_causal_lab/numpyro_json.py) serializes native constructors, arrays, transforms, and constraints at the JSON boundary. NumPyro owns argument constraints, densities, sampling, and transform Jacobians. Native batch and event dimensions survive persistence; the existing scientific compiler still binds scalar coordinate laws. Extending joint or hierarchical scientific declarations is a separate change.
 
-**Public boundary:** `compile_ssm_inputs_from_statistical_model_spec(statistical_model_spec, prior_plan, structural_plan=...)`. The internal `compile_priors()` helper receives compiler payloads projected from the plan.
+The compiled artifact retains its scalar [`CompiledDistribution`](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/distribution.py) wire recipes for exact runtime reconstruction. These are executable serialization data, not a second scientific prior inventory. Nonlinear transformed reference values used by compile diagnostics are anchors, not claims about the transformed distribution's mean.
+
+**Public boundary:** `compile_ssm_inputs_from_statistical_model_spec(statistical_model_spec, structural_plan=...)`. The internal `compile_priors()` helper reads the native law and interval evidence directly from each parameter.
 
 **Post-compilation diagnostics:**
 
@@ -253,4 +250,4 @@ graph LR
     runtime --> model["model.py + execution/"]
 ```
 
-The compiler and runtime subgraphs meet through serialized data, not calls in both directions. `scripts/check_architecture_boundaries.py` enforces this direction along with the StructuralPlan, PriorPlan, and execution/inference boundaries. The compilation orchestrator (`compile/inputs.py`) exposes `compile_ssm_inputs_from_statistical_model_spec()` for the semantic `statistical_model_spec` transition path. Already translated `SSMSpec` callers go directly to runtime construction because they have nothing left to compile.
+The compiler and runtime subgraphs meet through serialized data, not calls in both directions. `scripts/check_architecture_boundaries.py` enforces this direction along with the structural-planning, scientific-model, and execution/inference boundaries. The compilation orchestrator (`compile/inputs.py`) exposes `compile_ssm_inputs_from_statistical_model_spec()` for the semantic `statistical_model_spec` transition path. Already translated `SSMSpec` callers go directly to runtime construction because they have nothing left to compile.

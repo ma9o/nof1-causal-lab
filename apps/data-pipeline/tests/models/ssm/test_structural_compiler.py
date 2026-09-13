@@ -26,7 +26,7 @@ from nof1_causal_lab.utils.structural_plan import (
     get_manifest_indicators,
     get_state_names,
 )
-from tests.helpers import fixture_entity_id, make_prior_plan
+from tests.helpers import fixture_entity_id, make_prior_model
 
 
 def _indicator(name: str, construct: str) -> dict[str, Any]:
@@ -362,8 +362,7 @@ def test_compiled_artifact_has_total_structural_bindings_and_canonical_order():
         }
     )
     artifact = compile_ssm_artifact(
-        statistical_model_spec,
-        make_prior_plan(statistical_model_spec, {}),
+        make_prior_model(statistical_model_spec, {}),
         structural_plan=plan,
     )
 

@@ -20,10 +20,19 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
   const disposition = context.model.dispositions?.value.find((item) => item.source_id === id);
   const audit = context.model.validation_report?.value.indicators[id];
   const counts = context.model.measurements?.value.per_indicator_counts[id];
-  const likelihood = context.model.specification?.value.statistical_model_spec.likelihoods.find((item) => item.indicator_id === id);
+  const likelihood = context.model.specification?.value.statistical_model_spec.likelihoods.find(
+    (item) => item.indicator_id === id,
+  );
   const parameters = parametersForOwner(context.model.compiled_parameters?.value ?? [], id);
+  const priorParameters = parametersForOwner(
+    context.model.specification?.value.statistical_model_spec.parameters ?? [],
+    id,
+  );
   const fitted = posteriorRows(parameters, context.model.fit?.value.posterior);
-  const checks = context.model.fit?.value.posterior.assessment.ppc.per_variable_warnings.filter((item) => item.indicator_id === id) ?? [];
+  const checks =
+    context.model.fit?.value.posterior.assessment.ppc.per_variable_warnings.filter(
+      (item) => item.indicator_id === id,
+    ) ?? [];
   const issues = audit?.validation.issues.filter((issue) => issue.severity !== "info") ?? [];
   const checkEntries = audit ? Object.entries(audit.validation.checks) : [];
   const okChecks = checkEntries.filter(([, status]) => status === "ok").length;
@@ -44,7 +53,9 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
           <Tag>{indicator.measurement_dtype}</Tag>
           <Tag tone="secondary">{indicator.aggregation}</Tag>
           <Tag tone="secondary">
-            window {indicator.observation_window ?? context.model.measurement_structure?.value.measurement_structure.model_clock}
+            window{" "}
+            {indicator.observation_window ??
+              context.model.measurement_structure?.value.measurement_structure.model_clock}
           </Tag>
           <Tag tone="secondary">{indicator.extraction_mode}</Tag>
           <Tag>{indicator.construct_polarity}</Tag>
@@ -120,7 +131,7 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
             <Tag>{likelihood.link} link</Tag>
             {likelihood.standardized ? <Tag>standardized</Tag> : null}
           </div>
-          <PriorTable rows={priorRows(parameters, context.model.specification?.value.resolved_priors ?? [])} />
+          <PriorTable rows={priorRows(priorParameters)} />
         </Section>
       ) : null}
       {checks.length > 0 || (parameters.length > 0 && fitted.length > 0) ? (
