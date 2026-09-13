@@ -15,12 +15,15 @@ from nof1_causal_lab.models.ssm.covariance_utils import (
     logdet_from_cholesky,
     symmetrize_with_jitter,
 )
-from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
+from nof1_causal_lab.models.ssm.execution.observation_operator import (
     get_support_kind_codes,
 )
+from nof1_causal_lab.models.ssm.inference.targets.transitions import build_discrete_transitions
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from dynestyx import StochasticContinuousTimeStateEvolution
 
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
@@ -85,6 +88,46 @@ class GaussianTrajectoryPriorTerms:
     transition_logdet: jnp.ndarray
 
 
+def _transition_start_linearization_states(
+    latent_trajectory: jnp.ndarray,
+    init_mean: jnp.ndarray,
+) -> jnp.ndarray:
+    """Align the initial mean and preceding path states with transition intervals."""
+    return jnp.concatenate((init_mean[None, :], latent_trajectory[:-1]), axis=0)
+
+
+def _prepare_linearized_path(
+    dynamics: StochasticContinuousTimeStateEvolution,
+    time_intervals: jnp.ndarray,
+    init_mean: jnp.ndarray,
+    *,
+    transition_inputs: jnp.ndarray | None,
+    z_init: jnp.ndarray | None,
+    dtype: jnp.dtype,
+) -> tuple[
+    Callable[[jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]],
+    jnp.ndarray,
+]:
+    """Bind Dynestyx's Gaussian view and seed the warmup reference trajectory."""
+
+    def transitions_at(path: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        transitions = build_discrete_transitions(
+            dynamics,
+            time_intervals,
+            linearization_states=_transition_start_linearization_states(path, init_mean),
+            transition_inputs=transition_inputs,
+        )
+        return transitions.A, transitions.cov, jnp.asarray(transitions.bias, dtype=dtype)
+
+    if z_init is None:
+        reference = jnp.broadcast_to(init_mean[None], (time_intervals.shape[0], init_mean.shape[0]))
+        Ad, _Qd, cd = transitions_at(reference)
+        path = _predictive_latent_init(Ad, cd, init_mean)
+    else:
+        path = jnp.asarray(z_init, dtype=dtype)
+    return transitions_at, path
+
+
 def _should_use_dense_support_laplace(*, n_time: int, n_latent: int) -> bool:
     """Use the dense exact support-aware Newton system on short trajectories.
 
@@ -107,11 +150,7 @@ def _predictive_latent_init(
     init_mean: jnp.ndarray,
 ) -> jnp.ndarray:
     """Deterministic latent rollout under the mean dynamics."""
-    cd = _coerce_transition_intercepts(
-        cd,
-        state_dim=int(Ad.shape[1]),
-        dtype=jnp.result_type(Ad, cd, init_mean),
-    )
+    cd = jnp.asarray(cd, dtype=jnp.result_type(Ad, cd, init_mean))
     T = Ad.shape[0]
     z0 = Ad[0] @ init_mean + cd[0]
     if T == 1:
@@ -129,24 +168,6 @@ def _predictive_latent_init(
 def _batched_spd_solve(mats: jnp.ndarray, rhs: jnp.ndarray) -> jnp.ndarray:
     """Solve a batch of SPD linear systems with matching right-hand sides."""
     return jax.vmap(lambda mat, b: jla.solve(mat, b, assume_a="pos"))(mats, rhs)
-
-
-def _coerce_transition_intercepts(
-    cd: jnp.ndarray,
-    *,
-    state_dim: int,
-    dtype: jnp.dtype,
-) -> jnp.ndarray:
-    """Normalize transition intercepts to shape (T, D)."""
-    cd = jnp.asarray(cd, dtype=dtype)
-    if cd.ndim == 1:
-        if state_dim != 1:
-            raise ValueError(
-                "Transition intercepts must have shape (T, D) when the latent state "
-                f"dimension is {state_dim}."
-            )
-        return cd[:, None]
-    return cd
 
 
 def _solve_spd_from_cholesky(chol: jnp.ndarray, rhs: jnp.ndarray) -> jnp.ndarray:
@@ -177,11 +198,7 @@ def build_gaussian_trajectory_prior_terms(
     jitter: float = 1e-6,
 ) -> GaussianTrajectoryPriorTerms:
     """Precompute Gaussian factors for repeated latent-prior evaluations."""
-    cd = _coerce_transition_intercepts(
-        cd,
-        state_dim=int(Ad.shape[1]),
-        dtype=jnp.result_type(Ad, Qd, cd, init_mean, init_cov),
-    )
+    cd = jnp.asarray(cd, dtype=jnp.result_type(Ad, Qd, cd, init_mean, init_cov))
     T = Ad.shape[0]
     init_pred_mean = Ad[0] @ init_mean + cd[0]
     init_pred_cov = symmetrize_with_jitter(Ad[0] @ init_cov @ Ad[0].T + Qd[0], jitter=jitter)
@@ -218,11 +235,7 @@ def trajectory_prior_log_prob_from_terms(
     prior_terms: GaussianTrajectoryPriorTerms,
 ) -> jnp.ndarray:
     """Return log p(z_{1:T}) using precomputed Gaussian factors."""
-    cd = _coerce_transition_intercepts(
-        cd,
-        state_dim=int(Ad.shape[1]),
-        dtype=jnp.result_type(latent_trajectory, Ad, cd),
-    )
+    cd = jnp.asarray(cd, dtype=jnp.result_type(latent_trajectory, Ad, cd))
     init_ll = _gaussian_log_prob_from_cholesky(
         latent_trajectory[0],
         prior_terms.init_mean,
@@ -258,7 +271,7 @@ def _build_prior_tridiagonal_system(
     dtype = jnp.result_type(Ad, Qd, cd, init_mean, init_cov)
     Ad = jnp.asarray(Ad, dtype=dtype)
     Qd = jnp.asarray(Qd, dtype=dtype)
-    cd = _coerce_transition_intercepts(cd, state_dim=int(Ad.shape[1]), dtype=dtype)
+    cd = jnp.asarray(cd, dtype=dtype)
     init_mean = jnp.asarray(init_mean, dtype=dtype)
     init_cov = jnp.asarray(init_cov, dtype=dtype)
     T, D = Ad.shape[:2]
@@ -374,7 +387,7 @@ def _build_prior_banded_system(
     dtype = jnp.result_type(Ad, Qd, cd, init_mean, init_cov)
     Ad = jnp.asarray(Ad, dtype=dtype)
     Qd = jnp.asarray(Qd, dtype=dtype)
-    cd = _coerce_transition_intercepts(cd, state_dim=int(Ad.shape[1]), dtype=dtype)
+    cd = jnp.asarray(cd, dtype=dtype)
     init_mean = jnp.asarray(init_mean, dtype=dtype)
     init_cov = jnp.asarray(init_cov, dtype=dtype)
     T, D = Ad.shape[:2]

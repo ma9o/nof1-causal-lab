@@ -8,11 +8,14 @@ from typing import TYPE_CHECKING, Any, cast
 from nof1_causal_lab.artifacts.statistical_model_spec import (
     VALID_LINKS_FOR_DISTRIBUTION,
     LinkFunction,
+    ParameterSpec,
     StatisticalModelSpec,
 )
 from nof1_causal_lab.distributions import VALID_LIKELIHOODS_FOR_DTYPE, DistributionFamily
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+from nof1_causal_lab.models.model_mechanisms import declare_dynamics_mechanisms
 from nof1_causal_lab.models.model_semantics import should_auto_standardize_indicator
+from nof1_causal_lab.models.ssm.compile.parameter_identity import declare_parameter
 from nof1_causal_lab.utils.causal_design import get_indicator_polarity
 from nof1_causal_lab.utils.observation_semantics import get_observation_semantics
 from nof1_causal_lab.utils.structural_plan import (
@@ -30,8 +33,9 @@ from .parameter_surfaces import parameter_is_active_for_statistical_model_spec
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from nof1_causal_lab.artifacts.compiled_ssm import CompiledParameterBinding
+    from nof1_causal_lab.artifacts.mechanism import DynamicsMechanism
     from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
-    from nof1_causal_lab.models.ssm.compile.contracts import CompiledParameterBinding
 
     from .contracts import (
         AmbiguousLikelihoodCandidate,
@@ -46,6 +50,7 @@ if TYPE_CHECKING:
 class ModelSpecSkeleton:
     """Deterministic model-spec decision surface derived from the structural plan."""
 
+    mechanisms: list[DynamicsMechanism] = field(default_factory=list)
     resolved_likelihoods: list[ResolvedLikelihoodCandidate] = field(default_factory=list)
     ambiguous_indicators: list[AmbiguousLikelihoodCandidate] = field(default_factory=list)
     parameters: list[ModelParameterCandidate] = field(default_factory=list)
@@ -102,6 +107,7 @@ def derive_deterministic_spec(structural_plan: StructuralPlan) -> ModelSpecSkele
                 link = next(iter(valid_links))
                 resolved_likelihood: ResolvedLikelihoodCandidate = {
                     "variable": name,
+                    "indicator_id": indicator["id"],
                     "construct_name": indicator.get("construct_name"),
                     "distribution": dist,
                     "link": link,
@@ -113,6 +119,7 @@ def derive_deterministic_spec(structural_plan: StructuralPlan) -> ModelSpecSkele
             else:
                 fixed_candidate: FixedDistributionLikelihoodCandidate = {
                     "variable": name,
+                    "indicator_id": indicator["id"],
                     "construct_name": indicator.get("construct_name"),
                     "dtype": dtype,
                     "support_kind": indicator_semantics["support_kind"],
@@ -128,6 +135,7 @@ def derive_deterministic_spec(structural_plan: StructuralPlan) -> ModelSpecSkele
                 link_options[distribution] = sorted(links, key=lambda link_fn: link_fn.value)
             open_candidate: OpenLikelihoodCandidate = {
                 "variable": name,
+                "indicator_id": indicator["id"],
                 "construct_name": indicator.get("construct_name"),
                 "dtype": dtype,
                 "support_kind": indicator_semantics["support_kind"],
@@ -262,6 +270,13 @@ def derive_deterministic_spec(structural_plan: StructuralPlan) -> ModelSpecSkele
             }
         )
 
+    seed_parameters = [
+        declare_parameter(parameter, structural_plan) for parameter in seed_parameters
+    ]
+    seed_loading_params = [
+        declare_parameter(parameter, structural_plan) for parameter in seed_loading_params
+    ]
+
     parameters, loading_params = _compiler_authoritative_model_spec_inventory(
         structural_plan,
         resolved_likelihoods=resolved_likelihoods,
@@ -275,6 +290,13 @@ def derive_deterministic_spec(structural_plan: StructuralPlan) -> ModelSpecSkele
     )
 
     return ModelSpecSkeleton(
+        mechanisms=declare_dynamics_mechanisms(
+            structural_plan,
+            [
+                ParameterSpec.model_validate(parameter)
+                for parameter in [*parameters, *loading_params]
+            ],
+        ),
         resolved_likelihoods=resolved_likelihoods,
         ambiguous_indicators=ambiguous_indicators,
         parameters=cast("list[ModelParameterCandidate]", parameters),
@@ -349,23 +371,27 @@ def _compiler_authoritative_model_spec_inventory(
     provisional_likelihood_by_variable = {
         str(likelihood["variable"]): dict(likelihood) for likelihood in provisional_likelihoods
     }
+    provisional_parameters = [
+        ParameterSpec.model_validate(parameter)
+        for parameter in [
+            parameter
+            for parameter in [*seed_parameters, *seed_loading_params]
+            if parameter_is_active_for_statistical_model_spec(
+                parameter,
+                provisional_likelihood_by_variable,
+                initialization_policy="stationary",
+                observation_intercept_policy="free",
+                equilibrium_forcing=False,
+            )
+        ]
+    ]
     provisional_statistical_model_spec = StatisticalModelSpec.model_validate(
         {
             "likelihoods": provisional_likelihoods,
             "initialization_policy": "stationary",
             "observation_intercept_policy": "free",
-            "equilibrium_forcing": False,
-            "parameters": [
-                parameter
-                for parameter in [*seed_parameters, *seed_loading_params]
-                if parameter_is_active_for_statistical_model_spec(
-                    parameter,
-                    provisional_likelihood_by_variable,
-                    initialization_policy="stationary",
-                    observation_intercept_policy="free",
-                    equilibrium_forcing=False,
-                )
-            ],
+            "parameters": provisional_parameters,
+            "mechanisms": declare_dynamics_mechanisms(structural_plan, provisional_parameters),
         }
     )
     compiled_ssm = compile_ssm_artifact(
@@ -374,13 +400,15 @@ def _compiler_authoritative_model_spec_inventory(
         structural_plan=structural_plan,
     )
 
+    definitions = {parameter.id: parameter for parameter in compiled_ssm.parameters}
     binding_by_parameter = {
-        binding.parameter: binding for binding in compiled_ssm.parameter_bindings
+        definitions[binding.parameter_id].name: binding
+        for binding in compiled_ssm.parameter_bindings
     }
 
     final_inventory: dict[str, UncheckedJsonObject] = {}
     for row in resolve_executable_priors(compiled_ssm):
-        parameter_name = row.parameter
+        parameter_name = definitions[row.parameter_id].name
         if not parameter_name or _is_compiler_default_only_parameter_name(parameter_name):
             continue
         parameter = seed_by_name.get(parameter_name)
@@ -395,6 +423,7 @@ def _compiler_authoritative_model_spec_inventory(
                 "model-spec deterministic inventory is missing compiler-exposed parameter "
                 f"{parameter_name!r}; add explicit metadata instead of silently dropping it."
             )
+        parameter = declare_parameter(parameter, structural_plan)
         final_inventory[parameter_name] = _enrich_parameter_with_binding(
             parameter,
             binding_by_parameter.get(parameter_name),
@@ -405,6 +434,7 @@ def _compiler_authoritative_model_spec_inventory(
             parameter
         ):
             continue
+        parameter = declare_parameter(parameter, structural_plan)
         final_inventory[parameter_name] = _enrich_parameter_with_binding(
             parameter,
             binding_by_parameter.get(parameter_name),
@@ -849,6 +879,7 @@ def _candidate_observation_extra_parameters(
         candidates.append(
             {
                 "name": parameter_name,
+                "quantity": parameter_name,
                 "role": "observation_hyperparameter_positive",
                 "constraint": "positive",
                 "description": description,
@@ -867,6 +898,7 @@ def _candidate_observation_extra_parameters(
         candidates.append(
             {
                 "name": f"obs_ordered_base_{indicator_name}",
+                "quantity": "obs_ordered_base",
                 "role": "observation_hyperparameter",
                 "constraint": "none",
                 "description": f"Ordered-logistic threshold base for {indicator_name}",
@@ -883,6 +915,7 @@ def _candidate_observation_extra_parameters(
             candidates.append(
                 {
                     "name": f"obs_ordered_gaps_{indicator_name}",
+                    "quantity": "obs_ordered_gaps",
                     "role": "observation_hyperparameter_positive",
                     "constraint": "positive",
                     "description": f"Ordered-logistic threshold gaps for {indicator_name}",
@@ -905,6 +938,7 @@ def _candidate_observation_extra_parameters(
             candidates.append(
                 {
                     "name": parameter_name,
+                    "quantity": parameter_name,
                     "role": "observation_hyperparameter",
                     "constraint": "none",
                     "description": description,
@@ -947,6 +981,7 @@ def _provisional_likelihood_choices(
         choices.append(
             {
                 "variable": variable,
+                "indicator_id": item["indicator_id"],
                 "construct_name": item.get("construct_name"),
                 "distribution": distribution,
                 "link": link,
@@ -1001,6 +1036,7 @@ def _parameter_metadata_from_compiler_row(
             "role": "dynamics_parameter_positive" if positive else "dynamics_parameter",
             "constraint": "positive" if positive else "none",
             "description": f"Component dynamics parameter {parameter_name}",
+            "quantity": binding.site_kind.value,
             "construct_names": list(construct_names),
         }
 

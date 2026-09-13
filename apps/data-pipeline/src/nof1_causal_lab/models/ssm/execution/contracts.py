@@ -1,4 +1,4 @@
-"""Core executable SSM protocols and parameter values.
+"""Measurement parameters and initialization-backend diagnostics.
 
 Defines the interface that likelihood backends must implement:
 compute_log_likelihood(params, observations, times) -> jnp.ndarray
@@ -13,18 +13,11 @@ into NumPyro models via numpyro.factor().
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple, Protocol
+from typing import TYPE_CHECKING, NamedTuple
 
 import jax.numpy as jnp
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
-    from nof1_causal_lab.models.ssm.dynamics.vector_field import VectorField
-    from nof1_causal_lab.models.ssm.model import SSMSpec
-    from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
-    from nof1_causal_lab.models.ssm.parameterization import PriorRuntimeBundle
-    from nof1_causal_lab.models.ssm.priors import PriorRegistry
     from nof1_causal_lab.models.ssm.shapes import Array, Float
 
 MISSING_DATA_LARGE_VAR = 1e10
@@ -40,129 +33,17 @@ LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS = 2
 LIKELIHOOD_SOLVER_KIND_DENSE_SUPPORT = 3
 
 
-class RuntimeDynamics(NamedTuple):
-    """Continuous-time dynamics expressed as a vector field plus parameters.
-
-    This is the model-facing drift representation. Inference backends may derive
-    specialized internal parameterizations from it, but ``SSMModel`` always
-    hands off dynamics through this vector-field surface.
-    """
-
-    vector_field: Any
-    vf_params: tuple[dict[str, Array], ...]
-    diffusion_cov: Float[Array, "D D"]
-    input_effect: Float[Array, "D I"] | None = None
-
-
 class MeasurementParams(NamedTuple):
-    """Measurement model parameters.
+    """Measurement mapping before the family-specific link and observation law.
 
-    Represents the observation equation:
-        y = Λ*η + μ + ε, ε ~ N(0, Σ_R)
-
-    where:
-        Λ = factor loadings (n_manifest x n_latent)
-        μ = manifest intercepts (n_manifest,)
-        Σ_R = measurement error covariance (n_manifest x n_manifest)
-
-    Note: the higher-level SSMSpec stores ``manifest_var = L_R`` as a
-    Cholesky factor. ``MeasurementParams.manifest_cov`` stores the derived
-    covariance ``Σ_R = L_R L_Rᵀ`` used by likelihood backends.
+    ``lambda_mat @ state + manifest_means`` is the linear predictor.
+    ``manifest_cov`` supplies Gaussian covariance or the configured family's
+    dispersion inputs; the observation model determines the actual density.
     """
 
     lambda_mat: Float[Array, "M D"]
     manifest_means: Float[Array, " M"]
     manifest_cov: Float[Array, "M M"]  # Σ_R
-
-
-class InitialStateParams(NamedTuple):
-    """Initial state distribution parameters.
-
-    η_0 ~ N(m_0, P_0)
-    """
-
-    mean: Float[Array, " D"]
-    cov: Float[Array, "D D"]
-
-
-class TrajectoryTarget(Protocol):
-    """Latent path prior contract exposed to inference runtimes."""
-
-    @property
-    def kind(self) -> str: ...
-
-    @property
-    def supports_affine_prefix_marginals(self) -> bool: ...
-
-    def initial_moments(self, context) -> tuple[jnp.ndarray, jnp.ndarray]: ...
-
-    def initial_log_prob(self, context, particle0: jnp.ndarray) -> jnp.ndarray: ...
-
-    def predictive_latent_init(self, context) -> jnp.ndarray: ...
-
-    def sample_transition(
-        self,
-        key: jnp.ndarray,
-        context,
-        previous_states: jnp.ndarray,
-        time_idx: jnp.ndarray,
-    ) -> jnp.ndarray: ...
-
-    def transition_log_prob(
-        self,
-        context,
-        previous_state: jnp.ndarray,
-        current_state: jnp.ndarray,
-        time_idx: jnp.ndarray,
-    ) -> jnp.ndarray: ...
-
-    def transition_log_probs_for_pairs(
-        self,
-        context,
-        previous_states: jnp.ndarray,
-        current_states: jnp.ndarray,
-        time_idx: jnp.ndarray,
-    ) -> jnp.ndarray: ...
-
-    def pairwise_transition_log_probs(
-        self,
-        context,
-        previous_states: jnp.ndarray,
-        current_states: jnp.ndarray,
-        time_idx: jnp.ndarray,
-    ) -> jnp.ndarray: ...
-
-    def trajectory_prior_log_prob(
-        self,
-        context,
-        latent_trajectory: jnp.ndarray,
-        prior_terms: object | None = None,
-    ) -> jnp.ndarray: ...
-
-
-class ExecutableSSM(Protocol):
-    """Exact generative surface consumed by inference and simulation adapters."""
-
-    spec: SSMSpec
-    priors: PriorRegistry | None
-    observation_support: ObservationSupportRuntime | None
-    transition_inputs: jnp.ndarray | None
-
-    @property
-    def vector_field(self) -> VectorField: ...
-
-    def trajectory_target(
-        self,
-        scheme: Literal["euler_maruyama"],
-    ) -> TrajectoryTarget: ...
-
-    def get_prior_runtime_bundle(self) -> PriorRuntimeBundle: ...
-
-    def get_cached_artifact[T](
-        self,
-        cache_key: tuple[object, ...],
-        factory: Callable[[], T],
-    ) -> T: ...
 
 
 def build_likelihood_eval_aux(

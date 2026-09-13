@@ -5,7 +5,7 @@ combined JSON Schema document, and writes it to the api-types package.
 
 Usage:
     cd apps/data-pipeline
-    uv run python scripts/export_schemas.py
+    uv run python -m scripts.export_schemas
 """
 
 from __future__ import annotations
@@ -13,37 +13,51 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from artifact_contract_catalog import ARTIFACT_CONTRACTS
-
+from nof1_causal_lab.artifacts.catalog import ARTIFACT_CONTRACTS
+from nof1_causal_lab.artifacts.effects import EffectSummary
+from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS
+from nof1_causal_lab.artifacts.parameter import SiteKind
+from nof1_causal_lab.artifacts.scenarios import (
+    BaselineReportVisualization,
+    EffectTrajectoryPoint,
+    ScenarioStartResult,
+    SimulateScenarioInput,
+    SimulateScenarioResult,
+)
 from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
 from nof1_causal_lab.distributions import OBSERVATION_FAMILY_SPECS
 from nof1_causal_lab.episode_api import (
     ArtifactEnvelope,
+    AutoRunResponse,
     CapabilitiesResponse,
+    EventsResponse,
+    MachineDescription,
+    StartEpisodeResponse,
+    TimelineResponse,
+    TransitionTraceIndex,
     UploadResponse,
     WorkspaceEntry,
     WorkspaceList,
+    machine_description,
 )
 
 # Import all artifact contracts — this pulls in every nested domain model
-from nof1_causal_lab.flows.artifact_contracts import (
-    CONTEXT_TOOLS,
-)
+from nof1_causal_lab.flows.context_tools import CONTEXT_TOOLS
 from nof1_causal_lab.flows.transitions.analysis.contracts import (
-    BaselineReportVisualizationContract,
-    EffectSummaryContract,
-    EffectTrajectoryPointContract,
-    ScenarioStartResultContract,
-    SimulateScenarioResultContract,
-    SimulateScenarioToolResultContract,
-    ToolErrorContract,
+    SimulateScenarioToolResult,
+    ToolError,
 )
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
-from nof1_causal_lab.models.ssm.parameterization import SiteKind
+from nof1_causal_lab.machine.artifact_files import ARTIFACT_FILE_SPECS
+from nof1_causal_lab.machine.snapshot_models import ModelSnapshot
+from nof1_causal_lab.machine.status import EpisodeStatus, MoveOutcome
+from nof1_causal_lab.machine.view_models import ArtifactViewResponse, ArtifactViews
 from nof1_causal_lab.utils.llm import LLMTrace
+from scripts.type_system_catalog import annotate_definitions
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
@@ -57,18 +71,30 @@ EXPORTED_API_MODELS: tuple[type[BaseModel], ...] = (
     WorkspaceList,
     UploadResponse,
     ArtifactEnvelope,
+    MachineDescription,
+    TimelineResponse,
+    TransitionTraceIndex,
+    EventsResponse,
+    StartEpisodeResponse,
+    AutoRunResponse,
     LLMTrace,
     StructuralPlan,
+    ModelSnapshot,
+    ArtifactViews,
+    ArtifactViewResponse,
+    EpisodeStatus,
+    MoveOutcome,
 )
 
-EXPORTED_TOOL_RESULT_MODELS: tuple[type[BaseModel], ...] = (
-    ToolErrorContract,
-    EffectSummaryContract,
-    EffectTrajectoryPointContract,
-    BaselineReportVisualizationContract,
-    ScenarioStartResultContract,
-    SimulateScenarioResultContract,
-    SimulateScenarioToolResultContract,
+EXPORTED_TOOL_MODELS: tuple[type[BaseModel], ...] = (
+    ToolError,
+    EffectSummary,
+    EffectTrajectoryPoint,
+    BaselineReportVisualization,
+    ScenarioStartResult,
+    SimulateScenarioResult,
+    SimulateScenarioInput,
+    SimulateScenarioToolResult,
 )
 
 INTERACTIVE_CONTEXTS = frozenset(
@@ -170,9 +196,10 @@ def export_schemas() -> UncheckedJsonObject:
     for artifact_id, model_cls in ARTIFACT_CONTRACTS.items():
         artifact_refs[artifact_id] = _collect_model_schema(model_cls, all_defs)
 
-    for model_cls in EXPORTED_API_MODELS:
+    for model_cls in (*EXPORTED_API_MODELS, *EXPORTED_TOOL_MODELS):
         _collect_model_schema(model_cls, all_defs)
 
+    annotate_definitions(all_defs)
     combined = {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "title": "CausalSSMContracts",
@@ -183,29 +210,6 @@ def export_schemas() -> UncheckedJsonObject:
     }
 
     # Post-process: make non-nullable defaults required
-    return _make_defaults_required(combined)
-
-
-def export_tool_result_schemas() -> UncheckedJsonObject:
-    """Build a JSON Schema dedicated to tool result contracts."""
-    all_defs: UncheckedJsonObject = {}
-    refs: list[dict[str, str]] = []
-
-    for model_cls in EXPORTED_TOOL_RESULT_MODELS:
-        schema = model_cls.model_json_schema(mode="serialization")
-        defs = schema.pop("$defs", {})
-        all_defs.update(defs)
-        contract_name = model_cls.__name__
-        all_defs[contract_name] = {k: v for k, v in schema.items() if k not in ("$defs",)}
-        refs.append({"$ref": f"#/$defs/{contract_name}"})
-
-    combined = {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "title": "CausalSSMToolResults",
-        "description": "Combined JSON Schema for declared tool result contracts.",
-        "anyOf": refs,
-        "$defs": dict(sorted(all_defs.items())),
-    }
     return _make_defaults_required(combined)
 
 
@@ -247,6 +251,11 @@ def export_metadata() -> UncheckedJsonObject:
             f"ObservationFamilyCatalogEntry.hyperparameters out of sync with SiteKind: {diff}"
         )
     return {
+        "machine": MachineDescription.model_validate(machine_description()).model_dump(
+            mode="json", by_alias=True
+        ),
+        "artifactIds": list(ARTIFACT_IDS),
+        "artifactFiles": {aid: asdict(spec) for aid, spec in ARTIFACT_FILE_SPECS.items()},
         "observationHyperparametersByDistribution": {
             spec.family.value: list(spec.hyperparameters)
             for spec in OBSERVATION_FAMILY_SPECS
@@ -292,13 +301,6 @@ def main(*, check: bool = False) -> bool:
     n_tools = sum(len(v) for k, v in tools.items() if k != "_interactive")
     if not check:
         print(f"Exported {n_tools} tool definitions to {tools_path}")
-
-    tool_results_path = OUTPUT_DIR / "tool-results.json"
-    tool_results = export_tool_result_schemas()
-    _write_or_check_json(tool_results_path, tool_results, check=check, changed_paths=changed_paths)
-    n_tool_defs = len(tool_results.get("$defs", {}))
-    if not check:
-        print(f"Exported {n_tool_defs} tool result definitions to {tool_results_path}")
 
     metadata_path = OUTPUT_DIR / "metadata.json"
     metadata = export_metadata()

@@ -65,18 +65,18 @@ def choose_reference_indicator(
 
 
 def build_reference_indicator_lookup(indicators: list[UncheckedJsonObject]) -> dict[str, str]:
-    """Return construct -> chosen reference indicator name."""
+    """Return construct ID -> chosen reference indicator name."""
     grouped: dict[str, list[UncheckedJsonObject]] = {}
     for indicator in indicators:
-        construct_name = indicator.get("construct_name")
-        if isinstance(construct_name, str):
-            grouped.setdefault(construct_name, []).append(indicator)
+        construct_id = indicator.get("construct_id")
+        if isinstance(construct_id, str):
+            grouped.setdefault(construct_id, []).append(indicator)
 
     lookup: dict[str, str] = {}
-    for construct_name, construct_indicators in grouped.items():
+    for construct_id, construct_indicators in grouped.items():
         reference = choose_reference_indicator(construct_indicators)
         if reference is not None:
-            lookup[construct_name] = str(reference["name"])
+            lookup[construct_id] = str(reference["name"])
     return lookup
 
 
@@ -96,9 +96,9 @@ def get_measurement_indicator_info(
     model_clock = measurement_structure.get("model_clock")
     for ind in measurement_structure.get("indicators", []):
         sem = get_observation_semantics(ind)
-        result[ind["name"]] = {
+        result[ind["id"]] = {
             "dtype": ind.get("measurement_dtype"),
-            "construct_name": ind.get("construct_name"),
+            "construct_id": ind["construct_id"],
             "ordinal_levels": ind.get("ordinal_levels"),
             "support_kind": sem.support_kind.value,
             "summary_operator": sem.summary_operator.value,
@@ -109,6 +109,7 @@ def get_measurement_indicator_info(
 
 
 _WORKER_INDICATOR_KEYS = (
+    "id",
     "name",
     "measurement_dtype",
     "how_to_measure",
@@ -162,16 +163,11 @@ def get_outcome_construct(
     Returns:
         The outcome construct dict, or None if not found
     """
-    # Handle both CausalDesign (has "latent" key) and bare latent structure
-    if "latent" in causal_design_or_latent:
-        constructs = get_constructs(causal_design_or_latent)
-    else:
-        constructs = causal_design_or_latent.get("constructs", [])
-
-    for c in constructs:
-        if c.get("is_outcome"):
-            return c
-    return None
+    latent = causal_design_or_latent.get("latent", causal_design_or_latent)
+    target = latent.get("default_outcome")
+    if target is None:
+        return None
+    return next((item for item in latent["constructs"] if item["id"] == target["id"]), None)
 
 
 def get_outcome_name(causal_design_or_latent: UncheckedJsonObject) -> str | None:
@@ -203,7 +199,13 @@ def build_digraph(latent_structure: UncheckedJsonObject) -> nx.DiGraph:
     Returns:
         nx.DiGraph with one node per referenced construct
     """
-    return build_digraph_from_edges(latent_structure.get("edges", []))
+    names = {item["id"]: item["name"] for item in latent_structure["constructs"]}
+    graph = nx.DiGraph()
+    graph.add_nodes_from(names.values())
+    graph.add_edges_from(
+        (names[edge["cause_id"]], names[edge["effect_id"]]) for edge in latent_structure["edges"]
+    )
+    return graph
 
 
 def build_digraph_from_edges(edges: list[UncheckedJsonObject]) -> nx.DiGraph:
@@ -253,6 +255,9 @@ def get_all_treatments(latent_structure: UncheckedJsonObject) -> list[str]:
             for construct in latent_structure.get("constructs", [])
             if construct.get("name")
         ],
-        edges=list(latent_structure.get("edges", []) or []),
+        edges=[
+            {"cause": cause, "effect": effect}
+            for cause, effect in build_digraph(latent_structure).edges
+        ],
         outcome=get_outcome_name(latent_structure),
     )

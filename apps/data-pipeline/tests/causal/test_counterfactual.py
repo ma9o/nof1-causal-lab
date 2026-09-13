@@ -140,6 +140,7 @@ class TestDenseLinearRuntime:
 # =============================================================================
 
 
+@pytest.mark.cpu_expensive
 class TestComputeSteadyState:
     def test_matches_inverse_for_diagonal_dynamics(self):
         vf = _dense_matrix_vector_field(n_latent=2)
@@ -176,6 +177,7 @@ class TestComputeSteadyState:
 # =============================================================================
 
 
+@pytest.mark.cpu_expensive
 class TestSimulate:
     def test_no_coupling_no_propagation(self):
         vf = _dense_matrix_vector_field(n_latent=2)
@@ -227,36 +229,66 @@ class TestSimulate:
 
 
 class TestSummarizeTemporalEffect:
-    def test_monotonic_increasing_trajectory(self):
-        time_grid = jnp.linspace(0.0, 30.0, 301)
-        traj = jnp.linspace(0.0, 3.0, 301)
-        result = summarize_temporal_effect(traj, time_grid)
-        assert result["effect_30d"] > result["effect_7d"]
-        assert result["effect_7d"] > result["effect_1d"]
+    def test_arbitrary_horizons_interpolate_from_elapsed_start(self):
+        time_grid = jnp.array([10.0, 12.0, 15.0])
+        traj = jnp.array([0.0, 4.0, 10.0])
+        result = summarize_temporal_effect(traj, time_grid, horizons_days=[0.5, 2.25, 5.0])
+        assert [point.day for point in result.horizons] == [0.5, 2.25, 5.0]
+        assert [point.effect for point in result.horizons] == pytest.approx([1.0, 4.5, 10.0])
+        assert result.peak_effect == pytest.approx(10.0)
+        assert result.time_to_peak_days == pytest.approx(5.0)
 
     def test_constant_trajectory(self):
         time_grid = jnp.linspace(0.0, 10.0, 101)
         traj = jnp.ones(101) * 2.5
-        result = summarize_temporal_effect(traj, time_grid)
-        assert abs(result["effect_1d"] - 2.5) < 1e-4
-        assert abs(result["effect_7d"] - 2.5) < 1e-4
-        assert abs(result["peak_effect"] - 2.5) < 1e-4
+        result = summarize_temporal_effect(traj, time_grid, horizons_days=[1.0, 7.0])
+        assert [point.effect for point in result.horizons] == pytest.approx([2.5, 2.5])
+        assert result.peak_effect == pytest.approx(2.5)
 
-    def test_peak_at_end_for_monotonic(self):
-        time_grid = jnp.linspace(0.0, 5.0, 51)
-        traj = jnp.linspace(0.0, 5.0, 51)
-        result = summarize_temporal_effect(traj, time_grid)
-        assert result["peak_effect"] == pytest.approx(5.0, abs=1e-5)
+    def test_negative_absolute_peak_is_preserved(self):
+        result = summarize_temporal_effect(
+            jnp.array([0.0, -5.0, 2.0]), jnp.array([0.0, 1.0, 2.0]), horizons_days=[0.5, 2.0]
+        )
+        assert result.peak_effect == pytest.approx(-5.0)
+        assert result.time_to_peak_days == pytest.approx(1.0)
+
+    @pytest.mark.parametrize(
+        "horizons", [[], [-1.0], [3.0], [float("nan")], [1.0, 1.0], [2.0, 1.0]]
+    )
+    def test_rejects_invalid_or_unsimulated_horizons(self, horizons):
+        with pytest.raises(ValueError, match="horizon"):
+            summarize_temporal_effect(
+                jnp.array([0.0, 4.0]), jnp.array([0.0, 2.0]), horizons_days=horizons
+            )
+
+    @pytest.mark.parametrize(
+        ("trajectory", "times"),
+        [
+            ([], []),
+            ([1.0], [0.0, 1.0]),
+            ([1.0, 2.0], [1.0, 0.0]),
+            ([0.0, float("nan")], [0.0, 1.0]),
+        ],
+    )
+    def test_rejects_invalid_simulation_grid(self, trajectory, times):
+        with pytest.raises(ValueError, match="Temporal effect"):
+            summarize_temporal_effect(jnp.array(trajectory), jnp.array(times), horizons_days=[1.0])
 
 
 class TestSummarizeDraws:
+    @pytest.mark.parametrize("draws", [jnp.array([]), jnp.ones((2, 2)), jnp.array([jnp.nan])])
+    def test_rejects_unreportable_draws(self, draws):
+        with pytest.raises(ValueError, match=r"nonempty vector|finite number"):
+            summarize_draws(draws)
+
     def test_reports_mean_interval_and_prob_positive(self):
         draws = jnp.array([-1.0, 0.0, 2.0, 3.0])
         summary = summarize_draws(draws)
-        assert summary["mean"] == 1.0
-        assert summary["median"] == 1.0
-        assert summary["prob_positive"] == 0.5
-        assert summary["lower_95"] <= summary["upper_95"]
+        assert summary.mean == 1.0
+        assert summary.median == 1.0
+        assert summary.prob_positive == 0.5
+        assert summary.lower_95 == pytest.approx(-0.925)
+        assert summary.upper_95 == pytest.approx(2.925)
 
 
 class TestResolveActionValue:
@@ -295,6 +327,7 @@ class TestBuildTimeGrid:
 # =============================================================================
 
 
+@pytest.mark.cpu_expensive
 class TestComputeInterventions:
     def _make_samples(self, n_draws=4, n_latent=3):
         dynamics = jnp.broadcast_to(-jnp.eye(n_latent), (n_draws, n_latent, n_latent))
@@ -411,6 +444,7 @@ class TestComputeInterventions:
         )
 
 
+@pytest.mark.cpu_expensive
 class TestNumericalCorrectness:
     """Regression tests pinning the numerical Diffrax+Optimistix paths to the
     closed-form linear math they replace. Catches solver-tolerance or step-size

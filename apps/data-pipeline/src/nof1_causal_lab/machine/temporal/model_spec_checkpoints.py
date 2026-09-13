@@ -15,9 +15,10 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from nof1_causal_lab.artifacts.identity import ArtifactId  # noqa: TC001
+from nof1_causal_lab.artifacts.mechanism import DynamicsMechanism  # noqa: TC001
 from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
-from nof1_causal_lab.machine.artifacts import ArtifactId  # noqa: TC001
 from nof1_causal_lab.machine.moves import RunArtifact
 from nof1_causal_lab.machine.store import EpisodeJournal, utc_now_iso
 from nof1_causal_lab.utils import data as data_module
@@ -41,6 +42,7 @@ class AcceptedConstructCheckpoint(BaseModel):
     construct_name: str
     indicators: list[UncheckedJsonObject] = Field(default_factory=list)
     priors: dict[str, UncheckedJsonObject] = Field(default_factory=dict)
+    mechanisms: list[DynamicsMechanism]
     accept: list[dict[str, str]] = Field(default_factory=list)
     annotations: list[str] = Field(default_factory=list)
     results: list[UncheckedJsonObject] = Field(default_factory=list)
@@ -119,6 +121,7 @@ def model_spec_admission_evaluation_key(
     construct_name: str,
     indicators: list[UncheckedJsonObject],
     priors: dict[str, UncheckedJsonObject],
+    mechanisms: Sequence[DynamicsMechanism],
     accept: list[dict[str, str]],
     n_draws: int,
     seed: int,
@@ -129,6 +132,7 @@ def model_spec_admission_evaluation_key(
             "construct_name": item.construct_name,
             "indicators": item.indicators,
             "priors": item.priors,
+            "mechanisms": [mechanism.model_dump(mode="json") for mechanism in item.mechanisms],
         }
         for item in accepted_constructs
         if item.construct_name in ancestor_constructs
@@ -142,6 +146,7 @@ def model_spec_admission_evaluation_key(
             "construct_name": construct_name,
             "indicators": indicators,
             "priors": priors,
+            "mechanisms": [mechanism.model_dump(mode="json") for mechanism in mechanisms],
             "accept": sorted(
                 accept,
                 key=lambda value: json.dumps(value, sort_keys=True, separators=(",", ":")),
@@ -461,6 +466,7 @@ def restore_construct_state(
                 "construct": saved.construct_name,
                 "indicators": saved.indicators,
                 "priors": saved.priors,
+                "mechanisms": [mechanism.model_dump(mode="json") for mechanism in saved.mechanisms],
             },
             inventory.catalog,
         )
@@ -593,6 +599,7 @@ def rebase_accepted_constructs(
                 construct=saved.construct_name,
                 indicators=saved.indicators,
                 priors=saved.priors,
+                mechanisms=[mechanism.model_dump(mode="json") for mechanism in saved.mechanisms],
                 accept=saved.accept,
             )
         except (

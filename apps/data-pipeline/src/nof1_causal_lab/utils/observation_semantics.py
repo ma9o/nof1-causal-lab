@@ -17,21 +17,25 @@ _POINT_END_OPERATORS = frozenset({"last"})
 
 
 class SupportKind(StrEnum):
-    """Whether the measurement equation is point-local or interval-summary."""
+    """Support kind states whether an observation represents a point in time or a summary over
+    an interval.
+    """
 
     POINT = "point"
     INTERVAL = "interval"
 
 
 class AnchorPolicy(StrEnum):
-    """Which support boundary receives the observation anchor."""
+    """This policy selects which boundary of a measurement window receives its timestamp."""
 
     SUPPORT_START = "support_start"
     SUPPORT_END = "support_end"
 
 
 class SummaryOperator(StrEnum):
-    """Supported summary operators for indicator observations."""
+    """A summary operator specifies how values within a measurement window produce one
+    observation.
+    """
 
     FIRST = "first"
     LAST = "last"

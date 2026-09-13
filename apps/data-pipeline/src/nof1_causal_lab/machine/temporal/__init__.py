@@ -8,17 +8,14 @@ episode journal. All validation delegates to the pure functions in
 semantics.
 """
 
+from nof1_causal_lab.machine.status import MoveOutcome
 from nof1_causal_lab.machine.temporal.client import (
     EPISODE_TASK_QUEUE,
     MODEL_SPEC_SIMULATION_TASK_QUEUE,
     connect_client,
     episode_workflow_id,
 )
-from nof1_causal_lab.machine.temporal.messages import (
-    EpisodeInit,
-    MoveOutcome,
-    MoveRequest,
-)
+from nof1_causal_lab.machine.temporal.messages import EpisodeInit, MoveRequest
 from nof1_causal_lab.machine.temporal.workflow import EpisodeWorkflow
 
 __all__ = [

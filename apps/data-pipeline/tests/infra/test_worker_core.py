@@ -23,15 +23,17 @@ def _measurement_structure():
         "model_clock": "1d",
         "indicators": [
             {
+                "id": "indicator:6bde869aba53fb51e0f4",
+                "construct_id": "construct:6b04dc42c531e7091eb8",
                 "name": "pss_score",
-                "construct_name": "stress",
                 "measurement_dtype": "continuous",
                 "how_to_measure": "Perceived Stress Scale score",
                 "aggregation": "mean",
             },
             {
+                "id": "indicator:9866c549bd1c25f0a5d7",
+                "construct_id": "construct:cdc0b2958a9512b2abad",
                 "name": "sleep_hours",
-                "construct_name": "sleep",
                 "measurement_dtype": "continuous",
                 "how_to_measure": "Self-reported hours of sleep",
                 "aggregation": "mean",
@@ -171,7 +173,7 @@ class TestRunWorkerExtraction:
                         "extractions": [
                             {
                                 "window_start": "2024-01-01",
-                                "indicator": "pss_score",
+                                "indicator_id": "indicator:6bde869aba53fb51e0f4",
                                 "value": 12.0,
                             }
                         ]

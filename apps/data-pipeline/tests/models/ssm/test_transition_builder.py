@@ -1,17 +1,22 @@
 """Tests for vector-field transition construction."""
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from numpyro import handlers
-
-from nof1_causal_lab.artifacts import LinkFunction
-from nof1_causal_lab.distributions import DistributionFamily
-from nof1_causal_lab.models.ssm.discretization import (
-    discretize_at_states_batched,
-    discretize_system_with_inputs_batched,
+from dynestyx import (
+    AffineDrift,
+    StochasticContinuousTimeStateEvolution,
+    linearized_transition_parameters,
 )
+from dynestyx.inference.configs.discretizer import LocalLinearizationConfig
+from numpyro import handlers
+from numpyro.distributions import MultivariateNormal
+
+from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
+from nof1_causal_lab.artifacts.statistical_model_spec import LinkFunction
+from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.ssm.dynamics.edges import (
     DenseLinear,
     DiagonalDecay,
@@ -21,7 +26,6 @@ from nof1_causal_lab.models.ssm.dynamics.edges import (
     StateDecay,
     StateIntercept,
 )
-from nof1_causal_lab.models.ssm.dynamics.intervention import Intervention
 from nof1_causal_lab.models.ssm.dynamics.spec import (
     DiagonalDecaySpec,
     DynamicsSpec,
@@ -29,19 +33,19 @@ from nof1_causal_lab.models.ssm.dynamics.spec import (
 )
 from nof1_causal_lab.models.ssm.dynamics.vector_field import (
     VectorField,
-    VectorFieldArgs,
 )
 from nof1_causal_lab.models.ssm.execution.contracts import (
     LIKELIHOOD_SOLVER_KIND_DENSE_SUPPORT,
     LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS,
-    InitialStateParams,
     MeasurementParams,
-    RuntimeDynamics,
+)
+from nof1_causal_lab.models.ssm.execution.dynamical_model import (
+    StructuralDrift,
+    continuous_state_evolution,
 )
 from nof1_causal_lab.models.ssm.inference.backend_factory import get_laplace_backend
-from nof1_causal_lab.models.ssm.inference.targets.affine import derive_affine_dynamics
 from nof1_causal_lab.models.ssm.inference.targets.laplace import LaplaceLikelihood
-from nof1_causal_lab.models.ssm.inference.targets.laplace.point import (
+from nof1_causal_lab.models.ssm.inference.targets.laplace.shared import (
     _transition_start_linearization_states,
 )
 from nof1_causal_lab.models.ssm.inference.targets.transitions import build_discrete_transitions
@@ -55,13 +59,34 @@ from nof1_causal_lab.models.ssm.structure import (
     SparseVectorBlockSpec,
     T0CholBlockSpec,
 )
-from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
+from tests.ssm_spec_fixtures import affine_test_evolution
+
+pytestmark = pytest.mark.cpu_expensive
+
+
+def _structural_drift(dynamics) -> StructuralDrift:
+    assert isinstance(dynamics.drift, StructuralDrift)
+    return dynamics.drift
+
+
+def _diffusion_cov(dynamics):
+    return dynamics.diffusion.gram_matrix(
+        x=None, u=None, t=0, state_dim=_structural_drift(dynamics).vector_field.n_latent
+    )
+
+
+def _expected_affine_drift(input_effect=None):
+    return AffineDrift(
+        A=jnp.array([[-0.50, 0.05, 0.0], [-0.10, -0.55, 0.02], [0.0, 0.0, -0.65]]),
+        b=jnp.array([0.10, -0.04, 0.02]),
+        B=input_effect,
+    )
 
 
 def _constant_runtime_dynamics(
     *,
     input_effect: jnp.ndarray | None = None,
-) -> RuntimeDynamics:
+) -> StochasticContinuousTimeStateEvolution:
     drift = jnp.array(
         [
             [-0.30, 0.05, 0.00],
@@ -71,7 +96,7 @@ def _constant_runtime_dynamics(
         dtype=jnp.float32,
     )
     cint = jnp.array([0.03, -0.04, 0.02], dtype=jnp.float32)
-    return RuntimeDynamics(
+    return continuous_state_evolution(
         vector_field=VectorField(
             n_latent=3,
             components=(
@@ -96,8 +121,8 @@ def _constant_runtime_dynamics(
     )
 
 
-def _trajectory_runtime_dynamics() -> RuntimeDynamics:
-    return RuntimeDynamics(
+def _trajectory_runtime_dynamics() -> StochasticContinuousTimeStateEvolution:
+    return continuous_state_evolution(
         vector_field=VectorField(
             n_latent=2,
             components=(
@@ -266,21 +291,22 @@ def _nonlinear_point_ssm_spec() -> SSMSpec:
 
 def test_constant_vector_field_local_linearization_matches_affine_view():
     dynamics = _constant_runtime_dynamics()
-    affine = derive_affine_dynamics(dynamics)
-    args = VectorFieldArgs(params=dynamics.vf_params, intervention=Intervention.none())
+    affine = _expected_affine_drift(_structural_drift(dynamics).input_effect)
     x_lin = jnp.array([0.70, -0.20, 0.40], dtype=jnp.float32)
 
-    drift, cint = dynamics.vector_field.linearize(x_lin, args)
+    args = _structural_drift(dynamics).args
+    field = _structural_drift(dynamics).vector_field
+    drift = jax.jacfwd(lambda x: field(jnp.array(0.0), x, args))(x_lin)
+    cint = field(jnp.array(0.0), x_lin, args) - drift @ x_lin
 
-    np.testing.assert_allclose(drift, affine.drift, rtol=1e-6, atol=1e-6)
-    assert affine.cint is not None
-    np.testing.assert_allclose(cint, affine.cint, rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(drift, affine.A, rtol=1e-6, atol=1e-6)
+    assert affine.b is not None
+    np.testing.assert_allclose(cint, affine.b, rtol=1e-6, atol=1e-6)
 
 
 def test_constant_vector_field_local_discretization_matches_affine_discretization():
     dynamics = _constant_runtime_dynamics()
-    affine = derive_affine_dynamics(dynamics)
-    args = VectorFieldArgs(params=dynamics.vf_params, intervention=Intervention.none())
+    affine = _expected_affine_drift(_structural_drift(dynamics).input_effect)
     time_intervals = jnp.array([0.20, 0.50, 1.10], dtype=jnp.float32)
     linearization_states = jnp.array(
         [
@@ -291,21 +317,13 @@ def test_constant_vector_field_local_discretization_matches_affine_discretizatio
         dtype=jnp.float32,
     )
 
-    local_Ad, local_Qd, local_cd = discretize_at_states_batched(
-        dynamics.vector_field,
-        linearization_states,
-        args,
-        dynamics.diffusion_cov,
-        time_intervals,
+    local = build_discrete_transitions(
+        dynamics, time_intervals, linearization_states=linearization_states
     )
-    affine_Ad, affine_Qd, affine_cd = discretize_system_with_inputs_batched(
-        affine.drift,
-        affine.diffusion_cov,
-        affine.cint,
-        affine.input_effect,
-        None,
-        time_intervals,
-    )
+    local_Ad, local_Qd, local_cd = local.A, local.cov, local.bias
+    evolution = affine_test_evolution(affine.A, _diffusion_cov(dynamics), affine.b)
+    reference = jax.vmap(lambda dt: evolution.params_at(0.0, dt))(time_intervals)
+    affine_Ad, affine_Qd, affine_cd = reference.A, reference.cov, reference.bias
 
     assert local_cd is not None
     assert affine_cd is not None
@@ -324,7 +342,7 @@ def test_transition_builder_preserves_affine_input_discretization():
         dtype=jnp.float32,
     )
     dynamics = _constant_runtime_dynamics(input_effect=input_effect)
-    affine = derive_affine_dynamics(dynamics)
+    affine = _expected_affine_drift(_structural_drift(dynamics).input_effect)
     time_intervals = jnp.array([0.20, 0.50, 1.10], dtype=jnp.float32)
     transition_inputs = jnp.array(
         [
@@ -340,20 +358,16 @@ def test_transition_builder_preserves_affine_input_discretization():
         time_intervals,
         transition_inputs=transition_inputs,
     )
-    expected_Ad, expected_Qd, expected_cd = discretize_system_with_inputs_batched(
-        affine.drift,
-        affine.diffusion_cov,
-        affine.cint,
-        affine.input_effect,
-        transition_inputs,
-        time_intervals,
-    )
+    evolution = affine_test_evolution(affine.A, _diffusion_cov(dynamics), affine.b, affine.B)
+    reference = jax.vmap(lambda dt: evolution.params_at(0.0, dt))(time_intervals)
+    expected_Ad, expected_Qd = reference.A, reference.cov
+    expected_cd = reference.bias + jnp.einsum("tdi,ti->td", reference.B, transition_inputs)
 
-    np.testing.assert_allclose(transitions.Ad, expected_Ad, rtol=1e-6, atol=1e-6)
-    np.testing.assert_allclose(transitions.Qd, expected_Qd, rtol=1e-6, atol=1e-6)
-    assert transitions.cd is not None
+    np.testing.assert_allclose(transitions.A, expected_Ad, rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(transitions.cov, expected_Qd, rtol=1e-6, atol=1e-6)
+    assert transitions.bias is not None
     assert expected_cd is not None
-    np.testing.assert_allclose(transitions.cd, expected_cd, rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(transitions.bias, expected_cd, rtol=1e-6, atol=1e-6)
 
 
 def test_transition_builder_requires_states_for_trajectory_dependent_dynamics():
@@ -375,25 +389,29 @@ def test_transition_builder_discretizes_trajectory_dependent_dynamics_at_states(
         ],
         dtype=jnp.float32,
     )
-    args = VectorFieldArgs(params=dynamics.vf_params, intervention=Intervention.none())
 
     transitions = build_discrete_transitions(
         dynamics,
         time_intervals,
         linearization_states=linearization_states,
     )
-    expected_Ad, expected_Qd, expected_cd = discretize_at_states_batched(
-        dynamics.vector_field,
-        linearization_states,
-        args,
-        dynamics.diffusion_cov,
-        time_intervals,
-    )
+    reference = jax.vmap(
+        lambda state, dt: linearized_transition_parameters(
+            dynamics,
+            LocalLinearizationConfig(covariance_jitter=0.0),
+            linearization_state=state,
+            previous_control=None,
+            previous_time=0.0,
+            time=dt,
+        )
+    )(linearization_states, time_intervals)
+    expected_Ad, expected_Qd, expected_cd = reference.A, reference.cov, reference.bias
 
-    np.testing.assert_allclose(transitions.Ad, expected_Ad, rtol=1e-6, atol=1e-6)
-    np.testing.assert_allclose(transitions.Qd, expected_Qd, rtol=1e-6, atol=1e-6)
-    assert transitions.cd is not None
-    np.testing.assert_allclose(transitions.cd, expected_cd, rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(transitions.A, expected_Ad, rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(transitions.cov, expected_Qd, rtol=1e-6, atol=1e-6)
+    assert transitions.bias is not None
+    assert expected_cd is not None
+    np.testing.assert_allclose(transitions.bias, expected_cd, rtol=1e-6, atol=1e-6)
 
 
 def test_laplace_point_backend_accepts_trajectory_dependent_dynamics():
@@ -410,9 +428,9 @@ def test_laplace_point_backend_accepts_trajectory_dependent_dynamics():
         manifest_means=jnp.array([0.05], dtype=jnp.float32),
         manifest_cov=jnp.array([[0.20]], dtype=jnp.float32),
     )
-    initial_state = InitialStateParams(
-        mean=jnp.array([0.20, -0.10], dtype=jnp.float32),
-        cov=jnp.diag(jnp.array([0.30, 0.40], dtype=jnp.float32)),
+    initial_state = MultivariateNormal(
+        loc=jnp.array([0.20, -0.10], dtype=jnp.float32),
+        covariance_matrix=jnp.diag(jnp.array([0.30, 0.40], dtype=jnp.float32)),
     )
     observations = jnp.array([[0.05], [0.20], [0.12]], dtype=jnp.float32)
     time_intervals = jnp.array([0.01, 0.50, 0.75], dtype=jnp.float32)
@@ -468,17 +486,21 @@ def test_laplace_point_backend_differentiates_trajectory_dependent_dynamics():
         manifest_means=jnp.array([0.05], dtype=jnp.float32),
         manifest_cov=jnp.array([[0.20]], dtype=jnp.float32),
     )
-    initial_state = InitialStateParams(
-        mean=jnp.array([0.20, -0.10], dtype=jnp.float32),
-        cov=jnp.diag(jnp.array([0.30, 0.40], dtype=jnp.float32)),
+    initial_state = MultivariateNormal(
+        loc=jnp.array([0.20, -0.10], dtype=jnp.float32),
+        covariance_matrix=jnp.diag(jnp.array([0.30, 0.40], dtype=jnp.float32)),
     )
     observations = jnp.array([[0.05], [0.20], [0.12]], dtype=jnp.float32)
     time_intervals = jnp.array([0.01, 0.50, 0.75], dtype=jnp.float32)
 
     def _objective(emax: jnp.ndarray) -> jnp.ndarray:
-        hill_params = dict(base_dynamics.vf_params[1])
+        hill_params = dict(_structural_drift(base_dynamics).args.params[1])
         hill_params["Emax"] = emax
-        dynamics = base_dynamics._replace(vf_params=(base_dynamics.vf_params[0], hill_params))
+        dynamics = eqx.tree_at(
+            lambda model: _structural_drift(model).args.params,
+            base_dynamics,
+            (_structural_drift(base_dynamics).args.params[0], hill_params),
+        )
         return backend.compute_log_likelihood(
             dynamics,
             measurement_params,
@@ -507,9 +529,9 @@ def test_laplace_interval_support_accepts_trajectory_dependent_dynamics_dense():
         manifest_means=jnp.array([0.05], dtype=jnp.float32),
         manifest_cov=jnp.array([[0.20]], dtype=jnp.float32),
     )
-    initial_state = InitialStateParams(
-        mean=jnp.array([0.20, -0.10], dtype=jnp.float32),
-        cov=jnp.diag(jnp.array([0.30, 0.40], dtype=jnp.float32)),
+    initial_state = MultivariateNormal(
+        loc=jnp.array([0.20, -0.10], dtype=jnp.float32),
+        covariance_matrix=jnp.diag(jnp.array([0.30, 0.40], dtype=jnp.float32)),
     )
     observations = jnp.array([[jnp.nan], [0.11], [0.18]], dtype=jnp.float32)
     time_intervals = jnp.array([0.01, 0.50, 0.75], dtype=jnp.float32)
@@ -542,17 +564,21 @@ def test_laplace_interval_support_differentiates_trajectory_dependent_dynamics_d
         manifest_means=jnp.array([0.05], dtype=jnp.float32),
         manifest_cov=jnp.array([[0.20]], dtype=jnp.float32),
     )
-    initial_state = InitialStateParams(
-        mean=jnp.array([0.20, -0.10], dtype=jnp.float32),
-        cov=jnp.diag(jnp.array([0.30, 0.40], dtype=jnp.float32)),
+    initial_state = MultivariateNormal(
+        loc=jnp.array([0.20, -0.10], dtype=jnp.float32),
+        covariance_matrix=jnp.diag(jnp.array([0.30, 0.40], dtype=jnp.float32)),
     )
     observations = jnp.array([[jnp.nan], [0.11], [0.18]], dtype=jnp.float32)
     time_intervals = jnp.array([0.01, 0.50, 0.75], dtype=jnp.float32)
 
     def _objective(emax: jnp.ndarray) -> jnp.ndarray:
-        hill_params = dict(base_dynamics.vf_params[1])
+        hill_params = dict(_structural_drift(base_dynamics).args.params[1])
         hill_params["Emax"] = emax
-        dynamics = base_dynamics._replace(vf_params=(base_dynamics.vf_params[0], hill_params))
+        dynamics = eqx.tree_at(
+            lambda model: _structural_drift(model).args.params,
+            base_dynamics,
+            (_structural_drift(base_dynamics).args.params[0], hill_params),
+        )
         return backend.compute_log_likelihood(
             dynamics,
             measurement_params,
@@ -582,9 +608,9 @@ def test_laplace_interval_support_uses_banded_dynamic_path_for_large_problem():
         manifest_means=jnp.array([0.05], dtype=jnp.float32),
         manifest_cov=jnp.array([[0.20]], dtype=jnp.float32),
     )
-    initial_state = InitialStateParams(
-        mean=jnp.array([0.20, -0.10], dtype=jnp.float32),
-        cov=jnp.diag(jnp.array([0.30, 0.40], dtype=jnp.float32)),
+    initial_state = MultivariateNormal(
+        loc=jnp.array([0.20, -0.10], dtype=jnp.float32),
+        covariance_matrix=jnp.diag(jnp.array([0.30, 0.40], dtype=jnp.float32)),
     )
     observations = jnp.linspace(0.05, 0.25, n_time, dtype=jnp.float32)[:, None]
     observations = observations.at[0, 0].set(jnp.nan)
@@ -599,9 +625,13 @@ def test_laplace_interval_support_uses_banded_dynamic_path_for_large_problem():
     )
 
     def _objective(emax: jnp.ndarray) -> jnp.ndarray:
-        hill_params = dict(base_dynamics.vf_params[1])
+        hill_params = dict(_structural_drift(base_dynamics).args.params[1])
         hill_params["Emax"] = emax
-        dynamics = base_dynamics._replace(vf_params=(base_dynamics.vf_params[0], hill_params))
+        dynamics = eqx.tree_at(
+            lambda model: _structural_drift(model).args.params,
+            base_dynamics,
+            (_structural_drift(base_dynamics).args.params[0], hill_params),
+        )
         return backend.compute_log_likelihood(
             dynamics,
             measurement_params,

@@ -7,25 +7,28 @@ import pytest
 def stage1b_simple_latent():
     """Simple chain: Treatment -> Outcome (all observable)."""
     return {
+        "default_outcome": {"kind": "construct", "id": "construct:170504d1ef8631dda85d"},
         "constructs": [
             {
+                "id": "construct:2219a835484dea8b586a",
                 "name": "Treatment",
                 "role": "exogenous",
                 "description": "The intervention",
                 "temporal_status": "time_invariant",
             },
             {
+                "id": "construct:170504d1ef8631dda85d",
                 "name": "Outcome",
                 "role": "endogenous",
-                "is_outcome": True,
                 "description": "The result",
                 "temporal_status": "time_varying",
             },
         ],
         "edges": [
             {
-                "cause": "Treatment",
-                "effect": "Outcome",
+                "cause_id": "construct:2219a835484dea8b586a",
+                "effect_id": "construct:170504d1ef8631dda85d",
+                "id": "edge:1534f2f5ac96c22d9d9d",
                 "description": "Treatment causes Outcome",
             },
         ],
@@ -36,21 +39,24 @@ def stage1b_simple_latent():
 def stage1b_confounded_latent():
     """Confounded: Treatment -> Outcome, Confounder -> Treatment, Confounder -> Outcome."""
     return {
+        "default_outcome": {"kind": "construct", "id": "construct:170504d1ef8631dda85d"},
         "constructs": [
             {
+                "id": "construct:2219a835484dea8b586a",
                 "name": "Treatment",
                 "role": "endogenous",
                 "description": "The intervention",
                 "temporal_status": "time_varying",
             },
             {
+                "id": "construct:170504d1ef8631dda85d",
                 "name": "Outcome",
                 "role": "endogenous",
-                "is_outcome": True,
                 "description": "The result",
                 "temporal_status": "time_varying",
             },
             {
+                "id": "construct:c1b2cfd25e61e303586c",
                 "name": "Confounder",
                 "role": "exogenous",
                 "description": "Unmeasured common cause",
@@ -59,18 +65,21 @@ def stage1b_confounded_latent():
         ],
         "edges": [
             {
-                "cause": "Treatment",
-                "effect": "Outcome",
+                "cause_id": "construct:2219a835484dea8b586a",
+                "effect_id": "construct:170504d1ef8631dda85d",
+                "id": "edge:1534f2f5ac96c22d9d9d",
                 "description": "Treatment causes Outcome",
             },
             {
-                "cause": "Confounder",
-                "effect": "Treatment",
+                "cause_id": "construct:c1b2cfd25e61e303586c",
+                "effect_id": "construct:2219a835484dea8b586a",
+                "id": "edge:5157b8165624d0d8e1c7",
                 "description": "Confounder affects Treatment",
             },
             {
-                "cause": "Confounder",
-                "effect": "Outcome",
+                "cause_id": "construct:c1b2cfd25e61e303586c",
+                "effect_id": "construct:170504d1ef8631dda85d",
+                "id": "edge:0f365ad0e4745822404f",
                 "description": "Confounder affects Outcome",
             },
         ],
@@ -86,8 +95,9 @@ def stage1b_measurement_all_observed():
         "scientific_only_constructs": [],
         "indicators": [
             {
+                "id": "indicator:0d729b16859bd5e9357e",
+                "construct_id": "construct:2219a835484dea8b586a",
                 "name": "treatment_dose",
-                "construct_name": "Treatment",
                 "construct_polarity": "positive",
                 "how_to_measure": "Extract the treatment dosage from the data",
                 "measurement_dtype": "continuous",
@@ -95,8 +105,9 @@ def stage1b_measurement_all_observed():
                 "source_columns": ["treatment_dose"],
             },
             {
+                "id": "indicator:54a6e8d16cbce15b4427",
+                "construct_id": "construct:170504d1ef8631dda85d",
                 "name": "outcome_score",
-                "construct_name": "Outcome",
                 "construct_polarity": "positive",
                 "how_to_measure": "Extract the outcome score from the data",
                 "measurement_dtype": "continuous",

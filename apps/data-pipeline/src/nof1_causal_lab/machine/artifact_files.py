@@ -13,11 +13,13 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.machine.artifacts import ArtifactId
+    from nof1_causal_lab.artifacts.identity import ArtifactId
 
 
 @dataclass(frozen=True)
 class ArtifactFileSpec:
+    """An artifact file specification declares its JSON payloads, tables, and executable binaries."""
+
     json: dict[str, str] = field(default_factory=dict)
     parquet: dict[str, str] = field(default_factory=dict)
     pickle: dict[str, str] = field(default_factory=dict)

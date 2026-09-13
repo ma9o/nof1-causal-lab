@@ -11,68 +11,12 @@ binding keys used by compile-time and runtime layers.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum, StrEnum
 
-
-class SupportClass(Enum):
-    """Runtime support class for a sample site."""
-
-    REAL = "real"
-    POSITIVE = "positive"
-    CORRELATION = "correlation"
-
-
-class TransformKind(Enum):
-    """Unconstrained -> constrained transform metadata."""
-
-    IDENTITY = "identity"
-    EXP = "exp"
-    CORRELATION = "correlation"
-
-
-class SiteKind(Enum):
-    """Semantic role for each sample site."""
-
-    DYNAMICS_DECAY = "dynamics_decay"
-    DYNAMICS_CINT = "dynamics_cint"
-    DYNAMICS_WEIGHT = "dynamics_weight"
-    DYNAMICS_POTENTIAL_CENTER = "dynamics_potential_center"
-    DYNAMICS_POTENTIAL_QUARTIC = "dynamics_potential_quartic"
-    HILL_EMAX = "hill_emax"
-    HILL_EC50 = "hill_ec50"
-    HILL_N = "hill_n"
-    DIFFUSION_DIAG = "diffusion_diag"
-    DIFFUSION_LOWER = "diffusion_lower"
-    INPUT_EFFECT = "input_effect"
-    STATIC_STATE_SD = "static_state_sd"
-    LOADING = "loading"
-    MANIFEST_MEANS = "manifest_means"
-    MANIFEST_VAR_DIAG = "manifest_var_diag"
-    T0_MEANS = "t0_means"
-    T0_VAR_DIAG = "t0_var_diag"
-    T0_VAR_LOWER = "t0_var_lower"
-    OBS_DF = "obs_df"
-    OBS_SHAPE = "obs_shape"
-    OBS_R = "obs_r"
-    OBS_CONCENTRATION = "obs_concentration"
-    OBS_ORDERED_BASE = "obs_ordered_base"
-    OBS_ORDERED_GAPS = "obs_ordered_gaps"
-    OBS_CAT_INTERCEPTS = "obs_cat_intercepts"
-    OBS_CAT_SLOPES = "obs_cat_slopes"
-    PROC_DF = "proc_df"
-
-
-class PriorAuthoringTransform(StrEnum):
-    """How an authored semantic prior is transformed before site attachment."""
-
-    IDENTITY = "identity"
-    POSITIVE_IDENTITY = "positive_identity"
-    DT_PERSISTENCE_TO_CT_DECAY = "dt_persistence_to_ct_decay"
-    DT_EFFECT_TO_CT_RATE = "dt_effect_to_ct_rate"
-    INITIAL_STATE_CORRELATION = "initial_state_correlation"
-    SITE_WIDE = "site_wide"
-    SITE_ROW = "site_row"
-
+from nof1_causal_lab.artifacts.parameter import (
+    PriorAuthoringTransform,
+    SiteKind,
+    SupportClass,
+)
 
 type SitePosition = int | tuple[int, int] | tuple[int, int, int]
 
@@ -92,7 +36,6 @@ class SiteDescriptor:
     support: SupportClass
     assembly_group: str
     site_kind: SiteKind
-    transform_kind: TransformKind
     positions: tuple[SitePosition, ...] = ()
     deterministic_name: str | None = None
     fixed_spec_field: str | None = None
@@ -118,14 +61,6 @@ class SemanticBinding:
     cause_idx: int | None = None
 
 
-def transform_kind_for(support: SupportClass) -> TransformKind:
-    if support == SupportClass.REAL:
-        return TransformKind.IDENTITY
-    if support == SupportClass.POSITIVE:
-        return TransformKind.EXP
-    return TransformKind.CORRELATION
-
-
 def make_site(
     name: str,
     shape: tuple[int, ...],
@@ -139,14 +74,13 @@ def make_site(
     priors_field: str | None = None,
     runtime_prior_key: str | None = None,
 ) -> SiteDescriptor:
-    """Construct a SiteDescriptor with transform_kind derived from support."""
+    """Construct the scientific metadata for one authored sample site."""
     return SiteDescriptor(
         name=name,
         shape=shape,
         support=support,
         assembly_group=assembly_group,
         site_kind=site_kind,
-        transform_kind=transform_kind_for(support),
         positions=positions,
         deterministic_name=deterministic_name,
         fixed_spec_field=fixed_spec_field,

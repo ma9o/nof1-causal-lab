@@ -30,13 +30,10 @@ from nof1_causal_lab.models.ssm.dynamics.spec import (
     HillEdgeSpec,
 )
 from nof1_causal_lab.models.ssm.inference.backend_factory import get_laplace_backend
-from nof1_causal_lab.models.ssm.inference.bundle import build_particle_runtime_bundle
-from nof1_causal_lab.models.ssm.priors import (
-    PriorDistributionFamily,
-    PriorRegistry,
-    PriorSpec,
-)
+from nof1_causal_lab.models.ssm.inference.problem import build_particle_problem
+from nof1_causal_lab.models.ssm.priors import PriorDistributionFamily
 from nof1_causal_lab.models.ssm.transition_kinds import LATENT_TRANSITION_EULER_MARUYAMA
+from nof1_causal_lab.prior_distributions import distribution_from_params
 from tests.models.ssm._support import simple_normal_model
 from tests.ssm_spec_fixtures import (
     MinimalReparam,
@@ -367,6 +364,7 @@ class TestTraceStructure:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.cpu_expensive
 class TestMomentPreservation:
     """Verify reparameterized samples have the same distribution.
 
@@ -477,6 +475,7 @@ class TestSyntax:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.cpu_expensive
 class TestAutoReparamSSM:
     """Test AutoReparam with the actual SSM model."""
 
@@ -536,42 +535,19 @@ class TestAutoReparamSSM:
 
     def test_extract_constrained_samples_filters_auxiliary_sites(self):
         """Replay-based extraction should drop internal reparam auxiliaries."""
-        from jax.flatten_util import ravel_pytree
-
         from nof1_causal_lab.models.ssm.inference.utils import (
-            _discover_sites,
             extract_constrained_samples,
+            prepare_model_parameters,
         )
 
         model = self._make_simple_ssm()
-        strategy = AutoReparam(centered=0.0)
         observations = jnp.zeros((5, 2))
         times = jnp.linspace(0, 1, 5)
-        backend = get_laplace_backend(model, 6)
-        site_info = _discover_sites(
-            model,
-            observations,
-            times,
-            jax.random.PRNGKey(0),
-            backend,
-            reparam=strategy,
+        parameters, _, public_sites = prepare_model_parameters(
+            model, observations, times, jax.random.PRNGKey(0), AutoReparam(centered=0.0)
         )
-        example_unc = {
-            name: info["transform"].inv(info["value"]) for name, info in site_info.items()
-        }
-        flat, unravel_fn = ravel_pytree(example_unc)
-        particles = jnp.stack([flat, flat + 0.05])
-
-        samples = extract_constrained_samples(
-            particles,
-            site_info,
-            unravel_fn,
-            model.spec,
-            reparam=strategy,
-            model=model,
-            observations=observations,
-            times=times,
-        )
+        particles = jnp.stack([parameters.initial_position, parameters.initial_position + 0.05])
+        samples = extract_constrained_samples(particles, parameters, public_sites)
 
         assert "vf_0_decay" in samples
         assert "diffusion_diag_free" in samples
@@ -602,19 +578,17 @@ class TestAutoReparamSSM:
             input_effect_block=default_input_effect_block(2),
             static_state_sd_block=default_static_state_sd_block(),
         )
-        priors = PriorRegistry(
-            {
-                "vf_1_Emax": PriorSpec(
-                    PriorDistributionFamily.LOG_NORMAL,
-                    {"mu": -0.2, "sigma": 0.3},
-                )
-            }
-        )
+        priors = {
+            "vf_1_Emax": distribution_from_params(
+                PriorDistributionFamily.LOG_NORMAL,
+                {"mu": -0.2, "sigma": 0.3},
+            )
+        }
         model = SSMModel(spec, priors)
         observations = jnp.zeros((3, 2))
         times = jnp.arange(3, dtype=jnp.float32)
 
-        bundle = build_particle_runtime_bundle(
+        bundle = build_particle_problem(
             model,
             observations,
             times,
@@ -622,8 +596,8 @@ class TestAutoReparamSSM:
             trace_key=jax.random.PRNGKey(0),
             reparam=AutoReparam(centered=0.0),
         )
-        context = bundle.latent_context_fn(bundle.cached.flat_example)
+        context = bundle.runtime.context(bundle.runtime.initial_position, times)
 
-        assert "vf_1_Emax_base_decentered" in bundle.cached.site_info
+        assert "vf_1_Emax_base_decentered" in bundle.site_info
         assert set(context.vf_params[1]) == {"Emax", "EC50", "n"}
         assert bool(jnp.all(jnp.isfinite(jnp.stack(tuple(context.vf_params[1].values())))))

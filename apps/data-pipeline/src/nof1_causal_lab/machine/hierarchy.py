@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
-from nof1_causal_lab.machine.artifacts import ARTIFACT_IDS
+from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS, ArtifactId
 from nof1_causal_lab.machine.graph import (
     ARTIFACT_GRAPH,
     DERIVATIONS,
@@ -13,10 +13,6 @@ from nof1_causal_lab.machine.graph import (
     WRITABLE_ARTIFACTS,
     transition_spec,
 )
-
-if TYPE_CHECKING:
-    from nof1_causal_lab.machine.artifacts import ArtifactId
-
 
 ContextLayer = Literal["navigator", "registry", "machine", "delegated", "tool"]
 ActionKind = Literal["read", "produce", "check", "query", "driver", "external"]

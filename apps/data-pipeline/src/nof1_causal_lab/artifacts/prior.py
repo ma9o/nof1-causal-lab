@@ -2,145 +2,23 @@
 
 from __future__ import annotations
 
-from typing import Literal, cast
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 
-
-class PriorParamsModel(BaseModel):
-    """Strict immutable base for family-specific prior parameters."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
+from .distribution import DistributionSpec
+from .identity import ParameterId  # noqa: TC001
 
 
-class LocationScalePriorParams(PriorParamsModel):
-    """Location and positive scale parameters for Normal or LogNormal priors."""
-
-    mu: float
-    sigma: float = Field(gt=0)
-
-
-class ScalePriorParams(PriorParamsModel):
-    """Positive scale parameter for HalfNormal priors."""
-
-    sigma: float = Field(gt=0)
-
-
-class BoundsPriorParams(PriorParamsModel):
-    """Finite ordered bounds for Uniform priors."""
-
-    lower: float
-    upper: float
-
-    @model_validator(mode="after")
-    def validate_ordered_bounds(self) -> BoundsPriorParams:
-        if self.lower >= self.upper:
-            raise ValueError("Uniform prior requires lower < upper")
-        return self
-
-
-class TruncatedNormalPriorParams(LocationScalePriorParams):
-    """Location, scale, and finite ordered bounds for TruncatedNormal priors."""
-
-    lower: float
-    upper: float
-
-    @model_validator(mode="after")
-    def validate_ordered_bounds(self) -> TruncatedNormalPriorParams:
-        if self.lower >= self.upper:
-            raise ValueError("TruncatedNormal prior requires lower < upper")
-        return self
-
-
-class GammaPriorParams(PriorParamsModel):
-    """Positive shape and rate for Gamma priors."""
-
-    concentration: float = Field(gt=0)
-    rate: float = Field(gt=0)
-
-
-class RatePriorParams(PriorParamsModel):
-    """Positive rate for Exponential priors."""
-
-    rate: float = Field(gt=0)
-
-
-class BetaPriorParams(PriorParamsModel):
-    """Positive shape parameters for Beta priors."""
-
-    alpha: float = Field(gt=0)
-    beta: float = Field(gt=0)
-
-
-class ValuePriorParams(PriorParamsModel):
-    """Point value for Delta priors."""
-
-    value: float
-
-
-type PriorParams = (
-    LocationScalePriorParams
-    | ScalePriorParams
-    | BoundsPriorParams
-    | TruncatedNormalPriorParams
-    | GammaPriorParams
-    | RatePriorParams
-    | BetaPriorParams
-    | ValuePriorParams
-)
-
-
-def prior_params_type(distribution: PriorDistributionFamily) -> type[PriorParamsModel]:
-    """Return the strict parameter model owned by a prior family."""
-    if distribution in {
-        PriorDistributionFamily.NORMAL,
-        PriorDistributionFamily.LOG_NORMAL,
-    }:
-        return LocationScalePriorParams
-    if distribution == PriorDistributionFamily.HALF_NORMAL:
-        return ScalePriorParams
-    if distribution == PriorDistributionFamily.UNIFORM:
-        return BoundsPriorParams
-    if distribution == PriorDistributionFamily.TRUNCATED_NORMAL:
-        return TruncatedNormalPriorParams
-    if distribution == PriorDistributionFamily.GAMMA:
-        return GammaPriorParams
-    if distribution == PriorDistributionFamily.EXPONENTIAL:
-        return RatePriorParams
-    if distribution == PriorDistributionFamily.BETA:
-        return BetaPriorParams
-    return ValuePriorParams
-
-
-def prior_params_model(
-    distribution: PriorDistributionFamily,
-    params: dict[str, int | float],
-) -> PriorParams:
-    """Validate a parameter mapping against its declared prior family."""
-    return cast("PriorParams", prior_params_type(distribution).model_validate(params))
-
-
-class ExecutablePrior(BaseModel):
+class ExecutablePrior(DistributionSpec):
     """One authoring-scale prior consumed by the statistical-model compiler."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    parameter: str
-    distribution: PriorDistributionFamily
-    params: PriorParams
+    parameter_id: ParameterId
     reference_interval_days: float | None = Field(default=None, gt=0)
-
-    @model_validator(mode="after")
-    def validate_params_match_distribution(self) -> ExecutablePrior:
-        expected_type = prior_params_type(self.distribution)
-        if not isinstance(self.params, expected_type):
-            raise ValueError(
-                f"{self.distribution.value} prior parameters must match {expected_type.__name__}"
-            )
-        return self
 
 
 class PriorPlan(BaseModel):
@@ -149,14 +27,14 @@ class PriorPlan(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     schema_version: Literal[1] = 1
-    priors: dict[str, ExecutablePrior]
+    priors: dict[ParameterId, ExecutablePrior]
 
     @model_validator(mode="after")
     def validate_parameter_keys(self) -> PriorPlan:
-        mismatches = sorted(key for key, prior in self.priors.items() if key != prior.parameter)
+        mismatches = sorted(key for key, prior in self.priors.items() if key != prior.parameter_id)
         if mismatches:
             raise ValueError(
-                f"PriorPlan keys must equal their executable prior parameter names: {mismatches}"
+                f"PriorPlan keys must equal their executable prior parameter IDs: {mismatches}"
             )
         return self
 
@@ -232,20 +110,9 @@ class PriorValidationResult(BaseModel):
 
 
 __all__ = [
-    "BetaPriorParams",
-    "BoundsPriorParams",
     "ExecutablePrior",
-    "GammaPriorParams",
-    "LocationScalePriorParams",
-    "PriorParams",
     "PriorPathologyCertificate",
     "PriorPlan",
     "PriorRepairScope",
     "PriorValidationResult",
-    "RatePriorParams",
-    "ScalePriorParams",
-    "TruncatedNormalPriorParams",
-    "ValuePriorParams",
-    "prior_params_model",
-    "prior_params_type",
 ]

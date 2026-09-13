@@ -5,10 +5,11 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 
+from .identity import ConstructId, EdgeId, IndicatorId  # noqa: TC001
 from .latent_structure import CausalEdge, Construct, TemporalStatus
-from .measurement_structure import Indicator  # noqa: TC001
+from .measurement_structure import Indicator, KnownInput
 
 
 class PersistedPlanModel(BaseModel):
@@ -18,7 +19,9 @@ class PersistedPlanModel(BaseModel):
 
 
 class StructuralDisposition(StrEnum):
-    """Explicit disposition of a source item during structural compilation."""
+    """A structural disposition classifies how compilation uses or excludes an authored model
+    entity.
+    """
 
     RETAINED_STATE = "retained_state"
     KNOWN_INPUT = "known_input"
@@ -32,60 +35,103 @@ class StructuralDisposition(StrEnum):
 
 
 class StructuralItemDisposition(PersistedPlanModel):
-    """Projection outcome for one source item."""
+    """An item disposition explains the compilation decision for one identified authored
+    entity.
+    """
 
     source_id: str
     source_kind: Literal["construct", "edge", "indicator"]
     disposition: StructuralDisposition
     reason: str
 
+    @model_validator(mode="after")
+    def validate_owner_kind(self) -> StructuralItemDisposition:
+        allowed = {
+            "construct": {
+                StructuralDisposition.RETAINED_STATE,
+                StructuralDisposition.KNOWN_INPUT,
+                StructuralDisposition.MARGINALIZED,
+                StructuralDisposition.IDENTIFICATION_ONLY,
+            },
+            "edge": {StructuralDisposition.RETAINED_EDGE, StructuralDisposition.PROJECTED_EDGE},
+            "indicator": {
+                StructuralDisposition.MANIFEST,
+                StructuralDisposition.KNOWN_INPUT_SOURCE,
+                StructuralDisposition.EXCLUDED_INDICATOR,
+            },
+        }
+        if self.disposition not in allowed[self.source_kind]:
+            raise ValueError("Structural disposition does not apply to its owner kind")
+        return self
+
 
 class StructuralSemanticCatalog(PersistedPlanModel):
-    """Authoring semantics keyed by the same IDs used by structural items."""
+    """The semantic catalog preserves authored definitions under the IDs used by the executable
+    plan.
+    """
 
-    constructs: dict[str, Construct]
-    edges: dict[str, CausalEdge]
-    indicators: dict[str, Indicator]
+    constructs: dict[ConstructId, Construct]
+    edges: dict[EdgeId, CausalEdge]
+    indicators: dict[IndicatorId, Indicator]
     model_clock: str
+
+    @model_validator(mode="after")
+    def validate_identities_and_references(self) -> StructuralSemanticCatalog:
+        for catalog in (self.constructs, self.edges, self.indicators):
+            for source_id, item in catalog.items():
+                if source_id != item.id:
+                    raise ValueError(f"Semantic catalog key {source_id!r} differs from entity ID")
+        for edge in self.edges.values():
+            for source_id in (edge.cause_id, edge.effect_id):
+                construct = self.constructs.get(source_id)
+                if construct is None:
+                    raise ValueError(f"Semantic edge {edge.id!r} has an inconsistent endpoint")
+        for indicator in self.indicators.values():
+            construct = self.constructs.get(indicator.construct_id)
+            if construct is None:
+                raise ValueError(f"Semantic indicator {indicator.id!r} has an inconsistent owner")
+        return self
 
 
 class StructuralEdge(PersistedPlanModel):
-    """One retained executable directed edge."""
+    """A structural edge connects retained states or known inputs in the executable model."""
 
-    source_id: str
-    cause_id: str
-    effect_id: str
+    source_id: EdgeId
+    cause_id: ConstructId
+    effect_id: ConstructId
     lagged: bool
 
 
-class StructuralKnownInput(PersistedPlanModel):
-    """One observed transition driver in the executable plan."""
+class StructuralKnownInput(KnownInput, PersistedPlanModel):
+    """A structural known input binds an observed indicator to a driver of the executable
+    dynamics.
+    """
 
     source_id: str
-    construct_id: str
-    source_indicator_id: str
-    scale: float = Field(gt=0.0)
-    missing_policy: Literal["zero", "forward_fill"]
 
 
 class StructuralInducedDependency(PersistedPlanModel):
-    """Dependence induced by projected latent root confounders."""
+    """An induced dependency records dependence created by projecting explicit latent root
+    confounders.
+    """
 
     source_id: str
-    between: tuple[str, str]
+    between: tuple[ConstructId, ConstructId]
     kind: Literal["innovation_correlation", "initial_state_correlation"]
-    source_confounder_ids: tuple[str, ...]
+    source_confounder_ids: tuple[ConstructId, ...]
 
 
 class StructuralPlan(PersistedPlanModel):
-    """Single normalized source for model authoring and SSM compilation."""
+    """A structural plan translates the scientific causal design into the topology used by
+    model compilation.
+    """
 
     schema_version: Literal[1] = 1
     semantics: StructuralSemanticCatalog
-    state_order: tuple[str, ...]
+    state_order: tuple[ConstructId, ...]
     edges: tuple[StructuralEdge, ...]
-    manifest_indicator_order: tuple[str, ...]
-    reference_indicator_ids: dict[str, str]
+    manifest_indicator_order: tuple[IndicatorId, ...]
+    reference_indicator_ids: dict[ConstructId, IndicatorId]
     known_inputs: tuple[StructuralKnownInput, ...]
     induced_dependencies: tuple[StructuralInducedDependency, ...]
     dispositions: tuple[StructuralItemDisposition, ...]
@@ -113,7 +159,7 @@ class StructuralPlan(PersistedPlanModel):
         if len(indicator_names) != len(set(indicator_names)):
             raise ValueError("StructuralPlan semantic indicators contain duplicate names")
         source_edge_identities = [
-            (item.cause, item.effect) for item in self.semantics.edges.values()
+            (item.cause_id, item.effect_id) for item in self.semantics.edges.values()
         ]
         if len(source_edge_identities) != len(set(source_edge_identities)):
             raise ValueError(
@@ -154,11 +200,11 @@ class StructuralPlan(PersistedPlanModel):
             if (
                 indicator is not None
                 and construct is not None
-                and indicator.construct_name != construct.name
+                and indicator.construct_id != construct.id
             ):
                 raise ValueError(
                     "StructuralPlan known-input indicator does not measure its construct: "
-                    f"{indicator.name!r} measures {indicator.construct_name!r}, "
+                    f"{indicator.name!r} measures {indicator.construct_id!r}, "
                     f"expected {construct.name!r}"
                 )
 
@@ -182,8 +228,8 @@ class StructuralPlan(PersistedPlanModel):
             cause = self.semantics.constructs[edge.cause_id]
             effect = self.semantics.constructs[edge.effect_id]
             if (
-                source_edge.cause != cause.name
-                or source_edge.effect != effect.name
+                source_edge.cause_id != cause.id
+                or source_edge.effect_id != effect.id
                 or source_edge.lagged != edge.lagged
             ):
                 raise ValueError(
@@ -193,7 +239,7 @@ class StructuralPlan(PersistedPlanModel):
             if effect.temporal_status == TemporalStatus.TIME_INVARIANT:
                 raise ValueError(
                     "StructuralPlan cannot retain an edge targeting a time-invariant state: "
-                    f"{source_edge.cause!r} -> {source_edge.effect!r}"
+                    f"{source_edge.cause_id!r} -> {source_edge.effect_id!r}"
                 )
         used_input_ids = {edge.cause_id for edge in self.edges if edge.cause_id in input_ids}
         unused_input_ids = input_ids - used_input_ids
@@ -221,13 +267,8 @@ class StructuralPlan(PersistedPlanModel):
                 f"{sorted(manifest_input_overlap)}"
             )
         manifested_state_ids: set[str] = set()
-        construct_id_by_name = {
-            construct.name: source_id for source_id, construct in self.semantics.constructs.items()
-        }
         for indicator_id in self.manifest_indicator_order:
-            construct_id = construct_id_by_name.get(
-                self.semantics.indicators[indicator_id].construct_name
-            )
+            construct_id = self.semantics.indicators[indicator_id].construct_id
             if construct_id not in state_ids:
                 raise ValueError(
                     "StructuralPlan manifest indicator must measure a retained state: "
@@ -256,10 +297,10 @@ class StructuralPlan(PersistedPlanModel):
                 )
             construct = self.semantics.constructs[construct_id]
             indicator = self.semantics.indicators[indicator_id]
-            if indicator.construct_name != construct.name:
+            if indicator.construct_id != construct.id:
                 raise ValueError(
                     "StructuralPlan reference indicator must measure its retained state: "
-                    f"{indicator.name!r} measures {indicator.construct_name!r}, "
+                    f"{indicator.name!r} measures {indicator.construct_id!r}, "
                     f"expected {construct.name!r}"
                 )
 
@@ -413,3 +454,9 @@ __all__ = [
     "StructuralPlan",
     "StructuralSemanticCatalog",
 ]
+
+
+class StructuralPlanArtifact(PersistedPlanModel):
+    """The structural-plan file stores the self-contained executable plan."""
+
+    structural_plan: StructuralPlan

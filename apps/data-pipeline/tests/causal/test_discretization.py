@@ -1,29 +1,12 @@
-"""Tests for ``discretize_at_state`` and ``VectorField.linearize``.
-
-The discretization machinery here is the bridge from the new
-``VectorField`` to the existing CT→DT expm path used by Stage
-5b's filter. Three layers of checking:
-
-1. ``linearize`` matches analytic Jacobians for each primitive in
-   isolation (LinearEdge, HillEdge, MultiplicativeEdge, DenseLinear).
-2. For a pure ``DenseLinear`` field, ``discretize_at_state`` reproduces
-   the existing ``discretize_linear_system_exact`` output exactly — no
-   precision lost in the new code path.
-3. SSRI chain at baseline steady state: the Jacobian structure has the
-   right sparsity and signs, and discretizing over a small ``dt``
-   matches a Diffrax integration of the linearised system.
-"""
+"""Scientific drift derivatives and Dynestyx views used to initialize particles."""
 
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 import jax.scipy.linalg as jla
 import pytest
 
-from nof1_causal_lab.models.ssm.discretization import (
-    discretize_at_state,
-    discretize_linear_system_exact,
-)
 from nof1_causal_lab.models.ssm.dynamics import (
     DiagonalDecay,
     HillEdge,
@@ -36,6 +19,25 @@ from nof1_causal_lab.models.ssm.dynamics import (
     simulate,
 )
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
+from nof1_causal_lab.models.ssm.execution.dynamical_model import continuous_state_evolution
+from nof1_causal_lab.models.ssm.inference.targets.transitions import build_discrete_transitions
+from tests.ssm_spec_fixtures import affine_test_evolution
+
+
+def _drift_derivatives(field, state, args):
+    derivative = jax.jacfwd(lambda x: field(jnp.array(0.0), x, args))(state)
+    return derivative, field(jnp.array(0.0), state, args) - derivative @ state
+
+
+def _warmup_transition(field, state, args, covariance, dt):
+    evolution = continuous_state_evolution(
+        field, args.params, covariance, intervention=args.intervention
+    )
+    parameters = build_discrete_transitions(
+        evolution, jnp.array([dt]), linearization_states=state[None]
+    )
+    assert parameters.bias is not None
+    return parameters.A[0], parameters.cov[0], parameters.bias[0]
 
 
 def _dense_matrix_vector_field(n_latent: int) -> VectorField:
@@ -56,7 +58,7 @@ class TestLinearizePrimitives:
         vf = _dense_matrix_vector_field(n_latent=2)
         args = VectorFieldArgs(params=({"drift": A, "cint": c},), intervention=Intervention.none())
         x_lin = jnp.array([0.7, -0.4])
-        A_loc, b_loc = vf.linearize(x_lin, args)
+        A_loc, b_loc = _drift_derivatives(vf, x_lin, args)
         assert jnp.allclose(A_loc, A, atol=1e-6)
         assert jnp.allclose(b_loc, c, atol=1e-6)
 
@@ -77,7 +79,7 @@ class TestLinearizePrimitives:
         )
         args = VectorFieldArgs(params=params, intervention=Intervention.none())
         x_lin = jnp.array([EC50, 0.0])  # source at EC50
-        A_loc, _ = vf.linearize(x_lin, args)
+        A_loc, _ = _drift_derivatives(vf, x_lin, args)
         expected_slope = Emax * n / (4.0 * EC50)
         assert float(A_loc[1, 0]) == pytest.approx(expected_slope, abs=1e-4)
         # Other entries: target's effect on itself is 0 (no decay/feedback);
@@ -97,7 +99,7 @@ class TestLinearizePrimitives:
         params = ({"weight": jnp.asarray(w)},)
         args = VectorFieldArgs(params=params, intervention=Intervention.none())
         x_lin = jnp.array([a0, b0, 0.0])
-        A_loc, b_loc = vf.linearize(x_lin, args)
+        A_loc, b_loc = _drift_derivatives(vf, x_lin, args)
         assert float(A_loc[2, 0]) == pytest.approx(w * b0, abs=1e-6)
         assert float(A_loc[2, 1]) == pytest.approx(w * a0, abs=1e-6)
         # Intercept: f(x_lin) - A · x_lin = w·a·b - (w·b·a + w·a·b) = -w·a·b
@@ -112,9 +114,9 @@ class TestLinearizePrimitives:
 
 
 class TestDiscretizeDenseLinearParity:
-    """For a single ``DenseLinear`` component, ``discretize_at_state``
+    """For a single ``DenseLinear`` component, the warmup transition compiler
     must produce the same matrices as the existing
-    ``discretize_linear_system_exact``, regardless of ``x_lin``."""
+    Dynestyx exact-affine discretization, regardless of ``x_lin``."""
 
     def test_matches_linear_path_exactly(self):
         A = jnp.array(
@@ -128,13 +130,14 @@ class TestDiscretizeDenseLinearParity:
         diffusion_cov = jnp.eye(3) * 0.1
         dt = 0.5
 
-        A_d_ref, Q_d_ref, c_d_ref = discretize_linear_system_exact(A, diffusion_cov, c, dt)
+        reference = affine_test_evolution(A, diffusion_cov, c).params_at(0.0, dt)
+        A_d_ref, Q_d_ref, c_d_ref = reference.A, reference.cov, reference.bias
 
         vf = _dense_matrix_vector_field(n_latent=3)
         args = VectorFieldArgs(params=({"drift": A, "cint": c},), intervention=Intervention.none())
         # x_lin is irrelevant for a linear field — pick something non-trivial
         x_lin = jnp.array([1.7, -0.3, 0.5])
-        A_d, Q_d, c_d = discretize_at_state(vf, x_lin, args, diffusion_cov, dt)
+        A_d, Q_d, c_d = _warmup_transition(vf, x_lin, args, diffusion_cov, dt)
 
         assert jnp.allclose(A_d, A_d_ref, atol=1e-6)
         assert jnp.allclose(Q_d, Q_d_ref, atol=1e-6)
@@ -149,7 +152,7 @@ class TestDiscretizeDenseLinearParity:
             intervention=Intervention.none(),
         )
         x_lin = jnp.array([0.0, 0.0])
-        A_d, _, c_d = discretize_at_state(vf, x_lin, args, diffusion_cov, dt=0.2)
+        A_d, _, c_d = _warmup_transition(vf, x_lin, args, diffusion_cov, dt=0.2)
         assert jnp.allclose(A_d, jla.expm(A * 0.2), atol=1e-6)
         assert jnp.allclose(c_d, 0.0, atol=1e-6)
 
@@ -159,6 +162,7 @@ class TestDiscretizeDenseLinearParity:
 # =============================================================================
 
 
+@pytest.mark.cpu_expensive
 class TestSSRIChainLinearization:
     """Build the full SSRI chain, compute the Jacobian at baseline steady
     state, and verify the structure matches expectations."""
@@ -204,7 +208,7 @@ class TestSSRIChainLinearization:
         vf, params = self._build()
         baseline = jnp.array([1.0, 1.0, 1.0, 1.0, 1.0])
         args = VectorFieldArgs(params=params, intervention=Intervention.none())
-        A_loc, b_loc = vf.linearize(baseline, args)
+        A_loc, b_loc = _drift_derivatives(vf, baseline, args)
 
         # Diagonal: each latent's natural decay
         assert float(A_loc[self.DOSE, self.DOSE]) == pytest.approx(-1.0, abs=1e-6)
@@ -246,12 +250,12 @@ class TestSSRIChainLinearization:
         diffusion_cov = jnp.zeros((5, 5))  # deterministic for the check
         dt = 0.1
 
-        A_d, _, b_d = discretize_at_state(vf, x_lin, args, diffusion_cov, dt)
+        A_d, _, b_d = _warmup_transition(vf, x_lin, args, diffusion_cov, dt)
         # Step from the linearization point itself
         next_state_discrete = A_d @ x_lin + b_d
 
         # Linearized system as a fresh DenseLinear vector field
-        A_loc, b_loc = vf.linearize(x_lin, args)
+        A_loc, b_loc = _drift_derivatives(vf, x_lin, args)
         lin_vf = VectorField(n_latent=5, components=(DenseLinear(),))
         lin_args = VectorFieldArgs(
             params=({"drift": A_loc, "cint": b_loc},),

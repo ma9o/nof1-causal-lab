@@ -6,7 +6,9 @@ from typing import Any
 
 import pytest
 
-from nof1_causal_lab.artifacts import CausalDesign, StatisticalModelSpec, StructuralPlan
+from nof1_causal_lab.artifacts.causal_design import CausalDesign
+from nof1_causal_lab.artifacts.statistical_model_spec import StatisticalModelSpec
+from nof1_causal_lab.artifacts.structural_plan import StructuralPlan  # noqa: TC001
 from nof1_causal_lab.flows.transitions.model_spec.agentic.parameter_surfaces import (
     parameter_is_active_for_statistical_model_spec,
 )
@@ -24,13 +26,14 @@ from nof1_causal_lab.utils.structural_plan import (
     get_manifest_indicators,
     get_state_names,
 )
-from tests.helpers import make_prior_plan
+from tests.helpers import fixture_entity_id, make_prior_plan
 
 
 def _indicator(name: str, construct: str) -> dict[str, Any]:
     return {
+        "id": fixture_entity_id("indicator", name),
+        "construct_id": fixture_entity_id("construct", construct),
         "name": name,
-        "construct_name": construct,
         "construct_polarity": "positive",
         "how_to_measure": f"measure {name}",
         "measurement_dtype": "continuous",
@@ -41,25 +44,28 @@ def _indicator(name: str, construct: str) -> dict[str, Any]:
 def _dynamic_design() -> dict[str, Any]:
     return {
         "latent": {
+            "default_outcome": {"kind": "construct", "id": "construct:d90c52e59b79004188dc"},
             "constructs": [
                 {
+                    "id": "construct:311c9047b5ede16a8f26",
                     "name": "X",
                     "description": "cause",
                     "role": "exogenous",
                     "temporal_status": "time_varying",
                 },
                 {
+                    "id": "construct:d90c52e59b79004188dc",
                     "name": "Y",
                     "description": "outcome",
                     "role": "endogenous",
                     "temporal_status": "time_varying",
-                    "is_outcome": True,
                 },
             ],
             "edges": [
                 {
-                    "cause": "X",
-                    "effect": "Y",
+                    "cause_id": "construct:311c9047b5ede16a8f26",
+                    "effect_id": "construct:d90c52e59b79004188dc",
+                    "id": "edge:39ba80b774e02c409662",
                     "description": "X causes Y",
                     "lagged": True,
                 }
@@ -79,6 +85,7 @@ def test_planner_rejects_retained_static_target_edge():
     design["latent"]["constructs"].insert(
         1,
         {
+            "id": "construct:7cc3028e04224dd88c7d",
             "name": "Baseline",
             "description": "stable mediator",
             "role": "endogenous",
@@ -87,14 +94,16 @@ def test_planner_rejects_retained_static_target_edge():
     )
     design["latent"]["edges"] = [
         {
-            "cause": "X",
-            "effect": "Baseline",
+            "cause_id": "construct:311c9047b5ede16a8f26",
+            "effect_id": "construct:7cc3028e04224dd88c7d",
+            "id": "edge:378960547a3758865b3b",
             "description": "unsupported baseline equation",
             "lagged": False,
         },
         {
-            "cause": "Baseline",
-            "effect": "Y",
+            "cause_id": "construct:7cc3028e04224dd88c7d",
+            "effect_id": "construct:d90c52e59b79004188dc",
+            "id": "edge:c1a32864c9c3a7264fb5",
             "description": "baseline predicts Y",
             "lagged": False,
         },
@@ -110,8 +119,9 @@ def test_planner_rejects_multiple_lag_classes_for_one_edge():
     design = _dynamic_design()
     design["latent"]["edges"].append(
         {
-            "cause": "X",
-            "effect": "Y",
+            "cause_id": "construct:311c9047b5ede16a8f26",
+            "effect_id": "construct:d90c52e59b79004188dc",
+            "id": "edge:4a936ebb99d108078f01",
             "description": "duplicate endpoint with a different lag class",
             "lagged": False,
         }
@@ -126,6 +136,7 @@ def test_planner_records_known_input_and_scientific_only_dispositions():
     design["latent"]["constructs"].insert(
         0,
         {
+            "id": "construct:96800712f58a2ef2e759",
             "name": "Genotype",
             "description": "known stable driver",
             "role": "exogenous",
@@ -135,6 +146,7 @@ def test_planner_records_known_input_and_scientific_only_dispositions():
     design["latent"]["constructs"].insert(
         1,
         {
+            "id": "construct:6440dd37ede553148b7d",
             "name": "History",
             "description": "scientific context",
             "role": "exogenous",
@@ -144,8 +156,9 @@ def test_planner_records_known_input_and_scientific_only_dispositions():
     design["latent"]["edges"].insert(
         0,
         {
-            "cause": "Genotype",
-            "effect": "Y",
+            "cause_id": "construct:96800712f58a2ef2e759",
+            "effect_id": "construct:d90c52e59b79004188dc",
+            "id": "edge:a6713ef89213eec2f5c1",
             "description": "known baseline driver",
             "lagged": False,
         },
@@ -157,13 +170,16 @@ def test_planner_records_known_input_and_scientific_only_dispositions():
     ]
     design["known_inputs"] = [
         {
-            "construct": "Genotype",
-            "source_indicator": "genotype_obs",
+            "construct_id": "construct:96800712f58a2ef2e759",
+            "source_indicator_id": "indicator:e51f080bced00e19d205",
             "missing_policy": "forward_fill",
         }
     ]
     design["scientific_only_constructs"] = [
-        {"construct": "History", "reason": "context, not an estimable state"}
+        {
+            "construct_id": "construct:6440dd37ede553148b7d",
+            "reason": "context, not an estimable state",
+        }
     ]
 
     plan = build_structural_plan(CausalDesign.model_validate(design))
@@ -191,12 +207,14 @@ def test_source_ids_are_stable_across_authoring_reordering():
         "latent": {
             "constructs": [
                 {
+                    "id": "construct:96800712f58a2ef2e759",
                     "name": "Genotype",
                     "description": "known stable driver",
                     "role": "exogenous",
                     "temporal_status": "time_invariant",
                 },
                 {
+                    "id": "construct:6adb2ea5d7ef5f732601",
                     "name": "U",
                     "description": "unobserved common cause",
                     "role": "exogenous",
@@ -206,20 +224,23 @@ def test_source_ids_are_stable_across_authoring_reordering():
             ],
             "edges": [
                 {
-                    "cause": "Genotype",
-                    "effect": "Y",
+                    "cause_id": "construct:96800712f58a2ef2e759",
+                    "effect_id": "construct:d90c52e59b79004188dc",
+                    "id": "edge:a6713ef89213eec2f5c1",
                     "description": "known driver",
                     "lagged": False,
                 },
                 {
-                    "cause": "U",
-                    "effect": "X",
+                    "cause_id": "construct:6adb2ea5d7ef5f732601",
+                    "effect_id": "construct:311c9047b5ede16a8f26",
+                    "id": "edge:a884ded3cb0d95aaa1a3",
                     "description": "confounding path one",
                     "lagged": True,
                 },
                 {
-                    "cause": "U",
-                    "effect": "Y",
+                    "cause_id": "construct:6adb2ea5d7ef5f732601",
+                    "effect_id": "construct:d90c52e59b79004188dc",
+                    "id": "edge:864e17d9483a6d797070",
                     "description": "confounding path two",
                     "lagged": True,
                 },
@@ -235,8 +256,8 @@ def test_source_ids_are_stable_across_authoring_reordering():
         },
         "known_inputs": [
             {
-                "construct": "Genotype",
-                "source_indicator": "genotype_obs",
+                "construct_id": "construct:96800712f58a2ef2e759",
+                "source_indicator_id": "indicator:e51f080bced00e19d205",
                 "missing_policy": "forward_fill",
             }
         ],
@@ -276,7 +297,7 @@ def test_source_ids_are_stable_across_authoring_reordering():
                 item.name: source_id for source_id, item in plan.semantics.indicators.items()
             },
             "edges": {
-                (item.cause, item.effect, item.lagged): source_id
+                (item.cause_id, item.effect_id, item.lagged): source_id
                 for source_id, item in plan.semantics.edges.items()
             },
             "known_inputs": {
@@ -309,7 +330,7 @@ def test_compiled_artifact_has_total_structural_bindings_and_canonical_order():
     skeleton = derive_deterministic_spec(plan)
     likelihoods: list[dict[str, Any]] = [
         {
-            "variable": variable,
+            "indicator_id": fixture_entity_id("indicator", variable),
             "distribution": "gaussian",
             "link": "identity",
             "standardized": True,
@@ -318,7 +339,7 @@ def test_compiled_artifact_has_total_structural_bindings_and_canonical_order():
         for variable in ("x_obs", "y_obs")
     ]
     likelihood_by_variable: dict[str, dict[str, Any]] = {
-        likelihood["variable"]: likelihood for likelihood in likelihoods
+        likelihood["indicator_id"]: likelihood for likelihood in likelihoods
     }
     parameters: list[dict[str, Any]] = []
     for candidate in skeleton.all_params:
@@ -333,11 +354,11 @@ def test_compiled_artifact_has_total_structural_bindings_and_canonical_order():
             parameters.append(parameter)
     statistical_model_spec = StatisticalModelSpec.model_validate(
         {
+            "mechanisms": skeleton.mechanisms,
             "likelihoods": list(reversed(likelihoods)),
             "parameters": parameters,
             "initialization_policy": "stationary",
             "observation_intercept_policy": "free",
-            "equilibrium_forcing": False,
         }
     )
     artifact = compile_ssm_artifact(

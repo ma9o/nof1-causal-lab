@@ -22,7 +22,6 @@ mirror basin to escape — so requesting flips there is a configuration error.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
@@ -30,21 +29,16 @@ from jax.flatten_util import ravel_pytree
 from numpyro.distributions.transforms import IdentityTransform
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.inference.bundle import ParticleRuntimeBundle
+    from nof1_causal_lab.models.ssm.inference.problem import ParticleProblem
     from nof1_causal_lab.models.ssm.model import SSMModel
 
 
-@dataclass(frozen=True)
-class SignFlipSpec:
-    """Flat-position masks for the flippable loading columns."""
-
-    coords: jnp.ndarray  # (n_flippable,) latent coordinate index per move
-    masks: jnp.ndarray  # (n_flippable, dim) bool: lambda_free entries of that column
+from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.kernel import SignFlipSpec
 
 
-def build_sign_flip_spec(model: SSMModel, bundle: ParticleRuntimeBundle) -> SignFlipSpec:
+def build_sign_flip_spec(model: SSMModel, bundle: ParticleProblem) -> SignFlipSpec:
     """Map each latent coordinate's free loading entries to flat-position indices."""
-    site_info = bundle.cached.site_info
+    site_info = bundle.site_info
     if "lambda_free" not in site_info:
         raise ValueError(
             "latent_sign_flip_moves requires free factor loadings (a 'lambda_free' "
@@ -61,8 +55,8 @@ def build_sign_flip_spec(model: SSMModel, bundle: ParticleRuntimeBundle) -> Sign
 
     positions = model.parameter_layout.lambda_free_positions  # [(manifest_row, latent_col)]
     n_latent = int(model.spec.n_latent)
-    unravel_fn = bundle.cached.unravel_fn
-    flat_example = bundle.cached.flat_example
+    unravel_fn = bundle.runtime.parameters.unravel
+    flat_example = bundle.runtime.initial_position
     base = dict(unravel_fn(jnp.zeros_like(flat_example)))
 
     coords: list[int] = []

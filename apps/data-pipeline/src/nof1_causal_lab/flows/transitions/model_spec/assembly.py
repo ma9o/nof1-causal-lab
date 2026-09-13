@@ -18,9 +18,9 @@ from nof1_causal_lab.json_types import UncheckedJsonObject
 if TYPE_CHECKING:
     import polars as pl
 
+    from nof1_causal_lab.artifacts.compiled_ssm import CompiledSSMArtifact
     from nof1_causal_lab.artifacts.prior import PriorValidationResult
     from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
-    from nof1_causal_lab.models.ssm.compile.contracts import CompiledSSMArtifact
 
 _RECOVERABLE_MODEL_SPEC_ASSEMBLY_ERRORS = (
     AggregatedCompileError,
@@ -190,11 +190,12 @@ def build_exact_prior_predictive_samples(
         observation_mask=observation_mask,
         transition_inputs=runtime.transition_inputs,
     )
+    assert runtime.manifest_ids is not None
     observations = np.asarray(predictive["observations"])
     effective_mask = np.asarray(predictive["observations_mask"], dtype=bool)
     return {
         name: observations[:, :, index][effective_mask[:, :, index]].tolist()
-        for index, name in enumerate(runtime.manifest_names)
+        for index, name in enumerate(runtime.manifest_ids)
     }
 
 
@@ -312,7 +313,18 @@ def materialize_model_spec_result(
 
     result = {
         "statistical_model_spec": normalized_statistical_model_spec,
-        "authored_priors": authored_priors,
+        "authored_priors": {
+            row["parameter_id"]: row
+            for row in resolved_priors
+            if row["parameter_id"]
+            in {
+                parameter.id
+                for parameter in compiled_ssm.parameters
+                if parameter.name in authored_priors
+            }
+        }
+        if compiled_ssm is not None
+        else {},
         "resolved_priors": resolved_priors,
         "search_queries": search_queries or None,
         "validation_warnings": _collect_validation_warning_messages(validation) or None,

@@ -18,6 +18,7 @@ to return only nonparametric do-calculus identifications.
 
 import logging
 import re
+from collections.abc import Mapping
 
 import networkx as nx
 from y0.algorithm.identify import identify_outcomes
@@ -69,10 +70,13 @@ def check_identifiability(
     """
     outcome = get_outcome_name(latent_structure)
     if not outcome:
-        raise ValueError("No outcome found in latent structure (missing is_outcome=true)")
+        raise ValueError("No default outcome selected for identification")
 
     # Determine which constructs have measurements (observed)
-    observed_constructs = get_observed_constructs(measurement_structure)
+    observed_constructs = get_observed_constructs(
+        {item["id"]: item["name"] for item in latent_structure["constructs"]},
+        measurement_structure,
+    )
 
     # Get all potential treatments (observed constructs with paths to outcome)
     # Only observed constructs can be treatments - you can't do(X) on unobserved X
@@ -193,15 +197,14 @@ def _is_time_varying(latent_structure: UncheckedJsonObject, construct_name: str)
     raise ValueError(f"Construct '{construct_name}' not found in latent structure")
 
 
-def get_observed_constructs(measurement_structure: UncheckedJsonObject) -> set[str]:
-    """Get set of constructs that have at least one measurement indicator."""
-    observed = set()
-    for indicator in measurement_structure.get("indicators", []):
-        construct = indicator.get("construct_name")
-        if not construct:
-            continue
-        observed.add(construct)
-    return observed
+def get_observed_constructs(
+    construct_names: Mapping[str, str], measurement_structure: UncheckedJsonObject
+) -> set[str]:
+    """Resolve measured construct IDs to the defining version's scientific labels."""
+    return {
+        construct_names[indicator["construct_id"]]
+        for indicator in measurement_structure.get("indicators", [])
+    }
 
 
 def _node_name(construct: str, timestep: str) -> str:
@@ -236,10 +239,11 @@ def _uses_lagged_first_step_to_outcome(
     if treatment not in graph or outcome not in graph:
         return False
 
+    construct_names = {item["id"]: item["name"] for item in latent_structure["constructs"]}
     for edge in latent_structure.get("edges", []):
-        if edge.get("cause") != treatment:
+        if construct_names[edge["cause_id"]] != treatment:
             continue
-        effect = edge.get("effect")
+        effect = construct_names[edge["effect_id"]]
         if effect not in graph or not nx.has_path(graph, effect, outcome):
             continue
         if edge.get("lagged", False):
@@ -331,9 +335,10 @@ def unroll_temporal_dag(
             dag.add_edge(_node_name(name, "{t-1}"), _node_name(name, "t"))
 
     # Add edges from the latent structure
+    construct_names = {item["id"]: item["name"] for item in latent_structure["constructs"]}
     for edge in latent_structure.get("edges", []):
-        cause = edge["cause"]
-        effect = edge["effect"]
+        cause = construct_names[edge["cause_id"]]
+        effect = construct_names[edge["effect_id"]]
         lagged = edge.get("lagged", False)
 
         cause_is_time_invariant = cause in time_invariant_set
@@ -381,7 +386,7 @@ def _validate_max_lag_one(latent_structure: UncheckedJsonObject) -> None:
     for edge in latent_structure.get("edges", []):
         lagged = edge.get("lagged", False)
         assert isinstance(lagged, bool), (
-            f"Edge {edge.get('cause')} -> {edge.get('effect')} has non-boolean 'lagged' value: {lagged}. "
+            f"Edge {edge.get('cause_id')} -> {edge.get('effect_id')} has non-boolean 'lagged' value: {lagged}. "
             f"Assumption A3a requires all edges to have lag ≤ 1 (lagged: true/false). "
             f"See arXiv:2504.20172 for why this is required for finite identification."
         )
@@ -641,7 +646,10 @@ def analyze_unobserved_constructs(
             - marginalize_reason: Dict explaining why each can be marginalized
             - blocking_details: Map of blocking confounder -> treatments they obstruct
     """
-    observed = get_observed_constructs(measurement_structure)
+    observed = get_observed_constructs(
+        {item["id"]: item["name"] for item in latent_structure["constructs"]},
+        measurement_structure,
+    )
     all_constructs = {c["name"] for c in latent_structure["constructs"]}
     unobserved = all_constructs - observed
 

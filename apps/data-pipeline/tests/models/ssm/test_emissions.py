@@ -23,7 +23,7 @@ from nof1_causal_lab.models.ssm.execution.emissions import (
     emission_log_prob_student_t,
     get_mean_param_log_prob_fn,
 )
-from nof1_causal_lab.models.ssm.inference.targets.observation_dispatch import get_emission_fn
+from nof1_causal_lab.models.ssm.execution.observation_dispatch import get_emission_fn
 
 # =============================================================================
 # Helpers

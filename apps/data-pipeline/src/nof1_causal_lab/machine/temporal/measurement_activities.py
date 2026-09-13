@@ -339,11 +339,11 @@ async def finalize_extraction_chunk_activity(
 async def finalize_measurements_activity(input: MeasurementsFinalizeInput) -> TransitionEffects:
     import polars as pl
 
-    from nof1_causal_lab.flows.artifact_contracts import MeasurementsContract
+    from nof1_causal_lab.artifacts.measurements import MeasurementsArtifact, ObservationRecord
     from nof1_causal_lab.flows.transitions.extraction.materialization import (
         materialize_extraction_outputs,
     )
-    from nof1_causal_lab.utils.data import ObservationRecord, annotate_observation_rows
+    from nof1_causal_lab.utils.data import annotate_observation_rows
 
     try:
         plan = _read_json(input.plan_ref)
@@ -392,7 +392,7 @@ async def finalize_measurements_activity(input: MeasurementsFinalizeInput) -> Tr
         materialized = materialize_extraction_outputs(extraction_result, measurement_structure)
         panel = materialized["data_for_model"]
         report: UncheckedJsonObject = {"workers": materialized["worker_statuses"]}
-        report = project_model_fields(MeasurementsContract, report)
+        report = project_model_fields(MeasurementsArtifact, report)
 
         store = ArtifactStore(input.workspace_id)
         produced = [

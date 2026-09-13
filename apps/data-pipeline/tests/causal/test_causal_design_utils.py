@@ -13,9 +13,9 @@ from typing import Any
 
 import pytest
 
-from nof1_causal_lab.artifacts import StructuralPlan
+from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
 from nof1_causal_lab.utils.causal_design import (
-    build_digraph,
+    build_digraph_from_edges,
     get_all_treatments,
     get_outcome_name,
     make_measurement_extraction_context,
@@ -31,32 +31,40 @@ def _full_spec():
     """Minimal valid CausalDesign dict."""
     return {
         "latent": {
+            "default_outcome": {"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"},
             "constructs": [
-                {"name": "stress", "role": "exogenous"},
+                {"id": "construct:6b04dc42c531e7091eb8", "name": "stress", "role": "exogenous"},
                 {
+                    "id": "construct:bbc87212909e45b9e6c3",
                     "name": "mood",
                     "role": "endogenous",
-                    "is_outcome": True,
                 },
             ],
             "edges": [
-                {"cause": "stress", "effect": "mood", "description": "Stress affects mood"},
+                {
+                    "cause_id": "construct:6b04dc42c531e7091eb8",
+                    "effect_id": "construct:bbc87212909e45b9e6c3",
+                    "id": "edge:923689028b6b177617c2",
+                    "description": "Stress affects mood",
+                },
             ],
         },
         "measurement": {
             "model_clock": "1d",
             "indicators": [
                 {
+                    "id": "indicator:6bde869aba53fb51e0f4",
+                    "construct_id": "construct:6b04dc42c531e7091eb8",
                     "name": "pss_score",
-                    "construct_name": "stress",
                     "construct_polarity": "positive",
                     "measurement_dtype": "continuous",
                     "how_to_measure": "Extract PSS score",
                     "aggregation": "mean",
                 },
                 {
+                    "id": "indicator:e05e217de7f4442abdc5",
+                    "construct_id": "construct:bbc87212909e45b9e6c3",
                     "name": "mood_rating",
-                    "construct_name": "mood",
                     "construct_polarity": "positive",
                     "measurement_dtype": "ordinal",
                     "how_to_measure": "Rate mood 1-5",
@@ -67,7 +75,14 @@ def _full_spec():
         },
         "estimation": {
             "state_order": ["stress", "mood"],
-            "edges": [{"cause": "stress", "effect": "mood", "description": "Stress affects mood"}],
+            "edges": [
+                {
+                    "cause_id": "construct:6b04dc42c531e7091eb8",
+                    "effect_id": "construct:bbc87212909e45b9e6c3",
+                    "id": "edge:923689028b6b177617c2",
+                    "description": "Stress affects mood",
+                }
+            ],
             "induced_dependencies": [],
         },
     }
@@ -83,7 +98,7 @@ class TestMakeMeasurementExtractionContext:
         spec = _full_spec()
         # Add extra fields that workers don't need
         spec["measurement"]["indicators"][0]["aggregation"] = "mean"
-        spec["measurement"]["indicators"][0]["construct_name"] = "stress"
+        spec["measurement"]["indicators"][0]["construct_id"] = "construct:stress"
         spec["measurement"]["indicators"][0]["source_columns"] = ["pss_col"]
         ctx = make_measurement_extraction_context(spec["measurement"])
         ind = ctx["indicators"][0]
@@ -98,7 +113,7 @@ class TestMakeMeasurementExtractionContext:
             "anchor_policy",
             "observation_window",
         }
-        assert "construct_name" not in ind
+        assert "construct_id" not in ind
         assert "ordinal_levels" not in ind
 
     def test_source_columns_included_when_present(self):
@@ -121,42 +136,46 @@ class TestBuildDigraph:
                 {"cause": "B", "effect": "C"},
             ]
         }
-        graph = build_digraph(model)
+        graph = build_digraph_from_edges((model)["edges"])
         assert set(graph.nodes()) == {"A", "B", "C"}
         assert graph.has_edge("A", "B")
         assert graph.has_edge("B", "C")
         assert not graph.has_edge("A", "C")
 
     def test_empty_edges(self):
-        assert len(build_digraph({"edges": []}).nodes()) == 0
+        assert len(build_digraph_from_edges(({"edges": []})["edges"]).nodes()) == 0
 
     def test_diamond_topology(self):
-        graph = build_digraph(
-            {
-                "edges": [
-                    {"cause": "A", "effect": "B"},
-                    {"cause": "A", "effect": "C"},
-                    {"cause": "B", "effect": "D"},
-                    {"cause": "C", "effect": "D"},
-                ]
-            }
+        graph = build_digraph_from_edges(
+            (
+                {
+                    "edges": [
+                        {"cause": "A", "effect": "B"},
+                        {"cause": "A", "effect": "C"},
+                        {"cause": "B", "effect": "D"},
+                        {"cause": "C", "effect": "D"},
+                    ]
+                }
+            )["edges"]
         )
         assert set(graph.nodes()) == {"A", "B", "C", "D"}
         assert len(graph.edges()) == 4
 
     def test_self_loop(self):
-        graph = build_digraph({"edges": [{"cause": "A", "effect": "A"}]})
+        graph = build_digraph_from_edges(({"edges": [{"cause": "A", "effect": "A"}]})["edges"])
         assert set(graph.nodes()) == {"A"}
         assert graph.has_edge("A", "A")
 
     def test_duplicate_edges(self):
-        graph = build_digraph(
-            {
-                "edges": [
-                    {"cause": "A", "effect": "B"},
-                    {"cause": "A", "effect": "B"},
-                ]
-            }
+        graph = build_digraph_from_edges(
+            (
+                {
+                    "edges": [
+                        {"cause": "A", "effect": "B"},
+                        {"cause": "A", "effect": "B"},
+                    ]
+                }
+            )["edges"]
         )
         assert len(graph.edges()) == 1
 
@@ -166,10 +185,11 @@ class TestGetOutcomeName:
         assert (
             get_outcome_name(
                 {
+                    "default_outcome": {"kind": "construct", "id": "construct:Y"},
                     "constructs": [
-                        {"name": "X", "is_outcome": False},
-                        {"name": "Y", "is_outcome": True},
-                    ]
+                        {"id": "construct:X", "name": "X"},
+                        {"id": "construct:Y", "name": "Y"},
+                    ],
                 }
             )
             == "Y"
@@ -180,7 +200,7 @@ class TestGetOutcomeName:
             get_outcome_name(
                 {
                     "constructs": [
-                        {"name": "X", "is_outcome": False},
+                        {"name": "X"},
                         {"name": "Z"},
                     ]
                 }
@@ -199,14 +219,15 @@ class TestGetAllTreatments:
     def test_chain_treatments(self):
         treatments = get_all_treatments(
             {
+                "default_outcome": {"kind": "construct", "id": "construct:Y"},
                 "constructs": [
-                    {"name": "A"},
-                    {"name": "B"},
-                    {"name": "Y", "is_outcome": True},
+                    {"id": "construct:A", "name": "A"},
+                    {"id": "construct:B", "name": "B"},
+                    {"id": "construct:Y", "name": "Y"},
                 ],
                 "edges": [
-                    {"cause": "A", "effect": "B"},
-                    {"cause": "B", "effect": "Y"},
+                    {"cause_id": "construct:A", "effect_id": "construct:B"},
+                    {"cause_id": "construct:B", "effect_id": "construct:Y"},
                 ],
             }
         )
@@ -215,12 +236,13 @@ class TestGetAllTreatments:
     def test_disconnected_not_treatment(self):
         treatments = get_all_treatments(
             {
+                "default_outcome": {"kind": "construct", "id": "construct:Y"},
                 "constructs": [
-                    {"name": "X"},
-                    {"name": "Y", "is_outcome": True},
-                    {"name": "Z"},
+                    {"id": "construct:X", "name": "X"},
+                    {"id": "construct:Y", "name": "Y"},
+                    {"id": "construct:Z", "name": "Z"},
                 ],
-                "edges": [{"cause": "X", "effect": "Y"}],
+                "edges": [{"cause_id": "construct:X", "effect_id": "construct:Y"}],
             }
         )
         assert treatments == ["X"]
@@ -229,8 +251,11 @@ class TestGetAllTreatments:
         assert (
             get_all_treatments(
                 {
-                    "constructs": [{"name": "A"}, {"name": "B"}],
-                    "edges": [{"cause": "A", "effect": "B"}],
+                    "constructs": [
+                        {"id": "construct:A", "name": "A"},
+                        {"id": "construct:B", "name": "B"},
+                    ],
+                    "edges": [{"cause_id": "construct:A", "effect_id": "construct:B"}],
                 }
             )
             == []
@@ -239,14 +264,15 @@ class TestGetAllTreatments:
     def test_sorted_output(self):
         treatments = get_all_treatments(
             {
+                "default_outcome": {"kind": "construct", "id": "construct:Outcome"},
                 "constructs": [
-                    {"name": "Zebra"},
-                    {"name": "Apple"},
-                    {"name": "Outcome", "is_outcome": True},
+                    {"id": "construct:Zebra", "name": "Zebra"},
+                    {"id": "construct:Apple", "name": "Apple"},
+                    {"id": "construct:Outcome", "name": "Outcome"},
                 ],
                 "edges": [
-                    {"cause": "Zebra", "effect": "Outcome"},
-                    {"cause": "Apple", "effect": "Outcome"},
+                    {"cause_id": "construct:Zebra", "effect_id": "construct:Outcome"},
+                    {"cause_id": "construct:Apple", "effect_id": "construct:Outcome"},
                 ],
             }
         )
@@ -255,14 +281,15 @@ class TestGetAllTreatments:
     def test_fork_topology(self):
         treatments = get_all_treatments(
             {
+                "default_outcome": {"kind": "construct", "id": "construct:Y"},
                 "constructs": [
-                    {"name": "X"},
-                    {"name": "Y", "is_outcome": True},
-                    {"name": "Z"},
+                    {"id": "construct:X", "name": "X"},
+                    {"id": "construct:Y", "name": "Y"},
+                    {"id": "construct:Z", "name": "Z"},
                 ],
                 "edges": [
-                    {"cause": "X", "effect": "Y"},
-                    {"cause": "X", "effect": "Z"},
+                    {"cause_id": "construct:X", "effect_id": "construct:Y"},
+                    {"cause_id": "construct:X", "effect_id": "construct:Z"},
                 ],
             }
         )
@@ -271,17 +298,18 @@ class TestGetAllTreatments:
     def test_diamond_all_treatments(self):
         treatments = get_all_treatments(
             {
+                "default_outcome": {"kind": "construct", "id": "construct:D"},
                 "constructs": [
-                    {"name": "A"},
-                    {"name": "B"},
-                    {"name": "C"},
-                    {"name": "D", "is_outcome": True},
+                    {"id": "construct:A", "name": "A"},
+                    {"id": "construct:B", "name": "B"},
+                    {"id": "construct:C", "name": "C"},
+                    {"id": "construct:D", "name": "D"},
                 ],
                 "edges": [
-                    {"cause": "A", "effect": "B"},
-                    {"cause": "A", "effect": "C"},
-                    {"cause": "B", "effect": "D"},
-                    {"cause": "C", "effect": "D"},
+                    {"cause_id": "construct:A", "effect_id": "construct:B"},
+                    {"cause_id": "construct:A", "effect_id": "construct:C"},
+                    {"cause_id": "construct:B", "effect_id": "construct:D"},
+                    {"cause_id": "construct:C", "effect_id": "construct:D"},
                 ],
             }
         )
@@ -294,7 +322,8 @@ class TestGetAllTreatments:
         assert (
             get_all_treatments(
                 {
-                    "constructs": [{"name": "Y", "is_outcome": True}],
+                    "default_outcome": {"kind": "construct", "id": "construct:Y"},
+                    "constructs": [{"id": "construct:Y", "name": "Y"}],
                     "edges": [],
                 }
             )
@@ -330,10 +359,10 @@ class TestGetMarginalizedScales:
             source_id = f"construct:{len(construct_id_by_name):04d}"
             construct_id_by_name[source_name] = source_id
             plan["semantics"]["constructs"][source_id] = {
+                "id": source_id,
                 "name": source_name,
                 "description": source_name,
                 "role": "exogenous",
-                "is_outcome": False,
                 "temporal_status": "time_invariant",
             }
             plan["dispositions"].append(

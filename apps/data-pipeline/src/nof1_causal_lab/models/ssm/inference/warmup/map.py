@@ -21,7 +21,6 @@ import jax.random as random
 import jax.scipy.linalg as jla
 import numpy as np
 import scipy.optimize as spo
-from jax.flatten_util import ravel_pytree
 
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
@@ -34,10 +33,9 @@ from nof1_causal_lab.models.ssm.inference.backend_factory import get_laplace_bac
 from nof1_causal_lab.models.ssm.inference.types import InferenceDiagnostics, WarmupProposal
 from nof1_causal_lab.models.ssm.inference.utils import (
     _build_eval_fns,
-    _discover_sites,
     extract_constrained_samples,
+    prepare_model_parameters,
 )
-from nof1_causal_lab.models.ssm.parameterization import assemble_deterministics_from_registry
 
 logger = logging.getLogger(__name__)
 
@@ -240,16 +238,10 @@ def _build_map_laplace_bundle(
     reparam,
 ) -> UncheckedJsonObject:
     """Build the traced/JITed artifacts for optimizer-backed MAP."""
-    site_info = _discover_sites(
-        model,
-        observations,
-        times,
-        trace_key,
-        likelihood_backend,
-        reparam=reparam,
+    parameters, site_info, public_sites = prepare_model_parameters(
+        model, observations, times, trace_key, reparam
     )
-    example_unc = {name: info["transform"].inv(info["value"]) for name, info in site_info.items()}
-    flat_example, unravel_fn = ravel_pytree(example_unc)
+    flat_example, unravel_fn = parameters.initial_position, parameters.unravel
 
     cache_key = (
         "map_laplace_runtime_bundle",
@@ -264,10 +256,8 @@ def _build_map_laplace_bundle(
             model,
             observations,
             times,
-            site_info,
-            unravel_fn,
+            parameters,
             likelihood_backend=likelihood_backend,
-            reparam=reparam,
             include_likelihood_aux=True,
             runtime_observations_times=True,
         )
@@ -349,6 +339,8 @@ def _build_map_laplace_bundle(
         "flat_example": flat_example,
         "site_info": site_info,
         "unravel_fn": unravel_fn,
+        "parameters": parameters,
+        "public_sites": public_sites,
         **runtime_bundle,
     }
 
@@ -807,7 +799,6 @@ def fit_map(
     dim = bundle["dim"]
     flat_example = bundle["flat_example"]
     site_info = bundle["site_info"]
-    unravel_fn = bundle["unravel_fn"]
     log_posterior_fn = bundle["log_posterior_fn"]
     neg_log_posterior_fn = bundle["neg_log_posterior_fn"]
     neg_log_posterior_with_aux_fn = bundle["neg_log_posterior_with_aux_fn"]
@@ -918,31 +909,17 @@ def fit_map(
         )
         parameter_posterior_strategy = "mode_only"
 
-    if site_info:
-        phase_started_at = time.monotonic()
-        logger.info("MAP phase start: phase=extract_samples")
-        with jax.profiler.TraceAnnotation("map/extract_samples"):
-            samples = extract_constrained_samples(
-                unc_samples,
-                site_info,
-                unravel_fn,
-                model.spec,
-                reparam=reparam,
-                model=model,
-                observations=observations,
-                times=times,
-            )
-        logger.info(
-            "MAP phase complete: phase=extract_samples elapsed=%.1fs draws=%d",
-            _elapsed_seconds(phase_started_at),
-            int(unc_samples.shape[0]),
+    phase_started_at = time.monotonic()
+    logger.info("MAP phase start: phase=extract_samples")
+    with jax.profiler.TraceAnnotation("map/extract_samples"):
+        samples = extract_constrained_samples(
+            unc_samples, bundle["parameters"], bundle["public_sites"]
         )
-    else:
-        samples = assemble_deterministics_from_registry(
-            {},
-            model.spec,
-            n_draws=num_samples,
-        )
+    logger.info(
+        "MAP phase complete: phase=extract_samples elapsed=%.1fs draws=%d",
+        _elapsed_seconds(phase_started_at),
+        int(unc_samples.shape[0]),
+    )
 
     hessian_condition_number = None
     if hessian_eigvals.size > 0:

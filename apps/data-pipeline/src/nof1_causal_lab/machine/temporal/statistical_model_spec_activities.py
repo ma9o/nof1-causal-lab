@@ -52,7 +52,7 @@ from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.machine.artifacts import ArtifactId
+    from nof1_causal_lab.artifacts.identity import ArtifactId
 
 
 def _model_spec_root(workspace_id: str, run_id: str) -> str:
@@ -499,7 +499,7 @@ async def validate_statistical_model_spec_barrier_activity(
     try:
         targets = tuple(
             _closed_loop_target(
-                state.admitted_contributions[name], structural_plan, state.admission.priors
+                state.admitted_contributions[name], structural_plan, state.admission.mechanisms
             )
             for name in input.construct_order
         )
@@ -527,9 +527,9 @@ async def validate_statistical_model_spec_barrier_activity(
                 "transition_id": "statistical_model_spec",
                 "checkpoint_ref": input.checkpoint_ref,
                 "report": {
-                    "statistical_model_spec": state.admission.statistical_model_spec().model_dump(
-                        mode="json"
-                    ),
+                    "statistical_model_spec": state.admission.statistical_model_spec(
+                        state.structural_plan
+                    ).model_dump(mode="json"),
                     "authored_priors": dict(state.admission.priors),
                 },
             },
@@ -625,7 +625,7 @@ async def finalize_statistical_model_spec_attempt_activity(
 async def finalize_statistical_model_spec_activity(
     input: StatisticalModelSpecFinalizeInput,
 ) -> TransitionEffects:
-    from nof1_causal_lab.flows.artifact_contracts import StatisticalModelSpecContract
+    from nof1_causal_lab.artifacts.statistical_model_spec import StatisticalModelSpecArtifact
     from nof1_causal_lab.flows.runtime_events import emit_model_spec_admission_event
     from nof1_causal_lab.flows.transitions.model_spec.assembly import (
         materialize_model_spec_result,
@@ -656,10 +656,16 @@ async def finalize_statistical_model_spec_activity(
         emit_model_spec_admission_event(input.workspace_id, "done", {})
 
         metadata = _read_model_spec_json(input.context_ref)
-        statistical_model_spec = state.admission.statistical_model_spec().model_dump(mode="json")
+        statistical_model_spec = state.admission.statistical_model_spec(
+            state.structural_plan
+        ).model_dump(mode="json")
         materialized = materialize_model_spec_result(
             statistical_model_spec=statistical_model_spec,
-            authored_priors=dict(state.admission.priors),
+            authored_priors={
+                name: payload
+                for accepted in checkpoint.accepted_constructs
+                for name, payload in accepted.priors.items()
+            },
             data_for_model=state.data_for_model,
             indicator_audits=metadata["indicator_audits"],
             structural_plan=state.structural_plan,
@@ -667,21 +673,27 @@ async def finalize_statistical_model_spec_activity(
             search_queries=dict(state.search_queries),
             skip_ppc=True,
         )
+        construct_ids = {
+            item.name: item.id for item in state.structural_plan.semantics.constructs.values()
+        }
         materialized["prior_predictive_diagnostics"] = [
-            result
+            {
+                **{key: value for key, value in result.items() if key != "target"},
+                "construct_id": construct_ids[accepted_construct.construct_name],
+            }
             for accepted_construct in checkpoint.accepted_constructs
             for result in accepted_construct.results
         ]
 
         compiled_ssm = materialized.pop("_compiled_ssm", None)
         if compiled_ssm is None:
-            report = filter_model_fields(StatisticalModelSpecContract, materialized)
+            report = filter_model_fields(StatisticalModelSpecArtifact, materialized)
             raise ModelCompileError(
                 "statistical_model_spec produced no compilable SSM from the proposed spec",
                 transition_id="statistical_model_spec",
                 diagnostics={"report": report},
             )
-        report = project_model_fields(StatisticalModelSpecContract, materialized)
+        report = project_model_fields(StatisticalModelSpecArtifact, materialized)
 
         store = ArtifactStore(input.workspace_id)
         produced = [

@@ -18,10 +18,11 @@ from __future__ import annotations
 
 import graphlib
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import Annotated, Literal
 
-if TYPE_CHECKING:
-    from nof1_causal_lab.machine.artifacts import ArtifactId
+from pydantic import Field
+
+from nof1_causal_lab.artifacts.identity import ArtifactId  # noqa: TC001
 
 # How a produced artifact is computed, and therefore whether an external agent
 # can shortcut its run by writing the artifact itself.
@@ -55,7 +56,7 @@ class Derivation:
     """A deterministic, machine-maintained artifact node."""
 
     produces: ArtifactId
-    from_: tuple[ArtifactId, ...]
+    from_: Annotated[tuple[ArtifactId, ...], Field(alias="from")]
     optional: bool = False
 
 
@@ -126,7 +127,7 @@ DERIVATIONS: tuple[Derivation, ...] = (
 
 ROOTS: tuple[Root, ...] = (
     Root(artifact_id="question"),
-    Root(artifact_id="saved_scenarios", write_pins=("posterior",)),
+    Root(artifact_id="saved_scenarios"),
 )
 
 ROOT_ARTIFACTS: tuple[ArtifactId, ...] = tuple(root.artifact_id for root in ROOTS)
@@ -197,7 +198,7 @@ def topological_transition_order() -> tuple[ArtifactId, ...]:
 
 def topological_artifact_order() -> tuple[ArtifactId, ...]:
     """Artifacts sorted by the complete artifact dependency graph."""
-    from nof1_causal_lab.machine.artifacts import ARTIFACT_IDS
+    from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS
 
     dependencies = _artifact_dependency_graph()
     for artifact_id in ARTIFACT_IDS:
@@ -216,7 +217,7 @@ def _artifact_dependency_graph() -> dict[ArtifactId, set[ArtifactId]]:
 
 
 def _assert_graph_consistent() -> None:
-    from nof1_causal_lab.machine.artifacts import ARTIFACT_IDS
+    from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS
 
     produced: set[ArtifactId] = set()
     for spec in ARTIFACT_GRAPH:

@@ -1,5 +1,4 @@
 import logging
-from typing import TypedDict
 
 import polars as pl
 
@@ -18,22 +17,8 @@ logger = logging.getLogger(__name__)
 SECONDS_PER_DAY = 86400.0
 
 
-class ObservationRecord(TypedDict):
-    """Canonical serialized extraction observation row."""
-
-    indicator: str
-    value: str | int | float | bool | None
-    anchor_time: str | None
-    support_kind: str | None
-    summary_operator: str | None
-    anchor_policy: str | None
-    observation_window: str | None
-    support_start: str | None
-    support_end: str | None
-
-
 OBSERVATION_ROW_SCHEMA = {
-    "indicator": pl.Utf8,
+    "indicator_id": pl.Utf8,
     "value": pl.Utf8,
     "anchor_time": pl.Utf8,
     "support_kind": pl.Utf8,
@@ -216,12 +201,15 @@ def annotate_observation_rows(
     """
     if df.is_empty():
         return pl.DataFrame(schema=observation_row_schema())
+    if "indicator_id" not in df.columns:
+        raise ValueError("Extraction rows must carry an indicator_id")
+    indicator_ids = {indicator["id"] for indicator in measurement_structure["indicators"]}
+    unknown = set(df["indicator_id"].unique()) - indicator_ids
+    if unknown:
+        raise ValueError(f"Extraction rows reference unknown indicators: {unknown}")
     for col_name, dtype in OBSERVATION_ROW_SCHEMA.items():
         if col_name not in df.columns:
             df = df.with_columns(pl.lit(None, dtype=dtype).alias(col_name))
-
-    if "indicator" not in df.columns:
-        return df
 
     model_clock = measurement_structure.get("model_clock")
     indicator_rows = []
@@ -231,7 +219,7 @@ def annotate_observation_rows(
         semantics = get_observation_semantics(ind)
         indicator_rows.append(
             {
-                "indicator": ind["name"],
+                "indicator_id": ind["id"],
                 "support_kind_meta": semantics.support_kind.value,
                 "summary_operator_meta": semantics.summary_operator.value,
                 "anchor_policy_meta": semantics.anchor_policy.value,
@@ -242,7 +230,7 @@ def annotate_observation_rows(
         pl.DataFrame(
             indicator_rows,
             schema={
-                "indicator": pl.Utf8,
+                "indicator_id": pl.Utf8,
                 "support_kind_meta": pl.Utf8,
                 "summary_operator_meta": pl.Utf8,
                 "anchor_policy_meta": pl.Utf8,
@@ -252,7 +240,7 @@ def annotate_observation_rows(
         if indicator_rows
         else pl.DataFrame(
             schema={
-                "indicator": pl.Utf8,
+                "indicator_id": pl.Utf8,
                 "support_kind_meta": pl.Utf8,
                 "summary_operator_meta": pl.Utf8,
                 "anchor_policy_meta": pl.Utf8,
@@ -262,7 +250,7 @@ def annotate_observation_rows(
     )
 
     if kind_df.height > 0:
-        df = df.join(kind_df, on="indicator", how="left")
+        df = df.join(kind_df, on="indicator_id", how="left")
     else:
         df = df.with_columns(
             pl.lit(None, dtype=pl.Utf8).alias("support_kind_meta"),
@@ -350,7 +338,7 @@ def pivot_to_wide(df: pl.DataFrame) -> pl.DataFrame:
 
     wide_data = (
         df.with_columns(pl.col("value").cast(pl.Float64, strict=False))
-        .pivot(on="indicator", index=time_col, values="value", aggregate_function="mean")
+        .pivot(on="indicator_id", index=time_col, values="value", aggregate_function="mean")
         .sort(time_col)
     )
 

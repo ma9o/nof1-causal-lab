@@ -1,59 +1,35 @@
-"""Identification-report derivation for measurement-structure structures."""
+"""Positive identification-report derivation from the canonical causal results."""
 
 from __future__ import annotations
 
 import logging
 
-from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+from nof1_causal_lab.artifacts.causal_design import CausalDesign, IdentificationReport
 
 logger = logging.getLogger(__name__)
 
 
-def derive_identification_report(
-    causal_design: UncheckedJsonObject,
-    *,
-    latent_structure: UncheckedJsonObject | None = None,
-) -> UncheckedJsonObject | None:
-    """Compute the positive identification report from a causal design."""
-    from nof1_causal_lab.utils.causal_design import get_outcome_name
-
-    outcome_name = get_outcome_name(causal_design) or get_outcome_name(latent_structure or {}) or ""
-    identifiability = causal_design.get("identifiability", {}) or {}
-    identifiable = identifiability.get("identifiable_treatments", {}) or {}
-    non_identifiable = identifiability.get("non_identifiable_treatments", {}) or {}
-    treatments = list(identifiable.keys())
-
-    if non_identifiable:
-        logger.warning("NON-IDENTIFIABLE TREATMENT EFFECTS (excluded from analysis):")
-        for treatment in sorted(non_identifiable.keys()):
-            details = non_identifiable[treatment]
-            blockers = details.get("confounders", []) if isinstance(details, dict) else []
-            notes = details.get("notes") if isinstance(details, dict) else None
-            if blockers:
-                logger.warning(
-                    "  - %s -> %s (blocked by: %s)",
-                    treatment,
-                    outcome_name,
-                    ", ".join(blockers),
-                )
-            elif notes:
-                logger.warning("  - %s -> %s (%s)", treatment, outcome_name, notes)
-            else:
-                logger.warning("  - %s -> %s", treatment, outcome_name)
-        logger.info(
-            "Retaining %d estimable intervention targets after identifiability filtering",
-            len(treatments),
-        )
-
-    if not treatments:
-        logger.warning(
-            "No estimable intervention targets remain for %s; "
-            "identification_report artifact withheld",
-            outcome_name or "the outcome",
-        )
+def derive_identification_report(causal_design: CausalDesign) -> IdentificationReport | None:
+    """Emit a positive gate only when the causal design identifies a treatment effect."""
+    status = causal_design.identifiability
+    if status is None or not status.identifiable_treatments:
+        logger.warning("No estimable intervention targets remain; identification_report withheld")
         return None
-    return {
-        "outcome_name": outcome_name,
-        "estimable_treatments": treatments,
-        "non_identifiable_treatments": non_identifiable,
-    }
+    constructs = {construct.id: construct for construct in causal_design.latent.constructs}
+    target = causal_design.latent.default_outcome
+    if target is None:
+        raise ValueError("Identification requires a selected default outcome")
+    outcome = constructs[target.id]
+    for treatment_id, result in status.non_identifiable_treatments.items():
+        blockers = ", ".join(constructs[cid].name for cid in result.confounders)
+        logger.warning(
+            "Excluded non-identifiable effect: %s -> %s (%s)",
+            constructs[treatment_id].name,
+            outcome.name,
+            blockers or result.notes or "not identified",
+        )
+    return IdentificationReport(
+        outcome_id=outcome.id,
+        estimable_treatments=list(status.identifiable_treatments),
+        non_identifiable_treatments=status.non_identifiable_treatments,
+    )

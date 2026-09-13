@@ -174,6 +174,7 @@ def test_frontier_merge_is_single_writer_and_deterministic(monkeypatch, tmp_path
             parent_ref=initial_ref,
             parent=initial,
             accepted=AcceptedConstructCheckpoint(
+                mechanisms=[],
                 submission_id=f"submission-{name}",
                 construct_name=name,
                 outcome="ADMITTED",

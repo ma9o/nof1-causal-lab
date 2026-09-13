@@ -56,6 +56,7 @@ def build_structural_plan(causal_design: CausalDesign) -> StructuralPlan:
     scientific_only_declarations = design_data.get("scientific_only_constructs") or []
 
     constructs = list(causal_design.latent.constructs)
+    construct_by_id = {item.id: item for item in constructs}
     edges = list(causal_design.latent.edges)
     indicators = list(causal_design.measurement.indicators)
 
@@ -88,7 +89,10 @@ def build_structural_plan(causal_design: CausalDesign) -> StructuralPlan:
         )
     duplicate_edge_endpoints = sorted(
         endpoints
-        for endpoints, count in Counter((item.cause, item.effect) for item in edges).items()
+        for endpoints, count in Counter(
+            (construct_by_id[item.cause_id].name, construct_by_id[item.effect_id].name)
+            for item in edges
+        ).items()
         if count > 1
     )
     if duplicate_edge_endpoints:
@@ -100,19 +104,9 @@ def build_structural_plan(causal_design: CausalDesign) -> StructuralPlan:
             ]
         )
 
-    construct_id_by_name = {
-        construct.name: _source_id("construct", construct.name) for construct in constructs
-    }
-    edge_id_by_index = {
-        index: _source_id(
-            "edge",
-            f"{edge.cause}\0{edge.effect}\0{'lagged' if edge.lagged else 'contemporaneous'}",
-        )
-        for index, edge in enumerate(edges)
-    }
-    indicator_id_by_name = {
-        indicator.name: _source_id("indicator", indicator.name) for indicator in indicators
-    }
+    construct_id_by_name = {construct.name: construct.id for construct in constructs}
+    edge_id_by_index = {index: edge.id for index, edge in enumerate(edges)}
+    indicator_id_by_name = {indicator.name: indicator.id for indicator in indicators}
     semantics = StructuralSemanticCatalog(
         constructs={construct_id_by_name[construct.name]: construct for construct in constructs},
         edges={edge_id_by_index[index]: edge for index, edge in enumerate(edges)},
@@ -126,12 +120,22 @@ def build_structural_plan(causal_design: CausalDesign) -> StructuralPlan:
     parents_by_construct: dict[str, set[str]] = defaultdict(set)
     children_by_construct: dict[str, set[str]] = defaultdict(set)
     for edge in edges:
-        parents_by_construct[edge.effect].add(edge.cause)
-        children_by_construct[edge.cause].add(edge.effect)
+        parents_by_construct[construct_by_id[edge.effect_id].name].add(
+            construct_by_id[edge.cause_id].name
+        )
+        children_by_construct[construct_by_id[edge.cause_id].name].add(
+            construct_by_id[edge.effect_id].name
+        )
 
-    observed_constructs = get_observed_constructs(measurement)
-    known_input_names = {item["construct"] for item in known_input_declarations}
-    scientific_only_names = {item["construct"] for item in scientific_only_declarations}
+    observed_constructs = get_observed_constructs(
+        {item.id: item.name for item in constructs}, measurement
+    )
+    known_input_names = {
+        construct_by_id[item["construct_id"]].name for item in known_input_declarations
+    }
+    scientific_only_names = {
+        construct_by_id[item["construct_id"]].name for item in scientific_only_declarations
+    }
     analysis = analyze_unobserved_constructs(latent, measurement, identifiability)
     can_marginalize = set(analysis.get("can_marginalize", set()))
     _, confounders = dag_to_admg(latent, observed_constructs)
@@ -170,14 +174,17 @@ def build_structural_plan(causal_design: CausalDesign) -> StructuralPlan:
     retained_edge_ids: set[str] = set()
     permitted_causes = retained_names | known_input_names
     for index, edge in enumerate(edges):
-        if edge.effect not in retained_names or edge.cause not in permitted_causes:
+        if (
+            construct_by_id[edge.effect_id].name not in retained_names
+            or construct_by_id[edge.cause_id].name not in permitted_causes
+        ):
             continue
         source_id = edge_id_by_index[index]
-        effect_construct = construct_lookup[edge.effect]
+        effect_construct = construct_lookup[construct_by_id[edge.effect_id].name]
         if effect_construct.temporal_status == TemporalStatus.TIME_INVARIANT:
             errors.append(
                 f"Unsupported retained static-target edge {source_id} "
-                f"({edge.cause!r} -> {edge.effect!r}). The executable SSM has no "
+                f"({construct_by_id[edge.cause_id].name!r} -> {construct_by_id[edge.effect_id].name!r}). The executable SSM has no "
                 "baseline structural-equation semantics. Convert observed baseline "
                 "quantities to known inputs, reduce the static chain before compilation, "
                 "or retain the relation only in the scientific DAG."
@@ -187,29 +194,21 @@ def build_structural_plan(causal_design: CausalDesign) -> StructuralPlan:
         retained_edges.append(
             StructuralEdge(
                 source_id=source_id,
-                cause_id=construct_id_by_name[edge.cause],
-                effect_id=construct_id_by_name[edge.effect],
+                cause_id=construct_id_by_name[construct_by_id[edge.cause_id].name],
+                effect_id=construct_id_by_name[construct_by_id[edge.effect_id].name],
                 lagged=edge.lagged,
             )
         )
 
     known_inputs: list[StructuralKnownInput] = []
     for declaration in known_input_declarations:
-        construct_name = declaration["construct"]
-        source_indicator = declaration["source_indicator"]
-        construct_id = construct_id_by_name.get(construct_name)
-        indicator_id = indicator_id_by_name.get(source_indicator)
-        if construct_id is None or indicator_id is None:
-            errors.append(
-                f"Known input {construct_name!r} references unknown construct or indicator "
-                f"{source_indicator!r}."
-            )
-            continue
+        construct_id = declaration["construct_id"]
+        indicator_id = declaration["source_indicator_id"]
         known_inputs.append(
             StructuralKnownInput(
                 source_id=_source_id(
                     "known_input",
-                    f"{construct_name}\0{source_indicator}",
+                    f"{construct_id}\0{indicator_id}",
                 ),
                 construct_id=construct_id,
                 source_indicator_id=indicator_id,
@@ -218,9 +217,10 @@ def build_structural_plan(causal_design: CausalDesign) -> StructuralPlan:
             )
         )
     used_known_input_names = {
-        edge.cause
+        construct_by_id[edge.cause_id].name
         for edge in edges
-        if edge.cause in known_input_names and edge.effect in retained_names
+        if construct_by_id[edge.cause_id].name in known_input_names
+        and construct_by_id[edge.effect_id].name in retained_names
     }
     unused_known_inputs = sorted(known_input_names - used_known_input_names)
     if unused_known_inputs:
@@ -234,12 +234,13 @@ def build_structural_plan(causal_design: CausalDesign) -> StructuralPlan:
     manifest_indicator_ids = tuple(
         indicator_id_by_name[indicator.name]
         for indicator in indicators
-        if indicator.construct_name in retained_names
+        if construct_by_id[indicator.construct_id].name in retained_names
         and indicator_id_by_name[indicator.name] not in known_input_source_ids
     )
 
     manifest_construct_counts = Counter(
-        semantics.indicators[indicator_id].construct_name for indicator_id in manifest_indicator_ids
+        construct_by_id[semantics.indicators[indicator_id].construct_id].name
+        for indicator_id in manifest_indicator_ids
     )
     uncovered = sorted(name for name in state_names if manifest_construct_counts[name] == 0)
     if uncovered:
@@ -280,9 +281,8 @@ def build_structural_plan(causal_design: CausalDesign) -> StructuralPlan:
                 "\0".join(
                     (
                         dependency_kind,
-                        state_1,
-                        state_2,
-                        *sorted(source_confounders),
+                        *sorted((construct_id_by_name[state_1], construct_id_by_name[state_2])),
+                        *sorted(construct_id_by_name[name] for name in source_confounders),
                     )
                 ),
             ),
@@ -378,9 +378,9 @@ def build_structural_plan(causal_design: CausalDesign) -> StructuralPlan:
         edges=tuple(retained_edges),
         manifest_indicator_order=manifest_indicator_ids,
         reference_indicator_ids={
-            construct_id_by_name[construct_name]: indicator_id_by_name[indicator_name]
-            for construct_name, indicator_name in reference_indicator_names.items()
-            if construct_id_by_name[construct_name] in set(state_order)
+            construct_id: indicator_id_by_name[indicator_name]
+            for construct_id, indicator_name in reference_indicator_names.items()
+            if construct_id in set(state_order)
         },
         known_inputs=tuple(known_inputs),
         induced_dependencies=induced_dependencies,

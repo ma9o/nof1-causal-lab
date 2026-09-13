@@ -1,0 +1,256 @@
+"""Conceptual placement for every exported contract, including named scalar references."""
+
+from __future__ import annotations
+
+import sys
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.json_types import JsonObject
+
+LAYERS = {
+    "identity": ("Identity", "#dcfce7"),
+    "authored": ("Authored values", "#dbeafe"),
+    "artifacts": ("Artifact payloads", "#ede9fe"),
+    "findings": ("Derived findings", "#fef3c7"),
+    "machine": ("Machine records", "#fee2e2"),
+    "read_models": ("Read models", "#cffafe"),
+    "transport": ("Transport", "#e2e8f0"),
+}
+
+# Sections group types by subject; layer colors continue to describe their role.
+CONCERNS = {
+    "data_measurement": (
+        "Data & measurement",
+        (
+            "artifacts.raw_data",
+            "artifacts.measurement_structure",
+            "artifacts.measurements",
+            "artifacts.validation_report",
+            "measurement_types",
+            "utils.observation_semantics",
+        ),
+    ),
+    "model_specification": (
+        "Causal & statistical specification",
+        (
+            "artifacts.question",
+            "artifacts.latent_structure",
+            "artifacts.causal_design",
+            "artifacts.structural_plan",
+            "artifacts.statistical_model_spec",
+            "artifacts.mechanism",
+            "artifacts.parameter",
+            "artifacts.prior",
+            "artifacts.prior_proposal",
+            "artifacts.compiled_ssm",
+            "artifacts.distribution",
+            "artifacts.evidence",
+            "distributions",
+        ),
+    ),
+    "inference_analysis": (
+        "Inference & causal analysis",
+        (
+            "artifacts.posterior",
+            "artifacts.posterior_diagnostics",
+            "artifacts.effects",
+            "artifacts.scenarios",
+            "artifacts.baseline_report",
+        ),
+    ),
+    "execution_provenance": (
+        "Execution & provenance",
+        (
+            "machine.artifact_files",
+            "machine.artifacts",
+            "machine.graph",
+            "machine.hierarchy",
+            "machine.moves",
+            "machine.status",
+            "machine.store",
+            "flows.runtime_events",
+        ),
+    ),
+    "read_models": (
+        "Read models",
+        ("machine.snapshot_models", "machine.view_models"),
+    ),
+    "api_tools": (
+        "API & tool contracts",
+        ("episode_api", "flows.transitions.analysis.contracts", "json_types", "utils.llm"),
+    ),
+    "identity": ("Shared identities & references", ("artifacts.identity",)),
+}
+
+# Diagram emphasis is curated by scientific meaning, independent of graph degree
+# or contract layer. UI projections of the same central objects share the emphasis.
+CORE_DOMAIN_OBJECTS = {
+    "QuestionArtifact": "The causal question that gives the model its purpose.",
+    "RawDataArtifact": "The source dataset interpreted by the measurement model.",
+    "ObservationRecord": "An observed measurement supplying evidence to the model.",
+    "Construct": "A scientific variable whose causal relationships are modeled.",
+    "CausalEdge": "A directed causal assumption between constructs.",
+    "LatentStructure": "The scientific causal graph, including explicit latent confounders.",
+    "Indicator": "The measurement definition connecting a construct to observed data.",
+    "MeasurementStructure": "The measurement model and its common observation clock.",
+    "KnownInput": "A measured driver distinguished from an inferred latent state.",
+    "CausalDesign": "The scientific design connecting causal and measurement assumptions.",
+    "IdentificationReport": "The identification evidence required for causal reporting.",
+    "TreatmentIdentification": "Whether and how a treatment's causal effect is identified.",
+    "StructuralPlan": "The executable topology chosen from the scientific design.",
+    "StatisticalModelSpec": "The statistical model that defines the estimation problem.",
+    "LikelihoodSpec": "The observation distribution linking model states to measurements.",
+    "DynamicsMechanism": "The explicit scientific contribution to continuous-time drift.",
+    "ParameterSpec": "A model quantity to estimate, with its scientific role and constraints.",
+    "PriorProposal": "Prior uncertainty and its scientific justification for a parameter.",
+    "CompiledSSMArtifact": "The executable continuous-time state-space model.",
+    "PosteriorArtifact": "The fitted joint posterior supported by exact model and data versions.",
+    "ScenarioQuery": "The scientific intervention question, reusable across fits.",
+    "ScenarioClamp": "The intervention applied to a specific construct over time.",
+    "ScenarioEvaluation": "A scientific query evaluated against one model and posterior.",
+    "ScenarioResult": "The computed answer to a particular query evaluation.",
+    "TreatmentEffect": "A reported causal effect with posterior uncertainty.",
+    "ModelSnapshot": "Independently sourced canonical aggregates read at one committed revision.",
+    "FitSummary": "The canonical posterior together with server-composed display findings.",
+}
+
+# Aliases and dataclasses need explicit role sentences: JSON Schema does not carry
+# their Python docstrings. These describe concepts, never infer prose from field names.
+ROLE_SENTENCES = {
+    "DynamicsMechanism": "A dynamics mechanism declares one contribution to continuous-time drift.",
+    "MechanismCoefficient": "A mechanism coefficient is either fixed or bound to an estimated scientific parameter.",
+    "ActionSpec": "An action declares a machine operation and its interaction context.",
+    "AggregationFunction": "An aggregation function summarizes observations within a measurement window.",
+    "ArtifactFileSpec": "An artifact file specification declares its JSON payloads, tables, and executable binaries.",
+    "ArtifactFreshness": "An artifact's presence and freshness are derived from the selected journal revision.",
+    "ArtifactId": "An artifact identity selects one node in the machine's artifact graph.",
+    "BaselineReportVisualization": "Scenario visualization data contains exact-engine reference and action trajectories.",
+    "ConstructId": "A persistent construct identity survives changes to its display name.",
+    "ContextSpec": "An interaction context declares the tools and machine actions available to an agent.",
+    "EdgeId": "A persistent edge identity identifies one authored causal relationship.",
+    "EffectTrajectoryPoint": "An effect trajectory point records a causal delta at one rollout time.",
+    "EntityRef": "An entity reference identifies a construct, edge, or indicator by its persistent identity.",
+    "IndicatorId": "A persistent indicator identity survives changes to its measurement label.",
+    "ParameterId": "A scientific parameter identity binds a quantity to its explicit owners.",
+    "ParameterElementId": "A parameter element identity identifies a logical scalar component across model revisions.",
+    "JournalStatus": "A journal status distinguishes applied revisions from rejected or failed attempts.",
+    "JsonArray": "A JSON array transports an ordered collection of recursively typed values.",
+    "JsonObject": "A JSON object transports string-keyed recursively typed values.",
+    "JsonScalar": "A JSON scalar transports a string, number, boolean, or null.",
+    "JsonValue": "A JSON value transports a scalar or a recursive array or object.",
+    "MachineMoveSpec": "A move specification declares an operation on an artifact and its provenance.",
+    "MeasurementDtype": "A measurement dtype defines the observed value domain of an indicator.",
+    "Move": "A machine move requests computation or an authored artifact write.",
+    "Provenance": "Artifact provenance records whether its content was computed, authored by a human, or proposed by an LLM.",
+    "Derivation": "A derivation declares an artifact maintained atomically with its input versions.",
+    "Root": "A root declares an independently writable artifact and any contextual input pins.",
+    "RunArtifact": "A run move requests the transition that produces an artifact.",
+    "RuntimeEvent": "A runtime event records transition progress, agent activity, or extraction telemetry.",
+    "ScenarioQueryId": "A scientific query identity survives model revisions and posterior refits.",
+    "ScenarioEvaluationId": "An evaluation identity binds one scientific query to its exact model and posterior.",
+    "ScenarioQueryInput": "A scenario readout requests an estimand, forward horizon, and output scale.",
+    "ScenarioStartResult": "A resolved scenario start records the initial-state source and evidence time.",
+    "SimulateScenarioInput": "A simulation request declares the initial state, timed clamps, and requested outcome readout.",
+    "SimulateScenarioToolResult": "A simulation tool response carries either a resolved scenario result or a reported tool error.",
+    "Sourced": "A sourced value pairs one model finding with its supporting artifact version.",
+    "ToolError": "A tool error reports why a requested operation could not produce a result.",
+    "ToolQuerySpec": "A tool query specification declares a context's callable query.",
+    "TreatmentIdentification": "A treatment identification finding records an identification strategy or the constructs blocking it.",
+    "WriteArtifact": "A write move requests a validated authored artifact revision.",
+}
+
+ALIAS_MODULES = {
+    "EntityRef": "artifacts.identity",
+    "Move": "machine.moves",
+    "RuntimeEvent": "flows.runtime_events",
+}
+
+
+def _module_for(name: str) -> str:
+    if name in ALIAS_MODULES:
+        return "nof1_causal_lab." + ALIAS_MODULES[name]
+    for module_name, module in tuple(sys.modules.items()):
+        if not module_name.startswith("nof1_causal_lab.") or module is None:
+            continue
+        value = vars(module).get(name)
+        if value is not None and getattr(value, "__module__", None) == module_name:
+            return module_name
+    raise ValueError(f"Exported type {name} has no declared Python owner")
+
+
+def _layer_for(name: str, module: str) -> str:
+    if module.endswith("artifacts.identity") or name == "ParameterCoordinate":
+        return "identity"
+    if module.endswith(("machine.snapshot_models", "machine.view_models")):
+        return "read_models"
+    if module.startswith("nof1_causal_lab.machine.") or module.endswith("flows.runtime_events"):
+        return "machine"
+    if module.endswith(("episode_api", "json_types", "utils.llm")):
+        return "transport"
+    if name == "SimulateScenarioResult":
+        return "transport"
+    if module.endswith("artifacts.scenarios"):
+        return (
+            "findings"
+            if name == "ScenarioEvaluation" or name.endswith(("Result", "Visualization", "Point"))
+            else "authored"
+        )
+    if name.endswith("Artifact") or module.endswith(
+        ("artifacts.compiled_ssm", "artifacts.distribution")
+    ):
+        return "artifacts"
+    if module.endswith(
+        (
+            "artifacts.posterior",
+            "artifacts.posterior_diagnostics",
+            "artifacts.effects",
+            "artifacts.validation_report",
+            "artifacts.prior",
+        )
+    ) or name in {
+        "IdentificationReport",
+        "IdentifiabilityStatus",
+        "IdentifiedTreatmentStatus",
+        "NonIdentifiableTreatmentStatus",
+        "TreatmentIdentification",
+        "PriorPredictiveDiagnostic",
+        "InferenceMetadata",
+        "WorkerStatus",
+        "ObservationRecord",
+    }:
+        return "findings"
+    if module.startswith("nof1_causal_lab.artifacts.") or module.endswith(
+        ("distributions", "measurement_types", "utils.observation_semantics")
+    ):
+        return "authored"
+    if module.startswith("nof1_causal_lab.flows."):
+        return "transport"
+    raise ValueError(f"Exported type {name} in {module} has no conceptual layer")
+
+
+def _concern_for(name: str, module: str) -> str:
+    if name == "ParameterCoordinate":
+        return "identity"
+    for concern, (_, modules) in CONCERNS.items():
+        if module.removeprefix("nof1_causal_lab.") in modules:
+            return concern
+    raise ValueError(f"Exported type {name} in {module} has no declared concern")
+
+
+def annotate_definitions(definitions: dict[str, JsonObject]) -> None:
+    """Require an owning Python module, role, and concern for every exported type."""
+    for name, definition in definitions.items():
+        module = (
+            str(definition["x-python-module"])
+            if "x-python-module" in definition
+            else _module_for(name)
+        )
+        definition["x-python-module"] = module
+        definition["x-layer"] = _layer_for(name, module)
+        definition["x-concern"] = _concern_for(name, module)
+        if name in ROLE_SENTENCES:
+            definition["description"] = ROLE_SENTENCES[name]
+        # Pydantic's specialized Sourced[T] definitions do not carry its docstring.
+        if module.endswith("machine.snapshot_models") and name.startswith("Sourced_"):
+            definition["description"] = ROLE_SENTENCES["Sourced"]

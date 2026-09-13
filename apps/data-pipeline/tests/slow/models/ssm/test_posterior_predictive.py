@@ -4,7 +4,8 @@ import jax.numpy as jnp
 import jax.random
 import pytest
 
-from nof1_causal_lab.models.posterior_predictive import PPCResult, run_posterior_predictive_checks
+from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorPredictiveChecks
+from nof1_causal_lab.models.posterior_predictive import run_posterior_predictive_checks
 from nof1_causal_lab.models.predictive_simulation import (
     sample_predictive_observations_from_linear_predictors,
 )
@@ -14,7 +15,7 @@ from tests.models.ssm._support import (
     make_complex_mixed_samples,
 )
 
-pytestmark = pytest.mark.slow
+pytestmark = [pytest.mark.slow, pytest.mark.cpu_expensive]
 
 
 class TestForwardSimulation:
@@ -76,15 +77,15 @@ class TestRunPPC:
             samples=samples,
             observations=observations,
             times=times,
-            manifest_names=manifest_names,
+            indicator_ids=[f"indicator:{name}" for name in manifest_names],
             spec=spec,
             n_subsample=20,
         )
 
-        assert isinstance(result, PPCResult)
+        assert isinstance(result, PosteriorPredictiveChecks)
         assert result.checked is True
         assert result.n_subsample == 12
         assert isinstance(result.per_variable_warnings, list)
         assert len(result.overlays) == len(manifest_names)
-        assert {overlay.variable for overlay in result.overlays} == set(manifest_names)
+        assert {overlay.indicator_id for overlay in result.overlays} == set(manifest_names)
         assert len(result.test_stats) >= len(manifest_names) * 2

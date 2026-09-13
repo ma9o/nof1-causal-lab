@@ -77,16 +77,25 @@ def test_baseline_report_treatments_must_be_explicitly_identified() -> None:
             "causal_design": {
                 "causal_design": {
                     "identifiability": {
-                        "identifiable_treatments": {"identified_treatment": {}},
-                        "non_identifiable_treatments": {"blocked_treatment": {}},
+                        "identifiable_treatments": {"construct:identified_treatment": {}},
+                        "non_identifiable_treatments": {"construct:blocked_treatment": {}},
                     },
                 },
             },
             "baseline_report": {
                 "intervention_results": [
-                    {"treatment": "identified_treatment"},
-                    {"treatment": "blocked_treatment"},
-                    {"treatment": "unclassified_treatment"},
+                    {
+                        "treatment": "renamed_identified_treatment",
+                        "treatment_id": "construct:identified_treatment",
+                    },
+                    {
+                        "treatment": "renamed_blocked_treatment",
+                        "treatment_id": "construct:blocked_treatment",
+                    },
+                    {
+                        "treatment": "renamed_unclassified_treatment",
+                        "treatment_id": "construct:unclassified_treatment",
+                    },
                 ],
             },
         },
@@ -109,7 +118,11 @@ def test_baseline_report_treatments_fail_when_identifiability_verdicts_are_missi
         workspace_id="ws",
         artifacts={
             "causal_design": {"causal_design": {}},
-            "baseline_report": {"intervention_results": [{"treatment": "treatment"}]},
+            "baseline_report": {
+                "intervention_results": [
+                    {"treatment": "renamed_treatment", "treatment_id": "construct:treatment"}
+                ]
+            },
         },
         artifact_paths={},
         model_indicators=None,

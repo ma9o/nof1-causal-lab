@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 from jax import Array
 
+from nof1_causal_lab.artifacts.effects import validate_effect_horizons
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.models.ssm.dynamics import (
     Intervention,
@@ -21,9 +22,11 @@ from nof1_causal_lab.models.ssm.dynamics import (
     simulate,
     simulate_pair,
 )
+from nof1_causal_lab.utils.histograms import histogram_draws
 
 from .estimands import (
     build_time_grid,
+    summarize_draws,
     summarize_temporal_effect,
 )
 
@@ -94,13 +97,15 @@ def compute_interventions(
     times: jnp.ndarray | None = None,
     shift_size: float = 1.0,
     lambda_mean: Array | None = None,
+    horizons_days: Sequence[float] = (1.0, 7.0, 30.0),
 ) -> list[UncheckedJsonObject]:
     """Compute interventions from vector-field posterior parameter draws."""
+    validate_effect_horizons(horizons_days)
     name_to_idx = {name: i for i, name in enumerate(latent_names)}
     outcome_idx = name_to_idx.get(outcome)
 
     def _skeleton(treatment_name: str) -> UncheckedJsonObject:
-        return {"treatment": treatment_name}
+        return {"treatment": treatment_name, "summary": None, "histogram": []}
 
     if outcome_idx is None:
         logger.warning("Outcome '%s' not found in latent names %s", outcome, latent_names)
@@ -110,7 +115,7 @@ def compute_interventions(
         logger.warning("No posterior parameter samples for vector-field intervention")
         return [_skeleton(t) for t in treatments]
 
-    time_grid = _build_horizon_grid(causal_design, times)
+    time_grid = _build_horizon_grid(causal_design, times, horizon_days=max(horizons_days))
 
     results: list[UncheckedJsonObject] = []
     for treatment_name in treatments:
@@ -128,10 +133,12 @@ def compute_interventions(
                 for p in param_samples
             ]
         )
-        mean_effect = float(jnp.mean(effects))
+        summary = summarize_draws(effects)
         entry: UncheckedJsonObject = {
             "treatment": treatment_name,
             "posterior_draws": effects.tolist(),
+            "summary": summary.model_dump(mode="json"),
+            "histogram": [item.model_dump(mode="json") for item in histogram_draws(effects)],
         }
         if time_grid is not None:
             try:
@@ -144,7 +151,9 @@ def compute_interventions(
                     ]
                 )
                 mean_traj = jnp.mean(trajectories[:, :, outcome_idx], axis=0)
-                entry["temporal"] = summarize_temporal_effect(mean_traj, time_grid)
+                entry["temporal"] = summarize_temporal_effect(
+                    mean_traj, time_grid, horizons_days=horizons_days
+                ).model_dump(mode="json")
 
                 if lambda_mean is not None and lambda_mean.ndim == 2:
                     m_names = manifest_names or []
@@ -154,7 +163,7 @@ def compute_interventions(
                         loading_val = float(loadings[mi])
                         if abs(loading_val) > 1e-6:
                             name = m_names[mi] if mi < len(m_names) else f"manifest_{mi}"
-                            manifest_effects[name] = loading_val * mean_effect
+                            manifest_effects[name] = loading_val * summary.mean
                     if manifest_effects:
                         entry["manifest_effects"] = manifest_effects
             except (ValueError, RuntimeError, FloatingPointError):
@@ -166,8 +175,8 @@ def compute_interventions(
         results.append(entry)
 
     def _abs_mean(entry: UncheckedJsonObject) -> float:
-        draws = entry.get("posterior_draws")
-        return abs(sum(draws) / len(draws)) if draws else 0.0
+        summary = entry["summary"]
+        return abs(summary["mean"]) if summary is not None else 0.0
 
     results.sort(key=_abs_mean, reverse=True)
     return results

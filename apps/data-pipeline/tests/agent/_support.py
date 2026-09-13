@@ -54,8 +54,9 @@ def worker_schema():
         "model_clock": "1d",
         "indicators": [
             {
+                "id": "indicator:9866c549bd1c25f0a5d7",
+                "construct_id": "construct:cdc0b2958a9512b2abad",
                 "name": "sleep_hours",
-                "construct_name": "sleep",
                 "measurement_dtype": "continuous",
                 "aggregation": "last",
                 "how_to_measure": "Read sleep hours directly from the rows",

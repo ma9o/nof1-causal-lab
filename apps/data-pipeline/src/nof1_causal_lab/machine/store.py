@@ -35,18 +35,16 @@ from typing import TYPE_CHECKING, Any, Literal
 import cloudpickle
 from pydantic import BaseModel, ConfigDict, Field
 
+from nof1_causal_lab.artifacts.identity import ArtifactId  # noqa: TC001
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
-from nof1_causal_lab.machine.artifacts import (
-    ArtifactId,
-    ArtifactVersionInfo,
-    EpisodeState,
-    Provenance,
-)
+from nof1_causal_lab.machine.artifacts import ArtifactVersionInfo, EpisodeState, Provenance
 from nof1_causal_lab.machine.moves import Move, RetractedArtifact, apply_transition
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     import polars as pl
 
 
@@ -169,7 +167,6 @@ class ArtifactStore:
 # ---------------------------------------------------------------------------
 
 
-TransitionStatus = Literal["applied", "rejected", "raised"]
 _TRACE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 
 
@@ -181,6 +178,9 @@ class ResumeRef(BaseModel):
     kind: Literal["model_spec"]
     run_id: str
     checkpoint_id: str
+
+
+type JournalStatus = Literal["applied", "rejected", "raised"]
 
 
 class TransitionRecord(BaseModel):
@@ -196,7 +196,7 @@ class TransitionRecord(BaseModel):
     seq: int
     ts: str
     move: Move
-    status: TransitionStatus
+    status: JournalStatus
     reason: str | None = None
     error_type: str | None = None
     error_message: str | None = None
@@ -296,6 +296,15 @@ def read_episode_trace(workspace_id: str, seq: int, subroutine_id: str) -> Any:
     return storage.read_json(episode_trace_path(workspace_id, seq, subroutine_id))
 
 
+def replay_state(records: Iterable[TransitionRecord]) -> EpisodeState:
+    """Replay applied effects from an already selected journal prefix."""
+    state = EpisodeState()
+    for record in records:
+        if record.status == "applied":
+            state = apply_transition(state, record.produced, record.retracted)
+    return state
+
+
 def derive_current_state(workspace_id: str) -> EpisodeState:
     """Replay committed transition effects into the current artifact state.
 
@@ -304,8 +313,4 @@ def derive_current_state(workspace_id: str) -> EpisodeState:
     that those versions became current, which also makes retractions exact and
     prevents partial or failed moves from leaking onto the read surface.
     """
-    state = EpisodeState()
-    for record in EpisodeJournal(workspace_id).read_all():
-        if record.status == "applied":
-            state = apply_transition(state, record.produced, record.retracted)
-    return state
+    return replay_state(EpisodeJournal(workspace_id).read_all())

@@ -18,7 +18,7 @@ from nof1_causal_lab.models.ssm.runtime import (
 if TYPE_CHECKING:
     import polars as pl
 
-    from nof1_causal_lab.models.ssm.compile.contracts import CompiledSSMArtifact
+    from nof1_causal_lab.artifacts.compiled_ssm import CompiledSSMArtifact
     from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior
     from nof1_causal_lab.sampler_config import (
         MarginalParticleGibbsOptions,
@@ -86,7 +86,7 @@ def _support_summary(runtime: PreparedModelRuntime) -> str:
 
 
 def fit_model(
-    compiled_ssm: CompiledSSMArtifact | None,
+    compiled_ssm: CompiledSSMArtifact,
     data_for_model: pl.DataFrame,
     sampler_config: SamplerConfigInput | None = None,
     model: Any = None,
@@ -110,7 +110,9 @@ def fit_model(
     logger.info(
         "Fitting model: rows=%d indicators=%d sampler=%s model_provided=%s",
         len(data_for_model),
-        data_for_model["indicator"].n_unique() if "indicator" in data_for_model.columns else 0,
+        data_for_model["indicator_id"].n_unique()
+        if "indicator_id" in data_for_model.columns
+        else 0,
         (sampler_config or {}).get("method", "config default"),
         model is not None,
     )
@@ -180,20 +182,8 @@ def fit_model(
 
         loo_diag = None
         if compute_loo_diagnostics:
-            # LOO diagnostics (needs model function and data).
-            import functools
-
-            loo_backend = result.diagnostics["likelihood_backend"]
-            model_fn = functools.partial(
-                runtime.model.model,
-                likelihood_backend=loo_backend,
-            )
-            logger.info("Computing LOO diagnostics...")
-            loo_diag = result.get_loo_diagnostics(
-                model_fn=model_fn,
-                observations=runtime.observations,
-                times=runtime.times,
-            )
+            logger.info("Computing leave-one-measurement-row-out diagnostics...")
+            loo_diag = result.get_loo_diagnostics(observations=runtime.observations)
         else:
             logger.info("Skipping LOO diagnostics by configuration.")
 
@@ -201,6 +191,13 @@ def fit_model(
         logger.info("Extracting posterior summaries...")
         posterior_marginals = result.get_posterior_marginals()
         posterior_pairs = result.get_posterior_pairs()
+        from nof1_causal_lab.flows.transitions.inference.subjects import (
+            reference_posterior_findings,
+        )
+
+        posterior_marginals, posterior_pairs, mcmc_diag = reference_posterior_findings(
+            compiled_ssm, posterior_marginals, posterior_pairs, mcmc_diag
+        )
         samples = result.get_samples()
         n_samples = (
             int(next(iter(samples.values())).shape[0])
@@ -250,7 +247,7 @@ def run_ppc(
         fitted_result: Output from fit_model task (includes runtime)
 
     Returns:
-        Dict with PPC diagnostics (PPCResult.model_dump())
+        Dict with PPC diagnostics (PosteriorPredictiveChecks.model_dump())
     """
     from nof1_causal_lab.models.posterior_predictive import run_posterior_predictive_checks
 
@@ -277,11 +274,12 @@ def run_ppc(
             len(runtime.manifest_names),
         )
 
+        assert runtime.manifest_ids is not None
         ppc_result = run_posterior_predictive_checks(
             samples=samples,
             observations=runtime.observations,
             times=runtime.times,
-            manifest_names=runtime.manifest_names,
+            indicator_ids=runtime.manifest_ids,
             spec=spec,
             observation_support=runtime.observation_support,
             observation_mask=~jnp.isnan(runtime.observations),

@@ -1,280 +1,112 @@
-"""Canonical prior registry for SSM sample sites."""
+"""Scientific default priors, represented directly by NumPyro distributions."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from types import MappingProxyType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import numpy as np
+import numpyro.distributions as dist
+from numpyro.distributions import constraints
 
-from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+from nof1_causal_lab.artifacts.parameter import SupportClass
+from nof1_causal_lab.distributions import PriorDistributionFamily
+from nof1_causal_lab.prior_distributions import (
+    distribution_from_params,
+    distribution_support_bounds,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
     from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
 
-from nof1_causal_lab.distributions import (
-    PriorDistributionFamily,
-    get_positive_runtime_kind_from_index,
-    get_real_runtime_kind_from_index,
-)
-from nof1_causal_lab.models.ssm.parameter_names import INITIAL_STATE_CORRELATION_PRIOR_DEFAULTS
-
-
-def _scalar_family_index(value: Any) -> int:
-    values = np.asarray(value, dtype=int).ravel()
-    if values.size == 0:
-        raise ValueError("Prior family index payload is empty")
-    family = int(values[0])
-    if not np.all(values == family):
-        unique, counts = np.unique(values, return_counts=True)
-        breakdown = {int(k): int(v) for k, v in zip(unique, counts, strict=True)}
-        raise ValueError(
-            "Mixed prior families within one sample site are unsupported "
-            f"(family-index counts: {breakdown}). The site pools this parameter "
-            "across ALL admitted constructs, so a newly authored prior must use "
-            "the same distribution family the site's existing entries already "
-            "use — match the family authored by earlier constructs."
-        )
-    return family
-
-
-@dataclass(frozen=True)
-class PriorSpec:
-    """Prior family and parameters for one runtime sample site."""
-
-    family: PriorDistributionFamily
-    params: Mapping[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "family", PriorDistributionFamily(self.family))
-        object.__setattr__(self, "params", MappingProxyType(dict(self.params)))
-
-
-@dataclass(frozen=True)
-class PriorRegistry:
-    """Mapping from runtime sample-site name to canonical prior spec."""
-
-    priors_by_site: Mapping[str, PriorSpec] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "priors_by_site", MappingProxyType(dict(self.priors_by_site)))
-
-    def get(self, site_name: str) -> PriorSpec | None:
-        """Return the prior for *site_name* when one is registered."""
-        return self.priors_by_site.get(site_name)
-
-
-DEFAULT_PRIOR_SPECS_BY_FIELD: dict[str, PriorSpec] = {
-    "dynamics_decay": PriorSpec(
-        PriorDistributionFamily.GAMMA,
-        {"concentration": 2.0, "rate": 4.0},
-    ),
-    "dynamics_cint": PriorSpec(
-        PriorDistributionFamily.NORMAL,
-        {"mu": 0.0, "sigma": 1.0},
-    ),
-    "dynamics_potential_center": PriorSpec(
-        PriorDistributionFamily.NORMAL,
-        {"mu": 0.0, "sigma": 1.0},
-    ),
-    "dynamics_potential_quartic": PriorSpec(
-        PriorDistributionFamily.HALF_NORMAL,
-        {"sigma": 0.5},
-    ),
-    "linear_edge_weight": PriorSpec(
-        PriorDistributionFamily.NORMAL,
-        {"mu": 0.0, "sigma": 0.5},
-    ),
-    "multiplicative_weight": PriorSpec(
-        PriorDistributionFamily.NORMAL,
-        {"mu": 0.0, "sigma": 1.0},
-    ),
-    "hill_emax": PriorSpec(
-        PriorDistributionFamily.LOG_NORMAL,
-        {"mu": 0.0, "sigma": 1.0},
-    ),
-    "hill_ec50": PriorSpec(
-        PriorDistributionFamily.LOG_NORMAL,
-        {"mu": 0.0, "sigma": 1.0},
-    ),
-    "hill_n": PriorSpec(
+DEFAULT_PRIORS_BY_FIELD: dict[str, dist.Distribution] = {
+    "dynamics_decay": dist.Gamma(concentration=2.0, rate=4.0),
+    "dynamics_cint": dist.Normal(loc=0.0, scale=1.0),
+    "dynamics_potential_center": dist.Normal(loc=0.0, scale=1.0),
+    "dynamics_potential_quartic": dist.HalfNormal(scale=0.5),
+    "linear_edge_weight": dist.Normal(loc=0.0, scale=0.5),
+    "multiplicative_weight": dist.Normal(loc=0.0, scale=1.0),
+    "hill_emax": dist.LogNormal(loc=0.0, scale=1.0),
+    "hill_ec50": dist.LogNormal(loc=0.0, scale=1.0),
+    "hill_n": dist.TruncatedNormal(loc=2.0, scale=0.5, low=1.0, high=4.0),
+    "diffusion_diag": dist.HalfNormal(scale=1.0),
+    "diffusion_offdiag": dist.Normal(loc=0.0, scale=0.5),
+    "input_effect": dist.Normal(loc=0.0, scale=0.5),
+    "static_state_sd": dist.HalfNormal(scale=1.0),
+    "lambda_free": dist.Normal(loc=0.5, scale=0.5),
+    "manifest_means": dist.Normal(loc=0.0, scale=2.0),
+    "manifest_var_diag": dist.HalfNormal(scale=1.0),
+    "obs_df": dist.Gamma(concentration=5.0, rate=1.0),
+    "obs_shape": dist.Gamma(concentration=2.0, rate=1.0),
+    "obs_r": dist.Gamma(concentration=2.0, rate=0.5),
+    "obs_concentration": dist.Gamma(concentration=5.0, rate=0.5),
+    "obs_ordered_base": dist.Normal(loc=0.0, scale=1.0),
+    "obs_ordered_gaps": dist.HalfNormal(scale=1.0),
+    "obs_cat_intercepts": dist.Normal(loc=0.0, scale=1.0),
+    "obs_cat_slopes": dist.Normal(loc=0.0, scale=1.0),
+    "proc_df": dist.Gamma(concentration=5.0, rate=1.0),
+    "t0_means": dist.Normal(loc=0.0, scale=2.0),
+    "t0_var_diag": dist.HalfNormal(scale=2.0),
+    "t0_var_offdiag": distribution_from_params(
         PriorDistributionFamily.TRUNCATED_NORMAL,
-        {"mu": 2.0, "sigma": 0.5, "lower": 1.0, "upper": 4.0},
-    ),
-    "diffusion_diag": PriorSpec(
-        PriorDistributionFamily.HALF_NORMAL,
-        {"sigma": 1.0},
-    ),
-    "diffusion_offdiag": PriorSpec(
-        PriorDistributionFamily.NORMAL,
-        {"mu": 0.0, "sigma": 0.5},
-    ),
-    "input_effect": PriorSpec(
-        PriorDistributionFamily.NORMAL,
-        {"mu": 0.0, "sigma": 0.5},
-    ),
-    "static_state_sd": PriorSpec(
-        PriorDistributionFamily.HALF_NORMAL,
-        {"sigma": 1.0},
-    ),
-    "lambda_free": PriorSpec(
-        PriorDistributionFamily.NORMAL,
-        {"mu": 0.5, "sigma": 0.5},
-    ),
-    "manifest_means": PriorSpec(
-        PriorDistributionFamily.NORMAL,
-        {"mu": 0.0, "sigma": 2.0},
-    ),
-    "manifest_var_diag": PriorSpec(
-        PriorDistributionFamily.HALF_NORMAL,
-        {"sigma": 1.0},
-    ),
-    "obs_df": PriorSpec(
-        PriorDistributionFamily.GAMMA,
-        {"concentration": 5.0, "rate": 1.0},
-    ),
-    "obs_shape": PriorSpec(
-        PriorDistributionFamily.GAMMA,
-        {"concentration": 2.0, "rate": 1.0},
-    ),
-    "obs_r": PriorSpec(
-        PriorDistributionFamily.GAMMA,
-        {"concentration": 2.0, "rate": 0.5},
-    ),
-    "obs_concentration": PriorSpec(
-        PriorDistributionFamily.GAMMA,
-        {"concentration": 5.0, "rate": 0.5},
-    ),
-    "obs_ordered_base": PriorSpec(
-        PriorDistributionFamily.NORMAL,
-        {"mu": 0.0, "sigma": 1.0},
-    ),
-    "obs_ordered_gaps": PriorSpec(
-        PriorDistributionFamily.HALF_NORMAL,
-        {"sigma": 1.0},
-    ),
-    "obs_cat_intercepts": PriorSpec(
-        PriorDistributionFamily.NORMAL,
-        {"mu": 0.0, "sigma": 1.0},
-    ),
-    "obs_cat_slopes": PriorSpec(
-        PriorDistributionFamily.NORMAL,
-        {"mu": 0.0, "sigma": 1.0},
-    ),
-    "proc_df": PriorSpec(
-        PriorDistributionFamily.GAMMA,
-        {"concentration": 5.0, "rate": 1.0},
-    ),
-    "t0_means": PriorSpec(
-        PriorDistributionFamily.NORMAL,
-        {"mu": 0.0, "sigma": 2.0},
-    ),
-    "t0_var_diag": PriorSpec(
-        PriorDistributionFamily.HALF_NORMAL,
-        {"sigma": 2.0},
-    ),
-    "t0_var_offdiag": PriorSpec(
-        PriorDistributionFamily.TRUNCATED_NORMAL,
-        dict(INITIAL_STATE_CORRELATION_PRIOR_DEFAULTS),
+        {"mu": 0.0, "sigma": 0.5, "lower": -1.0, "upper": 1.0},
     ),
 }
 
 
-def default_prior_for_descriptor(site: SiteDescriptor) -> PriorSpec:
-    """Return the default prior for a descriptor-owned sample site."""
+def default_prior_for_descriptor(site: SiteDescriptor) -> dist.Distribution:
+    """Return the scientific default for an active site."""
     if site.priors_field is None:
-        raise KeyError(
-            f"Sample site {site.name!r} is missing priors_field; cannot resolve a default prior."
-        )
-    try:
-        return DEFAULT_PRIOR_SPECS_BY_FIELD[site.priors_field]
-    except KeyError as exc:
-        raise KeyError(
-            f"No default prior registered for prior field {site.priors_field!r} "
-            f"on sample site {site.name!r}"
-        ) from exc
+        raise ValueError(f"Site {site.name!r} has no prior field")
+    return DEFAULT_PRIORS_BY_FIELD[site.priors_field]
 
 
-def default_prior_registry_for_sites(
-    sites: list[SiteDescriptor] | tuple[SiteDescriptor, ...],
-) -> PriorRegistry:
-    """Build a default prior registry keyed by descriptor name for the given active sites."""
-    return PriorRegistry({site.name: default_prior_for_descriptor(site) for site in sites})
+def site_constraint(site: SiteDescriptor) -> constraints.Constraint:
+    """The scientific value domain of a scalar site coordinate."""
+    return {
+        SupportClass.REAL: constraints.real,
+        SupportClass.POSITIVE: constraints.positive,
+        SupportClass.CORRELATION: constraints.interval(-1.0, 1.0),
+    }[site.support]
 
 
-def prior_spec_from_normalized_params(
-    normalized: Mapping[str, Any],
-    *,
-    support: str,
-) -> PriorSpec:
-    """Convert normalized compiler params into a canonical prior.
-
-    ``support`` is one of ``"real"``, ``"positive"``, or ``"correlation"``.
-    The normalized shape is an internal compiler format; this function is
-    the boundary that removes runtime family indexes from canonical prior
-    objects.
-    """
-    if support == "positive":
-        family = (
-            get_positive_runtime_kind_from_index(_scalar_family_index(normalized["family"]))
-            if "family" in normalized
-            else PriorDistributionFamily.HALF_NORMAL
-        )
-        params: UncheckedJsonObject = {}
-        if family == PriorDistributionFamily.HALF_NORMAL:
-            params["sigma"] = normalized.get("sigma", 1.0)
-        elif family == PriorDistributionFamily.GAMMA:
-            params["concentration"] = normalized.get("concentration", 2.0)
-            params["rate"] = normalized.get("rate", 1.0)
-        elif family == PriorDistributionFamily.LOG_NORMAL:
-            params["mu"] = normalized.get("mu", normalized.get("loc", 0.0))
-            params["sigma"] = normalized.get("sigma", 1.0)
-        elif family == PriorDistributionFamily.EXPONENTIAL:
-            params["rate"] = normalized.get("rate", 1.0)
-        elif family == PriorDistributionFamily.DELTA:
-            params["value"] = normalized.get("value", 1.0)
-        else:
-            raise ValueError(f"Unsupported positive-support prior family {family!r}")
-        return PriorSpec(family, params)
-
-    if support in {"real", "correlation"}:
-        has_bounds = "lower" in normalized or "upper" in normalized
-        family = (
-            get_real_runtime_kind_from_index(_scalar_family_index(normalized["family"]))
-            if "family" in normalized
-            else (
-                PriorDistributionFamily.TRUNCATED_NORMAL
-                if has_bounds or support == "correlation"
-                else PriorDistributionFamily.NORMAL
-            )
-        )
-        params = {}
-        if family == PriorDistributionFamily.NORMAL:
-            params["mu"] = normalized.get("mu", 0.0)
-            params["sigma"] = normalized.get("sigma", 1.0)
-        elif family == PriorDistributionFamily.TRUNCATED_NORMAL:
-            params["mu"] = normalized.get("mu", 0.0)
-            params["sigma"] = normalized.get("sigma", 1.0)
-            params["lower"] = normalized.get("lower", -1.0 if support == "correlation" else -1e6)
-            params["upper"] = normalized.get("upper", 1.0 if support == "correlation" else 1e6)
-        elif family == PriorDistributionFamily.UNIFORM:
-            params["lower"] = normalized.get("lower", -1.0 if support == "correlation" else -1e6)
-            params["upper"] = normalized.get("upper", 1.0 if support == "correlation" else 1e6)
-        else:
-            raise ValueError(f"Unsupported real-support prior family {family!r}")
-        return PriorSpec(family, params)
-
-    raise ValueError(f"Unsupported prior support {support!r}")
+def validate_site_prior(site: SiteDescriptor, prior: dist.Distribution) -> None:
+    """Check a native law against the site's scientific value domain."""
+    if prior.event_shape:
+        raise ValueError(f"Site {site.name!r} requires scalar coordinate laws")
+    if isinstance(prior, (dist.ExpandedDistribution, dist.MaskedDistribution)):
+        validate_site_prior(site, prior.base_dist)
+        return
+    if isinstance(prior, dist.MixtureGeneral):
+        for component in prior.component_distributions:
+            validate_site_prior(site, component)
+        return
+    if isinstance(prior, dist.Delta):
+        if not np.all(np.asarray(site_constraint(site)(prior.v))):
+            raise ValueError(f"Fixed prior values violate {site.name!r} support")
+        return
+    lower, upper = distribution_support_bounds(prior)
+    if site.support == SupportClass.POSITIVE and np.any(np.asarray(lower) < 0.0):
+        raise ValueError(f"Prior for positive site {site.name!r} has non-positive support")
+    if site.support == SupportClass.CORRELATION and (
+        np.any(np.asarray(lower) < -1.0) or np.any(np.asarray(upper) > 1.0)
+    ):
+        raise ValueError(f"Correlation prior for {site.name!r} requires support within [-1, 1]")
 
 
-def prior_spec_to_normalized_params(
-    prior: PriorSpec,
-) -> UncheckedJsonObject:
-    """Convert a canonical prior into compiler-normalized parameter names."""
-    params = dict(prior.params)
-    if prior.family == PriorDistributionFamily.LOG_NORMAL and "mu" in params:
-        params["loc"] = params.pop("mu")
-    return params
+def resolve_site_priors(
+    sites: Sequence[SiteDescriptor],
+    priors: Mapping[str, dist.Distribution] | None = None,
+) -> dict[str, dist.Distribution]:
+    """Apply explicit overrides to scientific defaults and broadcast to site shapes."""
+    supplied = {} if priors is None else priors
+    unknown = set(supplied) - {site.name for site in sites}
+    if unknown:
+        raise ValueError(f"Priors refer to inactive sample sites: {sorted(unknown)}")
+    result = {}
+    for site in sites:
+        prior = supplied[site.name] if site.name in supplied else default_prior_for_descriptor(site)
+        validate_site_prior(site, prior)
+        result[site.name] = prior.expand(site.shape)
+    return result

@@ -7,45 +7,45 @@ import jax.numpy as jnp
 import jax.random as random
 import numpy as np
 import pytest
-from jax.flatten_util import ravel_pytree
+from dynestyx import StochasticContinuousTimeStateEvolution
 from numpyro import handlers
+from numpyro.distributions import MultivariateNormal
 
-from nof1_causal_lab.artifacts import LinkFunction
+from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
+from nof1_causal_lab.artifacts.statistical_model_spec import LinkFunction
 from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.ssm import SSMModel
 from nof1_causal_lab.models.ssm.autoreparam import AutoReparam
-from nof1_causal_lab.models.ssm.discretization import discretize_system_batched
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
 from nof1_causal_lab.models.ssm.dynamics.vector_field import VectorField
-from nof1_causal_lab.models.ssm.execution.contracts import (
-    InitialStateParams,
-    MeasurementParams,
-    RuntimeDynamics,
+from nof1_causal_lab.models.ssm.execution.contracts import MeasurementParams
+from nof1_causal_lab.models.ssm.execution.dynamical_model import (
+    StructuralDrift,
+    continuous_state_evolution,
 )
 from nof1_causal_lab.models.ssm.execution.emissions import (
     get_mean_param_log_prob_fn,
 )
-from nof1_causal_lab.models.ssm.inference.backend_factory import get_laplace_backend
-from nof1_causal_lab.models.ssm.inference.targets.affine import derive_affine_dynamics
-from nof1_causal_lab.models.ssm.inference.targets.kernels import (
+from nof1_causal_lab.models.ssm.execution.observation_model import (
     build_observation_kernel,
 )
+from nof1_causal_lab.models.ssm.inference.backend_factory import get_laplace_backend
 from nof1_causal_lab.models.ssm.inference.targets.laplace import (
     LaplaceLikelihood,
     _dense_support_laplace_log_lik,
 )
-from nof1_causal_lab.models.ssm.inference.utils import _build_eval_fns, _discover_sites
+from nof1_causal_lab.models.ssm.inference.utils import _build_eval_fns, prepare_model_parameters
 from nof1_causal_lab.models.ssm.inference.warmup.map import fit_map
 from nof1_causal_lab.models.ssm.structure import SparseVectorBlockSpec
-from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 from tests.ssm_spec_fixtures import (
+    affine_test_evolution,
     block_ssm_spec,
     dense_matrix_dynamics_spec,
     diagonal_diffusion_block,
     make_observation_support_runtime,
 )
 
-pytestmark = pytest.mark.slow
+pytestmark = [pytest.mark.slow, pytest.mark.cpu_expensive]
 
 
 def _apply_reparam(model_fn, reparam_config):
@@ -94,11 +94,11 @@ def _runtime_dynamics(
     diffusion_cov: jnp.ndarray,
     cint: jnp.ndarray | None = None,
     input_effect: jnp.ndarray | None = None,
-) -> RuntimeDynamics:
+) -> StochasticContinuousTimeStateEvolution:
     params = {"drift": dynamics}
     if cint is not None:
         params["cint"] = cint
-    return RuntimeDynamics(
+    return continuous_state_evolution(
         vector_field=VectorField(
             n_latent=int(dynamics.shape[0]),
             components=(DenseLinear(),),
@@ -140,9 +140,9 @@ class TestLaplaceSupportAware:
             manifest_means=jnp.array([0.0], dtype=jnp.float32),
             manifest_cov=jnp.array([[0.2]], dtype=jnp.float32),
         )
-        init = InitialStateParams(
-            mean=jnp.array([0.0], dtype=jnp.float32),
-            cov=jnp.array([[1.0]], dtype=jnp.float32),
+        init = MultivariateNormal(
+            loc=jnp.array([0.0], dtype=jnp.float32),
+            covariance_matrix=jnp.array([[1.0]], dtype=jnp.float32),
         )
         observations = jnp.array([[jnp.nan], [jnp.nan], [0.25]], dtype=jnp.float32)
         time_intervals = jnp.array([1.0, 1.0, 1.0], dtype=jnp.float32)
@@ -187,20 +187,21 @@ class TestLaplaceSupportAware:
             manifest_means=jnp.array([0.0], dtype=jnp.float32),
             manifest_cov=jnp.array([[0.2]], dtype=jnp.float32),
         )
-        init = InitialStateParams(
-            mean=jnp.array([0.0], dtype=jnp.float32),
-            cov=jnp.array([[1.0]], dtype=jnp.float32),
+        init = MultivariateNormal(
+            loc=jnp.array([0.0], dtype=jnp.float32),
+            covariance_matrix=jnp.array([[1.0]], dtype=jnp.float32),
         )
         observations = jnp.array([[jnp.nan], [jnp.nan], [0.25]], dtype=jnp.float32)
         time_intervals = jnp.array([1.0, 1.0, 1.0], dtype=jnp.float32)
 
-        affine = derive_affine_dynamics(ct_params)
-        Ad, Qd, cd = discretize_system_batched(
-            affine.drift,
-            affine.diffusion_cov,
-            affine.cint,
-            time_intervals,
+        assert isinstance(ct_params.drift, StructuralDrift)
+        evolution = affine_test_evolution(
+            ct_params.drift.args.params[0]["drift"],
+            ct_params.diffusion.gram_matrix(x=None, u=None, t=0, state_dim=1),
+            ct_params.drift.args.params[0]["cint"],
         )
+        reference = jax.vmap(lambda dt: evolution.params_at(0.0, dt))(time_intervals)
+        Ad, Qd, cd = reference.A, reference.cov, reference.bias
         assert cd is not None
         if cd.ndim == 1:
             cd = cd[:, None]
@@ -228,7 +229,7 @@ class TestLaplaceSupportAware:
             meas_params.manifest_means,
             meas_params.manifest_cov,
             init.mean,
-            init.cov,
+            init.covariance_matrix,
             obs_kernel,
             mean_log_prob_fn,
             support,
@@ -365,26 +366,16 @@ class TestPureJaxLikelihoodEvaluator:
     def _assert_log_likelihood_match(reparam) -> None:
         model, observations, times = TestPureJaxLikelihoodEvaluator._build_poisson_case()
         backend = get_laplace_backend(model, 6)
-        site_info = _discover_sites(
-            model,
-            observations,
-            times,
-            random.PRNGKey(0),
-            backend,
-            reparam=reparam,
+        parameters, site_info, _ = prepare_model_parameters(
+            model, observations, times, random.PRNGKey(0), reparam
         )
-        example_unc = {
-            name: info["transform"].inv(info["value"]) for name, info in site_info.items()
-        }
-        z0, unravel_fn = ravel_pytree(example_unc)
+        z0, unravel_fn = parameters.initial_position, parameters.unravel
         log_lik_fn, _ = _build_eval_fns(
             model,
             observations,
             times,
-            site_info,
-            unravel_fn,
+            parameters,
             likelihood_backend=backend,
-            reparam=reparam,
         )
 
         base_model_fn = functools.partial(model.model, likelihood_backend=backend)

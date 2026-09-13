@@ -14,15 +14,15 @@ likelihood.  Three solver strategies are dispatched automatically:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 
 from nof1_causal_lab.models.ssm.dynamics.linearisation import infer_linearisation
-from nof1_causal_lab.models.ssm.inference.targets.kernels import compile_observation_model
-from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
+from nof1_causal_lab.models.ssm.execution.observation_model import compile_observation_model
+from nof1_causal_lab.models.ssm.execution.observation_operator import (
     get_summary_operator_codes,
 )
 from nof1_causal_lab.models.ssm.inference.targets.transitions import build_discrete_transitions
@@ -60,13 +60,15 @@ from .support import (
 )
 
 if TYPE_CHECKING:
+    from dynestyx import StochasticContinuousTimeStateEvolution
+    from numpyro.distributions import MultivariateNormal
+
     from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily, LinkFunction
     from nof1_causal_lab.models.ssm.execution.contracts import (
-        InitialStateParams,
         LikelihoodExtraParams,
         MeasurementParams,
-        RuntimeDynamics,
     )
+    from nof1_causal_lab.models.ssm.execution.dynamical_model import StructuralDrift
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
 
@@ -182,9 +184,9 @@ class LaplaceLikelihood:
 
     def _compute_log_likelihood_impl(
         self,
-        dynamics: RuntimeDynamics,
+        dynamics: StochasticContinuousTimeStateEvolution,
         measurement_params: MeasurementParams,
-        initial_state: InitialStateParams,
+        initial_state: MultivariateNormal,
         observations: jnp.ndarray,
         time_intervals: jnp.ndarray,
         *,
@@ -196,7 +198,6 @@ class LaplaceLikelihood:
         allow_stateful_cache: bool,
     ) -> tuple[jnp.ndarray, dict[str, jnp.ndarray] | None]:
         """Shared Laplace likelihood implementation with explicit cache control."""
-        n = self.n_latent
 
         if obs_mask is None:
             obs_mask = ~jnp.isnan(observations)
@@ -219,14 +220,7 @@ class LaplaceLikelihood:
                     time_intervals,
                     transition_inputs=transition_inputs,
                 )
-                Ad, Qd, cd = transitions.Ad, transitions.Qd, transitions.cd
-            if cd is None:
-                cd = jnp.zeros((len(time_intervals), n))
-            else:
-                cd = jnp.asarray(cd)
-                if cd.ndim == 1:
-                    cd = cd[:, None]
-            return Ad, Qd, cd
+            return transitions.A, transitions.cov, jnp.asarray(transitions.bias)
 
         if (
             self.observation_support is not None
@@ -241,7 +235,10 @@ class LaplaceLikelihood:
                 obs_mask,
                 extra_params,
             )
-            uses_dynamic_transitions = infer_linearisation(dynamics.vector_field) == "trajectory"
+            uses_dynamic_transitions = (
+                infer_linearisation(cast("StructuralDrift", dynamics.drift).vector_field)
+                == "trajectory"
+            )
             if uses_dynamic_transitions:
                 can_reuse_support_mode = allow_stateful_cache and not _tree_contains_tracer(
                     cache_inputs
@@ -268,7 +265,7 @@ class LaplaceLikelihood:
                             measurement_params.manifest_means,
                             measurement_params.manifest_cov,
                             initial_state.mean,
-                            initial_state.cov,
+                            initial_state.covariance_matrix,
                             obs_kernel,
                             observation_model.mean_log_prob_fn,
                             self.observation_support,
@@ -298,7 +295,7 @@ class LaplaceLikelihood:
                         measurement_params.manifest_means,
                         measurement_params.manifest_cov,
                         initial_state.mean,
-                        initial_state.cov,
+                        initial_state.covariance_matrix,
                         obs_kernel,
                         observation_model.mean_log_prob_fn,
                         self.observation_support,
@@ -365,7 +362,7 @@ class LaplaceLikelihood:
                         measurement_params.manifest_means,
                         measurement_params.manifest_cov,
                         initial_state.mean,
-                        initial_state.cov,
+                        initial_state.covariance_matrix,
                         obs_kernel,
                         observation_model.mean_log_prob_fn,
                         self.observation_support,
@@ -388,7 +385,7 @@ class LaplaceLikelihood:
                     measurement_params.manifest_means,
                     measurement_params.manifest_cov,
                     initial_state.mean,
-                    initial_state.cov,
+                    initial_state.covariance_matrix,
                     obs_kernel,
                     observation_model.mean_log_prob_fn,
                     self.observation_support,
@@ -425,7 +422,10 @@ class LaplaceLikelihood:
         ):
             point_mode_init = self._point_mode_cache
 
-        uses_dynamic_transitions = infer_linearisation(dynamics.vector_field) == "trajectory"
+        uses_dynamic_transitions = (
+            infer_linearisation(cast("StructuralDrift", dynamics.drift).vector_field)
+            == "trajectory"
+        )
         T_obs = clean_obs.shape[0]
         H_rows = jnp.broadcast_to(
             measurement_params.lambda_mat[None, :, :],
@@ -459,7 +459,7 @@ class LaplaceLikelihood:
                     d_rows,
                     measurement_params.manifest_cov,
                     initial_state.mean,
-                    initial_state.cov,
+                    initial_state.covariance_matrix,
                     obs_kernel,
                     n_ieks_iters=self.n_ieks_iters,
                     z_init=point_mode_init,
@@ -477,7 +477,7 @@ class LaplaceLikelihood:
                     d_rows,
                     measurement_params.manifest_cov,
                     initial_state.mean,
-                    initial_state.cov,
+                    initial_state.covariance_matrix,
                     obs_kernel,
                     n_ieks_iters=self.n_ieks_iters,
                     z_init=point_mode_init,
@@ -491,9 +491,9 @@ class LaplaceLikelihood:
 
     def compute_log_likelihood(
         self,
-        dynamics: RuntimeDynamics,
+        dynamics: StochasticContinuousTimeStateEvolution,
         measurement_params: MeasurementParams,
-        initial_state: InitialStateParams,
+        initial_state: MultivariateNormal,
         observations: jnp.ndarray,
         time_intervals: jnp.ndarray,
         obs_mask: jnp.ndarray | None = None,
@@ -523,9 +523,9 @@ class LaplaceLikelihood:
 
     def compute_log_likelihood_with_aux(
         self,
-        dynamics: RuntimeDynamics,
+        dynamics: StochasticContinuousTimeStateEvolution,
         measurement_params: MeasurementParams,
-        initial_state: InitialStateParams,
+        initial_state: MultivariateNormal,
         observations: jnp.ndarray,
         time_intervals: jnp.ndarray,
         obs_mask: jnp.ndarray | None = None,

@@ -34,6 +34,7 @@ Usage:
 from __future__ import annotations
 
 import ast
+import keyword
 import os
 import re
 import shutil
@@ -253,7 +254,7 @@ def _collect_string_type_refs(paths: list[Path]) -> set[str]:
 def _write_phantom(cache_dir: Path, filename: str, refs: set[str]) -> None:
     if not refs:
         return
-    body = "\n".join(f"_ = {name}" for name in sorted(refs))
+    body = "\n".join(f"_ = {name}" for name in sorted(refs) if not keyword.iskeyword(name))
     (cache_dir / filename).write_text(body + "\n")
 
 

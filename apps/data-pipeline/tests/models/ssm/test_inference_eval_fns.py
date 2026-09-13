@@ -5,8 +5,8 @@ from typing import Any
 
 import jax.numpy as jnp
 import numpy as np
-import numpyro.distributions as dist
 import pytest
+from dynestyx.inference.particle_runtime import Parameterization
 
 import nof1_causal_lab.models.ssm.inference.utils as inference_utils
 from nof1_causal_lab.models.ssm.constants import MIN_DT
@@ -44,11 +44,6 @@ def _build_test_evaluators(monkeypatch, *, runtime: bool, backend: _RecordingBac
     transition_inputs = jnp.arange(10, dtype=jnp.float32).reshape(5, 2)
     model = SimpleNamespace(spec=object(), transition_inputs=transition_inputs)
 
-    monkeypatch.setattr(
-        inference_utils,
-        "_build_original_sample_resolver",
-        lambda *_args, **_kwargs: lambda samples: {"theta": samples["theta"] + 10.0},
-    )
     monkeypatch.setattr(inference_utils, "build_site_registry", lambda _spec: registry)
 
     def assemble(samples, spec, *, registry: object):
@@ -58,20 +53,17 @@ def _build_test_evaluators(monkeypatch, *, runtime: bool, backend: _RecordingBac
         return "dynamics", "measurement", "initial", {"obs_df": 5.0}
 
     monkeypatch.setattr(inference_utils, "_assemble_likelihood_inputs", assemble)
-    site_info = {
-        "theta": {
-            "shape": (),
-            "distribution": dist.Normal(0.0, 1.0),
-            "transform": dist.transforms.AffineTransform(1.0, 2.0),
-            "value": jnp.asarray(0.0),
-        }
-    }
+    parameters = Parameterization(
+        initial_position=jnp.asarray(0.0),
+        unravel=lambda z: {"theta": z},
+        constrain=lambda z: {"theta": 11.0 + 2.0 * z},
+        log_prior=lambda z: -(z**2),
+    )
     functions = inference_utils._build_eval_fns(
         model,
         bound_observations,
         bound_times,
-        site_info,
-        lambda z: {"theta": z},
+        parameters,
         backend,
         include_likelihood_aux=True,
         runtime_observations_times=runtime,

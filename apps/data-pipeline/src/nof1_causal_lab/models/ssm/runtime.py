@@ -28,14 +28,15 @@ from nof1_causal_lab.models.ssm.parameterization import (
     load_prior_runtime_bundle,
 )
 from nof1_causal_lab.models.ssm.priors import (
-    PriorRegistry,
-    default_prior_registry_for_sites,
+    resolve_site_priors,
 )
 from nof1_causal_lab.models.ssm.serialization import deserialize_ssm_spec
 from nof1_causal_lab.utils.data import pivot_to_wide
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.compile.contracts import (
+    import numpyro.distributions as dist
+
+    from nof1_causal_lab.artifacts.compiled_ssm import (
         CompiledParameterBinding,
         CompiledPriorSemantics,
         CompiledSSMArtifact,
@@ -98,6 +99,7 @@ class PreparedModelRuntime:
     times: jnp.ndarray
     transition_inputs: jnp.ndarray | None
     manifest_names: list[str]
+    manifest_ids: list[str] | None
 
 
 def get_default_sampler_config() -> SamplerConfig:
@@ -111,7 +113,7 @@ def build_ssm_model(
     wide_data: pl.DataFrame,
     *,
     ssm_spec: SSMSpec,
-    prior_registry: PriorRegistry | None = None,
+    prior_registry: dict[str, dist.Distribution] | None = None,
     compiled_prior_semantics: CompiledPriorSemantics | None = None,
     prior_runtime_bundle: PriorRuntimeBundle | None = None,
     parameter_bindings: list[CompiledParameterBinding] | None = None,
@@ -121,7 +123,7 @@ def build_ssm_model(
         raise ValueError("Cannot build SSM model from empty data")
 
     spec = hydrate_discrete_manifest_metadata(ssm_spec, wide_data)
-    resolved_priors = prior_registry or default_prior_registry_for_sites(build_site_registry(spec))
+    resolved_priors = resolve_site_priors(build_site_registry(spec), prior_registry)
     validate_observation_support(spec, wide_data)
 
     runtime_bundle = prior_runtime_bundle
@@ -284,23 +286,49 @@ def prepare_wide_model_runtime(
         times=times,
         transition_inputs=transition_inputs,
         manifest_names=manifest_names,
+        manifest_ids=(
+            [
+                {name: iid for iid, name in compiled_ssm.observation_bindings.items()}[name]
+                for name in manifest_names
+            ]
+            if compiled_ssm is not None
+            else None
+        ),
     )
 
 
 def prepare_model_runtime(
     data_for_model: pl.DataFrame,
     *,
-    compiled_ssm: CompiledSSMArtifact | None = None,
+    compiled_ssm: CompiledSSMArtifact,
     sampler_config: SamplerConfigInput | None = None,
     model: SSMModel | None = None,
 ) -> PreparedModelRuntime:
     """Canonical entry point for preparing stage data for model work."""
+    wide_data = pivot_to_wide(data_for_model)
+    runtime_rows = data_for_model.rename({"indicator_id": "indicator"})
+    if compiled_ssm is not None:
+        unknown = (
+            set(data_for_model["indicator_id"].unique()) - compiled_ssm.observation_bindings.keys()
+        )
+        if unknown:
+            raise ValueError(f"Observations reference unknown indicators: {sorted(unknown)}")
+        wide_data = wide_data.rename(
+            {
+                iid: name
+                for iid, name in compiled_ssm.observation_bindings.items()
+                if iid in wide_data.columns
+            }
+        )
+        runtime_rows = runtime_rows.with_columns(
+            pl.col("indicator").replace_strict(compiled_ssm.observation_bindings)
+        )
     return prepare_wide_model_runtime(
-        pivot_to_wide(data_for_model),
+        wide_data,
         compiled_ssm=compiled_ssm,
         sampler_config=sampler_config,
         model=model,
-        observation_data=data_for_model,
+        observation_data=runtime_rows,
     )
 
 

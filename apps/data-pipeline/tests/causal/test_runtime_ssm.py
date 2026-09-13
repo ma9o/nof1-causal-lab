@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 import numpy as np
+import numpyro.distributions as dist
 import numpyro.distributions as ndist
+from dynestyx import StochasticContinuousTimeStateEvolution
 
+from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
 from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.models.ssm.dynamics import (
     DiagonalDecaySpec,
@@ -19,8 +22,7 @@ from nof1_causal_lab.models.ssm.dynamics import (
     compile_dynamics,
     infer_linearisation,
 )
-from nof1_causal_lab.models.ssm.priors import PriorRegistry, PriorSpec
-from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
+from nof1_causal_lab.prior_distributions import distribution_from_params
 from tests.ssm_spec_fixtures import (
     default_input_effect_block,
     default_manifest_means_block,
@@ -28,15 +30,13 @@ from tests.ssm_spec_fixtures import (
 )
 
 
-def _decay_prior_registry(values) -> PriorRegistry:
-    return PriorRegistry(
-        {
-            "vf_0_decay": PriorSpec(
-                PriorDistributionFamily.DELTA,
-                {"value": values},
-            )
-        }
-    )
+def _decay_prior_registry(values) -> dict[str, dist.Distribution]:
+    return {
+        "vf_0_decay": distribution_from_params(
+            PriorDistributionFamily.DELTA,
+            {"value": values},
+        )
+    }
 
 
 class TestInferLinearisation:
@@ -85,7 +85,8 @@ class TestSSMModelDynamicsDispatch:
         from numpyro import handlers
 
         from nof1_causal_lab.models.ssm import SSMModel, SSMSpec
-        from nof1_causal_lab.models.ssm.execution.contracts import RuntimeDynamics
+
+        pass
         from nof1_causal_lab.models.ssm.structure import (
             DiffusionBlockSpec,
             ManifestCholBlockSpec,
@@ -106,12 +107,12 @@ class TestSSMModelDynamicsDispatch:
                 time_intervals,
                 **_kwargs,
             ):
-                assert isinstance(dynamics, RuntimeDynamics)
+                assert isinstance(dynamics, StochasticContinuousTimeStateEvolution)
                 numpyro.deterministic(
                     "backend_n_vf_components",
-                    jnp.asarray(len(dynamics.vf_params)),
+                    jnp.asarray(len(dynamics.drift.args.params)),
                 )
-                numpyro.deterministic("backend_decay", dynamics.vf_params[0]["decay"])
+                numpyro.deterministic("backend_decay", dynamics.drift.args.params[0]["decay"])
                 return jnp.zeros_like(time_intervals)
 
         spec = SSMSpec(

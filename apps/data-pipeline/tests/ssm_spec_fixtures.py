@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from typing import Any, override
 
+import dynestyx as dsx
 import jax.numpy as jnp
 import jax.random as random
 import jax.scipy.linalg as jla
 import numpy as np
+from dynestyx.inference.configs.discretizer import ExactAffineConfig
 
-from nof1_causal_lab.models.ssm import SSMSpec, discretize_linear_system_exact
+from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
+from nof1_causal_lab.models.ssm import SSMSpec
 from nof1_causal_lab.models.ssm.autoreparam import Strategy, _minimal_reparam
 from nof1_causal_lab.models.ssm.dynamics.spec import (
     DiagonalDecaySpec,
@@ -19,7 +22,6 @@ from nof1_causal_lab.models.ssm.dynamics.spec import (
     StateInterceptSpec,
 )
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
-from nof1_causal_lab.models.ssm.priors import PriorRegistry, PriorSpec
 from nof1_causal_lab.models.ssm.structure import (
     DiffusionBlockSpec,
     ManifestCholBlockSpec,
@@ -27,7 +29,18 @@ from nof1_causal_lab.models.ssm.structure import (
     SparseVectorBlockSpec,
     T0CholBlockSpec,
 )
-from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
+from tests.helpers import native_axis_metadata
+
+
+def affine_test_evolution(A, covariance, b=None, B=None):
+    """Library-owned exact affine reference, restricted to test data and comparisons."""
+    return dsx.discretize_state_evolution(
+        dsx.StochasticContinuousTimeStateEvolution(
+            drift=dsx.AffineDrift(A=A, b=b, B=B),
+            diffusion=dsx.FullDiffusion(jnp.linalg.cholesky(covariance)),
+        ),
+        ExactAffineConfig(covariance_jitter=0.0),
+    )
 
 
 class MinimalReparam(Strategy):
@@ -280,7 +293,8 @@ def make_lgss_data(
     true_diff_cov = jnp.array([[diff_sd**2]])
     true_obs_var = jnp.array([[obs_sd**2]])
 
-    Ad, Qd, _ = discretize_linear_system_exact(true_dynamics, true_diff_cov, None, dt)
+    parameters = affine_test_evolution(true_dynamics, true_diff_cov).params_at(0.0, dt)
+    Ad, Qd = parameters.A, parameters.cov
     Qd_chol = jla.cholesky(Qd + jnp.eye(n_latent) * 1e-8, lower=True)
     R_chol = jla.cholesky(true_obs_var, lower=True)
 
@@ -359,11 +373,6 @@ def make_lgss_data(
     }
 
 
-def prior_registry(**priors_by_site: PriorSpec) -> PriorRegistry:
-    """Build a partial site-keyed prior registry for tests."""
-    return PriorRegistry(priors_by_site)
-
-
 def block_ssm_spec(
     *,
     n_latent: int,
@@ -397,7 +406,7 @@ def block_ssm_spec(
         input_effect_block=input_effect_block or default_input_effect_block(n_latent),
         static_state_sd_block=static_state_sd_block or default_static_state_sd_block(),
         static_factor_loadings=static_factor_loadings,
-        **metadata,
+        **native_axis_metadata(n_latent, n_manifest, metadata),
     )
 
 

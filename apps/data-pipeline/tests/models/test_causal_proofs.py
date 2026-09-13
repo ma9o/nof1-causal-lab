@@ -1,31 +1,36 @@
 """Proof-carrying boundaries for numeric causal analysis."""
 
+import pickle
 from dataclasses import replace
 from typing import Any
 
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
-from nof1_causal_lab.artifacts import (
+from nof1_causal_lab.artifacts.causal_design import (
     CausalDesign,
-    CausalEdge,
-    Construct,
     IdentifiabilityStatus,
     IdentifiedTreatmentStatus,
+)
+from nof1_causal_lab.artifacts.identity import CausalDesignRef, ConstructRef
+from nof1_causal_lab.artifacts.latent_structure import (
+    CausalEdge,
+    Construct,
     LatentStructure,
-    MeasurementStructure,
     Role,
     TemporalStatus,
 )
+from nof1_causal_lab.artifacts.measurement_structure import MeasurementStructure
+from nof1_causal_lab.artifacts.posterior import PosteriorProvenance
 from nof1_causal_lab.models.causal_proofs import (
-    CausalDesignRef,
     CertifiedCausalAnalysis,
-    PosteriorProvenance,
     certify_identified_estimand,
     certify_reportable_posterior,
 )
 from nof1_causal_lab.models.ssm.inference.types import (
     FittedArtifact,
+    JointPosteriorDraws,
     ParticleMCMCPosterior,
     WarmupProposal,
 )
@@ -35,27 +40,36 @@ from tests.ssm_spec_fixtures import block_ssm_spec, full_dense_matrix_dynamics_s
 def _design() -> CausalDesign:
     return CausalDesign(
         latent=LatentStructure(
+            default_outcome=ConstructRef(id="construct:a1cddfa8657e4a8cb3ae"),
             constructs=[
                 Construct(
+                    id="construct:c270c8ac9df81ed2ec60",
                     name="treatment",
                     description="Treatment",
                     role=Role.EXOGENOUS,
                     temporal_status=TemporalStatus.TIME_VARYING,
                 ),
                 Construct(
+                    id="construct:a1cddfa8657e4a8cb3ae",
                     name="outcome",
                     description="Outcome",
                     role=Role.ENDOGENOUS,
-                    is_outcome=True,
                     temporal_status=TemporalStatus.TIME_VARYING,
                 ),
             ],
-            edges=[CausalEdge(cause="treatment", effect="outcome", description="Test edge")],
+            edges=[
+                CausalEdge(
+                    cause_id="construct:c270c8ac9df81ed2ec60",
+                    effect_id="construct:a1cddfa8657e4a8cb3ae",
+                    id="edge:b3472c637d08744910a8",
+                    description="Test edge",
+                )
+            ],
         ),
         measurement=MeasurementStructure(indicators=[], model_clock="1d"),
         identifiability=IdentifiabilityStatus(
             identifiable_treatments={
-                "treatment": IdentifiedTreatmentStatus(
+                "construct:c270c8ac9df81ed2ec60": IdentifiedTreatmentStatus(
                     method="do_calculus",
                     estimand="E[outcome | do(treatment)]",
                 )
@@ -70,7 +84,11 @@ def _artifact(
     causal_design_version: int = 1,
 ) -> FittedArtifact:
     return FittedArtifact(
-        result=ParticleMCMCPosterior(_samples={"vf_0_decay": jnp.ones((2, 2), dtype=jnp.float32)}),
+        result=ParticleMCMCPosterior(
+            draws=JointPosteriorDraws(
+                parameters={"vf_0_decay": jnp.ones((2, 2), dtype=jnp.float32)}
+            )
+        ),
         spec=block_ssm_spec(
             n_latent=2,
             n_manifest=0,
@@ -130,7 +148,9 @@ def test_reportable_posterior_rejects_warmup_from_untyped_boundary() -> None:
 
 def test_reportable_posterior_rejects_empty_particle_draws() -> None:
     artifact = _artifact()
-    artifact = replace(artifact, result=ParticleMCMCPosterior(_samples={}))
+    artifact = replace(
+        artifact, result=ParticleMCMCPosterior(draws=JointPosteriorDraws(parameters={}))
+    )
 
     with pytest.raises(ValueError, match="no retained samples"):
         certify_reportable_posterior(artifact)
@@ -173,3 +193,36 @@ def test_causal_analysis_joins_matching_proofs() -> None:
 
     assert analysis.treatments == ["treatment"]
     assert analysis.outcome == "outcome"
+
+
+def test_fitted_artifact_preserves_aligned_joint_draws_without_sampler_diagnostics():
+    artifact = _artifact()
+    parameters = {"beta": jnp.arange(6.0).reshape(3, 2)}
+    paths = jnp.arange(12.0).reshape(3, 2, 2)
+    draws = JointPosteriorDraws(parameters=parameters, latent_paths=paths)
+    result = ParticleMCMCPosterior(draws=draws, diagnostics={"likelihood_backend": lambda: None})
+    restored = pickle.loads(pickle.dumps(replace(artifact, result=result)))
+    np.testing.assert_array_equal(restored.result.get_samples()["beta"], parameters["beta"])
+    np.testing.assert_array_equal(restored.result.draws.latent_paths, paths)
+    assert restored.result.diagnostics == {}
+    assert restored.provenance == artifact.provenance
+    assert restored.result.draws.describe().model_dump() == {
+        "n_draws": 3,
+        "parameter_shapes": {"beta": [2]},
+        "latent_shape": (2, 2),
+    }
+    assert result.draws is draws
+
+
+@pytest.mark.parametrize(
+    ("parameters", "paths", "message"),
+    [
+        ({"beta": jnp.zeros((3, 2))}, jnp.zeros((2, 4, 2)), "share the draw axis"),
+        ({"beta": jnp.zeros(3), "gamma": jnp.zeros(4)}, None, "share the draw axis"),
+        ({"beta": jnp.zeros(3)}, jnp.zeros((1, 3, 4, 2)), "draw, time, and state axes"),
+        ({"beta": jnp.array(1.0)}, None, "leading draw axis"),
+    ],
+)
+def test_joint_posterior_rejects_misaligned_or_ambiguous_draw_axes(parameters, paths, message):
+    with pytest.raises(ValueError, match=message):
+        JointPosteriorDraws(parameters=parameters, latent_paths=paths)

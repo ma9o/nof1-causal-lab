@@ -13,8 +13,12 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from nof1_causal_lab.artifacts import DistributionFamily, LikelihoodSpec, LinkFunction
+from nof1_causal_lab.artifacts.identity import ConstructRef, IndicatorRef
+from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.artifacts.statistical_model_spec import (
+    DistributionFamily,
+    LikelihoodSpec,
+    LinkFunction,
     ParameterConstraint,
     ParameterRole,
     ParameterSpec,
@@ -32,7 +36,7 @@ from nof1_causal_lab.models.ssm.compile.structural import StructuralClosureError
 from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
 from nof1_causal_lab.models.ssm.likelihood_extra_params import assemble_sampled_extra_params
 from nof1_causal_lab.utils.causal_design import build_reference_indicator_lookup
-from tests.helpers import make_structural_plan
+from tests.helpers import declare_test_dynamics, fixture_entity_id, make_structural_plan
 from tests.ssm_spec_fixtures import block_ssm_spec
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -48,8 +52,9 @@ def _indicator(
     polarity: str = "positive",
 ) -> dict[str, Any]:
     indicator = {
+        "id": fixture_entity_id("indicator", name),
+        "construct_id": fixture_entity_id("construct", construct_name),
         "name": name,
-        "construct_name": construct_name,
         "construct_polarity": polarity,
         "how_to_measure": f"measure {name}",
         "measurement_dtype": dtype,
@@ -75,22 +80,26 @@ def _structural_plan(
             "time_invariant" if construct["name"] in time_invariant else "time_varying"
         )
 
+    construct_ids = {
+        fixture_entity_id("construct", construct["name"]): source_id
+        for source_id, construct in plan["semantics"]["constructs"].items()
+    }
     indicator_items = {
-        f"indicator:{index:04d}": indicator for index, indicator in enumerate(indicators)
+        indicator["id"]: {
+            **indicator,
+            "construct_id": construct_ids[indicator["construct_id"]],
+        }
+        for indicator in indicators
     }
     plan["semantics"]["indicators"] = indicator_items
     plan["manifest_indicator_order"] = list(indicator_items)
-    reference_names = build_reference_indicator_lookup(indicators)
-    construct_ids = {
-        construct["name"]: source_id
-        for source_id, construct in plan["semantics"]["constructs"].items()
-    }
+    reference_names = build_reference_indicator_lookup(list(indicator_items.values()))
     indicator_ids = {
         indicator["name"]: source_id for source_id, indicator in indicator_items.items()
     }
     plan["reference_indicator_ids"] = {
-        construct_ids[construct_name]: indicator_ids[indicator_name]
-        for construct_name, indicator_name in reference_names.items()
+        construct_id: indicator_ids[indicator_name]
+        for construct_id, indicator_name in reference_names.items()
     }
     plan["dispositions"] = [
         disposition
@@ -120,7 +129,7 @@ _LIKELIHOOD_BY_DTYPE = {
 def _likelihood(variable: str, dtype: str) -> LikelihoodSpec:
     distribution, link = _LIKELIHOOD_BY_DTYPE[dtype]
     return LikelihoodSpec(
-        variable=variable,
+        indicator_id=fixture_entity_id("indicator", variable),
         distribution=distribution,
         link=link,
         reasoning="test",
@@ -131,17 +140,20 @@ def _model_spec(
     likelihoods: list[LikelihoodSpec],
     parameters: list[ParameterSpec] | None = None,
     *,
-    equilibrium_forcing: bool = False,
+    plan: StructuralPlan,
+    centered_states: tuple[str, ...] = (),
 ) -> StatisticalModelSpec:
-    return StatisticalModelSpec(
-        likelihoods=likelihoods,
-        parameters=parameters or [],
-        equilibrium_forcing=equilibrium_forcing,
+    model = StatisticalModelSpec(
+        mechanisms=[], likelihoods=likelihoods, parameters=parameters or []
     )
+    return declare_test_dynamics(model, plan, centered_states=centered_states)
 
 
 def _manifest_mean(variable: str) -> ParameterSpec:
     return ParameterSpec(
+        id="parameter:" + "0" * 64,
+        owners=[IndicatorRef(id=fixture_entity_id("indicator", variable))],
+        quantity=SiteKind.MANIFEST_MEANS,
         name=f"manifest_mean_{variable}",
         role=ParameterRole.OBSERVATION_INTERCEPT,
         constraint=ParameterConstraint.NONE,
@@ -179,7 +191,7 @@ class TestOrderedThresholds:
         """Well-at-zero anchors location; the fixed logistic link anchors scale."""
         structural_plan = _structural_plan(["mood"], [_indicator("mood_level", "mood", "ordinal")])
         spec, _ = translate_spec(
-            _model_spec([_likelihood("mood_level", "ordinal")]),
+            _model_spec([_likelihood("mood_level", "ordinal")], plan=structural_plan),
             structural_plan=structural_plan,
         )
         assert spec.manifest_cat_anchor is not None
@@ -194,6 +206,7 @@ class TestOrderedThresholds:
                 _model_spec(
                     [_likelihood("mood_level", "ordinal")],
                     [_manifest_mean("mood_level")],
+                    plan=structural_plan,
                 ),
                 structural_plan=structural_plan,
             )
@@ -214,6 +227,7 @@ class TestLocationAnchors:
                 _model_spec(
                     [_likelihood("mood_rating", "continuous")],
                     [_manifest_mean("mood_rating")],
+                    plan=structural_plan,
                 ),
                 structural_plan=structural_plan,
             )
@@ -226,6 +240,7 @@ class TestLocationAnchors:
             _model_spec(
                 [_likelihood("fill_quantity", "continuous")],
                 [_manifest_mean("fill_quantity")],
+                plan=structural_plan,
             ),
             structural_plan=structural_plan,
         )
@@ -239,6 +254,7 @@ class TestLocationAnchors:
             _model_spec(
                 [_likelihood("mood_flag", "binary")],
                 [_manifest_mean("mood_flag")],
+                plan=structural_plan,
             ),
             structural_plan=structural_plan,
         )
@@ -250,13 +266,17 @@ class TestLocationAnchors:
             [_likelihood("mood_flag", "binary")],
             [
                 ParameterSpec(
+                    id="parameter:cfce07a13aa9f9343382f0cbb7c2f3d3e21a8d5890c53473f4382a8d832e91f8",
+                    owners=[ConstructRef(id=structural_plan.state_order[0])],
+                    quantity=SiteKind.DYNAMICS_POTENTIAL_CENTER,
                     name="cint_mood",
                     role=ParameterRole.STATE_INTERCEPT,
                     constraint=ParameterConstraint.NONE,
                     description="equilibrium center",
                 )
             ],
-            equilibrium_forcing=True,
+            centered_states=(structural_plan.state_order[0],),
+            plan=structural_plan,
         )
         with pytest.raises(StructuralClosureError, match="no location anchor"):
             translate_spec(spec, structural_plan=structural_plan)
@@ -277,13 +297,17 @@ class TestLocationAnchors:
                 ],
                 [
                     ParameterSpec(
+                        id="parameter:cfce07a13aa9f9343382f0cbb7c2f3d3e21a8d5890c53473f4382a8d832e91f8",
+                        owners=[ConstructRef(id=structural_plan.state_order[0])],
+                        quantity=SiteKind.DYNAMICS_POTENTIAL_CENTER,
                         name="cint_mood",
                         role=ParameterRole.STATE_INTERCEPT,
                         constraint=ParameterConstraint.NONE,
                         description="equilibrium center",
                     )
                 ],
-                equilibrium_forcing=True,
+                centered_states=(structural_plan.state_order[0],),
+                plan=structural_plan,
             ),
             structural_plan=structural_plan,
         )
@@ -304,7 +328,8 @@ class TestLocationAnchors:
                 [
                     _likelihood("mood_rating", "continuous"),
                     _likelihood("trait_flag", "binary"),
-                ]
+                ],
+                plan=structural_plan,
             ),
             structural_plan=structural_plan,
         )
@@ -326,7 +351,8 @@ class TestLocationAnchors:
                 [
                     _likelihood("mood_rating", "continuous"),
                     _likelihood("trait_score", "continuous"),
-                ]
+                ],
+                plan=structural_plan,
             ),
             structural_plan=structural_plan,
         )
@@ -364,7 +390,8 @@ class TestCategoricalAnchors:
                 [
                     _likelihood("mood_rating", "continuous"),
                     _likelihood("mood_kind", "categorical"),
-                ]
+                ],
+                plan=structural_plan,
             ),
             structural_plan=structural_plan,
         )
@@ -380,7 +407,7 @@ class TestCategoricalAnchors:
             ["mood"], [_indicator("mood_kind", "mood", "categorical")]
         )
         spec, _ = translate_spec(
-            _model_spec([_likelihood("mood_kind", "categorical")]),
+            _model_spec([_likelihood("mood_kind", "categorical")], plan=structural_plan),
             structural_plan=structural_plan,
         )
         assert spec.manifest_cat_anchor == [True]
@@ -404,6 +431,7 @@ class TestCategoricalAnchors:
                 _model_spec(
                     [_likelihood("mood_kind", "categorical")],
                     [_manifest_mean("mood_kind")],
+                    plan=structural_plan,
                 ),
                 structural_plan=structural_plan,
             )
@@ -428,7 +456,8 @@ class TestAnchorSurfaces:
                 [
                     _likelihood("mood_level", "ordinal"),
                     _likelihood("mood_rating", "continuous"),
-                ]
+                ],
+                plan=structural_plan,
             ),
             structural_plan=structural_plan,
         )
@@ -442,7 +471,7 @@ class TestAnchorSurfaces:
         parameter = {"name": "lambda_mood_kind_mood", "role": "loading", "indicator": "mood_kind"}
         chosen = {
             "mood_kind": {
-                "variable": "mood_kind",
+                "indicator_id": "indicator:f61e2793334052e6699f",
                 "distribution": "categorical",
                 "link": "softmax",
                 "construct_name": "mood",
@@ -473,7 +502,7 @@ class TestAnchorSurfaces:
         }
         chosen = {
             "fill_quantity": {
-                "variable": "fill_quantity",
+                "indicator_id": "indicator:06ac50310de3251cd28e",
                 "distribution": "gaussian",
                 "link": "identity",
                 "construct_name": "dose",
@@ -493,6 +522,7 @@ class TestAnchorSurfaces:
 
     def test_static_t0_mean_surface_requires_standardized_channel(self):
         parameter = {
+            "id": "construct:91a153aaf3e693bc5f38",
             "name": "t0_mean_trait",
             "role": "initial_state_mean",
             "construct": "trait",
@@ -500,7 +530,7 @@ class TestAnchorSurfaces:
         }
         unanchored = {
             "trait_flag": {
-                "variable": "trait_flag",
+                "indicator_id": "indicator:2af50d06b16a559dee9e",
                 "distribution": "bernoulli",
                 "link": "logit",
                 "construct_name": "trait",
@@ -516,7 +546,7 @@ class TestAnchorSurfaces:
         )
         anchored = {
             "trait_score": {
-                "variable": "trait_score",
+                "indicator_id": "indicator:8ec5286981f118125250",
                 "distribution": "gaussian",
                 "link": "identity",
                 "construct_name": "trait",

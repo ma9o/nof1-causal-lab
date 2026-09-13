@@ -23,7 +23,9 @@ class NamedTool(Protocol):
 
 
 class TraceMessage(BaseModel):
-    """A single message in an LLM trace."""
+    """A trace message records one conversational step, including any reasoning or tool
+    interaction.
+    """
 
     role: str
     content: str
@@ -36,7 +38,7 @@ class TraceMessage(BaseModel):
 
 
 class TraceUsage(BaseModel):
-    """Token usage for an LLM trace."""
+    """Trace usage records the input, output, and reasoning tokens consumed by a conversation."""
 
     input_tokens: int = 0
     output_tokens: int = 0
@@ -44,7 +46,7 @@ class TraceUsage(BaseModel):
 
 
 class LLMTrace(BaseModel):
-    """Full trace of an LLM conversation."""
+    """An LLM trace records a conversation, its model, elapsed time, and token usage."""
 
     messages: list[TraceMessage] = Field(default_factory=list)
     model: str = ""

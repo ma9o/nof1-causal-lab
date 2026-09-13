@@ -17,25 +17,28 @@ import numpy as np
 import numpyro.handlers as handlers
 import polars as pl
 import pytest
+from pydantic import TypeAdapter
 
-from nof1_causal_lab.artifacts import CausalDesign, LinkFunction, StructuralPlan
+from nof1_causal_lab.artifacts.causal_design import CausalDesign
+from nof1_causal_lab.artifacts.identity import ConstructRef, EdgeRef, IndicatorRef
+from nof1_causal_lab.artifacts.mechanism import DynamicsMechanism
+from nof1_causal_lab.artifacts.parameter import PriorAuthoringTransform, SiteKind, SupportClass
+from nof1_causal_lab.artifacts.statistical_model_spec import LinkFunction
+from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
 from nof1_causal_lab.distributions import DistributionFamily, PriorDistributionFamily
 from nof1_causal_lab.models.ssm.inference.backend_factory import get_laplace_backend
 from nof1_causal_lab.models.ssm.model import SSMModel, SSMSpec
 from nof1_causal_lab.models.ssm.parameterization import (
     SiteDescriptor,
-    TransformKind,
-    build_prior_runtime_state,
-    build_site_prior_distribution,
 )
-from nof1_causal_lab.models.ssm.priors import PriorSpec
+from nof1_causal_lab.models.ssm.priors import resolve_site_priors
 from nof1_causal_lab.models.ssm.structure import Fixed, Free, SparseMatrixBlockSpec
-from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
+from nof1_causal_lab.prior_distributions import distribution_from_params
+from tests.helpers import declare_test_dynamics, fixture_entity_id
 from tests.ssm_spec_fixtures import (
     block_ssm_spec,
     dense_matrix_dynamics_spec,
     full_vector_support,
-    prior_registry,
     zero_loading_support,
 )
 
@@ -88,21 +91,24 @@ def _make_causal_design_dict() -> dict[str, Any]:
     """Minimal CausalDesign dict: X→Y, Y→Z, 4 indicators."""
     return {
         "latent": {
+            "default_outcome": {"kind": "construct", "id": "construct:d90c52e59b79004188dc"},
             "constructs": [
                 {
+                    "id": "construct:311c9047b5ede16a8f26",
                     "name": "X",
                     "description": "Cause",
                     "role": "exogenous",
                     "temporal_status": "time_varying",
                 },
                 {
+                    "id": "construct:d90c52e59b79004188dc",
                     "name": "Y",
                     "description": "Mediator",
                     "role": "endogenous",
-                    "is_outcome": True,
                     "temporal_status": "time_varying",
                 },
                 {
+                    "id": "construct:a6b7873d58dac1ff1a02",
                     "name": "Z",
                     "description": "Downstream",
                     "role": "endogenous",
@@ -111,14 +117,16 @@ def _make_causal_design_dict() -> dict[str, Any]:
             ],
             "edges": [
                 {
-                    "cause": "X",
-                    "effect": "Y",
+                    "cause_id": "construct:311c9047b5ede16a8f26",
+                    "effect_id": "construct:d90c52e59b79004188dc",
+                    "id": "edge:39ba80b774e02c409662",
                     "description": "X causes Y",
                     "lagged": True,
                 },
                 {
-                    "cause": "Y",
-                    "effect": "Z",
+                    "cause_id": "construct:d90c52e59b79004188dc",
+                    "effect_id": "construct:a6b7873d58dac1ff1a02",
+                    "id": "edge:57072ee1d1b7b3e7c0de",
                     "description": "Y causes Z",
                     "lagged": True,
                 },
@@ -128,32 +136,36 @@ def _make_causal_design_dict() -> dict[str, Any]:
             "model_clock": "1d",
             "indicators": [
                 {
+                    "id": "indicator:0f93ce57e1f1d1c96f5c",
+                    "construct_id": "construct:311c9047b5ede16a8f26",
                     "name": "x1",
-                    "construct_name": "X",
                     "construct_polarity": "positive",
                     "how_to_measure": "measure x",
                     "measurement_dtype": "continuous",
                     "aggregation": "mean",
                 },
                 {
+                    "id": "indicator:27a6125b251378d8dd23",
+                    "construct_id": "construct:311c9047b5ede16a8f26",
                     "name": "x2",
-                    "construct_name": "X",
                     "construct_polarity": "positive",
                     "how_to_measure": "measure x alt",
                     "measurement_dtype": "continuous",
                     "aggregation": "mean",
                 },
                 {
+                    "id": "indicator:dec7b4916899d2109674",
+                    "construct_id": "construct:d90c52e59b79004188dc",
                     "name": "y1",
-                    "construct_name": "Y",
                     "construct_polarity": "positive",
                     "how_to_measure": "measure y",
                     "measurement_dtype": "continuous",
                     "aggregation": "mean",
                 },
                 {
+                    "id": "indicator:c26d752dbca8b5a287ac",
+                    "construct_id": "construct:a6b7873d58dac1ff1a02",
                     "name": "z1",
-                    "construct_name": "Z",
                     "construct_polarity": "positive",
                     "how_to_measure": "measure z",
                     "measurement_dtype": "continuous",
@@ -165,14 +177,16 @@ def _make_causal_design_dict() -> dict[str, Any]:
             "state_order": ["X", "Y", "Z"],
             "edges": [
                 {
-                    "cause": "X",
-                    "effect": "Y",
+                    "cause_id": "construct:311c9047b5ede16a8f26",
+                    "effect_id": "construct:d90c52e59b79004188dc",
+                    "id": "edge:39ba80b774e02c409662",
                     "description": "X causes Y",
                     "lagged": True,
                 },
                 {
-                    "cause": "Y",
-                    "effect": "Z",
+                    "cause_id": "construct:d90c52e59b79004188dc",
+                    "effect_id": "construct:a6b7873d58dac1ff1a02",
+                    "id": "edge:57072ee1d1b7b3e7c0de",
                     "description": "Y causes Z",
                     "lagged": True,
                 },
@@ -197,6 +211,7 @@ def _make_structural_plan() -> StructuralPlan:
 class TestDynamicsMask:
     """Test that component translation constrains linear edge sampling."""
 
+    @pytest.mark.cpu_expensive
     def test_dynamics_support_zeros_non_edges(self):
         """Dynamics entries where mask is False should be zero."""
         offdiag_support = np.zeros((3, 3), dtype=bool)
@@ -218,6 +233,7 @@ class TestDynamicsMask:
         )
         assert weight_sites == ["vf_1_weight", "vf_2_weight"]
 
+    @pytest.mark.cpu_expensive
     def test_no_mask_fully_free(self):
         """Default dynamics mask expands to a fully free dynamics structure."""
         spec = _make_3latent_spec()
@@ -235,6 +251,7 @@ class TestDynamicsMask:
         ]
         assert len(weight_sites) == 6
 
+    @pytest.mark.cpu_expensive
     def test_dynamics_support_single_latent(self):
         """Single latent: no off-diagonal, mask should be identity."""
         spec = block_ssm_spec(
@@ -269,6 +286,7 @@ class TestDynamicsMask:
 class TestLambdaMask:
     """Test that lambda_support constrains factor loadings."""
 
+    @pytest.mark.cpu_expensive
     def test_lambda_template_plus_mask(self):
         """Template+mask mode: fixed reference + free additional loadings."""
         # X has 2 indicators (x1 ref, x2 free), Y has 1, Z has 1
@@ -314,6 +332,7 @@ class TestLambdaMask:
         assert float(lam[3, 2]) == 1.0  # Fixed reference
         assert float(lam[1, 0]) != 0.0  # Free loading was sampled
 
+    @pytest.mark.cpu_expensive
     def test_lambda_no_mask_returns_fixed(self):
         """Array lambda_mat with default zero free-mask is returned as-is."""
         lambda_mat = jnp.eye(4, 3)
@@ -365,67 +384,71 @@ class TestPerElementPriors:
             support=SupportClass.REAL,
             assembly_group="test",
             site_kind=SiteKind.DYNAMICS_WEIGHT,
-            transform_kind=TransformKind.IDENTITY,
         )
 
     def test_make_prior_dist_scalar(self):
         """Scalar mu/sigma produces scalar Normal."""
         site = self._real_site(())
-        priors = prior_registry(
-            test_site=PriorSpec(PriorDistributionFamily.NORMAL, {"mu": 0.0, "sigma": 1.0})
-        )
-        state = build_prior_runtime_state([site], priors)
-        d = build_site_prior_distribution(site, state[site.name])
+        priors = {
+            "test_site": distribution_from_params(
+                PriorDistributionFamily.NORMAL, {"mu": 0.0, "sigma": 1.0}
+            )
+        }
+        state = resolve_site_priors([site], priors)
+        d = state[site.name]
         assert d.batch_shape == ()
 
     def test_make_prior_dist_array(self):
         """Array mu/sigma produces batched Normal."""
         site = self._real_site((3,))
-        priors = prior_registry(
-            test_site=PriorSpec(
+        priors = {
+            "test_site": distribution_from_params(
                 PriorDistributionFamily.NORMAL,
                 {"mu": [0.1, 0.2, 0.3], "sigma": [1.0, 0.5, 0.3]},
             )
-        )
-        state = build_prior_runtime_state([site], priors)
-        d = build_site_prior_distribution(site, state[site.name])
+        }
+        state = resolve_site_priors([site], priors)
+        d = state[site.name]
         assert d.batch_shape == (3,)
 
     def test_make_prior_batch_scalar_expand(self):
         """Scalar prior expanded to batch shape."""
         site = self._real_site((5,))
-        priors = prior_registry(
-            test_site=PriorSpec(PriorDistributionFamily.NORMAL, {"mu": 0.0, "sigma": 1.0})
-        )
-        state = build_prior_runtime_state([site], priors)
-        d = build_site_prior_distribution(site, state[site.name])
+        priors = {
+            "test_site": distribution_from_params(
+                PriorDistributionFamily.NORMAL, {"mu": 0.0, "sigma": 1.0}
+            )
+        }
+        state = resolve_site_priors([site], priors)
+        d = state[site.name]
         assert d.batch_shape == (5,)
 
     def test_make_prior_batch_array_passthrough(self):
         """Array prior with correct shape passes through."""
         site = self._real_site((2,))
-        priors = prior_registry(
-            test_site=PriorSpec(
+        priors = {
+            "test_site": distribution_from_params(
                 PriorDistributionFamily.NORMAL,
                 {"mu": [0.1, 0.2], "sigma": [1.0, 0.5]},
             )
-        )
-        state = build_prior_runtime_state([site], priors)
-        d = build_site_prior_distribution(site, state[site.name])
+        }
+        state = resolve_site_priors([site], priors)
+        d = state[site.name]
         assert d.batch_shape == (2,)
 
     def test_make_prior_batch_mismatch_raises(self):
         """Array prior with wrong shape raises."""
         site = self._real_site((3,))
-        priors = prior_registry(
-            test_site=PriorSpec(
+        priors = {
+            "test_site": distribution_from_params(
                 PriorDistributionFamily.NORMAL,
                 {"mu": [0.1, 0.2], "sigma": [1.0, 0.5]},
             )
-        )
+        }
         with pytest.raises(ValueError, match="broadcast"):
-            build_prior_runtime_state([site], priors)
+            resolve_site_priors([site], priors)
 
+    @pytest.mark.cpu_expensive
     def test_per_element_prior_in_model(self):
         """Per-element dynamics priors are used in sampling."""
         offdiag_support = np.zeros((2, 2), dtype=bool)
@@ -447,12 +470,12 @@ class TestPerElementPriors:
         )
 
         # Per-element prior: single off-diagonal has mu=2.0
-        priors = prior_registry(
-            vf_1_weight=PriorSpec(
+        priors = {
+            "vf_1_weight": distribution_from_params(
                 PriorDistributionFamily.NORMAL,
                 {"mu": 2.0, "sigma": 0.1},
             )
-        )
+        }
         model = SSMModel(spec, priors)
 
         rng = random.PRNGKey(0)
@@ -557,25 +580,28 @@ class TestRuntimeStructuralSupport:
 
         causal_design = {
             "latent": {
+                "default_outcome": {"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"},
                 "constructs": [
                     {
+                        "id": "construct:16176a18c25802dee8a1",
                         "name": "dose",
                         "description": "Medication dose",
                         "role": "exogenous",
                         "temporal_status": "time_varying",
                     },
                     {
+                        "id": "construct:bbc87212909e45b9e6c3",
                         "name": "mood",
                         "description": "Mood state",
                         "role": "endogenous",
-                        "is_outcome": True,
                         "temporal_status": "time_varying",
                     },
                 ],
                 "edges": [
                     {
-                        "cause": "dose",
-                        "effect": "mood",
+                        "cause_id": "construct:16176a18c25802dee8a1",
+                        "effect_id": "construct:bbc87212909e45b9e6c3",
+                        "id": "edge:3d7176b256a26799c7c4",
                         "description": "Dose affects mood",
                         "lagged": True,
                     }
@@ -585,16 +611,18 @@ class TestRuntimeStructuralSupport:
                 "model_clock": "1d",
                 "indicators": [
                     {
+                        "id": "indicator:5806a6a8417abd85897f",
+                        "construct_id": "construct:16176a18c25802dee8a1",
                         "name": "dose_mg",
-                        "construct_name": "dose",
                         "construct_polarity": "positive",
                         "how_to_measure": "record dose",
                         "measurement_dtype": "continuous",
                         "aggregation": "sum",
                     },
                     {
+                        "id": "indicator:e05e217de7f4442abdc5",
+                        "construct_id": "construct:bbc87212909e45b9e6c3",
                         "name": "mood_rating",
-                        "construct_name": "mood",
                         "construct_polarity": "positive",
                         "how_to_measure": "record mood",
                         "measurement_dtype": "continuous",
@@ -604,8 +632,8 @@ class TestRuntimeStructuralSupport:
             },
             "known_inputs": [
                 {
-                    "construct": "dose",
-                    "source_indicator": "dose_mg",
+                    "construct_id": "construct:16176a18c25802dee8a1",
+                    "source_indicator_id": "indicator:5806a6a8417abd85897f",
                     "scale": 10.0,
                     "missing_policy": "zero",
                 }
@@ -799,7 +827,7 @@ class TestRuntimeStructuralSupport:
 
     def test_translate_spec_compiles_static_baseline_factor_from_induced_dependency(self):
         """Initial-state confounders should compile to low-rank baseline factors."""
-        from nof1_causal_lab.artifacts import (
+        from nof1_causal_lab.artifacts.statistical_model_spec import (
             DistributionFamily,
             LikelihoodSpec,
             LinkFunction,
@@ -812,36 +840,41 @@ class TestRuntimeStructuralSupport:
 
         causal_design = {
             "latent": {
+                "default_outcome": {"kind": "construct", "id": "construct:cdc0b2958a9512b2abad"},
                 "constructs": [
                     {
+                        "id": "construct:766f6091724c163a3404",
                         "name": "u_shared",
                         "description": "Shared static confounder",
                         "role": "exogenous",
                         "temporal_status": "time_invariant",
                     },
                     {
+                        "id": "construct:6b04dc42c531e7091eb8",
                         "name": "stress",
                         "description": "Stress",
                         "role": "endogenous",
                         "temporal_status": "time_varying",
                     },
                     {
+                        "id": "construct:cdc0b2958a9512b2abad",
                         "name": "sleep",
                         "description": "Sleep",
                         "role": "endogenous",
                         "temporal_status": "time_varying",
-                        "is_outcome": True,
                     },
                 ],
                 "edges": [
                     {
-                        "cause": "u_shared",
-                        "effect": "stress",
+                        "cause_id": "construct:766f6091724c163a3404",
+                        "effect_id": "construct:6b04dc42c531e7091eb8",
+                        "id": "edge:0e72c3c33116c415bd39",
                         "description": "Shared baseline causes stress",
                     },
                     {
-                        "cause": "u_shared",
-                        "effect": "sleep",
+                        "cause_id": "construct:766f6091724c163a3404",
+                        "effect_id": "construct:cdc0b2958a9512b2abad",
+                        "id": "edge:a1528b0e1cd05dd511ef",
                         "description": "Shared baseline causes sleep",
                     },
                 ],
@@ -850,16 +883,18 @@ class TestRuntimeStructuralSupport:
                 "model_clock": "1d",
                 "indicators": [
                     {
+                        "id": "indicator:3696aef3ff6f446744e5",
+                        "construct_id": "construct:6b04dc42c531e7091eb8",
                         "name": "stress_score",
-                        "construct_name": "stress",
                         "construct_polarity": "positive",
                         "how_to_measure": "measure stress",
                         "measurement_dtype": "continuous",
                         "aggregation": "mean",
                     },
                     {
+                        "id": "indicator:7f807162156d3eb1b611",
+                        "construct_id": "construct:cdc0b2958a9512b2abad",
                         "name": "sleep_score",
-                        "construct_name": "sleep",
                         "construct_polarity": "positive",
                         "how_to_measure": "measure sleep",
                         "measurement_dtype": "continuous",
@@ -872,15 +907,16 @@ class TestRuntimeStructuralSupport:
 
         structural_plan = build_structural_plan(CausalDesign.model_validate(causal_design))
         statistical_model_spec = StatisticalModelSpec(
+            mechanisms=TypeAdapter(list[DynamicsMechanism]).validate_python([]),
             likelihoods=[
                 LikelihoodSpec(
-                    variable="stress_score",
+                    indicator_id="indicator:3696aef3ff6f446744e5",
                     distribution=DistributionFamily.GAUSSIAN,
                     link=LinkFunction.IDENTITY,
                     reasoning="test",
                 ),
                 LikelihoodSpec(
-                    variable="sleep_score",
+                    indicator_id="indicator:7f807162156d3eb1b611",
                     distribution=DistributionFamily.GAUSSIAN,
                     link=LinkFunction.IDENTITY,
                     reasoning="test",
@@ -888,6 +924,9 @@ class TestRuntimeStructuralSupport:
             ],
             parameters=[
                 ParameterSpec(
+                    id="parameter:edb7a87a6e0c5740c6d0e3361cf57ea2682f070b5c9e210e3e6941defacb0640",
+                    owners=[ConstructRef(id="construct:766f6091724c163a3404")],
+                    quantity=SiteKind.STATIC_STATE_SD,
                     name="tau_u_shared",
                     role=ParameterRole.STATIC_STATE_SD,
                     constraint=ParameterConstraint.POSITIVE,
@@ -897,7 +936,8 @@ class TestRuntimeStructuralSupport:
         )
 
         spec, _edge_lag_days = translate_spec(
-            statistical_model_spec, structural_plan=structural_plan
+            declare_test_dynamics(statistical_model_spec, structural_plan),
+            structural_plan=structural_plan,
         )
 
         np.testing.assert_array_equal(spec.static_state_sd_block.free_support, np.array([True]))
@@ -916,7 +956,7 @@ class TestRuntimeStructuralSupport:
 
     def test_translate_spec_marks_standardizable_gaussian_mean_indicators(self):
         """Gaussian identity indicators with interval means should be auto-standardized."""
-        from nof1_causal_lab.artifacts import (
+        from nof1_causal_lab.artifacts.statistical_model_spec import (
             DistributionFamily,
             LikelihoodSpec,
             LinkFunction,
@@ -926,27 +966,28 @@ class TestRuntimeStructuralSupport:
 
         structural_plan = _make_structural_plan()
         statistical_model_spec = StatisticalModelSpec(
+            mechanisms=TypeAdapter(list[DynamicsMechanism]).validate_python([]),
             likelihoods=[
                 LikelihoodSpec(
-                    variable="x1",
+                    indicator_id="indicator:0f93ce57e1f1d1c96f5c",
                     distribution=DistributionFamily.GAUSSIAN,
                     link=LinkFunction.IDENTITY,
                     reasoning="test",
                 ),
                 LikelihoodSpec(
-                    variable="x2",
+                    indicator_id="indicator:27a6125b251378d8dd23",
                     distribution=DistributionFamily.GAUSSIAN,
                     link=LinkFunction.IDENTITY,
                     reasoning="test",
                 ),
                 LikelihoodSpec(
-                    variable="y1",
+                    indicator_id="indicator:dec7b4916899d2109674",
                     distribution=DistributionFamily.GAUSSIAN,
                     link=LinkFunction.IDENTITY,
                     reasoning="test",
                 ),
                 LikelihoodSpec(
-                    variable="z1",
+                    indicator_id="indicator:c26d752dbca8b5a287ac",
                     distribution=DistributionFamily.GAUSSIAN,
                     link=LinkFunction.IDENTITY,
                     reasoning="test",
@@ -956,14 +997,15 @@ class TestRuntimeStructuralSupport:
         )
 
         spec, _edge_lag_days = translate_spec(
-            statistical_model_spec, structural_plan=structural_plan
+            declare_test_dynamics(statistical_model_spec, structural_plan),
+            structural_plan=structural_plan,
         )
 
         assert spec.manifest_standardized == [True, True, True, True]
 
     def test_translate_spec_fixes_manifest_noise_for_single_indicator_constructs(self):
         """Single-indicator constructs get fixed zero manifest noise in the compiled spec."""
-        from nof1_causal_lab.artifacts import (
+        from nof1_causal_lab.artifacts.statistical_model_spec import (
             DistributionFamily,
             LikelihoodSpec,
             LinkFunction,
@@ -976,27 +1018,77 @@ class TestRuntimeStructuralSupport:
 
         structural_plan = _make_structural_plan()
         statistical_model_spec = StatisticalModelSpec(
+            mechanisms=TypeAdapter(list[DynamicsMechanism]).validate_python(
+                [
+                    {
+                        "kind": "node_potential",
+                        "target_id": "construct:311c9047b5ede16a8f26",
+                        "center": {"kind": "fixed", "value": 0},
+                        "stiffness": {
+                            "kind": "estimated",
+                            "parameter_id": "parameter:d4f5f53b1e587883d9cd30cc9393726d9e06dc90b63b7cae47ce252f25f4b42a",
+                        },
+                        "quartic": {"kind": "fixed", "value": 0},
+                    },
+                    {
+                        "kind": "node_potential",
+                        "target_id": "construct:d90c52e59b79004188dc",
+                        "center": {"kind": "fixed", "value": 0},
+                        "stiffness": {
+                            "kind": "estimated",
+                            "parameter_id": "parameter:f6c297044713e7312c77a790e9a018f4881e7382620dec264eec8546bdd9c56a",
+                        },
+                        "quartic": {"kind": "fixed", "value": 0},
+                    },
+                    {
+                        "kind": "node_potential",
+                        "target_id": "construct:a6b7873d58dac1ff1a02",
+                        "center": {"kind": "fixed", "value": 0},
+                        "stiffness": {
+                            "kind": "estimated",
+                            "parameter_id": "parameter:d3fa7f07ce4589268f30bf007d008002a5dc55eb1c0c6b7f2c0bf4abb2f2b5c7",
+                        },
+                        "quartic": {"kind": "fixed", "value": 0},
+                    },
+                    {
+                        "kind": "linear",
+                        "edge_id": "edge:39ba80b774e02c409662",
+                        "weight": {
+                            "kind": "estimated",
+                            "parameter_id": "parameter:11144ed541c47f7f351088902879f26bdb7eac1b92429dbb44d9bb4c95ba2dc1",
+                        },
+                    },
+                    {
+                        "kind": "linear",
+                        "edge_id": "edge:57072ee1d1b7b3e7c0de",
+                        "weight": {
+                            "kind": "estimated",
+                            "parameter_id": "parameter:300db78bd0bf69e3612bb8a4807b68188da5584b4f9f0ecedda7d3a5cff2b71f",
+                        },
+                    },
+                ]
+            ),
             likelihoods=[
                 LikelihoodSpec(
-                    variable="x1",
+                    indicator_id="indicator:0f93ce57e1f1d1c96f5c",
                     distribution=DistributionFamily.GAUSSIAN,
                     link=LinkFunction.IDENTITY,
                     reasoning="test",
                 ),
                 LikelihoodSpec(
-                    variable="x2",
+                    indicator_id="indicator:27a6125b251378d8dd23",
                     distribution=DistributionFamily.GAUSSIAN,
                     link=LinkFunction.IDENTITY,
                     reasoning="test",
                 ),
                 LikelihoodSpec(
-                    variable="y1",
+                    indicator_id="indicator:dec7b4916899d2109674",
                     distribution=DistributionFamily.GAUSSIAN,
                     link=LinkFunction.IDENTITY,
                     reasoning="test",
                 ),
                 LikelihoodSpec(
-                    variable="z1",
+                    indicator_id="indicator:c26d752dbca8b5a287ac",
                     distribution=DistributionFamily.GAUSSIAN,
                     link=LinkFunction.IDENTITY,
                     reasoning="test",
@@ -1004,54 +1096,97 @@ class TestRuntimeStructuralSupport:
             ],
             parameters=[
                 ParameterSpec(
+                    prior_transform=PriorAuthoringTransform("dt_persistence_to_ct_decay"),
+                    id="parameter:d4f5f53b1e587883d9cd30cc9393726d9e06dc90b63b7cae47ce252f25f4b42a",
+                    owners=[ConstructRef(id="construct:311c9047b5ede16a8f26")],
+                    quantity=SiteKind.DYNAMICS_DECAY,
                     name="rho_X",
                     role=ParameterRole.AR_COEFFICIENT,
                     constraint=ParameterConstraint.UNIT_INTERVAL,
                     description="AR for X",
                 ),
                 ParameterSpec(
+                    prior_transform=PriorAuthoringTransform("dt_persistence_to_ct_decay"),
+                    id="parameter:f6c297044713e7312c77a790e9a018f4881e7382620dec264eec8546bdd9c56a",
+                    owners=[ConstructRef(id="construct:d90c52e59b79004188dc")],
+                    quantity=SiteKind.DYNAMICS_DECAY,
                     name="rho_Y",
                     role=ParameterRole.AR_COEFFICIENT,
                     constraint=ParameterConstraint.UNIT_INTERVAL,
                     description="AR for Y",
                 ),
                 ParameterSpec(
+                    prior_transform=PriorAuthoringTransform("dt_persistence_to_ct_decay"),
+                    id="parameter:d3fa7f07ce4589268f30bf007d008002a5dc55eb1c0c6b7f2c0bf4abb2f2b5c7",
+                    owners=[ConstructRef(id="construct:a6b7873d58dac1ff1a02")],
+                    quantity=SiteKind.DYNAMICS_DECAY,
                     name="rho_Z",
                     role=ParameterRole.AR_COEFFICIENT,
                     constraint=ParameterConstraint.UNIT_INTERVAL,
                     description="AR for Z",
                 ),
                 ParameterSpec(
+                    prior_transform=PriorAuthoringTransform("dt_effect_to_ct_rate"),
+                    id="parameter:11144ed541c47f7f351088902879f26bdb7eac1b92429dbb44d9bb4c95ba2dc1",
+                    owners=[
+                        ConstructRef(id="construct:311c9047b5ede16a8f26"),
+                        ConstructRef(id="construct:d90c52e59b79004188dc"),
+                        EdgeRef(id="edge:39ba80b774e02c409662"),
+                    ],
+                    quantity=SiteKind.DYNAMICS_WEIGHT,
                     name="beta_X_Y",
                     role=ParameterRole.FIXED_EFFECT,
                     constraint=ParameterConstraint.NONE,
                     description="X causes Y",
                 ),
                 ParameterSpec(
+                    prior_transform=PriorAuthoringTransform("dt_effect_to_ct_rate"),
+                    id="parameter:300db78bd0bf69e3612bb8a4807b68188da5584b4f9f0ecedda7d3a5cff2b71f",
+                    owners=[
+                        ConstructRef(id="construct:d90c52e59b79004188dc"),
+                        ConstructRef(id="construct:a6b7873d58dac1ff1a02"),
+                        EdgeRef(id="edge:57072ee1d1b7b3e7c0de"),
+                    ],
+                    quantity=SiteKind.DYNAMICS_WEIGHT,
                     name="beta_Y_Z",
                     role=ParameterRole.FIXED_EFFECT,
                     constraint=ParameterConstraint.NONE,
                     description="Y causes Z",
                 ),
                 ParameterSpec(
+                    id="parameter:4d1d6a7ea877cc9346711b960e6d5c34ee74ba7da330fed57460d8510bb8a965",
+                    owners=[ConstructRef(id="construct:311c9047b5ede16a8f26")],
+                    quantity=SiteKind.DIFFUSION_DIAG,
                     name="sigma_X",
                     role=ParameterRole.RESIDUAL_SD,
                     constraint=ParameterConstraint.POSITIVE,
                     description="residual sd X",
                 ),
                 ParameterSpec(
+                    id="parameter:0211fbba3c9cacffff315088926ede62eb852aaa2dfa9f46cd6bc565c03eb54e",
+                    owners=[ConstructRef(id="construct:d90c52e59b79004188dc")],
+                    quantity=SiteKind.DIFFUSION_DIAG,
                     name="sigma_Y",
                     role=ParameterRole.RESIDUAL_SD,
                     constraint=ParameterConstraint.POSITIVE,
                     description="residual sd Y",
                 ),
                 ParameterSpec(
+                    id="parameter:16ad5b8c5e6063e35ab1a10813a5ec3475ac8c0f03c152ae40f643eaf2c60722",
+                    owners=[ConstructRef(id="construct:a6b7873d58dac1ff1a02")],
+                    quantity=SiteKind.DIFFUSION_DIAG,
                     name="sigma_Z",
                     role=ParameterRole.RESIDUAL_SD,
                     constraint=ParameterConstraint.POSITIVE,
                     description="residual sd Z",
                 ),
                 ParameterSpec(
+                    id="parameter:4a482718870c06d541bb044c41ca4d9f372a25fedd43478cc495204883bb6ae5",
+                    owners=[
+                        IndicatorRef(id="indicator:27a6125b251378d8dd23"),
+                        ConstructRef(id="construct:311c9047b5ede16a8f26"),
+                    ],
+                    quantity=SiteKind.LOADING,
                     name="lambda_x2_X",
                     role=ParameterRole.LOADING,
                     constraint=ParameterConstraint.POSITIVE,
@@ -1073,7 +1208,7 @@ class TestRuntimeStructuralSupport:
 
     def test_translate_spec_rejects_initial_state_correlation_parameters_with_causal_design(self):
         """Causal-spec compilation no longer accepts pairwise cor0 parameters."""
-        from nof1_causal_lab.artifacts import (
+        from nof1_causal_lab.artifacts.statistical_model_spec import (
             DistributionFamily,
             LikelihoodSpec,
             LinkFunction,
@@ -1086,27 +1221,28 @@ class TestRuntimeStructuralSupport:
 
         structural_plan = _make_structural_plan()
         statistical_model_spec = StatisticalModelSpec(
+            mechanisms=TypeAdapter(list[DynamicsMechanism]).validate_python([]),
             likelihoods=[
                 LikelihoodSpec(
-                    variable="x1",
+                    indicator_id="indicator:0f93ce57e1f1d1c96f5c",
                     distribution=DistributionFamily.GAUSSIAN,
                     link=LinkFunction.IDENTITY,
                     reasoning="test",
                 ),
                 LikelihoodSpec(
-                    variable="x2",
+                    indicator_id="indicator:27a6125b251378d8dd23",
                     distribution=DistributionFamily.GAUSSIAN,
                     link=LinkFunction.IDENTITY,
                     reasoning="test",
                 ),
                 LikelihoodSpec(
-                    variable="y1",
+                    indicator_id="indicator:dec7b4916899d2109674",
                     distribution=DistributionFamily.GAUSSIAN,
                     link=LinkFunction.IDENTITY,
                     reasoning="test",
                 ),
                 LikelihoodSpec(
-                    variable="z1",
+                    indicator_id="indicator:c26d752dbca8b5a287ac",
                     distribution=DistributionFamily.GAUSSIAN,
                     link=LinkFunction.IDENTITY,
                     reasoning="test",
@@ -1114,6 +1250,13 @@ class TestRuntimeStructuralSupport:
             ],
             parameters=[
                 ParameterSpec(
+                    prior_transform=PriorAuthoringTransform("initial_state_correlation"),
+                    id="parameter:418d0717cfc9857102f86ab03eaa94a90f0757b6ac7826fc239d3167f7adaf50",
+                    owners=[
+                        ConstructRef(id="construct:311c9047b5ede16a8f26"),
+                        ConstructRef(id="construct:a6b7873d58dac1ff1a02"),
+                    ],
+                    quantity=SiteKind.T0_VAR_LOWER,
                     name="cor0_X_Z",
                     role=ParameterRole.INITIAL_STATE_CORRELATION,
                     constraint=ParameterConstraint.CORRELATION,
@@ -1130,7 +1273,7 @@ class TestRuntimeStructuralSupport:
 
     def test_translate_spec_rejects_self_initial_state_correlation_with_causal_design(self):
         """Even self-pairs are rejected once causal-design compilation is active."""
-        from nof1_causal_lab.artifacts import (
+        from nof1_causal_lab.artifacts.statistical_model_spec import (
             DistributionFamily,
             LikelihoodSpec,
             LinkFunction,
@@ -1143,27 +1286,28 @@ class TestRuntimeStructuralSupport:
 
         structural_plan = _make_structural_plan()
         statistical_model_spec = StatisticalModelSpec(
+            mechanisms=TypeAdapter(list[DynamicsMechanism]).validate_python([]),
             likelihoods=[
                 LikelihoodSpec(
-                    variable="x1",
+                    indicator_id="indicator:0f93ce57e1f1d1c96f5c",
                     distribution=DistributionFamily.GAUSSIAN,
                     link=LinkFunction.IDENTITY,
                     reasoning="test",
                 ),
                 LikelihoodSpec(
-                    variable="x2",
+                    indicator_id="indicator:27a6125b251378d8dd23",
                     distribution=DistributionFamily.GAUSSIAN,
                     link=LinkFunction.IDENTITY,
                     reasoning="test",
                 ),
                 LikelihoodSpec(
-                    variable="y1",
+                    indicator_id="indicator:dec7b4916899d2109674",
                     distribution=DistributionFamily.GAUSSIAN,
                     link=LinkFunction.IDENTITY,
                     reasoning="test",
                 ),
                 LikelihoodSpec(
-                    variable="z1",
+                    indicator_id="indicator:c26d752dbca8b5a287ac",
                     distribution=DistributionFamily.GAUSSIAN,
                     link=LinkFunction.IDENTITY,
                     reasoning="test",
@@ -1171,6 +1315,13 @@ class TestRuntimeStructuralSupport:
             ],
             parameters=[
                 ParameterSpec(
+                    prior_transform=PriorAuthoringTransform("initial_state_correlation"),
+                    id="parameter:6efa548cc7ef957857274e64c9693e3bb393bed5fa3c20a78b572ec53aa65963",
+                    owners=[
+                        ConstructRef(id="construct:311c9047b5ede16a8f26"),
+                        ConstructRef(id="construct:311c9047b5ede16a8f26"),
+                    ],
+                    quantity=SiteKind.T0_VAR_LOWER,
                     name="cor0_X_X",
                     role=ParameterRole.INITIAL_STATE_CORRELATION,
                     constraint=ParameterConstraint.CORRELATION,
@@ -1188,7 +1339,7 @@ class TestRuntimeStructuralSupport:
     def test_model_build_end_to_end(self):
         """Model construction with causal_design produces masked spec."""
 
-        from nof1_causal_lab.artifacts import (
+        from nof1_causal_lab.artifacts.statistical_model_spec import (
             DistributionFamily,
             LikelihoodSpec,
             LinkFunction,
@@ -1200,76 +1351,175 @@ class TestRuntimeStructuralSupport:
 
         def _lik(var: str) -> LikelihoodSpec:
             return LikelihoodSpec(
-                variable=var,
+                indicator_id=fixture_entity_id("indicator", var),
                 distribution=DistributionFamily.GAUSSIAN,
                 link=LinkFunction.IDENTITY,
                 reasoning="test",
             )
 
         statistical_model_spec = StatisticalModelSpec(
+            mechanisms=TypeAdapter(list[DynamicsMechanism]).validate_python(
+                [
+                    {
+                        "kind": "node_potential",
+                        "target_id": "construct:311c9047b5ede16a8f26",
+                        "center": {"kind": "fixed", "value": 0},
+                        "stiffness": {
+                            "kind": "estimated",
+                            "parameter_id": "parameter:d4f5f53b1e587883d9cd30cc9393726d9e06dc90b63b7cae47ce252f25f4b42a",
+                        },
+                        "quartic": {"kind": "fixed", "value": 0},
+                    },
+                    {
+                        "kind": "node_potential",
+                        "target_id": "construct:d90c52e59b79004188dc",
+                        "center": {"kind": "fixed", "value": 0},
+                        "stiffness": {
+                            "kind": "estimated",
+                            "parameter_id": "parameter:f6c297044713e7312c77a790e9a018f4881e7382620dec264eec8546bdd9c56a",
+                        },
+                        "quartic": {"kind": "fixed", "value": 0},
+                    },
+                    {
+                        "kind": "node_potential",
+                        "target_id": "construct:a6b7873d58dac1ff1a02",
+                        "center": {"kind": "fixed", "value": 0},
+                        "stiffness": {
+                            "kind": "estimated",
+                            "parameter_id": "parameter:d3fa7f07ce4589268f30bf007d008002a5dc55eb1c0c6b7f2c0bf4abb2f2b5c7",
+                        },
+                        "quartic": {"kind": "fixed", "value": 0},
+                    },
+                    {
+                        "kind": "linear",
+                        "edge_id": "edge:39ba80b774e02c409662",
+                        "weight": {
+                            "kind": "estimated",
+                            "parameter_id": "parameter:11144ed541c47f7f351088902879f26bdb7eac1b92429dbb44d9bb4c95ba2dc1",
+                        },
+                    },
+                    {
+                        "kind": "linear",
+                        "edge_id": "edge:57072ee1d1b7b3e7c0de",
+                        "weight": {
+                            "kind": "estimated",
+                            "parameter_id": "parameter:300db78bd0bf69e3612bb8a4807b68188da5584b4f9f0ecedda7d3a5cff2b71f",
+                        },
+                    },
+                ]
+            ),
             likelihoods=[_lik("x1"), _lik("x2"), _lik("y1"), _lik("z1")],
             parameters=[
                 ParameterSpec(
+                    prior_transform=PriorAuthoringTransform("dt_persistence_to_ct_decay"),
+                    id="parameter:d4f5f53b1e587883d9cd30cc9393726d9e06dc90b63b7cae47ce252f25f4b42a",
+                    owners=[ConstructRef(id="construct:311c9047b5ede16a8f26")],
+                    quantity=SiteKind.DYNAMICS_DECAY,
                     name="rho_X",
                     role=ParameterRole.AR_COEFFICIENT,
                     constraint=ParameterConstraint.UNIT_INTERVAL,
                     description="AR for X",
                 ),
                 ParameterSpec(
+                    prior_transform=PriorAuthoringTransform("dt_persistence_to_ct_decay"),
+                    id="parameter:f6c297044713e7312c77a790e9a018f4881e7382620dec264eec8546bdd9c56a",
+                    owners=[ConstructRef(id="construct:d90c52e59b79004188dc")],
+                    quantity=SiteKind.DYNAMICS_DECAY,
                     name="rho_Y",
                     role=ParameterRole.AR_COEFFICIENT,
                     constraint=ParameterConstraint.UNIT_INTERVAL,
                     description="AR for Y",
                 ),
                 ParameterSpec(
+                    prior_transform=PriorAuthoringTransform("dt_persistence_to_ct_decay"),
+                    id="parameter:d3fa7f07ce4589268f30bf007d008002a5dc55eb1c0c6b7f2c0bf4abb2f2b5c7",
+                    owners=[ConstructRef(id="construct:a6b7873d58dac1ff1a02")],
+                    quantity=SiteKind.DYNAMICS_DECAY,
                     name="rho_Z",
                     role=ParameterRole.AR_COEFFICIENT,
                     constraint=ParameterConstraint.UNIT_INTERVAL,
                     description="AR for Z",
                 ),
                 ParameterSpec(
+                    prior_transform=PriorAuthoringTransform("dt_effect_to_ct_rate"),
+                    id="parameter:11144ed541c47f7f351088902879f26bdb7eac1b92429dbb44d9bb4c95ba2dc1",
+                    owners=[
+                        ConstructRef(id="construct:311c9047b5ede16a8f26"),
+                        ConstructRef(id="construct:d90c52e59b79004188dc"),
+                        EdgeRef(id="edge:39ba80b774e02c409662"),
+                    ],
+                    quantity=SiteKind.DYNAMICS_WEIGHT,
                     name="beta_X_Y",
                     role=ParameterRole.FIXED_EFFECT,
                     constraint=ParameterConstraint.NONE,
                     description="X→Y effect",
                 ),
                 ParameterSpec(
+                    prior_transform=PriorAuthoringTransform("dt_effect_to_ct_rate"),
+                    id="parameter:300db78bd0bf69e3612bb8a4807b68188da5584b4f9f0ecedda7d3a5cff2b71f",
+                    owners=[
+                        ConstructRef(id="construct:d90c52e59b79004188dc"),
+                        ConstructRef(id="construct:a6b7873d58dac1ff1a02"),
+                        EdgeRef(id="edge:57072ee1d1b7b3e7c0de"),
+                    ],
+                    quantity=SiteKind.DYNAMICS_WEIGHT,
                     name="beta_Y_Z",
                     role=ParameterRole.FIXED_EFFECT,
                     constraint=ParameterConstraint.NONE,
                     description="Y→Z effect",
                 ),
                 ParameterSpec(
+                    id="parameter:4d1d6a7ea877cc9346711b960e6d5c34ee74ba7da330fed57460d8510bb8a965",
+                    owners=[ConstructRef(id="construct:311c9047b5ede16a8f26")],
+                    quantity=SiteKind.DIFFUSION_DIAG,
                     name="sigma_X",
                     role=ParameterRole.RESIDUAL_SD,
                     constraint=ParameterConstraint.POSITIVE,
                     description="Residual SD for X",
                 ),
                 ParameterSpec(
+                    id="parameter:0211fbba3c9cacffff315088926ede62eb852aaa2dfa9f46cd6bc565c03eb54e",
+                    owners=[ConstructRef(id="construct:d90c52e59b79004188dc")],
+                    quantity=SiteKind.DIFFUSION_DIAG,
                     name="sigma_Y",
                     role=ParameterRole.RESIDUAL_SD,
                     constraint=ParameterConstraint.POSITIVE,
                     description="Residual SD for Y",
                 ),
                 ParameterSpec(
+                    id="parameter:16ad5b8c5e6063e35ab1a10813a5ec3475ac8c0f03c152ae40f643eaf2c60722",
+                    owners=[ConstructRef(id="construct:a6b7873d58dac1ff1a02")],
+                    quantity=SiteKind.DIFFUSION_DIAG,
                     name="sigma_Z",
                     role=ParameterRole.RESIDUAL_SD,
                     constraint=ParameterConstraint.POSITIVE,
                     description="Residual SD for Z",
                 ),
                 ParameterSpec(
+                    id="parameter:4a482718870c06d541bb044c41ca4d9f372a25fedd43478cc495204883bb6ae5",
+                    owners=[
+                        IndicatorRef(id="indicator:27a6125b251378d8dd23"),
+                        ConstructRef(id="construct:311c9047b5ede16a8f26"),
+                    ],
+                    quantity=SiteKind.LOADING,
                     name="lambda_x2_X",
                     role=ParameterRole.LOADING,
                     constraint=ParameterConstraint.POSITIVE,
                     description="Loading for x2 on X",
                 ),
                 ParameterSpec(
+                    id="parameter:0e147e1b1e51c7070d8c565c9d545e8ddff815cc8878fed4ff60c7744ee0387a",
+                    owners=[IndicatorRef(id="indicator:0f93ce57e1f1d1c96f5c")],
+                    quantity=SiteKind.MANIFEST_VAR_DIAG,
                     name="obs_sd_x1",
                     role=ParameterRole.MEASUREMENT_ERROR_SD,
                     constraint=ParameterConstraint.POSITIVE,
                     description="Measurement-error SD for x1",
                 ),
                 ParameterSpec(
+                    id="parameter:aedb301479cf2b81aabe25bf88afff064b6c90bd92c6c0c80d0b5acd02a121af",
+                    owners=[IndicatorRef(id="indicator:27a6125b251378d8dd23")],
+                    quantity=SiteKind.MANIFEST_VAR_DIAG,
                     name="obs_sd_x2",
                     role=ParameterRole.MEASUREMENT_ERROR_SD,
                     constraint=ParameterConstraint.POSITIVE,
@@ -1393,6 +1643,7 @@ class TestSiteRegistryMasks:
 class TestTraceVerification:
     """Verify parameter shapes via numpyro.handlers.trace."""
 
+    @pytest.mark.cpu_expensive
     def test_masked_model_trace(self):
         """Full model trace with component edge sites."""
         offdiag_support = np.zeros((3, 3), dtype=bool)
@@ -1451,10 +1702,14 @@ class TestTraceVerification:
 
 
 def _lik_gaussian(var: str):
-    from nof1_causal_lab.artifacts import DistributionFamily, LikelihoodSpec, LinkFunction
+    from nof1_causal_lab.artifacts.statistical_model_spec import (
+        DistributionFamily,
+        LikelihoodSpec,
+        LinkFunction,
+    )
 
     return LikelihoodSpec(
-        variable=var,
+        indicator_id=fixture_entity_id("indicator", var),
         distribution=DistributionFamily.GAUSSIAN,
         link=LinkFunction.IDENTITY,
         reasoning="test",
@@ -1465,7 +1720,7 @@ class TestGradualBuildComponents:
     """Quartic self-limitation and Hill edges materialize from the StatisticalModelSpec."""
 
     def test_quartic_freed_only_for_self_limiting_construct(self):
-        from nof1_causal_lab.artifacts import (
+        from nof1_causal_lab.artifacts.statistical_model_spec import (
             ParameterConstraint,
             ParameterRole,
             ParameterSpec,
@@ -1475,9 +1730,13 @@ class TestGradualBuildComponents:
         from nof1_causal_lab.models.ssm.dynamics.spec import NodePotentialSpec
 
         statistical_model_spec = StatisticalModelSpec(
+            mechanisms=TypeAdapter(list[DynamicsMechanism]).validate_python([]),
             likelihoods=[_lik_gaussian(v) for v in ("x1", "x2", "y1", "z1")],
             parameters=[
                 ParameterSpec(
+                    id="parameter:87b312ac99a5a40cf7f04d8f013226bb26398e66a5761e9a5c7296360850e80d",
+                    owners=[ConstructRef(id="construct:d90c52e59b79004188dc")],
+                    quantity=SiteKind.DYNAMICS_POTENTIAL_QUARTIC,
                     name="self_limit_Y",
                     role=ParameterRole.DYNAMICS_PARAMETER_POSITIVE,
                     constraint=ParameterConstraint.POSITIVE,
@@ -1485,7 +1744,14 @@ class TestGradualBuildComponents:
                 ),
             ],
         )
-        spec, _ = translate_spec(statistical_model_spec, structural_plan=_make_structural_plan())
+        spec, _ = translate_spec(
+            declare_test_dynamics(
+                statistical_model_spec,
+                _make_structural_plan(),
+                quartic_states=("construct:d90c52e59b79004188dc",),
+            ),
+            structural_plan=_make_structural_plan(),
+        )
 
         wells = {
             c.target: c for c in spec.dynamics_spec.components if isinstance(c, NodePotentialSpec)
@@ -1496,9 +1762,7 @@ class TestGradualBuildComponents:
         assert wells[2].quartic == Fixed(0.0)
 
     def test_hill_edge_emitted_for_saturating_edge(self):
-        from nof1_causal_lab.artifacts import (
-            ParameterConstraint,
-            ParameterRole,
+        from nof1_causal_lab.artifacts.statistical_model_spec import (
             ParameterSpec,
             StatisticalModelSpec,
         )
@@ -1506,14 +1770,16 @@ class TestGradualBuildComponents:
         from nof1_causal_lab.models.ssm.dynamics.spec import HillEdgeSpec, LinearEdgeSpec
 
         def _hill_param(name: str) -> ParameterSpec:
-            return ParameterSpec(
-                name=name,
-                role=ParameterRole.DYNAMICS_PARAMETER_POSITIVE,
-                constraint=ParameterConstraint.POSITIVE,
-                description="hill",
+            from nof1_causal_lab.flows.transitions.model_spec.agentic.construct_flow import (
+                ParamCatalog,
+            )
+
+            return ParameterSpec.model_validate(
+                ParamCatalog.from_structural_plan(_make_structural_plan()).metadata_for(name)
             )
 
         statistical_model_spec = StatisticalModelSpec(
+            mechanisms=TypeAdapter(list[DynamicsMechanism]).validate_python([]),
             likelihoods=[_lik_gaussian(v) for v in ("x1", "x2", "y1", "z1")],
             parameters=[
                 _hill_param("hill_emax_X_Y"),
@@ -1521,7 +1787,14 @@ class TestGradualBuildComponents:
                 _hill_param("hill_n_X_Y"),
             ],
         )
-        spec, _ = translate_spec(statistical_model_spec, structural_plan=_make_structural_plan())
+        spec, _ = translate_spec(
+            declare_test_dynamics(
+                statistical_model_spec,
+                _make_structural_plan(),
+                hill_edges=("edge:39ba80b774e02c409662",),
+            ),
+            structural_plan=_make_structural_plan(),
+        )
 
         edges = [
             c
@@ -1535,38 +1808,37 @@ class TestGradualBuildComponents:
         assert (1, 2) in [(e.source, e.target) for e in linear]
         assert (0, 1) not in [(e.source, e.target) for e in linear]
 
+    @pytest.mark.cpu_expensive
     def test_freed_quartic_and_hill_sites_sample_finite(self):
         """The freed quartic + Hill edge sample through the real model with defaults."""
         import jax.numpy as jnp
         import jax.random as random
         import numpyro.handlers as handlers
 
-        from nof1_causal_lab.artifacts import (
-            ParameterConstraint,
-            ParameterRole,
+        from nof1_causal_lab.artifacts.statistical_model_spec import (
             ParameterSpec,
             StatisticalModelSpec,
         )
+        from nof1_causal_lab.flows.transitions.model_spec.agentic.construct_flow import ParamCatalog
         from nof1_causal_lab.models.ssm.compile.inputs import translate_spec
 
+        plan = _make_structural_plan()
+        catalog = ParamCatalog.from_structural_plan(plan)
         statistical_model_spec = StatisticalModelSpec(
+            mechanisms=[],
             likelihoods=[_lik_gaussian(v) for v in ("x1", "x2", "y1", "z1")],
             parameters=[
-                ParameterSpec(
-                    name="self_limit_Y",
-                    role=ParameterRole.DYNAMICS_PARAMETER_POSITIVE,
-                    constraint=ParameterConstraint.POSITIVE,
-                    description="Y self-limits",
-                ),
-                ParameterSpec(
-                    name="hill_emax_X_Y",
-                    role=ParameterRole.DYNAMICS_PARAMETER_POSITIVE,
-                    constraint=ParameterConstraint.POSITIVE,
-                    description="hill emax",
-                ),
+                ParameterSpec.model_validate(catalog.metadata_for(name))
+                for name in ("self_limit_Y", "hill_emax_X_Y", "hill_ec50_X_Y", "hill_n_X_Y")
             ],
         )
-        spec, _ = translate_spec(statistical_model_spec, structural_plan=_make_structural_plan())
+        statistical_model_spec = declare_test_dynamics(
+            statistical_model_spec,
+            plan,
+            quartic_states=("construct:d90c52e59b79004188dc",),
+            hill_edges=("edge:39ba80b774e02c409662",),
+        )
+        spec, _ = translate_spec(statistical_model_spec, structural_plan=plan)
         model = SSMModel(spec)
 
         trace = handlers.trace(handlers.seed(model.model, random.PRNGKey(0))).get_trace(

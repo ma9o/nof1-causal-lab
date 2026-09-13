@@ -16,7 +16,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
 
-from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SitePosition
+from nof1_causal_lab.artifacts.parameter import SiteKind
+from nof1_causal_lab.models.ssm.structure.sites import SitePosition  # noqa: TC001
 
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.model import SSMSpec

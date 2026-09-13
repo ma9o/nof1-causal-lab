@@ -30,13 +30,17 @@ from nof1_causal_lab.artifacts.statistical_model_spec import (
     LinkFunction,
 )
 from nof1_causal_lab.models.ssm.execution.contracts import (
-    NUMERICAL_EPSILON,
     LikelihoodExtraParams,
 )
 
 from .emissions import (
     categorical_probabilities,
     ordered_logistic_probabilities,
+)
+from .observation_distributions import (
+    binary_logits_distribution,
+    categorical_distribution,
+    sample_mean_observation,
 )
 from .observation_kernel_helpers import (
     ResponseFn,
@@ -50,14 +54,6 @@ from .observation_kernel_helpers import (
     _make_variance_identity,
     _make_variance_negative_binomial,
     _make_variance_poisson,
-)
-from .observation_sampling import (
-    sample_bernoulli_from_mean,
-    sample_beta_from_mean,
-    sample_gamma_from_mean,
-    sample_negative_binomial_from_mean,
-    sample_poisson_from_mean,
-    sample_student_t_from_location,
 )
 
 if TYPE_CHECKING:
@@ -441,43 +437,33 @@ def _response_factory_categorical(params: LikelihoodExtraParams):
 
 
 def _sample_discrete_from_probs(key: jax.Array, probs: jnp.ndarray) -> jnp.ndarray:
-    return jax.random.categorical(
-        key,
-        jnp.log(jnp.maximum(probs, NUMERICAL_EPSILON)),
-        axis=-1,
-    ).astype(jnp.float32)
+    return categorical_distribution(probs).sample(key).astype(jnp.float32)
 
 
 def _ppc_gaussian(
     loc, key, std, _df, _shape, _r, _phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
 ):
-    return loc + std * jax.random.normal(key, ())
+    return sample_mean_observation(DistributionFamily.GAUSSIAN, key, loc, std, {})
 
 
 def _ppc_student_t(
     loc, key, std, df, _shape, _r, _phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
 ):
-    return sample_student_t_from_location(key, loc, std, df)
+    return sample_mean_observation(DistributionFamily.STUDENT_T, key, loc, std, {"obs_df": df})
 
 
 def _ppc_poisson(
     loc, key, _std, _df, _shape, _r, _phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
 ):
     rate = jnp.exp(loc)
-    return sample_poisson_from_mean(key, rate)
+    return sample_mean_observation(DistributionFamily.POISSON, key, rate, 1.0, {})
 
 
 def _ppc_gamma_log(
     loc, key, _std, _df, shape, _r, _phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
 ):
     mean = jnp.exp(loc)
-    return sample_gamma_from_mean(
-        key,
-        mean,
-        shape,
-        denominator_floor=1e-8,
-        scale_floor=1e-8,
-    )
+    return sample_mean_observation(DistributionFamily.GAMMA, key, mean, 1.0, {"obs_shape": shape})
 
 
 def _ppc_gamma_inverse(
@@ -486,47 +472,47 @@ def _ppc_gamma_inverse(
     valid_loc = jnp.isfinite(loc) & (loc > 0.0)
     safe_loc = jnp.where(valid_loc, loc, 1.0)
     mean = 1.0 / safe_loc
-    draw = sample_gamma_from_mean(
-        key,
-        mean,
-        shape,
-        denominator_floor=1e-8,
-        scale_floor=1e-8,
-    )
+    draw = sample_mean_observation(DistributionFamily.GAMMA, key, mean, 1.0, {"obs_shape": shape})
     return jnp.where(valid_loc, draw, jnp.nan)
 
 
 def _ppc_bernoulli_logit(
     loc, key, _std, _df, _shape, _r, _phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
 ):
-    return sample_bernoulli_from_mean(key, jax.nn.sigmoid(loc))
+    return binary_logits_distribution(logits=loc).sample(key).astype(jnp.float32)
 
 
 def _ppc_bernoulli_probit(
     loc, key, _std, _df, _shape, _r, _phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
 ):
-    return sample_bernoulli_from_mean(key, jax.scipy.stats.norm.cdf(loc))
+    return sample_mean_observation(
+        DistributionFamily.BERNOULLI, key, jax.scipy.stats.norm.cdf(loc), 1.0, {}
+    )
 
 
 def _ppc_negative_binomial(
     loc, key, _std, _df, _shape, r, _phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
 ):
     mu = jnp.exp(loc)
-    return sample_negative_binomial_from_mean(key, mu, r)
+    return sample_mean_observation(DistributionFamily.NEGATIVE_BINOMIAL, key, mu, 1.0, {"obs_r": r})
 
 
 def _ppc_beta_logit(
     loc, key, _std, _df, _shape, _r, phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
 ):
     mean = jax.nn.sigmoid(loc)
-    return sample_beta_from_mean(key, mean, phi)
+    return sample_mean_observation(
+        DistributionFamily.BETA, key, mean, 1.0, {"obs_concentration": phi}
+    )
 
 
 def _ppc_beta_probit(
     loc, key, _std, _df, _shape, _r, phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
 ):
     mean = jax.scipy.stats.norm.cdf(loc)
-    return sample_beta_from_mean(key, mean, phi)
+    return sample_mean_observation(
+        DistributionFamily.BETA, key, mean, 1.0, {"obs_concentration": phi}
+    )
 
 
 def _ppc_ordered_logistic(

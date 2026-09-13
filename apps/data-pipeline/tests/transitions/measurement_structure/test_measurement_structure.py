@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from nof1_causal_lab.artifacts import CausalDesign
+from nof1_causal_lab.artifacts.causal_design import CausalDesign
 from nof1_causal_lab.artifacts.latent_structure import LatentStructure
 from nof1_causal_lab.flows.transitions.measurement_structure.assemble import build_causal_design
 from nof1_causal_lab.models.ssm.compile.artifact import (
@@ -13,6 +13,7 @@ from nof1_causal_lab.models.ssm.compile.artifact import (
 from nof1_causal_lab.models.structural import build_structural_plan
 from nof1_causal_lab.utils.causal_design import get_outcome_name
 from nof1_causal_lab.utils.structural_plan import get_edges, get_known_inputs, get_state_names
+from tests.helpers import fixture_entity_id
 
 
 def _assert_same_declared_measurement(
@@ -23,8 +24,8 @@ def _assert_same_declared_measurement(
     assert [item["name"] for item in actual["indicators"]] == [
         item["name"] for item in expected["indicators"]
     ]
-    assert [item["construct_name"] for item in actual["indicators"]] == [
-        item["construct_name"] for item in expected["indicators"]
+    assert [item["construct_id"] for item in actual["indicators"]] == [
+        item["construct_id"] for item in expected["indicators"]
     ]
 
 
@@ -65,7 +66,7 @@ class TestMeasurementCompiler:
             "indicators": [
                 indicator
                 for indicator in stage1b_measurement_all_observed["indicators"]
-                if indicator["construct_name"] != "Outcome"
+                if indicator["construct_id"] != fixture_entity_id("construct", "Outcome")
             ],
         }
 
@@ -83,8 +84,9 @@ class TestMeasurementCompiler:
             "indicators": [
                 stage1b_measurement_all_observed["indicators"][0],
                 {
+                    "id": "indicator:ff9b857400b83cf20b8e",
+                    "construct_id": "construct:2219a835484dea8b586a",
                     "name": "treatment_dose_copy",
-                    "construct_name": "Treatment",
                     "construct_polarity": "positive",
                     "how_to_measure": "Extract the treatment dosage from the data",
                     "measurement_dtype": "continuous",
@@ -107,8 +109,9 @@ class TestMeasurementCompiler:
             "model_clock": "1d",
             "indicators": [
                 {
+                    "id": "indicator:a87ef06a71c2a47d6b81",
+                    "construct_id": "construct:2219a835484dea8b586a",
                     "name": "treatment_count",
-                    "construct_name": "Treatment",
                     "construct_polarity": "positive",
                     "how_to_measure": "Count the number of treatments administered",
                     "measurement_dtype": "continuous",
@@ -175,8 +178,8 @@ class TestStage1bGrounding:
             **stage1b_measurement_all_observed,
             "known_inputs": [
                 {
-                    "construct": "Treatment",
-                    "source_indicator": "treatment_dose",
+                    "construct_id": "construct:2219a835484dea8b586a",
+                    "source_indicator_id": "indicator:0d729b16859bd5e9357e",
                 }
             ],
             "scientific_only_constructs": [],
@@ -188,8 +191,8 @@ class TestStage1bGrounding:
         assert output is not None
         assert output["known_inputs"] == [
             {
-                "construct": "Treatment",
-                "source_indicator": "treatment_dose",
+                "construct_id": "construct:2219a835484dea8b586a",
+                "source_indicator_id": "indicator:0d729b16859bd5e9357e",
                 "scale": 1.0,
                 "missing_policy": "zero",
             }
@@ -206,7 +209,7 @@ class TestStage1bGrounding:
         [known_input] = get_known_inputs(plan)
         assert {
             key: known_input[key]
-            for key in ("construct", "source_indicator", "scale", "missing_policy")
+            for key in ("construct_id", "source_indicator_id", "scale", "missing_policy")
         } == output["known_inputs"][0]
         assert known_input["source_id"].startswith("known_input:")
         assert known_input["construct_id"].startswith("construct:")
@@ -229,8 +232,8 @@ class TestStage1bGrounding:
             **stage1b_measurement_all_observed,
             "known_inputs": [
                 {
-                    "construct": "Treatment",
-                    "source_indicator": "outcome_score",
+                    "construct_id": "construct:2219a835484dea8b586a",
+                    "source_indicator_id": "indicator:54a6e8d16cbce15b4427",
                 }
             ],
             "scientific_only_constructs": [],
@@ -303,21 +306,24 @@ class TestStage1bGrounding:
         from nof1_causal_lab.utils.identifiability import check_identifiability
 
         latent_structure = {
+            "default_outcome": {"kind": "construct", "id": "construct:e8c8ad65bcd90a0245ee"},
             "constructs": [
                 {
+                    "id": "construct:259490b93f7f2c38ed40",
                     "name": "Sleep",
                     "description": "Sleep quality",
                     "role": "endogenous",
                     "temporal_status": "time_varying",
                 },
                 {
+                    "id": "construct:e8c8ad65bcd90a0245ee",
                     "name": "Mood",
                     "description": "Mood state",
                     "role": "endogenous",
-                    "is_outcome": True,
                     "temporal_status": "time_varying",
                 },
                 {
+                    "id": "construct:7e2e66cf0a7658ce50f9",
                     "name": "Chronotype",
                     "description": "Unobserved stable circadian preference",
                     "role": "exogenous",
@@ -326,20 +332,23 @@ class TestStage1bGrounding:
             ],
             "edges": [
                 {
-                    "cause": "Sleep",
-                    "effect": "Mood",
+                    "cause_id": "construct:259490b93f7f2c38ed40",
+                    "effect_id": "construct:e8c8ad65bcd90a0245ee",
+                    "id": "edge:a0557344502eff589862",
                     "description": "Better sleep improves later mood",
                     "lagged": True,
                 },
                 {
-                    "cause": "Chronotype",
-                    "effect": "Sleep",
+                    "cause_id": "construct:7e2e66cf0a7658ce50f9",
+                    "effect_id": "construct:259490b93f7f2c38ed40",
+                    "id": "edge:8fe257111b4a566bd857",
                     "description": "Chronotype shifts sleep quality",
                     "lagged": False,
                 },
                 {
-                    "cause": "Chronotype",
-                    "effect": "Mood",
+                    "cause_id": "construct:7e2e66cf0a7658ce50f9",
+                    "effect_id": "construct:e8c8ad65bcd90a0245ee",
+                    "id": "edge:54d7f3c4fd0babe323da",
                     "description": "Chronotype shifts mood vulnerability",
                     "lagged": False,
                 },
@@ -349,8 +358,9 @@ class TestStage1bGrounding:
             "model_clock": "1d",
             "indicators": [
                 {
+                    "id": "indicator:7f807162156d3eb1b611",
+                    "construct_id": "construct:259490b93f7f2c38ed40",
                     "name": "sleep_score",
-                    "construct_name": "Sleep",
                     "construct_polarity": "positive",
                     "how_to_measure": "Extract the sleep score",
                     "measurement_dtype": "continuous",
@@ -358,8 +368,9 @@ class TestStage1bGrounding:
                     "source_columns": ["sleep_score"],
                 },
                 {
+                    "id": "indicator:45f78731e3e0c6f3efe1",
+                    "construct_id": "construct:e8c8ad65bcd90a0245ee",
                     "name": "mood_score",
-                    "construct_name": "Mood",
                     "construct_polarity": "positive",
                     "how_to_measure": "Extract the mood score",
                     "measurement_dtype": "continuous",
@@ -389,36 +400,41 @@ class TestStage1bGrounding:
     def test_projects_unmeasured_constructs_from_structural_plan(self):
         """Latent-only constructs should not remain in the executable state vector."""
         latent_structure = {
+            "default_outcome": {"kind": "construct", "id": "construct:170504d1ef8631dda85d"},
             "constructs": [
                 {
+                    "id": "construct:2219a835484dea8b586a",
                     "name": "Treatment",
                     "description": "Observed treatment",
                     "role": "exogenous",
                     "temporal_status": "time_varying",
                 },
                 {
+                    "id": "construct:c10d32fa64fe96b49b0a",
                     "name": "Mediator",
                     "description": "Unmeasured mediator",
                     "role": "endogenous",
                     "temporal_status": "time_varying",
                 },
                 {
+                    "id": "construct:170504d1ef8631dda85d",
                     "name": "Outcome",
                     "description": "Observed outcome",
                     "role": "endogenous",
                     "temporal_status": "time_varying",
-                    "is_outcome": True,
                 },
             ],
             "edges": [
                 {
-                    "cause": "Treatment",
-                    "effect": "Mediator",
+                    "cause_id": "construct:2219a835484dea8b586a",
+                    "effect_id": "construct:c10d32fa64fe96b49b0a",
+                    "id": "edge:29f939f9145895d08640",
                     "description": "Treatment shifts mediator",
                 },
                 {
-                    "cause": "Mediator",
-                    "effect": "Outcome",
+                    "cause_id": "construct:c10d32fa64fe96b49b0a",
+                    "effect_id": "construct:170504d1ef8631dda85d",
+                    "id": "edge:8879b5ba3593f2926c48",
                     "description": "Mediator shifts outcome",
                 },
             ],
@@ -427,16 +443,18 @@ class TestStage1bGrounding:
             "model_clock": "1d",
             "indicators": [
                 {
+                    "id": "indicator:5b1771032d20744366ec",
+                    "construct_id": "construct:2219a835484dea8b586a",
                     "name": "treatment_signal",
-                    "construct_name": "Treatment",
                     "construct_polarity": "positive",
                     "how_to_measure": "Use the treatment column directly",
                     "measurement_dtype": "continuous",
                     "aggregation": "mean",
                 },
                 {
+                    "id": "indicator:a1e2398902f03e507998",
+                    "construct_id": "construct:170504d1ef8631dda85d",
                     "name": "outcome_signal",
-                    "construct_name": "Outcome",
                     "construct_polarity": "positive",
                     "how_to_measure": "Use the outcome column directly",
                     "measurement_dtype": "continuous",

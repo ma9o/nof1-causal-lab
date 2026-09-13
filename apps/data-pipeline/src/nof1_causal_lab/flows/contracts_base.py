@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel  # noqa: TC002
 
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 
@@ -32,7 +32,7 @@ def _inline_refs(schema: UncheckedJsonObject) -> UncheckedJsonObject:
 
 
 @dataclass(frozen=True)
-class ToolContract:
+class ToolDefinition:
     """Declarative tool definition shared between pipeline and codegen."""
 
     name: str
@@ -52,15 +52,3 @@ class ToolContract:
         if schema.get("type") == "object":
             schema["additionalProperties"] = False
         return _inline_refs(schema)
-
-
-class BaseArtifactContract(BaseModel):
-    """Shared base for persisted artifact payloads.
-
-    Contracts are pure artifacts: execution failure is a typed exception on
-    the transition (state unchanged, attempt journaled), and negative
-    findings are report-present / enabling-artifact-absent — never an
-    ``outcome`` enum on the payload.
-    """
-
-    model_config = ConfigDict(extra="forbid")

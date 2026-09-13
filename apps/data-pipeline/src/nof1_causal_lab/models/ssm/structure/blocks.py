@@ -8,9 +8,8 @@ param-bearing fields: there are no flat-field duplicates.
 Each block is a frozen dataclass with:
 
 - Its structural data (free supports + templates) — direct fields
-- A ``sample_params(prior_fn)`` method that emits the sampled values
-  via ``numpyro.sample`` with bare site names so existing autoreparam
-  / posterior-analysis tooling keeps working
+- An ``iter_sites()`` method declaring names, shapes, supports, and prior bindings
+  interpreted by the shared NumPyro site sampler
 - Assembly delegated to ``structure.assembly`` (single algorithmic
   source of truth shared with ``SSMParameterLayout``)
 """
@@ -20,13 +19,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import numpyro
-
-from nof1_causal_lab.models.ssm.structure.sites import (
-    SiteKind,
-    SupportClass,
-    make_site,
-)
+from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
+from nof1_causal_lab.models.ssm.structure.sites import make_site
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -34,7 +28,6 @@ if TYPE_CHECKING:
     import jax.numpy as jnp
     import numpy as np
     import numpyro.distributions as dist
-    from jax import Array
 
     from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
 
@@ -128,19 +121,6 @@ class DiffusionBlockSpec:
             time_invariant_mask=self.time_invariant_mask,
         )
 
-    def sample_params(self, prior_fn: PriorFn) -> dict[str, Array]:
-        diag_free = None
-        if self.n_diffusion_diag > 0:
-            diag_free = numpyro.sample("diffusion_diag_free", prior_fn("diffusion_diag_free"))
-
-        lower_free = None
-        if self.n_diffusion_lower > 0:
-            lower_free = numpyro.sample("diffusion_lower_free", prior_fn("diffusion_lower_free"))
-
-        diffusion = self.assemble(diag_free, lower_free)
-        numpyro.deterministic("diffusion", diffusion)
-        return {"diffusion": diffusion}
-
 
 # ---------------------------------------------------------------------------
 # Sparse-vector block: a vector-shape parameter (means, intercepts)
@@ -203,18 +183,6 @@ class SparseVectorBlockSpec:
             free=free,
         )
 
-    def sample_params(self, prior_fn: PriorFn) -> dict[str, Array]:
-        free = None
-        if self.n_free > 0:
-            free = numpyro.sample(self.free_site_name, prior_fn(self.free_site_name))
-
-        assembled = self.assemble(free)
-        # Empty blocks (n=0) skip the deterministic emit: size-0 sites
-        # break numpyro's per-chain summarizer reshape.
-        if self.n > 0:
-            numpyro.deterministic(self.det_site_name, assembled)
-        return {self.det_site_name: assembled}
-
 
 # ---------------------------------------------------------------------------
 # Sparse-matrix block: a rectangular-shape parameter (loadings, input_effect)
@@ -273,18 +241,6 @@ class SparseMatrixBlockSpec:
             free=free,
         )
 
-    def sample_params(self, prior_fn: PriorFn) -> dict[str, Array]:
-        free = None
-        if self.n_free > 0:
-            free = numpyro.sample(self.free_site_name, prior_fn(self.free_site_name))
-
-        assembled = self.assemble(free)
-        # Empty blocks (n_rows=0 or n_cols=0) skip the deterministic emit:
-        # size-0 sites break numpyro's per-chain summarizer reshape.
-        if self.n_rows > 0 and self.n_cols > 0:
-            numpyro.deterministic(self.det_site_name, assembled)
-        return {self.det_site_name: assembled}
-
 
 # ---------------------------------------------------------------------------
 # Manifest-Cholesky block: diagonal Cholesky factor for observation noise
@@ -335,21 +291,6 @@ class ManifestCholBlockSpec:
             free=free,
         )
 
-    def sample_params(self, prior_fn: PriorFn) -> dict[str, Array]:
-        """Sample the diagonal free entries and assemble the Cholesky.
-
-        Does NOT emit a ``manifest_cov`` deterministic — that's the
-        composition-step caller's responsibility (``manifest_cov`` is
-        emitted once after the means + Cholesky blocks are composed).
-        """
-
-        free = None
-        if self.n_free > 0:
-            free = numpyro.sample("manifest_var_diag_free", prior_fn("manifest_var_diag_free"))
-
-        chol = self.assemble(free)
-        return {"manifest_chol": chol}
-
 
 # ---------------------------------------------------------------------------
 # Initial-state covariance block: diagonal SDs + off-diagonal correlations
@@ -369,7 +310,7 @@ class T0CholBlockSpec:
 
     The block assembles the LATENT-only covariance. Any static-factor
     contribution is added by the caller (see
-    ``SSMModel._sample_t0_params``).
+    ``execution.parameters.assemble_model_matrices``).
     """
 
     n_latent: int
@@ -471,25 +412,3 @@ class T0CholBlockSpec:
                 corr = corr.at[col, row].set(correlation_free[idx])
         cov = corr * (std[:, None] * std[None, :])
         return 0.5 * (cov + cov.T)
-
-    def sample_params(self, prior_fn: PriorFn) -> dict[str, Array | None]:
-        """Sample free diagonal SDs and free off-diagonal correlations.
-
-        Returns a dict keyed by sample-site name; values may be ``None``
-        for empty supports. The composition step
-        (``_compose_t0_cov``) assembles the final covariance from
-        these raw samples plus the static-factor contribution.
-        """
-
-        diag_free = None
-        if self.n_diag_free > 0:
-            diag_free = numpyro.sample("t0_var_diag_free", prior_fn("t0_var_diag_free"))
-
-        correlation_free = None
-        if self.n_correlation_free > 0:
-            correlation_free = numpyro.sample("t0_var_lower_free", prior_fn("t0_var_lower_free"))
-
-        return {
-            "t0_var_diag_free": diag_free,
-            "t0_var_lower_free": correlation_free,
-        }

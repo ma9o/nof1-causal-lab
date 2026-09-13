@@ -38,12 +38,6 @@ def _read_baseline_json(path: str) -> Any:
     return storage.read_json(path)
 
 
-def _baseline_draws_stats(draws: list[float] | None) -> tuple[float | None, float | None]:
-    if not draws:
-        return None, None
-    return sum(draws) / len(draws), sum(1 for draw in draws if draw > 0) / len(draws)
-
-
 def _first_baseline_assistant_summary(trace: UncheckedJsonObject) -> str | None:
     for message in trace.get("messages", []):
         if message.get("role") != "assistant":
@@ -58,10 +52,10 @@ def _first_baseline_assistant_summary(trace: UncheckedJsonObject) -> str | None:
 async def plan_baseline_report_activity(
     input: SingleLLMTransitionWorkflowInput,
 ) -> SingleLLMTransitionPlan:
-    from nof1_causal_lab.artifacts import CausalDesign
+    from nof1_causal_lab.artifacts.causal_design import CausalDesign
+    from nof1_causal_lab.artifacts.identity import CausalDesignRef
     from nof1_causal_lab.flows.transitions.analysis.interventions import run_interventions
     from nof1_causal_lab.models.causal_proofs import (
-        CausalDesignRef,
         CertifiedCausalAnalysis,
         certify_identified_estimand,
         certify_reportable_posterior,
@@ -92,9 +86,10 @@ async def plan_baseline_report_activity(
     fitted_artifact = storage.read_pickle(
         store.file_path("posterior", pins["posterior"], pickle_filename("posterior", "fitted"))
     )
-    treatments = identification_report["estimable_treatments"]
-    outcome_name = identification_report["outcome_name"]
     causal_design_model = CausalDesign.model_validate(causal_design)
+    constructs = {construct.id: construct for construct in causal_design_model.latent.constructs}
+    treatments = [constructs[cid].name for cid in identification_report["estimable_treatments"]]
+    outcome_name = constructs[identification_report["outcome_id"]].name
     identification_meta = store.read_meta("identification_report", pins["identification_report"])
     causal_design_ref = CausalDesignRef(
         workspace_id=input.workspace_id,
@@ -125,18 +120,17 @@ async def plan_baseline_report_activity(
 
     ppc_warnings = [
         {
-            "variable": warning.get("variable"),
+            "indicator_id": warning["indicator_id"],
             "issue_type": warning.get("issue_type"),
             "severity": warning.get("severity"),
             "message": warning.get("message"),
         }
-        for warning in diagnostics.get("ppc", {}).get("per_variable_warnings", [])
+        for warning in diagnostics["assessment"].get("ppc", {}).get("per_variable_warnings", [])
     ][:5]
     top_results = [
         {
             "treatment": entry.get("treatment"),
-            "effect_size": _baseline_draws_stats(entry.get("posterior_draws"))[0],
-            "prob_positive": _baseline_draws_stats(entry.get("posterior_draws"))[1],
+            "summary": entry["summary"],
         }
         for entry in intervention_results[:5]
     ]
@@ -144,7 +138,7 @@ async def plan_baseline_report_activity(
         "outcome": outcome_name,
         "identifiable_treatments": treatments,
         "excluded_non_identifiable_treatments": sorted(
-            causal_design.get("identifiability", {}).get("non_identifiable_treatments", {}).keys()
+            constructs[cid].name for cid in identification_report["non_identifiable_treatments"]
         ),
         "top_ranked_effects": top_results,
         "ppc_warnings": ppc_warnings,
@@ -200,7 +194,7 @@ async def plan_baseline_report_activity(
 async def finalize_baseline_report_activity(
     input: SingleLLMTransitionFinalizeInput,
 ) -> TransitionEffects:
-    from nof1_causal_lab.flows.transitions.analysis.contracts import BaselineReportContract
+    from nof1_causal_lab.artifacts.baseline_report import BaselineReportArtifact
 
     try:
         context = _read_baseline_json(input.context_ref)
@@ -211,7 +205,7 @@ async def finalize_baseline_report_activity(
         final_summary = _first_baseline_assistant_summary(trace)
         if final_summary:
             payload["final_summary"] = final_summary
-        payload = project_model_fields(BaselineReportContract, payload)
+        payload = project_model_fields(BaselineReportArtifact, payload)
 
         store = ArtifactStore(input.workspace_id)
         produced = [

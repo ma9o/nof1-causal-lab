@@ -14,7 +14,7 @@ from tests.helpers import run_async
 from tests.integration import transition_runner_fixtures as fx
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.machine.artifacts import ArtifactId
+    from nof1_causal_lab.artifacts.identity import ArtifactId
     from nof1_causal_lab.machine.store import ArtifactStore
 
 
@@ -64,9 +64,10 @@ def test_posterior_persists_posterior_from_seeded_model_artifacts(
 ) -> None:
     import jax.numpy as jnp
 
+    from nof1_causal_lab.artifacts.compiled_ssm import CompiledSSMArtifact
     from nof1_causal_lab.flows.transitions.inference import fit as stage5_fit
-    from nof1_causal_lab.models.ssm.compile.contracts import CompiledSSMArtifact
     from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior
+    from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
     from nof1_causal_lab.models.ssm.serialization import deserialize_ssm_spec
 
     fx.seed_structural_plan(artifact_store)
@@ -82,7 +83,9 @@ def test_posterior_persists_posterior_from_seeded_model_artifacts(
             "n_samples": 4,
             "duration_seconds": 0.01,
             "result": ParticleMCMCPosterior(
-                _samples={"vf_0_decay": jnp.zeros((4, 2), dtype=jnp.float32)}
+                draws=JointPosteriorDraws(
+                    parameters={"vf_0_decay": jnp.zeros((4, 2), dtype=jnp.float32)}
+                )
             ),
             "spec": fitted_spec,
             "runtime": SimpleNamespace(observation_support=None),

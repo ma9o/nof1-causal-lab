@@ -17,6 +17,9 @@ from pathlib import Path
 from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
+from pydantic import TypeAdapter
+
+from nof1_causal_lab.artifacts.mechanism import DynamicsMechanism
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.temporal.llm_subroutine_storage import (
     read_subroutine_json,
@@ -429,6 +432,7 @@ def _execute_model_spec_submit_construct(
 
     indicators = list(args["indicators"])
     priors = dict(args["priors"])
+    mechanisms = TypeAdapter(list[DynamicsMechanism]).validate_python(args["mechanisms"])
     accept = list(args.get("accept") or [])
     state.attempt = int(context["attempt"])
     state.search_queries = dict(search_state["search_queries"])
@@ -440,6 +444,7 @@ def _execute_model_spec_submit_construct(
         construct_name=construct,
         indicators=indicators,
         priors=priors,
+        mechanisms=mechanisms,
         accept=accept,
         n_draws=state.n_draws,
         seed=state.seed,
@@ -456,6 +461,7 @@ def _execute_model_spec_submit_construct(
                 construct_name=construct,
                 indicators=indicators,
                 priors=priors,
+                mechanisms=mechanisms,
                 accept=accept,
                 annotations=evaluation.annotations,
                 results=evaluation.results,
@@ -502,6 +508,7 @@ def _execute_model_spec_submit_construct(
             construct=construct,
             indicators=indicators,
             priors=priors,
+            mechanisms=[mechanism.model_dump(mode="json") for mechanism in mechanisms],
             accept=accept,
         )
     except _MODEL_SPEC_SUBMISSION_ERRORS as exc:

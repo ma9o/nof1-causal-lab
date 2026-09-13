@@ -16,16 +16,12 @@ from nof1_causal_lab.models.ssm.execution.contracts import (
     LikelihoodExtraParams,
     build_likelihood_eval_aux,
 )
-from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
+from nof1_causal_lab.models.ssm.execution.observation_operator import (
     row_observation_log_prob as _row_observation_log_prob,
 )
-from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
+from nof1_causal_lab.models.ssm.execution.observation_operator import (
     trajectory_observation_log_prob,
 )
-from nof1_causal_lab.models.ssm.inference.targets.transitions import build_discrete_transitions
-
-if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.execution.contracts import RuntimeDynamics
 
 from .shared import (
     _POINT_IEKS_CONVERGENCE_RTOL,
@@ -42,6 +38,7 @@ from .shared import (
     _compute_profile_lower_bandwidths,
     _factor_block_banded_cholesky,
     _predictive_latent_init,
+    _prepare_linearized_path,
     _solve_block_banded_from_cholesky,
     _solve_block_tridiagonal,
     _step_halving_search,
@@ -49,6 +46,9 @@ from .shared import (
     build_gaussian_trajectory_prior_terms,
     trajectory_prior_log_prob_from_terms,
 )
+
+if TYPE_CHECKING:
+    from dynestyx import StochasticContinuousTimeStateEvolution
 
 
 def _row_joint_log_prob(
@@ -906,18 +906,10 @@ def _point_ieks_laplace_core(
     return z_est, log_lik, inner_eval_aux
 
 
-def _transition_start_linearization_states(
-    latent_trajectory: jnp.ndarray,
-    init_mean: jnp.ndarray,
-) -> jnp.ndarray:
-    """Return per-transition start states for local dynamics linearization."""
-    return jnp.concatenate((init_mean[None, :], latent_trajectory[:-1]), axis=0)
-
-
 def _point_dynamic_transition_ieks_laplace(
     observations: jnp.ndarray,
     obs_mask: jnp.ndarray,
-    dynamics: RuntimeDynamics,
+    dynamics: StochasticContinuousTimeStateEvolution,
     time_intervals: jnp.ndarray,
     H_rows: jnp.ndarray,
     d_rows: jnp.ndarray,
@@ -932,29 +924,16 @@ def _point_dynamic_transition_ieks_laplace(
     solver_kind: int = LIKELIHOOD_SOLVER_KIND_POINT_IEKS,
 ) -> tuple[jnp.ndarray, jnp.ndarray, dict[str, jnp.ndarray]]:
     """Point IEKS/Laplace path with per-iteration local dynamics linearization."""
-    T = observations.shape[0]
     D = init_mean.shape[0]
 
-    def _transitions_at(z_path: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        transitions = build_discrete_transitions(
-            dynamics,
-            time_intervals,
-            linearization_states=_transition_start_linearization_states(z_path, init_mean),
-            transition_inputs=transition_inputs,
-        )
-        cd_scan = (
-            transitions.cd
-            if transitions.cd is not None
-            else jnp.zeros((T, D), dtype=observations.dtype)
-        )
-        return transitions.Ad, transitions.Qd, jnp.asarray(cd_scan, dtype=observations.dtype)
-
-    if z_init is None:
-        init_ref = jnp.broadcast_to(init_mean[None, :], (T, D))
-        Ad_init, _Qd_init, cd_init = _transitions_at(init_ref)
-        z_est = _predictive_latent_init(Ad_init, cd_init, init_mean)
-    else:
-        z_est = jnp.asarray(z_init, dtype=observations.dtype)
+    _transitions_at, z_est = _prepare_linearized_path(
+        dynamics,
+        time_intervals,
+        init_mean,
+        transition_inputs=transition_inputs,
+        z_init=z_init,
+        dtype=observations.dtype,
+    )
 
     Ad_curr, Qd_curr, cd_curr = _transitions_at(z_est)
     prior_terms_curr = build_gaussian_trajectory_prior_terms(
@@ -1272,7 +1251,7 @@ def _dense_support_laplace_log_lik(
 def _dense_dynamic_support_laplace_log_lik(
     observations: jnp.ndarray,
     obs_mask: jnp.ndarray,
-    dynamics: RuntimeDynamics,
+    dynamics: StochasticContinuousTimeStateEvolution,
     time_intervals: jnp.ndarray,
     H: jnp.ndarray,
     d: jnp.ndarray,
@@ -1290,24 +1269,6 @@ def _dense_dynamic_support_laplace_log_lik(
     """Dense interval-support Laplace path with local dynamics linearization."""
     T, D = observations.shape[0], init_mean.shape[0]
     flat_dim = T * D
-
-    def _transitions_at(z_flat_curr: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        z_path = z_flat_curr.reshape(T, D)
-        transitions = build_discrete_transitions(
-            dynamics,
-            time_intervals,
-            linearization_states=_transition_start_linearization_states(z_path, init_mean),
-            transition_inputs=transition_inputs,
-        )
-        cd = (
-            transitions.cd
-            if transitions.cd is not None
-            else jnp.zeros((T, D), dtype=observations.dtype)
-        )
-        cd = jnp.asarray(cd, dtype=observations.dtype)
-        if cd.ndim == 1:
-            cd = cd[:, None]
-        return transitions.Ad, transitions.Qd, cd
 
     def _joint_log_prob_fixed(
         z_flat_eval: jnp.ndarray,
@@ -1338,13 +1299,16 @@ def _dense_dynamic_support_laplace_log_lik(
         return prior_ll + obs_ll
 
     with jax.named_scope("map/dense_dynamic_support_init"):
-        if z_init is None:
-            init_path = jnp.broadcast_to(init_mean[None, :], (T, D))
-            Ad_init, _Qd_init, cd_init = _transitions_at(init_path.reshape(-1))
-            z_flat = _predictive_latent_init(Ad_init, cd_init, init_mean).reshape(-1)
-        else:
-            z_flat = jnp.asarray(z_init, dtype=observations.dtype).reshape(-1)
-        Ad_curr, Qd_curr, cd_curr = _transitions_at(z_flat)
+        _transitions_at, initial_path = _prepare_linearized_path(
+            dynamics,
+            time_intervals,
+            init_mean,
+            transition_inputs=transition_inputs,
+            z_init=z_init,
+            dtype=observations.dtype,
+        )
+        z_flat = initial_path.reshape(-1)
+        Ad_curr, Qd_curr, cd_curr = _transitions_at(initial_path)
         init_log_joint = _joint_log_prob_fixed(z_flat, Ad_curr, Qd_curr, cd_curr)
 
     final_rel_change = jnp.asarray(jnp.nan, dtype=z_flat.dtype)
@@ -1354,7 +1318,7 @@ def _dense_dynamic_support_laplace_log_lik(
 
     with jax.named_scope("map/dense_dynamic_support_newton"):
         for _ in range(max(n_newton_iters, 1)):
-            Ad_step, Qd_step, cd_step = _transitions_at(z_flat)
+            Ad_step, Qd_step, cd_step = _transitions_at(z_flat.reshape(T, D))
 
             def _neg_log_prob_fixed(
                 z_flat_eval: jnp.ndarray,
@@ -1400,7 +1364,7 @@ def _dense_dynamic_support_laplace_log_lik(
             n_accepted_steps = n_accepted_steps + accepted.astype(jnp.int32)
 
     with jax.named_scope("map/dense_dynamic_support_curvature"):
-        Ad_final, Qd_final, cd_final = _transitions_at(z_flat)
+        Ad_final, Qd_final, cd_final = _transitions_at(z_flat.reshape(T, D))
 
         def _final_neg_log_prob_fixed(z_flat_eval: jnp.ndarray) -> jnp.ndarray:
             return -_joint_log_prob_fixed(z_flat_eval, Ad_final, Qd_final, cd_final)

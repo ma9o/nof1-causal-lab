@@ -9,8 +9,7 @@ import jax.numpy as jnp
 
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 
-from .runtime import pack_vector_field_params_from_samples
-from .spec import compile_dynamics
+from .spec import compile_dynamics, pack_component_params_from_samples
 
 if TYPE_CHECKING:
     from jax import Array
@@ -53,7 +52,9 @@ def component_param_samples_from_site_samples(
             for name, values in samples.items()
             if hasattr(values, "shape") and len(values.shape) > 0
         }
-        param_samples.append(pack_vector_field_params_from_samples(spec, draw, prefix=prefix))
+        param_samples.append(
+            pack_component_params_from_samples(spec.dynamics_spec, draw, prefix=prefix)
+        )
     return param_samples
 
 

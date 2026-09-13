@@ -5,16 +5,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal, TypedDict
 
 if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.parameter import PriorAuthoringTransform, SiteKind
     from nof1_causal_lab.artifacts.statistical_model_spec import (
         InitializationPolicy,
         LinkFunction,
         ParameterConstraint,
     )
     from nof1_causal_lab.distributions import DistributionFamily
-    from nof1_causal_lab.models.ssm.structure.sites import (
-        PriorAuthoringTransform,
-        SiteKind,
-    )
 
 type TemporalStatus = Literal["time_varying", "time_invariant"]
 
@@ -30,6 +27,7 @@ class ResolvedLikelihoodCandidate(ObservationSemanticsFields):
     """Likelihood whose family and link are fixed deterministically."""
 
     variable: str
+    indicator_id: str
     construct_name: str | None
     distribution: DistributionFamily
     link: LinkFunction
@@ -40,6 +38,7 @@ class FixedDistributionLikelihoodCandidate(ObservationSemanticsFields):
     """Likelihood with a fixed family and a remaining link choice."""
 
     variable: str
+    indicator_id: str
     construct_name: str | None
     dtype: str
     fixed_distribution: DistributionFamily
@@ -50,6 +49,7 @@ class OpenLikelihoodCandidate(ObservationSemanticsFields):
     """Likelihood with both family and family-specific link choices open."""
 
     variable: str
+    indicator_id: str
     construct_name: str | None
     dtype: str
     valid_distributions: list[DistributionFamily]
@@ -62,6 +62,9 @@ type AmbiguousLikelihoodCandidate = FixedDistributionLikelihoodCandidate | OpenL
 class CandidateBindingMetadata(TypedDict, total=False):
     """Compiler-owned metadata attached after semantic parameter binding."""
 
+    id: str
+    owners: list[dict[str, str]]
+    quantity: str
     construct_names: list[str]
     indicator_names: list[str]
     compiled_site_name: str

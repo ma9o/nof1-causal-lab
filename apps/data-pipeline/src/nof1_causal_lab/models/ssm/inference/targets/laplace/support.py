@@ -12,14 +12,13 @@ from nof1_causal_lab.models.ssm.execution.contracts import (
     LikelihoodExtraParams,
     build_likelihood_eval_aux,
 )
-from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
+from nof1_causal_lab.models.ssm.execution.observation_operator import (
     accumulate_support_statistics,
     expected_observation_mean,
     get_point_like_mask,
     get_support_kind_codes,
     trajectory_observation_log_prob,
 )
-from nof1_causal_lab.models.ssm.inference.targets.transitions import build_discrete_transitions
 
 from .shared import (
     _SUPPORT_AWARE_IEKS_CONVERGENCE_RTOL,
@@ -36,6 +35,7 @@ from .shared import (
     _factor_block_banded_cholesky,
     _factor_block_profile_cholesky,
     _predictive_latent_init,
+    _prepare_linearized_path,
     _solve_block_banded_from_cholesky,
     _solve_block_profile_from_cholesky,
     _step_halving_search,
@@ -47,7 +47,8 @@ from .shared import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from nof1_causal_lab.models.ssm.execution.contracts import RuntimeDynamics
+    from dynestyx import StochasticContinuousTimeStateEvolution
+
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
 
@@ -822,18 +823,10 @@ def _support_aware_laplace_terms_from_mode(
     return log_lik, mode_log_joint, laplace_logdet, min_chol_diag
 
 
-def _support_transition_start_linearization_states(
-    latent_trajectory: jnp.ndarray,
-    init_mean: jnp.ndarray,
-) -> jnp.ndarray:
-    """Return per-transition start states for support-aware local linearization."""
-    return jnp.concatenate((init_mean[None, :], latent_trajectory[:-1]), axis=0)
-
-
 def _support_dynamic_transition_ieks_laplace(
     observations: jnp.ndarray,
     obs_mask: jnp.ndarray,
-    dynamics: RuntimeDynamics,
+    dynamics: StochasticContinuousTimeStateEvolution,
     time_intervals: jnp.ndarray,
     H: jnp.ndarray,
     d: jnp.ndarray,
@@ -856,37 +849,19 @@ def _support_dynamic_transition_ieks_laplace(
     solve_block_from_cholesky_fn=_solve_block_banded_from_cholesky,
 ) -> tuple[jnp.ndarray, jnp.ndarray, dict[str, jnp.ndarray]]:
     """Support-aware IEKS/Laplace path with per-iteration dynamics linearization."""
-    T, D = observations.shape[0], init_mean.shape[0]
+    D = init_mean.shape[0]
     point_like_mask = get_point_like_mask(
         get_support_kind_codes(observation_support), observations.dtype
     )
 
-    def _transitions_at(z_path: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        transitions = build_discrete_transitions(
-            dynamics,
-            time_intervals,
-            linearization_states=_support_transition_start_linearization_states(
-                z_path,
-                init_mean,
-            ),
-            transition_inputs=transition_inputs,
-        )
-        cd = (
-            transitions.cd
-            if transitions.cd is not None
-            else jnp.zeros((T, D), dtype=observations.dtype)
-        )
-        cd = jnp.asarray(cd, dtype=observations.dtype)
-        if cd.ndim == 1:
-            cd = cd[:, None]
-        return transitions.Ad, transitions.Qd, cd
-
-    if z_init is None:
-        init_ref = jnp.broadcast_to(init_mean[None, :], (T, D))
-        Ad_init, _Qd_init, cd_init = _transitions_at(init_ref)
-        z_est = _predictive_latent_init(Ad_init, cd_init, init_mean)
-    else:
-        z_est = jnp.asarray(z_init, dtype=observations.dtype)
+    _transitions_at, z_est = _prepare_linearized_path(
+        dynamics,
+        time_intervals,
+        init_mean,
+        transition_inputs=transition_inputs,
+        z_init=z_init,
+        dtype=observations.dtype,
+    )
 
     Ad_curr, Qd_curr, cd_curr = _transitions_at(z_est)
     prior_terms_curr = build_gaussian_trajectory_prior_terms(
@@ -916,7 +891,7 @@ def _support_dynamic_transition_ieks_laplace(
         H.dtype,
         d.dtype,
         R.dtype,
-        dynamics.diffusion_cov.dtype,
+        dynamics.diffusion.as_matrix(x=None, u=None, t=0, state_dim=D).dtype,
         init_mean.dtype,
         init_cov.dtype,
     )

@@ -170,6 +170,7 @@ class TestVectorFieldEquivalence:
         assert jnp.allclose(factory_dynamics, expected, atol=1e-6)
 
 
+@pytest.mark.cpu_expensive
 class TestVectorFieldInterventions:
     """Override semantics on vector fields."""
 
@@ -233,6 +234,7 @@ class TestVectorFieldInterventions:
 # =============================================================================
 
 
+@pytest.mark.cpu_expensive
 class TestEffectCompartment:
     """LinearEdge with weight matching the target's DiagonalDecay rate
     implements first-order lag ``dC_e/dt = k_e0 · (C_p − C_e)``. At
@@ -287,6 +289,7 @@ class TestEffectCompartment:
 # =============================================================================
 
 
+@pytest.mark.cpu_expensive
 class TestSSRIChain:
     """Full pharmacological chain — multiplicative coupling, effect
     compartment, Hill saturation in series. ``do(dose = 2)`` produces a

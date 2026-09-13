@@ -31,7 +31,8 @@ from nof1_causal_lab.models.ssm.inference.warmup.scipy_pathfinder import (
 )
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.inference.bundle import CachedParticleRuntimeBundle
+    from dynestyx.inference.particle_runtime import ParticleRuntime
+
     from nof1_causal_lab.models.ssm.inference.types import WarmupProposal
 
 logger = logging.getLogger(__name__)
@@ -132,7 +133,7 @@ def prepare_parameter_warmup(
     observations: jnp.ndarray,
     times: jnp.ndarray,
     *,
-    bundle: CachedParticleRuntimeBundle,
+    bundle: ParticleRuntime,
     method_label: str,
     phase_label: str,
     trace_key: jnp.ndarray,
@@ -175,8 +176,8 @@ def prepare_parameter_warmup(
         )
 
     total_t0 = time.monotonic()
-    dim = int(bundle.flat_example.shape[0])
-    dtype = bundle.flat_example.dtype
+    dim = int(bundle.initial_position.shape[0])
+    dtype = bundle.initial_position.dtype
     pathfinder_state: ScipyPathfinderResult | None = None
     pathfinder_diagnostics: UncheckedJsonObject | None = None
     init_positions: jnp.ndarray | None = None

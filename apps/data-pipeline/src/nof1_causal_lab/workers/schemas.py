@@ -5,6 +5,7 @@ from typing import Any
 import polars as pl
 from pydantic import BaseModel, Field, ValidationError
 
+from nof1_causal_lab.artifacts.identity import IndicatorId
 from nof1_causal_lab.json_types import UncheckedJsonObject
 from nof1_causal_lab.utils.causal_design import (
     get_measurement_indicator_info as _get_measurement_indicator_info,
@@ -17,7 +18,7 @@ class WindowExtraction(BaseModel):
     window_start: str = Field(
         description="The support-window start time (e.g. '2024-01-15T00:00:00')"
     )
-    indicator: str = Field(description="Name of the indicator")
+    indicator_id: IndicatorId = Field(description="Persistent identity of the indicator")
     value: int | float | bool | str | None = Field(
         description="Extracted value of the correct datatype"
     )
@@ -40,7 +41,7 @@ class WorkerOutput(BaseModel):
             Value column is stored as string for downstream encoding.
         """
         schema = {
-            "indicator": pl.Utf8,
+            "indicator_id": pl.Utf8,
             "value": pl.Utf8,
             "timestamp": pl.Utf8,
         }
@@ -60,7 +61,7 @@ class WorkerOutput(BaseModel):
                 str_val = None
             rows.append(
                 {
-                    "indicator": e.indicator,
+                    "indicator_id": e.indicator_id,
                     "value": str_val,
                     "timestamp": e.window_start,
                 }
@@ -137,7 +138,7 @@ def validate_worker_output(
             continue
 
         window_start = ext_data.get("window_start", "<missing>")
-        ind_name = ext_data.get("indicator", "<missing>")
+        ind_name = ext_data.get("indicator_id", "<missing>")
         value = ext_data.get("value")
 
         # Check support window is valid
@@ -193,7 +194,7 @@ def validate_worker_output(
 
         normalized = {
             "window_start": window_start,
-            "indicator": ind_name,
+            "indicator_id": ind_name,
             "value": value,
         }
 

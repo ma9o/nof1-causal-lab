@@ -19,6 +19,7 @@ import numpyro.distributions as dist
 import pytest
 from numpyro.handlers import seed, trace
 
+from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.models.ssm.dynamics import (
     Fixed,
     Free,
@@ -41,7 +42,6 @@ from nof1_causal_lab.models.ssm.dynamics.spec import (
     iter_dynamics_semantic_bindings,
     pack_component_params_from_samples,
 )
-from nof1_causal_lab.models.ssm.structure.sites import SiteKind
 
 
 def _args(params: tuple[dict[str, jnp.ndarray], ...]) -> VectorFieldArgs:

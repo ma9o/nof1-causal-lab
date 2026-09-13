@@ -32,26 +32,28 @@ pytestmark = pytest.mark.timeout(240)
 
 def _valid_latent_structure() -> dict[str, Any]:
     return {
+        "default_outcome": {"kind": "construct", "id": "construct:cdc0b2958a9512b2abad"},
         "constructs": [
             {
+                "id": "construct:c665e6cdc48fc83e0915",
                 "name": "exercise",
                 "description": "exercise level",
                 "role": "exogenous",
-                "is_outcome": False,
                 "temporal_status": "time_varying",
             },
             {
+                "id": "construct:cdc0b2958a9512b2abad",
                 "name": "sleep",
                 "description": "sleep quality",
                 "role": "endogenous",
-                "is_outcome": True,
                 "temporal_status": "time_varying",
             },
         ],
         "edges": [
             {
-                "cause": "exercise",
-                "effect": "sleep",
+                "cause_id": "construct:c665e6cdc48fc83e0915",
+                "effect_id": "construct:cdc0b2958a9512b2abad",
+                "id": "edge:ee04dac06187e4b97ab3",
                 "description": "exercise can affect sleep",
                 "lagged": True,
                 "sources": [],

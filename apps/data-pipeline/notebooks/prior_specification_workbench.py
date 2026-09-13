@@ -20,12 +20,8 @@ def imports():
     import polars as pl
     import prior_specification_support as ps
 
-    from nof1_causal_lab.flows.transitions.measurement_structure.assemble import (
-        build_causal_design,
-    )
     from nof1_causal_lab.models.ssm.construct_admission import build_construct_units
     from nof1_causal_lab.models.structural import build_structural_plan
-    from nof1_causal_lab.utils.causal_design import build_reference_indicator_lookup
     from nof1_causal_lab.utils.structural_plan import (
         get_known_inputs,
         get_manifest_indicators,
@@ -35,9 +31,7 @@ def imports():
 
     return (
         Path,
-        build_causal_design,
         build_construct_units,
-        build_reference_indicator_lookup,
         build_structural_plan,
         cs,
         get_known_inputs,
@@ -112,70 +106,13 @@ def load_input_snapshot(
     PANEL_PATH,
     QUESTION_PATH,
     VALIDATION_REPORT_PATH,
-    build_causal_design,
-    build_reference_indicator_lookup,
     build_structural_plan,
     json,
     pl,
 ):
     question = json.loads(QUESTION_PATH.read_text())["text"]
     _stored_causal_design = json.loads(CAUSAL_DESIGN_PATH.read_text())["causal_design"]
-    _latent = _stored_causal_design["latent"]
-    _measurement = _stored_causal_design["measurement"]
-    _reference_indicators = build_reference_indicator_lookup(_measurement["indicators"])
-    _observed_names = {indicator["construct_name"] for indicator in _measurement["indicators"]}
-    _dynamic_observed = {
-        construct["name"]
-        for construct in _latent["constructs"]
-        if construct.get("temporal_status") == "time_varying"
-        and construct["name"] in _observed_names
-    }
-    _static_observed = {
-        construct["name"]
-        for construct in _latent["constructs"]
-        if construct.get("temporal_status") == "time_invariant"
-        and construct["name"] in _reference_indicators
-    }
-    _static_input_names = {
-        edge["cause"]
-        for edge in _latent["edges"]
-        if edge["cause"] in _static_observed and edge["effect"] in _dynamic_observed
-    }
-    _known_inputs = [
-        {
-            "construct": construct_name,
-            "source_indicator": _reference_indicators[construct_name],
-            "scale": 1.0,
-            "missing_policy": "forward_fill",
-        }
-        for construct_name in sorted(_static_input_names)
-    ]
-    _known_inputs.append(
-        {
-            "construct": "counterfactual_taper_regime",
-            "source_indicator": "observed_taper_regime_indicator",
-            "scale": 1.0,
-            "missing_policy": "forward_fill",
-        }
-    )
-    _scientific_only_constructs = [
-        {
-            "construct": construct_name,
-            "reason": (
-                "Measured stable context has no direct effect on a retained dynamic state; "
-                "its static chain is not an estimable N-of-1 structural equation."
-            ),
-        }
-        for construct_name in sorted(_static_observed - _static_input_names)
-    ]
-    _causal_design = build_causal_design(
-        _latent,
-        _measurement,
-        _stored_causal_design.get("identifiability"),
-        known_inputs=_known_inputs,
-        scientific_only_constructs=_scientific_only_constructs,
-    )
-    structural_plan = build_structural_plan(_causal_design)
+    structural_plan = build_structural_plan(_stored_causal_design)
     data_for_model = pl.read_parquet(PANEL_PATH)
     validation_report = json.loads(VALIDATION_REPORT_PATH.read_text())
     indicator_audits = validation_report["indicators"]
@@ -842,10 +779,22 @@ def authored_proposals():
     SEED = 20260720
     PROPOSALS = [
         {
+            "mechanisms": [
+                {
+                    "kind": "node_potential",
+                    "target_id": "construct:ac82920bb78125ab0aca",
+                    "center": {"kind": "fixed", "value": 0.0},
+                    "stiffness": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:87cfcfd5b4a6e2bc85d31b60b3c135bfd981d303a9b1bda2b2d7660970145bb0",
+                    },
+                    "quartic": {"kind": "fixed", "value": 0.0},
+                }
+            ],
             "construct": "external_stressful_events",
             "indicators": [
                 {
-                    "variable": "external_stressor_event_count",
+                    "indicator_id": "indicator:0b02f0d32a40caec29ef",
                     "family": "poisson",
                     "link": "log",
                     "reasoning": (
@@ -887,10 +836,30 @@ def authored_proposals():
             },
         },
         {
+            "mechanisms": [
+                {
+                    "kind": "node_potential",
+                    "target_id": "construct:67784aae4aca9c9c8e1d",
+                    "center": {"kind": "fixed", "value": 0.0},
+                    "stiffness": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:4620c94ec916eb22e5d0e94a3222d44c8ae764d630a0e76a9e135a7c8de9c1e0",
+                    },
+                    "quartic": {"kind": "fixed", "value": 0.0},
+                },
+                {
+                    "kind": "linear",
+                    "edge_id": "edge:54d400141db457defcaf",
+                    "weight": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:203e1c8ababea9d27835d8f92fd20c8dfb21644d7363efd012ec63667ad77256",
+                    },
+                },
+            ],
             "construct": "hormonal_state_changes",
             "indicators": [
                 {
-                    "variable": "hormonal_change_mention",
+                    "indicator_id": "indicator:75271f1a16d47a7d2565",
                     "family": "bernoulli",
                     "link": "logit",
                     "reasoning": (
@@ -940,10 +909,30 @@ def authored_proposals():
             },
         },
         {
+            "mechanisms": [
+                {
+                    "kind": "node_potential",
+                    "target_id": "construct:67784aae4aca9c9c8e1d",
+                    "center": {"kind": "fixed", "value": 0.0},
+                    "stiffness": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:4620c94ec916eb22e5d0e94a3222d44c8ae764d630a0e76a9e135a7c8de9c1e0",
+                    },
+                    "quartic": {"kind": "fixed", "value": 0.0},
+                },
+                {
+                    "kind": "linear",
+                    "edge_id": "edge:54d400141db457defcaf",
+                    "weight": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:203e1c8ababea9d27835d8f92fd20c8dfb21644d7363efd012ec63667ad77256",
+                    },
+                },
+            ],
             "construct": "hormonal_state_changes",
             "indicators": [
                 {
-                    "variable": "hormonal_change_mention",
+                    "indicator_id": "indicator:75271f1a16d47a7d2565",
                     "family": "bernoulli",
                     "link": "logit",
                     "reasoning": (
@@ -1018,10 +1007,38 @@ def authored_proposals():
             ],
         },
         {
+            "mechanisms": [
+                {
+                    "kind": "node_potential",
+                    "target_id": "construct:6ca86c47aaf18b2472ce",
+                    "center": {"kind": "fixed", "value": 0.0},
+                    "stiffness": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:3ea8343eb30d9377d456fad107bbd306a10c09bc939e36b8f8e3d0ef301f4628",
+                    },
+                    "quartic": {"kind": "fixed", "value": 0.0},
+                },
+                {
+                    "kind": "linear",
+                    "edge_id": "edge:ac9fca28a174f57a1dec",
+                    "weight": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:f0c7d0944cbe60322b173d44d7bab810431b27a20bfed464e086c105079547ac",
+                    },
+                },
+                {
+                    "kind": "linear",
+                    "edge_id": "edge:ce3aa517ea04e847c29b",
+                    "weight": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:9b1f3af24a195b2dc236a551e7f5699ac95e10ac5f71d3117edf5b367aa6a4fb",
+                    },
+                },
+            ],
             "construct": "internalizing_symptom_burden",
             "indicators": [
                 {
-                    "variable": "phq9_screening_score",
+                    "indicator_id": "indicator:93c7007ff8e5a6565b25",
                     "family": "ordered_logistic",
                     "link": "cumulative_logit",
                     "reasoning": (
@@ -1031,7 +1048,7 @@ def authored_proposals():
                     ),
                 },
                 {
-                    "variable": "gad7_screening_score",
+                    "indicator_id": "indicator:b3eb347f05220d9f4130",
                     "family": "ordered_logistic",
                     "link": "cumulative_logit",
                     "reasoning": (
@@ -1041,7 +1058,7 @@ def authored_proposals():
                     ),
                 },
                 {
-                    "variable": "state_of_mind_valence",
+                    "indicator_id": "indicator:b20fa3887689d5616a60",
                     "family": "gaussian",
                     "link": "identity",
                     "reasoning": (
@@ -1052,7 +1069,7 @@ def authored_proposals():
                     ),
                 },
                 {
-                    "variable": "journal_internalizing_symptom_severity",
+                    "indicator_id": "indicator:8e1b73dd3c754b48e92c",
                     "family": "ordered_logistic",
                     "link": "cumulative_logit",
                     "reasoning": (
@@ -1272,10 +1289,54 @@ def authored_proposals():
     )
     PROPOSALS.append(
         {
+            "mechanisms": [
+                {
+                    "kind": "node_potential",
+                    "target_id": "construct:ce09d5810470e2ea2afb",
+                    "center": {"kind": "fixed", "value": 0.0},
+                    "stiffness": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:757f3f33d9f744cc665541e7b99e8881ff89ae8cacaf0442e039af5d9fde02f0",
+                    },
+                    "quartic": {"kind": "fixed", "value": 0.0},
+                },
+                {
+                    "kind": "linear",
+                    "edge_id": "edge:09e7854ce4f49d3d6019",
+                    "weight": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:55ff436499d71eac9a7ef979a3bf8abba6a883600afa35df2649b8c38fc921db",
+                    },
+                },
+                {
+                    "kind": "linear",
+                    "edge_id": "edge:47712d24a61cff01368f",
+                    "weight": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:ceca5a2be979d0e61717e1209c30df4776b33614fd9f281047049aba253fc20b",
+                    },
+                },
+                {
+                    "kind": "linear",
+                    "edge_id": "edge:603b3eea048546d924a8",
+                    "weight": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:34ba589814d7bc574c28113cc139867395f158e5311bb355ab7cc2875b483ae7",
+                    },
+                },
+                {
+                    "kind": "linear",
+                    "edge_id": "edge:f4286ec152c6c6e537b8",
+                    "weight": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:dff195f54806d98b869fe9795344e65f401127d2a99ceb44fa6514cbcd0d656c",
+                    },
+                },
+            ],
             "construct": "depressive_anxiety_disorder_activity",
             "indicators": [
                 {
-                    "variable": "clinical_disorder_activity_assessment",
+                    "indicator_id": "indicator:26adad41abb44dce5056",
                     "family": "ordered_logistic",
                     "link": "cumulative_logit",
                     "reasoning": (
@@ -1409,10 +1470,38 @@ def authored_proposals():
     )
     PROPOSALS.append(
         {
+            "mechanisms": [
+                {
+                    "kind": "node_potential",
+                    "target_id": "construct:27f64faaddd59b2ad491",
+                    "center": {"kind": "fixed", "value": 0.0},
+                    "stiffness": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:91175af6ef094fbbb471849776735144f0ba7e5cc5c2664c14380f0c69e8d6b4",
+                    },
+                    "quartic": {"kind": "fixed", "value": 0.0},
+                },
+                {
+                    "kind": "linear",
+                    "edge_id": "edge:114deffd75770b3ad707",
+                    "weight": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:ff5c6a248a8865c6bc44b51f57fead94c14c9748b3e5124c8d8ada0d4e73ba61",
+                    },
+                },
+                {
+                    "kind": "linear",
+                    "edge_id": "edge:feca647e11a8b26c5915",
+                    "weight": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:40a2c828032d5a62c010519f996b424396f07afeab65119b4401b015cd575c30",
+                    },
+                },
+            ],
             "construct": "escitalopram_dose_taken",
             "indicators": [
                 {
-                    "variable": "escitalopram_documented_dose_mg",
+                    "indicator_id": "indicator:eb0949a188790298c25d",
                     "family": "gaussian",
                     "link": "identity",
                     "reasoning": (
@@ -1423,7 +1512,7 @@ def authored_proposals():
                     ),
                 },
                 {
-                    "variable": "escitalopram_fill_quantity",
+                    "indicator_id": "indicator:91ee203847dfb4ba1f08",
                     "family": "gaussian",
                     "link": "identity",
                     "reasoning": (
@@ -1555,6 +1644,37 @@ def authored_proposals():
     PROPOSALS.append(
         {
             **PROPOSALS[-1],
+            "mechanisms": [
+                {
+                    "kind": "node_potential",
+                    "target_id": "construct:27f64faaddd59b2ad491",
+                    "center": {"kind": "fixed", "value": 0.0},
+                    "stiffness": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:91175af6ef094fbbb471849776735144f0ba7e5cc5c2664c14380f0c69e8d6b4",
+                    },
+                    "quartic": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:1bcef4d3fd631c6848bcb0ab7256cb1587422341854bdf7c24a5c329867ead54",
+                    },
+                },
+                {
+                    "kind": "linear",
+                    "edge_id": "edge:114deffd75770b3ad707",
+                    "weight": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:ff5c6a248a8865c6bc44b51f57fead94c14c9748b3e5124c8d8ada0d4e73ba61",
+                    },
+                },
+                {
+                    "kind": "linear",
+                    "edge_id": "edge:feca647e11a8b26c5915",
+                    "weight": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:40a2c828032d5a62c010519f996b424396f07afeab65119b4401b015cd575c30",
+                    },
+                },
+            ],
             "priors": {
                 **PROPOSALS[-1]["priors"],
                 "self_limit_escitalopram_dose_taken": {
@@ -1573,10 +1693,46 @@ def authored_proposals():
     )
     PROPOSALS.append(
         {
+            "mechanisms": [
+                {
+                    "kind": "node_potential",
+                    "target_id": "construct:7b3d7a5f98ae353c60b6",
+                    "center": {"kind": "fixed", "value": 0.0},
+                    "stiffness": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:77da8f35596cde3b54170a7e261723af9567a7427aadceff11ef155e561cd796",
+                    },
+                    "quartic": {"kind": "fixed", "value": 0.0},
+                },
+                {
+                    "kind": "linear",
+                    "edge_id": "edge:271d15223810d3cacc52",
+                    "weight": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:196c4a3006a247a2405dd7553bcd8b634210a633f02e68c1e9c42edc94081917",
+                    },
+                },
+                {
+                    "kind": "linear",
+                    "edge_id": "edge:5675a96ca2bab12c7419",
+                    "weight": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:1cda1848214cb9b4e1422a81152facec1c3d407fa20167ba096881e009db498a",
+                    },
+                },
+                {
+                    "kind": "linear",
+                    "edge_id": "edge:66bd0e882b7fbd2118a1",
+                    "weight": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:bf1215a4bf993c55ef79d0d512f3c3750d0e56174370128986e13bb7d3157a43",
+                    },
+                },
+            ],
             "construct": "taper_speed_dose_reduction",
             "indicators": [
                 {
-                    "variable": "escitalopram_taper_action_flag",
+                    "indicator_id": "indicator:36a5d0fb1c7369cb47fa",
                     "family": "bernoulli",
                     "link": "logit",
                     "reasoning": (
@@ -1587,7 +1743,7 @@ def authored_proposals():
                     ),
                 },
                 {
-                    "variable": "taper_speed_instruction_intensity",
+                    "indicator_id": "indicator:eca6b8b2c4379267b6c8",
                     "family": "ordered_logistic",
                     "link": "cumulative_logit",
                     "reasoning": (
@@ -1727,10 +1883,38 @@ def authored_proposals():
     )
     PROPOSALS.append(
         {
+            "mechanisms": [
+                {
+                    "kind": "node_potential",
+                    "target_id": "construct:b7418d1841c57d53abf8",
+                    "center": {"kind": "fixed", "value": 0.0},
+                    "stiffness": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:a0df5a904f414d8def6f80971c113311003df775f3a852ee6416649b19f79f52",
+                    },
+                    "quartic": {"kind": "fixed", "value": 0.0},
+                },
+                {
+                    "kind": "linear",
+                    "edge_id": "edge:14682ec416926f40197b",
+                    "weight": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:a75d44df5da494db0ca3779b25cc59b24d4cd5d9030a3c701ed136593c50c33b",
+                    },
+                },
+                {
+                    "kind": "linear",
+                    "edge_id": "edge:c8efa1de930a894c06ce",
+                    "weight": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:7e6249b6cf43302cb7a74fa16333923f7472486a5db49375070a39cfc68c07ca",
+                    },
+                },
+            ],
             "construct": "adherence_to_regimen",
             "indicators": [
                 {
-                    "variable": "medication_adherence_documented",
+                    "indicator_id": "indicator:1f8878c9ba1ad571b89e",
                     "family": "ordered_logistic",
                     "link": "cumulative_logit",
                     "reasoning": (
@@ -1741,7 +1925,7 @@ def authored_proposals():
                     ),
                 },
                 {
-                    "variable": "missed_or_extra_escitalopram_dose_mentions",
+                    "indicator_id": "indicator:fd0722871731be3bb5fe",
                     "family": "poisson",
                     "link": "log",
                     "reasoning": (
@@ -1887,10 +2071,54 @@ def authored_proposals():
     )
     PROPOSALS.append(
         {
+            "mechanisms": [
+                {
+                    "kind": "node_potential",
+                    "target_id": "construct:ebfc43228e5565153ced",
+                    "center": {"kind": "fixed", "value": 0.0},
+                    "stiffness": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:61f875d69ccb285f7dddc675dea78cb973306c3fa820bc7f712ca50662eccc15",
+                    },
+                    "quartic": {"kind": "fixed", "value": 0.0},
+                },
+                {
+                    "kind": "linear",
+                    "edge_id": "edge:55cdb6660ffcc97e5495",
+                    "weight": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:fd2f8c5c0da970356ca70a0192e105b8eda0951dd485af4bbc3c6bf26257e775",
+                    },
+                },
+                {
+                    "kind": "linear",
+                    "edge_id": "edge:d3fd231bc99e6d316c20",
+                    "weight": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:93f4e3bebe8077212769ba6706f3b9776fe466ca174aa37b73faf456a5a7fe11",
+                    },
+                },
+                {
+                    "kind": "linear",
+                    "edge_id": "edge:de68099feb0a4d4d8ad0",
+                    "weight": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:dbd34278683a39e3ac1aedfdffb8a1e28adf8b6c2e6e5d75d190b00b8e486cef",
+                    },
+                },
+                {
+                    "kind": "linear",
+                    "edge_id": "edge:f99a8692b0c6523bffe0",
+                    "weight": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:3bd2cef166ab892b97cf4854c284c64138d2080f40064433064b13c09747ec79",
+                    },
+                },
+            ],
             "construct": "plasma_escitalopram_exposure",
             "indicators": [
                 {
-                    "variable": "escitalopram_dose_exposure_proxy_mg",
+                    "indicator_id": "indicator:945474f6c12940fb0a8d",
                     "family": "gaussian",
                     "link": "identity",
                     "reasoning": (
@@ -1982,10 +2210,38 @@ def authored_proposals():
     )
     PROPOSALS.append(
         {
+            "mechanisms": [
+                {
+                    "kind": "node_potential",
+                    "target_id": "construct:660f53b65637e7631395",
+                    "center": {"kind": "fixed", "value": 0.0},
+                    "stiffness": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:126d6b1195ef664d861f27b27870a0fe0a64c69747c47504f1bcc19a5f366358",
+                    },
+                    "quartic": {"kind": "fixed", "value": 0.0},
+                },
+                {
+                    "kind": "hill",
+                    "edge_id": "edge:1a3b1cd4ce05c1f8e043",
+                    "emax": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:a2352c6273b043d636dfaadf6d995b096d1f9a1adb1660c414c7adbac683b4bc",
+                    },
+                    "ec50": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:f1ceb5748c6b361c8612870961a176b9ef05b53ded8258edf7fd7cafb1d655c7",
+                    },
+                    "n": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:ee644ade13160ee2c63eff3a870ec626c78af8e77540c73be10a44c17cb74f1f",
+                    },
+                },
+            ],
             "construct": "serotonin_transporter_occupancy",
             "indicators": [
                 {
-                    "variable": "dose_based_sert_occupancy_proxy",
+                    "indicator_id": "indicator:97b6a4528e473a14d0b3",
                     "family": "gaussian",
                     "link": "identity",
                     "reasoning": (

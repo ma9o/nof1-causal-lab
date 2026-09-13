@@ -13,10 +13,10 @@ from typing import TYPE_CHECKING
 import httpx
 
 from nof1_causal_lab.artifacts.prior import ExecutablePrior, PriorPlan
+from nof1_causal_lab.artifacts.prior_proposal import PriorProposal
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.models.prior_planning import build_prior_plan
 from nof1_causal_lab.utils.openrouter_client import acquire_limiter
-from nof1_causal_lab.workers.schemas_prior import PriorProposal
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -92,12 +92,12 @@ def build_prior_plan_from_proposals(
     """Project evidence-rich worker proposals into a complete executable plan."""
     entries = [
         ExecutablePrior(
-            parameter=parameter,
+            parameter_id=proposal.parameter_id,
             distribution=proposal.distribution,
             params=proposal.params,
             reference_interval_days=proposal.reference_interval_days,
         )
-        for parameter, proposal in proposals.items()
+        for proposal in proposals.values()
     ]
     return build_prior_plan(statistical_model_spec, entries)
 
@@ -106,9 +106,15 @@ def build_prior_plan_from_payloads(
     statistical_model_spec: StatisticalModelSpec,
     payloads: Mapping[str, UncheckedJsonObject],
 ) -> PriorPlan:
-    """Validate persisted proposal payloads before projecting executable priors."""
+    """Attach declared identities to name-keyed authoring drafts before compilation."""
+    definitions = {parameter.name: parameter for parameter in statistical_model_spec.parameters}
     proposals = {
-        parameter: PriorProposal.model_validate({**payload, "parameter": parameter})
+        parameter: PriorProposal.model_validate(
+            {"parameter_id": definitions[parameter].id, **payload}
+        )
         for parameter, payload in payloads.items()
     }
+    for name, proposal in proposals.items():
+        if proposal.parameter_id != definitions[name].id:
+            raise ValueError(f"Prior for {name!r} references a different parameter")
     return build_prior_plan_from_proposals(statistical_model_spec, proposals)

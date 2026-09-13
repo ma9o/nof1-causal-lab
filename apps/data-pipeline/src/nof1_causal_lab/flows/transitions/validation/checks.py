@@ -78,7 +78,7 @@ def check_dtype_range(
         if violation_count > 0:
             issues.append(
                 {
-                    "indicator": ind_name,
+                    "subject": {"kind": "indicator", "id": ind_name},
                     "issue_type": "dtype_violation",
                     "severity": "error",
                     "message": f"Binary indicator has values outside {{0, 1}}: {non_binary.to_list()[:5]}",
@@ -92,7 +92,7 @@ def check_dtype_range(
         if len(negative) > 0:
             issues.append(
                 {
-                    "indicator": ind_name,
+                    "subject": {"kind": "indicator", "id": ind_name},
                     "issue_type": "dtype_violation",
                     "severity": "error",
                     "message": f"Count indicator has negative values: {negative.to_list()[:5]}",
@@ -101,7 +101,7 @@ def check_dtype_range(
         if len(fractional) > 0:
             issues.append(
                 {
-                    "indicator": ind_name,
+                    "subject": {"kind": "indicator", "id": ind_name},
                     "issue_type": "dtype_violation",
                     "severity": "error",
                     "message": (
@@ -126,7 +126,7 @@ def check_dtype_range(
                 if violation_count > 0:
                     issues.append(
                         {
-                            "indicator": ind_name,
+                            "subject": {"kind": "indicator", "id": ind_name},
                             "issue_type": "dtype_violation",
                             "severity": "warning",
                             "message": (
@@ -158,7 +158,7 @@ def check_time_coverage(
     if time_span_hours < min_hours:
         issues.append(
             {
-                "indicator": ind_name,
+                "subject": {"kind": "indicator", "id": ind_name},
                 "issue_type": "insufficient_coverage",
                 "severity": "warning",
                 "message": (
@@ -190,7 +190,7 @@ def check_timestamp_gaps(
     if max_gap_hours > threshold:
         issues.append(
             {
-                "indicator": ind_name,
+                "subject": {"kind": "indicator", "id": ind_name},
                 "issue_type": "large_timestamp_gap",
                 "severity": "warning",
                 "message": (
@@ -228,7 +228,7 @@ def check_hallucination_signals(
             most_common = vc.sort("count", descending=True).row(0)[0]
             issues.append(
                 {
-                    "indicator": ind_name,
+                    "subject": {"kind": "indicator", "id": ind_name},
                     "issue_type": "suspicious_pattern",
                     "severity": "warning",
                     "message": (
@@ -246,7 +246,7 @@ def check_hallucination_signals(
                 arithmetic_sequence_detected = True
                 issues.append(
                     {
-                        "indicator": ind_name,
+                        "subject": {"kind": "indicator", "id": ind_name},
                         "issue_type": "suspicious_pattern",
                         "severity": "warning",
                         "message": f"Values form arithmetic sequence with step {step}",
@@ -264,18 +264,18 @@ def check_construct_correlations(
 
     construct_indicators: dict[str, list[str]] = {}
     for indicator in indicators:
-        construct_name = indicator.get("construct_name", "")
-        indicator_name = indicator.get("name", "")
-        if construct_name and indicator_name:
-            construct_indicators.setdefault(construct_name, []).append(indicator_name)
+        construct_id = indicator.get("construct_id", "")
+        indicator_name = indicator["id"]
+        if construct_id and indicator_name:
+            construct_indicators.setdefault(construct_id, []).append(indicator_name)
 
-    for construct_name, indicator_names in construct_indicators.items():
+    for construct_id, indicator_names in construct_indicators.items():
         if len(indicator_names) < 2:
             continue
         for i, name_a in enumerate(indicator_names):
             for name_b in indicator_names[i + 1 :]:
                 data_a = (
-                    combined.filter(pl.col("indicator") == name_a)
+                    combined.filter(pl.col("indicator_id") == name_a)
                     .select(
                         parsed_timestamp_expr(OBSERVATION_TIME_COLUMN).alias("ts"),
                         pl.col("value").cast(pl.Float64, strict=False).alias("value_a"),
@@ -283,7 +283,7 @@ def check_construct_correlations(
                     .drop_nulls()
                 )
                 data_b = (
-                    combined.filter(pl.col("indicator") == name_b)
+                    combined.filter(pl.col("indicator_id") == name_b)
                     .select(
                         parsed_timestamp_expr(OBSERVATION_TIME_COLUMN).alias("ts"),
                         pl.col("value").cast(pl.Float64, strict=False).alias("value_b"),
@@ -307,7 +307,7 @@ def check_construct_correlations(
                 if corr is not None and not math.isnan(corr) and corr < 0:
                     issues.append(
                         {
-                            "indicator": construct_name,
+                            "subject": {"kind": "construct", "id": construct_id},
                             "issue_type": "low_construct_correlation",
                             "severity": "warning",
                             "message": (

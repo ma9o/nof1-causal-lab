@@ -42,7 +42,7 @@ def _compile_computed_rule_expr(window_expr: str, *, allowed_names: set[str]) ->
     try:
         parsed = ast.parse(window_expr, mode="eval")
     except SyntaxError as exc:
-        raise ValueError(f"Invalid computed_rule.window_expr: {exc.msg}") from exc
+        raise ValueError(f"Invalid computed_rule: {exc.msg}") from exc
     return _compile_computed_rule_node(parsed.body, allowed_names=allowed_names)
 
 
@@ -53,9 +53,7 @@ def _compile_computed_rule_node(node: ast.AST, *, allowed_names: set[str]) -> pl
 
     if isinstance(node, ast.Name):
         if node.id not in allowed_names:
-            raise ValueError(
-                f"computed_rule.window_expr references unknown source column '{node.id}'"
-            )
+            raise ValueError(f"computed_rule references unknown source column '{node.id}'")
         return pl.col(node.id)
 
     if isinstance(node, ast.BinOp):
@@ -90,7 +88,7 @@ def _compile_computed_rule_node(node: ast.AST, *, allowed_names: set[str]) -> pl
             _compile_computed_rule_node(value, allowed_names=allowed_names) for value in node.values
         ]
         if not values:
-            raise ValueError("computed_rule.window_expr boolean expressions cannot be empty")
+            raise ValueError("computed_rule boolean expressions cannot be empty")
         result = values[0]
         if isinstance(node.op, ast.And):
             for value in values[1:]:
@@ -132,9 +130,7 @@ def _compile_computed_rule_compare(node: ast.Compare, *, allowed_names: set[str]
                 current = ~current
         elif isinstance(op, (ast.Is, ast.IsNot)):
             if not _is_none_literal(comparator_node):
-                raise ValueError(
-                    "computed_rule.window_expr only supports 'is None' and 'is not None'"
-                )
+                raise ValueError("computed_rule only supports 'is None' and 'is not None'")
             current = (
                 current_left.is_null() if isinstance(op, ast.Is) else current_left.is_not_null()
             )
@@ -161,20 +157,20 @@ def _compile_computed_rule_compare(node: ast.Compare, *, allowed_names: set[str]
         result = current if result is None else result & current
 
     if result is None:
-        raise ValueError("computed_rule.window_expr comparison cannot be empty")
+        raise ValueError("computed_rule comparison cannot be empty")
     return result
 
 
 def _compile_computed_rule_call(node: ast.Call, *, allowed_names: set[str]) -> pl.Expr:
-    """Compile supported helper functions used in computed_rule.window_expr."""
+    """Compile supported helper functions used in computed_rule."""
     if not isinstance(node.func, ast.Name):
-        raise ValueError("computed_rule.window_expr only supports simple function calls")
+        raise ValueError("computed_rule only supports simple function calls")
     name = node.func.id
     if name not in COMPUTED_RULE_FUNCTIONS:
         available = ", ".join(sorted(COMPUTED_RULE_FUNCTIONS))
         raise ValueError(f"Unsupported computed_rule function '{name}'. Available: {available}")
     if node.keywords:
-        raise ValueError("computed_rule.window_expr does not support keyword arguments")
+        raise ValueError("computed_rule does not support keyword arguments")
 
     if name == "contains" and len(node.args) != 2:
         raise ValueError("computed_rule function 'contains' expects exactly 2 arguments")
@@ -266,15 +262,11 @@ def _compile_computed_rule_call(node: ast.Call, *, allowed_names: set[str]) -> p
 def _literal_values_from_ast(node: ast.AST) -> list[object]:
     """Extract a literal list/tuple/set from an AST node."""
     if not isinstance(node, (ast.List, ast.Tuple, ast.Set)):
-        raise ValueError(
-            "computed_rule.window_expr 'in' comparisons require a literal list/tuple/set"
-        )
+        raise ValueError("computed_rule 'in' comparisons require a literal list/tuple/set")
     values: list[object] = []
     for element in node.elts:
         if not isinstance(element, ast.Constant):
-            raise ValueError(
-                "computed_rule.window_expr literal collections support only constant values"
-            )
+            raise ValueError("computed_rule literal collections support only constant values")
         values.append(element.value)
     return values
 
@@ -418,7 +410,7 @@ def compute_indicators(
         Long-format DataFrame with columns: indicator (Utf8), value (Utf8),
         timestamp (Utf8). Matches the schema produced by the semantic path.
     """
-    output_schema = {"indicator": pl.Utf8, "value": pl.Utf8, "timestamp": pl.Utf8}
+    output_schema = {"indicator_id": pl.Utf8, "value": pl.Utf8, "timestamp": pl.Utf8}
     if not indicators:
         return pl.DataFrame(schema=output_schema)
 
@@ -459,7 +451,7 @@ def compute_indicators(
             prepared = _with_dense_support_rows(prepared, tick_frame)
             expr = _missing_window_guard(
                 _compile_computed_rule_expr(
-                    computed_rule["window_expr"],
+                    computed_rule,
                     allowed_names=set(source_columns),
                 )
             )
@@ -494,7 +486,7 @@ def compute_indicators(
                 agg_df = prepared.group_by("__tick__", maintain_order=True).agg(expr)
 
         agg_df = agg_df.select(
-            pl.lit(name).alias("indicator"),
+            pl.lit(ind["id"]).alias("indicator_id"),
             pl.col("value").cast(pl.Utf8).alias("value"),
             pl.col("__tick__").dt.to_string("%Y-%m-%dT%H:%M:%S").alias("timestamp"),
         )
@@ -503,7 +495,7 @@ def compute_indicators(
     if not frames:
         return pl.DataFrame(schema=output_schema)
 
-    return pl.concat(frames, how="vertical").sort("timestamp", "indicator")
+    return pl.concat(frames, how="vertical").sort("timestamp", "indicator_id")
 
 
 def _missing_window_guard(expr: pl.Expr) -> pl.Expr:
@@ -669,7 +661,7 @@ def _encode_non_continuous(
     remaining_mask = pl.lit(True)
 
     for name, dtype in non_continuous.items():
-        indicator_mask = pl.col("indicator") == name
+        indicator_mask = pl.col("indicator_id") == name
         subset = df.filter(indicator_mask)
         if subset.is_empty():
             continue

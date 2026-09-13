@@ -41,7 +41,7 @@ Each indicator needs:
 | Field | Description |
 |-------|-------------|
 | **name** | Semantic name for this indicator (does NOT need to match a column name) |
-| **construct** | Which construct this measures (must match a construct name) |
+| **construct_id** | Which construct this measures (must match a construct name) |
 | **how_to_measure** | Precise instructions for how to derive this value from the raw data columns. Workers will follow these instructions. Reference specific column names. |
 | **construct_polarity** | `"positive"` if higher indicator values mean more of the construct, `"negative"` if they mean less of the construct. |
 | **measurement_dtype** | 'continuous', 'binary', 'count', 'ordinal', 'categorical' |
@@ -61,8 +61,8 @@ Each known input needs:
 
 | Field | Description |
 |-------|-------------|
-| **construct** | Construct whose observed trajectory is treated as given. Must match a latent-structure construct. |
-| **source_indicator** | Indicator supplying the trajectory. It must measure the same construct. |
+| **construct_id** | Construct whose observed trajectory is treated as given. Must match a latent-structure construct. |
+| **source_indicator_id** | Indicator supplying the trajectory. It must measure the same construct. |
 | **scale** | Positive divisor applied before inference. Use `1.0` unless a deliberate unit conversion is required. |
 | **missing_policy** | `"zero"` when missing means no input during that window, or `"forward_fill"` when the last observed value remains in force. |
 
@@ -145,26 +145,26 @@ Use `"computed"` when the indicator can be derived deterministically from the ra
 
 There are two `"computed"` patterns:
 - Direct aggregation: exactly one source column, no extra rule needed. Examples: "Use the `steps` column directly" + aggregation=sum, "Use the last observed `mood_label` in the day" + aggregation=last, "Use the first recorded `care_setting` in the window" + aggregation=first.
-- Deterministic support-window rule: multiple columns, formulas, thresholds, filtering, or explicit `0`/`null` logic are needed, but the result is still fully deterministic. In that case, set `computed_rule.window_expr` to a Python-like expression that returns exactly one scalar per support window.
+- Deterministic support-window rule: multiple columns, formulas, thresholds, filtering, or explicit `0`/`null` logic are needed, but the result is still fully deterministic. In that case, set `computed_rule` to a Python-like expression that returns exactly one scalar per support window.
 
-Examples of `computed_rule.window_expr`:
+Examples of `computed_rule`:
 - `mean(diastolic_bp + (systolic_bp - diastolic_bp) / 3)`
 - `1 if any(spo2_pct < 92) else (0 if count_non_null(spo2_pct) > 0 else None)`
 - `None if count_non_null(glucose_mg_dl) == 0 else sum(1 if (glucose_mg_dl < 70 or glucose_mg_dl > 180) else 0)`
 - `None if count_true(event_type == "med_admin") == 0 else sum(1 if (event_type == "med_admin" and admin_status == "missed") else 0)`
 
-Available helper functions inside `computed_rule.window_expr`:
+Available helper functions inside `computed_rule`:
 - `any`, `all`, `sum`, `mean`, `std`, `min`, `max`, `first`, `last`
 - `count_true`, `count_non_null`
 - `lower`, `contains`, `contains_any`, `coalesce`, `abs`
 
-Use Python `None` for missing values inside `computed_rule.window_expr`.
+Use Python `None` for missing values inside `computed_rule`.
 
 If a deterministic rule is possible, choose `"computed"` rather than `"semantic"`. Do not send deterministic formulas, thresholds, or filtered counts through the worker path.
 
 Use `"semantic"` (default) when ANY of these hold:
 - how_to_measure requires interpretation or qualitative judgment
-- The raw columns do not contain enough deterministic structure to specify the result as a clear `computed_rule.window_expr`
+- The raw columns do not contain enough deterministic structure to specify the result as a clear `computed_rule`
 
 `"computed"` indicators are executed instantly via Polars (~50ms total). `"semantic"` indicators go through LLM workers (~3-4 min). Prefer `"computed"` whenever a deterministic direct aggregation or deterministic support-window rule is sufficient.
 
@@ -212,7 +212,7 @@ Implication: Do NOT propose indicators with their own temporal momentum independ
 ## Constraints
 
 1. Every **time-varying** construct MUST have at least one indicator-constructs without indicators are unobserved, and causal effects through them may not be identifiable
-2. Indicators can only reference constructs from the latent structure
+2. Indicators can only reference constructs from the latent structure. Copy the owner ID into `construct_id`. Give each new indicator a unique `indicator:` ID and preserve it when revising or renaming.
 3. You CANNOT add new causal edges-only operationalize existing constructs
 4. No direct causal edges between indicators (pure indicators assumption)
 5. Every known input must reference an indicator for the same construct
@@ -244,8 +244,9 @@ Supported units: `s` (seconds), `m` (minutes), `h` (hours), `d` (days), `w` (wee
   "model_clock": "1d",
   "indicators": [
     {
+      "id": "indicator:i1",
+      "construct_id": "construct:c1",
       "name": "indicator_name",
-      "construct_name": "which_construct_this_measures",
       "how_to_measure": "worker instructions for extraction",
       "construct_polarity": "positive" | "negative",
       "measurement_dtype": "continuous" | "binary" | "count" | "ordinal" | "categorical",
@@ -253,23 +254,21 @@ Supported units: `s` (seconds), `m` (minutes), `h` (hours), `d` (days), `w` (wee
       "observation_window": "1mo",
       "ordinal_levels": ["low", "medium", "high"],
       "source_columns": ["col_a", "col_b"],
-      "computed_rule": {
-        "window_expr": "1 if any(spo2_pct < 92) else (0 if count_non_null(spo2_pct) > 0 else None)"
-      },
+      "computed_rule": "1 if any(spo2_pct < 92) else (0 if count_non_null(spo2_pct) > 0 else None)",
       "extraction_mode": "computed" | "semantic"
     }
   ],
   "known_inputs": [
     {
-      "construct": "observed_input_construct",
-      "source_indicator": "indicator_name",
+      "construct_id": "construct:c1",
+      "source_indicator_id": "indicator:i1",
       "scale": 1.0,
       "missing_policy": "zero" | "forward_fill"
     }
   ],
   "scientific_only_constructs": [
     {
-      "construct": "baseline_context_construct",
+      "construct_id": "construct:c2",
       "reason": "Measured baseline context retained for identification, not an estimable N-of-1 state."
     }
   ]
@@ -310,7 +309,7 @@ Operationalize constructs as indicators using the available data columns. Rememb
 - Indicator `name` is a semantic label (does NOT need to match a column name)
 - `how_to_measure` must reference specific column names and describe how to derive the value
 - `construct_polarity` must say whether higher indicator values mean more (`positive`) or less (`negative`) of the construct
-- If an indicator can be derived deterministically, use `"computed"` instead of `"semantic"` and add `computed_rule.window_expr` when direct aggregation is not enough
+- If an indicator can be derived deterministically, use `"computed"` instead of `"semantic"` and add `computed_rule` when direct aggregation is not enough
 - Prefer deterministic direct operationalizations over broader semantic proxies for the same construct
 - Keep indicator names concrete and close to the observed signal; avoid gratuitous renaming
 - Add `observation_window` only when an indicator summarizes a wider interval than `model_clock`

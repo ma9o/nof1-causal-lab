@@ -154,15 +154,13 @@ async def plan_latent_structure_activity(
 async def finalize_latent_structure_activity(
     input: SingleLLMTransitionFinalizeInput,
 ) -> TransitionEffects:
-    from nof1_causal_lab.flows.transitions.latent_structure.contracts import (
-        LatentStructureContract,
-    )
+    from nof1_causal_lab.artifacts.latent_structure import LatentStructureArtifact
 
     try:
         if input.result_ref is None:
             raise RuntimeError("latent-structure subroutine completed without a result ref")
         payload = _read_latent_json(input.result_ref)
-        payload = project_model_fields(LatentStructureContract, payload)
+        payload = project_model_fields(LatentStructureArtifact, payload)
 
         store = ArtifactStore(input.workspace_id)
         produced = [

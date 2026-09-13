@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Literal
-
 from pydantic import BaseModel, ConfigDict, Field
 
-from nof1_causal_lab.flows.contracts_base import BaseArtifactContract, ToolContract
+from nof1_causal_lab.flows.contracts_base import ToolDefinition
 
 
 class ValidateExtractionsInput(BaseModel):
@@ -17,24 +15,10 @@ class ValidateExtractionsInput(BaseModel):
     )
 
 
-EXTRACTION_TOOL_CONTRACTS: list[ToolContract] = [
-    ToolContract(
+EXTRACTION_TOOL_CONTRACTS: list[ToolDefinition] = [
+    ToolDefinition(
         name="validate_extractions",
         description="Tool for validating worker extraction output JSON.",
         input_schema=ValidateExtractionsInput,
     ),
 ]
-
-
-class WorkerStatusContract(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    worker_id: int
-    status: Literal["pending", "running", "completed", "failed"]
-    n_extractions: int
-    n_windows: int
-    error: str | None = None
-
-
-class MeasurementsContract(BaseArtifactContract):
-    workers: list[WorkerStatusContract]

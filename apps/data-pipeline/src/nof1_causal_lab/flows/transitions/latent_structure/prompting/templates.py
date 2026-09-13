@@ -23,7 +23,7 @@ Worker LLMs will prune; your job is to ensure nothing causally important is omit
 
 ## Construct Classification
 
-Each construct has three properties:
+Each construct has two classifications:
 
 ### 1. Role (causal status)
 | Value | Description | Edge constraints |
@@ -31,10 +31,7 @@ Each construct has three properties:
 | **endogenous** | What we're modeling - has causes | Can be an effect in edges |
 | **exogenous** | Given/external - no causes modeled | Cannot be an effect (only a cause) |
 
-### 2. Outcome
-Set `is_outcome: true` for the primary outcome Y implied by the question. Exactly one construct must be the outcome. Only endogenous constructs can be outcomes.
-
-### 3. Temporal Status
+### 2. Temporal Status
 | Value | Description |
 |-------|-------------|
 | **time_varying** | Changes within person over time |
@@ -42,6 +39,9 @@ Set `is_outcome: true` for the primary outcome Y implied by the question. Exactl
 
 Time-invariant constructs may have time-invariant causes, but they cannot have
 time-varying parents.
+
+## Default Query Outcome
+Set the top-level `default_outcome` to the construct reference for the primary outcome Y implied by the question. This is the workspace's default query target. Only endogenous constructs can be selected; outcome status is not a construct field.
 
 ## Causal Edges
 
@@ -65,21 +65,28 @@ Contemporaneous edges must form a DAG within each time slice (A4). Feedback loop
 
 ## Output Schema
 
+Give each new construct and edge a unique persistent `id`, prefixed with
+`construct:` or `edge:` and followed by an opaque token. Preserve that ID when
+revising or renaming the same entity. Edge `cause_id` and `effect_id` reference
+construct IDs. Display names belong only to the construct definitions.
+
 ```json
 {
+  "default_outcome": {"kind": "construct", "id": "construct:c1"},
   "constructs": [
     {
+      "id": "construct:c1",
       "name": "construct_name",
       "description": "what this theoretical construct represents",
       "role": "endogenous" | "exogenous",
-      "is_outcome": true | false,
       "temporal_status": "time_varying" | "time_invariant"
     }
   ],
   "edges": [
     {
-      "cause": "cause_construct_name",
-      "effect": "effect_construct_name",
+      "id": "edge:e1",
+      "cause_id": "construct:c1",
+      "effect_id": "construct:c2",
       "description": "theoretical justification for this causal link",
       "lagged": true | false,
       "sources": [
@@ -121,7 +128,7 @@ Review your proposed latent structure for theoretical coherence.
 
 ## Check for:
 
-1. **Outcome clarity**: Is exactly one construct marked as is_outcome=true?
+1. **Outcome clarity**: Does `default_outcome` reference the endogenous construct intended by the question?
 2. **Causal completeness**: Are there important confounders missing?
 3. **Edge validity**: Are all edges theoretically justified? Are contemporaneous edges truly instantaneous?
 4. **Temporal consistency**: Does any time-varying construct point into a time-invariant construct?

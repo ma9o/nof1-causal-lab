@@ -114,15 +114,13 @@ async def plan_measurement_structure_activity(
 async def finalize_measurement_structure_activity(
     input: SingleLLMTransitionFinalizeInput,
 ) -> TransitionEffects:
-    from nof1_causal_lab.flows.transitions.measurement_structure.contracts import (
-        MeasurementStructureContract,
-    )
+    from nof1_causal_lab.artifacts.measurement_structure import MeasurementStructureArtifact
 
     try:
         if input.result_ref is None:
             raise RuntimeError("measurement-structure subroutine completed without a result ref")
         payload = _read_measurement_structure_json(input.result_ref)
-        report = MeasurementStructureContract.model_validate(payload).model_dump(mode="json")
+        report = MeasurementStructureArtifact.model_validate(payload).model_dump(mode="json")
 
         store = ArtifactStore(input.workspace_id)
         produced = [

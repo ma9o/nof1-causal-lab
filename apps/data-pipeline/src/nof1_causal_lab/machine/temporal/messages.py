@@ -11,20 +11,22 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from nof1_causal_lab.artifacts.identity import ArtifactId  # noqa: TC001
 from nof1_causal_lab.json_types import JsonObject  # noqa: TC001
-from nof1_causal_lab.machine.artifacts import (  # noqa: TC001 (pydantic field annotations)
-    ArtifactId,
+from nof1_causal_lab.machine.artifacts import (  # noqa: TC001
     ArtifactVersionInfo,
     EpisodeState,
     Provenance,
 )
 from nof1_causal_lab.machine.moves import (
-    ArtifactStatus,
     ExecOptions,
     Move,
     RetractedArtifact,
 )
-from nof1_causal_lab.machine.store import ResumeRef  # noqa: TC001
+from nof1_causal_lab.machine.store import (
+    JournalStatus,  # noqa: TC001
+    ResumeRef,  # noqa: TC001
+)
 
 LLMSubroutineContextKind = Literal[
     "measurement_extraction",
@@ -42,7 +44,6 @@ SingleLLMTransitionId = Literal[
     "baseline_report",
 ]
 TransitionRuntimeStatus = Literal["running", "completed", "failed"]
-JournalStatus = Literal["applied", "rejected", "raised"]
 
 
 class EpisodeInit(BaseModel):
@@ -64,30 +65,6 @@ class MoveRequest(BaseModel):
     move: Move
     payload: JsonObject | None = None  # write moves
     options: ExecOptions = Field(default_factory=ExecOptions)  # run moves
-
-
-class MoveOutcome(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    seq: int
-    status: JournalStatus
-    reason: str | None = None
-    error_type: str | None = None
-    error_message: str | None = None
-    diagnostics: JsonObject = Field(default_factory=dict)
-    produced: list[ArtifactVersionInfo] = Field(default_factory=list)
-    retracted: list[RetractedArtifact] = Field(default_factory=list)
-    state: EpisodeState
-
-
-class EpisodeStatus(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    workspace_id: str
-    seq: int
-    state: EpisodeState
-    artifacts: list[ArtifactStatus]
-    legal: list[Move]
 
 
 class RunArtifactInput(BaseModel):

@@ -4,13 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from nof1_causal_lab.artifacts.causal_design import (  # noqa: TC001
-    KnownInput,
-    ScientificOnlyConstruct,
-)
-from nof1_causal_lab.artifacts.measurement_structure import MeasurementStructure  # noqa: TC001
-from nof1_causal_lab.flows.contracts_base import BaseArtifactContract, ToolContract
-from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+from nof1_causal_lab.flows.contracts_base import ToolDefinition
 
 
 class ValidateMeasurementStructureInput(BaseModel):
@@ -24,8 +18,8 @@ class ValidateMeasurementStructureInput(BaseModel):
     )
 
 
-MEASUREMENT_STRUCTURE_TOOL_CONTRACTS: list[ToolContract] = [
-    ToolContract(
+MEASUREMENT_STRUCTURE_TOOL_CONTRACTS: list[ToolDefinition] = [
+    ToolDefinition(
         name="validate_measurement_structure",
         description=(
             "Validate measurement structure, known-input declarations, and compiler constraints."
@@ -33,33 +27,3 @@ MEASUREMENT_STRUCTURE_TOOL_CONTRACTS: list[ToolContract] = [
         input_schema=ValidateMeasurementStructureInput,
     ),
 ]
-
-
-class MeasurementStructureContract(BaseArtifactContract):
-    measurement_structure: MeasurementStructure
-    known_inputs: list[KnownInput] = Field(
-        description=(
-            "Authored declarations of observed construct trajectories compiled as "
-            "transition inputs rather than latent states"
-        )
-    )
-    scientific_only_constructs: list[ScientificOnlyConstruct] = Field(
-        description=(
-            "Measured scientific-context constructs explicitly excluded from the "
-            "executable N-of-1 state vector"
-        )
-    )
-
-
-class IdentificationReportContract(BaseModel):
-    """The positive identification finding.
-
-    Only produced when at least one treatment effect is explicitly
-    identifiable. Negative findings remain in ``causal_design.identifiability``.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    outcome_name: str
-    estimable_treatments: list[str] = Field(min_length=1)
-    non_identifiable_treatments: UncheckedJsonObject = Field(default_factory=dict)

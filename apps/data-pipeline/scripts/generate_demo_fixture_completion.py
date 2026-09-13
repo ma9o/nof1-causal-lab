@@ -13,8 +13,8 @@ by the production pipeline.
 
 Usage::
 
-    bun run fixture:complete-demo
-    bun run fixture:check-demo
+    bun run fixture:demo
+    bun run fixture:demo:check
 """
 
 from __future__ import annotations
@@ -32,34 +32,40 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import jax.numpy as jnp
 import polars as pl
 
+from nof1_causal_lab.artifacts.baseline_report import BaselineReportArtifact
 from nof1_causal_lab.artifacts.causal_design import CausalDesign
+from nof1_causal_lab.artifacts.measurement_structure import MeasurementStructureArtifact
+from nof1_causal_lab.artifacts.posterior import PosteriorArtifact
+from nof1_causal_lab.artifacts.scenarios import SimulateScenarioInput
+from nof1_causal_lab.models.model_mechanisms import declare_dynamics_mechanisms
 from nof1_causal_lab.artifacts.statistical_model_spec import (
+    ParameterSpec,
+    LinkFunction,
+    StatisticalModelSpecArtifact,
     validate_statistical_model_spec_dict,
 )
-from nof1_causal_lab.flows.transitions.analysis.contracts import (
-    BaselineReportContract,
-    SimulateScenarioInput,
-    SimulateScenarioToolResultContract,
-)
-from nof1_causal_lab.flows.transitions.inference.contracts import PosteriorContract
+from nof1_causal_lab.artifacts.validation_report import ValidationReportArtifact
+from nof1_causal_lab.distributions import DistributionFamily
+from nof1_causal_lab.flows.transitions.analysis.contracts import SimulateScenarioToolResult
 from nof1_causal_lab.flows.transitions.measurement_structure.assemble import (
     build_causal_design,
-)
-from nof1_causal_lab.flows.transitions.measurement_structure.contracts import (
-    MeasurementStructureContract,
 )
 from nof1_causal_lab.flows.transitions.measurement_structure.grounding import (
     measurement_structure_grounding,
 )
 from nof1_causal_lab.flows.transitions.model_spec.assembly import validate_assembly
-from nof1_causal_lab.flows.transitions.model_spec.contracts import (
-    StatisticalModelSpecContract,
+from nof1_causal_lab.models.model_semantics import (
+    indicator_requires_observation_intercept,
+    should_auto_standardize_indicator,
 )
-from nof1_causal_lab.flows.transitions.validation.contracts import ValidationReportContract
+from nof1_causal_lab.models.ssm.counterfactual.estimands import summarize_draws
 from nof1_causal_lab.models.structural import build_structural_plan
+from nof1_causal_lab.utils.histograms import histogram_draws
 from nof1_causal_lab.utils.identifiability import check_identifiability
+from nof1_causal_lab.utils.observation_semantics import get_observation_semantics
 from nof1_causal_lab.utils.structural_plan import (
     get_edges,
     get_manifest_indicators,
@@ -140,14 +146,14 @@ DEMO_CONSTRUCT_ROLE_OVERRIDES = {
 
 DEMO_KNOWN_INPUTS: tuple[JsonObject, ...] = (
     {
-        "construct": "external_stressful_events",
-        "source_indicator": "external_stressor_event_count",
+        "construct_id": "construct:ac82920bb78125ab0aca",
+        "source_indicator_id": "indicator:0b02f0d32a40caec29ef",
         "scale": 1.0,
         "missing_policy": "zero",
     },
     {
-        "construct": "other_psychotropic_or_somatic_treatments",
-        "source_indicator": "other_treatment_change_count",
+        "construct_id": "construct:428de2b75c12e36ca19d",
+        "source_indicator_id": "indicator:7f51bc663e8e0bbea95f",
         "scale": 1.0,
         "missing_policy": "zero",
     },
@@ -155,42 +161,42 @@ DEMO_KNOWN_INPUTS: tuple[JsonObject, ...] = (
 
 DEMO_SCIENTIFIC_ONLY: tuple[JsonObject, ...] = (
     {
-        "construct": "patient_taper_preference_beliefs",
+        "construct_id": "construct:47ab45d6fa00e93be7ee",
         "reason": (
             "The sparse semantic proxy is entangled with the documented taper plan, so it "
             "remains assignment context rather than an executable latent state."
         ),
     },
     {
-        "construct": "duration_current_escitalopram_use",
+        "construct_id": "construct:4a7b8d4d0772b0b10e4e",
         "reason": (
             "Historical exposure duration is observed only as sparse static context and feeds "
             "an unsupported neuroadaptation mechanism."
         ),
     },
     {
-        "construct": "neuroadaptation_dependence_state",
+        "construct_id": "construct:eb28b45b275c6732596f",
         "reason": (
             "The available text-derived adaptation proxy cannot independently resolve the "
             "physiologic state from duration and taper documentation."
         ),
     },
     {
-        "construct": "natural_recovery_propensity",
+        "construct_id": "construct:517d64db16ceb6e6a692",
         "reason": (
             "Only sparse retrospective evidence is available for the untreated illness course, "
             "so it remains scientific and identification context."
         ),
     },
     {
-        "construct": "past_escitalopram_response_tolerability",
+        "construct_id": "construct:4cfc4a70f9d59a668364",
         "reason": (
             "Historical response is represented by a sparse retrospective summary, so it "
             "remains measured assignment context rather than an executable dynamic state."
         ),
     },
     {
-        "construct": "clinical_monitoring_rescue_care",
+        "construct_id": "construct:ecfbf689dbd8add308bb",
         "reason": (
             "Clinical contacts and rescue actions are sparse, event-triggered assignment "
             "signals that preserve treatment-change context without supporting a latent state."
@@ -238,8 +244,9 @@ DEMO_EDGE_ORDER = (
 
 DEMO_REDUCED_EDGES: dict[tuple[str, str], JsonObject] = {
     ("natural_recovery_propensity", "internalizing_symptom_burden"): {
-        "cause": "natural_recovery_propensity",
-        "effect": "internalizing_symptom_burden",
+        "cause_id": "construct:517d64db16ceb6e6a692",
+        "effect_id": "construct:6ca86c47aaf18b2472ce",
+        "id": "edge:f01776f0929a8eccc2fc",
         "description": (
             "Underlying remission and relapse propensity changes symptom burden independently "
             "of the taper pathway."
@@ -248,8 +255,9 @@ DEMO_REDUCED_EDGES: dict[tuple[str, str], JsonObject] = {
         "sources": [],
     },
     ("taper_speed_dose_reduction", "withdrawal_symptom_burden"): {
-        "cause": "taper_speed_dose_reduction",
-        "effect": "withdrawal_symptom_burden",
+        "cause_id": "construct:7b3d7a5f98ae353c60b6",
+        "effect_id": "construct:2da513406663702e475d",
+        "id": "edge:55e88b356c8e0a1a6eb2",
         "description": (
             "Faster or larger dose reductions can precipitate withdrawal when physiologic "
             "adaptation and susceptibility are present."
@@ -258,8 +266,9 @@ DEMO_REDUCED_EDGES: dict[tuple[str, str], JsonObject] = {
         "sources": [],
     },
     ("escitalopram_dose_taken", "internalizing_symptom_burden"): {
-        "cause": "escitalopram_dose_taken",
-        "effect": "internalizing_symptom_burden",
+        "cause_id": "construct:27f64faaddd59b2ad491",
+        "effect_id": "construct:6ca86c47aaf18b2472ce",
+        "id": "edge:e96deda9a6084d6d4ed9",
         "description": (
             "Actual dose changes the maintenance of antidepressant benefit and can alter "
             "subsequent internalizing symptom burden."
@@ -366,16 +375,6 @@ def _density_points(distribution: str, params: JsonObject) -> list[JsonObject]:
     return [{"x": _round(x), "y": _round(y)} for x, y in zip(xs, ys, strict=True)]
 
 
-def _indicator_standardized(indicator: JsonObject, distribution: str) -> bool:
-    if distribution not in {"gaussian", "student_t"}:
-        return False
-    support = indicator.get("support_kind")
-    operator = indicator.get("summary_operator")
-    return (support == "point" and operator in {"first", "last"}) or (
-        support == "interval" and operator == "mean"
-    )
-
-
 def _likelihood_for(indicator: JsonObject, profile: JsonObject) -> JsonObject:
     dtype = str(indicator["measurement_dtype"])
     if dtype == "binary":
@@ -406,19 +405,22 @@ def _likelihood_for(indicator: JsonObject, profile: JsonObject) -> JsonObject:
     else:
         raise ValueError(f"Unsupported DEMO measurement dtype: {dtype}")
 
-    standardized = _indicator_standardized(indicator, distribution)
+    semantics = get_observation_semantics(indicator)
+    standardized = should_auto_standardize_indicator(
+        distribution, link, semantics.support_kind, semantics.summary_operator
+    )
     profile_summary = (
         f"n={int(profile.get('n_obs') or 0)}, mean={float(profile.get('mean') or 0):.2f}, "
         f"sd={float(profile.get('std') or 0):.2f}"
     )
     return {
-        "variable": indicator["name"],
+        "indicator_id": indicator["id"],
         "distribution": distribution,
         "link": link,
         "standardized": standardized,
         "reasoning": (
-            f"{dtype} support with {indicator.get('support_kind')} / "
-            f"{indicator.get('summary_operator')} semantics; empirical profile {profile_summary}."
+            f"{dtype} support with {semantics.support_kind.value} / "
+            f"{semantics.summary_operator.value} semantics; empirical profile {profile_summary}."
         ),
         "sources": [],
     }
@@ -458,7 +460,7 @@ def _build_parameters(
     indicators: list[JsonObject],
     likelihoods: list[JsonObject],
 ) -> list[JsonObject]:
-    likelihood_by_name = {str(item["variable"]): item for item in likelihoods}
+    likelihood_by_name = {str(item["indicator_id"]): item for item in likelihoods}
     indicators_by_construct: dict[str, list[JsonObject]] = defaultdict(list)
     for indicator in indicators:
         indicators_by_construct[str(indicator["construct_name"])].append(indicator)
@@ -467,7 +469,7 @@ def _build_parameters(
     parameters: list[JsonObject] = []
     for indicator in indicators:
         construct = str(indicator["construct_name"])
-        likelihood = likelihood_by_name[str(indicator["name"])]
+        likelihood = likelihood_by_name[str(indicator["id"])]
         if len(indicators_by_construct[construct]) > 1 and likelihood["distribution"] in {
             "gaussian",
             "student_t",
@@ -482,15 +484,12 @@ def _build_parameters(
             )
 
     for indicator in indicators:
-        likelihood = likelihood_by_name[str(indicator["name"])]
-        family = str(likelihood["distribution"])
-        needs_intercept = family in {
-            "poisson",
-            "negative_binomial",
-            "bernoulli",
-            "gamma",
-            "beta",
-        } or (family in {"gaussian", "student_t"} and not likelihood["standardized"])
+        likelihood = likelihood_by_name[str(indicator["id"])]
+        needs_intercept = indicator_requires_observation_intercept(
+            DistributionFamily(likelihood["distribution"]),
+            LinkFunction(likelihood["link"]),
+            standardized=likelihood["standardized"],
+        )
         if needs_intercept:
             parameters.append(
                 _parameter(
@@ -519,7 +518,7 @@ def _build_parameters(
             )
 
     for indicator in indicators:
-        if likelihood_by_name[str(indicator["name"])]["distribution"] != "ordered_logistic":
+        if likelihood_by_name[str(indicator["id"])]["distribution"] != "ordered_logistic":
             continue
         parameters.append(
             _parameter(
@@ -578,7 +577,7 @@ def _build_parameters(
     standardized_constructs = {
         str(indicator["construct_name"])
         for indicator in indicators
-        if likelihood_by_name[str(indicator["name"])]["standardized"]
+        if likelihood_by_name[str(indicator["id"])]["standardized"]
     }
     for construct in constructs:
         if construct.get("temporal_status") != "time_invariant":
@@ -733,7 +732,7 @@ def _prior_for(parameter: JsonObject, edge_means: dict[str, float]) -> JsonObjec
         params = {"mu": 0.0, "sigma": 1.0}
 
     proposal: JsonObject = {
-        "parameter": name,
+        "parameter_id": parameter["id"],
         "distribution": distribution,
         "params": params,
         "sources": [],
@@ -779,11 +778,26 @@ def _build_statistical_model_spec(
     edges: list[JsonObject],
     indicators: list[JsonObject],
     profiles: dict[str, JsonObject],
+    structural_plan: StructuralPlan,
 ) -> tuple[JsonObject, dict[str, float]]:
     likelihoods = [
         _likelihood_for(indicator, profiles[str(indicator["name"])]) for indicator in indicators
     ]
-    parameters = _build_parameters(constructs, edges, indicators, likelihoods)
+    from nof1_causal_lab.flows.transitions.model_spec.agentic.skeleton import (
+        derive_deterministic_spec,
+    )
+
+    catalog = {
+        parameter["name"]: parameter
+        for parameter in derive_deterministic_spec(structural_plan).all_params
+    }
+    parameters = [
+        {
+            **parameter,
+            **{field: catalog[parameter["name"]][field] for field in ("id", "owners", "quantity", "prior_transform")},
+        }
+        for parameter in _build_parameters(constructs, edges, indicators, likelihoods)
+    ]
     edge_means = {
         f"beta_{edge['cause']}_{edge['effect']}": _edge_mean(
             str(edge["cause"]), str(edge["effect"]), str(edge.get("description") or "")
@@ -791,11 +805,11 @@ def _build_statistical_model_spec(
         for edge in edges
     }
     priors = [_prior_for(parameter, edge_means) for parameter in parameters]
-    prior_by_name = {str(prior["parameter"]): prior for prior in priors}
+    prior_by_name = {str(prior["parameter_id"]): prior for prior in priors}
     samples = {
-        str(indicator["name"]): _draw_likelihood_samples(
+        str(indicator["id"]): _draw_likelihood_samples(
             indicator,
-            next(item for item in likelihoods if item["variable"] == indicator["name"]),
+            next(item for item in likelihoods if item["indicator_id"] == indicator["id"]),
             profiles[str(indicator["name"])],
         )
         for indicator in indicators
@@ -809,10 +823,10 @@ def _build_statistical_model_spec(
         diagnostics.append(
             {
                 "check": "construct_admission",
-                "target": name,
+                "construct_id": construct["id"],
                 "value": (
                     f"{len(construct_indicators)} channel(s); "
-                    f"{sum(len(samples[str(item['name'])]) for item in construct_indicators)} draws"
+                    f"{sum(len(samples[str(item['id'])]) for item in construct_indicators)} draws"
                 ),
                 "band": "finite exact prior-predictive draws with support respected",
                 "passed": True,
@@ -831,9 +845,9 @@ def _build_statistical_model_spec(
         "statistical_model_spec": {
             "likelihoods": likelihoods,
             "parameters": parameters,
+            "mechanisms": [mechanism.model_dump(mode="json") for mechanism in declare_dynamics_mechanisms(structural_plan, [ParameterSpec.model_validate(parameter) for parameter in parameters])],
             "initialization_policy": "stationary",
             "observation_intercept_policy": "free",
-            "equilibrium_forcing": False,
         },
         "authored_priors": prior_by_name,
         "resolved_priors": priors,
@@ -845,21 +859,24 @@ def _build_statistical_model_spec(
         "prior_predictive_samples": samples,
         "prior_predictive_diagnostics": diagnostics,
     }
-    StatisticalModelSpecContract.model_validate(payload)
+    StatisticalModelSpecArtifact.model_validate(payload)
     return payload, edge_means
 
 
 def _panel_windows(
-    indicator_names: list[str],
+    indicators: list[JsonObject],
 ) -> tuple[dict[str, list[float | None]], int, str]:
-    panel = pl.read_parquet(PANEL_PATH).sort(["indicator", "anchor_time"])
+    panel = pl.read_parquet(PANEL_PATH).sort(["indicator_id", "anchor_time"])
     unique_times = panel.select(pl.col("anchor_time").n_unique()).item()
     final_time = panel.select(pl.col("anchor_time").max()).item()
     if final_time is None:
         raise ValueError("DEMO panel has no anchor times")
     values_by_indicator: dict[str, list[float | None]] = {}
-    for name in indicator_names:
-        values = panel.filter(pl.col("indicator") == name).get_column("value").to_list()
+    for indicator in indicators:
+        name = indicator["name"]
+        values = (
+            panel.filter(pl.col("indicator_id") == indicator["id"]).get_column("value").to_list()
+        )
         non_null_indices = [index for index, value in enumerate(values) if value is not None]
         end = (non_null_indices[-1] + 1) if non_null_indices else len(values)
         start = max(0, end - PPC_POINTS)
@@ -921,7 +938,7 @@ def _ppc_for_indicator(
         spaghetti.append(row)
 
     overlay = {
-        "variable": name,
+        "indicator_id": indicator["id"],
         "observed": observed,
         "q025": q025,
         "q25": q25,
@@ -939,7 +956,7 @@ def _ppc_for_indicator(
     calibration_passed = n_obs >= 8 and zero_fraction < 0.98
     warnings = [
         {
-            "variable": name,
+            "indicator_id": indicator["id"],
             "check_type": "calibration",
             "message": (
                 f"95% interval coverage {calibration:.1%}."
@@ -950,14 +967,14 @@ def _ppc_for_indicator(
             "passed": calibration_passed,
         },
         {
-            "variable": name,
+            "indicator_id": indicator["id"],
             "check_type": "autocorrelation",
             "message": f"Lag-1 residual autocorrelation {residual_rho:+.2f}.",
             "value": _round(residual_rho),
             "passed": abs(residual_rho) <= 0.3,
         },
         {
-            "variable": name,
+            "indicator_id": indicator["id"],
             "check_type": "variance",
             "message": f"Predictive-to-observed SD ratio {variance_ratio:.2f}.",
             "value": _round(variance_ratio),
@@ -980,7 +997,7 @@ def _ppc_for_indicator(
         rep_values = [_round(rng.gauss(observed_value, rep_sd)) for _ in range(64)]
         test_stats.append(
             {
-                "variable": name,
+                "indicator_id": indicator["id"],
                 "stat_name": stat_name,
                 "observed_value": _round(observed_value),
                 "rep_values": rep_values,
@@ -1011,12 +1028,17 @@ def _prior_center(prior: JsonObject) -> tuple[float, float]:
 
 
 def _posterior_center(parameter: JsonObject, prior: JsonObject) -> tuple[float, float]:
+    # DEMO values are synthetic. Declare decay examples on their runtime scale;
+    # an authored persistence mean is not a posterior decay mean.
+    if parameter["quantity"] == "dynamics_decay":
+        return _round(0.08 + 0.5 * _seed_fraction(str(parameter["id"]))), 0.04
     mean, prior_sd = _prior_center(prior)
     role = str(parameter["role"])
     if role == "fixed_effect":
+        interval = prior["reference_interval_days"] or 1.0
+        mean /= interval
+        prior_sd /= interval
         mean *= 0.92 + 0.12 * _seed_fraction(f"posterior:{parameter['name']}")
-    elif role == "ar_coefficient":
-        mean = min(0.97, mean + 0.025 * (_seed_fraction(str(parameter["name"])) - 0.5))
     elif role == "loading":
         mean *= 0.96 + 0.08 * _seed_fraction(str(parameter["name"]))
     sd = max(0.018, prior_sd * (0.28 + 0.14 * _seed_fraction(f"sd:{parameter['name']}")))
@@ -1025,7 +1047,9 @@ def _posterior_center(parameter: JsonObject, prior: JsonObject) -> tuple[float, 
 
 def _marginal(parameter: JsonObject, prior: JsonObject) -> JsonObject:
     mean, sd = _posterior_center(parameter, prior)
-    constraint = str(parameter["constraint"])
+    constraint = (
+        "positive" if parameter["quantity"] == "dynamics_decay" else str(parameter["constraint"])
+    )
     lower = mean - 3.4 * sd
     upper = mean + 3.4 * sd
     if constraint in {"positive", "unit_interval"}:
@@ -1042,8 +1066,61 @@ def _marginal(parameter: JsonObject, prior: JsonObject) -> JsonObject:
         "density": [_round(value) for value in density],
         "mean": mean,
         "sd": sd,
-        "hdi_3": _round(max(lower, mean - 1.88 * sd)),
-        "hdi_97": _round(min(upper, mean + 1.88 * sd)),
+        "interval_kind": "hdi",
+        "interval_mass": 0.94,
+        "lower": _round(max(lower, mean - 1.88 * sd)),
+        "upper": _round(min(upper, mean + 1.88 * sd)),
+    }
+
+
+def _bind_fixture_coordinates(posterior, compiled):
+    """Materialize synthetic scalar displays using the production compiler's coordinates."""
+    definitions = {parameter.id: parameter for parameter in compiled.parameters}
+    bindings = {
+        definitions[binding.parameter_id].name: binding for binding in compiled.parameter_bindings
+    }
+    diagnostics = posterior["mcmc_diagnostics"]
+    for container, key in (
+        (posterior, "posterior_marginals"),
+        (diagnostics, "per_parameter"),
+        (diagnostics, "trace_data"),
+        (diagnostics, "rank_histograms"),
+    ):
+        container[key] = [
+            {**row, "parameter": coordinate.label, "coordinate": coordinate.model_dump(mode="json")}
+            for row in container[key]
+            for coordinate in bindings[row["parameter"]].coordinates.values()
+        ]
+    for pair in posterior["posterior_pairs"]:
+        for axis in ("x", "y"):
+            coordinate = next(iter(bindings[pair[f"param_{axis}"]].coordinates.values()))
+            pair[f"coordinate_{axis}"] = coordinate.model_dump(mode="json")
+            pair[f"param_{axis}"] = coordinate.label
+
+    from nof1_causal_lab.flows.transitions.inference.subjects import reference_posterior_findings
+
+    (
+        posterior["posterior_marginals"],
+        posterior["posterior_pairs"],
+        posterior["mcmc_diagnostics"],
+    ) = reference_posterior_findings(
+        compiled, posterior["posterior_marginals"], posterior["posterior_pairs"], diagnostics
+    )
+    posterior["draws"] = {
+        "n_draws": posterior["inference_metadata"]["n_samples"],
+        "parameter_shapes": {
+            site.name: site.shape for site in compiled.compiled_prior_semantics.site_registry
+        },
+        "latent_shape": [posterior["loo_diagnostics"]["n_data_points"], compiled.spec.n_latent],
+    }
+    posterior["provenance"] = {
+        "causal_design": {"workspace_id": "DEMO", "version": 1},
+        "compiled_ssm_version": 1,
+        "panel_version": 1,
+    }
+    posterior["assessment"] = {
+        key: posterior.pop(key)
+        for key in ("ppc", "mcmc_diagnostics", "smc_diagnostics", "loo_diagnostics")
     }
 
 
@@ -1055,7 +1132,7 @@ def _build_posterior(
     n_timesteps: int,
 ) -> JsonObject:
     likelihoods = statistical_model_spec["statistical_model_spec"]["likelihoods"]
-    likelihood_by_name = {str(item["variable"]): item for item in likelihoods}
+    likelihood_by_name = {str(item["indicator_id"]): item for item in likelihoods}
     overlays: list[JsonObject] = []
     warnings: list[JsonObject] = []
     test_stats: list[JsonObject] = []
@@ -1063,7 +1140,7 @@ def _build_posterior(
         name = str(indicator["name"])
         overlay, indicator_warnings, indicator_stats = _ppc_for_indicator(
             indicator,
-            likelihood_by_name[name],
+            likelihood_by_name[indicator["id"]],
             profiles[name],
             panel_windows[name],
         )
@@ -1073,7 +1150,7 @@ def _build_posterior(
 
     parameters = statistical_model_spec["statistical_model_spec"]["parameters"]
     priors = statistical_model_spec["authored_priors"]
-    marginals = [_marginal(parameter, priors[str(parameter["name"])]) for parameter in parameters]
+    marginals = [_marginal(parameter, priors[str(parameter["id"])]) for parameter in parameters]
     marginal_by_name = {str(item["parameter"]): item for item in marginals}
     diagnostics = []
     for parameter in parameters:
@@ -1193,7 +1270,9 @@ def _build_posterior(
             "p_loo": 186.3,
             "se": 74.8,
             "n_data_points": n_timesteps,
-            "observation_unit": "timestep",
+            "observation_unit": "measurement_row",
+            "prediction_task": "interpolation_given_other_measurements",
+            "likelihood_source": "exact_emission_on_joint_particle_draws",
             "pareto_k": [_round(0.08 + 0.62 * pareto_rng.random()) for _ in range(loo_points)],
             "n_bad_k": 0,
             "loo_pit": [_round(0.02 + 0.96 * pareto_rng.random()) for _ in range(loo_points)],
@@ -1298,10 +1377,7 @@ def _manifest_effects(effect: float) -> dict[str, float]:
 
 
 def _treatment_result_mean(item: JsonObject) -> float:
-    draws = item["posterior_draws"]
-    if not isinstance(draws, list):
-        raise TypeError("Generated treatment posterior_draws must be a list")
-    return statistics.fmean(float(value) for value in draws)
+    return float(item["summary"]["mean"])
 
 
 def _build_baseline_report(identifiable_treatments: list[str]) -> JsonObject:
@@ -1319,10 +1395,15 @@ def _build_baseline_report(identifiable_treatments: list[str]) -> JsonObject:
             {
                 "treatment": treatment,
                 "posterior_draws": draws,
+                "summary": summarize_draws(jnp.asarray(draws)).model_dump(mode="json"),
+                "histogram": [
+                    item.model_dump(mode="json") for item in histogram_draws(jnp.asarray(draws))
+                ],
                 "temporal": {
-                    "effect_1d": _round(mean * 0.14),
-                    "effect_7d": _round(mean * 0.52),
-                    "effect_30d": _round(mean * 0.94),
+                    "horizons": [
+                        {"day": day, "effect": _round(mean * fraction)}
+                        for day, fraction in ((1.0, 0.14), (7.0, 0.52), (30.0, 0.94))
+                    ],
                     "peak_effect": _round(mean * 1.05),
                     "time_to_peak_days": float(peak_day),
                 },
@@ -1333,39 +1414,7 @@ def _build_baseline_report(identifiable_treatments: list[str]) -> JsonObject:
     results.sort(key=lambda item: abs(_treatment_result_mean(item)), reverse=True)
     return {
         "intervention_results": results,
-        "saved_scenarios": [
-            {
-                "label": "Rapid taper",
-                "query": "What happens if taper speed is raised sharply from the baseline state?",
-                "summary": (
-                    "The executable preview follows the measured dose-maintenance path; the "
-                    "unmeasured withdrawal branch remains visible but is not simulated."
-                ),
-            },
-            {
-                "label": "Gradual taper",
-                "query": "Compare a deliberately slow taper with the current plan.",
-                "summary": (
-                    "A slower reduction spreads the modeled dose change. Withdrawal remains "
-                    "outside the executable state, so this is not a complete taper-effect claim."
-                ),
-            },
-            {
-                "label": "Adherence support",
-                "query": "What if regimen adherence is stabilized at a high level?",
-                "summary": "Stable adherence reduces modeled dose volatility in the executable projection.",
-            },
-            {
-                "label": "Sleep stabilization",
-                "query": "What if sleep and circadian disruption are reduced for the next month?",
-                "summary": "Improved sleep reduces the retained direct symptom path.",
-            },
-            {
-                "label": "Stress pulse",
-                "query": "From the latest fitted state, what if a major external stressor occurs in week three?",
-                "summary": "A temporary stress pulse raises perceived stress and disrupts sleep before fading.",
-            },
-        ],
+        "saved_scenarios": [],
         "final_summary": (
             "Artificial DEMO completion for visual review. The executable preview contains measured "
             "taper, dose, adherence, sleep, activity, stress, and symptom states. Neuroadaptation, "
@@ -1491,37 +1540,84 @@ def _simulate_preview(
     interval_width = 0.075 + 0.22 * abs(final)
     probability_positive = 1 / (1 + math.exp(-final / 0.065)) if final else 0.5
     start_state = {name: _round(series[0]) for name, series in reference.items()}
+    from nof1_causal_lab.artifacts.identity import ArtifactRef, ModelRef
+    from nof1_causal_lab.artifacts.scenarios import (
+        ScenarioDefinition,
+        ScenarioEvaluation,
+        ScenarioQuery,
+    )
+
+    query = ScenarioQuery.from_definition(
+        ScenarioDefinition.model_validate(
+            {
+                "start": {
+                    "kind": "abducted" if abducted else "baseline",
+                    "time_index": abducted_time_index if abducted else None,
+                },
+                "clamps": [
+                    {
+                        **clamp,
+                        "target": {
+                            "kind": "construct",
+                            "id": construct_by_name[clamp["variable"]]["id"],
+                        },
+                    }
+                    for clamp in clamps
+                ],
+                "outcome": {"kind": "construct", "id": construct_by_name[outcome]["id"]},
+                "readout": {
+                    "estimand": "trajectory",
+                    "horizon_days": HORIZON_DAYS,
+                    "projection": "both",
+                },
+            }
+        )
+    )
+    evaluation = ScenarioEvaluation.for_query(
+        query, model=ModelRef(id="DEMO"), posterior=ArtifactRef(artifact_id="posterior", version=1)
+    )
     return {
-        "start": {
-            "kind": "abducted" if abducted else "baseline",
-            "time_index": abducted_time_index if abducted else None,
-            "time": abducted_time if abducted else None,
-            "state_source": "fitted_latent_paths" if abducted else "baseline_steady_state",
-        },
-        "clamps": clamps,
-        "outcome": outcome,
-        "estimand": "trajectory",
-        "summary": {
-            "mean": _round(final),
-            "median": _round(final * 0.98),
-            "lower_95": _round(final - interval_width),
-            "upper_95": _round(final + interval_width),
-            "prob_positive": _round(probability_positive),
-        },
-        "effect_trajectory": trajectory,
-        "visualization": {
-            "reference_node_trajectories": reference,
-            "action_node_trajectories": action,
-            "node_effect_trajectories": {
-                node: [_round(value) for value in values] for node, values in effects.items()
+        "query": query.model_dump(mode="json"),
+        "evaluation": evaluation.model_dump(mode="json"),
+        "result": {
+            "evaluation_id": evaluation.id,
+            "trajectory_peak": max(trajectory, key=lambda point: abs(point["effect"])),
+            "start": {
+                "kind": "abducted" if abducted else "baseline",
+                "time_index": abducted_time_index if abducted else None,
+                "time": abducted_time if abducted else None,
+                "state_source": "fitted_latent_paths" if abducted else "baseline_steady_state",
             },
-            "start_state": start_state,
+            "outcome_label": outcome,
+            "summary": {
+                "mean": _round(final),
+                "median": _round(final * 0.98),
+                "lower_95": _round(final - interval_width),
+                "upper_95": _round(final + interval_width),
+                "prob_positive": _round(probability_positive),
+            },
+            "effect_trajectory": trajectory,
+            "visualization": {
+                "reference_node_trajectories": {
+                    construct_by_name[name]["id"]: values for name, values in reference.items()
+                },
+                "action_node_trajectories": {
+                    construct_by_name[name]["id"]: values for name, values in action.items()
+                },
+                "node_effect_trajectories": {
+                    construct_by_name[node]["id"]: [_round(value) for value in values]
+                    for node, values in effects.items()
+                },
+                "start_state": {
+                    construct_by_name[name]["id"]: value for name, value in start_state.items()
+                },
+            },
+            "manifest_effects": _manifest_effects(final),
+            "reference_mean": _round(reference[outcome][0]),
+            "warnings": [
+                f"Artificial Storybook simulation {scenario_id}; not a fitted patient result."
+            ],
         },
-        "manifest_effects": _manifest_effects(final),
-        "reference_mean": _round(reference[outcome][0]),
-        "warnings": [
-            f"Artificial Storybook simulation {scenario_id}; not a fitted patient result."
-        ],
     }
 
 
@@ -1554,21 +1650,13 @@ def _simulate_tool_turn(
     result: JsonObject,
 ) -> list[JsonObject]:
     tool_input = {
-        "start": {
-            "kind": result["start"]["kind"],
-            **(
-                {"time_index": result["start"]["time_index"]}
-                if result["start"]["kind"] == "abducted"
-                else {}
-            ),
-        },
-        "clamps": result["clamps"],
-        "outcome": result["outcome"],
-        "query": {
-            "estimand": "trajectory",
-            "horizon_days": HORIZON_DAYS,
-            "projection": "both",
-        },
+        "start": result["query"]["start"],
+        "clamps": [
+            {key: value for key, value in clamp.items() if key != "target"}
+            for clamp in result["query"]["clamps"]
+        ],
+        "outcome": result["result"]["outcome_label"],
+        "query": result["query"]["readout"],
     }
     return [
         _trace_message("user", query),
@@ -1763,8 +1851,12 @@ def _compact_demo_latent(full_latent: JsonObject) -> JsonObject:
         if role is not None:
             construct["role"] = role
 
+    construct_names = {item["id"]: item["name"] for item in full_latent["constructs"]}
     edge_lookup = {
-        (str(edge["cause"]), str(edge["effect"])): dict(edge) for edge in full_latent["edges"]
+        (str(construct_names[edge["cause_id"]]), str(construct_names[edge["effect_id"]])): dict(
+            edge
+        )
+        for edge in full_latent["edges"]
     }
     edges: list[JsonObject] = []
     for endpoints in DEMO_EDGE_ORDER:
@@ -1772,7 +1864,11 @@ def _compact_demo_latent(full_latent: JsonObject) -> JsonObject:
         if edge is None:
             raise ValueError(f"Stored DEMO theory is missing compact edge: {endpoints}")
         edges.append(dict(edge))
-    return {"constructs": constructs, "edges": edges}
+    return {
+        "constructs": constructs,
+        "edges": edges,
+        "default_outcome": full_latent["default_outcome"],
+    }
 
 
 def _compact_demo_measurement(full_measurement: JsonObject) -> JsonObject:
@@ -1807,7 +1903,7 @@ def _compact_demo_validation(
         # compact measurement model deliberately de-duplicates.
         "dataset_issues": [],
     }
-    return ValidationReportContract.model_validate(payload).model_dump(mode="json", by_alias=True)
+    return ValidationReportArtifact.model_validate(payload).model_dump(mode="json", by_alias=True)
 
 
 def _canonical_identification_status(identification: JsonObject) -> JsonObject:
@@ -1838,7 +1934,7 @@ def _load_sources() -> FixtureSources:
         STORE_ROOT / "measurement_structure/v1/measurement_structure.json"
     )
     stored_validation = _read_json(STORE_ROOT / "validation_report/v1/validation_report.json")
-    ValidationReportContract.model_validate(stored_validation)
+    ValidationReportArtifact.model_validate(stored_validation)
 
     latent = _compact_demo_latent(latent_payload["latent_structure"])
     measurement = _compact_demo_measurement(measurement_payload["measurement_structure"])
@@ -1852,7 +1948,7 @@ def _load_sources() -> FixtureSources:
     grounded, status = measurement_structure_grounding(authored_measurement, latent)
     if grounded is None or status != "VALID":
         raise ValueError(f"Production measurement grounding rejected DEMO repair: {status}")
-    measurement_artifact = MeasurementStructureContract.model_validate(grounded).model_dump(
+    measurement_artifact = MeasurementStructureArtifact.model_validate(grounded).model_dump(
         mode="json", by_alias=True
     )
 
@@ -1873,7 +1969,13 @@ def _load_sources() -> FixtureSources:
     structural_plan_artifact = {
         "structural_plan": structural_plan.model_dump(mode="json", by_alias=True),
     }
-    validation_artifact = _compact_demo_validation(stored_validation, DEMO_INDICATOR_ORDER)
+    validation_artifact = _compact_demo_validation(
+        stored_validation,
+        tuple(
+            indicator["id"]
+            for indicator in measurement_artifact["measurement_structure"]["indicators"]
+        ),
+    )
 
     construct_by_name = {
         str(item["name"]): item for item in causal_artifact["causal_design"]["latent"]["constructs"]
@@ -1887,7 +1989,7 @@ def _load_sources() -> FixtureSources:
     profiles: dict[str, JsonObject] = {}
     for indicator in manifest_indicators:
         name = str(indicator["name"])
-        audit = audits[name]
+        audit = audits[indicator["id"]]
         profile = audit["profile"]
         if profile is None:
             if name not in ARTIFICIAL_PROFILE_OVERRIDES:
@@ -1914,7 +2016,7 @@ def _load_sources() -> FixtureSources:
 
 def _validate_outputs(outputs: dict[Path, JsonObject], sources: FixtureSources) -> None:
     """Run the same strict models and compiler boundary used by production."""
-    measurement = MeasurementStructureContract.model_validate(
+    measurement = MeasurementStructureArtifact.model_validate(
         outputs[ARTIFACT_ROOT / "measurement_structure.json"]
     )
     causal_design = CausalDesign.model_validate(
@@ -1933,10 +2035,10 @@ def _validate_outputs(outputs: dict[Path, JsonObject], sources: FixtureSources) 
         "structural_plan"
     ] != structural_plan.model_dump(mode="json", by_alias=True):
         raise ValueError("Persisted StructuralPlan differs from the production-derived plan")
-    ValidationReportContract.model_validate(outputs[ARTIFACT_ROOT / "validation_report.json"])
+    ValidationReportArtifact.model_validate(outputs[ARTIFACT_ROOT / "validation_report.json"])
 
     model_payload = outputs[ARTIFACT_ROOT / "statistical_model_spec.json"]
-    StatisticalModelSpecContract.model_validate(model_payload)
+    StatisticalModelSpecArtifact.model_validate(model_payload)
     validated_spec, semantic_errors = validate_statistical_model_spec_dict(
         model_payload["statistical_model_spec"],
         sources.manifest_indicators,
@@ -1952,7 +2054,10 @@ def _validate_outputs(outputs: dict[Path, JsonObject], sources: FixtureSources) 
     try:
         assembly = validate_assembly(
             model_payload["statistical_model_spec"],
-            model_payload["authored_priors"],
+            {
+                parameter.name: model_payload["authored_priors"][parameter.id]
+                for parameter in validated_spec.parameters
+            },
             sources.structural_plan,
         )
     finally:
@@ -1962,8 +2067,16 @@ def _validate_outputs(outputs: dict[Path, JsonObject], sources: FixtureSources) 
             f"Production model compiler rejected DEMO completion: {assembly.compile_error}"
         )
 
-    PosteriorContract.model_validate(outputs[ARTIFACT_ROOT / "posterior.json"])
-    baseline = BaselineReportContract.model_validate(
+    _bind_fixture_coordinates(outputs[ARTIFACT_ROOT / "posterior.json"], assembly.compiled_ssm)
+    outputs[ARTIFACT_ROOT / "compiled_ssm.json"] = assembly.compiled_ssm.model_dump(mode="json")
+    for stat in outputs[ARTIFACT_ROOT / "posterior.json"]["assessment"]["ppc"]["test_stats"]:
+        values = stat["rep_values"]
+        stat["p_value"] = sum(value >= stat["observed_value"] for value in values) / len(values)
+        stat["histogram"] = [
+            bin.model_dump(mode="json") for bin in histogram_draws(values, max_bins=12)
+        ]
+    PosteriorArtifact.model_validate(outputs[ARTIFACT_ROOT / "posterior.json"])
+    baseline = BaselineReportArtifact.model_validate(
         outputs[ARTIFACT_ROOT / "baseline_report.json"]
     )
     baseline_treatments = sorted(item.treatment for item in baseline.intervention_results)
@@ -1981,22 +2094,124 @@ def _validate_outputs(outputs: dict[Path, JsonObject], sources: FixtureSources) 
             SimulateScenarioInput.model_validate(json.loads(function["arguments"]))
             tool_call_ids.add(str(call["id"]))
         if message.get("tool_name") == "simulate":
-            SimulateScenarioToolResultContract.model_validate(json.loads(message["tool_result"]))
+            SimulateScenarioToolResult.model_validate(json.loads(message["tool_result"]))
             tool_result_ids.add(str(message["tool_call_id"]))
     if tool_call_ids != tool_result_ids or len(tool_call_ids) != 5:
         raise ValueError("Baseline trace must contain five matched production-valid simulations")
 
 
+def _build_snapshot_fixture(
+    outputs: dict[Path, JsonObject], *, at_seq: int | None = None, artifact_views: bool = False
+) -> JsonObject:
+    """Run the production read projection against an isolated synthetic journal."""
+    from tempfile import TemporaryDirectory
+    from unittest.mock import patch
+
+    from nof1_causal_lab.artifacts.identity import ArtifactId  # noqa: TC001
+    from nof1_causal_lab.machine.artifact_files import artifact_file_spec
+    from nof1_causal_lab.machine.graph import Transition, producer_of
+    from nof1_causal_lab.machine.moves import RunArtifact, WriteArtifact
+    from nof1_causal_lab.machine.snapshots import read_model_snapshot
+    from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal, TransitionRecord
+    from nof1_causal_lab.utils import data as data_module
+
+    groups: list[tuple[int, list[ArtifactId]]] = [
+        (1, ["raw_data"]),
+        (2, ["question"]),
+        (3, ["latent_structure"]),
+        (4, ["measurement_structure", "causal_design", "structural_plan", "identification_report"]),
+        (5, ["measurements", "panel", "validation_report"]),
+        (7, ["statistical_model_spec", "compiled_ssm"]),
+        (8, ["posterior"]),
+        (9, ["baseline_report"]),
+        (10, ["saved_scenarios"]),
+    ]
+    payloads = {path.stem: value for path, value in outputs.items() if path.parent == ARTIFACT_ROOT}
+    for aid in ("raw_data", "measurements"):
+        payloads[aid] = _read_json(ARTIFACT_ROOT / f"{aid}.json")
+    payloads["question"] = _read_json(STORE_ROOT / "question/v1/question.json")
+    payloads["saved_scenarios"] = {"scenarios": payloads["baseline_report"]["saved_scenarios"]}
+    from nof1_causal_lab.flows.transitions.measurement_structure.identification import (
+        derive_identification_report,
+    )
+
+    identification_report = derive_identification_report(
+        CausalDesign.model_validate(payloads["causal_design"]["causal_design"])
+    )
+    assert identification_report is not None
+    payloads["identification_report"] = identification_report.model_dump(mode="json")
+
+    tables = {
+        "raw_data": pl.read_parquet(STORE_ROOT / "raw_data/v1/raw.parquet"),
+        "panel": pl.read_parquet(PANEL_PATH),
+    }
+    with (
+        TemporaryDirectory(prefix="nof1-type-fixture-") as directory,
+        patch.object(data_module, "_DATA_URI", directory),
+    ):
+        store = ArtifactStore("DEMO")
+        journal = EpisodeJournal("DEMO")
+        for seq, aids in groups:
+            produced = []
+            for aid in aids:
+                producer = producer_of(aid)
+                dependencies = (
+                    producer.consumes
+                    if isinstance(producer, Transition)
+                    else producer.from_
+                    if producer
+                    else ()
+                )
+                files = artifact_file_spec(aid)
+                info = store.write_version(
+                    aid,
+                    provenance="computed",
+                    produced_by=f"run:{aids[0]}",
+                    derived_from=dict.fromkeys(dependencies, 1),
+                    json_files={next(iter(files.json.values())): payloads[aid]}
+                    if files.json
+                    else None,
+                    parquet_files={next(iter(files.parquet.values())): tables[aid]}
+                    if files.parquet
+                    else None,
+                )
+                info = info.model_copy(update={"created_at": "2026-07-08T12:00:00Z"})
+                produced.append(info)
+            move = (
+                WriteArtifact(artifact_id=aids[0], provenance="human")
+                if aids[0] in {"question", "saved_scenarios"}
+                else RunArtifact(artifact_id=aids[0])
+            )
+            journal.append(
+                TransitionRecord(
+                    seq=seq,
+                    ts="2026-07-08T12:00:00Z",
+                    move=move,
+                    status="applied",
+                    produced=produced,
+                    trace_ids=[],
+                    resume=None,
+                )
+            )
+        if artifact_views:
+            from nof1_causal_lab.machine.snapshots import read_revision
+            from nof1_causal_lab.machine.views import read_artifact_views
+
+            _, state, installed, _ = read_revision("DEMO", at_seq)
+            return read_artifact_views(store, state, installed).model_dump(mode="json")
+        snapshot = read_model_snapshot("DEMO", at_seq=at_seq)
+        return snapshot.model_dump(mode="json")
+
+
 def _build_outputs() -> dict[Path, JsonObject]:
     sources = _load_sources()
-    panel_windows, n_timesteps, final_time = _panel_windows(
-        [str(item["name"]) for item in sources.manifest_indicators]
-    )
+    panel_windows, n_timesteps, final_time = _panel_windows(sources.manifest_indicators)
     model_spec, _edge_means = _build_statistical_model_spec(
         sources.state_constructs,
         sources.executable_edges,
         sources.manifest_indicators,
         sources.profiles,
+        sources.structural_plan,
     )
     posterior = _build_posterior(
         sources.manifest_indicators,
@@ -2017,6 +2232,22 @@ def _build_outputs() -> dict[Path, JsonObject]:
         n_timesteps - 1,
         final_time,
     )
+    construct_ids = {item["name"]: item["id"] for item in sources.state_constructs}
+    for treatment in baseline_report["intervention_results"]:
+        treatment["treatment_id"] = construct_ids[treatment["treatment"]]
+    for message in baseline_trace["messages"]:
+        if message.get("tool_name") == "simulate":
+            result = json.loads(message["tool_result"])
+            baseline_report["saved_scenarios"].append(
+                {
+                    "label": message["tool_call_id"],
+                    "query": result["query"],
+                    "evaluations": [
+                        {"evaluation": result["evaluation"], "result": result["result"]}
+                    ],
+                    "summary": "Artificial scenario for visual review.",
+                }
+            )
     outputs = {
         ARTIFACT_ROOT / "latent_structure.json": sources.latent_artifact,
         ARTIFACT_ROOT / "measurement_structure.json": sources.measurement_artifact,
@@ -2030,6 +2261,14 @@ def _build_outputs() -> dict[Path, JsonObject]:
         TRACE_ROOT / "baseline_report.json": baseline_trace,
     }
     _validate_outputs(outputs, sources)
+    outputs[DEMO_ROOT / "fixture/model_snapshot.json"] = _build_snapshot_fixture(outputs)
+    outputs[DEMO_ROOT / "fixture/artifact_views.json"] = _build_snapshot_fixture(
+        outputs, artifact_views=True
+    )
+    outputs[DEMO_ROOT / "fixture/model_history.json"] = {
+        str(seq): _build_snapshot_fixture(outputs, at_seq=seq)
+        for seq in (0, 1, 2, 3, 4, 5, 7, 8, 9)
+    }
     return outputs
 
 
@@ -2060,7 +2299,7 @@ def main() -> None:
     if args.check and changed:
         relative = "\n".join(f"  - {path.relative_to(REPO_ROOT)}" for path in changed)
         raise SystemExit(
-            "Artificial DEMO completion is stale; run `bun run fixture:complete-demo`.\n" + relative
+            "Artificial DEMO completion is stale; run `bun run fixture:demo`.\n" + relative
         )
 
     action = "verified" if args.check else "generated"

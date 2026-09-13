@@ -6,13 +6,14 @@ import ast
 import logging
 import re
 from enum import StrEnum
-from typing import TYPE_CHECKING, Literal, get_args, override
+from typing import TYPE_CHECKING, Annotated, Literal, get_args, override
 
 from pydantic import (
+    AfterValidator,
     BaseModel,
+    ConfigDict,
     Field,
     ValidationError,
-    computed_field,
     field_validator,
     model_validator,
 )
@@ -29,14 +30,16 @@ from nof1_causal_lab.utils.observation_semantics import (
     supported_summary_operators_text,
 )
 
+from .base import ArtifactPayload
 from .duration import parse_duration_to_hours
+from .identity import ConstructId, IndicatorId  # noqa: TC001
 
 if TYPE_CHECKING:
     from .latent_structure import LatentStructure
 
 logger = logging.getLogger(__name__)
 
-VALID_AGGREGATIONS: set[str] = set(get_args(AggregationFunction))
+VALID_AGGREGATIONS: set[str] = set(get_args(AggregationFunction.__value__))
 
 _SEMANTIC_COLLISIONS: list[tuple[str, set[str], str]] = [
     (
@@ -81,7 +84,9 @@ def check_semantic_collisions(
 
 
 class IndicatorPolarity(StrEnum):
-    """Direction of an indicator relative to its construct."""
+    """Indicator polarity states whether a measurement increases or decreases with its
+    construct.
+    """
 
     POSITIVE = "positive"
     NEGATIVE = "negative"
@@ -92,7 +97,7 @@ def _parse_computed_rule_expr(expr: str) -> ast.Expression:
     try:
         parsed = ast.parse(expr, mode="eval")
     except SyntaxError as exc:
-        raise ValueError(f"Invalid computed_rule.window_expr: {exc.msg}") from exc
+        raise ValueError(f"Invalid computed_rule: {exc.msg}") from exc
     return parsed
 
 
@@ -105,21 +110,21 @@ def _computed_rule_source_names(expr: str) -> set[str]:
         @override
         def visit_Call(self, node: ast.Call) -> None:
             if not isinstance(node.func, ast.Name):
-                raise ValueError("computed_rule.window_expr only supports simple function calls")
+                raise ValueError("computed_rule only supports simple function calls")
             if node.func.id not in COMPUTED_RULE_FUNCTIONS:
                 available = ", ".join(sorted(COMPUTED_RULE_FUNCTIONS))
                 raise ValueError(
                     f"Unsupported computed_rule function '{node.func.id}'. Available: {available}"
                 )
             if node.keywords:
-                raise ValueError("computed_rule.window_expr does not support keyword arguments")
+                raise ValueError("computed_rule does not support keyword arguments")
             for arg in node.args:
                 self.visit(arg)
 
         @override
         def visit_Attribute(self, node: ast.Attribute) -> None:
             _ = node
-            raise ValueError("computed_rule.window_expr does not support attribute access")
+            raise ValueError("computed_rule does not support attribute access")
 
         @override
         def visit_Name(self, node: ast.Name) -> None:
@@ -130,10 +135,15 @@ def _computed_rule_source_names(expr: str) -> set[str]:
     return names
 
 
-class ComputedRule(BaseModel):
-    """Deterministic per-window expression for computed indicators."""
+def _validate_window_expression(value: str) -> str:
+    _computed_rule_source_names(value)
+    return value
 
-    window_expr: str = Field(
+
+type WindowExpression = Annotated[
+    str,
+    AfterValidator(_validate_window_expression),
+    Field(
         description=(
             "Deterministic support-window expression that returns one scalar per window. "
             "Use Python-like syntax over source_columns with arithmetic, comparisons, "
@@ -141,14 +151,18 @@ class ComputedRule(BaseModel):
             "first(), last(), count_true(), count_non_null(), lower(), contains(), "
             "and contains_any(). Use None for missing values."
         )
-    )
+    ),
+]
 
 
 class Indicator(BaseModel):
-    """An observed variable that reflects a construct."""
+    """An indicator defines an observed measurement of a construct and how to extract it."""
 
+    model_config = ConfigDict(extra="forbid")
+
+    id: IndicatorId = Field(description="Persistent identity. Preserve when revising or renaming.")
+    construct_id: ConstructId = Field(description="Persistent ID of the construct this measures.")
     name: str = Field(description="Indicator name (e.g., 'hrv', 'self_reported_stress')")
-    construct_name: str = Field(description="Which construct this indicator measures")
     how_to_measure: str = Field(
         description="Instructions for workers on how to extract this from data"
     )
@@ -199,7 +213,7 @@ class Indicator(BaseModel):
             "Used to project chunks to only relevant columns before extraction."
         ),
     )
-    computed_rule: ComputedRule | None = Field(
+    computed_rule: WindowExpression | None = Field(
         default=None,
         description=(
             "Optional deterministic support-window expression for extraction_mode='computed'. "
@@ -224,14 +238,6 @@ class Indicator(BaseModel):
         if value is None:
             return None
         parse_duration_to_hours(value)
-        return value
-
-    @field_validator("computed_rule")
-    @classmethod
-    def validate_computed_rule(cls, value: ComputedRule | None) -> ComputedRule | None:
-        if value is None:
-            return None
-        _computed_rule_source_names(value.window_expr)
         return value
 
     @model_validator(mode="after")
@@ -288,16 +294,16 @@ class Indicator(BaseModel):
                     f"Computed indicator '{self.name}' with computed_rule must declare "
                     "at least 1 source_column."
                 )
-            referenced = _computed_rule_source_names(self.computed_rule.window_expr)
+            referenced = _computed_rule_source_names(self.computed_rule)
             if not referenced:
                 raise ValueError(
-                    f"Computed indicator '{self.name}' has computed_rule.window_expr "
+                    f"Computed indicator '{self.name}' has computed_rule "
                     "that does not reference any source_columns."
                 )
             unknown = sorted(referenced - set(self.source_columns))
             if unknown:
                 raise ValueError(
-                    f"Computed indicator '{self.name}' computed_rule.window_expr "
+                    f"Computed indicator '{self.name}' computed_rule "
                     f"references undeclared source_columns: {unknown}. "
                     f"Declared source_columns: {self.source_columns}"
                 )
@@ -312,19 +318,16 @@ class Indicator(BaseModel):
     def _observation_semantics(self) -> IndicatorObservationSemantics:
         return derive_indicator_observation_semantics(self.aggregation, self.measurement_dtype)
 
-    @computed_field
     @property
     def support_kind(self) -> SupportKind:
         """Whether this indicator is point-local or interval-summary."""
         return self._observation_semantics().support_kind
 
-    @computed_field
     @property
     def summary_operator(self) -> SummaryOperator:
         """Canonical summary operator used by extraction and likelihoods."""
         return self._observation_semantics().summary_operator
 
-    @computed_field
     @property
     def anchor_policy(self) -> AnchorPolicy:
         """Which support boundary receives the observation anchor."""
@@ -337,7 +340,9 @@ class Indicator(BaseModel):
 
 
 class MeasurementStructure(BaseModel):
-    """Operationalization of constructs into observed indicators."""
+    """A measurement structure defines the indicators and common clock used to observe
+    constructs.
+    """
 
     indicators: list[Indicator] = Field(
         description="Observed indicators, each measuring a construct"
@@ -349,6 +354,16 @@ class MeasurementStructure(BaseModel):
             "Choose based on data density: need enough events per support window."
         )
     )
+
+    @model_validator(mode="after")
+    def validate_identities(self) -> MeasurementStructure:
+        for label, values in (
+            ("IDs", [item.id for item in self.indicators]),
+            ("names", [item.name for item in self.indicators]),
+        ):
+            if len(values) != len(set(values)):
+                raise ValueError(f"Duplicate indicator {label}")
+        return self
 
     @field_validator("model_clock")
     @classmethod
@@ -364,9 +379,9 @@ class MeasurementStructure(BaseModel):
     def model_clock_days(self) -> float:
         return self.model_clock_hours / 24.0
 
-    def get_indicators_for_construct(self, construct_name: str) -> list[Indicator]:
+    def get_indicators_for_construct(self, construct_id: ConstructId) -> list[Indicator]:
         return [
-            indicator for indicator in self.indicators if indicator.construct_name == construct_name
+            indicator for indicator in self.indicators if indicator.construct_id == construct_id
         ]
 
 
@@ -398,7 +413,7 @@ def validate_measurement_structure(
             errors.append(f"model_clock: {exc}")
             model_clock = None
 
-    construct_names = {construct.name for construct in latent.constructs}
+    construct_ids = {construct.id for construct in latent.constructs}
     valid_indicators: list[Indicator] = []
     indicator_names: set[str] = set()
 
@@ -425,9 +440,9 @@ def validate_measurement_structure(
                 errors.append(f"indicators[{index}] ({name}): {error_msg}")
             continue
 
-        if indicator.construct_name not in construct_names:
+        if indicator.construct_id not in construct_ids:
             errors.append(
-                f"indicators[{index}] ({name}): references unknown construct '{indicator.construct_name}'"
+                f"indicators[{index}] ({name}): references unknown construct '{indicator.construct_id}'"
             )
             continue
 
@@ -447,10 +462,50 @@ def validate_measurement_structure(
 
 
 __all__ = [
-    "ComputedRule",
+    "WindowExpression",
     "Indicator",
     "IndicatorPolarity",
     "MeasurementStructure",
     "check_semantic_collisions",
     "validate_measurement_structure",
 ]
+
+
+class KnownInput(BaseModel):
+    """An observed-input declaration binds a construct to its measured driver trajectory."""
+
+    model_config = ConfigDict(extra="forbid")
+    construct_id: ConstructId
+    source_indicator_id: IndicatorId
+    scale: float = Field(
+        default=1.0, gt=0.0, description="Positive divisor applied before inference"
+    )
+    missing_policy: Literal["zero", "forward_fill"] = "zero"
+
+
+class ScientificOnlyConstruct(BaseModel):
+    """A scientific-only declaration excludes an identified construct from executable states."""
+
+    model_config = ConfigDict(extra="forbid")
+    construct_id: ConstructId
+    reason: str = Field(min_length=1)
+
+
+class MeasurementStructureArtifact(ArtifactPayload):
+    """This artifact stores measurement definitions and declarations that shape the executable
+    model.
+    """
+
+    measurement_structure: MeasurementStructure
+    known_inputs: list[KnownInput] = Field(
+        description=(
+            "Authored declarations of observed construct trajectories compiled as "
+            "transition inputs rather than latent states"
+        )
+    )
+    scientific_only_constructs: list[ScientificOnlyConstruct] = Field(
+        description=(
+            "Measured scientific-context constructs explicitly excluded from the "
+            "executable N-of-1 state vector"
+        )
+    )

@@ -10,14 +10,9 @@ import jax
 import jax.numpy as jnp
 import jax.random as random
 
-from nof1_causal_lab.models.ssm.inference.backend_factory import get_laplace_backend
-from nof1_causal_lab.models.ssm.inference.bundle import (
-    build_particle_runtime_bundle,
-)
 from nof1_causal_lab.models.ssm.inference.methods._pmcmc_shared import (
     build_pmcmc_mcmc_result,
     extract_grouped_public_samples,
-    prepare_pmcmc_parameter_warmup,
 )
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.kernel import (
     _DEFAULT_AMALA_ADAPTATION_GAMMA,
@@ -31,13 +26,20 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.kernel
     _DEFAULT_AMALA_GRAD_CLIP,
     _DEFAULT_AMALA_TARGET_ACCEPT,
     build_marginal_particle_gibbs_kernel,
+)
+from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.runner import (
     run_marginal_particle_gibbs,
+)
+from nof1_causal_lab.models.ssm.inference.problem import (
+    build_particle_problem,
 )
 from nof1_causal_lab.models.ssm.inference.types import (
     InferenceDiagnostics,
+    JointPosteriorDraws,
     ParticleMCMCEvidence,
     ParticleMCMCPosterior,
 )
+from nof1_causal_lab.models.ssm.inference.warmup.parameter_warmup import prepare_parameter_warmup
 from nof1_causal_lab.models.ssm.transition_kinds import (
     LATENT_TRANSITION_EULER_MARUYAMA,
 )
@@ -171,7 +173,7 @@ def fit_marginal_particle_gibbs(
     # discretizes it with the nonlinearity-preserving Euler-Maruyama scheme.
     # Linearised discretisation is confined to the warmup/init backend.
     scheme = LATENT_TRANSITION_EULER_MARUYAMA
-    bundle = build_particle_runtime_bundle(
+    bundle = build_particle_problem(
         model,
         observations,
         times,
@@ -182,16 +184,16 @@ def fit_marginal_particle_gibbs(
     logger.info(
         "phase 1/4: bundle ready in %.1fs (dim=%d, public_sites=%d)",
         _mpg_phase_elapsed(phase_t0),
-        int(bundle.cached.flat_example.shape[0]),
-        len(bundle.cached.public_sites),
+        int(bundle.runtime.initial_position.shape[0]),
+        len(bundle.public_sites),
     )
 
     phase_t0 = time.monotonic()
-    warmup_result = prepare_pmcmc_parameter_warmup(
+    warmup_result = prepare_parameter_warmup(
         model,
         observations,
         times,
-        bundle=bundle,
+        bundle=bundle.runtime,
         method_label="marginal_particle_gibbs",
         phase_label="phase 2/4",
         trace_key=trace_key,
@@ -236,8 +238,8 @@ def fit_marginal_particle_gibbs(
             # Random init leaves positions to the runner; anchor the pilot at the
             # prior center instead (any fixed position yields a valid fixed proposal).
             else jnp.broadcast_to(
-                bundle.cached.flat_example,
-                (num_chains, int(bundle.cached.flat_example.shape[0])),
+                bundle.runtime.initial_position,
+                (num_chains, int(bundle.runtime.initial_position.shape[0])),
             )
         )
         if initial_latent_trajectories is None:
@@ -278,7 +280,7 @@ def fit_marginal_particle_gibbs(
     phase_t0 = time.monotonic()
     logger.info("phase 3/4: building marginalized Particle Gibbs joint kernel...")
     kernel = build_marginal_particle_gibbs_kernel(
-        bundle,
+        bundle.runtime,
         num_particles=n_particles,
         num_parameter_particles=n_parameter_particles,
         param_step_size=param_step_size,
@@ -307,12 +309,19 @@ def fit_marginal_particle_gibbs(
         pilot_means=pilot_means,
         pilot_vars=pilot_vars,
         pilot_wide_vars=pilot_wide_vars,
+        # A provided initialization also supplies a fixed proposal oracle. It
+        # stays fixed across chains and never follows the sampled trajectory.
+        parameter_reference_path=(
+            None
+            if initial_latent_trajectories is None
+            else jnp.asarray(initial_latent_trajectories)[0]
+        ),
         sign_flip_spec=sign_flip_spec,
         diagnostic_metrics_all=diagnostic_metrics_all,
         diagnostic_metrics=diagnostic_metrics,
     )
     run_result = run_marginal_particle_gibbs(
-        bundle,
+        bundle.runtime,
         kernel=kernel,
         num_warmup=num_warmup,
         num_samples=num_samples,
@@ -340,12 +349,8 @@ def fit_marginal_particle_gibbs(
     grouped_public_samples = extract_grouped_public_samples(
         run_result["grouped_positions"],
         bundle=bundle,
-        model=model,
-        observations=observations,
-        times=times,
         num_chains=num_chains,
         num_samples=num_samples,
-        reparam=reparam,
     )
     mcmc = build_pmcmc_mcmc_result(
         chain_samples=grouped_public_samples,
@@ -354,7 +359,6 @@ def fit_marginal_particle_gibbs(
         num_samples=num_samples,
         backend="marginal_particle_gibbs",
     )
-    diagnostic_likelihood_backend = get_laplace_backend(model, n_ieks_iters)
     chain_extra_fields = run_result["chain_extra_fields"]
     summary_extra_fields = (
         chain_extra_fields if num_samples > 0 else run_result["warmup_chain_extra_fields"]
@@ -396,7 +400,7 @@ def fit_marginal_particle_gibbs(
             "amala_kappa": float(amala_kappa),
             "amala_grad_clip": float(amala_grad_clip),
             "dsmc_leaf_proposal": kernel.dsmc_leaf_proposal,
-            "latent_transition_kind": bundle.cached.latent_transition_kind,
+            "latent_transition_kind": bundle.latent_transition_kind,
             "diagnostic_metrics_all": bool(diagnostic_metrics_all),
             "diagnostic_metrics": sorted(kernel.diagnostic_metrics),
             "param_step_size_initial": float(param_step_size),
@@ -460,23 +464,22 @@ def fit_marginal_particle_gibbs(
         )
     diagnostics: InferenceDiagnostics = {
         "mcmc": mcmc,
-        "public_sites": sorted(bundle.cached.public_sites),
-        "likelihood_backend": diagnostic_likelihood_backend,
+        "public_sites": sorted(bundle.public_sites),
+        "observation_log_probs": run_result["observation_log_probs"],
         "marginal_particle_gibbs": kernel_diagnostics,
         "marginal_particle_gibbs_phase_extra_fields": {
             "warmup": run_result["warmup_chain_extra_fields"],
             "post_warmup": run_result["chain_extra_fields"],
             "all": run_result["all_chain_extra_fields"],
         },
-        "latent_posterior_summary": run_result["latent_posterior_summary"],
         "chain_complete_log_posterior_history": run_result["complete_log_posterior_history"],
         "warmup_complete_log_posterior_history": run_result[
             "warmup_complete_log_posterior_history"
         ],
         "all_complete_log_posterior_history": run_result["all_complete_log_posterior_history"],
     }
-    if run_result["latent_paths"] is not None:
-        diagnostics["latent_paths"] = run_result["latent_paths"]
+    if run_result["latent_posterior_summary"] is not None:
+        diagnostics["latent_posterior_summary"] = run_result["latent_posterior_summary"]
     if run_result["warmup_latent_paths"] is not None:
         diagnostics["warmup_latent_paths"] = run_result["warmup_latent_paths"]
     if run_result["all_latent_paths"] is not None:
@@ -486,10 +489,16 @@ def fit_marginal_particle_gibbs(
         _mpg_phase_elapsed(phase_t0),
         _mpg_phase_elapsed(overall_t0),
     )
-    if bundle.cached.latent_transition_kind != LATENT_TRANSITION_EULER_MARUYAMA:
+    if bundle.latent_transition_kind != LATENT_TRANSITION_EULER_MARUYAMA:
         raise RuntimeError("Particle posterior used a non-production latent transition target")
+    latent_paths = run_result["latent_paths"]
     return ParticleMCMCPosterior(
-        _samples=mcmc.get_samples(),
+        draws=JointPosteriorDraws(
+            parameters=mcmc.get_samples(),
+            latent_paths=latent_paths.reshape((-1, *latent_paths.shape[2:]))
+            if latent_paths is not None
+            else None,
+        ),
         diagnostics=diagnostics,
         evidence=ParticleMCMCEvidence(),
     )

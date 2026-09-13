@@ -6,13 +6,10 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from nof1_causal_lab.artifacts.compiled_ssm import AnchorCertificate, CompiledStructuralBinding
 from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily
 from nof1_causal_lab.compilation_errors import AggregatedCompileError
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
-from nof1_causal_lab.models.ssm.compile.contracts import (
-    AnchorCertificate,
-    CompiledStructuralBinding,
-)
 from nof1_causal_lab.models.ssm.dynamics.spec import HillEdgeSpec, LinearEdgeSpec, NodePotentialSpec
 from nof1_causal_lab.models.ssm.structure.parameters import Fixed
 from nof1_causal_lab.utils.structural_plan import (

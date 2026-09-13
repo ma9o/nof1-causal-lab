@@ -91,7 +91,7 @@ Call `validate_extractions` exactly once per draft. Do not emit prose, tables, o
   "extractions": [
     {
       "window_start": "support window start from the data header",
-      "indicator": "indicator_name",
+      "indicator_id": "indicator:opaque_id",
       "value": < value of the correct datatype, or null if no relevant data in this support window >
     }
   ]

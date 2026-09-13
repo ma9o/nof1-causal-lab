@@ -1,6 +1,6 @@
 """Tests for SSM runtime preparation helpers.
 
-Covers: normalize_prior_params, split_compound_name, fit-input preparation.
+Covers: semantic prior binding and fit-input preparation.
 """
 
 from __future__ import annotations
@@ -9,9 +9,12 @@ from typing import TYPE_CHECKING, cast
 
 import jax.numpy as jnp
 import numpy as np
+import numpyro.distributions as dist
 import polars as pl
 import pytest
 
+from nof1_causal_lab.artifacts.compiled_ssm import CompiledSSMArtifact
+from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
 from nof1_causal_lab.artifacts.statistical_model_spec import (
     DistributionFamily,
     LinkFunction,
@@ -19,8 +22,6 @@ from nof1_causal_lab.artifacts.statistical_model_spec import (
 )
 from nof1_causal_lab.models.ssm.compile.inputs import (
     compile_priors,
-    normalize_prior_params,
-    split_compound_name,
 )
 from nof1_causal_lab.models.ssm.dynamics.spec import (
     DiagonalDecaySpec,
@@ -42,7 +43,7 @@ from nof1_causal_lab.models.ssm.structure import (
     SparseMatrixBlockSpec,
     T0CholBlockSpec,
 )
-from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
+from tests.helpers import named_prior_payloads, native_axis_metadata
 from tests.ssm_spec_fixtures import (
     default_diffusion_block,
     default_input_effect_block,
@@ -95,210 +96,29 @@ def _make_spec(
         t0_chol_block=t0_chol_block or default_t0_chol_block(n_latent),
         input_effect_block=input_effect_block or default_input_effect_block(n_latent),
         static_state_sd_block=static_state_sd_block or default_static_state_sd_block(),
-        **kwargs,
+        **native_axis_metadata(n_latent, n_manifest, kwargs),
     )
-
-
-class TestNormalizePriorParams:
-    def test_normal_returns_mu_sigma(self):
-        """Normal distribution passes through mu/sigma."""
-        result = normalize_prior_params("Normal", {"mu": 1.0, "sigma": 2.0})
-        assert result == {"mu": 1.0, "sigma": 2.0}
-
-    def test_normal_defaults(self):
-        """Normal with no params should use defaults."""
-        result = normalize_prior_params("Normal", {})
-        assert result == {"mu": 0.0, "sigma": 1.0}
-
-    def test_truncatednormal(self):
-        """TruncatedNormal should preserve bounds."""
-        result = normalize_prior_params(
-            "TruncatedNormal",
-            {"mu": 3.0, "sigma": 0.5, "lower": 0.0, "upper": 5.0},
-        )
-        assert result == {
-            "family": 1,
-            "mu": 3.0,
-            "sigma": 0.5,
-            "lower": 0.0,
-            "upper": 5.0,
-        }
-
-    def test_halfnormal(self):
-        """HalfNormal should only return sigma."""
-        result = normalize_prior_params("HalfNormal", {"sigma": 2.5})
-        assert result == {"sigma": 2.5}
-
-    def test_halfnormal_default(self):
-        """HalfNormal with no sigma should default to 1.0."""
-        result = normalize_prior_params("HalfNormal", {})
-        assert result == {"sigma": 1.0}
-
-    def test_beta_conversion(self):
-        """Beta(2, 2) should give mu=0.5, sigma=sqrt(1/20)."""
-        result = normalize_prior_params("Beta", {"alpha": 2.0, "beta": 2.0})
-        expected_mu = 2.0 / 4.0  # 0.5
-        expected_var = (2.0 * 2.0) / (16.0 * 5.0)  # 0.05
-        assert abs(result["mu"] - expected_mu) < 1e-10
-        assert abs(result["sigma"] - expected_var**0.5) < 1e-10
-
-    def test_beta_asymmetric(self):
-        """Beta(1, 3) should give correct mean."""
-        result = normalize_prior_params("Beta", {"alpha": 1.0, "beta": 3.0})
-        assert abs(result["mu"] - 0.25) < 1e-10
-
-    def test_beta_defaults(self):
-        """Beta with no params should default to alpha=2, beta=2."""
-        result = normalize_prior_params("Beta", {})
-        assert abs(result["mu"] - 0.5) < 1e-10
-
-    def test_uniform_conversion(self):
-        """Uniform(0, 1) should preserve uniform family metadata and bounds."""
-        result = normalize_prior_params("Uniform", {"lower": 0.0, "upper": 1.0})
-        assert result["family"] == 2
-        assert result["mu"] == 0.5
-        assert result["sigma"] == 0.25
-        assert result["lower"] == 0.0
-        assert result["upper"] == 1.0
-
-    def test_uniform_symmetric(self):
-        """Uniform(-2, 2) should preserve its midpoint/width summary and bounds."""
-        result = normalize_prior_params("Uniform", {"lower": -2.0, "upper": 2.0})
-        assert result["family"] == 2
-        assert result["mu"] == 0.0
-        assert result["sigma"] == 1.0
-        assert result["lower"] == -2.0
-        assert result["upper"] == 2.0
-
-    def test_uniform_defaults(self):
-        """Uniform with no bounds should default to -1, 1."""
-        result = normalize_prior_params("Uniform", {})
-        assert result["family"] == 2
-        assert result["mu"] == 0.0
-        assert result["sigma"] == 0.5
-        assert result["lower"] == -1.0
-        assert result["upper"] == 1.0
-
-    def test_non_canonical_name_raises(self):
-        """Only canonical prior distribution spellings should be accepted."""
-        with pytest.raises(ValueError, match="Unsupported prior distribution family"):
-            normalize_prior_params("normal", {"mu": 1.0, "sigma": 2.0})
-        with pytest.raises(ValueError, match="Unsupported prior distribution family"):
-            normalize_prior_params("NORMAL", {"mu": 1.0, "sigma": 2.0})
-        with pytest.raises(ValueError, match="Unsupported prior distribution family"):
-            normalize_prior_params("half_normal", {"sigma": 1.0})
-
-    def test_gamma(self):
-        """Gamma should preserve positive-support family metadata."""
-        result = normalize_prior_params("Gamma", {"concentration": 3.0, "rate": 2.0})
-        assert result == {"family": 1, "concentration": 3.0, "rate": 2.0}
-
-    def test_lognormal(self):
-        """LogNormal should serialize to log-scale loc/sigma runtime params."""
-        result = normalize_prior_params("LogNormal", {"mu": 0.2, "sigma": 0.7})
-        assert result == {"family": 2, "loc": 0.2, "sigma": 0.7}
-
-    def test_exponential(self):
-        """Exponential should preserve its own positive-support family metadata."""
-        result = normalize_prior_params("Exponential", {"rate": 2.5})
-        assert result == {"family": 3, "rate": 2.5}
-
-    def test_unknown_distribution_raises(self):
-        """Unknown prior distributions should fail early."""
-        with pytest.raises(ValueError, match="Unsupported prior distribution family"):
-            normalize_prior_params("Cauchy", {"mu": 1.0, "sigma": 2.0})
-
-
-# =============================================================================
-# split_compound_name
-# =============================================================================
-
-
-class TestSplitCompoundName:
-    def test_simple_split(self):
-        """Should split 'a_b' into ('a', 'b')."""
-        result = split_compound_name("a_b", {"a"}, {"b"})
-        assert result == ("a", "b")
-
-    def test_multi_word_first(self):
-        """Should handle multi-word first part."""
-        result = split_compound_name(
-            "stress_level_focus",
-            {"stress_level"},
-            {"focus"},
-        )
-        assert result == ("stress_level", "focus")
-
-    def test_multi_word_second(self):
-        """Should handle multi-word second part."""
-        result = split_compound_name(
-            "stress_focus_quality",
-            {"stress"},
-            {"focus_quality"},
-        )
-        assert result == ("stress", "focus_quality")
-
-    def test_multi_word_both(self):
-        """Should handle multi-word in both parts."""
-        result = split_compound_name(
-            "stress_level_focus_quality",
-            {"stress_level"},
-            {"focus_quality"},
-        )
-        assert result == ("stress_level", "focus_quality")
-
-    def test_no_valid_split(self):
-        """Should return None when no valid split exists."""
-        result = split_compound_name("a_b_c", {"x"}, {"y"})
-        assert result is None
-
-    def test_single_word_no_split(self):
-        """Single word with no underscore should return None."""
-        result = split_compound_name("single", {"single"}, {"single"})
-        assert result is None
-
-    def test_first_valid_split_wins(self):
-        """Should return the first valid split found (left to right)."""
-        result = split_compound_name(
-            "a_b_c",
-            {"a", "a_b"},
-            {"b_c", "c"},
-        )
-        # First split tried: ("a", "b_c") — both valid
-        assert result == ("a", "b_c")
-
-    def test_only_second_split_valid(self):
-        """Should find a later split if the first isn't valid."""
-        result = split_compound_name(
-            "a_b_c",
-            {"a_b"},
-            {"c"},
-        )
-        assert result == ("a_b", "c")
-
-    def test_empty_string_returns_none(self):
-        """Empty string has no separator to split on."""
-        result = split_compound_name("", {"x"}, {"y"})
-        assert result is None
-
-    def test_no_matching_prefix_returns_none(self):
-        """When no valid prefix matches, returns None."""
-        result = split_compound_name("foo_bar", {"baz"}, {"bar"})
-        assert result is None
-
-    def test_no_matching_suffix_returns_none(self):
-        """When no valid suffix matches, returns None."""
-        result = split_compound_name("foo_bar", {"foo"}, {"qux"})
-        assert result is None
 
 
 class TestBuilderPriorConversion:
     def test_ar_prior_rejects_negative_support(self):
         """AR priors must stay on the DT persistence scale in (0, 1)."""
         statistical_model_spec = {
+            "mechanisms": [
+                {
+                    "kind": "node_potential",
+                    "target_id": "construct:bbc87212909e45b9e6c3",
+                    "center": {"kind": "fixed", "value": 0},
+                    "stiffness": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:fb33dbedf43eb15e324c86fa97201278e306cb48aa9752104361309d61215122",
+                    },
+                    "quartic": {"kind": "fixed", "value": 0},
+                }
+            ],
             "likelihoods": [
                 {
-                    "variable": "mood",
+                    "indicator_id": "indicator:869e1d0209fb25a7fc06",
                     "distribution": "gaussian",
                     "link": "identity",
                     "reasoning": "",
@@ -306,6 +126,10 @@ class TestBuilderPriorConversion:
             ],
             "parameters": [
                 {
+                    "prior_transform": "dt_persistence_to_ct_decay",
+                    "id": "parameter:fb33dbedf43eb15e324c86fa97201278e306cb48aa9752104361309d61215122",
+                    "owners": [{"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"}],
+                    "quantity": "dynamics_decay",
                     "name": "rho_mood",
                     "role": "ar_coefficient",
                     "constraint": "unit_interval",
@@ -321,9 +145,11 @@ class TestBuilderPriorConversion:
         }
         ssm_spec = _make_spec(n_latent=1, n_manifest=1, latent_names=["mood"])
 
-        with pytest.raises(ValueError, match="DT persistence scale"):
+        with pytest.raises(ValueError, match="support within"):
             compile_priors(
-                priors,
+                named_prior_payloads(
+                    StatisticalModelSpec.model_validate(statistical_model_spec), priors
+                ),
                 StatisticalModelSpec.model_validate(statistical_model_spec),
                 ssm_spec=ssm_spec,
             )
@@ -331,15 +157,16 @@ class TestBuilderPriorConversion:
     def test_initial_state_correlation_priors_are_bounded_to_correlation_scale(self):
         """Initial-state correlations should compile to bounded correlation priors."""
         statistical_model_spec = {
+            "mechanisms": [],
             "likelihoods": [
                 {
-                    "variable": "mood",
+                    "indicator_id": "indicator:869e1d0209fb25a7fc06",
                     "distribution": "gaussian",
                     "link": "identity",
                     "reasoning": "",
                 },
                 {
-                    "variable": "sleep",
+                    "indicator_id": "indicator:ea4ac346f9793711d3de",
                     "distribution": "gaussian",
                     "link": "identity",
                     "reasoning": "",
@@ -347,6 +174,13 @@ class TestBuilderPriorConversion:
             ],
             "parameters": [
                 {
+                    "prior_transform": "initial_state_correlation",
+                    "id": "parameter:9db0b63984f73620cea7336b8efb56bfb3765270a1a417f7958d9fe811f82907",
+                    "owners": [
+                        {"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"},
+                        {"kind": "construct", "id": "construct:cdc0b2958a9512b2abad"},
+                    ],
+                    "quantity": "t0_var_lower",
                     "name": "cor0_mood_sleep",
                     "role": "initial_state_correlation",
                     "constraint": "correlation",
@@ -376,29 +210,32 @@ class TestBuilderPriorConversion:
         )
 
         prior_registry, _index_maps, _diagnostics = compile_priors(
-            priors,
+            named_prior_payloads(
+                StatisticalModelSpec.model_validate(statistical_model_spec), priors
+            ),
             StatisticalModelSpec.model_validate(statistical_model_spec),
             ssm_spec=ssm_spec,
         )
-        t0_corr_prior = prior_registry.priors_by_site["t0_var_lower_free"]
+        t0_corr_prior = prior_registry["t0_var_lower_free"]
 
-        assert t0_corr_prior.params["mu"] == [0.2]
-        assert t0_corr_prior.params["sigma"] == [0.8]
-        assert t0_corr_prior.params["lower"] == [-1.0]
-        assert t0_corr_prior.params["upper"] == [1.0]
+        np.testing.assert_allclose(t0_corr_prior.base_dist.loc, [0.2])
+        np.testing.assert_allclose(t0_corr_prior.base_dist.scale, [0.8])
+        np.testing.assert_allclose(t0_corr_prior.low, [-1.0])
+        np.testing.assert_allclose(t0_corr_prior.high, [1.0])
 
     def test_initial_state_mean_and_sd_priors_bind_to_t0_sites(self):
         """Authored initial-state priors should compile to the t0 mean/diag sites."""
         statistical_model_spec = {
+            "mechanisms": [],
             "likelihoods": [
                 {
-                    "variable": "mood",
+                    "indicator_id": "indicator:869e1d0209fb25a7fc06",
                     "distribution": "gaussian",
                     "link": "identity",
                     "reasoning": "",
                 },
                 {
-                    "variable": "sleep",
+                    "indicator_id": "indicator:ea4ac346f9793711d3de",
                     "distribution": "gaussian",
                     "link": "identity",
                     "reasoning": "",
@@ -406,24 +243,36 @@ class TestBuilderPriorConversion:
             ],
             "parameters": [
                 {
+                    "id": "parameter:dfbf9958e6c73f2233582b25872fd924a82ee5c04e55adb8acf0b44765b7b277",
+                    "owners": [{"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"}],
+                    "quantity": "t0_means",
                     "name": "t0_mean_mood",
                     "role": "initial_state_mean",
                     "constraint": "none",
                     "description": "",
                 },
                 {
+                    "id": "parameter:46608d1b7349d1939222ae192e6f6205f686d1837de6685cf34f12f590bcdb01",
+                    "owners": [{"kind": "construct", "id": "construct:cdc0b2958a9512b2abad"}],
+                    "quantity": "t0_means",
                     "name": "t0_mean_sleep",
                     "role": "initial_state_mean",
                     "constraint": "none",
                     "description": "",
                 },
                 {
+                    "id": "parameter:af08d5a5b9bc3378fe708023f1b98bb9cbe557ab23a3a147e084f76fc331cca9",
+                    "owners": [{"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"}],
+                    "quantity": "t0_var_diag",
                     "name": "t0_sd_mood",
                     "role": "initial_state_sd",
                     "constraint": "positive",
                     "description": "",
                 },
                 {
+                    "id": "parameter:ebf0bf3a45ddac90be77292343d5ad604cdab82c43449a1c05601511575d3712",
+                    "owners": [{"kind": "construct", "id": "construct:cdc0b2958a9512b2abad"}],
+                    "quantity": "t0_var_diag",
                     "name": "t0_sd_sleep",
                     "role": "initial_state_sd",
                     "constraint": "positive",
@@ -463,47 +312,134 @@ class TestBuilderPriorConversion:
         )
 
         prior_registry, index_maps, _diagnostics = compile_priors(
-            priors,
+            named_prior_payloads(
+                StatisticalModelSpec.model_validate(statistical_model_spec), priors
+            ),
             StatisticalModelSpec.model_validate(statistical_model_spec),
             ssm_spec=ssm_spec,
         )
-        t0_mean_prior = prior_registry.priors_by_site["t0_means_free"]
-        t0_diag_prior = prior_registry.priors_by_site["t0_var_diag_free"]
+        t0_mean_prior = prior_registry["t0_means_free"]
+        t0_diag_prior = prior_registry["t0_var_diag_free"]
 
-        assert t0_mean_prior.params["mu"] == [0.1, -0.3]
-        assert t0_mean_prior.params["sigma"] == [0.2, 0.4]
-        assert t0_diag_prior.params["sigma"] == [0.7, 0.9]
-        assert index_maps.by_parameter["t0_mean_mood"].site_name == "t0_means_free"
-        assert index_maps.by_parameter["t0_mean_mood"].prior_field == "t0_means"
-        assert index_maps.by_parameter["t0_mean_mood"].flat_index == 0
-        assert index_maps.by_parameter["t0_mean_sleep"].site_name == "t0_means_free"
-        assert index_maps.by_parameter["t0_mean_sleep"].prior_field == "t0_means"
-        assert index_maps.by_parameter["t0_mean_sleep"].flat_index == 1
-        assert index_maps.by_parameter["t0_sd_mood"].site_name == "t0_var_diag_free"
-        assert index_maps.by_parameter["t0_sd_mood"].prior_field == "t0_var_diag"
-        assert index_maps.by_parameter["t0_sd_mood"].flat_index == 0
-        assert index_maps.by_parameter["t0_sd_sleep"].site_name == "t0_var_diag_free"
-        assert index_maps.by_parameter["t0_sd_sleep"].prior_field == "t0_var_diag"
-        assert index_maps.by_parameter["t0_sd_sleep"].flat_index == 1
+        np.testing.assert_allclose(t0_mean_prior.loc, [0.1, -0.3])
+        np.testing.assert_allclose(t0_mean_prior.scale, [0.2, 0.4])
+        np.testing.assert_allclose(t0_diag_prior.scale, [0.7, 0.9])
+        assert (
+            next(
+                binding
+                for binding in index_maps.by_parameter.values()
+                if binding.parameter_name == "t0_mean_mood"
+            ).site_name
+            == "t0_means_free"
+        )
+        assert (
+            next(
+                binding
+                for binding in index_maps.by_parameter.values()
+                if binding.parameter_name == "t0_mean_mood"
+            ).prior_field
+            == "t0_means"
+        )
+        assert (
+            next(
+                binding
+                for binding in index_maps.by_parameter.values()
+                if binding.parameter_name == "t0_mean_mood"
+            ).flat_index
+            == 0
+        )
+        assert (
+            next(
+                binding
+                for binding in index_maps.by_parameter.values()
+                if binding.parameter_name == "t0_mean_sleep"
+            ).site_name
+            == "t0_means_free"
+        )
+        assert (
+            next(
+                binding
+                for binding in index_maps.by_parameter.values()
+                if binding.parameter_name == "t0_mean_sleep"
+            ).prior_field
+            == "t0_means"
+        )
+        assert (
+            next(
+                binding
+                for binding in index_maps.by_parameter.values()
+                if binding.parameter_name == "t0_mean_sleep"
+            ).flat_index
+            == 1
+        )
+        assert (
+            next(
+                binding
+                for binding in index_maps.by_parameter.values()
+                if binding.parameter_name == "t0_sd_mood"
+            ).site_name
+            == "t0_var_diag_free"
+        )
+        assert (
+            next(
+                binding
+                for binding in index_maps.by_parameter.values()
+                if binding.parameter_name == "t0_sd_mood"
+            ).prior_field
+            == "t0_var_diag"
+        )
+        assert (
+            next(
+                binding
+                for binding in index_maps.by_parameter.values()
+                if binding.parameter_name == "t0_sd_mood"
+            ).flat_index
+            == 0
+        )
+        assert (
+            next(
+                binding
+                for binding in index_maps.by_parameter.values()
+                if binding.parameter_name == "t0_sd_sleep"
+            ).site_name
+            == "t0_var_diag_free"
+        )
+        assert (
+            next(
+                binding
+                for binding in index_maps.by_parameter.values()
+                if binding.parameter_name == "t0_sd_sleep"
+            ).prior_field
+            == "t0_var_diag"
+        )
+        assert (
+            next(
+                binding
+                for binding in index_maps.by_parameter.values()
+                if binding.parameter_name == "t0_sd_sleep"
+            ).flat_index
+            == 1
+        )
 
     def test_initial_state_correlation_prior_indices_are_dense_after_mask_filtering(self):
         """Filtered initial-state pairs should not leave holes in prior arrays."""
         statistical_model_spec = {
+            "mechanisms": [],
             "likelihoods": [
                 {
-                    "variable": "a",
+                    "indicator_id": "indicator:47ff20b4fb0dc419ad4a",
                     "distribution": "gaussian",
                     "link": "identity",
                     "reasoning": "",
                 },
                 {
-                    "variable": "b",
+                    "indicator_id": "indicator:397bec1953295d24c291",
                     "distribution": "gaussian",
                     "link": "identity",
                     "reasoning": "",
                 },
                 {
-                    "variable": "c",
+                    "indicator_id": "indicator:413477ae6b4978c5c2fc",
                     "distribution": "gaussian",
                     "link": "identity",
                     "reasoning": "",
@@ -511,12 +447,26 @@ class TestBuilderPriorConversion:
             ],
             "parameters": [
                 {
+                    "prior_transform": "initial_state_correlation",
+                    "id": "parameter:2346e535ebf15e1a19af34d4fe9f6160b29a0a8e86fffe03c5066ffdb41ada7e",
+                    "owners": [
+                        {"kind": "construct", "id": "construct:c2061f241aafa2387cc9"},
+                        {"kind": "construct", "id": "construct:efca9bd7f243a46c0d06"},
+                    ],
+                    "quantity": "t0_var_lower",
                     "name": "cor0_A_B",
                     "role": "initial_state_correlation",
                     "constraint": "correlation",
                     "description": "",
                 },
                 {
+                    "prior_transform": "initial_state_correlation",
+                    "id": "parameter:7c67bf719e1fd28a047bd9fee3468ca419fba5dfa1090e85c478afe79d5a1f91",
+                    "owners": [
+                        {"kind": "construct", "id": "construct:614026f43322f0daebd5"},
+                        {"kind": "construct", "id": "construct:efca9bd7f243a46c0d06"},
+                    ],
+                    "quantity": "t0_var_lower",
                     "name": "cor0_C_B",
                     "role": "initial_state_correlation",
                     "constraint": "correlation",
@@ -545,33 +495,70 @@ class TestBuilderPriorConversion:
             ),
         )
 
+        # Only the retained free covariance coordinate is a scientific parameter.
+        statistical_model_spec["parameters"] = statistical_model_spec["parameters"][1:]
         prior_registry, index_maps, _diagnostics = compile_priors(
-            priors,
+            named_prior_payloads(
+                StatisticalModelSpec.model_validate(statistical_model_spec), priors
+            ),
             StatisticalModelSpec.model_validate(statistical_model_spec),
             ssm_spec=ssm_spec,
         )
-        t0_corr_prior = prior_registry.priors_by_site["t0_var_lower_free"]
+        t0_corr_prior = prior_registry["t0_var_lower_free"]
 
-        assert index_maps.by_parameter["cor0_C_B"].site_name == "t0_var_lower_free"
-        assert index_maps.by_parameter["cor0_C_B"].prior_field == "t0_var_offdiag"
-        assert index_maps.by_parameter["cor0_C_B"].flat_index == 0
-        assert t0_corr_prior.params["mu"] == [0.1]
-        assert t0_corr_prior.params["sigma"] == [0.2]
-        assert t0_corr_prior.params["lower"] == [-1.0]
-        assert t0_corr_prior.params["upper"] == [1.0]
+        assert (
+            next(
+                binding
+                for binding in index_maps.by_parameter.values()
+                if binding.parameter_name == "cor0_C_B"
+            ).site_name
+            == "t0_var_lower_free"
+        )
+        assert (
+            next(
+                binding
+                for binding in index_maps.by_parameter.values()
+                if binding.parameter_name == "cor0_C_B"
+            ).prior_field
+            == "t0_var_offdiag"
+        )
+        assert (
+            next(
+                binding
+                for binding in index_maps.by_parameter.values()
+                if binding.parameter_name == "cor0_C_B"
+            ).flat_index
+            == 0
+        )
+        np.testing.assert_allclose(t0_corr_prior.base_dist.loc, [0.1])
+        np.testing.assert_allclose(t0_corr_prior.base_dist.scale, [0.2])
+        np.testing.assert_allclose(t0_corr_prior.low, [-1.0])
+        np.testing.assert_allclose(t0_corr_prior.high, [1.0])
 
     def test_component_dynamics_parameters_bind_to_component_sites(self):
         """Semantic priors should bind to component-owned dynamics sites."""
         statistical_model_spec = {
+            "mechanisms": [
+                {
+                    "kind": "node_potential",
+                    "target_id": "construct:d109b56ae5a2d4eadc3e",
+                    "center": {"kind": "fixed", "value": 0},
+                    "stiffness": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:f0aaf80847be94589405e83538407c2b5964a7877fd3952ab64a8188724ccc7a",
+                    },
+                    "quartic": {"kind": "fixed", "value": 0},
+                }
+            ],
             "likelihoods": [
                 {
-                    "variable": "dose",
+                    "indicator_id": "indicator:10cfd825f8eacc872e49",
                     "distribution": "gaussian",
                     "link": "identity",
                     "reasoning": "",
                 },
                 {
-                    "variable": "response",
+                    "indicator_id": "indicator:9d6c9ae51b644196d9d2",
                     "distribution": "gaussian",
                     "link": "identity",
                     "reasoning": "",
@@ -579,24 +566,47 @@ class TestBuilderPriorConversion:
             ],
             "parameters": [
                 {
+                    "prior_transform": "dt_persistence_to_ct_decay",
+                    "id": "parameter:f0aaf80847be94589405e83538407c2b5964a7877fd3952ab64a8188724ccc7a",
+                    "owners": [{"kind": "construct", "id": "construct:d109b56ae5a2d4eadc3e"}],
+                    "quantity": "dynamics_decay",
                     "name": "rho_response",
                     "role": "ar_coefficient",
                     "constraint": "unit_interval",
                     "description": "",
                 },
                 {
+                    "prior_transform": "dt_effect_to_ct_rate",
+                    "id": "parameter:14a490479a1936aba219f86e583ac50d843460fb85a58d39264755087678bb97",
+                    "owners": [
+                        {"kind": "construct", "id": "construct:16176a18c25802dee8a1"},
+                        {"kind": "construct", "id": "construct:d109b56ae5a2d4eadc3e"},
+                    ],
+                    "quantity": "dynamics_weight",
                     "name": "beta_dose_response",
                     "role": "fixed_effect",
                     "constraint": "none",
                     "description": "",
                 },
                 {
+                    "id": "parameter:dcb114718cbe240842a4ff61487f162194aa5824b97e6b6ed2f9c6eb3b498da7",
+                    "owners": [
+                        {"kind": "construct", "id": "construct:16176a18c25802dee8a1"},
+                        {"kind": "construct", "id": "construct:d109b56ae5a2d4eadc3e"},
+                    ],
+                    "quantity": "hill_emax",
                     "name": "hill_emax_dose_response",
                     "role": "dynamics_parameter_positive",
                     "constraint": "positive",
                     "description": "",
                 },
                 {
+                    "id": "parameter:af64bcd906834b25bcd6e15fd71e54434132fa8b5ad9d7a50cd46b928f063dd8",
+                    "owners": [
+                        {"kind": "construct", "id": "construct:16176a18c25802dee8a1"},
+                        {"kind": "construct", "id": "construct:d109b56ae5a2d4eadc3e"},
+                    ],
+                    "quantity": "hill_n",
                     "name": "hill_n_dose_response",
                     "role": "dynamics_parameter",
                     "constraint": "none",
@@ -639,45 +649,112 @@ class TestBuilderPriorConversion:
         )
 
         prior_registry, index_maps, _diagnostics = compile_priors(
-            priors,
+            named_prior_payloads(
+                StatisticalModelSpec.model_validate(statistical_model_spec), priors
+            ),
             StatisticalModelSpec.model_validate(statistical_model_spec),
             ssm_spec=ssm_spec,
         )
 
-        assert index_maps.by_parameter["rho_response"].site_name == "vf_0_decay"
-        assert index_maps.by_parameter["rho_response"].prior_field == "dynamics_decay"
-        assert index_maps.by_parameter["rho_response"].flat_index == 1
-        assert index_maps.by_parameter["beta_dose_response"].site_name == "vf_1_weight"
-        assert index_maps.by_parameter["beta_dose_response"].prior_field == "linear_edge_weight"
-        assert index_maps.by_parameter["hill_emax_dose_response"].site_name == "vf_2_Emax"
-        assert index_maps.by_parameter["hill_emax_dose_response"].prior_field == "hill_emax"
-        assert index_maps.by_parameter["hill_n_dose_response"].site_name == "vf_2_n"
-        assert index_maps.by_parameter["hill_n_dose_response"].prior_field == "hill_n"
+        assert (
+            next(
+                binding
+                for binding in index_maps.by_parameter.values()
+                if binding.parameter_name == "rho_response"
+            ).site_name
+            == "vf_0_decay"
+        )
+        assert (
+            next(
+                binding
+                for binding in index_maps.by_parameter.values()
+                if binding.parameter_name == "rho_response"
+            ).prior_field
+            == "dynamics_decay"
+        )
+        assert (
+            next(
+                binding
+                for binding in index_maps.by_parameter.values()
+                if binding.parameter_name == "rho_response"
+            ).flat_index
+            == 1
+        )
+        assert (
+            next(
+                binding
+                for binding in index_maps.by_parameter.values()
+                if binding.parameter_name == "beta_dose_response"
+            ).site_name
+            == "vf_1_weight"
+        )
+        assert (
+            next(
+                binding
+                for binding in index_maps.by_parameter.values()
+                if binding.parameter_name == "beta_dose_response"
+            ).prior_field
+            == "linear_edge_weight"
+        )
+        assert (
+            next(
+                binding
+                for binding in index_maps.by_parameter.values()
+                if binding.parameter_name == "hill_emax_dose_response"
+            ).site_name
+            == "vf_2_Emax"
+        )
+        assert (
+            next(
+                binding
+                for binding in index_maps.by_parameter.values()
+                if binding.parameter_name == "hill_emax_dose_response"
+            ).prior_field
+            == "hill_emax"
+        )
+        assert (
+            next(
+                binding
+                for binding in index_maps.by_parameter.values()
+                if binding.parameter_name == "hill_n_dose_response"
+            ).site_name
+            == "vf_2_n"
+        )
+        assert (
+            next(
+                binding
+                for binding in index_maps.by_parameter.values()
+                if binding.parameter_name == "hill_n_dose_response"
+            ).prior_field
+            == "hill_n"
+        )
 
-        linear_prior = prior_registry.priors_by_site["vf_1_weight"]
-        hill_emax_prior = prior_registry.priors_by_site["vf_2_Emax"]
-        hill_n_prior = prior_registry.priors_by_site["vf_2_n"]
+        linear_prior = prior_registry["vf_1_weight"]
+        hill_emax_prior = prior_registry["vf_2_Emax"]
+        hill_n_prior = prior_registry["vf_2_n"]
 
-        assert linear_prior.params["mu"] == pytest.approx(0.15)
-        assert linear_prior.params["sigma"] == pytest.approx(0.1)
-        assert hill_emax_prior.params["sigma"] == pytest.approx(1.5)
-        assert hill_n_prior.params["mu"] == pytest.approx(2.0)
-        assert hill_n_prior.params["sigma"] == pytest.approx(0.3)
-        assert hill_n_prior.params["lower"] == pytest.approx(1.0)
-        assert hill_n_prior.params["upper"] == pytest.approx(4.0)
+        assert float(linear_prior.log_prob(0.2)) == pytest.approx(
+            float(dist.Normal(0.15, 0.1).log_prob(0.2))
+        )
+        assert hill_emax_prior.scale == pytest.approx(1.5)
+        assert hill_n_prior.base_dist.loc == pytest.approx(2.0)
+        assert hill_n_prior.base_dist.scale == pytest.approx(0.3)
+        assert hill_n_prior.low == pytest.approx(1.0)
+        assert hill_n_prior.high == pytest.approx(4.0)
 
     def test_cross_lag_prior_requires_resolved_interval_metadata(self):
         """Cross-lag priors should fail instead of silently defaulting to 1 day."""
         statistical_model_spec = {
+            "mechanisms": [],
             "likelihoods": [
                 {
-                    "variable": "mood",
+                    "indicator_id": "indicator:869e1d0209fb25a7fc06",
                     "distribution": "gaussian",
                     "link": "identity",
                     "reasoning": "",
                 },
                 {
-                    "variable": "stress",
+                    "indicator_id": "indicator:78b974765eabb79741bb",
                     "distribution": "gaussian",
                     "link": "identity",
                     "reasoning": "",
@@ -685,6 +762,13 @@ class TestBuilderPriorConversion:
             ],
             "parameters": [
                 {
+                    "prior_transform": "dt_effect_to_ct_rate",
+                    "id": "parameter:570f5281d7fd14af134bd2c51b2100db631b6e326c46011e2cd0235805a4ac46",
+                    "owners": [
+                        {"kind": "construct", "id": "construct:6b04dc42c531e7091eb8"},
+                        {"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"},
+                    ],
+                    "quantity": "dynamics_weight",
                     "name": "beta_stress_mood",
                     "role": "fixed_effect",
                     "constraint": "none",
@@ -717,11 +801,14 @@ class TestBuilderPriorConversion:
 
         with pytest.raises(ValueError, match="could not resolve an authoring interval"):
             compile_priors(
-                priors,
+                named_prior_payloads(
+                    StatisticalModelSpec.model_validate(statistical_model_spec), priors
+                ),
                 StatisticalModelSpec.model_validate(statistical_model_spec),
                 ssm_spec=ssm_spec,
             )
 
+    @pytest.mark.cpu_expensive
     def test_prior_predictive_supports_hill_edge_spec(self):
         """The prior predictive path should accept nonlinear component dynamics."""
         spec = _make_spec(
@@ -756,6 +843,7 @@ class TestBuilderPriorConversion:
         assert samples["observations"].shape == (3, 4, 2)
         assert bool(jnp.isfinite(samples["observations"]).all())
 
+    @pytest.mark.cpu_expensive
     def test_prior_predictive_observation_shape_matches_affine_and_nonlinear_specs(self):
         """Affine and nonlinear specs should use the same public predictive shape."""
         times = jnp.linspace(0.0, 1.0, 4, dtype=jnp.float32)
@@ -834,7 +922,7 @@ class TestObservationSupportValidation:
 class TestPrepareFitInputs:
     def test_sparse_wide_nulls_become_nan_without_fill_forward(self):
         """Sparse wide cells should stay missing and never broadcast across ticks."""
-        spec = _make_spec(n_latent=2, n_manifest=2)
+        spec = _make_spec(n_latent=2, n_manifest=2, manifest_names=["x", "y"])
         wide = pl.DataFrame(
             {
                 "time": [0.0, 1.0],
@@ -975,7 +1063,7 @@ class TestPrepareModelRuntime:
     def test_support_boundary_rows_preserve_known_input_columns(self):
         data_for_model = pl.DataFrame(
             {
-                "indicator": ["stress_score", "dose_mg"],
+                "indicator_id": ["indicator:stress", "indicator:dose"],
                 "value": [1.0, 20.0],
                 "anchor_time": [
                     "2024-02-01T00:00:00",
@@ -1031,6 +1119,12 @@ class TestPrepareModelRuntime:
 
         runtime = prepare_model_runtime(
             data_for_model,
+            compiled_ssm=CompiledSSMArtifact.model_construct(
+                observation_bindings={
+                    "indicator:stress": "stress_score",
+                    "indicator:dose": "dose_mg",
+                }
+            ),
             model=cast("SSMModel", StubModel()),
             sampler_config=cast(
                 "SamplerConfigOverride",
@@ -1050,7 +1144,7 @@ class TestPrepareModelRuntime:
     def test_preserves_long_observation_metadata_and_augments_support_boundaries(self, caplog):
         data_for_model = pl.DataFrame(
             {
-                "indicator": ["stress_score"],
+                "indicator_id": ["indicator:stress"],
                 "value": [1.0],
                 "anchor_time": ["2024-02-01T00:00:00"],
                 "support_kind": ["interval"],
@@ -1081,6 +1175,12 @@ class TestPrepareModelRuntime:
         with caplog.at_level("INFO"):
             runtime = prepare_model_runtime(
                 data_for_model,
+                compiled_ssm=CompiledSSMArtifact.model_construct(
+                    observation_bindings={
+                        "indicator:stress": "stress_score",
+                        "indicator:dose": "dose_mg",
+                    }
+                ),
                 model=cast("SSMModel", StubModel()),
                 sampler_config=cast(
                     "SamplerConfigOverride",
@@ -1089,7 +1189,10 @@ class TestPrepareModelRuntime:
             )
 
         assert runtime.observation_data is not None
-        assert runtime.observation_data.columns == data_for_model.columns
+        assert (
+            runtime.observation_data.columns
+            == data_for_model.rename({"indicator_id": "indicator"}).columns
+        )
         assert runtime.observation_data["observation_window"][0] == "1mo"
         assert runtime.observation_data["support_end"][0] == "2024-02-01T00:00:00"
         assert runtime.observation_data["anchor_time"][0] == "2024-02-01T00:00:00"
@@ -1123,7 +1226,7 @@ class TestPrepareModelRuntime:
     def test_compiles_overlapping_interval_windows_into_concurrent_slots(self):
         data_for_model = pl.DataFrame(
             {
-                "indicator": ["stress_score", "stress_score"],
+                "indicator_id": ["indicator:stress", "indicator:stress"],
                 "value": [3.0, 5.0],
                 "anchor_time": ["2024-01-03T00:00:00", "2024-01-04T00:00:00"],
                 "support_kind": ["interval", "interval"],
@@ -1153,6 +1256,12 @@ class TestPrepareModelRuntime:
 
         runtime = prepare_model_runtime(
             data_for_model,
+            compiled_ssm=CompiledSSMArtifact.model_construct(
+                observation_bindings={
+                    "indicator:stress": "stress_score",
+                    "indicator:dose": "dose_mg",
+                }
+            ),
             model=cast("SSMModel", StubModel()),
             sampler_config=cast(
                 "SamplerConfigOverride",
@@ -1172,10 +1281,11 @@ class TestPrepareModelRuntime:
         assert runtime.observation_support.interval_weights[2, 0, 1] == pytest.approx(1.0)
         assert runtime.observation_support.interval_weights[3, 0, 1] == pytest.approx(1.0)
 
+    @pytest.mark.cpu_expensive
     def test_prior_predictive_reuses_prepared_support_schedule(self):
         data_for_model = pl.DataFrame(
             {
-                "indicator": ["stress_score"],
+                "indicator_id": ["indicator:stress"],
                 "value": [1.0],
                 "anchor_time": ["2024-02-01T00:00:00"],
                 "support_kind": ["interval"],
@@ -1201,6 +1311,12 @@ class TestPrepareModelRuntime:
         )
         runtime = prepare_model_runtime(
             data_for_model,
+            compiled_ssm=CompiledSSMArtifact.model_construct(
+                observation_bindings={
+                    "indicator:stress": "stress_score",
+                    "indicator:dose": "dose_mg",
+                }
+            ),
             model=model,
             sampler_config=cast(
                 "SamplerConfigOverride",

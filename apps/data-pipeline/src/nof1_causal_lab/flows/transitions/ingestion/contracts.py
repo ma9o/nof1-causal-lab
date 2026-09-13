@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from nof1_causal_lab.flows.contracts_base import ToolContract
+from nof1_causal_lab.flows.contracts_base import ToolDefinition
 
 
 class ListFilesInput(BaseModel):
@@ -34,23 +34,23 @@ class SubmitTableInput(BaseModel):
     )
 
 
-INGESTION_TOOL_CONTRACTS: list[ToolContract] = [
-    ToolContract(
+INGESTION_TOOL_CONTRACTS: list[ToolDefinition] = [
+    ToolDefinition(
         name="list_files",
         description="List files in the prepared input directory.",
         input_schema=ListFilesInput,
     ),
-    ToolContract(
+    ToolDefinition(
         name="read_file_sample",
         description="Read a sample of lines from a file to understand its format.",
         input_schema=ReadFileSampleInput,
     ),
-    ToolContract(
+    ToolDefinition(
         name="execute_python",
         description="Execute Python code in the local pipeline process to parse files into a Polars DataFrame.",
         input_schema=ExecutePythonInput,
     ),
-    ToolContract(
+    ToolDefinition(
         name="submit_table",
         description="Validate and finalize the ingested DataFrame with column descriptions.",
         input_schema=SubmitTableInput,

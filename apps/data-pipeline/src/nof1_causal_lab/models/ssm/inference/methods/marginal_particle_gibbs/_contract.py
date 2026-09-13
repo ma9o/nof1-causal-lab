@@ -1,32 +1,29 @@
 """Latent-smoother contract types and per-step context for MPGibbs."""
 
-# References: see kernel.py (parameter proposal) and the smoothers/ package (latent
-# backends) for the papers in docs/papers/ behind each component.
+# References: see kernel.py and smoothers/dsmc.py for algorithm provenance.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Literal, NamedTuple
 
+import jax.numpy as jnp
+
+from nof1_causal_lab.models.ssm.inference.problem import ParticleContext
+
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from jax.typing import DTypeLike
+    from jaxtyping import Array, Float
 
-    import jax.numpy as jnp
 
-    from nof1_causal_lab.models.ssm.inference.bundle import (
-        InitialLatentMomentsFn,
-        LatentContext,
-        LatentContextRuntimeFn,
-        ObservationIncrementLogProbRuntimeFn,
-        PairwiseTransitionLogProbFn,
-        TrajectoryLogProbRuntimeFn,
-        TransitionLogProbFn,
-        TransitionSampleFn,
-    )
-    from nof1_causal_lab.models.ssm.inference.targets.laplace.shared import (
-        GaussianTrajectoryPriorTerms,
-    )
-    from nof1_causal_lab.models.ssm.shapes import Array, Float
+type ParticleContextRuntimeFn = Callable[[jnp.ndarray, jnp.ndarray], ParticleContext]
+type ObservationIncrementLogProbRuntimeFn = Callable[
+    [ParticleContext, jnp.ndarray, jnp.ndarray, jnp.ndarray], jnp.ndarray
+]
+type TrajectoryLogProbRuntimeFn = Callable[[ParticleContext, jnp.ndarray, jnp.ndarray], jnp.ndarray]
+type TransitionLogProbFn = Callable[
+    [ParticleContext, jnp.ndarray, jnp.ndarray, jnp.ndarray], jnp.ndarray
+]
 
 _LATENT_SMOOTHER_DSMC = "dsmc"
 _DSMC_LEAF_PROPOSAL_AMALA_EXACT = "amala_exact"
@@ -44,8 +41,7 @@ _LATENT_SMOOTHERS = (_LATENT_SMOOTHER_DSMC,)
 type DSMCLeafProposal = Literal["amala_exact", "paid_mix"]
 
 
-@dataclass(frozen=True)
-class MPGibbsLatentSmoother:
+class MPGibbsLatentSmoother(NamedTuple):
     """Static metadata for an MPGibbs latent smoother implementation."""
 
     name: str
@@ -81,16 +77,13 @@ def _resolve_latent_smoother(name: str) -> MPGibbsLatentSmoother:
     )
 
 
-@dataclass(frozen=True)
-class MPGibbsStatic:
-    """Build-time configuration and bundle callables for the smoother context."""
+class MPGibbsStatic(NamedTuple):
+    """Build-time configuration and target callables for the smoother context."""
 
-    latent_context_runtime_fn: LatentContextRuntimeFn
+    latent_context_runtime_fn: ParticleContextRuntimeFn
     log_prior_unc_fn: Callable[[jnp.ndarray], jnp.ndarray]
-    initial_latent_moments_fn: InitialLatentMomentsFn
     obs_increment_fn: ObservationIncrementLogProbRuntimeFn
     trajectory_log_prob_fn: TrajectoryLogProbRuntimeFn
-    prior_terms_from_context_fn: Callable[[LatentContext], GaussianTrajectoryPriorTerms | None]
     runtime_observations: jnp.ndarray
     runtime_times: jnp.ndarray
     num_particles: int
@@ -112,16 +105,14 @@ class MPGibbsStatic:
     pilot_means: jnp.ndarray | None
     pilot_vars: jnp.ndarray | None
     pilot_wide_vars: jnp.ndarray | None
-    transition_initial_log_prob_fn: Callable[[LatentContext, jnp.ndarray], jnp.ndarray]
+    transition_initial_log_prob_fn: Callable[[ParticleContext, jnp.ndarray], jnp.ndarray]
     transition_log_prob_fn: TransitionLogProbFn
-    transition_log_probs_for_pairs_fn: PairwiseTransitionLogProbFn
-    transition_pairwise_log_probs_fn: PairwiseTransitionLogProbFn
-    transition_sample_fn: TransitionSampleFn
+    transition_log_probs_for_pairs_fn: TransitionLogProbFn
+    transition_pairwise_log_probs_fn: TransitionLogProbFn
     diagnostic_metrics: frozenset[str]
 
 
-@dataclass(frozen=True)
-class SmootherContext:
+class SmootherContext(NamedTuple):
     """Per-step latent-smoother inputs.
 
     Explicit interface replacing the implicit closure capture the smoothers
@@ -129,24 +120,15 @@ class SmootherContext:
     :func:`build_smoother_context`; consumed by the smoother modules.
     """
 
-    contexts: LatentContext
-    parameter_particles: Float[Array, "K U"]
-    parameter_log_probs: Float[Array, " K"]
+    contexts: ParticleContext
     initial_label_log_probs: Float[Array, " K"]
-    init_means: Float[Array, "K D"]
-    init_chols: Float[Array, "K D D"]
-    init_logdets: Float[Array, " K"]
     num_steps: int
     num_free_particles: int
     num_parameter_particles: int
-    latent_dtype: object
-    traj_dtype: object
-    complete_dtype: object
+    latent_dtype: DTypeLike
+    traj_dtype: DTypeLike
     obs_increment_fn: ObservationIncrementLogProbRuntimeFn
     runtime_observations: jnp.ndarray
-    trajectory_log_prob_fn: Callable[..., jnp.ndarray]
-    prior_terms_from_context_fn: Callable[..., GaussianTrajectoryPriorTerms | None]
-    log_prior_unc_fn: Callable[[jnp.ndarray], jnp.ndarray]
     amala_delta: Float[Array, " D"]
     amala_kappa: float
     amala_grad_clip: float
@@ -157,16 +139,9 @@ class SmootherContext:
     pilot_means: jnp.ndarray | None
     pilot_vars: jnp.ndarray | None
     pilot_wide_vars: jnp.ndarray | None
-    diagnostic_metrics: frozenset[str]
-    initial_value_grad_by_param: Callable[..., jnp.ndarray]
-    transition_current_value_grad_by_param: Callable[..., jnp.ndarray]
-    transition_next_value_grad_by_param: Callable[..., jnp.ndarray]
+    initial_value_grad_by_param: Callable[..., tuple[jnp.ndarray, jnp.ndarray]]
+    transition_current_value_grad_by_param: Callable[..., tuple[jnp.ndarray, jnp.ndarray]]
+    transition_next_value_grad_by_param: Callable[..., tuple[jnp.ndarray, jnp.ndarray]]
     selected_transition_log_probs: Callable[..., jnp.ndarray]
     pairwise_transition_log_probs: Callable[..., jnp.ndarray]
-    transition_log_probs_from_fixed_prev: Callable[..., jnp.ndarray]
-    transition_log_probs_by_param: Callable[..., jnp.ndarray]
-    transition_log_probs_to_next_by_param: Callable[..., jnp.ndarray]
-    sample_transition_by_label: Callable[..., jnp.ndarray]
-    segment_terminal_label_log_probs: Callable[..., jnp.ndarray]
-    path_future_tail_log_probs: Callable[..., jnp.ndarray]
     trajectory_label_log_probs: Callable[..., jnp.ndarray]

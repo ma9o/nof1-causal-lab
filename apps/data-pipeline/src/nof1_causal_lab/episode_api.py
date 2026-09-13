@@ -18,23 +18,31 @@ import asyncio
 import logging
 import os
 import re
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
-from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, Query, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 
-from nof1_causal_lab.flows.runtime_events import read_events
-from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
-from nof1_causal_lab.machine.artifacts import (  # noqa: TC001 (FastAPI runtime annotation)
-    ArtifactId,
-    ArtifactVersionInfo,
+from nof1_causal_lab.artifacts.identity import ArtifactId  # noqa: TC001
+from nof1_causal_lab.artifacts.latent_structure import CausalEdge, Construct, LatentStructure
+from nof1_causal_lab.artifacts.measurement_structure import Indicator, MeasurementStructureArtifact
+from nof1_causal_lab.artifacts.posterior import PosteriorArtifact
+from nof1_causal_lab.artifacts.statistical_model_spec import (
+    ParameterSpec,
+    StatisticalModelSpecArtifact,
 )
+from nof1_causal_lab.flows.runtime_events import RuntimeEvent, read_events
+from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+from nof1_causal_lab.machine.artifacts import ArtifactVersionInfo  # noqa: TC001
 from nof1_causal_lab.machine.graph import ARTIFACT_GRAPH, topological_transition_order
 from nof1_causal_lab.utils.llm import LLMTrace
 
 if TYPE_CHECKING:
     from nof1_causal_lab.machine.artifacts import EpisodeState
     from nof1_causal_lab.machine.graph import Transition
+from nof1_causal_lab.machine.artifact_files import ARTIFACT_FILE_SPECS, ArtifactFileSpec
+from nof1_causal_lab.machine.graph import CreationClass, Derivation, Root
+from nof1_causal_lab.machine.hierarchy import ActionSpec, ContextSpec  # noqa: TC001
 from nof1_causal_lab.machine.moves import (
     ExecOptions,
     Move,
@@ -45,12 +53,21 @@ from nof1_causal_lab.machine.moves import (
     legal_moves,
     validate_move,
 )
+from nof1_causal_lab.machine.snapshot_models import ModelSnapshot, Sourced
+from nof1_causal_lab.machine.snapshots import (
+    ModelReader,
+    SnapshotRevisionNotFound,
+    read_revision,
+)
+from nof1_causal_lab.machine.status import EpisodeStatus, MoveOutcome
 from nof1_causal_lab.machine.store import (
     EpisodeJournal,
     TransitionRecord,
     derive_current_state,
     read_episode_trace,
+    replay_state,
 )
+from nof1_causal_lab.machine.view_models import ArtifactViewResponse
 
 logger = logging.getLogger(__name__)
 
@@ -62,12 +79,16 @@ uploads_router = APIRouter(prefix="/api")
 
 
 class CapabilitiesResponse(BaseModel):
+    """This response tells clients whether the episode facade supports model-changing moves."""
+
     model_config = ConfigDict(extra="forbid")
 
     moves_enabled: bool
 
 
 class WorkspaceEntry(BaseModel):
+    """A workspace entry identifies an available model workspace and its research question."""
+
     model_config = ConfigDict(extra="forbid")
 
     href: str
@@ -76,18 +97,26 @@ class WorkspaceEntry(BaseModel):
 
 
 class WorkspaceList(BaseModel):
+    """A workspace list provides the available model workspaces for client navigation."""
+
     model_config = ConfigDict(extra="forbid")
 
     workspaces: list[WorkspaceEntry]
 
 
 class UploadResponse(BaseModel):
+    """An upload response identifies the stored location of an accepted data upload."""
+
     model_config = ConfigDict(extra="forbid")
 
     path: str
 
 
 class ArtifactEnvelope(BaseModel):
+    """An artifact envelope delivers a stored payload with its version, provenance, and file
+    list.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     workspace_id: str
@@ -196,6 +225,31 @@ async def upload_file(
 machine_router = APIRouter(prefix="/api")
 
 
+class MachineTransition(BaseModel):
+    """A transition declares the artifacts it consumes and produces and how it can run."""
+
+    transition_id: ArtifactId
+    consumes: list[ArtifactId]
+    produces: list[ArtifactId]
+    produces_optional: list[ArtifactId]
+    creation_class: CreationClass
+    writable: bool
+
+
+class MachineDescription(BaseModel):
+    """The machine description exposes the artifact graph, storage contracts, and action hierarchy."""
+
+    artifact_ids: list[ArtifactId]
+    topological_artifact_order: list[ArtifactId]
+    topological_transition_order: list[ArtifactId]
+    contexts: list[ContextSpec]
+    actions: list[ActionSpec]
+    roots: list[Root]
+    transitions: list[MachineTransition]
+    derivations: list[Derivation]
+    files: dict[ArtifactId, ArtifactFileSpec]
+
+
 def machine_description() -> UncheckedJsonObject:
     """The static shape of the episode machine, independent of any workspace.
 
@@ -204,7 +258,7 @@ def machine_description() -> UncheckedJsonObject:
     `GET /api/machine` returns exactly this; it never touches Temporal or a
     workspace store.
     """
-    from nof1_causal_lab.machine.artifacts import ARTIFACT_IDS
+    from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS
     from nof1_causal_lab.machine.graph import (
         ARTIFACT_GRAPH,
         DERIVATIONS,
@@ -216,6 +270,7 @@ def machine_description() -> UncheckedJsonObject:
 
     return {
         "artifact_ids": list(ARTIFACT_IDS),
+        "files": ARTIFACT_FILE_SPECS,
         "topological_artifact_order": topological_artifact_order(),
         "topological_transition_order": topological_transition_order(),
         "contexts": describe_contexts(),
@@ -245,7 +300,7 @@ def machine_description() -> UncheckedJsonObject:
     }
 
 
-@machine_router.get("/machine")
+@machine_router.get("/machine", response_model=MachineDescription)
 def get_machine() -> UncheckedJsonObject:
     """The static artifact graph and action hierarchy — read once to orient.
 
@@ -356,8 +411,8 @@ class AutoRunBody(BaseModel):
 
 def _episode_status(workspace_id: str) -> UncheckedJsonObject:
     journal = EpisodeJournal(workspace_id)
-    state = derive_current_state(workspace_id)
     records = journal.read_all()
+    state = replay_state(records)
     return {
         "workspace_id": workspace_id,
         "seq": records[-1].seq if records else 0,
@@ -368,7 +423,7 @@ def _episode_status(workspace_id: str) -> UncheckedJsonObject:
     }
 
 
-@router.get("/{workspace_id}")
+@router.get("/{workspace_id}", response_model=EpisodeStatus)
 def get_episode(workspace_id: str) -> UncheckedJsonObject:
     """Current episode state: the single read to poll while navigating.
 
@@ -378,6 +433,106 @@ def get_episode(workspace_id: str) -> UncheckedJsonObject:
     so it works even against a published read-only store.
     """
     return _episode_status(workspace_id)
+
+
+def model_reader(
+    workspace_id: Annotated[str, Path(pattern=r"^[A-Za-z0-9_-]+$", max_length=200)],
+    at_seq: Annotated[int | None, Query(ge=0)] = None,
+) -> ModelReader:
+    try:
+        return ModelReader(workspace_id, at_seq=at_seq)
+    except SnapshotRevisionNotFound as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@router.get("/{workspace_id}/model", response_model=ModelSnapshot)
+def get_model_snapshot(reader: Annotated[ModelReader, Depends(model_reader)]) -> ModelSnapshot:
+    """Batch canonical aggregates in one committed read transaction.
+
+    Omit `at_seq` for the latest applied move, or select a committed journal sequence.
+    Zero selects the empty model. Rejected/raised attempts are not revisions (404).
+    Use the returned `seq` for subsequent aggregate or collection reads at the same revision.
+    """
+    return reader.snapshot()
+
+
+@router.get(
+    "/{workspace_id}/model/latent-structure", response_model=Sourced[LatentStructure] | None
+)
+def get_model_latent_structure(reader: Annotated[ModelReader, Depends(model_reader)]):
+    """Canonical latent structure, including its default outcome, at the selected revision."""
+    return reader.latent_structure()
+
+
+@router.get(
+    "/{workspace_id}/model/measurement-structure",
+    response_model=Sourced[MeasurementStructureArtifact] | None,
+)
+def get_model_measurement_structure(reader: Annotated[ModelReader, Depends(model_reader)]):
+    """Measurement definitions, clock, and declarations with their shared provenance."""
+    return reader.measurement_structure()
+
+
+@router.get(
+    "/{workspace_id}/model/specification",
+    response_model=Sourced[StatisticalModelSpecArtifact] | None,
+)
+def get_model_specification(reader: Annotated[ModelReader, Depends(model_reader)]):
+    """Canonical specification with prior results compatible with the selected compiler."""
+    return reader.specification()
+
+
+@router.get("/{workspace_id}/model/posterior", response_model=Sourced[PosteriorArtifact] | None)
+def get_model_posterior(reader: Annotated[ModelReader, Depends(model_reader)]):
+    """Canonical posterior with compatible parameter coordinates and its own fit assessment."""
+    return reader.posterior()
+
+
+@router.get("/{workspace_id}/model/constructs", response_model=tuple[Construct, ...])
+def get_model_constructs(reader: Annotated[ModelReader, Depends(model_reader)]):
+    """Authored constructs, using their canonical domain type."""
+    return reader.constructs()
+
+
+@router.get("/{workspace_id}/model/edges", response_model=tuple[CausalEdge, ...])
+def get_model_edges(reader: Annotated[ModelReader, Depends(model_reader)]):
+    """Authored edges, using their canonical domain type."""
+    return reader.edges()
+
+
+@router.get("/{workspace_id}/model/indicators", response_model=tuple[Indicator, ...])
+def get_model_indicators(reader: Annotated[ModelReader, Depends(model_reader)]):
+    """Authored indicators whose owners survive at the selected revision."""
+    return reader.indicators()
+
+
+@router.get("/{workspace_id}/model/parameters", response_model=tuple[ParameterSpec, ...])
+def get_model_parameters(reader: Annotated[ModelReader, Depends(model_reader)]):
+    """Scientific parameter definitions from the selected compiler, without inference execution."""
+    return reader.parameters()
+
+
+@router.get("/{workspace_id}/model/views/{artifact_id}", response_model=ArtifactViewResponse)
+def get_model_view(
+    workspace_id: str,
+    artifact_id: str,
+    at_seq: Annotated[int | None, Query(ge=0)] = None,
+):
+    """One display projection from the selected committed model revision."""
+    from nof1_causal_lab.machine.store import ArtifactStore
+    from nof1_causal_lab.machine.views import read_artifact_views
+
+    try:
+        seq, state, installed_at, _ = read_revision(workspace_id, at_seq)
+    except SnapshotRevisionNotFound as exc:
+        raise HTTPException(404, str(exc)) from exc
+    views = read_artifact_views(ArtifactStore(workspace_id), state, installed_at)
+    if artifact_id not in type(views).model_fields:
+        raise HTTPException(404, f"Unknown artifact view {artifact_id}")
+    value = getattr(views, artifact_id)
+    if value is None:
+        raise HTTPException(404, f"No compatible {artifact_id} view at revision {seq}")
+    return ArtifactViewResponse.model_validate(value)
 
 
 class TimelineResponse(BaseModel):
@@ -402,7 +557,14 @@ def get_timeline(workspace_id: str) -> TimelineResponse:
     return TimelineResponse(workspace_id=workspace_id, transitions=records)
 
 
-@router.get("/{workspace_id}/events")
+class EventsResponse(BaseModel):
+    """An events response pages runtime telemetry without reconstructing model state."""
+
+    workspace_id: str
+    events: list[RuntimeEvent]
+
+
+@router.get("/{workspace_id}/events", response_model=EventsResponse)
 def get_events(workspace_id: str, after: str | None = None) -> UncheckedJsonObject:
     """Fine-grained telemetry (e.g. extraction worker fan-out, transition progress).
 
@@ -561,7 +723,22 @@ def get_artifact_file(
 # ---------------------------------------------------------------------------
 
 
-@router.post("")
+class StartEpisodeResponse(EpisodeStatus):
+    """Starting an episode returns its current status and any question-write outcome."""
+
+    ok: Literal[True] = True
+    outcome: MoveOutcome | None
+
+
+class AutoRunResponse(BaseModel):
+    """An auto-run acknowledgement identifies the active background episode driver."""
+
+    ok: Literal[True] = True
+    auto_running: Literal[True] = True
+    workspace_id: str
+
+
+@router.post("", response_model=StartEpisodeResponse)
 async def start_episode(body: StartEpisodeBody) -> UncheckedJsonObject:
     """Ensure the episode workflow exists; optionally seed the `question` root.
 
@@ -585,7 +762,7 @@ async def start_episode(body: StartEpisodeBody) -> UncheckedJsonObject:
     return {"ok": True, "outcome": outcome, **_episode_status(body.workspace_id)}
 
 
-@router.post("/{workspace_id}/moves")
+@router.post("/{workspace_id}/moves", response_model=MoveOutcome)
 async def propose_move(workspace_id: str, body: MoveBody) -> UncheckedJsonObject:
     """Propose one move; blocks until it is applied, rejected, or raises.
 
@@ -658,7 +835,7 @@ async def _auto_drive(workspace_id: str, options: ExecOptions) -> None:
         _AUTO_DRIVERS.pop(workspace_id, None)
 
 
-@router.post("/{workspace_id}/auto")
+@router.post("/{workspace_id}/auto", response_model=AutoRunResponse)
 async def auto_run(workspace_id: str, body: AutoRunBody) -> UncheckedJsonObject:
     """Start the default navigation policy in the background.
 

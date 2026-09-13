@@ -28,6 +28,8 @@ def _measurement_structure(*indicators):
         "indicators": [
             {
                 "name": name,
+                "id": "indicator:" + name,
+                "construct_id": "construct:" + name,
                 "measurement_dtype": dtype,
                 "aggregation": default_aggregations.get(dtype, "last"),
                 **({"ordinal_levels": ["low", "medium", "high"]} if dtype == "ordinal" else {}),
@@ -118,7 +120,11 @@ class TestCheckDtypeMatch:
 class TestValidateWorkerOutput:
     def test_valid_single_extraction(self):
         spec = _measurement_structure(("mood", "continuous"))
-        data = {"extractions": [{"window_start": "2024-01-01", "indicator": "mood", "value": 3.5}]}
+        data = {
+            "extractions": [
+                {"window_start": "2024-01-01", "indicator_id": "indicator:mood", "value": 3.5}
+            ]
+        }
         output, errors = validate_worker_output(data, spec)
         assert output is not None
         assert errors == []
@@ -163,7 +169,11 @@ class TestValidateWorkerOutput:
         spec = _measurement_structure(("mood", "continuous"))
         data = {
             "extractions": [
-                {"window_start": "2024-01-01", "indicator": "nonexistent", "value": 1.0}
+                {
+                    "window_start": "2024-01-01",
+                    "indicator_id": "indicator:nonexistent",
+                    "value": 1.0,
+                }
             ]
         }
         output, errors = validate_worker_output(data, spec)
@@ -175,7 +185,11 @@ class TestValidateWorkerOutput:
         spec = _measurement_structure(("mood", "continuous"))
         data = {
             "extractions": [
-                {"window_start": "2024-01-01", "indicator": "mood", "value": "not_a_number"}
+                {
+                    "window_start": "2024-01-01",
+                    "indicator_id": "indicator:mood",
+                    "value": "not_a_number",
+                }
             ]
         }
         output, errors = validate_worker_output(data, spec)
@@ -186,8 +200,8 @@ class TestValidateWorkerOutput:
         spec = _measurement_structure(("mood", "continuous"))
         data = {
             "extractions": [
-                {"window_start": "2024-01-01", "indicator": "bad1", "value": 1.0},
-                {"window_start": "2024-01-01", "indicator": "bad2", "value": 2.0},
+                {"window_start": "2024-01-01", "indicator_id": "indicator:bad1", "value": 1.0},
+                {"window_start": "2024-01-01", "indicator_id": "indicator:bad2", "value": 2.0},
             ]
         }
         output, errors = validate_worker_output(data, spec)
@@ -196,7 +210,11 @@ class TestValidateWorkerOutput:
 
     def test_window_start_preserved(self):
         spec = _measurement_structure(("mood", "continuous"))
-        data = {"extractions": [{"window_start": "2024-01-01", "indicator": "mood", "value": 5.0}]}
+        data = {
+            "extractions": [
+                {"window_start": "2024-01-01", "indicator_id": "indicator:mood", "value": 5.0}
+            ]
+        }
         output, errors = validate_worker_output(data, spec)
         assert output is not None
         assert errors == []
@@ -204,7 +222,11 @@ class TestValidateWorkerOutput:
 
     def test_null_value_accepted(self):
         spec = _measurement_structure(("mood", "continuous"))
-        data = {"extractions": [{"window_start": "2024-01-01", "indicator": "mood", "value": None}]}
+        data = {
+            "extractions": [
+                {"window_start": "2024-01-01", "indicator_id": "indicator:mood", "value": None}
+            ]
+        }
         output, errors = validate_worker_output(data, spec)
         assert output is not None
         assert errors == []
@@ -213,7 +235,11 @@ class TestValidateWorkerOutput:
         spec = _measurement_structure(("is_smoking", "binary"))
         data = {
             "extractions": [
-                {"window_start": "2024-01-01", "indicator": "is_smoking", "value": True}
+                {
+                    "window_start": "2024-01-01",
+                    "indicator_id": "indicator:is_smoking",
+                    "value": True,
+                }
             ]
         }
         output, errors = validate_worker_output(data, spec)
@@ -224,8 +250,12 @@ class TestValidateWorkerOutput:
         spec = _measurement_structure(("mood", "continuous"), ("is_smoking", "binary"))
         data = {
             "extractions": [
-                {"window_start": "2024-01-01", "indicator": "mood", "value": 7.0},
-                {"window_start": "2024-01-01", "indicator": "is_smoking", "value": False},
+                {"window_start": "2024-01-01", "indicator_id": "indicator:mood", "value": 7.0},
+                {
+                    "window_start": "2024-01-01",
+                    "indicator_id": "indicator:is_smoking",
+                    "value": False,
+                },
             ]
         }
         output, errors = validate_worker_output(data, spec)
@@ -237,8 +267,8 @@ class TestValidateWorkerOutput:
         spec = _measurement_structure(("mood", "continuous"))
         data = {
             "extractions": [
-                {"window_start": "2024-01-01", "indicator": "mood", "value": 3.0},
-                {"window_start": "2024-01-01", "indicator": "mood", "value": 4.0},
+                {"window_start": "2024-01-01", "indicator_id": "indicator:mood", "value": 3.0},
+                {"window_start": "2024-01-01", "indicator_id": "indicator:mood", "value": 4.0},
             ]
         }
         output, errors = validate_worker_output(data, spec)
@@ -249,7 +279,7 @@ class TestValidateWorkerOutput:
         spec = _measurement_structure(("mood", "continuous"))
         data = {
             "extractions": [
-                {"window_start": "2024-01-99", "indicator": "mood", "value": 3.0},
+                {"window_start": "2024-01-99", "indicator_id": "indicator:mood", "value": 3.0},
             ]
         }
         output, errors = validate_worker_output(
@@ -262,7 +292,11 @@ class TestValidateWorkerOutput:
         spec = _measurement_structure(("severity", "ordinal"))
         data = {
             "extractions": [
-                {"window_start": "2024-01-01", "indicator": "severity", "value": "high"}
+                {
+                    "window_start": "2024-01-01",
+                    "indicator_id": "indicator:severity",
+                    "value": "high",
+                }
             ]
         }
         output, errors = validate_worker_output(data, spec)
@@ -272,7 +306,9 @@ class TestValidateWorkerOutput:
     def test_ordinal_code_must_be_in_range(self):
         spec = _measurement_structure(("severity", "ordinal"))
         data = {
-            "extractions": [{"window_start": "2024-01-01", "indicator": "severity", "value": 3}]
+            "extractions": [
+                {"window_start": "2024-01-01", "indicator_id": "indicator:severity", "value": 3}
+            ]
         }
         output, errors = validate_worker_output(data, spec)
         assert output is None
@@ -281,7 +317,9 @@ class TestValidateWorkerOutput:
     def test_ordinal_value_normalized_to_int(self):
         spec = _measurement_structure(("severity", "ordinal"))
         data = {
-            "extractions": [{"window_start": "2024-01-01", "indicator": "severity", "value": 2.0}]
+            "extractions": [
+                {"window_start": "2024-01-01", "indicator_id": "indicator:severity", "value": 2.0}
+            ]
         }
         output, errors = validate_worker_output(data, spec)
         assert errors == []
@@ -300,30 +338,40 @@ class TestWorkerOutputToDataframe:
         df = output.to_dataframe()
         assert isinstance(df, pl.DataFrame)
         assert len(df) == 0
-        assert set(df.columns) == {"indicator", "value", "timestamp"}
+        assert set(df.columns) == {"indicator_id", "value", "timestamp"}
 
     def test_basic_conversion(self):
         output = WorkerOutput(
             extractions=[
-                WindowExtraction(window_start="2024-01-01", indicator="mood", value=7.5),
+                WindowExtraction(
+                    window_start="2024-01-01", indicator_id="indicator:mood", value=7.5
+                ),
             ]
         )
         df = output.to_dataframe()
         assert len(df) == 1
-        assert df["indicator"][0] == "mood"
+        assert df["indicator_id"][0] == "indicator:mood"
         assert df["value"][0] == "7.5"
         assert df["timestamp"][0] == "2024-01-01"
 
     def test_none_value_preserved(self):
         output = WorkerOutput(
-            extractions=[WindowExtraction(window_start="2024-01-01", indicator="mood", value=None)]
+            extractions=[
+                WindowExtraction(
+                    window_start="2024-01-01", indicator_id="indicator:mood", value=None
+                )
+            ]
         )
         df = output.to_dataframe()
         assert df["value"][0] is None
 
     def test_bool_converted_to_string(self):
         output = WorkerOutput(
-            extractions=[WindowExtraction(window_start="2024-01-01", indicator="smoke", value=True)]
+            extractions=[
+                WindowExtraction(
+                    window_start="2024-01-01", indicator_id="indicator:smoke", value=True
+                )
+            ]
         )
         df = output.to_dataframe()
         assert df["value"][0] == "True"
@@ -331,8 +379,12 @@ class TestWorkerOutputToDataframe:
     def test_multiple_rows(self):
         output = WorkerOutput(
             extractions=[
-                WindowExtraction(window_start="2024-01-01", indicator="mood", value=7.0),
-                WindowExtraction(window_start="2024-01-01", indicator="sleep", value=8.0),
+                WindowExtraction(
+                    window_start="2024-01-01", indicator_id="indicator:mood", value=7.0
+                ),
+                WindowExtraction(
+                    window_start="2024-01-01", indicator_id="indicator:sleep", value=8.0
+                ),
             ]
         )
         df = output.to_dataframe()

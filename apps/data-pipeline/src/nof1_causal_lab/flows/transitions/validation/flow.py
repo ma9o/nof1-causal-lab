@@ -50,11 +50,14 @@ def validate_extraction(
     from nof1_causal_lab.utils.causal_design import get_constructs, get_indicators
 
     indicators = get_indicators(causal_design)
-    indicator_names: set[str] = {ind["name"] for ind in indicators if ind.get("name")}
-    indicator_lookup = {ind["name"]: ind for ind in indicators if ind.get("name")}
+    indicator_ids: set[str] = {ind["id"] for ind in indicators}
+    indicator_lookup = {ind["id"]: ind for ind in indicators}
+    unknown = set(combined["indicator_id"].unique()) - indicator_ids
+    if unknown:
+        raise ValueError(f"Observations reference indicators outside the pinned design: {unknown}")
 
     constructs = get_constructs(causal_design)
-    construct_lookup = {c["name"]: c for c in constructs if c.get("name")}
+    construct_lookup = {c["id"]: c for c in constructs}
 
     model_clock_str = causal_design.get("measurement", {}).get("model_clock")
     model_clock_hours: float | None = None
@@ -69,7 +72,7 @@ def validate_extraction(
     validation_ctx = ValidationContext(
         combined=combined,
         indicators=indicators,
-        indicator_names=indicator_names,
+        indicator_ids=indicator_ids,
         indicator_lookup=indicator_lookup,
         construct_lookup=construct_lookup,
         model_clock_hours=model_clock_hours,
@@ -81,7 +84,7 @@ def validate_extraction(
     )
 
     indicator_audits = build_indicator_audits(
-        indicator_names=indicator_names,
+        indicator_ids=indicator_ids,
         indicator_lookup=indicator_lookup,
         model_data=combined,
         indicator_issues=indicator_issues,

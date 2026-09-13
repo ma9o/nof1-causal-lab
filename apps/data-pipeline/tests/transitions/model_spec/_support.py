@@ -57,7 +57,7 @@ def _make_polars_data() -> pl.DataFrame:
     anchor_times = pd.date_range("2024-01-01", periods=n, freq="D").strftime("%Y-%m-%dT00:00:00Z")
     return pl.DataFrame(
         {
-            "indicator": ["mood_score"] * n,
+            "indicator_id": ["indicator:45f78731e3e0c6f3efe1"] * n,
             "value": (rng.standard_normal(n) * 1.5 + 5).tolist(),
             "anchor_time": anchor_times,
             "support_start": anchor_times,
@@ -74,9 +74,21 @@ def _make_polars_data() -> pl.DataFrame:
 def simple_statistical_model_spec() -> dict[str, Any]:
     """Minimal model-spec statistical model spec used by SSM-validation tests."""
     return {
+        "mechanisms": [
+            {
+                "kind": "node_potential",
+                "target_id": "construct:bbc87212909e45b9e6c3",
+                "center": {"kind": "fixed", "value": 0},
+                "stiffness": {
+                    "kind": "estimated",
+                    "parameter_id": "parameter:fb33dbedf43eb15e324c86fa97201278e306cb48aa9752104361309d61215122",
+                },
+                "quartic": {"kind": "fixed", "value": 0},
+            }
+        ],
         "likelihoods": [
             {
-                "variable": "mood_score",
+                "indicator_id": "indicator:45f78731e3e0c6f3efe1",
                 "distribution": "gaussian",
                 "link": "identity",
                 "reasoning": "Continuous Likert-type scale",
@@ -84,12 +96,19 @@ def simple_statistical_model_spec() -> dict[str, Any]:
         ],
         "parameters": [
             {
+                "prior_transform": "dt_persistence_to_ct_decay",
+                "id": "parameter:fb33dbedf43eb15e324c86fa97201278e306cb48aa9752104361309d61215122",
+                "owners": [{"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"}],
+                "quantity": "dynamics_decay",
                 "name": "rho_mood",
                 "role": "ar_coefficient",
                 "constraint": "unit_interval",
                 "description": "AR(1) coefficient for mood",
             },
             {
+                "id": "parameter:146688c9f8e2c980c9e7963be61deb23225a81f828c204339c2164d1f51d441e",
+                "owners": [{"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"}],
+                "quantity": "diffusion_diag",
                 "name": "sigma_mood",
                 "role": "residual_sd",
                 "constraint": "positive",
@@ -104,14 +123,12 @@ def simple_priors() -> dict[str, Any]:
     """Priors matching ``simple_statistical_model_spec``."""
     return {
         "rho_mood": {
-            "parameter": "rho_mood",
             "distribution": "Beta",
             "params": {"alpha": 2.0, "beta": 2.0},
             "sources": [],
             "reasoning": "Weakly informative for AR coefficient",
         },
         "sigma_mood": {
-            "parameter": "sigma_mood",
             "distribution": "HalfNormal",
             "params": {"sigma": 1.0},
             "sources": [],

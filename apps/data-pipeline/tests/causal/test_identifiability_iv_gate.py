@@ -17,17 +17,34 @@ def _iv_structure_latent_structure():
     no other path to Y) is a valid instrument *under linearity*.
     """
     return {
+        "default_outcome": {"kind": "construct", "id": "construct:Y"},
         "constructs": [
-            {"name": "X", "is_outcome": False, "temporal_status": "time_invariant"},
-            {"name": "Y", "is_outcome": True, "temporal_status": "time_invariant"},
-            {"name": "Z", "is_outcome": False, "temporal_status": "time_invariant"},
-            {"name": "U", "is_outcome": False, "temporal_status": "time_invariant"},
+            {
+                "id": "construct:X",
+                "name": "X",
+                "temporal_status": "time_invariant",
+            },
+            {
+                "id": "construct:Y",
+                "name": "Y",
+                "temporal_status": "time_invariant",
+            },
+            {
+                "id": "construct:Z",
+                "name": "Z",
+                "temporal_status": "time_invariant",
+            },
+            {
+                "id": "construct:U",
+                "name": "U",
+                "temporal_status": "time_invariant",
+            },
         ],
         "edges": [
-            {"cause": "Z", "effect": "X", "lagged": False},
-            {"cause": "X", "effect": "Y", "lagged": False},
-            {"cause": "U", "effect": "X", "lagged": False},
-            {"cause": "U", "effect": "Y", "lagged": False},
+            {"cause_id": "construct:Z", "effect_id": "construct:X", "lagged": False},
+            {"cause_id": "construct:X", "effect_id": "construct:Y", "lagged": False},
+            {"cause_id": "construct:U", "effect_id": "construct:X", "lagged": False},
+            {"cause_id": "construct:U", "effect_id": "construct:Y", "lagged": False},
         ],
     }
 
@@ -35,9 +52,9 @@ def _iv_structure_latent_structure():
 def _measurement_structure_observing_xyz():
     return {
         "indicators": [
-            {"name": "y_obs", "construct_name": "Y"},
-            {"name": "x_obs", "construct_name": "X"},
-            {"name": "z_obs", "construct_name": "Z"},
+            {"name": "y_obs", "construct_id": "construct:Y"},
+            {"name": "x_obs", "construct_id": "construct:X"},
+            {"name": "z_obs", "construct_id": "construct:Z"},
         ],
     }
 
@@ -96,16 +113,25 @@ class TestIVAllowedFalse:
         be unchanged when IV is disabled — IV is a fallback, not a primary."""
         # Simpler DAG: X → Y, no confounders. Backdoor trivially identifiable.
         latent_structure = {
+            "default_outcome": {"kind": "construct", "id": "construct:Y"},
             "constructs": [
-                {"name": "X", "is_outcome": False, "temporal_status": "time_invariant"},
-                {"name": "Y", "is_outcome": True, "temporal_status": "time_invariant"},
+                {
+                    "id": "construct:X",
+                    "name": "X",
+                    "temporal_status": "time_invariant",
+                },
+                {
+                    "id": "construct:Y",
+                    "name": "Y",
+                    "temporal_status": "time_invariant",
+                },
             ],
-            "edges": [{"cause": "X", "effect": "Y", "lagged": False}],
+            "edges": [{"cause_id": "construct:X", "effect_id": "construct:Y", "lagged": False}],
         }
         measurement_structure = {
             "indicators": [
-                {"name": "y_obs", "construct_name": "Y"},
-                {"name": "x_obs", "construct_name": "X"},
+                {"name": "y_obs", "construct_id": "construct:Y"},
+                {"name": "x_obs", "construct_id": "construct:X"},
             ],
         }
 

@@ -24,9 +24,9 @@ from nof1_causal_lab.flows.transitions.model_spec.contracts import (
 )
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.flows.contracts_base import ToolContract
+    from nof1_causal_lab.flows.contracts_base import ToolDefinition
 
-CONTEXT_TOOLS: dict[str, list[ToolContract]] = {
+CONTEXT_TOOLS: dict[str, list[ToolDefinition]] = {
     "ingestion": INGESTION_TOOL_CONTRACTS,
     "latent-structure": LATENT_STRUCTURE_TOOL_CONTRACTS,
     "measurement-structure": MEASUREMENT_STRUCTURE_TOOL_CONTRACTS,

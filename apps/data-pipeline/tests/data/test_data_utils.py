@@ -15,7 +15,7 @@ class TestAnnotateObservationRows:
 
         raw = pl.DataFrame(
             {
-                "indicator": ["stress_score"],
+                "indicator_id": ["indicator:3696aef3ff6f446744e5"],
                 "value": ["4.0"],
                 "timestamp": ["2024-01-01T00:00:00Z"],
             }
@@ -24,6 +24,7 @@ class TestAnnotateObservationRows:
             "model_clock": "1d",
             "indicators": [
                 {
+                    "id": "indicator:3696aef3ff6f446744e5",
                     "name": "stress_score",
                     "measurement_dtype": "continuous",
                     "aggregation": "mean",
@@ -46,7 +47,7 @@ class TestAnnotateObservationRows:
 
         raw = pl.DataFrame(
             {
-                "indicator": ["monthly_stress_score"],
+                "indicator_id": ["indicator:8172ff8b9182b2e869c5"],
                 "value": ["4.0"],
                 "timestamp": ["2024-01-01T00:00:00Z"],
             }
@@ -55,6 +56,7 @@ class TestAnnotateObservationRows:
             "model_clock": "1d",
             "indicators": [
                 {
+                    "id": "indicator:8172ff8b9182b2e869c5",
                     "name": "monthly_stress_score",
                     "measurement_dtype": "continuous",
                     "aggregation": "mean",
@@ -76,7 +78,7 @@ class TestAnnotateObservationRows:
 
         raw = pl.DataFrame(
             {
-                "indicator": ["closing_mood"],
+                "indicator_id": ["indicator:5dc4b94693df7e0aef53"],
                 "value": ["4.0"],
                 "timestamp": ["2024-01-01T00:00:00Z"],
             }
@@ -85,6 +87,7 @@ class TestAnnotateObservationRows:
             "model_clock": "1d",
             "indicators": [
                 {
+                    "id": "indicator:5dc4b94693df7e0aef53",
                     "name": "closing_mood",
                     "measurement_dtype": "continuous",
                     "aggregation": "last",
@@ -108,7 +111,12 @@ class TestPivotToWide:
         df = pl.DataFrame(
             {
                 "anchor_time": [1.0, 2.0, 1.0, 2.0],
-                "indicator": ["x", "x", "y", "y"],
+                "indicator_id": [
+                    "indicator:1f4c67cecb9238ee1a80",
+                    "indicator:1f4c67cecb9238ee1a80",
+                    "indicator:3316cd345d83d02fe3fc",
+                    "indicator:3316cd345d83d02fe3fc",
+                ],
                 "value": [10.0, 20.0, 30.0, 40.0],
             }
         )
@@ -116,15 +124,15 @@ class TestPivotToWide:
 
         wide = pivot_to_wide(df)
         assert "time" in wide.columns
-        assert "x" in wide.columns
-        assert "y" in wide.columns
+        assert "indicator:1f4c67cecb9238ee1a80" in wide.columns
+        assert "indicator:3316cd345d83d02fe3fc" in wide.columns
         assert wide.height == 2
 
     def test_empty_dataframe(self):
         """Empty input returns empty output."""
         from nof1_causal_lab.utils.data import pivot_to_wide
 
-        df = pl.DataFrame({"anchor_time": [], "indicator": [], "value": []})
+        df = pl.DataFrame({"anchor_time": [], "indicator_id": [], "value": []})
         result = pivot_to_wide(df)
         assert result.is_empty()
 
@@ -135,7 +143,10 @@ class TestPivotToWide:
         df = pl.DataFrame(
             {
                 "anchor_time": [1.0, 2.0],
-                "indicator": ["x", "x"],
+                "indicator_id": [
+                    "indicator:1f4c67cecb9238ee1a80",
+                    "indicator:1f4c67cecb9238ee1a80",
+                ],
                 "value": [10.0, 20.0],
             }
         )
@@ -152,7 +163,11 @@ class TestPivotToWide:
         df = pl.DataFrame(
             {
                 "anchor_time": [t0, t1, t2],
-                "indicator": ["x", "x", "x"],
+                "indicator_id": [
+                    "indicator:1f4c67cecb9238ee1a80",
+                    "indicator:1f4c67cecb9238ee1a80",
+                    "indicator:1f4c67cecb9238ee1a80",
+                ],
                 "value": [1.0, 2.0, 3.0],
             }
         )
@@ -170,7 +185,11 @@ class TestPivotToWide:
         df = pl.DataFrame(
             {
                 "anchor_time": [3.0, 1.0, 2.0],
-                "indicator": ["x", "x", "x"],
+                "indicator_id": [
+                    "indicator:1f4c67cecb9238ee1a80",
+                    "indicator:1f4c67cecb9238ee1a80",
+                    "indicator:1f4c67cecb9238ee1a80",
+                ],
                 "value": [30.0, 10.0, 20.0],
             }
         )
@@ -185,13 +204,17 @@ class TestPivotToWide:
         df = pl.DataFrame(
             {
                 "anchor_time": [1.0, 2.0, 2.0],
-                "indicator": ["x", "x", "y"],
+                "indicator_id": [
+                    "indicator:1f4c67cecb9238ee1a80",
+                    "indicator:1f4c67cecb9238ee1a80",
+                    "indicator:3316cd345d83d02fe3fc",
+                ],
                 "value": [10.0, 20.0, 30.0],
             }
         )
         wide = pivot_to_wide(df)
         # y has no value at t=1, so it should be null
-        y_at_t1 = wide.filter(pl.col("time") == 1.0)["y"].to_list()
+        y_at_t1 = wide.filter(pl.col("time") == 1.0)["indicator:3316cd345d83d02fe3fc"].to_list()
         assert y_at_t1[0] is None
 
     def test_string_timestamps_parsed(self):
@@ -201,7 +224,10 @@ class TestPivotToWide:
         df = pl.DataFrame(
             {
                 "anchor_time": ["2024-01-01", "2024-01-02"],
-                "indicator": ["x", "x"],
+                "indicator_id": [
+                    "indicator:1f4c67cecb9238ee1a80",
+                    "indicator:1f4c67cecb9238ee1a80",
+                ],
                 "value": [1.0, 2.0],
             }
         )
@@ -218,13 +244,16 @@ class TestPivotToWide:
         df = pl.DataFrame(
             {
                 "anchor_time": [1.0, 2.0],
-                "indicator": ["x", "x"],
+                "indicator_id": [
+                    "indicator:1f4c67cecb9238ee1a80",
+                    "indicator:1f4c67cecb9238ee1a80",
+                ],
                 "value": ["10.5", "20.3"],
             }
         )
         wide = pivot_to_wide(df)
-        assert wide["x"].dtype == pl.Float64
-        assert abs(wide["x"][0] - 10.5) < 0.001
+        assert wide["indicator:1f4c67cecb9238ee1a80"].dtype == pl.Float64
+        assert abs(wide["indicator:1f4c67cecb9238ee1a80"][0] - 10.5) < 0.001
 
     def test_duplicate_values_aggregated_with_mean(self):
         """Multiple values at same time for same indicator should be averaged."""
@@ -233,14 +262,18 @@ class TestPivotToWide:
         df = pl.DataFrame(
             {
                 "anchor_time": [1.0, 1.0, 2.0],
-                "indicator": ["x", "x", "x"],
+                "indicator_id": [
+                    "indicator:1f4c67cecb9238ee1a80",
+                    "indicator:1f4c67cecb9238ee1a80",
+                    "indicator:1f4c67cecb9238ee1a80",
+                ],
                 "value": [10.0, 20.0, 30.0],
             }
         )
         wide = pivot_to_wide(df)
         assert wide.height == 2
         # At t=1, mean of 10 and 20 is 15
-        x_at_t1 = wide.filter(pl.col("time") == 1.0)["x"][0]
+        x_at_t1 = wide.filter(pl.col("time") == 1.0)["indicator:1f4c67cecb9238ee1a80"][0]
         assert abs(x_at_t1 - 15.0) < 0.001
 
     def test_single_indicator(self):
@@ -250,14 +283,14 @@ class TestPivotToWide:
         df = pl.DataFrame(
             {
                 "anchor_time": [1.0],
-                "indicator": ["x"],
+                "indicator_id": ["indicator:1f4c67cecb9238ee1a80"],
                 "value": [42.0],
             }
         )
         wide = pivot_to_wide(df)
         assert wide.height == 1
-        assert "x" in wide.columns
-        assert wide["x"][0] == 42.0
+        assert "indicator:1f4c67cecb9238ee1a80" in wide.columns
+        assert wide["indicator:1f4c67cecb9238ee1a80"][0] == 42.0
 
 
 class TestPivotToWideSparsity:
@@ -271,9 +304,19 @@ class TestPivotToWideSparsity:
 
         rows = []
         for h in range(24):
-            rows.append({"indicator": "hourly_var", "value": float(h), "anchor_time": h})
-        rows.append({"indicator": "daily_b", "value": 5.0, "anchor_time": 0})
-        rows.append({"indicator": "daily_c", "value": 9.0, "anchor_time": 0})
+            rows.append(
+                {
+                    "indicator_id": "indicator:f0e6ea8ca02efe08067d",
+                    "value": float(h),
+                    "anchor_time": h,
+                }
+            )
+        rows.append(
+            {"indicator_id": "indicator:4ba776ce45cadd77efac", "value": 5.0, "anchor_time": 0}
+        )
+        rows.append(
+            {"indicator_id": "indicator:683acb864872efccc82b", "value": 9.0, "anchor_time": 0}
+        )
 
         raw = pl.DataFrame(rows)
         logger = logging.getLogger("nof1_causal_lab.utils.data")
@@ -292,8 +335,20 @@ class TestPivotToWideSparsity:
 
         rows = []
         for t in range(10):
-            rows.append({"indicator": "A", "value": float(t), "anchor_time": t})
-            rows.append({"indicator": "B", "value": float(t * 2), "anchor_time": t})
+            rows.append(
+                {
+                    "indicator_id": "indicator:c66a68cb408e1c918650",
+                    "value": float(t),
+                    "anchor_time": t,
+                }
+            )
+            rows.append(
+                {
+                    "indicator_id": "indicator:963e8fd77d3423ee1b6c",
+                    "value": float(t * 2),
+                    "anchor_time": t,
+                }
+            )
 
         raw = pl.DataFrame(rows)
         with caplog.at_level(logging.WARNING, logger="nof1_causal_lab.utils.data"):
@@ -310,7 +365,10 @@ class TestPivotToWideTimezoneStrings:
         df = pl.DataFrame(
             {
                 "anchor_time": ["2024-01-01T00:00:00Z", "2024-01-02T12:00:00Z"],
-                "indicator": ["x", "x"],
+                "indicator_id": [
+                    "indicator:1f4c67cecb9238ee1a80",
+                    "indicator:1f4c67cecb9238ee1a80",
+                ],
                 "value": [1.0, 2.0],
             }
         )

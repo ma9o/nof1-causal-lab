@@ -17,7 +17,7 @@ from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.compile.contracts import CompiledSSMArtifact
+    from nof1_causal_lab.artifacts.compiled_ssm import CompiledSSMArtifact
 
 logger = logging.getLogger(__name__)
 

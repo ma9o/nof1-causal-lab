@@ -4,9 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from nof1_causal_lab.models.ssm.compile.common import (
-    normalize_prior_params,
-)
 from nof1_causal_lab.models.ssm.compile.prior_compilation import (
     bind_parameters,
     compile_priors,
@@ -14,7 +11,6 @@ from nof1_causal_lab.models.ssm.compile.prior_compilation import (
 from nof1_causal_lab.models.ssm.compile.prior_indexing import (
     SemanticBindingRegistry,
     build_semantic_prior_bindings,
-    check_backward_closure,
 )
 from nof1_causal_lab.models.ssm.compile.spec_translation import (
     build_structural_support_from_plan,
@@ -22,16 +18,17 @@ from nof1_causal_lab.models.ssm.compile.spec_translation import (
     get_structural_latent_layout,
     translate_spec,
 )
-from nof1_causal_lab.models.ssm.parameter_names import split_compound_name
 from nof1_causal_lab.utils.structural_plan import get_manifest_indicators
 
 if TYPE_CHECKING:
+    import numpyro.distributions as dist
+
+    from nof1_causal_lab.artifacts.compiled_ssm import CompiledParameterBinding
+    from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
     from nof1_causal_lab.artifacts.prior import PriorPlan, PriorValidationResult
-    from nof1_causal_lab.artifacts.statistical_model_spec import StatisticalModelSpec
+    from nof1_causal_lab.artifacts.statistical_model_spec import ParameterSpec, StatisticalModelSpec
     from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
-    from nof1_causal_lab.models.ssm.compile.contracts import CompiledParameterBinding
     from nof1_causal_lab.models.ssm.model import SSMSpec
-    from nof1_causal_lab.models.ssm.priors import PriorRegistry
 
 
 def _require_explicit_causal_structure(
@@ -95,7 +92,7 @@ def _attach_compile_binding_provenance(
     binding_index: dict[tuple[str, int], list[str]] = {}
     for binding in bindings:
         binding_index.setdefault((binding.site_name, binding.flat_index), []).append(
-            binding.parameter
+            binding.parameter_id
         )
 
     for diagnostic in diagnostics:
@@ -115,11 +112,11 @@ def _order_likelihoods_by_structural_plan(
     structural_plan: StructuralPlan,
 ) -> StatisticalModelSpec:
     """Canonicalize manifest array order to the StructuralPlan contract."""
-    plan_order = [str(indicator["name"]) for indicator in get_manifest_indicators(structural_plan)]
+    plan_order = [str(indicator["id"]) for indicator in get_manifest_indicators(structural_plan)]
     likelihood_by_variable = {
-        likelihood.variable: likelihood for likelihood in statistical_model_spec.likelihoods
+        likelihood.indicator_id: likelihood for likelihood in statistical_model_spec.likelihoods
     }
-    authored_names = [likelihood.variable for likelihood in statistical_model_spec.likelihoods]
+    authored_names = [likelihood.indicator_id for likelihood in statistical_model_spec.likelihoods]
     if len(likelihood_by_variable) != len(authored_names):
         raise ValueError("StatisticalModelSpec contains duplicate likelihood variables")
     if set(authored_names) != set(plan_order):
@@ -137,30 +134,30 @@ def compile_ssm_inputs_from_statistical_model_spec(
     statistical_model_spec: StatisticalModelSpec,
     prior_plan: PriorPlan,
     *,
-    structural_plan: StructuralPlan | None = None,
+    structural_plan: StructuralPlan,
 ) -> tuple[
     SSMSpec,
-    PriorRegistry,
+    dict[str, dist.Distribution],
     list[CompiledParameterBinding],
     list[PriorValidationResult],
     dict[tuple[int, int], float],
+    list[ParameterSpec],
+    list[ParameterCoordinate],
 ]:
     """Compile executable SSM inputs from a validated semantic statistical model spec surface."""
-    ordered_statistical_model_spec = statistical_model_spec
-    if structural_plan is not None:
-        ordered_statistical_model_spec = _order_likelihoods_by_structural_plan(
-            ordered_statistical_model_spec,
-            structural_plan,
-        )
+    from nof1_causal_lab.models.ssm.compile.parameter_identity import validate_parameter_owners
+
+    validate_parameter_owners(statistical_model_spec.parameters, structural_plan)
+    ordered_statistical_model_spec = _order_likelihoods_by_structural_plan(
+        statistical_model_spec, structural_plan
+    )
     ssm_spec, edge_lag_days = translate_spec(
         ordered_statistical_model_spec,
         structural_plan,
     )
     _require_explicit_causal_structure(ssm_spec, structural_plan=structural_plan)
 
-    expected_parameters = {
-        parameter.name for parameter in ordered_statistical_model_spec.parameters
-    }
+    expected_parameters = {parameter.id for parameter in ordered_statistical_model_spec.parameters}
     planned_parameters = set(prior_plan.priors)
     if planned_parameters != expected_parameters:
         raise ValueError(
@@ -177,16 +174,11 @@ def compile_ssm_inputs_from_statistical_model_spec(
         structural_plan=structural_plan,
     )
 
-    if structural_plan is not None:
-        backward_gaps = check_backward_closure(ssm_spec, index_maps)
-        if backward_gaps:
-            from nof1_causal_lab.models.ssm.compile.prior_indexing import PriorIndexingError
-
-            raise PriorIndexingError(backward_gaps)
-
-    bindings = bind_parameters(index_maps)
+    parameters, bindings, auxiliary = bind_parameters(
+        index_maps, ssm_spec, structural_plan, statistical_model_spec.parameters
+    )
     diagnostics = _attach_compile_binding_provenance(diagnostics, bindings)
-    return ssm_spec, prior_registry, bindings, diagnostics, edge_lag_days
+    return ssm_spec, prior_registry, bindings, diagnostics, edge_lag_days, parameters, auxiliary
 
 
 __all__ = [
@@ -198,7 +190,5 @@ __all__ = [
     "compile_ssm_inputs_from_statistical_model_spec",
     "get_construct_dt_days",
     "get_structural_latent_layout",
-    "normalize_prior_params",
-    "split_compound_name",
     "translate_spec",
 ]

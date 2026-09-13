@@ -4,62 +4,53 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 
+from .base import ArtifactPayload
+from .evidence import LiteratureSource  # noqa: TC001
+from .identity import ConstructId, ConstructRef, EdgeId  # noqa: TC001
+
 
 class Role(StrEnum):
-    """Whether a variable is modeled or treated as given."""
+    """A construct role states whether the variable is modeled as endogenous or treated as
+    exogenous.
+    """
 
     ENDOGENOUS = "endogenous"
     EXOGENOUS = "exogenous"
 
 
 class TemporalStatus(StrEnum):
-    """Whether a construct changes within-person over time."""
+    """Temporal status states whether a construct varies within the individual over time."""
 
     TIME_VARYING = "time_varying"
     TIME_INVARIANT = "time_invariant"
 
 
 class Construct(BaseModel):
-    """A theoretical entity in the latent causal model."""
+    """A construct represents a theoretical entity in the scientific causal model."""
 
+    model_config = ConfigDict(extra="forbid")
+
+    id: ConstructId = Field(description="Persistent identity. Preserve when revising or renaming.")
     name: str = Field(description="Construct name (e.g., 'stress', 'sleep_quality')")
     description: str = Field(description="What this theoretical construct represents")
     role: Role = Field(description="'endogenous' (modeled) or 'exogenous' (given)")
-    is_outcome: bool = Field(
-        default=False,
-        description="True if this is the primary outcome variable Y implied by the question",
-    )
     temporal_status: TemporalStatus = Field(
         description="'time_varying' (changes over time) or 'time_invariant' (fixed)"
     )
 
-    @model_validator(mode="after")
-    def validate_construct(self) -> Construct:
-        """Validate construct field consistency."""
-        if self.is_outcome and self.role != Role.ENDOGENOUS:
-            raise ValueError(
-                f"Outcome construct '{self.name}' must be endogenous, got {self.role.value}"
-            )
-        return self
-
-
-class EdgeSource(BaseModel):
-    """A source of evidence supporting a causal edge."""
-
-    title: str = Field(description="Title of the source (paper, meta-analysis, textbook, etc.)")
-    url: str | None = Field(default=None, description="URL of the source if available")
-    snippet: str = Field(description="Relevant excerpt or paraphrase from the source")
-
 
 class CausalEdge(BaseModel):
-    """A directed causal relationship between constructs."""
+    """A causal edge declares a directed causal relationship between two constructs."""
 
-    cause: str = Field(description="Name of cause construct")
-    effect: str = Field(description="Name of effect construct")
+    model_config = ConfigDict(extra="forbid")
+
+    id: EdgeId = Field(description="Persistent identity. Preserve when revising the same edge.")
+    cause_id: ConstructId = Field(description="Persistent ID of the cause construct.")
+    effect_id: ConstructId = Field(description="Persistent ID of the effect construct.")
     description: str = Field(description="Theoretical justification for this causal link")
     lagged: bool = Field(
         default=True,
@@ -68,7 +59,7 @@ class CausalEdge(BaseModel):
             "If False (contemporaneous), effect at t is caused by cause at t."
         ),
     )
-    sources: list[EdgeSource] = Field(
+    sources: list[LiteratureSource] = Field(
         default_factory=list,
         description="Literature sources supporting this causal link",
     )
@@ -79,19 +70,19 @@ def _check_edge_constraint(
     construct_map: dict[str, Construct],
 ) -> str | None:
     """Check a single edge against shared latent-structure constraints."""
-    cause_construct = construct_map[edge.cause]
-    effect_construct = construct_map[edge.effect]
+    cause_construct = construct_map[edge.cause_id]
+    effect_construct = construct_map[edge.effect_id]
 
     if effect_construct.role == Role.EXOGENOUS:
-        return f"Exogenous construct '{edge.effect}' cannot be an effect"
+        return f"Exogenous construct '{effect_construct.name}' cannot be an effect"
 
     if (
         cause_construct.temporal_status == TemporalStatus.TIME_VARYING
         and effect_construct.temporal_status == TemporalStatus.TIME_INVARIANT
     ):
         return (
-            f"Time-varying construct '{edge.cause}' cannot be a cause of "
-            f"time-invariant construct '{edge.effect}'. Time-invariant constructs "
+            f"Time-varying construct '{cause_construct.name}' cannot be a cause of "
+            f"time-invariant construct '{effect_construct.name}'. Time-invariant constructs "
             "are fixed within person and cannot have time-varying parents."
         )
 
@@ -104,7 +95,7 @@ def _check_edge_constraint(
     )
     if not edge.lagged and both_time_varying and both_endogenous:
         return (
-            f"Directed contemporaneous edge '{edge.cause}' -> '{edge.effect}' "
+            f"Directed contemporaneous edge '{cause_construct.name}' -> '{effect_construct.name}' "
             "between endogenous time-varying latent constructs is excluded by the "
             "latent-structure contract. Represent directed effects between evolving "
             "latent states with lagged=True; reserve same-time dependence for "
@@ -115,29 +106,12 @@ def _check_edge_constraint(
 
 
 def _check_global_constraints(
-    constructs: list[Construct],
     edges: list[CausalEdge],
 ) -> list[str]:
     """Check latent-structure global constraints."""
     errors: list[str] = []
 
-    outcomes = [construct for construct in constructs if construct.is_outcome]
-    if len(outcomes) == 0:
-        errors.append("Exactly one construct must have is_outcome=true")
-    elif len(outcomes) > 1:
-        names = [construct.name for construct in outcomes]
-        errors.append(f"Only one outcome allowed, got {len(outcomes)}: {names}")
-
-    if len(outcomes) == 1:
-        outcome_name = outcomes[0].name
-        incoming_to_outcome = [edge for edge in edges if edge.effect == outcome_name]
-        if not incoming_to_outcome:
-            errors.append(
-                f"Outcome construct '{outcome_name}' has no incoming causal edges. "
-                "The model must include at least one cause of the outcome."
-            )
-
-    contemporaneous_edges = [(edge.cause, edge.effect) for edge in edges if not edge.lagged]
+    contemporaneous_edges = [(edge.cause_id, edge.effect_id) for edge in edges if not edge.lagged]
     if contemporaneous_edges:
         import networkx as nx
 
@@ -153,27 +127,49 @@ def _check_global_constraints(
 
 
 class LatentStructure(BaseModel):
-    """Theoretical causal structure over constructs."""
+    """A latent structure defines the scientific causal graph of constructs and directed
+    relationships.
+    """
 
-    constructs: list[Construct] = Field(description="Theoretical constructs in the model")
+    model_config = ConfigDict(extra="forbid")
+
+    default_outcome: ConstructRef | None = Field(
+        default=None,
+        description="Default query target for this workspace; outcome selection is not a construct property.",
+    )
+    constructs: list[Construct] = Field(
+        min_length=1, description="Theoretical constructs in the model"
+    )
     edges: list[CausalEdge] = Field(description="Causal edges between constructs")
 
     @model_validator(mode="after")
     def validate_latent_structure(self) -> LatentStructure:
         """Validate latent structure constraints."""
-        construct_map = {construct.name: construct for construct in self.constructs}
+        for label, items in (("construct", self.constructs), ("edge", self.edges)):
+            ids = [item.id for item in items]
+            if len(ids) != len(set(ids)):
+                raise ValueError(f"Duplicate {label} IDs")
+        construct_map = {construct.id: construct for construct in self.constructs}
+        if self.default_outcome is not None:
+            target = construct_map.get(self.default_outcome.id)
+            if target is None:
+                raise ValueError("Default outcome references an unknown construct")
+            if target.role != Role.ENDOGENOUS:
+                raise ValueError("Default outcome must reference an endogenous construct")
+        if len({construct.name for construct in self.constructs}) != len(self.constructs):
+            raise ValueError("Duplicate construct names")
 
         for edge in self.edges:
-            if edge.cause not in construct_map:
-                raise ValueError(f"Edge cause '{edge.cause}' not in constructs")
-            if edge.effect not in construct_map:
-                raise ValueError(f"Edge effect '{edge.effect}' not in constructs")
+            if edge.cause_id not in construct_map:
+                raise ValueError(f"Edge cause '{edge.cause_id}' not in constructs")
+            if edge.effect_id not in construct_map:
+                raise ValueError(f"Edge effect '{edge.effect_id}' not in constructs")
 
             error = _check_edge_constraint(edge, construct_map)
             if error:
                 raise ValueError(error)
 
-        global_errors = _check_global_constraints(self.constructs, self.edges)
+        global_errors = _check_global_constraints(self.edges)
         if global_errors:
             raise ValueError(global_errors[0])
 
@@ -225,15 +221,15 @@ def validate_latent_structure(
             else:
                 errors.append(f"constructs[{index}] ({name}): {error_msg}")
 
-    construct_map = {construct.name: construct for construct in valid_constructs}
+    construct_map = {construct.id: construct for construct in valid_constructs}
     valid_edges: list[CausalEdge] = []
     for index, edge_data in enumerate(edges):
         if not isinstance(edge_data, dict):
             errors.append(f"edges[{index}]: must be a dictionary")
             continue
 
-        cause = edge_data.get("cause", "<missing>")
-        effect = edge_data.get("effect", "<missing>")
+        cause = edge_data.get("cause_id", "<missing>")
+        effect = edge_data.get("effect_id", "<missing>")
         edge_label = f"edges[{index}] ({cause} -> {effect})"
 
         try:
@@ -242,11 +238,11 @@ def validate_latent_structure(
             errors.append(f"{edge_label}: {exc}")
             continue
 
-        if edge.cause not in construct_map:
-            errors.append(f"{edge_label}: cause '{edge.cause}' not in constructs")
+        if edge.cause_id not in construct_map:
+            errors.append(f"{edge_label}: cause '{edge.cause_id}' not in constructs")
             continue
-        if edge.effect not in construct_map:
-            errors.append(f"{edge_label}: effect '{edge.effect}' not in constructs")
+        if edge.effect_id not in construct_map:
+            errors.append(f"{edge_label}: effect '{edge.effect_id}' not in constructs")
             continue
 
         constraint_error = _check_edge_constraint(edge, construct_map)
@@ -256,11 +252,17 @@ def validate_latent_structure(
 
         valid_edges.append(edge)
 
-    errors.extend(_check_global_constraints(valid_constructs, valid_edges))
+    errors.extend(_check_global_constraints(valid_edges))
 
     if not errors:
         try:
-            model = LatentStructure(constructs=valid_constructs, edges=valid_edges)
+            model = LatentStructure.model_validate(
+                {
+                    "constructs": valid_constructs,
+                    "edges": valid_edges,
+                    "default_outcome": data.get("default_outcome"),
+                }
+            )
             return model, []
         except ValidationError as exc:
             errors.append(f"Final validation failed: {exc}")
@@ -271,9 +273,14 @@ def validate_latent_structure(
 __all__ = [
     "CausalEdge",
     "Construct",
-    "EdgeSource",
     "LatentStructure",
     "Role",
     "TemporalStatus",
     "validate_latent_structure",
 ]
+
+
+class LatentStructureArtifact(ArtifactPayload):
+    """This artifact stores the authored causal structure proposed for the research question."""
+
+    latent_structure: LatentStructure

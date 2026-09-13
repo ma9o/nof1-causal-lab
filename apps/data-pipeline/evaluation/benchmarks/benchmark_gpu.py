@@ -190,11 +190,13 @@ def _run_benchmark(
         simulate_synthetic_nonlinear_data,
     )
 
-    from nof1_causal_lab.models.ssm.inference.bundle import build_particle_runtime_bundle
     from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.kernel import (
         build_marginal_particle_gibbs_kernel,
+    )
+    from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.runner import (
         run_marginal_particle_gibbs,
     )
+    from nof1_causal_lab.models.ssm.inference.problem import build_particle_problem
     from nof1_causal_lab.models.ssm.transition_kinds import LATENT_TRANSITION_EULER_MARUYAMA
 
     total_steps = warmup_steps + sample_steps
@@ -203,7 +205,7 @@ def _run_benchmark(
     model = build_synthetic_nonlinear_model(
         data, include_interval_support=False, diffusion_scale=1.0
     )
-    bundle = build_particle_runtime_bundle(
+    bundle = build_particle_problem(
         model,
         data.observations,
         data.times,
@@ -211,9 +213,9 @@ def _run_benchmark(
         trace_key=random.PRNGKey(0),
         reparam=None,
     )
-    dim = int(bundle.cached.flat_example.shape[0])
+    dim = int(bundle.runtime.initial_position.shape[0])
     kernel = build_marginal_particle_gibbs_kernel(
-        bundle,
+        bundle.runtime,
         num_particles=cfg.n_particles,
         num_parameter_particles=num_parameter_particles,
         param_step_size=0.01,
@@ -223,7 +225,7 @@ def _run_benchmark(
     )
     started = time.monotonic()
     run = run_marginal_particle_gibbs(
-        bundle,
+        bundle.runtime,
         kernel=kernel,
         num_warmup=warmup_steps,
         num_samples=sample_steps,

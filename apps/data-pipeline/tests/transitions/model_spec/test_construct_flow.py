@@ -14,14 +14,15 @@ from typing import TYPE_CHECKING, Any, cast
 import numpy as np
 import polars as pl
 
-from nof1_causal_lab.artifacts import (
+from nof1_causal_lab.artifacts.causal_design import CausalDesign
+from nof1_causal_lab.artifacts.prior import ExecutablePrior
+from nof1_causal_lab.artifacts.statistical_model_spec import (
     DistributionFamily,
     LinkFunction,
     ParameterConstraint,
     ParameterRole,
+    ParameterSpec,
 )
-from nof1_causal_lab.artifacts.causal_design import CausalDesign
-from nof1_causal_lab.artifacts.prior import ExecutablePrior
 from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
 from nof1_causal_lab.flows.transitions.model_spec.agentic.construct_flow import (
     SUBMIT_CONSTRUCT_SCHEMA,
@@ -37,6 +38,7 @@ from nof1_causal_lab.flows.transitions.model_spec.agentic.construct_flow import 
 from nof1_causal_lab.flows.transitions.model_spec.agentic.construct_prompt import (
     build_construct_messages,
 )
+from nof1_causal_lab.models.model_mechanisms import declare_dynamics_mechanisms
 from nof1_causal_lab.models.ssm.construct_admission import (
     AdmissionReport,
     AdmissionState,
@@ -46,6 +48,7 @@ from nof1_causal_lab.models.ssm.construct_admission import (
 )
 from nof1_causal_lab.models.ssm.reachability import CheckResult
 from nof1_causal_lab.models.structural import build_structural_plan
+from tests.helpers import fixture_entity_id
 from tests.models.ssm.test_dag_to_ssm import _make_causal_design_dict
 
 if TYPE_CHECKING:
@@ -59,8 +62,47 @@ def _normal(mu: float, sigma: float) -> dict[str, Any]:
 def _executable_prior(
     parameter: str,
     payload: dict[str, Any],
+    plan: StructuralPlan | None = None,
 ) -> ExecutablePrior:
-    return ExecutablePrior.model_validate({"parameter": parameter, **payload})
+    catalog = ParamCatalog.from_structural_plan(plan or _typed_structural_plan())
+    return ExecutablePrior.model_validate(
+        {"parameter_id": catalog.metadata_for(parameter)["id"], **payload}
+    )
+
+
+def _mechanisms(plan, construct=None, *, linear_edges=(), hill_edges=(), self_limiting=False):
+    """Explicit authoring choices for a construct submission fixture."""
+    catalog = ParamCatalog.from_structural_plan(plan)
+    parameters = [ParameterSpec.model_validate(row) for row in catalog.metadata.values()]
+    constructs = {item.name: item.id for item in plan.semantics.constructs.values()}
+    edges = {
+        (
+            plan.semantics.constructs[edge.cause_id].name,
+            plan.semantics.constructs[edge.effect_id].name,
+        ): edge.id
+        for edge in plan.semantics.edges.values()
+    }
+    target = constructs[construct] if construct else None
+    edge_ids = {edges[pair] for pair in (*linear_edges, *hill_edges)}
+    mechanisms = declare_dynamics_mechanisms(
+        plan,
+        parameters,
+        hill_edges=[edges[pair] for pair in hill_edges],
+        self_limiting=[constructs[construct]] if self_limiting else [],
+    )
+    return [
+        item
+        for item in mechanisms
+        if (
+            item.target_id == target
+            if (item.kind == "node_potential" or item.kind == "constant_drift")
+            else item.edge_id in edge_ids
+        )
+    ]
+
+
+def _mechanism_payloads(*args, **kwargs):
+    return [item.model_dump(mode="json") for item in _mechanisms(*args, **kwargs)]
 
 
 def _make_structural_plan_dict() -> dict[str, Any]:
@@ -103,8 +145,9 @@ def _add_feedback_edge(
     }
     source_id = f"edge:{len(plan['semantics']['edges']):04d}"
     plan["semantics"]["edges"][source_id] = {
-        "cause": cause,
-        "effect": effect,
+        "cause_id": construct_id_by_name[cause],
+        "effect_id": construct_id_by_name[effect],
+        "id": source_id,
         "description": f"{cause} feeds back on {effect}",
         "lagged": True,
         "sources": [],
@@ -170,8 +213,15 @@ def test_submit_construct_rejects_non_free_parameter():
         order=["X", "Y", "Z"],
     )
     feedback = state.submit_construct(
+        mechanisms=[],
         construct="X",
-        indicators=[{"variable": "x1", "family": "gaussian", "link": "identity"}],
+        indicators=[
+            {
+                "indicator_id": fixture_entity_id("indicator", "x1"),
+                "family": "gaussian",
+                "link": "identity",
+            }
+        ],
         priors={"obs_sd_bogus": _normal(0.0, 1.0)},
     )
     assert "not free" in feedback
@@ -193,10 +243,19 @@ def test_submit_construct_rejects_intercept_inactive_for_locked_likelihood():
         order=["X", "Y", "Z"],
     )
     feedback = state.submit_construct(
+        mechanisms=[],
         construct="X",
         indicators=[
-            {"variable": "x1", "family": "ordered_logistic", "link": "cumulative_logit"},
-            {"variable": "x2", "family": "gaussian", "link": "identity"},
+            {
+                "indicator_id": fixture_entity_id("indicator", "x1"),
+                "family": "ordered_logistic",
+                "link": "cumulative_logit",
+            },
+            {
+                "indicator_id": fixture_entity_id("indicator", "x2"),
+                "family": "gaussian",
+                "link": "identity",
+            },
         ],
         priors={"manifest_mean_x1": _normal(0.0, 1.0)},
     )
@@ -260,8 +319,15 @@ def test_prompt_and_submission_exclude_deferred_incoming_feedback_prior():
     assert "deferred feedback parent; its incoming effect is not authorable on this turn" in user
 
     feedback = state.submit_construct(
+        mechanisms=[],
         construct="Y",
-        indicators=[{"variable": "y1", "family": "gaussian", "link": "identity"}],
+        indicators=[
+            {
+                "indicator_id": fixture_entity_id("indicator", "y1"),
+                "family": "gaussian",
+                "link": "identity",
+            }
+        ],
         priors={"beta_Z_Y": _normal(0.2, 0.1)},
     )
     assert "not free" in feedback
@@ -286,13 +352,13 @@ def test_closed_loop_target_includes_the_closing_feedback_edge():
     # beta_Z_Y, so the recheck target must see BOTH parents to re-measure edge overwhelm.
     member_y = ConstructContribution(name="Y", edge_parents=("X",))
     target = _closed_loop_target(
-        member_y, plan, {"beta_X_Y": _normal(0.3, 0.1), "beta_Z_Y": _normal(0.2, 0.1)}
+        member_y, plan, _mechanisms(plan, linear_edges=(("X", "Y"), ("Z", "Y")))
     )
     assert target.edge_parents == ("X", "Z")
     assert target.hill_parents == ()
     # A saturating closing edge registers as both an edge parent and a Hill parent.
     hill_target = _closed_loop_target(
-        member_y, plan, {"beta_X_Y": _normal(0.3, 0.1), "hill_emax_Z_Y": _normal(1.0, 0.5)}
+        member_y, plan, _mechanisms(plan, linear_edges=(("X", "Y"),), hill_edges=(("Z", "Y"),))
     )
     assert hill_target.edge_parents == ("X", "Z")
     assert hill_target.hill_parents == ("Z",)
@@ -302,7 +368,14 @@ def test_contribution_from_payload_linear_edge():
     spec = _typed_structural_plan()
     payload = {
         "construct": "Y",
-        "indicators": [{"variable": "y1", "family": "gaussian", "link": "identity"}],
+        "mechanisms": _mechanism_payloads(spec, "Y", linear_edges=(("X", "Y"),)),
+        "indicators": [
+            {
+                "indicator_id": fixture_entity_id("indicator", "y1"),
+                "family": "gaussian",
+                "link": "identity",
+            }
+        ],
         "priors": {
             "rho_Y": _normal(0.6, 0.1),
             "sigma_Y": {"distribution": "HalfNormal", "params": {"sigma": 0.5}},
@@ -311,7 +384,9 @@ def test_contribution_from_payload_linear_edge():
     }
     contrib = contribution_from_payload(spec, payload, ParamCatalog.from_structural_plan(spec))
     assert contrib.name == "Y"
-    assert [lik.variable for lik in contrib.likelihoods] == ["y1"]
+    assert [lik.indicator_id for lik in contrib.likelihoods] == [
+        fixture_entity_id("indicator", "y1")
+    ]
     assert contrib.likelihoods[0].distribution == DistributionFamily.GAUSSIAN
     assert contrib.likelihoods[0].link == LinkFunction.IDENTITY
     assert {p.name for p in contrib.parameters} == {"rho_Y", "sigma_Y", "beta_X_Y"}
@@ -323,7 +398,14 @@ def test_contribution_from_payload_hill_edge_and_self_limit():
     spec = _typed_structural_plan()
     payload = {
         "construct": "Y",
-        "indicators": [{"variable": "y1", "family": "gaussian", "link": "identity"}],
+        "mechanisms": _mechanism_payloads(spec, "Y", hill_edges=(("X", "Y"),), self_limiting=True),
+        "indicators": [
+            {
+                "indicator_id": fixture_entity_id("indicator", "y1"),
+                "family": "gaussian",
+                "link": "identity",
+            }
+        ],
         "priors": {
             "rho_Y": _normal(0.6, 0.1),
             "self_limit_Y": {"distribution": "HalfNormal", "params": {"sigma": 0.5}},
@@ -347,8 +429,15 @@ def test_submit_construct_rejects_out_of_order():
     )
     # Active construct is X; submitting Y is rejected before any compilation.
     feedback = state.submit_construct(
+        mechanisms=[],
         construct="Y",
-        indicators=[{"variable": "y1", "family": "gaussian", "link": "identity"}],
+        indicators=[
+            {
+                "indicator_id": fixture_entity_id("indicator", "y1"),
+                "family": "gaussian",
+                "link": "identity",
+            }
+        ],
         priors={"rho_Y": _normal(0.6, 0.1)},
     )
     assert "Out-of-order" in feedback
@@ -382,8 +471,15 @@ def test_submit_construct_rejects_mixed_family_in_pooled_site():
     )
 
     feedback = state.submit_construct(
+        mechanisms=_mechanism_payloads(state.structural_plan, linear_edges=(("X", "Y"),)),
         construct="Y",
-        indicators=[{"variable": "y1", "family": "gaussian", "link": "identity"}],
+        indicators=[
+            {
+                "indicator_id": fixture_entity_id("indicator", "y1"),
+                "family": "gaussian",
+                "link": "identity",
+            }
+        ],
         priors={
             "sigma_Y": {"distribution": "HalfNormal", "params": {"sigma": 0.5}},
             "beta_X_Y": _normal(0.3, 0.1),
@@ -432,8 +528,15 @@ def test_feedback_closure_hard_recheck_blocks_commit(monkeypatch):
     )
 
     feedback = state.submit_construct(
+        mechanisms=_mechanism_payloads(plan, linear_edges=(("Y", "X"),)),
         construct="Y",
-        indicators=[{"variable": "y1", "family": "gaussian", "link": "identity"}],
+        indicators=[
+            {
+                "indicator_id": fixture_entity_id("indicator", "y1"),
+                "family": "gaussian",
+                "link": "identity",
+            }
+        ],
         priors={"beta_Y_X": _normal(0.2, 0.1)},
     )
 
@@ -614,6 +717,7 @@ def test_build_construct_messages_surfaces_conditional_likelihood_parameters():
             "obs_ordered_base_x1": _executable_prior(
                 "obs_ordered_base_x1",
                 _normal(0.0, 1.0),
+                spec,
             )
         }
     )
@@ -671,7 +775,7 @@ def test_build_construct_messages_keeps_declared_ordinal_support_with_one_observ
         structural_plan=spec,
         validation_report={
             "indicators": {
-                "x1": {
+                fixture_entity_id("indicator", "x1"): {
                     "profile": {
                         "n_obs": 1,
                         "min": 0.0,
@@ -701,7 +805,12 @@ def test_build_construct_messages_renders_concern_local_semantic_context():
     spec = _typed_structural_plan(payload)
     panel = pl.DataFrame(
         {
-            "indicator": ["y1", "y1", "y1", "x1"],
+            "indicator_id": [
+                "indicator:dec7b4916899d2109674",
+                "indicator:dec7b4916899d2109674",
+                "indicator:dec7b4916899d2109674",
+                "indicator:0f93ce57e1f1d1c96f5c",
+            ],
             "value": [0.0, 0.0, 0.0, 999.0],
             "anchor_time": [
                 datetime(2025, 1, 1),
@@ -751,7 +860,7 @@ def test_build_construct_messages_renders_concern_local_semantic_context():
             }
         ],
         "indicators": {
-            "y1": {
+            fixture_entity_id("indicator", "y1"): {
                 "profile": profile,
                 "validation": {
                     "issues": [
@@ -764,7 +873,7 @@ def test_build_construct_messages_renders_concern_local_semantic_context():
                     "checks": {"variance": "error"},
                 },
             },
-            "x1": {
+            fixture_entity_id("indicator", "x1"): {
                 "profile": {"n_obs": 1, "mean": 999.0},
                 "validation": {
                     "issues": [
@@ -824,7 +933,12 @@ def test_build_construct_messages_handles_null_empirical_profile():
         question="Does X drive Y?",
         structural_plan=spec,
         validation_report={
-            "indicators": {"x1": {"profile": None, "validation": {"issues": [], "checks": {}}}}
+            "indicators": {
+                fixture_entity_id("indicator", "x1"): {
+                    "profile": None,
+                    "validation": {"issues": [], "checks": {}},
+                }
+            }
         },
     )
 
@@ -875,7 +989,12 @@ def test_build_construct_messages_renders_incoming_known_input_without_hill_opti
         structural_plan=spec,
         data_for_model=pl.DataFrame(
             {
-                "indicator": ["x1", "x1", "x1", "x1"],
+                "indicator_id": [
+                    "indicator:0f93ce57e1f1d1c96f5c",
+                    "indicator:0f93ce57e1f1d1c96f5c",
+                    "indicator:0f93ce57e1f1d1c96f5c",
+                    "indicator:0f93ce57e1f1d1c96f5c",
+                ],
                 "value": [0.0, 10.0, 10.0, 20.0],
             }
         ),
@@ -903,7 +1022,12 @@ def test_build_construct_messages_renders_incoming_known_input_without_hill_opti
 
 def test_submit_construct_schema_is_well_formed():
     props = SUBMIT_CONSTRUCT_SCHEMA["properties"]
-    assert set(SUBMIT_CONSTRUCT_SCHEMA["required"]) == {"construct", "indicators", "priors"}
+    assert set(SUBMIT_CONSTRUCT_SCHEMA["required"]) == {
+        "construct",
+        "indicators",
+        "mechanisms",
+        "priors",
+    }
     assert SUBMIT_CONSTRUCT_SCHEMA["additionalProperties"] is False
     family_enum = props["indicators"]["items"]["properties"]["family"]["enum"]
     assert "gaussian" in family_enum

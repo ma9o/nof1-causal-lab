@@ -129,6 +129,7 @@ def test_submit_construct_adapter_persists_tool_feedback(
     monkeypatch.setattr(checkpoints, "existing_accepted_checkpoint_ref", lambda *_args: None)
     args = {
         "construct": "early_life_adversity",
+        "mechanisms": [],
         "indicators": [],
         "priors": {},
     }
@@ -235,7 +236,7 @@ def test_admitted_submission_persists_and_returns_the_new_checkpoint(monkeypatch
 
     output = llm_tool_adapters._execute_model_spec_submit_construct(
         "context.json",
-        {"construct": "sleep", "indicators": [], "priors": {}},
+        {"construct": "sleep", "indicators": [], "mechanisms": [], "priors": {}},
         "submission-1",
     )
 
@@ -306,7 +307,7 @@ def test_semantically_identical_submissions_reuse_admission_evaluation(monkeypat
         return f"checkpoint:{submission_id}"
 
     monkeypatch.setattr(checkpoints, "write_accepted_model_spec_checkpoint", _write_checkpoint)
-    args = {"construct": "sleep", "indicators": [], "priors": {}}
+    args = {"construct": "sleep", "indicators": [], "mechanisms": [], "priors": {}}
 
     first = llm_tool_adapters._execute_model_spec_submit_construct(
         "context.json", args, "submission-1"

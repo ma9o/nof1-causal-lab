@@ -17,12 +17,8 @@ from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from nof1_causal_lab.machine.artifacts import (
-    ARTIFACT_IDS,
-    ArtifactId,
-    ArtifactVersionInfo,
-    Provenance,
-)
+from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS, ArtifactId
+from nof1_causal_lab.machine.artifacts import ArtifactVersionInfo, Provenance  # noqa: TC001
 from nof1_causal_lab.machine.graph import (
     ARTIFACT_GRAPH,
     DERIVATIONS,
@@ -50,7 +46,7 @@ class WriteArtifact(BaseModel):
     provenance: Provenance = "human"
 
 
-Move = Annotated[RunArtifact | WriteArtifact, Field(discriminator="kind")]
+type Move = Annotated[RunArtifact | WriteArtifact, Field(discriminator="kind")]
 
 
 class RetractedArtifact(BaseModel):
@@ -200,7 +196,7 @@ def _staleness(
     return False
 
 
-class ArtifactStatus(BaseModel):
+class ArtifactFreshness(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     artifact_id: ArtifactId
@@ -211,13 +207,13 @@ class ArtifactStatus(BaseModel):
     produced_by: str | None = None
 
 
-def freshness_report(state: EpisodeState) -> list[ArtifactStatus]:
+def freshness_report(state: EpisodeState) -> list[ArtifactFreshness]:
     """Per-artifact existence/staleness — the navigator's and UI's state view."""
-    report: list[ArtifactStatus] = []
+    report: list[ArtifactFreshness] = []
     for artifact_id in ARTIFACT_IDS:
         info = state.get(artifact_id)
         report.append(
-            ArtifactStatus(
+            ArtifactFreshness(
                 artifact_id=artifact_id,
                 exists=info is not None,
                 stale=is_stale(state, artifact_id),

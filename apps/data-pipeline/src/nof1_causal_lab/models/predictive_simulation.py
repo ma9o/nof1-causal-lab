@@ -16,11 +16,11 @@ from nof1_causal_lab.models.ssm.execution.observation_families import (
     any_family_needs_level_metadata,
     resolve_manifest_families_and_links,
 )
-from nof1_causal_lab.models.ssm.inference.targets.kernels import (
+from nof1_causal_lab.models.ssm.execution.observation_model import (
     CompiledObservationModel,
     compile_observation_model,
 )
-from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
+from nof1_causal_lab.models.ssm.execution.observation_operator import (
     compile_observation_operator,
 )
 

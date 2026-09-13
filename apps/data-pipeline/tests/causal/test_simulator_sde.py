@@ -28,6 +28,8 @@ from nof1_causal_lab.models.ssm.dynamics import (
 )
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
 
+pytestmark = pytest.mark.cpu_expensive
+
 
 def _dense_matrix_vector_field(n_latent: int) -> VectorField:
     return VectorField(n_latent=n_latent, components=(DenseLinear(),))
@@ -47,14 +49,20 @@ class TestSimulateSDEMode:
     def test_indexed_fixed_step_path_replays_identically(self):
         vf, params, y0, time_grid = _linear_setup()
         config = SimulationConfig(sde_dt=0.025, use_indexed_brownian_path=True)
-        kwargs = {
-            "config": config,
-            "key": jr.PRNGKey(19),
-            "diffusion_cov": jnp.eye(1) * 0.2,
-        }
-
-        trajectory_a = simulate(vf, params, Intervention.none(), y0, time_grid, **kwargs)
-        trajectory_b = simulate(vf, params, Intervention.none(), y0, time_grid, **kwargs)
+        trajectories = [
+            simulate(
+                vf,
+                params,
+                Intervention.none(),
+                y0,
+                time_grid,
+                config=config,
+                key=jr.PRNGKey(19),
+                diffusion_cov=jnp.eye(1) * 0.2,
+            )
+            for _ in range(2)
+        ]
+        trajectory_a, trajectory_b = trajectories
 
         assert jnp.array_equal(trajectory_a, trajectory_b)
 

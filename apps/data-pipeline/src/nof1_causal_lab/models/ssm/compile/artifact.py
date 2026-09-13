@@ -11,6 +11,12 @@ from typing import TYPE_CHECKING, Any
 import jax
 import numpy as np
 
+from nof1_causal_lab.artifacts.compiled_ssm import (
+    CompiledSSMArtifact,
+    CompiledStructure,
+    SerializedEdgeLag,
+    SerializedSSMSpec,
+)
 from nof1_causal_lab.artifacts.measurement_structure import (
     MeasurementStructure,
     check_semantic_collisions,
@@ -18,10 +24,7 @@ from nof1_causal_lab.artifacts.measurement_structure import (
 )
 from nof1_causal_lab.artifacts.prior import (
     ExecutablePrior,
-    LocationScalePriorParams,
     PriorPlan,
-    ScalePriorParams,
-    prior_params_model,
 )
 from nof1_causal_lab.artifacts.statistical_model_spec import (
     ParameterRole,
@@ -29,19 +32,13 @@ from nof1_causal_lab.artifacts.statistical_model_spec import (
 )
 from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
-from nof1_causal_lab.models.ssm.compile.contracts import (
-    CompiledParameterBinding,
-    CompiledSSMArtifact,
-    CompiledStructure,
-    SerializedEdgeLag,
-    SerializedSSMSpec,
-)
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from nof1_causal_lab.artifacts.distribution import CompiledDistribution
     from nof1_causal_lab.artifacts.latent_structure import LatentStructure
     from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
     from nof1_causal_lab.models.ssm import SSMSpec
@@ -98,6 +95,10 @@ def serialize_ssm_spec(spec: SSMSpec) -> SerializedSSMSpec:
         "manifest_links": _to_jsonable(spec.manifest_links),
         "manifest_standardized": _to_jsonable(spec.manifest_standardized),
         "manifest_cat_anchor": _to_jsonable(spec.manifest_cat_anchor),
+        "latent_ids": _to_jsonable(spec.latent_ids),
+        "manifest_ids": _to_jsonable(spec.manifest_ids),
+        "input_ids": _to_jsonable(spec.input_ids),
+        "static_factor_ids": _to_jsonable(spec.static_factor_ids),
         "latent_names": _to_jsonable(spec.latent_names),
         "manifest_names": _to_jsonable(spec.manifest_names),
         "input_names": _to_jsonable(spec.input_names),
@@ -155,10 +156,15 @@ def _collect_measurement_compile_errors(
         errors.append("Measurement structure must include at least one indicator.")
         return errors
 
-    outcome_names = [construct.name for construct in latent.constructs if construct.is_outcome]
-    for outcome_name in outcome_names:
-        if not measurement.get_indicators_for_construct(outcome_name):
-            errors.append(f"Outcome construct '{outcome_name}' must have at least one indicator.")
+    construct_names = {construct.id: construct.name for construct in latent.constructs}
+    outcomes = [
+        construct
+        for construct in latent.constructs
+        if latent.default_outcome is not None and construct.id == latent.default_outcome.id
+    ]
+    for outcome in outcomes:
+        if not measurement.get_indicators_for_construct(outcome.id):
+            errors.append(f"Outcome construct '{outcome.name}' must have at least one indicator.")
 
     duplicate_groups: dict[tuple[str, str, str, str, tuple[str, ...]], list[str]] = defaultdict(
         list
@@ -169,7 +175,7 @@ def _collect_measurement_compile_errors(
             errors.append(f"Indicator '{indicator.name}': {warning}")
 
         duplicate_key = (
-            indicator.construct_name,
+            indicator.construct_id,
             _normalize_measurement_instruction(indicator.how_to_measure),
             indicator.measurement_dtype,
             indicator.aggregation,
@@ -181,7 +187,7 @@ def _collect_measurement_compile_errors(
         if len(indicator_names) < 2:
             continue
 
-        construct_name = duplicate_key[0]
+        construct_name = construct_names[duplicate_key[0]]
         joined_names = ", ".join(sorted(indicator_names))
         errors.append(
             f"Construct '{construct_name}' has duplicate indicator operationalizations: "
@@ -276,7 +282,17 @@ def _collect_statistical_model_spec_compile_errors(
     """Collect deterministic StatisticalModelSpec checks that the compiler owns."""
     errors: list[str] = []
     if structural_plan is not None:
-        manifest_names = [likelihood.variable for likelihood in statistical_model_spec.likelihoods]
+        unknown = {
+            item.indicator_id for item in statistical_model_spec.likelihoods
+        } - structural_plan.semantics.indicators.keys()
+        if unknown:
+            return [
+                f"Likelihoods reference indicators outside the structural plan: {sorted(unknown)}"
+            ]
+        manifest_names = [
+            structural_plan.semantics.indicators[likelihood.indicator_id].name
+            for likelihood in statistical_model_spec.likelihoods
+        ]
         return collect_structural_plan_compile_errors(
             structural_plan,
             manifest_names=manifest_names,
@@ -320,12 +336,18 @@ def _compile_validated_ssm_artifact(
     )
     from nof1_causal_lab.models.ssm.parameterization import compile_prior_semantics
 
-    spec, prior_registry, parameter_bindings, compile_diagnostics, edge_lag_days = (
-        compile_ssm_inputs_from_statistical_model_spec(
-            validated_statistical_model_spec,
-            prior_plan,
-            structural_plan=structural_plan,
-        )
+    (
+        spec,
+        prior_registry,
+        parameter_bindings,
+        compile_diagnostics,
+        edge_lag_days,
+        parameters,
+        auxiliary,
+    ) = compile_ssm_inputs_from_statistical_model_spec(
+        validated_statistical_model_spec,
+        prior_plan,
+        structural_plan=structural_plan,
     )
 
     structure = CompiledStructure(
@@ -339,6 +361,11 @@ def _compile_validated_ssm_artifact(
         structure=structure,
         compiled_prior_semantics=compile_prior_semantics(spec, prior_registry),
         parameter_bindings=parameter_bindings,
+        parameters=parameters,
+        auxiliary_coordinates=auxiliary,
+        observation_bindings={
+            iid: indicator.name for iid, indicator in structural_plan.semantics.indicators.items()
+        },
         compile_diagnostics=compile_diagnostics,
     )
 
@@ -363,182 +390,35 @@ def compile_ssm_artifact(
     )
 
 
-def _extract_serialized_prior_value(
-    params: UncheckedJsonObject,
-    key: str,
-    flat_index: int,
-) -> float:
-    """Read one scalar parameter value from serialized compiled prior semantics."""
-    if key not in params:
-        raise ValueError(f"Compiled prior state is missing required key {key!r}")
-
-    values = np.asarray(params[key], dtype=float).ravel()
-    if values.size == 0:
-        raise ValueError(f"Compiled prior state key {key!r} is empty")
-    if values.size == 1:
-        return float(values[0])
-    if flat_index < 0 or flat_index >= values.size:
+def _executable_prior_from_recipe(parameter: str, recipe: CompiledDistribution) -> ExecutablePrior:
+    """Recover the authored law and its reference interval without moment matching."""
+    family = recipe.distribution
+    operations = list(recipe.transforms)
+    reference_interval_days = None
+    if operations and operations[-1].kind == "persistence_to_decay":
+        reference_interval_days = operations.pop().scale
+    elif operations and operations[-1].kind == "affine":
+        scale = operations.pop()
+        if scale.loc != 0.0 or scale.scale <= 0.0:
+            raise ValueError("Compiled interval effects require a positive pure scaling")
+        reference_interval_days = 1.0 / scale.scale
+    if (
+        len(operations) == 1
+        and operations[0].kind == "exp"
+        and family == PriorDistributionFamily.NORMAL
+    ):
+        family = PriorDistributionFamily.LOG_NORMAL
+        operations.clear()
+    if operations:
         raise ValueError(
-            f"Compiled prior index {flat_index} is out of bounds for {key!r} with size {values.size}"
+            f"Cannot express the compiled prior for {parameter!r} on the authoring surface"
         )
-    return float(values[flat_index])
-
-
-def _compiled_distribution_for_site(
-    site,
-    params: UncheckedJsonObject,
-    flat_index: int,
-) -> tuple[str, dict[str, float]]:
-    """Convert one compiled site element back to a user-facing distribution row."""
-    from nof1_causal_lab.distributions import (
-        PriorDistributionFamily,
-        get_positive_runtime_kind_from_index,
-        get_real_runtime_kind_from_index,
-    )
-    from nof1_causal_lab.models.ssm.parameterization import SupportClass
-
-    if site.support in {SupportClass.REAL, SupportClass.CORRELATION}:
-        family = int(_extract_serialized_prior_value(params, "family", flat_index))
-        prior_family = get_real_runtime_kind_from_index(family)
-        base_params = {
-            "mu": _extract_serialized_prior_value(params, "loc", flat_index),
-            "sigma": _extract_serialized_prior_value(params, "scale", flat_index),
-        }
-        bounded_params = {
-            **base_params,
-            "lower": _extract_serialized_prior_value(params, "low", flat_index),
-            "upper": _extract_serialized_prior_value(params, "high", flat_index),
-        }
-        if prior_family == PriorDistributionFamily.NORMAL:
-            return "Normal", base_params
-        if prior_family == PriorDistributionFamily.UNIFORM:
-            return "Uniform", {
-                "lower": bounded_params["lower"],
-                "upper": bounded_params["upper"],
-            }
-        if prior_family == PriorDistributionFamily.TRUNCATED_NORMAL:
-            return "TruncatedNormal", bounded_params
-        raise ValueError(f"Unsupported compiled real-support prior family index {family}")
-
-    family = int(_extract_serialized_prior_value(params, "family", flat_index))
-    prior_family = get_positive_runtime_kind_from_index(family)
-    if prior_family == PriorDistributionFamily.HALF_NORMAL:
-        return "HalfNormal", {
-            "sigma": _extract_serialized_prior_value(params, "scale", flat_index),
-        }
-    if prior_family == PriorDistributionFamily.GAMMA:
-        return "Gamma", {
-            "concentration": _extract_serialized_prior_value(params, "concentration", flat_index),
-            "rate": _extract_serialized_prior_value(params, "rate", flat_index),
-        }
-    if prior_family == PriorDistributionFamily.LOG_NORMAL:
-        return "LogNormal", {
-            "mu": _extract_serialized_prior_value(params, "loc", flat_index),
-            "sigma": _extract_serialized_prior_value(params, "scale", flat_index),
-        }
-    if prior_family == PriorDistributionFamily.EXPONENTIAL:
-        return "Exponential", {
-            "rate": _extract_serialized_prior_value(params, "rate", flat_index),
-        }
-    if prior_family == PriorDistributionFamily.DELTA:
-        return "Delta", {
-            "value": _extract_serialized_prior_value(params, "value", flat_index),
-        }
-
-    raise ValueError(f"Unsupported compiled positive-support prior family index {family}")
-
-
-def _build_compiled_parameter_prior(
-    *,
-    parameter: str,
-    binding: CompiledParameterBinding,
-    site_by_name: UncheckedJsonObject,
-    prior_state: dict[str, UncheckedJsonObject],
-) -> ExecutablePrior:
-    """Build one authoring-scale prior row from a compiler binding."""
-    site_name = binding.site_name
-    flat_index = binding.flat_index
-    site = site_by_name.get(site_name)
-    if site is None:
-        raise ValueError(f"Compiled artifact is missing site registry entry for {site_name!r}")
-
-    params = prior_state.get(site_name)
-    if not isinstance(params, dict):
-        raise ValueError(f"Compiled artifact is missing prior state for site {site_name!r}")
-
-    distribution, distribution_params = _compiled_distribution_for_site(site, params, flat_index)
-    prior_distribution = PriorDistributionFamily(distribution)
     return ExecutablePrior(
-        parameter=parameter,
-        distribution=prior_distribution,
-        params=prior_params_model(prior_distribution, distribution_params),
+        parameter_id=parameter,
+        distribution=family,
+        params=recipe.params,
+        reference_interval_days=reference_interval_days,
     )
-
-
-def _resolve_latent_names(
-    compiled_ssm: CompiledSSMArtifact,
-    *,
-    expected: int,
-) -> list[str]:
-    """Resolve latent state names from the compiled spec."""
-    latent_names = list(compiled_ssm.spec.latent_names or [])
-
-    if len(latent_names) < expected:
-        raise ValueError(
-            f"Compiled SSM declares {expected} latent states but spec.latent_names "
-            f"provides only {len(latent_names)} ({latent_names!r}). "
-            "Rebuild the compiled artifact with complete latent_names."
-        )
-    return latent_names[:expected]
-
-
-def _build_compiled_initial_state_priors(
-    compiled_ssm: CompiledSSMArtifact,
-    *,
-    site_by_field: UncheckedJsonObject,
-    prior_state: dict[str, UncheckedJsonObject],
-) -> list[ExecutablePrior]:
-    """Expose implicit initial-state compiler defaults as executable priors."""
-    mean_site = site_by_field.get("t0_means")
-    sd_site = site_by_field.get("t0_var_diag")
-    if mean_site is None and sd_site is None:
-        return []
-    if mean_site is None or sd_site is None:
-        logger.warning("Missing mean/sd sites for initial-state prior binding; skipping")
-        return []
-
-    mean_params = prior_state.get(mean_site.name)
-    sd_params = prior_state.get(sd_site.name)
-    if not isinstance(mean_params, dict) or not isinstance(sd_params, dict):
-        logger.warning("Missing prior state for initial-state sites; skipping")
-        return []
-
-    n_latent = int(np.prod(mean_site.shape)) if mean_site.shape else 1
-    latent_names = _resolve_latent_names(compiled_ssm, expected=n_latent)
-
-    rows: list[ExecutablePrior] = []
-    for index, latent_name in enumerate(latent_names):
-        rows.append(
-            ExecutablePrior(
-                parameter=f"t0_mean_{latent_name}",
-                distribution=PriorDistributionFamily.NORMAL,
-                params=LocationScalePriorParams(
-                    mu=_extract_serialized_prior_value(mean_params, "loc", index),
-                    sigma=_extract_serialized_prior_value(mean_params, "scale", index),
-                ),
-            )
-        )
-    for index, latent_name in enumerate(latent_names):
-        rows.append(
-            ExecutablePrior(
-                parameter=f"t0_sd_{latent_name}",
-                distribution=PriorDistributionFamily.HALF_NORMAL,
-                params=ScalePriorParams(
-                    sigma=_extract_serialized_prior_value(sd_params, "scale", index)
-                ),
-            )
-        )
-    return rows
 
 
 def resolve_executable_priors(
@@ -546,50 +426,20 @@ def resolve_executable_priors(
     *,
     authored_plan: PriorPlan | None = None,
 ) -> list[ExecutablePrior]:
-    """Build canonical executable prior rows from a compiled artifact.
-
-    The compiler owns membership, ordering of bound parameters, and implicit
-    defaults. Authoring-scale priors are retained when available because some
-    semantic priors (for example DT-scale Beta priors on persistence) are
-    intentionally lossy after compilation to the executable CT representation.
-    """
-    from nof1_causal_lab.models.ssm.parameterization import load_prior_runtime_bundle
-
-    bundle = load_prior_runtime_bundle(compiled_ssm.compiled_prior_semantics)
-    site_by_name = {site.name: site for site in bundle.site_runtime.registry}
-    site_by_field = {
-        site.priors_field: site for site in bundle.site_runtime.registry if site.priors_field
-    }
+    """Resolve prior rows from lossless distribution recipes and authored evidence."""
+    semantics = compiled_ssm.compiled_prior_semantics
+    site_by_name = {site.name: site for site in semantics.site_registry}
     authored_priors = authored_plan.priors if authored_plan is not None else {}
-    resolved: list[ExecutablePrior] = []
-    seen: set[str] = set()
-
-    for parameter, authored_prior in authored_priors.items():
-        resolved.append(authored_prior)
-        seen.add(parameter)
-
+    resolved = list(authored_priors.values())
+    seen = set(authored_priors)
     for binding in compiled_ssm.parameter_bindings:
-        parameter = binding.parameter
-        if parameter in seen:
+        parameter_id = binding.parameter_id
+        if parameter_id in seen:
             continue
-        resolved.append(
-            _build_compiled_parameter_prior(
-                parameter=parameter,
-                binding=binding,
-                site_by_name=site_by_name,
-                prior_state=bundle.prior_state,
-            )
-        )
-        seen.add(parameter)
-
-    for row in _build_compiled_initial_state_priors(
-        compiled_ssm,
-        site_by_field=site_by_field,
-        prior_state=bundle.prior_state,
-    ):
-        parameter = row.parameter
-        if parameter in seen:
-            continue
-        resolved.append(row)
-        seen.add(parameter)
+        site = site_by_name[binding.site_name]
+        indices = next(iter(binding.coordinates.values())).indices
+        flat_index = int(np.ravel_multi_index(indices, tuple(site.shape))) if site.shape else 0
+        recipe = semantics.priors[site.name][flat_index]
+        resolved.append(_executable_prior_from_recipe(parameter_id, recipe))
+        seen.add(parameter_id)
     return resolved

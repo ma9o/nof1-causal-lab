@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from nof1_causal_lab.distributions import (
     OBSERVATION_LINK_VALUES_BY_DISTRIBUTION,
@@ -14,9 +14,22 @@ from nof1_causal_lab.distributions import (
 )
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 
+from .base import ArtifactPayload
+from .evidence import LiteratureSource  # noqa: TC001
+from .identity import (  # noqa: TC001
+    ConstructId,
+    EntityRef,
+    IndicatorId,
+    ParameterElementId,
+    ParameterId,
+)
+from .mechanism import DynamicsMechanism, EstimatedCoefficient, mechanism_coefficients
+from .parameter import PriorAuthoringTransform, SiteKind
+from .prior_proposal import PriorProposal  # noqa: TC001
+
 
 class LinkFunction(StrEnum):
-    """Link functions mapping linear predictor to distribution mean."""
+    """A link function connects an observation distribution to the model's predictor."""
 
     IDENTITY = "identity"
     LOG = "log"
@@ -28,25 +41,29 @@ class LinkFunction(StrEnum):
 
 
 class InitializationPolicy(StrEnum):
-    """Global initial-state policy for retained dynamic states."""
+    """This policy selects stationary-derived or freely estimated initial conditions for
+    dynamic states.
+    """
 
     STATIONARY = "stationary"
     FREE = "free"
 
 
 class ObservationInterceptPolicy(StrEnum):
-    """Global policy for whether eligible manifest intercepts remain free."""
+    """This policy determines whether eligible observation intercepts are fixed or freely
+    estimated.
+    """
 
     FIXED = "fixed"
     FREE = "free"
 
 
 class ParameterRole(StrEnum):
-    """Role of a parameter in the model."""
+    """A parameter role identifies which part of the statistical model a parameter controls."""
 
     FIXED_EFFECT = "fixed_effect"
     AR_COEFFICIENT = "ar_coefficient"
-    DYNAMICS_PARAMETER = "dynamics_parameter"
+    DYNAMICS_PARAMETER = "dynamics_parameter"  # noqa: V107 - public StrEnum value construction
     DYNAMICS_PARAMETER_POSITIVE = "dynamics_parameter_positive"
     RESIDUAL_SD = "residual_sd"
     STATE_INTERCEPT = "state_intercept"
@@ -58,12 +75,12 @@ class ParameterRole(StrEnum):
     INITIAL_STATE_CORRELATION = "initial_state_correlation"
     LOADING = "loading"
     MEASUREMENT_ERROR_SD = "measurement_error_sd"
-    OBSERVATION_HYPERPARAMETER = "observation_hyperparameter"
-    OBSERVATION_HYPERPARAMETER_POSITIVE = "observation_hyperparameter_positive"
+    OBSERVATION_HYPERPARAMETER = "observation_hyperparameter"  # noqa: V107 - public StrEnum value construction
+    OBSERVATION_HYPERPARAMETER_POSITIVE = "observation_hyperparameter_positive"  # noqa: V107 - public StrEnum value construction
 
 
 class ParameterConstraint(StrEnum):
-    """Constraints on parameter values."""
+    """A parameter constraint specifies the permitted range of a model parameter."""
 
     NONE = "none"  # noqa: V107 - consumed through StrEnum value construction
     POSITIVE = "positive"
@@ -85,18 +102,12 @@ EXPECTED_CONSTRAINT_FOR_ROLE[ParameterRole.INITIAL_STATE_CORRELATION] = (
 )
 
 
-class LikelihoodSource(BaseModel):
-    """A source of evidence for a likelihood distribution choice."""
-
-    title: str = Field(description="Title of the source (paper, textbook, etc.)")
-    url: str | None = Field(default=None, description="URL of the source if available")
-    snippet: str = Field(description="Relevant excerpt from the source")
-
-
 class LikelihoodSpec(BaseModel):
-    """Specification for a likelihood (observed variable distribution)."""
+    """A likelihood specification defines how an indicator's observed values follow from the
+    model.
+    """
 
-    variable: str = Field(description="Name of the observed indicator variable")
+    indicator_id: IndicatorId = Field(description="Persistent identity of the observed indicator")
     distribution: DistributionFamily = Field(description="Distribution family for this variable")
     link: LinkFunction = Field(description="Link function mapping linear predictor to mean")
     standardized: bool = Field(
@@ -107,7 +118,7 @@ class LikelihoodSpec(BaseModel):
         ),
     )
     reasoning: str = Field(description="Why this distribution/link was chosen for this variable")
-    sources: list[LikelihoodSource] = Field(
+    sources: list[LiteratureSource] = Field(
         default_factory=list,
         description="Literature sources supporting this likelihood choice",
     )
@@ -126,23 +137,40 @@ class LikelihoodSpec(BaseModel):
 
 
 class ParameterSpec(BaseModel):
-    """Specification for a parameter requiring a prior."""
+    """A parameter specification declares a named model quantity, its role, and its allowed
+    values.
+    """
 
-    name: str = Field(description="Parameter name")
+    id: ParameterId
+    owners: list[EntityRef]
+    quantity: SiteKind
+    name: str = Field(description="Authored parameter label; relationships use its persistent ID")
     role: ParameterRole = Field(description="Role of this parameter in the model")
     constraint: ParameterConstraint = Field(description="Constraint on parameter values")
     description: str = Field(
         description="Human-readable description of what this parameter represents"
     )
+    prior_transform: PriorAuthoringTransform = PriorAuthoringTransform.IDENTITY
+    elements: dict[ParameterElementId, str] = Field(
+        default_factory=dict,
+        description="Logical scalar components and their labels, declared during compilation.",
+    )
 
 
 class StatisticalModelSpec(BaseModel):
-    """Complete statistical model specification."""
+    """A statistical model specification defines likelihoods, parameter roles, and estimation
+    policies.
+    """
+
+    model_config = ConfigDict(extra="forbid")
 
     likelihoods: list[LikelihoodSpec] = Field(
         description="Likelihood specifications for each observed indicator"
     )
     parameters: list[ParameterSpec] = Field(description="All parameters requiring priors")
+    mechanisms: list[DynamicsMechanism] = Field(
+        description="Explicit state and edge dynamics; coefficients reference parameter IDs."
+    )
     initialization_policy: InitializationPolicy = Field(
         default=InitializationPolicy.STATIONARY,
         description="Whether dynamic-state initial conditions are stationary-derived or free",
@@ -151,10 +179,26 @@ class StatisticalModelSpec(BaseModel):
         default=ObservationInterceptPolicy.FREE,
         description="Whether eligible manifest intercepts remain free or are fixed",
     )
-    equilibrium_forcing: bool = Field(
-        default=False,
-        description="Whether eligible dynamic states may carry a continuous-time intercept term",
-    )
+
+    @model_validator(mode="after")
+    def validate_references(self) -> StatisticalModelSpec:
+        for label, identities in (
+            ("parameter", [parameter.id for parameter in self.parameters]),
+            ("likelihood", [likelihood.indicator_id for likelihood in self.likelihoods]),
+        ):
+            if len(identities) != len(set(identities)):
+                raise ValueError(f"Duplicate {label} identities")
+        parameter_ids = {parameter.id for parameter in self.parameters}
+        for mechanism in self.mechanisms:
+            for coefficient in mechanism_coefficients(mechanism).values():
+                if (
+                    isinstance(coefficient, EstimatedCoefficient)
+                    and coefficient.parameter_id not in parameter_ids
+                ):
+                    raise ValueError(
+                        f"Mechanism references undeclared parameter {coefficient.parameter_id!r}"
+                    )
+        return self
 
 
 def validate_statistical_model_spec_dict(
@@ -180,7 +224,7 @@ def validate_statistical_model_spec_dict(
         likelihoods = []
 
     likelihood_variables = [
-        item.get("variable", "") for item in likelihoods if isinstance(item, dict)
+        item.get("indicator_id", "") for item in likelihoods if isinstance(item, dict)
     ]
     seen_likelihood_variables: set[str] = set()
     for variable in likelihood_variables:
@@ -188,18 +232,6 @@ def validate_statistical_model_spec_dict(
             errors.append(f"duplicate likelihood for variable '{variable}'")
         if variable:
             seen_likelihood_variables.add(variable)
-
-    parameters_raw = data.get("parameters", [])
-    if isinstance(parameters_raw, list):
-        parameter_names = [
-            item.get("name", "") for item in parameters_raw if isinstance(item, dict)
-        ]
-        seen_parameter_names: set[str] = set()
-        for name in parameter_names:
-            if name and name in seen_parameter_names:
-                errors.append(f"duplicate parameter name '{name}'")
-            if name:
-                seen_parameter_names.add(name)
 
     initialization_policy = data.get(
         "initialization_policy",
@@ -221,14 +253,10 @@ def validate_statistical_model_spec_dict(
             f"{sorted(valid_observation_intercept_policies)}"
         )
 
-    equilibrium_forcing = data.get("equilibrium_forcing", False)
-    if not isinstance(equilibrium_forcing, bool):
-        errors.append("'equilibrium_forcing' must be a boolean")
-
     indicator_dtype: dict[str, str] = {}
     if indicators:
         indicator_dtype = {
-            indicator["name"]: indicator.get("measurement_dtype", "continuous")
+            indicator["id"]: indicator.get("measurement_dtype", "continuous")
             for indicator in indicators
         }
         missing = set(indicator_dtype) - seen_likelihood_variables
@@ -240,7 +268,7 @@ def validate_statistical_model_spec_dict(
             errors.append(f"likelihoods[{index}]: must be a dictionary")
             continue
 
-        variable = likelihood.get("variable", "")
+        variable = likelihood.get("indicator_id", "")
         distribution = likelihood.get("distribution", "")
         link = likelihood.get("link", "")
 
@@ -320,13 +348,6 @@ def validate_statistical_model_spec_dict(
                     f"parameters[{index}] '{name}': constraint '{constraint}' unexpected "
                     f"for role '{role}'; expected '{expected.value}'"
                 )
-            if role_enum == ParameterRole.INITIAL_STATE_CORRELATION and not name.startswith(
-                "cor0_"
-            ):
-                errors.append(
-                    f"parameters[{index}] '{name}': initial_state_correlation parameters "
-                    "must use canonical names starting with 'cor0_'"
-                )
 
     if not errors:
         try:
@@ -341,7 +362,6 @@ def validate_statistical_model_spec_dict(
 __all__ = [
     "EXPECTED_CONSTRAINT_FOR_ROLE",
     "LinkFunction",
-    "LikelihoodSource",
     "LikelihoodSpec",
     "StatisticalModelSpec",
     "ParameterConstraint",
@@ -350,3 +370,43 @@ __all__ = [
     "VALID_LINKS_FOR_DISTRIBUTION",
     "validate_statistical_model_spec_dict",
 ]
+
+
+class PriorPredictiveDiagnostic(BaseModel):
+    """A prior predictive diagnostic records the result of one exact model-admission check."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    check: str
+    construct_id: ConstructId
+    value: str
+    band: str
+    passed: bool
+    note: str
+    diagnosis: list[str] = Field(default_factory=list)
+    mode: str
+
+
+class StatisticalModelSpecArtifact(ArtifactPayload):
+    """This artifact combines the statistical specification with prior proposals and admission
+    diagnostics.
+    """
+
+    statistical_model_spec: StatisticalModelSpec
+    authored_priors: dict[ParameterId, PriorProposal]
+    resolved_priors: list[PriorProposal]
+    search_queries: dict[str, str] | None = None
+    validation_warnings: list[str] | None = None
+    prior_predictive_samples: dict[IndicatorId, list[float]] | None = None
+    prior_predictive_diagnostics: list[PriorPredictiveDiagnostic] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_prior_references(self) -> StatisticalModelSpecArtifact:
+        parameters = {parameter.id for parameter in self.statistical_model_spec.parameters}
+        for key, proposal in self.authored_priors.items():
+            if key != proposal.parameter_id or key not in parameters:
+                raise ValueError("Authored prior does not reference its declared parameter")
+        resolved_ids = [proposal.parameter_id for proposal in self.resolved_priors]
+        if len(resolved_ids) != len(set(resolved_ids)):
+            raise ValueError("Duplicate resolved prior parameter references")
+        return self

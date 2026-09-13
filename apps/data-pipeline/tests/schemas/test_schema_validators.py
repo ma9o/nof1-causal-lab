@@ -3,11 +3,8 @@
 Covers: validate_latent_structure and validate_measurement_structure.
 """
 
-from nof1_causal_lab.artifacts import (
-    LatentStructure,
-    validate_latent_structure,
-    validate_measurement_structure,
-)
+from nof1_causal_lab.artifacts.latent_structure import LatentStructure, validate_latent_structure
+from nof1_causal_lab.artifacts.measurement_structure import validate_measurement_structure
 from tests.helpers import invalid_dict_payload
 
 
@@ -19,23 +16,30 @@ def _require_latent_structure(model: LatentStructure | None) -> LatentStructure:
 def _valid_latent_data():
     """Minimal valid latent structure dict."""
     return {
+        "default_outcome": {"kind": "construct", "id": "construct:cdc0b2958a9512b2abad"},
         "constructs": [
             {
+                "id": "construct:6b04dc42c531e7091eb8",
                 "name": "stress",
                 "description": "Perceived stress",
                 "role": "exogenous",
                 "temporal_status": "time_varying",
             },
             {
+                "id": "construct:cdc0b2958a9512b2abad",
                 "name": "sleep",
                 "description": "Sleep quality",
                 "role": "endogenous",
                 "temporal_status": "time_varying",
-                "is_outcome": True,
             },
         ],
         "edges": [
-            {"cause": "stress", "effect": "sleep", "description": "Stress disrupts sleep"},
+            {
+                "cause_id": "construct:6b04dc42c531e7091eb8",
+                "effect_id": "construct:cdc0b2958a9512b2abad",
+                "id": "edge:4c52fe3e6d34a6f19f8c",
+                "description": "Stress disrupts sleep",
+            },
         ],
     }
 
@@ -46,16 +50,18 @@ def _valid_measurement_data():
         "model_clock": "1d",
         "indicators": [
             {
+                "id": "indicator:6bde869aba53fb51e0f4",
+                "construct_id": "construct:6b04dc42c531e7091eb8",
                 "name": "pss_score",
-                "construct_name": "stress",
                 "construct_polarity": "positive",
                 "how_to_measure": "Perceived Stress Scale score",
                 "measurement_dtype": "continuous",
                 "aggregation": "mean",
             },
             {
+                "id": "indicator:9866c549bd1c25f0a5d7",
+                "construct_id": "construct:cdc0b2958a9512b2abad",
                 "name": "sleep_hours",
-                "construct_name": "sleep",
                 "construct_polarity": "positive",
                 "how_to_measure": "Hours of sleep reported",
                 "measurement_dtype": "continuous",
@@ -85,7 +91,7 @@ class TestValidateLatentStructure:
     def test_missing_constructs(self):
         model, errors = validate_latent_structure({"edges": []})
         assert model is None
-        assert any("outcome" in e.lower() for e in errors)
+        assert any("constructs" in e.lower() for e in errors)
 
     def test_constructs_not_list(self):
         model, errors = validate_latent_structure({"constructs": "not a list", "edges": []})

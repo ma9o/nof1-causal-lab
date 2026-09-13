@@ -55,15 +55,27 @@ def panel_frame(n_days: int = 20) -> pl.DataFrame:
 
 def statistical_model_spec() -> dict[str, Any]:
     return {
+        "mechanisms": [
+            {
+                "kind": "node_potential",
+                "target_id": "construct:98df502ac4daf088ca29",
+                "center": {"kind": "fixed", "value": 0},
+                "stiffness": {
+                    "kind": "estimated",
+                    "parameter_id": "parameter:067ff49138696d741faffe7e2dc6684225435e905b47cba9dbd3b216d7bbe749",
+                },
+                "quartic": {"kind": "fixed", "value": 0},
+            }
+        ],
         "likelihoods": [
             {
-                "variable": "stress_score",
+                "indicator_id": "indicator:3696aef3ff6f446744e5",
                 "distribution": "gaussian",
                 "link": "identity",
                 "reasoning": "Continuous stress score.",
             },
             {
-                "variable": "sleep_score",
+                "indicator_id": "indicator:7f807162156d3eb1b611",
                 "distribution": "gaussian",
                 "link": "identity",
                 "reasoning": "Continuous sleep score.",
@@ -71,6 +83,10 @@ def statistical_model_spec() -> dict[str, Any]:
         ],
         "parameters": [
             {
+                "prior_transform": "dt_persistence_to_ct_decay",
+                "id": "parameter:067ff49138696d741faffe7e2dc6684225435e905b47cba9dbd3b216d7bbe749",
+                "owners": [{"kind": "construct", "id": "construct:98df502ac4daf088ca29"}],
+                "quantity": "dynamics_decay",
                 "name": "rho_Stress",
                 "role": "ar_coefficient",
                 "constraint": "unit_interval",
@@ -103,12 +119,12 @@ def stage4_report() -> dict[str, Any]:
 
 
 def compiled_ssm() -> dict[str, Any]:
-    from nof1_causal_lab.models.ssm.compile.artifact import serialize_ssm_spec
-    from nof1_causal_lab.models.ssm.compile.contracts import (
+    from nof1_causal_lab.artifacts.compiled_ssm import (
         CompiledPriorSemantics,
         CompiledSSMArtifact,
         CompiledStructure,
     )
+    from nof1_causal_lab.models.ssm.compile.artifact import serialize_ssm_spec
     from tests.ssm_spec_fixtures import block_ssm_spec, full_dense_matrix_dynamics_spec
 
     spec = block_ssm_spec(
@@ -127,10 +143,13 @@ def compiled_ssm() -> dict[str, Any]:
             anchor_certificates=[],
         ),
         compiled_prior_semantics=CompiledPriorSemantics(
-            schema_version=5,
+            schema_version=7,
             site_registry=[],
-            prior_state={},
+            priors={},
         ),
+        observation_bindings={"indicator:stress": "stress_score", "indicator:sleep": "sleep_score"},
+        parameters=[],
+        auxiliary_coordinates=[],
         parameter_bindings=[],
         compile_diagnostics=[],
     )

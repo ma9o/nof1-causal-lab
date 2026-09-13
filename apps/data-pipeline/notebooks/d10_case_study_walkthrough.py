@@ -21,8 +21,12 @@ def imports():
     import matplotlib.pyplot as plt
     import numpy as np
 
-    from nof1_causal_lab.artifacts import DistributionFamily, LinkFunction
-    from nof1_causal_lab.artifacts.statistical_model_spec import LikelihoodSpec, ParameterSpec
+    from nof1_causal_lab.artifacts.statistical_model_spec import (
+        DistributionFamily,
+        LikelihoodSpec,
+        LinkFunction,
+        ParameterSpec,
+    )
     from nof1_causal_lab.flows.transitions.model_spec.agentic.construct_flow import ParamCatalog
     from nof1_causal_lab.models.ssm.construct_admission import (
         AdmissionState,
@@ -241,19 +245,25 @@ def dag_diagram(EDGES, ORDER, UNOBSERVED, mo, plt):
 @app.cell
 def causal_design(EDGES, INDICATORS, ORDER, build_structural_plan):
     _edges = [
-        {"cause": _c, "effect": _e, "description": f"{_c} -> {_e}", "lagged": True}
+        {
+            "id": f"edge:{_c}-{_e}",
+            "cause_id": f"construct:{_c}",
+            "effect_id": f"construct:{_e}",
+            "description": f"{_c} -> {_e}",
+            "lagged": True,
+        }
         for _c, _e in EDGES
     ]
     CAUSAL_SPEC = {
         "latent": {
             "constructs": [
                 {
+                    "id": f"construct:{_n}",
                     "name": _n,
                     "description": _n,
                     "role": "exogenous"
                     if _n in {"CaffeineIntake", "AutonomicArousal"}
                     else "endogenous",
-                    "is_outcome": _n == ORDER[-1],
                     "temporal_status": "time_varying",
                 }
                 for _n in ORDER
@@ -264,8 +274,9 @@ def causal_design(EDGES, INDICATORS, ORDER, build_structural_plan):
             "model_clock": "1d",
             "indicators": [
                 {
+                    "id": f"indicator:{_ind}",
+                    "construct_id": f"construct:{_c}",
                     "name": _ind,
-                    "construct_name": _c,
                     "construct_polarity": "positive",
                     "how_to_measure": _ind,
                     "measurement_dtype": _dtype,
@@ -396,11 +407,39 @@ def elicitation(
     math,
     np,
 ):
+    from nof1_causal_lab.artifacts.prior import ExecutablePrior as _ExecutablePrior
+    from nof1_causal_lab.models.model_mechanisms import (
+        declare_dynamics_mechanisms as _declare_mechanisms,
+    )
+
     _catalog = ParamCatalog.from_structural_plan(STRUCTURAL_PLAN)
+    _indicator_ids = {item.name: item.id for item in STRUCTURAL_PLAN.semantics.indicators.values()}
+    _all_mechanisms = _declare_mechanisms(
+        STRUCTURAL_PLAN,
+        [ParameterSpec.model_validate(row) for row in _catalog.metadata.values()],
+    )
+
+    def _mechanisms_for(construct):
+        _target = next(
+            item.id
+            for item in STRUCTURAL_PLAN.semantics.constructs.values()
+            if item.name == construct
+        )
+        return tuple(
+            mechanism
+            for mechanism in _all_mechanisms
+            if (
+                mechanism.target_id == _target
+                if (mechanism.kind == "node_potential" or mechanism.kind == "constant_drift")
+                else STRUCTURAL_PLAN.semantics.edges[mechanism.edge_id].effect_id == _target
+            )
+        )
+
     _emission = {c: (ind, fam, link) for ind, c, _d, fam, link, _t in INDICATORS}
-    _parents = {c["name"]: [] for c in CAUSAL_SPEC["latent"]["constructs"]}
+    _construct_names = {c["id"]: c["name"] for c in CAUSAL_SPEC["latent"]["constructs"]}
+    _parents = {name: [] for name in _construct_names.values()}
     for _e in CAUSAL_SPEC["latent"]["edges"]:
-        _parents[_e["effect"]].append(_e["cause"])
+        _parents[_construct_names[_e["effect_id"]]].append(_construct_names[_e["cause_id"]])
     DT = 1.0  # model clock, days
 
     def _inv_link(link, y):
@@ -449,7 +488,7 @@ def elicitation(
             _ind, _fam, _link = _emission[c]
             _likelihoods = (
                 LikelihoodSpec(
-                    variable=_ind,
+                    indicator_id=_indicator_ids[_ind],
                     distribution=DistributionFamily(_fam),
                     link=LinkFunction(_link),
                     reasoning=f"{_fam}/{_link} for {_ind}",
@@ -471,15 +510,19 @@ def elicitation(
             name=c,
             likelihoods=_likelihoods,
             parameters=tuple(
-                ParameterSpec(
-                    name=_pn,
-                    role=_catalog.role_for(_pn)[0],
-                    constraint=_catalog.role_for(_pn)[1],
-                    description=_pn,
-                )
-                for _pn in priors
+                ParameterSpec.model_validate(_catalog.metadata_for(_pn)) for _pn in priors
             ),
-            priors=priors,
+            mechanisms=_mechanisms_for(c),
+            priors={
+                _pn: _ExecutablePrior.model_validate(
+                    {
+                        **_law,
+                        "parameter_id": _catalog.metadata_for(_pn)["id"],
+                        "reference_interval_days": DT,
+                    }
+                )
+                for _pn, _law in priors.items()
+            },
             edge_parents=tuple(_parents[c]),
         )
 

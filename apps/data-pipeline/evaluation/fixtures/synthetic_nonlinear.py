@@ -6,7 +6,9 @@ from dataclasses import dataclass
 
 import jax.numpy as jnp
 import numpy as np
+import numpyro.distributions as dist  # noqa: TC002
 
+from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
 from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily, LinkFunction
 from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.models.ssm.dynamics.spec import (
@@ -17,11 +19,7 @@ from nof1_causal_lab.models.ssm.dynamics.spec import (
 )
 from nof1_causal_lab.models.ssm.model import SSMModel, SSMSpec
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
-from nof1_causal_lab.models.ssm.priors import (
-    PriorRegistry,
-    PriorSpec,
-    default_prior_for_descriptor,
-)
+from nof1_causal_lab.models.ssm.priors import default_prior_for_descriptor
 from nof1_causal_lab.models.ssm.structure import (
     DiffusionBlockSpec,
     Fixed,
@@ -30,7 +28,7 @@ from nof1_causal_lab.models.ssm.structure import (
     SparseVectorBlockSpec,
     T0CholBlockSpec,
 )
-from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
+from nof1_causal_lab.prior_distributions import distribution_from_params
 
 LATENT_NAMES = [
     "affective_state",
@@ -385,7 +383,9 @@ def build_synthetic_nonlinear_spec():
     )
 
 
-def build_synthetic_nonlinear_priors(spec, diffusion_scale: float = 1.0) -> PriorRegistry:
+def build_synthetic_nonlinear_priors(
+    spec, diffusion_scale: float = 1.0
+) -> dict[str, dist.Distribution]:
     """Honest off-truth priors with a REGIME-SCALED process-noise prior.
 
     Diffusion stays free/estimated (numerically stable, unlike pinning the tight
@@ -401,26 +401,26 @@ def build_synthetic_nonlinear_priors(spec, diffusion_scale: float = 1.0) -> Prio
     unreachable truth that poisoned recovery the same way the raw-scale manifest
     means did before they were pinned.
     """
-    priors: dict[str, PriorSpec] = {
+    priors: dict[str, dist.Distribution] = {
         site.name: default_prior_for_descriptor(site) for site in spec.iter_sample_sites()
     }
-    priors["lambda_free"] = PriorSpec(
+    priors["lambda_free"] = distribution_from_params(
         PriorDistributionFamily.NORMAL,
         {"mu": 0.0, "sigma": 2.5},
     )
-    priors["diffusion_diag_free"] = PriorSpec(
+    priors["diffusion_diag_free"] = distribution_from_params(
         PriorDistributionFamily.HALF_NORMAL,
         {"sigma": 0.4 * float(diffusion_scale)},
     )
-    priors["obs_r"] = PriorSpec(
+    priors["obs_r"] = distribution_from_params(
         PriorDistributionFamily.LOG_NORMAL,
         {"mu": float(np.log(6.0)), "sigma": 0.6},
     )
-    priors["obs_shape"] = PriorSpec(
+    priors["obs_shape"] = distribution_from_params(
         PriorDistributionFamily.LOG_NORMAL,
         {"mu": float(np.log(5.0)), "sigma": 0.6},
     )
-    return PriorRegistry(priors)
+    return dict(priors)
 
 
 def build_synthetic_nonlinear_model(

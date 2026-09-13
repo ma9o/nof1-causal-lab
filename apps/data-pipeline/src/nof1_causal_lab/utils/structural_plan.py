@@ -28,7 +28,11 @@ def get_plan_constructs(plan: StructuralPlan) -> list[UncheckedJsonObject]:
 
 def get_plan_indicators(plan: StructuralPlan) -> list[UncheckedJsonObject]:
     return [
-        {"source_id": source_id, **indicator.model_dump(mode="json")}
+        {
+            "source_id": source_id,
+            **indicator.model_dump(mode="json"),
+            "construct_name": plan.semantics.constructs[indicator.construct_id].name,
+        }
         for source_id, indicator in plan.semantics.indicators.items()
     ]
 
@@ -38,6 +42,9 @@ def get_manifest_indicators(plan: StructuralPlan) -> list[UncheckedJsonObject]:
         {
             "source_id": source_id,
             **plan.semantics.indicators[source_id].model_dump(mode="json"),
+            "construct_name": plan.semantics.constructs[
+                plan.semantics.indicators[source_id].construct_id
+            ].name,
         }
         for source_id in plan.manifest_indicator_order
     ]
@@ -93,12 +100,6 @@ def get_known_inputs(plan: StructuralPlan) -> list[UncheckedJsonObject]:
         }
         for item in plan.known_inputs
     ]
-
-
-def get_known_input_source_indicators(
-    plan: StructuralPlan,
-) -> set[str]:
-    return {str(item["source_indicator"]) for item in get_known_inputs(plan)}
 
 
 def get_induced_dependencies(
@@ -225,7 +226,7 @@ def restrict_structural_plan(
     manifest_order = tuple(
         indicator_id
         for indicator_id in plan.manifest_indicator_order
-        if plan.semantics.indicators[indicator_id].construct_name in keep_names
+        if plan.semantics.indicators[indicator_id].construct_id in keep_ids
     )
     dependencies = tuple(
         dependency
@@ -281,7 +282,6 @@ def restrict_structural_plan(
 __all__ = [
     "get_edges",
     "get_induced_dependencies",
-    "get_known_input_source_indicators",
     "get_known_inputs",
     "get_manifest_indicators",
     "get_marginalized_scales",

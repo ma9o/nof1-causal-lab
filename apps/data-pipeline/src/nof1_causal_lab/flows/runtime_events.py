@@ -31,7 +31,7 @@ class RuntimeEventModel(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    cursor: str | None = None
+    cursor: str = ""
 
 
 class RuntimeEventError(BaseModel):

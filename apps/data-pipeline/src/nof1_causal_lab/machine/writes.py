@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from nof1_causal_lab.artifacts.catalog import ARTIFACT_CONTRACTS
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.artifact_files import json_filename
 from nof1_causal_lab.machine.derivations import complete_derivation_cascade
@@ -22,12 +23,8 @@ from nof1_causal_lab.machine.store import ArtifactStore
 if TYPE_CHECKING:
     from pydantic import BaseModel
 
-    from nof1_causal_lab.machine.artifacts import (
-        ArtifactId,
-        ArtifactVersionInfo,
-        EpisodeState,
-        Provenance,
-    )
+    from nof1_causal_lab.artifacts.identity import ArtifactId
+    from nof1_causal_lab.machine.artifacts import ArtifactVersionInfo, EpisodeState, Provenance
 
 
 def _validated(
@@ -46,17 +43,13 @@ def _write_question(
     payload: UncheckedJsonObject,
     provenance: Provenance,
 ) -> ArtifactVersionInfo:
-    text = payload.get("text", "")
-    if not isinstance(text, str) or not text.strip():
-        raise ArtifactWriteRejected(
-            "question payload must be {'text': <non-empty string>}", artifact_id="question"
-        )
+    validated = _validated("question", ARTIFACT_CONTRACTS["question"], payload)
     return store.write_version(
         "question",
         provenance=provenance,
         derived_from={},
         produced_by=None,
-        json_files={json_filename("question", "question"): {"text": text.strip()}},
+        json_files={json_filename("question", "question"): validated},
     )
 
 
@@ -66,51 +59,36 @@ def _write_saved_scenarios(
     payload: UncheckedJsonObject,
     provenance: Provenance,
 ) -> ArtifactVersionInfo:
-    from nof1_causal_lab.flows.transitions.analysis.contracts import SavedScenarioContract
-
-    scenarios = payload.get("scenarios")
-    if not isinstance(scenarios, list):
-        raise ArtifactWriteRejected(
-            "saved_scenarios payload must be {'scenarios': [...]}",
-            artifact_id="saved_scenarios",
-        )
-    validated = [
-        _validated("saved_scenarios", SavedScenarioContract, scenario) for scenario in scenarios
-    ]
+    validated = _validated("saved_scenarios", ARTIFACT_CONTRACTS["saved_scenarios"], payload)
+    for scenario in validated["scenarios"]:
+        for item in scenario["evaluations"]:
+            evaluation = item["evaluation"]
+            evaluation_store = ArtifactStore(evaluation["model"]["id"])
+            if evaluation["posterior"]["version"] not in evaluation_store.list_versions(
+                "posterior"
+            ):
+                raise ArtifactWriteRejected(
+                    "Saved evaluation refers to an absent posterior version",
+                    artifact_id="saved_scenarios",
+                )
     roots = {root.artifact_id: root for root in ROOTS}
     return store.write_version(
         "saved_scenarios",
         provenance=provenance,
         derived_from=write_pins(state, roots["saved_scenarios"].write_pins),
         produced_by=None,
-        json_files={json_filename("saved_scenarios", "saved_scenarios"): {"scenarios": validated}},
+        json_files={json_filename("saved_scenarios", "saved_scenarios"): validated},
     )
 
 
-_CONTRACT_WRITES: dict[ArtifactId, tuple[type[BaseModel] | str, str]] = {
-    "latent_structure": (
-        "LatentStructureContract",
-        json_filename("latent_structure", "latent_structure"),
-    ),
-    "measurement_structure": (
-        "MeasurementStructureContract",
-        json_filename("measurement_structure", "measurement_structure"),
-    ),
-    "statistical_model_spec": (
-        "StatisticalModelSpecContract",
-        json_filename("statistical_model_spec", "statistical_model_spec"),
-    ),
-    "baseline_report": (
-        "BaselineReportContract",
-        json_filename("baseline_report", "baseline_report"),
-    ),
-}
-
-
-def _contract_class(name: str) -> type[BaseModel]:
-    from nof1_causal_lab.flows import artifact_contracts
-
-    return getattr(artifact_contracts, name)
+_CONTRACT_WRITES: frozenset[ArtifactId] = frozenset(
+    {
+        "latent_structure",
+        "measurement_structure",
+        "statistical_model_spec",
+        "baseline_report",
+    }
+)
 
 
 def _write_contract_artifact(
@@ -120,9 +98,8 @@ def _write_contract_artifact(
     payload: UncheckedJsonObject,
     provenance: Provenance,
 ) -> ArtifactVersionInfo:
-    contract_ref, filename = _CONTRACT_WRITES[artifact_id]
-    contract = _contract_class(contract_ref) if isinstance(contract_ref, str) else contract_ref
-    validated = _validated(artifact_id, contract, payload)
+    validated = _validated(artifact_id, ARTIFACT_CONTRACTS[artifact_id], payload)
+    filename = json_filename(artifact_id, artifact_id)
     pins = write_pins(state, transition_spec(artifact_id).consumes)
     return store.write_version(
         artifact_id,

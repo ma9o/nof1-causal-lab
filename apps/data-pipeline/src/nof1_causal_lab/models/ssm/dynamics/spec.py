@@ -35,14 +35,9 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 import jax.numpy as jnp
 import numpyro
 
+from nof1_causal_lab.artifacts.parameter import PriorAuthoringTransform, SiteKind, SupportClass
 from nof1_causal_lab.models.ssm.structure.parameters import Fixed, Free, ParameterSlot
-from nof1_causal_lab.models.ssm.structure.sites import (
-    PriorAuthoringTransform,
-    SemanticBinding,
-    SiteKind,
-    SupportClass,
-    make_site,
-)
+from nof1_causal_lab.models.ssm.structure.sites import SemanticBinding, make_site
 
 from .edges import (
     DiagonalDecay,
@@ -428,6 +423,7 @@ class DiagonalDecaySpec:
             SupportClass.POSITIVE,
             "dynamics",
             SiteKind.DYNAMICS_DECAY,
+            positions=tuple(range(n)),
             priors_field="dynamics_decay",
         )
 
@@ -493,6 +489,7 @@ class InterceptSpec:
             SupportClass.REAL,
             "dynamics",
             SiteKind.DYNAMICS_CINT,
+            positions=tuple(range(n)),
             priors_field="dynamics_cint",
         )
 

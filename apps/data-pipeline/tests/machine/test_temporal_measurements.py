@@ -95,7 +95,7 @@ def test_execute_llm_tool_calls_activity_dispatches_by_tool_name(tmp_path):
             "extractions": [
                 {
                     "window_start": "2026-01-01T00:00:00",
-                    "indicator": "steps",
+                    "indicator_id": "indicator:steps",
                     "value": 1000,
                 }
             ]
@@ -119,7 +119,9 @@ def test_execute_llm_tool_calls_activity_dispatches_by_tool_name(tmp_path):
                 "measurement_structure": {
                     "indicators": [
                         {
+                            "id": "indicator:steps",
                             "name": "steps",
+                            "construct_id": "construct:exercise",
                             "measurement_dtype": "continuous",
                             "aggregation": "mean",
                             "support_kind": "interval",
@@ -528,7 +530,7 @@ def test_extraction_chunk_workflow_runs_shared_llm_subroutine(monkeypatch, tmp_p
             "extractions": [
                 {
                     "window_start": "2026-01-01T00:00:00",
-                    "indicator": "steps",
+                    "indicator_id": "indicator:steps",
                     "value": 1000,
                 }
             ]
@@ -574,7 +576,9 @@ def test_extraction_chunk_workflow_runs_shared_llm_subroutine(monkeypatch, tmp_p
                 "measurement_structure": {
                     "indicators": [
                         {
+                            "id": "indicator:steps",
                             "name": "steps",
+                            "construct_id": "construct:exercise",
                             "measurement_dtype": "continuous",
                             "aggregation": "mean",
                             "support_kind": "interval",
@@ -746,26 +750,28 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
     valid_structure = {
+        "default_outcome": {"kind": "construct", "id": "construct:cdc0b2958a9512b2abad"},
         "constructs": [
             {
+                "id": "construct:c665e6cdc48fc83e0915",
                 "name": "exercise",
                 "description": "exercise level",
                 "role": "exogenous",
-                "is_outcome": False,
                 "temporal_status": "time_varying",
             },
             {
+                "id": "construct:cdc0b2958a9512b2abad",
                 "name": "sleep",
                 "description": "sleep quality",
                 "role": "endogenous",
-                "is_outcome": True,
                 "temporal_status": "time_varying",
             },
         ],
         "edges": [
             {
-                "cause": "exercise",
-                "effect": "sleep",
+                "cause_id": "construct:c665e6cdc48fc83e0915",
+                "effect_id": "construct:cdc0b2958a9512b2abad",
+                "id": "edge:ee04dac06187e4b97ab3",
                 "description": "exercise can affect sleep",
                 "lagged": True,
                 "sources": [],

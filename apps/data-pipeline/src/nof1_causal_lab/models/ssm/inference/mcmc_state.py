@@ -1,29 +1,23 @@
-"""Blocked MCMC driver: latent trajectory updates + parameter kernels."""
+"""Offline joint-kernel state."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 import jax
 import jax.numpy as jnp
-from blackjax.adaptation.step_size import (
-    DualAveragingAdaptationState,
-)
+from blackjax.adaptation.step_size import DualAveragingAdaptationState
 
-_DEFAULT_MIN_SCALE = 1e-6
-_DEFAULT_MAX_SCALE = 1e3
-_MAX_INITIAL_PARAM_STEP_SIZE_ITERS = 20
-_PARTICLE_LATENT_ADAPTATION_WINDOW = 100
-_PARTICLE_LATENT_ADAPTATION_TOLERANCE = 0.05
-_PARTICLE_LATENT_ADAPTATION_RHO = 0.5
-_PARTICLE_LATENT_ADAPTATION_GAMMA = -0.5
-_PARTICLE_LATENT_ADAPTATION_MIN_RATE = 1e-3
+if TYPE_CHECKING:
+    from nof1_causal_lab.models.ssm.inference.problem import ParticleContext
 
 
 class TrajectoryMCMCState(NamedTuple):
+    """Joint position and context carried between offline kernel calls."""
+
     position: jnp.ndarray
-    latent_context: Any
+    latent_context: ParticleContext
     latent_trajectory: jnp.ndarray
     trajectory_log_prob: jnp.ndarray
     complete_log_posterior: jnp.ndarray
@@ -35,15 +29,33 @@ class TrajectoryMCMCState(NamedTuple):
     param_da: DualAveragingAdaptationState
 
 
+def _clip_scale(
+    scale: jnp.ndarray,
+    *,
+    min_scale: float | None,
+    max_scale: float | None,
+) -> jnp.ndarray:
+    clipped = scale
+    if min_scale is not None:
+        min_value = jnp.nextafter(
+            jnp.asarray(min_scale, dtype=clipped.dtype),
+            jnp.asarray(jnp.inf, dtype=clipped.dtype),
+        )
+        clipped = jnp.maximum(clipped, min_value)
+    if max_scale is not None:
+        clipped = jnp.minimum(clipped, jnp.asarray(max_scale, dtype=clipped.dtype))
+    return clipped
+
+
 @dataclass(frozen=True)
 class TrajectoryMCMCResult:
-    """Minimal MCMC-compatible wrapper for auxiliary Kalman MCMC outputs."""
+    """MCMC-compatible view of particle posterior samples."""
 
     chain_samples: dict[str, jnp.ndarray]
     chain_extra_fields: dict[str, jnp.ndarray]
     num_chains: int
     num_samples: int
-    backend: str = "aux_kalman_mcmc"
+    backend: str = "marginal_particle_gibbs"
 
     def get_samples(self, group_by_chain: bool = False) -> dict[str, jnp.ndarray]:
         if group_by_chain:
@@ -95,24 +107,6 @@ def _latent_summary_from_chain_moments(
         "mean": pooled_mean,
         "std": jnp.sqrt(pooled_var),
     }
-
-
-def _clip_scale(
-    scale: jnp.ndarray,
-    *,
-    min_scale: float | None,
-    max_scale: float | None,
-) -> jnp.ndarray:
-    clipped = scale
-    if min_scale is not None:
-        min_value = jnp.nextafter(
-            jnp.asarray(min_scale, dtype=clipped.dtype),
-            jnp.asarray(jnp.inf, dtype=clipped.dtype),
-        )
-        clipped = jnp.maximum(clipped, min_value)
-    if max_scale is not None:
-        clipped = jnp.minimum(clipped, jnp.asarray(max_scale, dtype=clipped.dtype))
-    return clipped
 
 
 def _clip_dual_averaging_state(

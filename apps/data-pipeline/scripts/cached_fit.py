@@ -426,14 +426,14 @@ def _prepare_pathfinder_warmup(runtime: Any, sampler_config: JsonDict) -> Cached
     import jax.random as random
 
     from nof1_causal_lab.models.ssm.autoreparam import AutoReparam
-    from nof1_causal_lab.models.ssm.inference.bundle import (
-        build_particle_runtime_bundle,
-    )
-    from nof1_causal_lab.models.ssm.inference.methods._pmcmc_shared import (
-        prepare_pmcmc_parameter_warmup,
+    from nof1_causal_lab.models.ssm.inference.problem import (
+        build_particle_problem,
     )
     from nof1_causal_lab.models.ssm.inference.warmup.latent_init import (
         compute_ieks_latent_paths,
+    )
+    from nof1_causal_lab.models.ssm.inference.warmup.parameter_warmup import (
+        prepare_parameter_warmup,
     )
     from nof1_causal_lab.models.ssm.transition_kinds import (
         LATENT_TRANSITION_EULER_MARUYAMA,
@@ -450,7 +450,7 @@ def _prepare_pathfinder_warmup(runtime: Any, sampler_config: JsonDict) -> Cached
     reparam = AutoReparam(centered=0.0)
     base_key = random.PRNGKey(seed)
     trace_key, pathfinder_key, sample_key = random.split(base_key, 3)
-    bundle = build_particle_runtime_bundle(
+    bundle = build_particle_problem(
         runtime.model,
         runtime.observations,
         runtime.times,
@@ -458,11 +458,11 @@ def _prepare_pathfinder_warmup(runtime: Any, sampler_config: JsonDict) -> Cached
         trace_key=trace_key,
         reparam=reparam,
     )
-    warmup = prepare_pmcmc_parameter_warmup(
+    warmup = prepare_parameter_warmup(
         runtime.model,
         runtime.observations,
         runtime.times,
-        bundle=bundle,
+        bundle=bundle.runtime,
         method_label="marginal_particle_gibbs",
         phase_label="cached warmup",
         trace_key=trace_key,
@@ -700,8 +700,8 @@ def run_cached_fit(
     """Run one production fit and persist all reusable development artifacts."""
     import logging
 
+    from nof1_causal_lab.artifacts.compiled_ssm import CompiledSSMArtifact
     from nof1_causal_lab.flows.transitions.inference.fit import fit_model, run_ppc
-    from nof1_causal_lab.models.ssm.compile.contracts import CompiledSSMArtifact
     from nof1_causal_lab.models.ssm.runtime import prepare_model_runtime
 
     logging.basicConfig(

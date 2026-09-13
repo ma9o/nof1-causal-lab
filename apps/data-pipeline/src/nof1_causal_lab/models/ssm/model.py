@@ -11,22 +11,28 @@ Supports:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, cast
+from itertools import chain
+from typing import TYPE_CHECKING, Any, cast
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import numpyro
 import numpyro.distributions as dist
+from numpyro.distributions import MultivariateNormal
+
+from nof1_causal_lab.models.ssm.execution.dynamical_model import continuous_state_evolution
+from nof1_causal_lab.models.ssm.execution.parameters import assemble_model_matrices, sample_sites
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from nof1_causal_lab.models.ssm.compile.contracts import CompiledParameterBinding
+    from dynestyx import StochasticContinuousTimeStateEvolution
+
+    from nof1_causal_lab.artifacts.compiled_ssm import CompiledParameterBinding
+    from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId, ParameterId
     from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
-    from nof1_causal_lab.models.ssm.execution.contracts import TrajectoryTarget
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
-    from nof1_causal_lab.models.ssm.priors import PriorRegistry
     from nof1_causal_lab.models.ssm.structure import (
         DiffusionBlockSpec,
         ManifestCholBlockSpec,
@@ -39,17 +45,10 @@ from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily,
 from nof1_causal_lab.models.ssm.constants import MIN_DT
 from nof1_causal_lab.models.ssm.covariance_utils import (
     INITIAL_STATE_COV_MIN_EIGENVALUE,
-    stabilize_covariance_for_cholesky,
-    symmetrize,
 )
 from nof1_causal_lab.models.ssm.execution.contracts import (
-    InitialStateParams,
     LikelihoodExtraParams,
     MeasurementParams,
-    RuntimeDynamics,
-)
-from nof1_causal_lab.models.ssm.execution.observation_families import (
-    any_family_needs_level_metadata,
 )
 from nof1_causal_lab.models.ssm.likelihood_extra_params import (
     assemble_sampled_extra_params,
@@ -58,11 +57,7 @@ from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
 from nof1_causal_lab.models.ssm.parameterization import (
     PriorRuntimeBundle,
     build_prior_runtime_bundle,
-    build_site_prior_distribution,
-)
-from nof1_causal_lab.models.ssm.transition_kinds import (
-    LATENT_TRANSITION_EULER_MARUYAMA,
-    LATENT_TRANSITION_KINDS,
+    likelihood_sites,
 )
 
 
@@ -82,11 +77,6 @@ def _nan_safe_ll_bwd(is_finite, g):
 
 
 _nan_safe_ll.defvjp(_nan_safe_ll_fwd, _nan_safe_ll_bwd)
-
-
-def _sample_prior_array(site_name: str, prior: dist.Distribution) -> jnp.ndarray:
-    """Sample one prior site and normalize it to a concrete JAX array."""
-    return jnp.asarray(numpyro.sample(site_name, prior))
 
 
 @dataclass
@@ -148,6 +138,10 @@ class SSMSpec:
     # Categorical channels acting as their construct's scale/sign anchor: the
     # first non-baseline slope of these channels is pinned to +1 at assembly.
     manifest_cat_anchor: list[bool] | None = None
+    latent_ids: list[ConstructId] | None = None
+    manifest_ids: list[IndicatorId] | None = None
+    input_ids: list[ConstructId] | None = None
+    static_factor_ids: list[ParameterId] | None = None
     latent_names: list[str] | None = None
     manifest_names: list[str] | None = None
     input_names: list[str] | None = None
@@ -426,7 +420,13 @@ class SSMSpec:
                 prefix=f"vf_{idx}",
                 n_latent=self.n_latent,
             )
-        for block in (
+        for block in self.parameter_blocks:
+            yield from block.iter_sites()
+
+    @property
+    def parameter_blocks(self):
+        """Non-dynamics blocks in their declared NumPyro sampling order."""
+        return (
             self.diffusion_block,
             self.lambda_block,
             self.manifest_means_block,
@@ -435,8 +435,7 @@ class SSMSpec:
             self.t0_chol_block,
             self.input_effect_block,
             self.static_state_sd_block,
-        ):
-            yield from block.iter_sites()
+        )
 
 
 class SSMModel:
@@ -453,7 +452,7 @@ class SSMModel:
     def __init__(
         self,
         spec: SSMSpec,
-        priors: PriorRegistry | None = None,
+        priors: dict[str, dist.Distribution] | None = None,
         prior_runtime_bundle: PriorRuntimeBundle | None = None,
     ):
         """Initialize state-space model.
@@ -471,7 +470,7 @@ class SSMModel:
         self.parameter_bindings: list[CompiledParameterBinding] = []
         self._prior_runtime_bundle = prior_runtime_bundle
         self._prior_site_index = (
-            {site.name: site for site in prior_runtime_bundle.site_runtime.registry}
+            {site.name: site for site in prior_runtime_bundle.registry}
             if prior_runtime_bundle is not None
             else None
         )
@@ -518,30 +517,6 @@ class SSMModel:
 
         return self.get_cached_artifact(("vector_field",), _build)
 
-    def trajectory_target(
-        self,
-        scheme: Literal["euler_maruyama"],
-    ) -> TrajectoryTarget:
-        """Build the latent discretization requested by the inference method.
-
-        The model is a continuous-time nonlinear SDE; ``scheme`` selects how an
-        inference method discretizes it (CT→DT) — it is not a property of the model.
-        Only the nonlinearity-preserving Euler-Maruyama scheme is available; the
-        linearised (Van Loan) discretisation is confined to the IEKS/Laplace
-        warmup backend that initialises the particle samplers, never their
-        transition density.
-        """
-        from nof1_causal_lab.models.ssm.execution.trajectory import (
-            EulerMaruyamaTarget,
-        )
-
-        if scheme == LATENT_TRANSITION_EULER_MARUYAMA:
-            return EulerMaruyamaTarget(self.vector_field)
-        allowed = ", ".join(repr(kind) for kind in LATENT_TRANSITION_KINDS)
-        raise ValueError(
-            f"trajectory discretization scheme must be one of {allowed}; got {scheme!r}."
-        )
-
     @property
     def parameter_layout(self) -> SSMParameterLayout:
         """Return the derived parameter layout for this model."""
@@ -552,7 +527,7 @@ class SSMModel:
         if self._prior_runtime_bundle is None:
             self._prior_runtime_bundle = build_prior_runtime_bundle(self.spec, self.priors)
             self._prior_site_index = {
-                site.name: site for site in self._prior_runtime_bundle.site_runtime.registry
+                site.name: site for site in self._prior_runtime_bundle.registry
             }
         return self._prior_runtime_bundle
 
@@ -563,156 +538,49 @@ class SSMModel:
         site = self._prior_site_index.get(site_name)
         if site is None:
             raise ValueError(f"Prior runtime bundle has no site named {site_name!r}")
-        return build_site_prior_distribution(site, runtime.prior_state[site_name])
-
-    # Per-block sampling now lives in the unified ``_run_block_sampling``
-    # loop below. Every sample site resolves its prior from the canonical
-    # site-prior runtime bundle.
+        return runtime.priors[site_name]
 
     def _sample_likelihood_extra_params(self, spec: SSMSpec) -> LikelihoodExtraParams:
-        """Sample likelihood hyperparameters and assemble backend-ready extras."""
-        sampled_values: dict[str, jnp.ndarray] = {}
-        manifest_dist_set = set(spec.manifest_dists)
-
-        if DistributionFamily.STUDENT_T in manifest_dist_set:
-            sampled_values["obs_df"] = _sample_prior_array(
-                "obs_df",
-                self._prior_distribution("obs_df"),
-            )
-        if DistributionFamily.GAMMA in manifest_dist_set:
-            sampled_values["obs_shape"] = _sample_prior_array(
-                "obs_shape",
-                self._prior_distribution("obs_shape"),
-            )
-        if DistributionFamily.NEGATIVE_BINOMIAL in manifest_dist_set:
-            sampled_values["obs_r"] = _sample_prior_array(
-                "obs_r",
-                self._prior_distribution("obs_r"),
-            )
-        if DistributionFamily.BETA in manifest_dist_set:
-            sampled_values["obs_concentration"] = _sample_prior_array(
-                "obs_concentration",
-                self._prior_distribution("obs_concentration"),
-            )
-
-        if spec.manifest_level_counts is not None:
-            level_counts_list = list(spec.manifest_level_counts)
-            max_levels = max(level_counts_list) if level_counts_list else 0
-            max_cutpoints = max(max_levels - 1, 0)
-
-            if any_family_needs_level_metadata(manifest_dist_set) and max_cutpoints <= 0:
-                raise ValueError(
-                    "ordered_logistic/categorical requires manifest_level_counts with at least 2 levels"
-                )
-
-            if DistributionFamily.ORDERED_LOGISTIC in manifest_dist_set:
-                sampled_values["obs_ordered_base"] = _sample_prior_array(
-                    "obs_ordered_base",
-                    self._prior_distribution("obs_ordered_base"),
-                )
-                if max_cutpoints > 1:
-                    sampled_values["obs_ordered_gaps"] = _sample_prior_array(
-                        "obs_ordered_gaps",
-                        self._prior_distribution("obs_ordered_gaps"),
-                    )
-
-            if DistributionFamily.CATEGORICAL in manifest_dist_set:
-                sampled_values["obs_cat_intercepts"] = _sample_prior_array(
-                    "obs_cat_intercepts",
-                    self._prior_distribution("obs_cat_intercepts"),
-                )
-                sampled_values["obs_cat_slopes"] = _sample_prior_array(
-                    "obs_cat_slopes",
-                    self._prior_distribution("obs_cat_slopes"),
-                )
-
-        from nof1_causal_lab.models.ssm.spec_metadata import (
-            has_student_t_diffusion,
+        """Sample the shared likelihood-site catalog and assemble its semantics."""
+        return assemble_sampled_extra_params(
+            spec, sample_sites(likelihood_sites(spec), self._prior_distribution)
         )
 
-        if has_student_t_diffusion(spec):
-            sampled_values["proc_df"] = _sample_prior_array(
-                "proc_df",
-                self._prior_distribution("proc_df"),
-            )
-
-        return assemble_sampled_extra_params(spec, sampled_values)
-
-    def _run_block_sampling(self) -> dict[str, jnp.ndarray]:
-        """Sample every non-dynamics block-owned parameter once.
-
-        Returns a flat dict mapping deterministic names (diffusion, lambda,
-        input_effect, manifest_means, manifest_chol, t0_means,
-        static_state_sds) and raw free-site names (t0_var_diag_free,
-        t0_var_lower_free) to their sampled values.
-
-        Dynamics parameters are always sampled through ``compile_dynamics`` so
-        all dynamics components share one vector-field runtime path.
-        """
-        sampled: dict[str, jnp.ndarray] = {}
-        for block in (
-            self.spec.diffusion_block,
-            self.spec.lambda_block,
-            self.spec.manifest_means_block,
-            self.spec.manifest_chol_block,
-            self.spec.t0_means_block,
-            self.spec.t0_chol_block,
-            self.spec.input_effect_block,
-            self.spec.static_state_sd_block,
-        ):
-            # t0_chol yields None for empty supports; keep only populated sites so
-            # the merged dict is honestly Array-valued (None is reconstructed via
-            # `.get()` in _compose_t0_cov).
-            sampled.update(
-                {
-                    key: value
-                    for key, value in block.sample_params(self._prior_distribution).items()
-                    if value is not None
-                }
-            )
-        return sampled
+    def _sample_parameters(self) -> dict[str, jnp.ndarray]:
+        """Sample declared sites and emit the canonical scientific matrices."""
+        sites = chain.from_iterable(block.iter_sites() for block in self.spec.parameter_blocks)
+        matrices, min_eigenvalue = assemble_model_matrices(
+            self.spec, sample_sites(sites, self._prior_distribution)
+        )
+        for name, value in matrices.items():
+            # Empty input/static-factor blocks have no public deterministic site.
+            if name not in {"input_effect", "static_state_sds"} or value.size:
+                numpyro.deterministic(name, value)
+        numpyro.factor(
+            "t0_correlation_positive_definite",
+            jnp.where(
+                min_eigenvalue > INITIAL_STATE_COV_MIN_EIGENVALUE,
+                0.0,
+                -1e6 * (INITIAL_STATE_COV_MIN_EIGENVALUE - min_eigenvalue),
+            ),
+        )
+        return matrices
 
     def _sample_runtime_dynamics(
         self,
         diffusion_cov: jnp.ndarray,
         input_effect: jnp.ndarray,
-    ) -> RuntimeDynamics:
+    ) -> StochasticContinuousTimeStateEvolution:
         """Sample vector-field parameters inside the NumPyro trace."""
-        from nof1_causal_lab.models.ssm.dynamics.runtime import sample_vector_field_runtime
+        from nof1_causal_lab.models.ssm.dynamics.spec import compile_dynamics
 
-        runtime = sample_vector_field_runtime(self.spec, self._prior_distribution)
-        return RuntimeDynamics(
-            vector_field=runtime.vector_field,
-            vf_params=runtime.vf_params,
+        compiled = compile_dynamics(self.spec.dynamics_spec)
+        return continuous_state_evolution(
+            vector_field=compiled.vector_field,
+            vf_params=compiled.sample_params(self._prior_distribution),
             diffusion_cov=diffusion_cov,
             input_effect=input_effect,
         )
-
-    def _compose_t0_cov(self, sampled: dict[str, jnp.ndarray]) -> jnp.ndarray:
-        """Assemble t0 covariance from the t0_chol block's raw free samples
-        plus the static-factor contribution (loadings @ diag(sds^2) @ loadingsᵀ),
-        then stabilize for Cholesky decomposition.
-        """
-        diag_free = sampled.get("t0_var_diag_free")
-        correlation_free = sampled.get("t0_var_lower_free")
-        cov = self.spec.t0_chol_block.assemble_cov(diag_free, correlation_free)
-        static_sds = sampled.get("static_state_sds")
-        if static_sds is not None and jnp.asarray(static_sds).size:
-            loadings = jnp.asarray(self.spec.static_factor_loadings)
-            cov = cov + loadings @ jnp.diag(static_sds**2) @ loadings.T
-        cov = symmetrize(cov)
-        stable_cov, min_eig = stabilize_covariance_for_cholesky(
-            cov, min_eigenvalue=INITIAL_STATE_COV_MIN_EIGENVALUE
-        )
-        numpyro.factor(
-            "t0_correlation_positive_definite",
-            jnp.where(
-                min_eig > INITIAL_STATE_COV_MIN_EIGENVALUE,
-                0.0,
-                -1e6 * (INITIAL_STATE_COV_MIN_EIGENVALUE - min_eig),
-            ),
-        )
-        return stable_cov
 
     def model(
         self,
@@ -734,20 +602,17 @@ class SSMModel:
             )
 
         spec = self.spec
-        sampled = self._run_block_sampling()
+        sampled = self._sample_parameters()
 
         diffusion_chol = sampled["diffusion"]
         input_effect = sampled["input_effect"]
         lambda_mat = sampled["lambda"]
         manifest_means = sampled["manifest_means"]
-        manifest_chol = sampled["manifest_chol"]
         t0_means = sampled["t0_means"]
 
         diffusion_cov = diffusion_chol @ diffusion_chol.T
-        manifest_cov = manifest_chol @ manifest_chol.T
-        numpyro.deterministic("manifest_cov", manifest_cov)
-        t0_cov = self._compose_t0_cov(sampled)
-        numpyro.deterministic("t0_cov", t0_cov)
+        manifest_cov = sampled["manifest_cov"]
+        t0_cov = sampled["t0_cov"]
         extra_params = self._sample_likelihood_extra_params(spec)
         dynamics = self._sample_runtime_dynamics(diffusion_cov, input_effect)
 
@@ -760,7 +625,7 @@ class SSMModel:
         time_intervals = jnp.diff(times, prepend=times[0])
         time_intervals = time_intervals.at[0].set(MIN_DT)
 
-        init = InitialStateParams(mean=t0_means, cov=t0_cov)
+        init = MultivariateNormal(loc=t0_means, covariance_matrix=t0_cov)
         lnc = likelihood_backend.compute_log_likelihood(
             dynamics,
             meas_params,
@@ -773,8 +638,8 @@ class SSMModel:
 
         # lnc is (T,) cumulative log-normalizing constants from the filter.
         # lnc[-1] = total log p(y|θ).
-        # diff(lnc) = per-timestep one-step-ahead predictive log p(y_t|y_{1:t-1},θ),
-        # needed for proper LOO-CV on time series (innovation decomposition).
+        # diff(lnc) exposes per-timestep contributions to the initialization
+        # objective. Reported LOO uses emission factors on joint particle draws.
         if lnc.ndim == 0:
             total_ll = _nan_safe_ll(lnc)
             numpyro.factor("log_likelihood", total_ll)

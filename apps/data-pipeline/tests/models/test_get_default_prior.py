@@ -1,17 +1,22 @@
 """Tests for explicit compiler-independent prior defaults."""
 
 import pytest
+from jsonschema import Draft202012Validator
 from pydantic import ValidationError
 
-from nof1_causal_lab.artifacts import (
+from nof1_causal_lab.artifacts.distribution import CompiledDistribution
+from nof1_causal_lab.artifacts.identity import ConstructRef
+from nof1_causal_lab.artifacts.parameter import SiteKind
+from nof1_causal_lab.artifacts.prior import ExecutablePrior
+from nof1_causal_lab.artifacts.prior_proposal import PriorProposal
+from nof1_causal_lab.artifacts.statistical_model_spec import (
     ParameterConstraint,
     ParameterRole,
     ParameterSpec,
 )
-from nof1_causal_lab.artifacts.prior import ExecutablePrior, ScalePriorParams
 from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.models.prior_planning import default_executable_prior
-from nof1_causal_lab.workers.schemas_prior import PriorProposal
+from nof1_causal_lab.models.ssm.compile.parameter_identity import parameter_identity
 
 
 def _make_param(
@@ -19,7 +24,12 @@ def _make_param(
     role: ParameterRole = ParameterRole.FIXED_EFFECT,
     constraint: ParameterConstraint = ParameterConstraint.NONE,
 ) -> ParameterSpec:
+    owner = ConstructRef(id="construct:test")
+    quantity = SiteKind.DYNAMICS_WEIGHT
     return ParameterSpec(
+        id=parameter_identity(quantity, [owner]),
+        owners=[owner],
+        quantity=quantity,
         name=name,
         role=role,
         constraint=constraint,
@@ -113,23 +123,36 @@ class TestDefaultExecutablePrior:
         p = _make_param(role=role, constraint=constraint)
         result = default_executable_prior(p)
         assert result.distribution == expected_distribution
-        assert result.params.model_dump() == expected_params
+        assert result.params == expected_params
 
-    def test_parameter_name_propagated(self):
+    def test_parameter_id_propagated(self):
         p = _make_param(name="sigma_residual")
         result = default_executable_prior(p)
-        assert result.parameter == "sigma_residual"
+        assert result.parameter_id == p.id
 
     def test_returns_compiler_facing_prior(self):
         p = _make_param()
         result = default_executable_prior(p)
         assert isinstance(result, ExecutablePrior)
 
-    def test_prior_parameters_must_match_the_declared_family(self):
-        with pytest.raises(ValidationError, match="LocationScalePriorParams"):
-            PriorProposal(
-                parameter="beta_x",
-                distribution=PriorDistributionFamily.NORMAL,
-                params=ScalePriorParams(sigma=1.0),
-                reasoning="invalid family/parameter pairing",
-            )
+    @pytest.mark.parametrize(
+        ("contract", "metadata"),
+        [
+            (PriorProposal, {"parameter_id": "parameter:" + "0" * 64, "reasoning": "test"}),
+            (ExecutablePrior, {"parameter_id": "parameter:" + "0" * 64}),
+            (CompiledDistribution, {}),
+        ],
+    )
+    def test_prior_parameters_must_match_the_declared_family(self, contract, metadata):
+        payload = {**metadata, "distribution": "Normal", "params": {"sigma": 1.0}}
+        with pytest.raises(ValidationError, match="Normal requires exactly"):
+            contract.model_validate(payload)
+        validator = Draft202012Validator(contract.model_json_schema())
+        assert not validator.is_valid(payload)
+        payload["params"] = {"mu": 0.0, "sigma": 1.0}
+        validated = contract.model_validate(payload)
+        validator.validate(validated.model_dump(mode="json"))
+        payload["params"]["unknown"] = 2.0
+        assert not validator.is_valid(payload)
+        with pytest.raises(ValidationError, match="Normal requires exactly"):
+            contract.model_validate(payload)

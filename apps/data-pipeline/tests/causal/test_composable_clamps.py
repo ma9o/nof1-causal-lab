@@ -9,6 +9,7 @@ and baseline vs abducted start states.
 from __future__ import annotations
 
 import jax.numpy as jnp
+import pytest
 
 from nof1_causal_lab.models.ssm.counterfactual import (
     ClampSpec,
@@ -21,6 +22,9 @@ from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
 # var1 is driven by var0; both stable. Baseline steady state is η* = -A⁻¹c = [1, 1].
 _PARAMS = ({"drift": jnp.array([[-1.0, 0.0], [0.5, -1.0]]), "cint": jnp.array([1.0, 0.5])},)
 _TIME_GRID = jnp.linspace(0.0, 30.0, 31)  # daily grid, day == index
+
+
+pytestmark = pytest.mark.cpu_expensive
 
 
 def _vf() -> VectorField:

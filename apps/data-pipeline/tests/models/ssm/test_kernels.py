@@ -10,9 +10,9 @@ import jax.numpy as jnp
 import pytest
 from pydantic import ValidationError
 
-from nof1_causal_lab.artifacts import LikelihoodSpec, LinkFunction
+from nof1_causal_lab.artifacts.statistical_model_spec import LikelihoodSpec, LinkFunction
 from nof1_causal_lab.distributions import DistributionFamily
-from nof1_causal_lab.models.ssm.inference.targets.kernels import (
+from nof1_causal_lab.models.ssm.execution.observation_model import (
     build_observation_kernel,
     compile_observation_model,
 )
@@ -23,7 +23,7 @@ class TestBuildObservationKernel:
     def test_likelihood_spec_rejects_invalid_family_link_pair(self):
         with pytest.raises(ValidationError, match="invalid for gaussian"):
             LikelihoodSpec(
-                variable="y",
+                indicator_id="indicator:3316cd345d83d02fe3fc",
                 distribution=DistributionFamily.GAUSSIAN,
                 link=LinkFunction.LOG,
                 reasoning="test",
@@ -38,6 +38,7 @@ class TestBuildObservationKernel:
                 manifest_links=[LinkFunction.LOG],
             )
 
+    @pytest.mark.cpu_expensive
     def test_compiled_model_shares_predictor_semantics_for_likelihood_and_sampling(self):
         manifest_cov = jnp.eye(1)
         model = compile_observation_model(

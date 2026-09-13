@@ -7,36 +7,8 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.causal_design import CausalDesign
+    from nof1_causal_lab.artifacts.identity import CausalDesignRef
     from nof1_causal_lab.models.ssm.inference.types import FittedArtifact
-
-
-@dataclass(frozen=True, slots=True)
-class CausalDesignRef:
-    """Workspace-local identity of the causal design supporting a claim."""
-
-    workspace_id: str
-    version: int
-
-    def __post_init__(self) -> None:
-        if not self.workspace_id:
-            raise ValueError("workspace_id must not be empty")
-        if self.version < 1:
-            raise ValueError("causal design version must be positive")
-
-
-@dataclass(frozen=True, slots=True)
-class PosteriorProvenance:
-    """Artifact lineage binding a posterior to its compiled causal design."""
-
-    causal_design: CausalDesignRef
-    compiled_ssm_version: int
-    panel_version: int
-
-    def __post_init__(self) -> None:
-        if self.compiled_ssm_version < 1:
-            raise ValueError("compiled SSM version must be positive")
-        if self.panel_version < 1:
-            raise ValueError("panel version must be positive")
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +55,9 @@ class CertifiedCausalAnalysis:
         treatments = [estimand.treatment for estimand in self.estimands]
         if len(treatments) != len(set(treatments)):
             raise ValueError("identified estimands must not contain duplicate treatments")
+        by_name = {
+            construct.name: construct.id for construct in self.causal_design.latent.constructs
+        }
         status = self.causal_design.identifiability
         for estimand in self.estimands:
             if estimand.causal_design != self.causal_design_ref:
@@ -91,7 +66,7 @@ class CertifiedCausalAnalysis:
                     "causal designs"
                 )
             details = (
-                status.identifiable_treatments.get(estimand.treatment)
+                status.identifiable_treatments.get(by_name[estimand.treatment])
                 if status is not None
                 else None
             )
@@ -117,16 +92,26 @@ def certify_identified_estimand(
     outcome: str,
 ) -> IdentifiedEstimand:
     """Validate and materialize identification evidence for one estimand."""
-    declared_outcomes = {
-        construct.name for construct in causal_design.latent.constructs if construct.is_outcome
-    }
-    if outcome not in declared_outcomes:
-        raise ValueError(f"{outcome!r} is not the declared outcome in the causal design")
-    construct_names = {construct.name for construct in causal_design.latent.constructs}
-    if treatment not in construct_names:
+    default_outcome = causal_design.latent.default_outcome
+    declared_outcome = next(
+        (
+            construct.name
+            for construct in causal_design.latent.constructs
+            if default_outcome is not None and construct.id == default_outcome.id
+        ),
+        None,
+    )
+    if outcome != declared_outcome:
+        raise ValueError(
+            f"{outcome!r} does not match the outcome covered by the causal design identification"
+        )
+    construct_ids = {construct.name: construct.id for construct in causal_design.latent.constructs}
+    if treatment not in construct_ids:
         raise ValueError(f"{treatment!r} is not a construct in the causal design")
     status = causal_design.identifiability
-    details = status.identifiable_treatments.get(treatment) if status is not None else None
+    details = (
+        status.identifiable_treatments.get(construct_ids[treatment]) if status is not None else None
+    )
     if details is None:
         raise ValueError(f"effect of {treatment!r} on {outcome!r} is not identified")
     return IdentifiedEstimand(

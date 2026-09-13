@@ -8,6 +8,7 @@ source of truth for admission.
 
 from __future__ import annotations
 
+import json
 import math
 from itertools import pairwise
 from statistics import median
@@ -15,8 +16,11 @@ from typing import TYPE_CHECKING, Any
 
 import polars as pl
 
+from nof1_causal_lab.artifacts.mechanism import HillEdgeMechanism, LinearEdgeMechanism
+from nof1_causal_lab.artifacts.statistical_model_spec import ParameterSpec
 from nof1_causal_lab.distributions import constraint_domain
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+from nof1_causal_lab.models.model_mechanisms import declare_dynamics_mechanisms
 from nof1_causal_lab.utils.causal_design import (
     choose_reference_indicator,
     get_effective_observation_window,
@@ -31,6 +35,7 @@ from nof1_causal_lab.utils.structural_plan import (
     get_plan_constructs,
     get_plan_indicators,
     get_state_names,
+    restrict_structural_plan,
 )
 
 from .construct_flow import (
@@ -52,7 +57,8 @@ if TYPE_CHECKING:
 _SYSTEM_TASK = """You are specifying one construct of a continuous-time latent state-space model,
 one construct at a time along the causal graph. For the active construct you author:
 
-- its **emission** for each indicator (observation family + link), and
+- its **emission** for each indicator (observation family + link),
+- its **mechanisms**, with explicit fixed or estimated coefficients, and
 - its **priors**, keyed by canonical parameter name.
 
 The cumulative partial model is then compiled and simulated through the exact
@@ -163,7 +169,6 @@ def _active_construct_frame(structural_plan: StructuralPlan, construct: str) -> 
     model_clock = get_model_clock(structural_plan)
     theoretical_role = construct_meta.get("role") or "unknown"
     temporal_status = construct_meta.get("temporal_status") or "unknown"
-    outcome = "yes" if construct_meta.get("is_outcome") else "no"
     description = str(construct_meta.get("description") or "").strip()
     lines = [
         "# Fixed model frame",
@@ -177,7 +182,6 @@ def _active_construct_frame(structural_plan: StructuralPlan, construct: str) -> 
         "- Estimation role: **retained latent state**",
         f"- Theoretical role: `{theoretical_role}`",
         f"- Temporal status: `{temporal_status}`",
-        f"- Outcome construct: `{outcome}`",
     ]
     if description:
         lines.append(f"- Meaning: {description}")
@@ -239,10 +243,10 @@ def _incoming_driver_context(
 
 
 def _observed_values(data_for_model: pl.DataFrame, indicator: str) -> list[float]:
-    if not {"indicator", "value"} <= set(data_for_model.columns):
+    if not {"indicator_id", "value"} <= set(data_for_model.columns):
         return []
     values = (
-        data_for_model.filter(pl.col("indicator") == indicator)
+        data_for_model.filter(pl.col("indicator_id") == indicator)
         .select(pl.col("value").cast(pl.Float64, strict=False))
         .drop_nulls()
         .get_column("value")
@@ -280,7 +284,7 @@ def _known_input_profile_lines(
     indicator = next(
         item for item in get_plan_indicators(structural_plan) if item["name"] == source_indicator
     )
-    values = _observed_values(data_for_model, source_indicator)
+    values = _observed_values(data_for_model, indicator["id"])
     if not values:
         return ["  - Source data: 0 observed numeric values."]
 
@@ -319,11 +323,11 @@ def _schedule_context(
             "- Time-invariant construct: settling-time and transmission checks do not apply."
         )
         return lines
-    if not {"indicator", "value", "anchor_time"} <= set(data_for_model.columns):
+    if not {"indicator_id", "value", "anchor_time"} <= set(data_for_model.columns):
         lines.append("- Observed anchor schedule: unavailable in the current panel.")
         return lines
     observed = data_for_model.filter(
-        pl.col("indicator").is_in(indicator_names)
+        pl.col("indicator_id").is_in(indicator_names)
         & pl.col("value").is_not_null()
         & pl.col("anchor_time").is_not_null()
     )
@@ -428,6 +432,7 @@ def _indicator_card(
     aggregation = indicator.get("aggregation") or "unknown"
     lines = [
         f"### `{variable}` — {role}",
+        f"- Submit `indicator_id`: `{indicator['id']}`.",
         f"- Declared observation semantics: dtype=`{dtype}`; aggregation=`{aggregation}`; "
         f"support=`{semantics.support_kind.value}`; summary=`{semantics.summary_operator.value}`; "
         f"anchor=`{semantics.anchor_policy.value}`; effective window=`{effective_window}`.",
@@ -449,7 +454,7 @@ def _indicator_card(
 
     profile = audit.get("profile") or {}
     lines.extend(_profile_lines(profile))
-    values = _observed_values(data_for_model, variable)
+    values = _observed_values(data_for_model, indicator["id"])
     if occupancy := _ordinal_occupancy(indicator, values):
         lines.append("  - Observed ordinal occupancy: " + occupancy)
 
@@ -529,7 +534,7 @@ def build_construct_messages(
         "",
         *_schedule_context(
             state.data_for_model,
-            [str(indicator["name"]) for indicator in indicators],
+            [str(indicator["id"]) for indicator in indicators],
             temporal_status=construct_meta.get("temporal_status"),
         ),
         "",
@@ -542,7 +547,7 @@ def build_construct_messages(
                 *_indicator_card(
                     indicator=ind,
                     reference_var=reference_var,
-                    audit=audits.get(str(ind["name"])) or {},
+                    audit=audits.get(str(ind["id"])) or {},
                     model_clock=model_clock,
                     data_for_model=state.data_for_model,
                 ),
@@ -583,7 +588,7 @@ def build_construct_messages(
             else ""
         )
         lines.append(
-            f"- `{n}` — {role.value.replace('_', ' ')} — support ⊆ "
+            f"- `{n}` (ID `{catalog.metadata_for(n)['id']}`) — {role.value.replace('_', ' ')} — support ⊆ "
             f"{constraint_domain(constraint.value)}{family_requirement}"
             f"{_parameter_activation_note(dict(catalog.metadata_for(n)))}"
         )
@@ -604,7 +609,7 @@ def build_construct_messages(
             "",
         ]
     structural_lines = [
-        "Optional structural declarations (author the prior to enable):",
+        "Optional dynamics coefficients (reference their IDs in the chosen mechanism):",
         f"- `self_limit_{construct}` — a self-limiting (quartic) well for bounded excursions.",
     ]
     if saturating_parents:
@@ -612,18 +617,48 @@ def build_construct_messages(
             "- Saturating effects are available only for these admitted latent parents: "
             + ", ".join(f"`{parent}`" for parent in saturating_parents)
             + ". Replace the corresponding linear `beta` with its `hill_emax`, "
-            "`hill_ec50`, and `hill_n` priors. Known-input effects are linear-only."
+            "`hill_ec50`, and `hill_n` coefficients in an explicit Hill mechanism. Known-input effects are linear-only."
         )
     else:
         structural_lines.append(
             "- No saturating parent effect is authorable on this turn. Known-input effects "
             "are linear-only."
         )
+    for name in sorted(inventory.structural_prior_names):
+        metadata = catalog.metadata_for(name)
+        structural_lines.append(f"- `{name}`: parameter ID `{metadata['id']}`")
+    partial_plan = restrict_structural_plan(structural_plan, {*state.admission.names, construct})
+    defaults = declare_dynamics_mechanisms(
+        partial_plan, [ParameterSpec.model_validate(value) for value in catalog.metadata.values()]
+    )
+    admitted_edges = {
+        mechanism.edge_id
+        for mechanism in state.admission.mechanisms
+        if isinstance(mechanism, (LinearEdgeMechanism, HillEdgeMechanism))
+    }
+    defaults = [
+        mechanism
+        for mechanism in defaults
+        if (
+            mechanism.edge_id not in admitted_edges
+            if isinstance(mechanism, (LinearEdgeMechanism, HillEdgeMechanism))
+            else structural_plan.semantics.constructs[mechanism.target_id].name == construct
+        )
+    ]
     lines += [
         *structural_lines,
         "",
-        f"Call `submit_construct` with construct=`{construct}`, an emission for each "
-        "indicator, and the priors object.",
+        "## Explicit mechanisms for this submission",
+        "Start from these linear mechanisms. For a quartic well, replace quartic's fixed zero "
+        "with the estimated self-limitation parameter ID. For a Hill edge, keep edge_id and "
+        "set kind to hill with emax, ec50, and n coefficients. A fixed Hill coefficient is "
+        "expressed as {kind: fixed, value: ...} and has no prior. Fixed values are on the "
+        "continuous-time model scale. Include incoming and cycle-closing edges exactly once.",
+        "```json",
+        json.dumps([mechanism.model_dump(mode="json") for mechanism in defaults], indent=2),
+        "```",
+        f"Call submit_construct with construct=`{construct}`, indicators, mechanisms, and priors.",
+        "",
     ]
 
     if state.last_tool_feedback is not None:

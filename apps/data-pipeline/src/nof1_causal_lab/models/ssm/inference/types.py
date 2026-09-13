@@ -4,21 +4,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, Required, TypedDict, override
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, override
 
 import jax.numpy as jnp
-import jax.random as random
-from numpyro.infer import Predictive
 
-from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
-    EnergyDiagnosticsData,
-    PosteriorMarginalData,
-    PosteriorPairData,
-    RankHistogramData,
-    TraceSeriesData,
-    compute_posterior_marginals,
-    compute_posterior_pairs,
-)
+from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
+from nof1_causal_lab.artifacts.posterior import PosteriorDrawsInfo
 from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
     build_energy_diagnostics as _build_energy_diagnostics,
 )
@@ -28,15 +19,17 @@ from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
 from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
     build_trace_data as _build_trace_data,
 )
+from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
+    compute_posterior_marginals,
+    compute_posterior_pairs,
+)
 from nof1_causal_lab.models.ssm.inference.shared import _filter_public_samples
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from numpy.typing import NDArray
 
+    from nof1_causal_lab.artifacts.posterior import PosteriorProvenance
     from nof1_causal_lab.json_types import JsonObject
-    from nof1_causal_lab.models.causal_proofs import PosteriorProvenance
     from nof1_causal_lab.models.ssm.inference.mcmc_state import TrajectoryMCMCResult
     from nof1_causal_lab.models.ssm.model import SSMSpec
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
@@ -71,8 +64,8 @@ class InferenceDiagnostics(TypedDict, total=False):
     mcmc: TrajectoryMCMCResult
     public_sites: list[str]
     likelihood_backend: object
+    observation_log_probs: jnp.ndarray
     latent_posterior_summary: dict[str, jnp.ndarray]
-    latent_paths: jnp.ndarray
     warmup_latent_paths: jnp.ndarray
     all_latent_paths: jnp.ndarray
     beta_schedule: jnp.ndarray
@@ -119,34 +112,6 @@ class InferenceDiagnostics(TypedDict, total=False):
     all_complete_log_posterior_history: jnp.ndarray
 
 
-class MCMCParameterDiagnostic(TypedDict, total=False):
-    """Convergence metrics for one scalar or array-valued parameter."""
-
-    parameter: Required[str]
-    r_hat: float | list[float]
-    ess_bulk: float | list[float]
-    ess_tail: float | list[float]
-    mcse_mean: float | list[float]
-
-
-class MCMCResultDiagnostics(TypedDict, total=False):
-    """JSON-ready diagnostics exposed by a particle-MCMC result."""
-
-    per_parameter: list[MCMCParameterDiagnostic]
-    num_divergences: int
-    divergence_rate: float
-    tree_depth_mean: float
-    tree_depth_max: int
-    accept_prob_mean: float
-    latent_accept_prob_mean: float
-    parameter_accept_prob_mean: float
-    energy: EnergyDiagnosticsData
-    num_chains: int
-    num_samples: int
-    trace_data: list[TraceSeriesData]
-    rank_histograms: list[RankHistogramData]
-
-
 @dataclass(frozen=True, slots=True)
 class ParticleMCMCEvidence:
     """Proof that samples came from the production particle-MCMC target."""
@@ -168,11 +133,48 @@ class WarmupProposal:
         return self._samples
 
 
+@dataclass(frozen=True)
+class JointPosteriorDraws:
+    """Aligned parameter and latent-trajectory draws; the leading axis identifies one joint draw."""
+
+    parameters: dict[str, jnp.ndarray]
+    latent_paths: jnp.ndarray | None = None
+
+    def __post_init__(self) -> None:
+        counts = set()
+        for values in self.parameters.values():
+            if values.ndim < 1:
+                raise ValueError("Posterior parameters require a leading draw axis")
+            counts.add(values.shape[0])
+        if self.latent_paths is not None:
+            if self.latent_paths.ndim != 3:
+                raise ValueError("Posterior latent paths require draw, time, and state axes")
+            counts.add(self.latent_paths.shape[0])
+        if len(counts) > 1:
+            raise ValueError("Posterior parameters and latent paths must share the draw axis")
+
+    def describe(self) -> PosteriorDrawsInfo:
+        counts = [values.shape[0] for values in self.parameters.values()]
+        if self.latent_paths is not None:
+            counts.append(self.latent_paths.shape[0])
+        if not counts:
+            raise ValueError("Posterior contains no draws")
+        return PosteriorDrawsInfo(
+            n_draws=counts[0],
+            parameter_shapes={
+                name: list(values.shape[1:]) for name, values in self.parameters.items()
+            },
+            latent_shape=(self.latent_paths.shape[1], self.latent_paths.shape[2])
+            if self.latent_paths is not None
+            else None,
+        )
+
+
 @dataclass
 class ParticleMCMCPosterior:
-    """Posterior draws produced by the invariant particle-MCMC engine."""
+    """Joint posterior draws produced by the invariant particle-MCMC engine."""
 
-    _samples: dict[str, jnp.ndarray]
+    draws: JointPosteriorDraws
     diagnostics: InferenceDiagnostics = field(default_factory=dict)
     evidence: ParticleMCMCEvidence = field(default_factory=ParticleMCMCEvidence)
     method: Literal["marginal_particle_gibbs"] = field(
@@ -180,14 +182,10 @@ class ParticleMCMCPosterior:
     )
 
     def get_samples(self) -> dict[str, jnp.ndarray]:
-        """Return posterior samples dict."""
-        return self._samples
+        """Return parameter draws aligned with the retained latent trajectories."""
+        return self.draws.parameters
 
-    def get_latent_paths(self) -> jnp.ndarray | None:
-        """Return retained latent path samples when available."""
-        return self.diagnostics.get("latent_paths")
-
-    def get_mcmc_diagnostics(self) -> MCMCResultDiagnostics | None:
+    def get_mcmc_diagnostics(self) -> JsonObject | None:
         """Extract JSON-serializable MCMC diagnostics."""
         mcmc = self.diagnostics.get("mcmc")
         if mcmc is None:
@@ -195,7 +193,7 @@ class ParticleMCMCPosterior:
 
         from numpyro.diagnostics import summary as numpyro_summary
 
-        result: MCMCResultDiagnostics = {}
+        result: JsonObject = {}
 
         chain_samples = mcmc.get_samples(group_by_chain=True)
         public_sites = self.diagnostics.get("public_sites")
@@ -203,18 +201,6 @@ class ParticleMCMCPosterior:
             chain_samples = _filter_public_samples(chain_samples, set(public_sites))
 
         summ = numpyro_summary(chain_samples)
-        per_param: list[MCMCParameterDiagnostic] = []
-        for name, stats in summ.items():
-            entry: MCMCParameterDiagnostic = {"parameter": name}
-            if "r_hat" in stats:
-                val = stats["r_hat"]
-                entry["r_hat"] = float(val) if val.ndim == 0 else [float(v) for v in val.flat]
-            if "n_eff" in stats:
-                val = stats["n_eff"]
-                entry["ess_bulk"] = float(val) if val.ndim == 0 else [float(v) for v in val.flat]
-            per_param.append(entry)
-        result["per_parameter"] = per_param
-
         import arviz_base as az_base
         from arviz_stats.sampling_diagnostics import ess, mcse
 
@@ -229,14 +215,33 @@ class ParticleMCMCPosterior:
         ess_tail = ess(idata, method="tail")
         mcse_mean = mcse(idata, method="mean")
 
-        for entry in per_param:
-            name = entry["parameter"]
-            if name in ess_tail:
-                v = ess_tail[name].values
-                entry["ess_tail"] = float(v) if v.ndim == 0 else [float(x) for x in v.flat]
-            if name in mcse_mean:
-                v = mcse_mean[name].values
-                entry["mcse_mean"] = float(v) if v.ndim == 0 else [float(x) for x in v.flat]
+        import math
+
+        import numpy as np
+
+        def metric(values, indices):
+            value = float(np.asarray(values)[indices])
+            return value if math.isfinite(value) else None
+
+        per_param: list[JsonObject] = []
+        for name, stats in summ.items():
+            for indices in np.ndindex(np.shape(stats["r_hat"])):
+                coordinate = ParameterCoordinate(site_name=name, indices=indices)
+                per_param.append(
+                    {
+                        "parameter": coordinate.label,
+                        "coordinate": coordinate.model_dump(mode="json"),
+                        "r_hat": metric(stats["r_hat"], indices),
+                        "ess_bulk": metric(stats["n_eff"], indices),
+                        "ess_tail": metric(ess_tail[name].values, indices)
+                        if name in ess_tail
+                        else None,
+                        "mcse_mean": metric(mcse_mean[name].values, indices)
+                        if name in mcse_mean
+                        else None,
+                    }
+                )
+        result["per_parameter"] = list(per_param)
 
         extra = mcmc.get_extra_fields()
         if "diverging" in extra:
@@ -267,8 +272,8 @@ class ParticleMCMCPosterior:
         result["num_samples"] = int(mcmc.num_samples)
 
         if chain_samples is not None:
-            result["trace_data"] = _build_trace_data(chain_samples, max_points=200)
-            result["rank_histograms"] = _build_rank_histograms(chain_samples, n_bins=20)
+            result["trace_data"] = list(_build_trace_data(chain_samples, max_points=200))
+            result["rank_histograms"] = list(_build_rank_histograms(chain_samples, n_bins=20))
 
         return result
 
@@ -286,125 +291,50 @@ class ParticleMCMCPosterior:
             "n_particles": int(self.diagnostics.get("n_csmc_particles", 0)),
         }
 
-    def get_loo_diagnostics(
-        self,
-        model_fn: Callable[..., object] | None = None,
-        observations: jnp.ndarray | None = None,
-        times: jnp.ndarray | None = None,
-    ) -> JsonObject | None:
-        """Extract LOO-CV diagnostics via ArviZ using one-step-ahead predictive LL."""
-        if model_fn is None or observations is None:
+    def get_loo_diagnostics(self, *, observations: jnp.ndarray) -> JsonObject | None:
+        """PSIS leave-one-measurement-row-out from the joint particle posterior.
+
+        The exact emission factors condition on each sampled latent state. The
+        held-out row is interpolated using all other rows, including future
+        measurements. This does not estimate leave-future-out forecast skill.
+        """
+        from arviz_stats.loo import loo
+
+        factors = self.diagnostics["observation_log_probs"]
+        observed_rows = jnp.any(~jnp.isnan(observations), axis=1)
+        factors = factors[:, :, observed_rows]
+        if factors.shape[1] == 0 or factors.shape[2] == 0:
             return None
-
-        mcmc = self.diagnostics.get("mcmc")
-        if mcmc is None and not self._samples:
-            return None
-
-        import arviz_base as az_base
-        from arviz_stats.loo import loo, loo_pit
-
-        public_sites: list[str] | None = None
-        if mcmc is not None:
-            flat_samples = mcmc.get_samples()
-            public_sites = self.diagnostics.get("public_sites")
-            if public_sites is not None:
-                flat_samples = _filter_public_samples(flat_samples, set(public_sites))
-            n_draws = next(iter(flat_samples.values())).shape[0]
-            n_chains = int(mcmc.num_chains)
-        else:
-            flat_samples = self._samples
-            n_draws = next(iter(flat_samples.values())).shape[0]
-            n_chains = 1
-
-        n_per_chain = n_draws // n_chains
-        pred = Predictive(model_fn, posterior_samples=flat_samples)
-        pred_result = pred(random.PRNGKey(0), observations, times)
-
-        if "ll_per_timestep" in pred_result:
-            ll_per_t = pred_result["ll_per_timestep"]
-            if observations.ndim == 2:
-                valid_timesteps = jnp.any(~jnp.isnan(observations), axis=1)
-                ll_per_t = ll_per_t[:, valid_timesteps]
-            if ll_per_t.shape[1] == 0:
-                return None
-            n_timesteps = ll_per_t.shape[1]
-            ll_chained = ll_per_t[: n_chains * n_per_chain].reshape(
-                n_chains, n_per_chain, n_timesteps
-            )
-            if mcmc is not None:
-                chain_samples = mcmc.get_samples(group_by_chain=True)
-                if public_sites is not None:
-                    chain_samples = _filter_public_samples(chain_samples, set(public_sites))
-                idata = _arviz_idata_from_posterior(
-                    chain_samples,
-                    log_likelihood={"ll_per_timestep": ll_chained},
-                )
-            else:
-                import numpy as np
-
-                posterior_dict = {}
-                n_used = n_chains * n_per_chain
-                for name, vals in flat_samples.items():
-                    v = np.asarray(vals[:n_used])
-                    posterior_dict[name] = v.reshape(n_chains, n_per_chain, *v.shape[1:])
-                idata = _arviz_idata_from_posterior(
-                    posterior_dict,
-                    log_likelihood={"ll_per_timestep": ll_chained},
-                )
-            ll_per_timestep_found = True
-        elif mcmc is not None:
-            if getattr(mcmc, "backend", None) in {
-                "aux_kalman_mcmc",
-                "pit_particle_mgrad",
-                "marginal_particle_gibbs",
-            }:
-                chain_samples = mcmc.get_samples(group_by_chain=True)
-                if public_sites is not None:
-                    chain_samples = _filter_public_samples(chain_samples, set(public_sites))
-                idata = _arviz_idata_from_posterior(chain_samples)
-            else:
-                idata = az_base.from_numpyro(mcmc)
-            if not hasattr(idata, "log_likelihood"):
-                return None
-            ll_per_timestep_found = False
-        else:
-            return None
-
-        loo_result = loo(idata)
-
+        mcmc = self.diagnostics["mcmc"]
+        posterior = mcmc.get_samples(group_by_chain=True)
+        idata = _arviz_idata_from_posterior(
+            posterior,
+            log_likelihood={"measurement_row": factors},
+        )
+        estimate = loo(idata)
         result: JsonObject = {
-            "elpd_loo": float(loo_result.elpd),
-            "p_loo": float(loo_result.p),
-            "se": float(loo_result.se),
-            "n_data_points": int(loo_result.n_data_points),
-            "observation_unit": "timestep" if ll_per_timestep_found else "observation",
+            "elpd_loo": float(estimate.elpd),
+            "p_loo": float(estimate.p),
+            "se": float(estimate.se),
+            "n_data_points": int(estimate.n_data_points),
+            "observation_unit": "measurement_row",
+            "prediction_task": "interpolation_given_other_measurements",
+            "likelihood_source": "exact_emission_on_joint_particle_draws",
         }
-
-        if loo_result.pareto_k is not None:
-            pk = loo_result.pareto_k
-            pk_vals = pk.values if hasattr(pk, "values") else jnp.array(pk)
-            result["pareto_k"] = [float(v) for v in pk_vals]
-            result["n_bad_k"] = int((pk_vals > 0.7).sum())
-
-        if ll_per_timestep_found and hasattr(idata, "observed_data"):
-            pit_vals = loo_pit(idata, var_names="ll_per_timestep")
-            if hasattr(pit_vals, "values"):
-                result["loo_pit"] = [float(v) for v in pit_vals.values.flat]
-            else:
-                result["loo_pit"] = [float(v) for v in jnp.array(pit_vals).flatten()]
-
+        if estimate.pareto_k is not None:
+            values = jnp.asarray(estimate.pareto_k.values)
+            result["pareto_k"] = [float(value) for value in values]
+            result["n_bad_k"] = int((values > 0.7).sum())
         return result
 
-    def get_posterior_marginals(self, n_bins: int = 50) -> list[PosteriorMarginalData]:
+    def get_posterior_marginals(self, n_bins: int = 50) -> list[JsonObject]:
         """Compute marginal posterior density data for visualization."""
-        return compute_posterior_marginals(self._samples, n_bins)
+        return compute_posterior_marginals(self.draws.parameters, n_bins)
 
-    def get_posterior_pairs(
-        self, max_params: int = 6, max_samples: int = 200
-    ) -> list[PosteriorPairData]:
+    def get_posterior_pairs(self, max_params: int = 6, max_samples: int = 200) -> list[JsonObject]:
         """Compute pairwise scatter data for joint posterior visualization."""
         return compute_posterior_pairs(
-            self._samples,
+            self.draws.parameters,
             self.diagnostics.get("mcmc"),
             max_params,
             max_samples,
@@ -412,20 +342,8 @@ class ParticleMCMCPosterior:
 
 
 def _serialize_fitted_result(result: ParticleMCMCPosterior) -> ParticleMCMCPosterior:
-    """Reduce persisted inference output to the posterior samples analysis uses.
-
-    Fits store dynamics parameters in ``_samples`` and keep retained latent
-    paths in ``diagnostics`` for analysis counterfactual starts. Live inference
-    caches such as the MCMC object are not picklable and are dropped.
-    """
-    diagnostics: InferenceDiagnostics = {}
-    if "latent_paths" in result.diagnostics:
-        diagnostics["latent_paths"] = result.diagnostics["latent_paths"]
-    return ParticleMCMCPosterior(
-        _samples=result.get_samples(),
-        diagnostics=diagnostics,
-        evidence=result.evidence,
-    )
+    """Persist the joint posterior and engine evidence; discard live sampler diagnostics."""
+    return ParticleMCMCPosterior(draws=result.draws, evidence=result.evidence)
 
 
 @dataclass(frozen=True)
@@ -437,7 +355,6 @@ class FittedArtifact:
     times: jnp.ndarray
     provenance: PosteriorProvenance
     observation_support: ObservationSupportRuntime | None = None
-    ppc_result: JsonObject | None = None
 
     @override
     def __getstate__(self) -> FittedArtifactState:
@@ -448,7 +365,6 @@ class FittedArtifact:
             "times": self.times,
             "provenance": self.provenance,
             "observation_support": self.observation_support,
-            "ppc_result": self.ppc_result,
         }
 
     def __setstate__(self, state: FittedArtifactState) -> None:
@@ -457,7 +373,6 @@ class FittedArtifact:
         object.__setattr__(self, "times", state["times"])
         object.__setattr__(self, "provenance", state["provenance"])
         object.__setattr__(self, "observation_support", state["observation_support"])
-        object.__setattr__(self, "ppc_result", state["ppc_result"])
 
 
 class FittedArtifactState(TypedDict):
@@ -468,4 +383,3 @@ class FittedArtifactState(TypedDict):
     times: jnp.ndarray
     provenance: PosteriorProvenance
     observation_support: ObservationSupportRuntime | None
-    ppc_result: JsonObject | None

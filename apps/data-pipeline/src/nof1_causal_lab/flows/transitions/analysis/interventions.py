@@ -56,5 +56,8 @@ def run_interventions(
         times=fitted_artifact.times,
         lambda_mean=lambda_mean,
     )
+    construct_ids = {item.name: item.id for item in analysis.causal_design.latent.constructs}
+    for entry in results:
+        entry["treatment_id"] = construct_ids[entry["treatment"]]
     logger.info("Interventions complete: ranked_treatments=%d", len(results))
     return results

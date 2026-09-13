@@ -42,12 +42,6 @@ from .posterior import (
     posterior_dynamics_from_result,
     posterior_dynamics_from_samples,
 )
-from .runtime import (
-    VectorFieldRuntime,
-    build_vector_field_runtime_from_samples,
-    pack_vector_field_params_from_samples,
-    sample_vector_field_runtime,
-)
 from .serialization import (
     dynamics_spec_from_dict,
     dynamics_spec_to_dict,
@@ -106,8 +100,6 @@ __all__ = [
     "VariableOverride",
     "VectorField",
     "VectorFieldArgs",
-    "VectorFieldRuntime",
-    "build_vector_field_runtime_from_samples",
     "compile_dynamics",
     "dynamics_spec_from_dict",
     "dynamics_spec_to_dict",
@@ -117,11 +109,9 @@ __all__ = [
     "infer_linearisation",
     "iter_dynamics_semantic_bindings",
     "linear_ramp",
-    "pack_vector_field_params_from_samples",
     "posterior_dynamics_from_result",
     "posterior_dynamics_from_samples",
     "precomputed_value",
     "simulate",
     "simulate_pair",
-    "sample_vector_field_runtime",
 ]

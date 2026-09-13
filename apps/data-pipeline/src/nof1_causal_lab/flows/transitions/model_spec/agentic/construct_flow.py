@@ -20,20 +20,31 @@ from typing import TYPE_CHECKING, Any
 
 import jax.numpy as jnp
 import numpy as np
+from pydantic import TypeAdapter
 
-from nof1_causal_lab.artifacts import (
+from nof1_causal_lab.artifacts.mechanism import (
+    DynamicsMechanism,
+    EstimatedCoefficient,
+    HillEdgeMechanism,
+    LinearEdgeMechanism,
+    mechanism_coefficients,
+)
+from nof1_causal_lab.artifacts.parameter import SiteKind
+from nof1_causal_lab.artifacts.prior import ExecutablePrior
+from nof1_causal_lab.artifacts.statistical_model_spec import (
     DistributionFamily,
+    LikelihoodSpec,
     LinkFunction,
     ParameterConstraint,
     ParameterRole,
+    ParameterSpec,
 )
-from nof1_causal_lab.artifacts.prior import ExecutablePrior, PriorPlan
-from nof1_causal_lab.artifacts.statistical_model_spec import LikelihoodSpec, ParameterSpec
 from nof1_causal_lab.compilation_errors import AggregatedCompileError
 from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.flows.runtime_events import emit_model_spec_admission_event
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.models.model_semantics import should_auto_standardize_indicator
+from nof1_causal_lab.models.ssm.compile.parameter_identity import declare_parameter
 from nof1_causal_lab.models.ssm.construct_admission import (
     AdmissionReport,
     AdmissionState,
@@ -45,12 +56,11 @@ from nof1_causal_lab.models.ssm.construct_admission import (
     trial_admission_state,
 )
 from nof1_causal_lab.models.ssm.reachability import CHECK_MODES, CheckResult, stage_outcome
+from nof1_causal_lab.prior_distributions import distribution_schema_variants
 from nof1_causal_lab.utils.observation_semantics import get_observation_semantics
 from nof1_causal_lab.utils.structural_plan import (
     get_edges,
-    get_known_input_source_indicators,
     get_plan_indicators,
-    get_state_names,
     restrict_structural_plan,
 )
 
@@ -62,12 +72,11 @@ if TYPE_CHECKING:
     import polars as pl
 
     from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
+    from nof1_causal_lab.models.ssm.compile.parameter_identity import ParameterMetadata
 
 # Attempts per construct before the build fails (each attempt is one fresh
 # agent session that must call submit_construct with a revised proposal).
 _MAX_ATTEMPTS_PER_CONSTRUCT = 4
-
-type ParameterMetadata = dict[str, Any]
 
 # --------------------------------------------------------------------------- #
 # Compiler-authoritative parameter catalog
@@ -153,6 +162,38 @@ class ParamCatalog:
                 site_names.setdefault(name, name)
                 for construct_name in param.get("construct_names") or ():
                     by_construct.setdefault(str(construct_name), []).append(name)
+        # Structural alternatives are declared from their construct/edge owners before
+        # any runtime layout is selected.
+        alternatives = []
+        for construct in structural_plan.semantics.constructs.values():
+            alternatives.append(
+                {
+                    "name": f"self_limit_{construct.name}",
+                    "construct": construct.name,
+                    "quantity": "dynamics_potential_quartic",
+                }
+            )
+        for edge in structural_plan.semantics.edges.values():
+            cause = structural_plan.semantics.constructs[edge.cause_id].name
+            effect = structural_plan.semantics.constructs[edge.effect_id].name
+            for quantity in ("hill_emax", "hill_ec50", "hill_n"):
+                alternatives.append(
+                    {
+                        "name": f"{quantity}_{cause}_{effect}",
+                        "cause": cause,
+                        "effect": effect,
+                        "quantity": quantity,
+                    }
+                )
+        for candidate in alternatives:
+            candidate.update(
+                role="dynamics_parameter_positive",
+                constraint="positive",
+                description=f"Structural parameter {candidate['name']}",
+            )
+            parameter = declare_parameter(candidate, structural_plan)
+            metadata[parameter["name"]] = parameter
+            roles[parameter["name"]] = _STRUCTURAL_ROLE
         return cls(
             roles=roles,
             by_construct={c: tuple(v) for c, v in by_construct.items()},
@@ -219,7 +260,7 @@ class ParamCatalog:
         return self.active_names(names, likelihood_by_variable) | structural
 
     def role_for(self, name: str) -> tuple[ParameterRole, ParameterConstraint]:
-        return self.roles.get(name, _STRUCTURAL_ROLE)
+        return self.roles[name]
 
     def site_for(self, name: str) -> str | None:
         return self.site_names.get(name)
@@ -270,7 +311,7 @@ def derive_admission_turn_inventory(
     """
     admitted_names = set(admitted)
     previous_names = set(previous_catalog.roles) if previous_catalog is not None else set()
-    newly_materialized = set(current_catalog.roles) - previous_names
+    newly_materialized = set(current_catalog.site_names) - previous_names
     compiler_prior_names = current_catalog.prior_names_for(construct) | newly_materialized
 
     fixed_effects = {
@@ -317,8 +358,8 @@ def construct_parents(structural_plan: StructuralPlan, construct: str) -> list[s
     """Direct causal parents of ``construct`` (edge sources into it)."""
     parents: list[str] = []
     for edge in get_edges(structural_plan):
-        cause = edge.get("cause") if isinstance(edge, dict) else edge.cause
-        effect = edge.get("effect") if isinstance(edge, dict) else edge.effect
+        cause = edge["cause"]
+        effect = edge["effect"]
         if effect == construct and cause is not None and str(cause) not in parents:
             parents.append(str(cause))
     return parents
@@ -330,12 +371,12 @@ def _locked_likelihood_by_variable(
 ) -> dict[str, UncheckedJsonObject]:
     """Resolve submitted emissions into the compiler's likelihood-activation surface."""
     indicator_lookup = {
-        indicator["name"]: indicator for indicator in get_plan_indicators(structural_plan)
+        indicator["id"]: indicator for indicator in get_plan_indicators(structural_plan)
     }
     locked: dict[str, UncheckedJsonObject] = {}
     for submitted in indicators:
-        variable = str(submitted["variable"])
-        indicator = indicator_lookup[variable]
+        indicator = indicator_lookup[str(submitted["indicator_id"])]
+        variable = str(indicator["name"])
         distribution = DistributionFamily(submitted["family"])
         link = LinkFunction(submitted["link"])
         semantics = get_observation_semantics(indicator)
@@ -384,31 +425,41 @@ def _closing_edge_effects(
     """
     effects: list[str] = []
     for edge in get_edges(structural_plan):
-        cause = edge.get("cause") if isinstance(edge, dict) else edge.cause
-        effect = edge.get("effect") if isinstance(edge, dict) else edge.effect
+        cause = edge["cause"]
+        effect = edge["effect"]
         if cause == construct and effect in prior_admitted and str(effect) not in effects:
             effects.append(str(effect))
     return effects
 
 
 def _closed_loop_target(
-    member: ConstructContribution, structural_plan: StructuralPlan, priors: Mapping[str, Any]
+    member: ConstructContribution,
+    structural_plan: StructuralPlan,
+    mechanisms: Sequence[DynamicsMechanism],
 ) -> ConstructContribution:
-    """``member``'s contribution with its edge set recomputed on the closed loop.
+    """The incoming mechanisms included in the closed-loop model's checks."""
+    incoming = [
+        mechanism
+        for mechanism in mechanisms
+        if isinstance(mechanism, (LinearEdgeMechanism, HillEdgeMechanism))
+        and structural_plan.semantics.constructs[
+            structural_plan.semantics.edges[mechanism.edge_id].effect_id
+        ].name
+        == member.name
+    ]
 
-    C4b/C4c on the member must now see the just-closed feedback edge, whose ``beta_*`` /
-    ``hill_*`` prior is already in ``priors`` (authored during the loop-closing submission).
-    """
-    name = member.name
-    parents = construct_parents(structural_plan, name)
-    latent_parents = set(get_state_names(structural_plan))
-    edge_parents = tuple(
-        p for p in parents if f"beta_{p}_{name}" in priors or f"hill_emax_{p}_{name}" in priors
+    def parent(mechanism: LinearEdgeMechanism | HillEdgeMechanism) -> str:
+        return structural_plan.semantics.constructs[
+            structural_plan.semantics.edges[mechanism.edge_id].cause_id
+        ].name
+
+    return replace(
+        member,
+        edge_parents=tuple(parent(mechanism) for mechanism in incoming),
+        hill_parents=tuple(
+            parent(mechanism) for mechanism in incoming if isinstance(mechanism, HillEdgeMechanism)
+        ),
     )
-    hill_parents = tuple(
-        p for p in parents if p in latent_parents and f"hill_emax_{p}_{name}" in priors
-    )
-    return replace(member, edge_parents=edge_parents, hill_parents=hill_parents)
 
 
 # --------------------------------------------------------------------------- #
@@ -421,17 +472,24 @@ def contribution_from_payload(
 ) -> ConstructContribution:
     """Parse a ``submit_construct`` payload into a canonical construct contribution.
 
-    Edge/Hill structure is *implied by the authored priors*: a ``beta_<p>_<c>``
-    prior declares a linear edge from parent ``p``; a ``hill_emax_<p>_<c>`` prior
-    declares a saturating (Hill) edge. The self-limiting quartic is implied by a
-    ``self_limit_<c>`` prior. Parents come from the causal DAG, so the compound
-    name is split unambiguously. Roles/constraints come from the compiler-
-    authoritative ``catalog`` (skeleton), not from the parameter name.
+    Dynamics are declared in the same mechanism types persisted by the model.
+    The referenced free coefficients determine the dynamics parameter catalog.
     """
     name = str(payload["construct"])
+    mechanisms = TypeAdapter(tuple[DynamicsMechanism, ...]).validate_python(payload["mechanisms"])
+    free_ids = {
+        coefficient.parameter_id
+        for mechanism in mechanisms
+        for coefficient in mechanism_coefficients(mechanism).values()
+        if isinstance(coefficient, EstimatedCoefficient)
+    }
+    metadata_by_id = {metadata["id"]: metadata for metadata in catalog.metadata.values()}
+    unknown_ids = free_ids - metadata_by_id.keys()
+    if unknown_ids:
+        raise ValueError(f"Unknown mechanism parameter IDs: {sorted(unknown_ids)}")
     likelihoods = tuple(
         LikelihoodSpec(
-            variable=str(ind["variable"]),
+            indicator_id=str(ind["indicator_id"]),
             distribution=DistributionFamily(ind["family"]),
             link=LinkFunction(ind["link"]),
             reasoning=str(ind.get("reasoning", "")),
@@ -455,33 +513,40 @@ def contribution_from_payload(
             if field in prior_payload
         }
         priors[str(parameter)] = ExecutablePrior.model_validate(
-            {"parameter": str(parameter), **executable_payload}
+            {"parameter_id": catalog.metadata_for(str(parameter))["id"], **executable_payload}
+        )
+    dynamics_quantities = {
+        SiteKind.DYNAMICS_DECAY,
+        SiteKind.DYNAMICS_CINT,
+        SiteKind.DYNAMICS_WEIGHT,
+        SiteKind.DYNAMICS_POTENTIAL_CENTER,
+        SiteKind.DYNAMICS_POTENTIAL_QUARTIC,
+        SiteKind.HILL_EMAX,
+        SiteKind.HILL_EC50,
+        SiteKind.HILL_N,
+        SiteKind.INPUT_EFFECT,
+    }
+    proposed = [ParameterSpec.model_validate(catalog.metadata_for(pn)) for pn in priors]
+    authored_dynamics = {
+        parameter.id for parameter in proposed if parameter.quantity in dynamics_quantities
+    }
+    if authored_dynamics != free_ids:
+        raise ValueError(
+            "Dynamics priors must cover the mechanism's estimated coefficients exactly: "
+            f"missing={sorted(free_ids - authored_dynamics)}, inactive={sorted(authored_dynamics - free_ids)}"
         )
     parameters = tuple(
-        ParameterSpec(
-            name=pn,
-            role=catalog.role_for(pn)[0],
-            constraint=catalog.role_for(pn)[1],
-            description=f"authored prior for {pn}",
-        )
-        for pn in priors
+        [parameter for parameter in proposed if parameter.quantity not in dynamics_quantities]
+        + [ParameterSpec.model_validate(metadata_by_id[key]) for key in sorted(free_ids)]
     )
-    parents = construct_parents(structural_plan, name)
-    latent_parents = set(get_state_names(structural_plan))
-    edge_parents = tuple(
-        p for p in parents if f"beta_{p}_{name}" in priors or f"hill_emax_{p}_{name}" in priors
-    )
-    hill_parents = tuple(
-        p for p in parents if p in latent_parents and f"hill_emax_{p}_{name}" in priors
-    )
-    return ConstructContribution(
+    contribution = ConstructContribution(
         name=name,
         likelihoods=likelihoods,
         parameters=parameters,
+        mechanisms=mechanisms,
         priors=priors,
-        edge_parents=edge_parents,
-        hill_parents=hill_parents,
     )
+    return _closed_loop_target(contribution, structural_plan, mechanisms)
 
 
 # --------------------------------------------------------------------------- #
@@ -532,29 +597,31 @@ def _design_for_state(
 
     restricted = restrict_structural_plan(structural_plan, set(model_state.names))
     compiled = compile_ssm_artifact(
-        model_state.statistical_model_spec(),
-        PriorPlan(priors=dict(model_state.priors)),
+        model_state.statistical_model_spec(restricted),
+        model_state.prior_plan(restricted),
         structural_plan=restricted,
     )
 
-    indicator_names = [lik.variable for lik in model_state.likelihoods]
-    indicator_names.extend(sorted(get_known_input_source_indicators(restricted)))
-    trial_data = data_for_model.filter(pl.col("indicator").is_in(indicator_names))
+    indicator_ids = [lik.indicator_id for lik in model_state.likelihoods]
+    indicator_ids.extend(item.source_indicator_id for item in restricted.known_inputs)
+    trial_data = data_for_model.filter(pl.col("indicator_id").is_in(indicator_ids))
     runtime = prepare_model_runtime(trial_data, compiled_ssm=compiled)
 
     times = np.asarray(runtime.times, dtype=float)
     observations = np.asarray(runtime.observations, dtype=float)
-    manifest_names = list(runtime.manifest_names)
+    assert runtime.manifest_ids is not None
+    manifest_ids = list(runtime.manifest_ids)
 
     obs_index_by_indicator: dict[str, np.ndarray] = {}
     values_by_indicator: dict[str, np.ndarray] = {}
-    for i, manifest in enumerate(manifest_names):
+    for i, manifest in enumerate(manifest_ids):
         present = np.where(np.isfinite(observations[:, i]))[0]
         obs_index_by_indicator[manifest] = present
         values_by_indicator[manifest] = observations[present, i]
 
     return DesignInfo(
         t_grid=jnp.asarray(times),
+        manifest_ids=tuple(manifest_ids),
         obs_index_by_indicator=obs_index_by_indicator,
         values_by_indicator=values_by_indicator,
         n_draws=n_draws,
@@ -603,8 +670,8 @@ def _admission_plan_payload(
     order_set = set(order)
     edges: list[dict[str, str]] = []
     for edge in get_edges(structural_plan):
-        cause = edge.get("cause") if isinstance(edge, dict) else edge.cause
-        effect = edge.get("effect") if isinstance(edge, dict) else edge.effect
+        cause = edge["cause"]
+        effect = edge["effect"]
         if cause in order_set and effect in order_set:
             edges.append({"cause": str(cause), "effect": str(effect)})
     constructs = [
@@ -756,6 +823,7 @@ class ConstructBuildState:
         construct: str,
         indicators: Sequence[Mapping[str, Any]],
         priors: Mapping[str, Any],
+        mechanisms: Sequence[Mapping[str, Any]],
         accept: Sequence[Mapping[str, Any]] | None = None,
     ) -> str:
         self.submission_made = True
@@ -780,26 +848,18 @@ class ConstructBuildState:
                 f"{', '.join(sorted(unknown))}. Author priors only for: "
                 f"{', '.join(sorted(allowed))}."
             )
-        missing_closing = [
-            beta
-            for beta in sorted(inventory.closing_beta_names)
-            if beta not in priors and beta.replace("beta_", "hill_emax_", 1) not in priors
-        ]
-        if missing_closing:
-            return (
-                "Missing cycle-closing edge prior(s): "
-                + ", ".join(f"`{n}`" for n in missing_closing)
-                + ". This construct closes a feedback loop: the closing edge materializes "
-                "in the restricted model NOW, so its weight must be authored in this same "
-                "submission (as the `beta_...` prior named above, or its `hill_*` variants) "
-                "— otherwise the compiler rejects the unbound edge site."
+        payload = {
+            "construct": construct,
+            "indicators": list(indicators),
+            "priors": dict(priors),
+            "mechanisms": list(mechanisms),
+        }
+        try:
+            contribution = contribution_from_payload(
+                self.structural_plan, payload, inventory.catalog
             )
-        payload = {"construct": construct, "indicators": list(indicators), "priors": dict(priors)}
-        contribution = contribution_from_payload(
-            self.structural_plan,
-            payload,
-            inventory.catalog,
-        )
+        except ValueError as exc:
+            return str(exc)
         pooled_families: dict[str, set[str]] = {}
         for name, prior in {
             **self.admission.priors,
@@ -944,7 +1004,9 @@ class ConstructBuildState:
         raw_results: list[CheckResult] = []
         for member in members:
             target = _closed_loop_target(
-                self.admitted_contributions[member], self.structural_plan, tentative_state.priors
+                self.admitted_contributions[member],
+                self.structural_plan,
+                tentative_state.mechanisms,
             )
             member_results, member_timings = recheck_member(
                 tentative_state, target, self.structural_plan, design
@@ -968,9 +1030,13 @@ class ConstructBuildState:
         }
 
 
+_MECHANISM_SCHEMA = TypeAdapter(list[DynamicsMechanism]).json_schema()
+
 SUBMIT_CONSTRUCT_SCHEMA: UncheckedJsonObject = {
+    "$defs": _MECHANISM_SCHEMA["$defs"],
     "type": "object",
     "properties": {
+        "mechanisms": {key: value for key, value in _MECHANISM_SCHEMA.items() if key != "$defs"},
         "construct": {
             "type": "string",
             "description": "Name of the construct being admitted (must be the active one).",
@@ -981,7 +1047,7 @@ SUBMIT_CONSTRUCT_SCHEMA: UncheckedJsonObject = {
             "items": {
                 "type": "object",
                 "properties": {
-                    "variable": {"type": "string"},
+                    "indicator_id": {"type": "string", "pattern": "^indicator:"},
                     "family": {
                         "type": "string",
                         "enum": [e.value for e in DistributionFamily],
@@ -994,7 +1060,7 @@ SUBMIT_CONSTRUCT_SCHEMA: UncheckedJsonObject = {
                     },
                     "reasoning": {"type": "string"},
                 },
-                "required": ["variable", "family", "link"],
+                "required": ["indicator_id", "family", "link"],
                 "additionalProperties": False,
             },
         },
@@ -1002,8 +1068,8 @@ SUBMIT_CONSTRUCT_SCHEMA: UncheckedJsonObject = {
             "type": "object",
             "description": (
                 "Prior proposals keyed by a canonical parameter name listed in the active "
-                "construct prompt. A Hill edge is declared by authoring hill_* priors; a "
-                "self-limiting well by self_limit_<c>. Conditional likelihood parameters "
+                "construct prompt. Declare dynamics explicitly in mechanisms and provide priors "
+                "for exactly their estimated coefficients. Conditional likelihood parameters "
                 "must be omitted when the submitted family/link does not activate them. "
                 "Every value must use the canonical {distribution, params, reasoning} shape."
             ),
@@ -1030,6 +1096,7 @@ SUBMIT_CONSTRUCT_SCHEMA: UncheckedJsonObject = {
                 },
                 "required": ["distribution", "params", "reasoning"],
                 "additionalProperties": False,
+                "oneOf": distribution_schema_variants(),
             },
         },
         "accept": {
@@ -1049,7 +1116,7 @@ SUBMIT_CONSTRUCT_SCHEMA: UncheckedJsonObject = {
             },
         },
     },
-    "required": ["construct", "indicators", "priors"],
+    "required": ["construct", "indicators", "priors", "mechanisms"],
     "additionalProperties": False,
 }
 

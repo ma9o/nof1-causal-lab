@@ -24,7 +24,7 @@ from nof1_causal_lab.machine.temporal.model_spec_checkpoints import (
 from tests.helpers import make_structural_plan
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.machine.artifacts import ArtifactId
+    from nof1_causal_lab.artifacts.identity import ArtifactId
 
 
 def _workspace(monkeypatch, tmp_path) -> str:
@@ -57,6 +57,7 @@ def test_accepted_checkpoint_is_immutable_and_idempotent(monkeypatch, tmp_path):
     )
     initial = read_model_spec_checkpoint(workspace_id, initial_ref)
     accepted = AcceptedConstructCheckpoint(
+        mechanisms=[],
         submission_id="tool-call-1",
         construct_name="sleep",
         indicators=[],
@@ -104,6 +105,7 @@ def test_accepted_checkpoint_is_immutable_and_idempotent(monkeypatch, tmp_path):
 def test_admission_evaluation_key_is_scoped_to_causal_ancestors(monkeypatch, tmp_path):
     workspace_id = _workspace(monkeypatch, tmp_path)
     accepted_a = AcceptedConstructCheckpoint(
+        mechanisms=[],
         submission_id="submission-a",
         construct_name="A",
         priors={"rho_A": {"distribution": "Normal", "params": {"mu": 0.2}}},
@@ -111,6 +113,7 @@ def test_admission_evaluation_key_is_scoped_to_causal_ancestors(monkeypatch, tmp
         feedback="accepted",
     )
     accepted_b = AcceptedConstructCheckpoint(
+        mechanisms=[],
         submission_id="submission-b",
         construct_name="B",
         priors={"rho_B": {"distribution": "Normal", "params": {"mu": 0.3}}},
@@ -128,6 +131,7 @@ def test_admission_evaluation_key_is_scoped_to_causal_ancestors(monkeypatch, tmp
     )
     proposal = {
         "ancestor_constructs": {"A"},
+        "mechanisms": [],
         "construct_name": "X",
         "indicators": [],
         "priors": {"rho_X": {"distribution": "Normal", "params": {"mu": 0.5}}},
@@ -307,6 +311,7 @@ def test_target_restore_uses_only_its_causal_ancestor_closure(monkeypatch):
         input_pins={},
         accepted_constructs=[
             AcceptedConstructCheckpoint(
+                mechanisms=[],
                 submission_id=f"submission-{name}",
                 construct_name=name,
                 outcome="ADMITTED",
@@ -386,6 +391,7 @@ def test_rebase_retains_independent_branch_and_reopens_failed_descendants(monkey
     )
     accepted = [
         AcceptedConstructCheckpoint(
+            mechanisms=[],
             submission_id=f"submission-{name}",
             construct_name=name,
             outcome="ADMITTED",
@@ -418,3 +424,30 @@ def test_rebase_retains_independent_branch_and_reopens_failed_descendants(monkey
     assert [item.construct_name for item in retained] == ["sleep"]
     assert reopened == "stress"
     assert reason == "stress no longer passes the scale check"
+
+
+def test_admission_evaluation_key_tracks_fixed_mechanism_choices():
+    from nof1_causal_lab.artifacts.mechanism import FixedCoefficient, HillEdgeMechanism
+
+    mechanism = HillEdgeMechanism(
+        edge_id="edge:ab",
+        emax=FixedCoefficient(value=1),
+        ec50=FixedCoefficient(value=1),
+        n=FixedCoefficient(value=2),
+    )
+
+    def key(mechanism):
+        return model_spec_admission_evaluation_key(
+            input_identity={},
+            accepted_constructs=[],
+            ancestor_constructs=set(),
+            construct_name="B",
+            indicators=[],
+            priors={},
+            mechanisms=[mechanism],
+            accept=[],
+            n_draws=16,
+            seed=7,
+        )
+
+    assert key(mechanism) != key(mechanism.model_copy(update={"n": FixedCoefficient(value=3)}))

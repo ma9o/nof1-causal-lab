@@ -12,15 +12,14 @@ import jax.scipy.linalg as jla
 import numpy as np
 import pytest
 
+from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
 from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily
 from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.models.ssm import (
     SSMModel,
-    discretize_linear_system_exact,
 )
 from nof1_causal_lab.models.ssm.inference.warmup.map import fit_map
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
-from nof1_causal_lab.models.ssm.priors import PriorSpec
 from nof1_causal_lab.models.ssm.structure import (
     DiffusionBlockSpec,
     ManifestCholBlockSpec,
@@ -28,13 +27,13 @@ from nof1_causal_lab.models.ssm.structure import (
     SparseVectorBlockSpec,
     T0CholBlockSpec,
 )
-from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
+from nof1_causal_lab.prior_distributions import distribution_from_params
 from tests.ssm_spec_fixtures import (
+    affine_test_evolution,
     block_ssm_spec,
     dense_matrix_dynamics_spec,
     full_diagonal_support,
     make_lgss_data,
-    prior_registry,
     zero_diagonal_support,
     zero_loading_support,
     zero_square_support,
@@ -42,7 +41,7 @@ from tests.ssm_spec_fixtures import (
 )
 from tests.ssm_test_utils import assert_recovery_ci
 
-pytestmark = pytest.mark.slow
+pytestmark = [pytest.mark.slow, pytest.mark.cpu_expensive]
 
 
 def _assert_lgss_recovery(
@@ -191,12 +190,10 @@ def _simulate_mixed_continuous_observations(
     n_manifest = int(lambda_mat.shape[0])
     dt = float(times[1] - times[0]) if times.shape[0] > 1 else 1.0
 
-    Ad, Qd, _ = discretize_linear_system_exact(
-        jnp.diag(decay_diag),
-        jnp.diag(diffusion_diag**2),
-        None,
-        dt,
+    reference = affine_test_evolution(jnp.diag(decay_diag), jnp.diag(diffusion_diag**2)).params_at(
+        0.0, dt
     )
+    Ad, Qd = reference.A, reference.cov
     qd_chol = jla.cholesky(Qd + jnp.eye(n_latent, dtype=times.dtype) * 1e-8, lower=True)
 
     rng_key, init_key = random.split(rng_key)
@@ -335,10 +332,14 @@ def _make_map_mixed_support_recovery_data() -> dict[str, Any]:
         manifest_names=manifest_names,
         manifest_dists=manifest_dists,
     )
-    priors = prior_registry(
-        diffusion_diag_free=PriorSpec(PriorDistributionFamily.HALF_NORMAL, {"sigma": 0.15}),
-        manifest_var_diag_free=PriorSpec(PriorDistributionFamily.HALF_NORMAL, {"sigma": 0.15}),
-    )
+    priors = {
+        "diffusion_diag_free": distribution_from_params(
+            PriorDistributionFamily.HALF_NORMAL, {"sigma": 0.15}
+        ),
+        "manifest_var_diag_free": distribution_from_params(
+            PriorDistributionFamily.HALF_NORMAL, {"sigma": 0.15}
+        ),
+    }
 
     return {
         "observations": observations,

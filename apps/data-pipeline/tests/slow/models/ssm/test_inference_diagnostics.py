@@ -2,23 +2,14 @@
 
 import jax.numpy as jnp
 import jax.random as random
-import numpyro
 import numpyro.distributions as dist
 import pytest
 
 from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior
 from nof1_causal_lab.models.ssm.inference.mcmc_state import TrajectoryMCMCResult
+from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
 
-pytestmark = pytest.mark.slow
-
-
-def _toy_model(x, y=None):
-    alpha = numpyro.sample("alpha", dist.Normal(0, 10))
-    beta = numpyro.sample("beta", dist.Normal(0, 5))
-    sigma = numpyro.sample("sigma", dist.HalfNormal(5))
-    mu = alpha + beta * x
-    numpyro.deterministic("ll_per_timestep", dist.Normal(mu, sigma).log_prob(y))
-    numpyro.sample("y", dist.Normal(mu, sigma), obs=y)
+pytestmark = [pytest.mark.slow, pytest.mark.cpu_expensive]
 
 
 @pytest.fixture(scope="module")
@@ -45,7 +36,7 @@ def mcmc_result():
     )
 
     return ParticleMCMCPosterior(
-        _samples=mcmc.get_samples(),
+        draws=JointPosteriorDraws(parameters=mcmc.get_samples()),
         diagnostics={"mcmc": mcmc},
     )
 
@@ -104,64 +95,29 @@ class TestMCMCDiagnostics:
 
 
 class TestLOODiagnostics:
-    def test_loo_basic(self, mcmc_result):
-        key = random.PRNGKey(0)
+    def test_loo_uses_joint_posterior_emission_factors(self, mcmc_result):
         n_obs = 30
         x = jnp.linspace(-2, 2, n_obs)
-        y = 1.0 + 2.5 * x + 0.5 * random.normal(key, (n_obs,))
+        y = 1.0 + 2.5 * x + 0.5 * random.normal(random.PRNGKey(0), (n_obs,))
+        samples = mcmc_result.diagnostics["mcmc"].get_samples(group_by_chain=True)
+        mean = samples["alpha"][..., None] + samples["beta"][..., None] * x
+        factors = dist.Normal(mean, samples["sigma"][..., None]).log_prob(y)
+        mcmc_result.diagnostics["observation_log_probs"] = factors
+        estimate = mcmc_result.get_loo_diagnostics(observations=y[:, None])
+        assert estimate is not None
+        assert estimate["observation_unit"] == "measurement_row"
+        assert estimate["prediction_task"] == "interpolation_given_other_measurements"
+        assert len(estimate["pareto_k"]) == n_obs
+        assert estimate["n_bad_k"] == 0
 
-        loo = mcmc_result.get_loo_diagnostics(model_fn=_toy_model, observations=x, times=y)
-        assert loo is not None
-        assert "elpd_loo" in loo
-        assert "p_loo" in loo
-        assert "se" in loo
-        assert "pareto_k" in loo
-        pareto_k = loo["pareto_k"]
-        assert isinstance(pareto_k, list)
-        assert len(pareto_k) == n_obs
-        assert loo["n_bad_k"] == 0
+    def test_loo_omits_fully_missing_rows(self, mcmc_result):
+        mcmc_result.diagnostics["observation_log_probs"] = jnp.zeros((2, 200, 3))
+        assert mcmc_result.get_loo_diagnostics(observations=jnp.full((3, 1), jnp.nan)) is None
 
-    def test_loo_without_model_returns_none(self, mcmc_result):
-        assert mcmc_result.get_loo_diagnostics() is None
-
-    def test_loo_map_result_with_timestep_log_likelihood(self):
-        key = random.PRNGKey(0)
-        n_obs = 30
-        x = jnp.linspace(-2, 2, n_obs)
-        y = 1.0 + 2.5 * x + 0.5 * random.normal(key, (n_obs,))
-
-        def _ssm_style_model(x, y):
-            alpha = numpyro.sample("alpha", dist.Normal(0, 10))
-            beta_p = numpyro.sample("beta", dist.Normal(0, 5))
-            sigma = numpyro.sample("sigma", dist.HalfNormal(5))
-            mu = alpha + beta_p * x
-            ll_per_t = dist.Normal(mu, sigma).log_prob(y)
-            numpyro.deterministic("ll_per_timestep", ll_per_t)
-            numpyro.factor("log_likelihood", jnp.sum(ll_per_t))
-
-        k_alpha, k_beta, k_sigma = random.split(random.PRNGKey(42), 3)
-        samples = {
-            "alpha": 1.0 + 0.15 * random.normal(k_alpha, (200,)),
-            "beta_p": 2.5 + 0.08 * random.normal(k_beta, (200,)),
-            "sigma": 0.5 + 0.04 * random.normal(k_sigma, (200,)),
-        }
-
-        inference_result = ParticleMCMCPosterior(
-            _samples=samples,
-            diagnostics={},
-        )
-        loo = inference_result.get_loo_diagnostics(
-            model_fn=_ssm_style_model, observations=x, times=y
-        )
-        assert loo is not None
-        assert "elpd_loo" in loo
-        assert "p_loo" in loo
-        assert "se" in loo
-        assert "pareto_k" in loo
-        pareto_k = loo["pareto_k"]
-        assert isinstance(pareto_k, list)
-        assert len(pareto_k) == n_obs
-        assert loo["observation_unit"] == "timestep"
+    def test_loo_requires_particle_emission_factors(self):
+        posterior = ParticleMCMCPosterior(draws=JointPosteriorDraws(parameters={}), diagnostics={})
+        with pytest.raises(KeyError, match="observation_log_probs"):
+            posterior.get_loo_diagnostics(observations=jnp.ones((3, 1)))
 
 
 class TestPosteriorMarginals:
@@ -172,7 +128,7 @@ class TestPosteriorMarginals:
         for m in marginals:
             assert len(m["x_values"]) == len(m["density"])
             assert all(d >= 0 for d in m["density"])
-            assert m["hdi_3"] < m["mean"] < m["hdi_97"]
+            assert m["lower"] < m["mean"] < m["upper"]
 
 
 class TestPosteriorPairs:

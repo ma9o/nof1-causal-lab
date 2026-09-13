@@ -18,8 +18,9 @@ from nof1_causal_lab.machine.moves import (
 if TYPE_CHECKING:
     import polars as pl
 
+    from nof1_causal_lab.artifacts.identity import ArtifactId
     from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
-    from nof1_causal_lab.machine.artifacts import ArtifactId, ArtifactVersionInfo, EpisodeState
+    from nof1_causal_lab.machine.artifacts import ArtifactVersionInfo, EpisodeState
     from nof1_causal_lab.machine.store import ArtifactStore
 
 
@@ -255,18 +256,16 @@ def _derive_identification_report(
     store: ArtifactStore,
     pins: dict[ArtifactId, int],
 ) -> ArtifactVersionInfo | None:
-    from nof1_causal_lab.flows.transitions.measurement_structure.contracts import (
-        IdentificationReportContract,
-    )
+    from nof1_causal_lab.artifacts.causal_design import CausalDesign
     from nof1_causal_lab.flows.transitions.measurement_structure.identification import (
         derive_identification_report,
     )
 
     causal_design = _read_causal_design(store, pins["causal_design"])
-    report = derive_identification_report(causal_design)
+    report = derive_identification_report(CausalDesign.model_validate(causal_design))
     if report is None:
         return None
-    validated = IdentificationReportContract.model_validate(report).model_dump(mode="json")
+    validated = report.model_dump(mode="json")
     return store.write_version(
         "identification_report",
         provenance="computed",
@@ -280,7 +279,7 @@ def _derive_validation_report(
     store: ArtifactStore,
     pins: dict[ArtifactId, int],
 ) -> ArtifactVersionInfo:
-    from nof1_causal_lab.flows.artifact_contracts import ValidationReportContract
+    from nof1_causal_lab.artifacts.validation_report import ValidationReportArtifact
     from nof1_causal_lab.flows.transitions.validation.flow import (
         derive_validation_status,
         validate_extraction,
@@ -302,7 +301,7 @@ def _derive_validation_report(
     ]
     dataset_issues = audit_result.get("dataset_issues", [])
     status = derive_validation_status([*indicator_issues, *dataset_issues])
-    payload = ValidationReportContract.model_validate(
+    payload = ValidationReportArtifact.model_validate(
         {**audit_result, "is_valid": status["is_valid"]}
     ).model_dump(mode="json")
     return store.write_version(
@@ -318,9 +317,10 @@ def _derive_compiled_ssm(
     store: ArtifactStore,
     pins: dict[ArtifactId, int],
 ) -> ArtifactVersionInfo:
+    from nof1_causal_lab.artifacts.prior_proposal import PriorProposal
     from nof1_causal_lab.artifacts.statistical_model_spec import StatisticalModelSpec
     from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
-    from nof1_causal_lab.workers.prior_research import build_prior_plan_from_payloads
+    from nof1_causal_lab.workers.prior_research import build_prior_plan_from_proposals
 
     structural_plan = _read_structural_plan(store, pins["structural_plan"])
     report = store.read_json_file(
@@ -331,9 +331,12 @@ def _derive_compiled_ssm(
     statistical_model_spec = StatisticalModelSpec.model_validate(report["statistical_model_spec"])
     compiled_ssm = compile_ssm_artifact(
         statistical_model_spec,
-        build_prior_plan_from_payloads(
+        build_prior_plan_from_proposals(
             statistical_model_spec,
-            report["authored_priors"],
+            {
+                key: PriorProposal.model_validate(value)
+                for key, value in report["authored_priors"].items()
+            },
         ),
         structural_plan=structural_plan,
     )

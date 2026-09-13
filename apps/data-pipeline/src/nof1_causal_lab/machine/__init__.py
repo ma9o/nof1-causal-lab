@@ -16,12 +16,8 @@ Temporal workflow sandbox, a test, or a notebook unchanged. I/O lives in
 engine wiring lives in :mod:`nof1_causal_lab.machine.temporal`.
 """
 
-from nof1_causal_lab.machine.artifacts import (
-    ArtifactId,
-    ArtifactVersionInfo,
-    EpisodeState,
-    Provenance,
-)
+from nof1_causal_lab.artifacts.identity import ArtifactId
+from nof1_causal_lab.machine.artifacts import ArtifactVersionInfo, EpisodeState, Provenance
 from nof1_causal_lab.machine.errors import (
     ArtifactWriteRejected,
     ModelCompileError,

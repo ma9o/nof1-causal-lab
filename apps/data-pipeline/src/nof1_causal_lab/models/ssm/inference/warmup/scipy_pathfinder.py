@@ -45,7 +45,7 @@ from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from nof1_causal_lab.models.ssm.inference.bundle import CachedParticleRuntimeBundle
+    from dynestyx.inference.particle_runtime import ParticleRuntime
 
 logger = logging.getLogger(__name__)
 
@@ -849,7 +849,7 @@ def sample_scipy_pathfinder_init_positions(
     num_chains: int,
     dtype,
     pathfinder_init_scale: float | None = None,
-    init_bundle: CachedParticleRuntimeBundle | None = None,
+    init_bundle: ParticleRuntime | None = None,
     prior_released_sites: tuple[str, ...] = (),
     prior_release_scale: float = 0.05,
     release_jitter_key: jnp.ndarray | None = None,
@@ -876,12 +876,12 @@ def sample_scipy_pathfinder_init_positions(
     prior_site_indices: list[int] = []
     if init_bundle is not None and prior_released_sites:
         prior_site_indices = _flat_indices_for_sites(
-            init_bundle.flat_example,
-            init_bundle.unravel_fn,
+            init_bundle.initial_position,
+            init_bundle.parameters.unravel,
             prior_released_sites,
         )
         if prior_site_indices:
-            flat_example = jnp.asarray(init_bundle.flat_example, dtype=dtype)
+            flat_example = jnp.asarray(init_bundle.initial_position, dtype=dtype)
             dim = int(flat_example.shape[0])
             mask = np.zeros(dim, dtype=bool)
             for idx in prior_site_indices:

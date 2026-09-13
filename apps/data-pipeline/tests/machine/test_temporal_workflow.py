@@ -24,13 +24,14 @@ from nof1_causal_lab.machine.moves import (
     WriteArtifact,
     run_retractions,
 )
+from nof1_causal_lab.machine.status import MoveOutcome
 from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal
 from nof1_causal_lab.machine.temporal import (
     latent_structure_activities,
     measurement_activities,
     measurement_structure_activities,
 )
-from nof1_causal_lab.machine.temporal.messages import EpisodeInit, MoveOutcome, MoveRequest
+from nof1_causal_lab.machine.temporal.messages import EpisodeInit, MoveRequest
 from nof1_causal_lab.machine.temporal.model_spec_checkpoints import (
     latest_failed_model_spec_checkpoint_ref,
     read_model_spec_checkpoint,
@@ -43,26 +44,28 @@ pytestmark = pytest.mark.timeout(240)
 
 def _valid_latent_structure() -> dict[str, Any]:
     return {
+        "default_outcome": {"kind": "construct", "id": "construct:cdc0b2958a9512b2abad"},
         "constructs": [
             {
+                "id": "construct:c665e6cdc48fc83e0915",
                 "name": "exercise",
                 "description": "exercise level",
                 "role": "exogenous",
-                "is_outcome": False,
                 "temporal_status": "time_varying",
             },
             {
+                "id": "construct:cdc0b2958a9512b2abad",
                 "name": "sleep",
                 "description": "sleep quality",
                 "role": "endogenous",
-                "is_outcome": True,
                 "temporal_status": "time_varying",
             },
         ],
         "edges": [
             {
-                "cause": "exercise",
-                "effect": "sleep",
+                "cause_id": "construct:c665e6cdc48fc83e0915",
+                "effect_id": "construct:cdc0b2958a9512b2abad",
+                "id": "edge:ee04dac06187e4b97ab3",
                 "description": "exercise can affect sleep",
                 "lagged": True,
                 "sources": [],
@@ -78,8 +81,9 @@ def _valid_measurement_structure() -> dict[str, Any]:
         "scientific_only_constructs": [],
         "indicators": [
             {
+                "id": "indicator:7eb6c455695dab1b3470",
+                "construct_id": "construct:cdc0b2958a9512b2abad",
                 "name": "sleep_steps_proxy",
-                "construct_name": "sleep",
                 "how_to_measure": "Use the `steps` column directly as a placeholder sleep proxy.",
                 "construct_polarity": "positive",
                 "measurement_dtype": "continuous",
@@ -133,7 +137,7 @@ def machine_env(monkeypatch, tmp_path):
     def fake_materialize_model_spec_result(**kwargs):
         del kwargs
         return {
-            "statistical_model_spec": {"likelihoods": [], "parameters": []},
+            "statistical_model_spec": {"mechanisms": [], "likelihoods": [], "parameters": []},
             "authored_priors": {},
         }
 
@@ -196,6 +200,11 @@ def machine_env(monkeypatch, tmp_path):
             structural_plan = make_structural_plan(["sleep"], [])
             structural_plan["semantics"]["indicators"]["indicator:0000"]["name"] = (
                 "sleep_steps_proxy"
+            )
+            structural_plan = json.loads(
+                json.dumps(structural_plan)
+                .replace("indicator:0000", "indicator:7eb6c455695dab1b3470")
+                .replace("construct:0000", "construct:cdc0b2958a9512b2abad")
             )
             extra.extend(
                 [
@@ -374,9 +383,21 @@ def machine_env(monkeypatch, tmp_path):
                                 "arguments": json.dumps(
                                     {
                                         "construct": "sleep",
+                                        "mechanisms": [
+                                            {
+                                                "kind": "node_potential",
+                                                "target_id": "construct:cdc0b2958a9512b2abad",
+                                                "center": {"kind": "fixed", "value": 0},
+                                                "stiffness": {
+                                                    "kind": "estimated",
+                                                    "parameter_id": "parameter:41410ab5ed081fcb3b3436c8c4dd35daa8890d3ea0b2a597c2852bda40423ec1",
+                                                },
+                                                "quartic": {"kind": "fixed", "value": 0},
+                                            }
+                                        ],
                                         "indicators": [
                                             {
-                                                "variable": "sleep_steps_proxy",
+                                                "indicator_id": "indicator:7eb6c455695dab1b3470",
                                                 "family": "gaussian",
                                                 "link": "identity",
                                                 "reasoning": "test fixture",

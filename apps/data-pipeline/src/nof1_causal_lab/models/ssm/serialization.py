@@ -7,11 +7,11 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 import numpy as np
 
+from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
-from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.compile.contracts import SerializedSSMSpec
+    from nof1_causal_lab.artifacts.compiled_ssm import SerializedSSMSpec
     from nof1_causal_lab.models.ssm.model import SSMSpec
 
 
@@ -108,6 +108,10 @@ def deserialize_ssm_spec(payload: SerializedSSMSpec) -> SSMSpec:
         manifest_links=payload.manifest_links,
         manifest_standardized=payload.manifest_standardized,
         manifest_cat_anchor=payload.manifest_cat_anchor,
+        latent_ids=payload.latent_ids,
+        manifest_ids=payload.manifest_ids,
+        input_ids=payload.input_ids,
+        static_factor_ids=payload.static_factor_ids,
         latent_names=payload.latent_names,
         manifest_names=payload.manifest_names,
         input_names=payload.input_names,

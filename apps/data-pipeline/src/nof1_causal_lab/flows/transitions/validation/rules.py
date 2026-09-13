@@ -21,7 +21,7 @@ from nof1_causal_lab.flows.transitions.validation.checks import (
     parse_timestamp_series,
     timestamp_issue_specs,
 )
-from nof1_causal_lab.json_types import UncheckedJsonObject
+from nof1_causal_lab.json_types import JsonObject, UncheckedJsonObject
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -73,22 +73,22 @@ class IndicatorRuleInput:
 class ValidationContext:
     combined: pl.DataFrame
     indicators: list[ArtifactRecord]
-    indicator_names: set[str]
+    indicator_ids: set[str]
     indicator_lookup: dict[str, ArtifactRecord]
     construct_lookup: dict[str, ArtifactRecord]
     model_clock_hours: float | None
 
     def iter_indicators(self):
-        for indicator_name in sorted(self.indicator_names):
-            ind_data = self.combined.filter(pl.col("indicator") == indicator_name)
+        for indicator_id in sorted(self.indicator_ids):
+            ind_data = self.combined.filter(pl.col("indicator_id") == indicator_id)
             if ind_data.is_empty():
-                yield indicator_name, ind_data, None
+                yield indicator_id, ind_data, None
                 continue
             yield (
-                indicator_name,
+                indicator_id,
                 ind_data,
                 _build_indicator_context(
-                    indicator_name,
+                    indicator_id,
                     ind_data,
                     self.indicator_lookup,
                     self.construct_lookup,
@@ -104,9 +104,11 @@ class ValidationRule:
     check: Any
 
 
-def issue_payload(issue: Issue) -> dict[str, str | None]:
+def issue_payload(issue: Issue) -> JsonObject:
     return {
-        "indicator": issue.indicator,
+        "subject": {"kind": "indicator", "id": issue.indicator}
+        if issue.indicator is not None
+        else None,
         "issue_type": issue.issue_type,
         "severity": issue.severity,
         "message": issue.message,
@@ -115,7 +117,7 @@ def issue_payload(issue: Issue) -> dict[str, str | None]:
 
 def issue_from_raw(raw_issue: UncheckedJsonObject, *, cell_key: str) -> Issue:
     return Issue(
-        raw_issue["indicator"],
+        raw_issue["subject"]["id"],
         raw_issue["issue_type"],
         raw_issue["severity"],
         raw_issue["message"],
@@ -152,7 +154,7 @@ def no_data_validation_result() -> UncheckedJsonObject:
         "indicators": {},
         "dataset_issues": [
             {
-                "indicator": None,
+                "indicator_id": None,
                 "issue_type": "no_data",
                 "severity": "error",
                 "message": "No data extracted",
@@ -319,15 +321,15 @@ def _rule_construct_correlations(
 
 
 RULES: list[ValidationRule] = [
-    ValidationRule("missing", "indicator", _rule_missing),
-    ValidationRule("no_numeric", "indicator", _rule_no_numeric),
-    ValidationRule("timestamps", "indicator", _rule_timestamps),
-    ValidationRule("sample_size", "indicator", _rule_sample_size),
-    ValidationRule("variance", "indicator", _rule_variance),
-    ValidationRule("dtype_range", "indicator", _rule_dtype_range),
-    ValidationRule("time_coverage", "indicator", _rule_time_coverage),
-    ValidationRule("timestamp_gaps", "indicator", _rule_timestamp_gaps),
-    ValidationRule("hallucination_signals", "indicator", _rule_hallucination_signals),
+    ValidationRule("missing", "indicator_id", _rule_missing),
+    ValidationRule("no_numeric", "indicator_id", _rule_no_numeric),
+    ValidationRule("timestamps", "indicator_id", _rule_timestamps),
+    ValidationRule("sample_size", "indicator_id", _rule_sample_size),
+    ValidationRule("variance", "indicator_id", _rule_variance),
+    ValidationRule("dtype_range", "indicator_id", _rule_dtype_range),
+    ValidationRule("time_coverage", "indicator_id", _rule_time_coverage),
+    ValidationRule("timestamp_gaps", "indicator_id", _rule_timestamp_gaps),
+    ValidationRule("hallucination_signals", "indicator_id", _rule_hallucination_signals),
     ValidationRule("construct_correlations", "dataset", _rule_construct_correlations),
 ]
 
@@ -351,8 +353,8 @@ def reduce_findings(
     all_issues: list[RawIssue] = []
     indicator_health: dict[str, UncheckedJsonObject] = {}
 
-    for indicator_name in sorted(indicator_findings):
-        findings_list = indicator_findings[indicator_name]
+    for indicator_id in sorted(indicator_findings):
+        findings_list = indicator_findings[indicator_id]
         merged_metrics: UncheckedJsonObject = {}
         ind_issues: list[Issue] = []
         for findings in findings_list:
@@ -369,7 +371,7 @@ def reduce_findings(
             if issue.cell_key in cell_statuses and cell_statuses[issue.cell_key] != "error":
                 cell_statuses[issue.cell_key] = issue.severity
 
-        indicator_health[indicator_name] = {
+        indicator_health[indicator_id] = {
             **{key: value for key, value in merged_metrics.items() if key in CELL_STATUS_KEYS},
             "cell_statuses": cell_statuses,
         }
@@ -378,7 +380,7 @@ def reduce_findings(
 
 
 def _build_indicator_context(
-    indicator_name: str,
+    indicator_id: str,
     ind_data: pl.DataFrame,
     indicator_lookup: dict[str, ArtifactRecord],
     construct_lookup: dict[str, ArtifactRecord],
@@ -398,19 +400,19 @@ def _build_indicator_context(
         elif raw_variance is not None:
             variance = float(raw_variance)
     except (ValueError, ZeroDivisionError, ArithmeticError):
-        logger.info("Variance calculation failed for indicator %s", indicator_name, exc_info=True)
+        logger.info("Variance calculation failed for indicator %s", indicator_id, exc_info=True)
 
-    indicator_meta = indicator_lookup.get(indicator_name, {})
+    indicator_meta = indicator_lookup.get(indicator_id, {})
     dtype = indicator_meta.get("measurement_dtype")
-    construct_name = indicator_meta.get("construct_name")
-    construct_meta = construct_lookup.get(construct_name, {}) if construct_name else {}
+    construct_id = indicator_meta.get("construct_id")
+    construct_meta = construct_lookup.get(construct_id, {}) if construct_id else {}
     is_time_invariant = construct_meta.get("temporal_status") == "time_invariant"
 
     timestamps = ind_data[OBSERVATION_TIME_COLUMN]
     parsed = parse_timestamp_series(timestamps)
 
     return IndicatorContext(
-        name=indicator_name,
+        name=indicator_id,
         ind_data=ind_data,
         values=values,
         n_obs=n_obs,
@@ -435,12 +437,12 @@ def _float_or_none(value: Any) -> float | None:
 
 
 def _compute_empirical_profile(
-    indicator_name: str,
+    indicator_id: str,
     model_data: pl.DataFrame,
     indicator_lookup: dict[str, ArtifactRecord],
     health_metrics: UncheckedJsonObject,
 ) -> UncheckedJsonObject | None:
-    ind_model = model_data.filter(pl.col("indicator") == indicator_name)
+    ind_model = model_data.filter(pl.col("indicator_id") == indicator_id)
     values_df = ind_model.select(pl.col("value").cast(pl.Float64, strict=False)).drop_nulls()
     n_obs = len(values_df)
     if n_obs == 0:
@@ -454,7 +456,7 @@ def _compute_empirical_profile(
     numeric_values = [float(v) for v in values.to_list()]
 
     return {
-        "measurement_dtype": indicator_lookup.get(indicator_name, {}).get("measurement_dtype"),
+        "measurement_dtype": indicator_lookup.get(indicator_id, {}).get("measurement_dtype"),
         "n_obs": n_obs,
         "mean": mean,
         "std": _float_or_none(values.std()),
@@ -497,32 +499,30 @@ def _compute_empirical_profile(
 
 def build_indicator_audits(
     *,
-    indicator_names: set[str],
+    indicator_ids: set[str],
     indicator_lookup: dict[str, ArtifactRecord],
     model_data: pl.DataFrame,
     indicator_issues: list[UncheckedJsonObject],
     indicator_health: dict[str, UncheckedJsonObject],
 ) -> dict[str, UncheckedJsonObject]:
-    issues_by_indicator: dict[str, list[UncheckedJsonObject]] = {
-        name: [] for name in indicator_names
-    }
+    issues_by_indicator: dict[str, list[UncheckedJsonObject]] = {name: [] for name in indicator_ids}
     for issue in indicator_issues:
-        issue_indicator = issue.get("indicator")
+        issue_indicator = issue["subject"]["id"] if issue["subject"] else None
         if issue_indicator in issues_by_indicator:
             issues_by_indicator[issue_indicator].append(issue)
 
     audits: dict[str, UncheckedJsonObject] = {}
-    for indicator_name in sorted(indicator_names):
-        health_metrics = indicator_health.get(indicator_name, {})
-        audits[indicator_name] = {
+    for indicator_id in sorted(indicator_ids):
+        health_metrics = indicator_health.get(indicator_id, {})
+        audits[indicator_id] = {
             "profile": _compute_empirical_profile(
-                indicator_name,
+                indicator_id,
                 model_data,
                 indicator_lookup,
                 health_metrics,
             ),
             "validation": {
-                "issues": issues_by_indicator.get(indicator_name, []),
+                "issues": issues_by_indicator.get(indicator_id, []),
                 "checks": dict(health_metrics.get("cell_statuses", {})),
             },
         }
@@ -533,13 +533,13 @@ def run_rules(
     rules: list[ValidationRule],
     ctx: ValidationContext,
 ) -> tuple[list[RawIssue], dict[str, UncheckedJsonObject], list[RawIssue]]:
-    indicator_rules = [rule for rule in rules if rule.scope == "indicator"]
+    indicator_rules = [rule for rule in rules if rule.scope == "indicator_id"]
     dataset_rules = [rule for rule in rules if rule.scope == "dataset"]
 
     indicator_findings: dict[str, list[ValidationFindings]] = {}
-    for indicator_name, ind_data, indicator_ctx in ctx.iter_indicators():
-        rule_input = IndicatorRuleInput(indicator_name, ind_data, indicator_ctx)
-        indicator_findings[indicator_name] = [rule.check(rule_input) for rule in indicator_rules]
+    for indicator_id, ind_data, indicator_ctx in ctx.iter_indicators():
+        rule_input = IndicatorRuleInput(indicator_id, ind_data, indicator_ctx)
+        indicator_findings[indicator_id] = [rule.check(rule_input) for rule in indicator_rules]
 
     dataset_issues: list[RawIssue] = []
     for rule in dataset_rules:

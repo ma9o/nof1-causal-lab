@@ -14,8 +14,9 @@ def materialize_extraction_outputs(
     measurement_structure: UncheckedJsonObject,
 ) -> UncheckedJsonObject:
     """Materialize the extraction observation table from a serialized extraction result."""
+    from nof1_causal_lab.artifacts.measurements import ObservationRecord  # noqa: TC001
     from nof1_causal_lab.utils.aggregations import _encode_non_continuous
-    from nof1_causal_lab.utils.data import ObservationRecord, observation_row_schema
+    from nof1_causal_lab.utils.data import observation_row_schema
 
     observation_dicts = cast(
         "list[ObservationRecord]", extraction_result.get("observation_rows", [])
@@ -27,12 +28,12 @@ def materialize_extraction_outputs(
 
     if len(data_for_model) > 0:
         dtype_lookup = {
-            indicator["name"]: indicator.get("measurement_dtype", "continuous")
+            indicator["id"]: indicator.get("measurement_dtype", "continuous")
             for indicator in measurement_structure.get("indicators", [])
             if indicator.get("name")
         }
         ordinal_levels_lookup: dict[str, list[str]] = {
-            ind["name"]: ind["ordinal_levels"]
+            ind["id"]: ind["ordinal_levels"]
             for ind in measurement_structure.get("indicators", [])
             if ind.get("ordinal_levels")
         }
@@ -55,7 +56,7 @@ def materialize_extraction_outputs(
             .str.to_datetime(strict=False)
             .alias("support_end"),
         ).drop_nulls(subset=["anchor_time"])
-        data_for_model = data_for_model.sort("indicator", "anchor_time")
+        data_for_model = data_for_model.sort("indicator_id", "anchor_time")
 
     return {
         "data_for_model": data_for_model,

@@ -8,6 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from nof1_causal_lab.artifacts.duration import parse_duration_to_hours
+from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
 from nof1_causal_lab.artifacts.statistical_model_spec import (
     DistributionFamily,
     InitializationPolicy,
@@ -21,31 +22,17 @@ from nof1_causal_lab.models.model_semantics import (
     indicator_requires_observation_intercept,
     should_auto_standardize_indicator,
 )
-from nof1_causal_lab.models.ssm.dynamics.spec import (
-    DynamicsSpec,
-    HillEdgeSpec,
-    LinearEdgeSpec,
-    NodePotentialSpec,
-    StateInterceptSpec,
-)
 from nof1_causal_lab.models.ssm.execution.observation_families import (
     supported_distribution_families,
 )
 from nof1_causal_lab.models.ssm.model import SSMSpec
-from nof1_causal_lab.models.ssm.parameter_names import (
-    build_initial_state_correlation_support,
-    split_compound_name,
-)
 from nof1_causal_lab.models.ssm.structure import (
     DiffusionBlockSpec,
-    Fixed,
-    Free,
     ManifestCholBlockSpec,
     SparseMatrixBlockSpec,
     SparseVectorBlockSpec,
     T0CholBlockSpec,
 )
-from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 from nof1_causal_lab.utils.observation_semantics import get_observation_semantics
 from nof1_causal_lab.utils.structural_plan import (
     get_edges,
@@ -78,16 +65,8 @@ def _full_vector_support(n: int) -> np.ndarray:
     return np.ones(n, dtype=bool)
 
 
-def _zero_vector_support(n: int) -> np.ndarray:
-    return np.zeros(n, dtype=bool)
-
-
 def _full_diagonal_support(n: int) -> np.ndarray:
     return np.ones(n, dtype=bool)
-
-
-def _full_cholesky_support(n: int) -> np.ndarray:
-    return np.tri(n, dtype=bool)
 
 
 def _zero_square_support(n: int) -> np.ndarray:
@@ -186,30 +165,6 @@ def get_structural_input_layout(
     )
 
 
-def _mask_time_invariant_vector_support(
-    mask: np.ndarray,
-    time_invariant_mask: np.ndarray | None,
-) -> np.ndarray:
-    """Drop free vector entries for quasi-static latent states."""
-    masked = np.asarray(mask, dtype=bool).copy()
-    if time_invariant_mask is None:
-        return masked
-    masked[np.asarray(time_invariant_mask, dtype=bool)] = False
-    return masked
-
-
-def _mask_time_invariant_drift_targets(
-    mask: np.ndarray,
-    time_invariant_mask: np.ndarray | None,
-) -> np.ndarray:
-    """Drop drift off-diagonal entries whose effect state is quasi-static."""
-    masked = np.asarray(mask, dtype=bool).copy()
-    if time_invariant_mask is None:
-        return masked
-    masked[np.asarray(time_invariant_mask, dtype=bool), :] = False
-    return masked
-
-
 def _mask_time_invariant_diffusion_support(
     mask: np.ndarray,
     time_invariant_mask: np.ndarray | None,
@@ -287,8 +242,8 @@ def build_structural_support_from_plan(
     model_dt_days = get_construct_dt_days(structural_plan)
 
     for edge in edges:
-        cause = edge.get("cause") if isinstance(edge, dict) else edge.cause
-        effect = edge.get("effect") if isinstance(edge, dict) else edge.effect
+        cause = edge["cause"]
+        effect = edge["effect"]
         if effect not in latent_idx:
             continue
         if latent_construct_lookup.get(effect, {}).get("temporal_status") == "time_invariant":
@@ -322,11 +277,7 @@ def build_structural_support_from_plan(
 
     for indicator in indicators:
         ind_name = indicator.get("name") if isinstance(indicator, dict) else indicator.name
-        construct_name = (
-            indicator.get("construct_name")
-            if isinstance(indicator, dict)
-            else indicator.construct_name
-        )
+        construct_name = indicator["construct_name"]
         if ind_name not in manifest_idx:
             continue
         if construct_name not in latent_idx:
@@ -435,11 +386,7 @@ def build_manifest_variance_from_plan(
 
     for indicator in indicators:
         ind_name = indicator.get("name") if isinstance(indicator, dict) else indicator.name
-        construct_name = (
-            indicator.get("construct_name")
-            if isinstance(indicator, dict)
-            else indicator.construct_name
-        )
+        construct_name = indicator["construct_name"]
         if ind_name not in manifest_idx or construct_name not in latent_name_set:
             continue
         manifest_to_construct[ind_name] = construct_name
@@ -518,54 +465,6 @@ def build_manifest_level_counts_from_plan(
     return level_counts
 
 
-def _build_role_index_lookup(
-    statistical_model_spec: StatisticalModelSpec,
-    *,
-    role: ParameterRole,
-    prefix: str,
-    names: list[str],
-) -> np.ndarray:
-    """Build a vector mask from active semantic parameters sharing a name prefix."""
-    name_to_idx = {name: idx for idx, name in enumerate(names)}
-    mask = np.zeros(len(names), dtype=bool)
-    for parameter in statistical_model_spec.parameters:
-        if parameter.role != role:
-            continue
-        resolved_name = parameter.name.removeprefix(prefix)
-        idx = name_to_idx.get(resolved_name)
-        if idx is not None:
-            mask[idx] = True
-    return mask
-
-
-def _hill_edge_targets(
-    statistical_model_spec: StatisticalModelSpec,
-    latent_names: list[str],
-) -> set[tuple[int, int]]:
-    """Structural edges the author gave a saturating (Hill) form.
-
-    An edge is Hill when the StatisticalModelSpec carries a ``hill_emax_<cause>_<effect>``
-    parameter; its EC50 and Hill-coefficient parameters share the same
-    ``hill_ec50_``/``hill_n_`` naming. Returns ``(cause_idx, effect_idx)`` pairs.
-    """
-    latent_name_set = set(latent_names)
-    name_to_idx = {name: idx for idx, name in enumerate(latent_names)}
-    targets: set[tuple[int, int]] = set()
-    for parameter in statistical_model_spec.parameters:
-        if not parameter.name.startswith("hill_emax_"):
-            continue
-        parsed = split_compound_name(
-            parameter.name.removeprefix("hill_emax_"),
-            latent_name_set,
-            latent_name_set,
-        )
-        if parsed is None:
-            continue
-        cause_name, effect_name = parsed
-        targets.add((name_to_idx[cause_name], name_to_idx[effect_name]))
-    return targets
-
-
 def _build_manifest_standardized_flags(
     statistical_model_spec: StatisticalModelSpec,
     manifest_cols: list[str],
@@ -573,9 +472,7 @@ def _build_manifest_standardized_flags(
     structural_plan: StructuralPlan | None,
 ) -> list[bool]:
     """Return deterministic standardization tags for each manifest channel."""
-    likelihood_lookup = {
-        likelihood.variable: likelihood for likelihood in statistical_model_spec.likelihoods
-    }
+    likelihood_lookup = dict(zip(manifest_cols, statistical_model_spec.likelihoods, strict=True))
     indicator_lookup = {}
     if structural_plan is not None:
         indicator_lookup = {
@@ -619,18 +516,26 @@ def _build_manifest_intercept_support(
     manifest_standardized: list[bool],
 ) -> tuple[np.ndarray, list[str]]:
     """Bind only observation intercepts active for the locked likelihood semantics."""
-    requested = _build_role_index_lookup(
-        statistical_model_spec,
-        role=ParameterRole.OBSERVATION_INTERCEPT,
-        prefix="manifest_mean_",
-        names=manifest_cols,
+    requested_ids = {
+        owner.id
+        for parameter in statistical_model_spec.parameters
+        if parameter.quantity == SiteKind.MANIFEST_MEANS
+        for owner in parameter.owners
+        if owner.kind == "indicator"
+    }
+    requested = np.array(
+        [
+            likelihood.indicator_id in requested_ids
+            for likelihood in statistical_model_spec.likelihoods
+        ],
+        dtype=bool,
     )
     if statistical_model_spec.observation_intercept_policy == ObservationInterceptPolicy.FIXED:
         eligible = np.zeros(len(manifest_cols), dtype=bool)
     else:
-        likelihood_lookup = {
-            likelihood.variable: likelihood for likelihood in statistical_model_spec.likelihoods
-        }
+        likelihood_lookup = dict(
+            zip(manifest_cols, statistical_model_spec.likelihoods, strict=True)
+        )
         eligible = np.zeros(len(manifest_cols), dtype=bool)
         for index, manifest_name in enumerate(manifest_cols):
             likelihood = likelihood_lookup[manifest_name]
@@ -668,11 +573,7 @@ def _latent_standardized_anchor_mask(
     standardized_lookup = dict(zip(manifest_cols, manifest_standardized, strict=True))
     for indicator in get_plan_indicators(structural_plan):
         ind_name = indicator.get("name") if isinstance(indicator, dict) else indicator.name
-        construct_name = (
-            indicator.get("construct_name")
-            if isinstance(indicator, dict)
-            else indicator.construct_name
-        )
+        construct_name = indicator["construct_name"]
         latent_index = latent_idx.get(construct_name)
         if latent_index is not None and standardized_lookup.get(ind_name):
             mask[latent_index] = True
@@ -686,11 +587,12 @@ def _build_static_factor_structure(
     structural_plan: StructuralPlan | None,
 ) -> tuple[np.ndarray, jnp.ndarray, jnp.ndarray, list[str]]:
     """Compile deterministic baseline-factor loadings from marginalized scales."""
-    factor_names = [
-        parameter.name
+    factors = [
+        parameter
         for parameter in statistical_model_spec.parameters
-        if parameter.role == ParameterRole.STATIC_STATE_SD
+        if parameter.quantity == SiteKind.STATIC_STATE_SD
     ]
+    factor_names = [parameter.name for parameter in factors]
     if not factor_names:
         return (
             np.zeros(0, dtype=bool),
@@ -707,8 +609,8 @@ def _build_static_factor_structure(
             ]
         )
 
-    scales_by_name = {
-        scale["parameter"]: scale
+    scales_by_owners = {
+        frozenset(scale["source_ids"]): scale
         for scale in get_marginalized_scales(structural_plan)
         if scale["kind"] == "initial_state_correlation"
     }
@@ -718,7 +620,9 @@ def _build_static_factor_structure(
     errors: list[str] = []
 
     for factor_idx, factor_name in enumerate(factor_names):
-        scale = scales_by_name.get(factor_name)
+        scale = scales_by_owners.get(
+            frozenset(owner.id for owner in factors[factor_idx].owners if owner.kind == "construct")
+        )
         if scale is None:
             errors.append(
                 "STATIC_STATE_SD parameter does not match any marginalized "
@@ -743,47 +647,26 @@ def _build_static_factor_structure(
 
 def translate_spec(
     statistical_model_spec: StatisticalModelSpec,
-    structural_plan: StructuralPlan | None = None,
+    structural_plan: StructuralPlan,
 ) -> tuple[SSMSpec, dict[tuple[int, int], float]]:
     """Translate ``StatisticalModelSpec`` into ``SSMSpec`` with explicit edge-lag metadata.
 
     Assumes the caller has already validated ``statistical_model_spec``. This function
     is a pure translation stage — it does not re-validate.
     """
-    manifest_cols = [lik.variable for lik in statistical_model_spec.likelihoods]
+    manifest_cols = [
+        structural_plan.semantics.indicators[lik.indicator_id].name
+        if structural_plan is not None
+        else lik.indicator_id
+        for lik in statistical_model_spec.likelihoods
+    ]
     n_manifest = len(manifest_cols)
     errors: list[str] = []
 
-    layout_failed = False
-    try:
-        structural_layout = get_structural_latent_layout(structural_plan)
-    except SpecTranslationError as exc:
-        structural_layout = None
-        layout_failed = True
-        errors.extend(exc.errors)
-    if structural_layout is not None:
-        latent_names, time_invariant_mask = structural_layout
-        n_latent = len(latent_names)
-    else:
-        if structural_plan is not None and layout_failed:
-            latent_names = []
-            time_invariant_mask = None
-            n_latent = 0
-        else:
-            ar_params = [
-                param
-                for param in statistical_model_spec.parameters
-                if param.role == ParameterRole.AR_COEFFICIENT
-            ]
-            if not ar_params:
-                errors.append(
-                    "No AR_COEFFICIENT parameters found in StatisticalModelSpec; "
-                    "cannot infer latent dimensionality without structural_plan."
-                )
-                raise SpecTranslationError(errors)
-            n_latent = len(ar_params)
-            latent_names = [param.name.removeprefix("rho_") for param in ar_params]
-            time_invariant_mask = None
+    structural_layout = get_structural_latent_layout(structural_plan)
+    assert structural_layout is not None
+    latent_names, time_invariant_mask = structural_layout
+    n_latent = len(latent_names)
 
     manifest_dists: list[DistributionFamily] = []
     supported_families = supported_distribution_families()
@@ -792,13 +675,10 @@ def translate_spec(
         if dist not in supported_families:
             supported = sorted(distribution.value for distribution in supported_families)
             errors.append(
-                f"Indicator '{likelihood.variable}': distribution '{dist}' "
+                f"Indicator '{likelihood.indicator_id}': distribution '{dist}' "
                 f"has no native emission function. Supported: {supported}."
             )
         manifest_dists.append(dist)
-
-    if structural_plan is not None and layout_failed:
-        raise SpecTranslationError(errors)
 
     manifest_links: list[LinkFunction] = [
         likelihood.link for likelihood in statistical_model_spec.likelihoods
@@ -806,7 +686,7 @@ def translate_spec(
 
     try:
         (
-            state_dynamics_support,
+            _state_dynamics_support,
             input_effect_support,
             lambda_mat,
             lambda_support,
@@ -822,37 +702,11 @@ def translate_spec(
         )
     except SpecTranslationError as exc:
         errors.extend(exc.errors)
-        state_dynamics_support = np.eye(n_latent, dtype=bool)
         input_effect_support = np.zeros((n_latent, 0), dtype=bool)
         lambda_mat = jnp.eye(n_manifest, n_latent)
         lambda_support = _zero_loading_support(n_manifest, n_latent)
         manifest_cat_anchor = np.zeros(n_manifest, dtype=bool)
         edge_lag_days = {}
-
-    if structural_plan is None:
-        latent_name_set = set(latent_names)
-        latent_idx = {name: idx for idx, name in enumerate(latent_names)}
-        for parameter in statistical_model_spec.parameters:
-            if parameter.role != ParameterRole.FIXED_EFFECT:
-                continue
-            parsed = split_compound_name(
-                parameter.name.removeprefix("beta_"),
-                latent_name_set,
-                latent_name_set,
-            )
-            if parsed is None:
-                continue
-            cause_name, effect_name = parsed
-            state_dynamics_support[latent_idx[effect_name], latent_idx[cause_name]] = True
-
-    decay_support = np.diag(state_dynamics_support).copy()
-    decay_support = _mask_time_invariant_vector_support(decay_support, time_invariant_mask)
-    linear_edge_support = np.asarray(state_dynamics_support, dtype=bool).copy()
-    np.fill_diagonal(linear_edge_support, False)
-    linear_edge_support = _mask_time_invariant_drift_targets(
-        linear_edge_support,
-        time_invariant_mask,
-    )
 
     manifest_chol, manifest_chol_diag_support = build_manifest_variance_from_plan(
         latent_names,
@@ -878,34 +732,14 @@ def translate_spec(
             "Causal-spec compilation no longer accepts INITIAL_STATE_CORRELATION parameters; "
             "use compiled STATIC_STATE_SD baseline factors instead."
         )
-    try:
-        if structural_plan is None:
-            t0_correlation_support = build_initial_state_correlation_support(
-                latent_names, statistical_model_spec
-            )
-        else:
-            t0_correlation_support = _zero_square_support(n_latent)
-    except ValueError as exc:
-        errors.append(str(exc))
-        t0_correlation_support = _zero_square_support(n_latent)
-    if structural_plan is None:
-        has_innovation_correlation = any(
-            parameter.role == ParameterRole.CORRELATION
-            for parameter in statistical_model_spec.parameters
-        )
-        diffusion_chol_support = (
-            _full_cholesky_support(n_latent)
-            if has_innovation_correlation
-            else np.diag(_full_diagonal_support(n_latent))
-        )
-    else:
-        diffusion_chol_support = np.diag(_full_diagonal_support(n_latent))
-        latent_idx = {name: index for index, name in enumerate(latent_names)}
-        for dependency in get_induced_dependencies(structural_plan):
-            if dependency["kind"] != "innovation_correlation":
-                continue
-            first, second = (latent_idx[name] for name in dependency["between"])
-            diffusion_chol_support[max(first, second), min(first, second)] = True
+    t0_correlation_support = _zero_square_support(n_latent)
+    diffusion_chol_support = np.diag(_full_diagonal_support(n_latent))
+    latent_idx = {name: index for index, name in enumerate(latent_names)}
+    for dependency in get_induced_dependencies(structural_plan):
+        if dependency["kind"] != "innovation_correlation":
+            continue
+        first, second = (latent_idx[name] for name in dependency["between"])
+        diffusion_chol_support[max(first, second), min(first, second)] = True
     diffusion_chol_support = _mask_time_invariant_diffusion_support(
         diffusion_chol_support,
         time_invariant_mask,
@@ -938,15 +772,6 @@ def translate_spec(
         manifest_standardized,
     )
     errors.extend(manifest_intercept_errors)
-    if statistical_model_spec.equilibrium_forcing:
-        state_intercept_support = _build_role_index_lookup(
-            statistical_model_spec,
-            role=ParameterRole.STATE_INTERCEPT,
-            prefix="cint_",
-            names=latent_names,
-        )
-    else:
-        state_intercept_support = _zero_vector_support(n_latent)
     static_state_sd_support, static_state_sds, static_factor_loadings, static_factor_names = (
         _build_static_factor_structure(
             statistical_model_spec,
@@ -974,56 +799,14 @@ def translate_spec(
     if errors:
         raise SpecTranslationError(errors)
 
-    # Self-dynamics lives on the node, not the adjacency diagonal: each
-    # self-regulated latent becomes a quadratic potential well (NodePotential),
-    # folding the former StateDecay (stiffness = relaxation rate) and the
-    # set-point role of StateIntercept (center = well minimum). The center is
-    # free only when a state intercept was requested (equilibrium forcing);
-    # otherwise the well is pinned at 0 (relaxation toward 0, as before). The
-    # cubic self-limitation (quartic) is freed only for constructs the author
-    # flagged self-limiting (a ``self_limit_<latent>`` parameter); otherwise it
-    # stays pinned at 0 (pure linear relaxation).
-    self_limit_support = _build_role_index_lookup(
-        statistical_model_spec,
-        role=ParameterRole.DYNAMICS_PARAMETER_POSITIVE,
-        prefix="self_limit_",
-        names=latent_names,
-    )
-    hill_edge_targets = _hill_edge_targets(statistical_model_spec, latent_names)
-    dynamics_components = []
-    for latent_idx in range(n_latent):
-        has_well = bool(decay_support[latent_idx])
-        has_setpoint = bool(state_intercept_support[latent_idx])
-        if has_well:
-            dynamics_components.append(
-                NodePotentialSpec(
-                    target=latent_idx,
-                    center=Free() if has_setpoint else Fixed(0.0),
-                    stiffness=Free(),
-                    quartic=(Free() if bool(self_limit_support[latent_idx]) else Fixed(0.0)),
-                )
-            )
-        elif has_setpoint:
-            # Intercept without relaxation is a constant forcing term (a ramp),
-            # not a set-point — keep it as an explicit StateIntercept.
-            dynamics_components.append(StateInterceptSpec(target=latent_idx))
-    # Each structural edge is materialized as a linear weight unless the author
-    # flagged it saturating (Hill parameters present), in which case it becomes a
-    # Hill dose-response component. Exactly one component per structural edge.
-    for effect_idx, cause_idx in zip(*np.where(linear_edge_support), strict=False):
-        source, target = int(cause_idx), int(effect_idx)
-        if (source, target) in hill_edge_targets:
-            dynamics_components.append(HillEdgeSpec(source=source, target=target))
-        else:
-            dynamics_components.append(LinearEdgeSpec(source=source, target=target))
+    from nof1_causal_lab.models.ssm.compile.mechanisms import lower_mechanisms
+
+    dynamics_spec = lower_mechanisms(statistical_model_spec, structural_plan)
 
     spec = SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        dynamics_spec=DynamicsSpec(
-            n_latent=n_latent,
-            components=tuple(dynamics_components),
-        ),
+        dynamics_spec=dynamics_spec,
         diffusion_block=DiffusionBlockSpec(
             n_latent=n_latent,
             diffusion_chol_support=diffusion_chol_support,
@@ -1110,6 +893,14 @@ def translate_spec(
         manifest_standardized=manifest_standardized,
         manifest_cat_anchor=[bool(flag) for flag in manifest_cat_anchor],
         manifest_level_counts=manifest_level_counts,
+        latent_ids=list(structural_plan.state_order),
+        manifest_ids=[lik.indicator_id for lik in statistical_model_spec.likelihoods],
+        input_ids=[item.construct_id for item in structural_plan.known_inputs],
+        static_factor_ids=[
+            parameter.id
+            for parameter in statistical_model_spec.parameters
+            if parameter.quantity == SiteKind.STATIC_STATE_SD
+        ],
         latent_names=latent_names,
         manifest_names=manifest_cols,
         input_names=input_names,

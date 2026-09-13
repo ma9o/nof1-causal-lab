@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 from nof1_causal_lab.artifacts.prior import (
     ExecutablePrior,
     PriorPlan,
-    prior_params_model,
 )
 from nof1_causal_lab.artifacts.statistical_model_spec import (
     ParameterConstraint,
@@ -53,9 +52,9 @@ def default_executable_prior(parameter: ParameterSpec) -> ExecutablePrior:
         params = {"sigma": 1.0}
 
     return ExecutablePrior(
-        parameter=parameter.name,
+        parameter_id=parameter.id,
         distribution=distribution,
-        params=prior_params_model(distribution, params),
+        params=params,
     )
 
 
@@ -63,7 +62,7 @@ def build_default_prior_plan(statistical_model_spec: StatisticalModelSpec) -> Pr
     """Build a complete explicit plan from compiler-independent authoring defaults."""
     return PriorPlan(
         priors={
-            parameter.name: default_executable_prior(parameter)
+            parameter.id: default_executable_prior(parameter)
             for parameter in statistical_model_spec.parameters
         }
     )
@@ -77,11 +76,11 @@ def build_prior_plan(
     planned = dict(build_default_prior_plan(statistical_model_spec).priors)
     parameter_names = set(planned)
     for prior in authored_priors:
-        if prior.parameter not in parameter_names:
+        if prior.parameter_id not in parameter_names:
             raise ValueError(
-                f"Prior {prior.parameter!r} does not correspond to StatisticalModelSpec."
+                f"Prior {prior.parameter_id!r} does not correspond to StatisticalModelSpec."
             )
-        planned[prior.parameter] = prior
+        planned[prior.parameter_id] = prior
     return PriorPlan(priors=planned)
 
 

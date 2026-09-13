@@ -2,62 +2,75 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import jax.numpy as jnp
 import pytest
 from fastapi.testclient import TestClient
 
 import nof1_causal_lab.tool_server as tool_server
-from nof1_causal_lab.artifacts import (
+from nof1_causal_lab.artifacts.causal_design import (
     CausalDesign,
-    CausalEdge,
-    Construct,
     IdentifiabilityStatus,
     IdentifiedTreatmentStatus,
+)
+from nof1_causal_lab.artifacts.identity import CausalDesignRef, ConstructRef
+from nof1_causal_lab.artifacts.latent_structure import (
+    CausalEdge,
+    Construct,
     LatentStructure,
-    MeasurementStructure,
     Role,
     TemporalStatus,
 )
+from nof1_causal_lab.artifacts.measurement_structure import MeasurementStructure
+from nof1_causal_lab.artifacts.posterior import PosteriorProvenance
+from nof1_causal_lab.artifacts.scenarios import SimulateScenarioResult
 from nof1_causal_lab.models.causal_proofs import (
-    CausalDesignRef,
     CertifiedCausalAnalysis,
-    PosteriorProvenance,
     certify_identified_estimand,
     certify_reportable_posterior,
 )
 from nof1_causal_lab.models.ssm.inference import FittedArtifact, ParticleMCMCPosterior
-from tests.helpers import make_structural_plan
-
-if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.inference.types import InferenceDiagnostics
+from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
+from tests.helpers import fixture_entity_id, make_structural_plan
 
 
 def _identified_causal_design(treatment: str, outcome: str) -> CausalDesign:
     return CausalDesign(
         latent=LatentStructure(
+            default_outcome=ConstructRef(id=fixture_entity_id("construct", outcome)),
             constructs=[
                 Construct(
+                    id=fixture_entity_id("construct", treatment),
                     name=treatment,
                     description="Treatment",
                     role=Role.EXOGENOUS,
                     temporal_status=TemporalStatus.TIME_VARYING,
                 ),
                 Construct(
+                    id=fixture_entity_id("construct", outcome),
                     name=outcome,
                     description="Outcome",
                     role=Role.ENDOGENOUS,
-                    is_outcome=True,
                     temporal_status=TemporalStatus.TIME_VARYING,
                 ),
             ],
-            edges=[CausalEdge(cause=treatment, effect=outcome, description="Test edge")],
+            edges=[
+                CausalEdge(
+                    cause_id=fixture_entity_id("construct", treatment),
+                    effect_id=fixture_entity_id("construct", outcome),
+                    id=fixture_entity_id(
+                        "edge",
+                        treatment + "\0" + outcome + "\0lagged",
+                    ),
+                    description="Test edge",
+                )
+            ],
         ),
         measurement=MeasurementStructure(indicators=[], model_clock="1d"),
         identifiability=IdentifiabilityStatus(
             identifiable_treatments={
-                treatment: IdentifiedTreatmentStatus(
+                fixture_entity_id("construct", treatment): IdentifiedTreatmentStatus(
                     method="do_calculus",
                     estimand=f"E[{outcome} | do({treatment})]",
                 )
@@ -78,11 +91,10 @@ def _certified_simulation_context(
 ) -> dict[str, Any]:
     design = _identified_causal_design(treatment, outcome)
     design_ref = CausalDesignRef(workspace_id="test-workspace", version=1)
-    diagnostics: InferenceDiagnostics = {}
-    if latent_paths is not None:
-        diagnostics["latent_paths"] = latent_paths
     artifact = FittedArtifact(
-        result=ParticleMCMCPosterior(_samples=samples, diagnostics=diagnostics),
+        result=ParticleMCMCPosterior(
+            draws=JointPosteriorDraws(parameters=samples, latent_paths=latent_paths)
+        ),
         spec=spec,
         times=runtime.times,
         provenance=PosteriorProvenance(
@@ -105,6 +117,8 @@ def _certified_simulation_context(
         posterior=certify_reportable_posterior(artifact),
     )
     return {
+        "_workspace_id": "test",
+        "_posterior_version": 1,
         "_fitted_artifact": artifact,
         "_causal_analysis": analysis,
         "_prepared_runtime": runtime,
@@ -113,6 +127,7 @@ def _certified_simulation_context(
         "_observation_timestamps": timestamps or [],
         "causal_design": {"causal_design": design.model_dump(mode="json")},
         "baseline_report": {},
+        "posterior": {"assessment": {"ppc": {"per_variable_warnings": []}}},
     }
 
 
@@ -185,7 +200,11 @@ def test_build_ranking_context_rehydrates_runtime_from_persisted_spec(monkeypatc
     )
     design = _identified_causal_design("screen_time", "sleep_quality")
     fitted_artifact = FittedArtifact(
-        result=ParticleMCMCPosterior(_samples={"vf_0_decay": jnp.zeros((1, 2), dtype=jnp.float32)}),
+        result=ParticleMCMCPosterior(
+            draws=JointPosteriorDraws(
+                parameters={"vf_0_decay": jnp.zeros((1, 2), dtype=jnp.float32)}
+            )
+        ),
         spec=spec,
         times=jnp.array([0.0]),
         provenance=PosteriorProvenance(
@@ -195,7 +214,7 @@ def test_build_ranking_context_rehydrates_runtime_from_persisted_spec(monkeypatc
         ),
     )
     model_data = pl.DataFrame(
-        {"indicator": ["sleep_obs"], "value": [1.0], "timestamp": ["2024-01-01T00:00:00"]}
+        {"indicator_id": ["indicator:sleep"], "value": [1.0], "timestamp": ["2024-01-01T00:00:00"]}
     )
 
     store = ArtifactStore("user-123")
@@ -255,16 +274,46 @@ def test_build_ranking_context_rehydrates_runtime_from_persisted_spec(monkeypatc
         produced_by="run:measurement_structure",
         json_files={
             "identification_report.json": {
-                "outcome_name": "sleep_quality",
-                "estimable_treatments": ["screen_time"],
+                "outcome_id": fixture_entity_id("construct", "sleep_quality"),
+                "estimable_treatments": [fixture_entity_id("construct", "screen_time")],
                 "non_identifiable_treatments": {},
             }
+        },
+    )
+    from nof1_causal_lab.models.ssm.compile.artifact import serialize_ssm_spec
+
+    compiled = store.write_version(
+        "compiled_ssm",
+        provenance="computed",
+        derived_from={"structural_plan": 1},
+        produced_by="derive:compiled_ssm",
+        json_files={
+            "compiled-ssm.json": {
+                "schema_version": 2,
+                "structure": {
+                    "spec": serialize_ssm_spec(spec).model_dump(mode="json"),
+                    "edge_lag_days": [],
+                    "bindings": [],
+                    "anchor_certificates": [],
+                },
+                "compiled_prior_semantics": {
+                    "schema_version": 7,
+                    "site_registry": [],
+                    "priors": {},
+                },
+                "observation_bindings": {"indicator:sleep": "sleep_obs"},
+                "parameters": [],
+                "parameter_bindings": [],
+                "auxiliary_coordinates": [],
+                "compile_diagnostics": [],
+            },
+            "report.json": {},
         },
     )
     posterior = store.write_version(
         "posterior",
         provenance="computed",
-        derived_from={"panel": 1},
+        derived_from={"panel": 1, "compiled_ssm": 1},
         produced_by="run:posterior",
         json_files={"diagnostics.json": {"outcome": "warn"}},
         pickle_files={"fitted.pkl": fitted_artifact},
@@ -283,7 +332,7 @@ def test_build_ranking_context_rehydrates_runtime_from_persisted_spec(monkeypatc
             ],
         ),
         (3, RunArtifact(artifact_id="measurements"), [measurements, panel]),
-        (4, RunArtifact(artifact_id="posterior"), [posterior]),
+        (4, RunArtifact(artifact_id="posterior"), [compiled, posterior]),
     ):
         journal.append(
             TransitionRecord(
@@ -414,18 +463,21 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
 
     expected_visualization = {
         "reference_node_trajectories": {
-            "treat": [0.5, 0.5, 0.5],
-            "outcome": [5.0, 5.0, 5.0],
+            fixture_entity_id("construct", "treat"): [0.5, 0.5, 0.5],
+            fixture_entity_id("construct", "outcome"): [5.0, 5.0, 5.0],
         },
         "action_node_trajectories": {
-            "treat": [2.0, 2.0, 2.0],
-            "outcome": [8.0, 8.0, 8.0],
+            fixture_entity_id("construct", "treat"): [2.0, 2.0, 2.0],
+            fixture_entity_id("construct", "outcome"): [8.0, 8.0, 8.0],
         },
         "node_effect_trajectories": {
-            "treat": [1.5, 1.5, 1.5],
-            "outcome": [3.0, 3.0, 3.0],
+            fixture_entity_id("construct", "treat"): [1.5, 1.5, 1.5],
+            fixture_entity_id("construct", "outcome"): [3.0, 3.0, 3.0],
         },
-        "start_state": {"treat": 4.0, "outcome": 5.0},
+        "start_state": {
+            fixture_entity_id("construct", "treat"): 4.0,
+            fixture_entity_id("construct", "outcome"): 5.0,
+        },
     }
     expected_start = {
         "kind": "abducted",
@@ -443,31 +495,39 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
         {**args, "query": {**args["query"], "estimand": "trajectory"}},
     )["result"]
 
-    assert end_state["estimand"] == "end_state"
-    assert end_state["summary"]["mean"] == pytest.approx(3.0)
-    assert end_state["reference_mean"] == pytest.approx(5.0)
-    assert end_state["effect_trajectory"] is None
+    assert end_state["query"]["readout"]["estimand"] == "end_state"
+    assert end_state["result"]["summary"]["mean"] == pytest.approx(3.0)
+    assert end_state["result"]["reference_mean"] == pytest.approx(5.0)
+    assert end_state["result"]["effect_trajectory"] is None
     assert "rung" not in end_state
-    assert end_state["start"] == expected_start
-    assert end_state["clamps"] == args["clamps"]
-    assert end_state["visualization"] == expected_visualization
+    assert end_state["result"]["start"] == expected_start
+    assert end_state["query"]["start"] == {"kind": "abducted", "time_index": None, "time": None}
+    SimulateScenarioResult.model_validate(end_state)
+    SimulateScenarioResult.model_validate(trajectory)
+    clamp = end_state["query"]["clamps"][0]
+    assert clamp["variable"] == "treat"
+    assert clamp["mode"] == "shift"
+    assert clamp["amount"] == 1.0
+    assert clamp["target"]["id"] == fixture_entity_id("construct", "treat")
+    assert end_state["result"]["visualization"] == expected_visualization
     assert all(
         jnp.array_equal(initial_states, jnp.array([[2.0, 3.0], [6.0, 7.0]]))
         for initial_states in captured_initial_states
     )
 
-    assert trajectory["estimand"] == "trajectory"
-    assert trajectory["summary"]["mean"] == pytest.approx(3.0)
-    assert trajectory["reference_mean"] == pytest.approx(5.0)
-    assert trajectory["effect_trajectory"] == [
+    assert trajectory["query"]["readout"]["estimand"] == "trajectory"
+    assert trajectory["result"]["summary"]["mean"] == pytest.approx(3.0)
+    assert trajectory["result"]["reference_mean"] == pytest.approx(5.0)
+    assert trajectory["result"]["effect_trajectory"] == [
         {"day": 1.0, "effect": 3.0},
         {"day": 2.0, "effect": 3.0},
         {"day": 3.0, "effect": 3.0},
     ]
-    assert trajectory["start"] == expected_start
-    assert trajectory["visualization"] == expected_visualization
+    assert trajectory["result"]["start"] == expected_start
+    assert trajectory["result"]["visualization"] == expected_visualization
 
 
+@pytest.mark.cpu_expensive
 def test_simulate_intervention_dispatches_to_vector_field_path():
     """End-to-end: a vector-field particle posterior flows through
     ``_prepare_analysis_simulation`` and ``_execute_simulate_intervention``
@@ -531,15 +591,16 @@ def test_simulate_intervention_dispatches_to_vector_field_path():
     response = tool_server._execute_simulate(ctx, args)
     result = response["result"]
     assert "error" not in result, f"vector-field dispatch failed: {result}"
-    assert result["start"]["kind"] == "baseline"
-    assert result["estimand"] == "end_state"
+    assert result["result"]["start"]["kind"] == "baseline"
+    assert result["query"]["readout"]["estimand"] == "end_state"
     # Effect on tgt from shifting src up should be positive (Hill saturates).
-    summary = result["summary"]
+    summary = result["result"]["summary"]
     assert summary["mean"] > 0
     # Almost-certainly-positive contrast — Hill is monotonic in src
     assert summary["prob_positive"] == pytest.approx(1.0)
 
 
+@pytest.mark.cpu_expensive
 def test_simulate_counterfactual_dispatches_to_vector_field_path():
     """Rung-3 on vector-field starts from retained fitted trajectory draws."""
 
@@ -597,15 +658,15 @@ def test_simulate_counterfactual_dispatches_to_vector_field_path():
     response = tool_server._execute_simulate(ctx, args)
     result = response["result"]
     assert "error" not in result, f"vector-field abducted start failed: {result}"
-    assert result["estimand"] == "end_state"
-    assert result["start"] == {
+    assert result["query"]["readout"]["estimand"] == "end_state"
+    assert result["result"]["start"] == {
         "kind": "abducted",
         "time_index": 2,
         "time": "2024-01-03T00:00:00+00:00",
         "state_source": "fitted_latent_paths",
     }
     # Shift on src should produce a positive effect on tgt via the Hill chain
-    assert result["summary"]["mean"] > 0
+    assert result["result"]["summary"]["mean"] > 0
 
 
 def test_get_tool_schemas_exposes_declared_result_schema():
@@ -655,25 +716,31 @@ def test_get_model_info_uses_structural_plan_for_variables_and_treatments():
         "causal_design": {
             "causal_design": {
                 "latent": {
+                    "default_outcome": {
+                        "kind": "construct",
+                        "id": "construct:cdc0b2958a9512b2abad",
+                    },
                     "constructs": [
                         {
+                            "id": "construct:28cc75274ae8ea4aa5a8",
                             "name": "screen_time",
                             "description": "Screen time",
                             "role": "endogenous",
                             "temporal_status": "time_varying",
                         },
                         {
+                            "id": "construct:3bbb7cc76594464eb83f",
                             "name": "age",
                             "description": "Age",
                             "role": "exogenous",
                             "temporal_status": "time_invariant",
                         },
                         {
+                            "id": "construct:cdc0b2958a9512b2abad",
                             "name": "sleep",
                             "description": "Sleep quality",
                             "role": "endogenous",
                             "temporal_status": "time_varying",
-                            "is_outcome": True,
                         },
                     ],
                     "edges": [
@@ -685,16 +752,18 @@ def test_get_model_info_uses_structural_plan_for_variables_and_treatments():
                     "model_clock": "1d",
                     "indicators": [
                         {
+                            "id": "indicator:2e62df1fa30e5b381a46",
+                            "construct_id": "construct:28cc75274ae8ea4aa5a8",
                             "name": "daily_event_count",
-                            "construct_name": "screen_time",
                             "measurement_dtype": "continuous",
                             "support_kind": "real",
                             "summary_operator": "mean",
                             "observation_window": "1d",
                         },
                         {
+                            "id": "indicator:78cb8ea35185c99bca11",
+                            "construct_id": "construct:cdc0b2958a9512b2abad",
                             "name": "sleep_issue_searches",
-                            "construct_name": "sleep",
                             "measurement_dtype": "continuous",
                             "support_kind": "real",
                             "summary_operator": "mean",

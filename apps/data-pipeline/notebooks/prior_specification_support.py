@@ -14,6 +14,9 @@ import json
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from pydantic import TypeAdapter
+
+from nof1_causal_lab.artifacts.mechanism import DynamicsMechanism
 from nof1_causal_lab.flows.transitions.model_spec.agentic.construct_flow import (
     ConstructBuildState,
     _acceptance_map,
@@ -167,6 +170,7 @@ def run_authored_proposals(
         state.submission_made = False
         indicators = list(payload["indicators"])
         priors = dict(payload["priors"])
+        mechanisms = TypeAdapter(list[DynamicsMechanism]).validate_python(payload["mechanisms"])
         accept = list(payload.get("accept") or [])
         report: AdmissionReport | None = None
         coupled: tuple[CheckResult, ...] = ()
@@ -177,6 +181,7 @@ def run_authored_proposals(
         if construct != expected:
             feedback = state.submit_construct(
                 construct=construct,
+                mechanisms=[mechanism.model_dump(mode="json") for mechanism in mechanisms],
                 indicators=indicators,
                 priors=priors,
                 accept=accept,
@@ -187,6 +192,7 @@ def run_authored_proposals(
                 accepted_constructs=checkpoint.accepted_constructs,
                 ancestor_constructs=set(state.admitted_contributions),
                 construct_name=construct,
+                mechanisms=mechanisms,
                 indicators=indicators,
                 priors=priors,
                 accept=accept,
@@ -209,6 +215,7 @@ def run_authored_proposals(
                 try:
                     feedback = state.submit_construct(
                         construct=construct,
+                        mechanisms=[mechanism.model_dump(mode="json") for mechanism in mechanisms],
                         indicators=indicators,
                         priors=priors,
                         accept=accept,
@@ -258,6 +265,7 @@ def run_authored_proposals(
                 accepted = AcceptedConstructCheckpoint(
                     submission_id=f"workbench:{evaluation_key}",
                     construct_name=construct,
+                    mechanisms=mechanisms,
                     indicators=indicators,
                     priors=priors,
                     accept=accept,
@@ -372,7 +380,7 @@ def validate_full_model(
         _closed_loop_target(
             run.state.admitted_contributions[name],
             structural_plan,
-            run.state.admission.priors,
+            run.state.admission.mechanisms,
         )
         for name in order
     )

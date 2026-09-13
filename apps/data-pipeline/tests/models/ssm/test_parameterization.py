@@ -10,15 +10,11 @@ import jax.random as random
 import numpy as np
 import numpyro.distributions as dist
 import pytest
-from jax.flatten_util import ravel_pytree
 from numpyro import handlers
 
-from nof1_causal_lab.artifacts import (
-    CausalDesign,
-    LinkFunction,
-    StatisticalModelSpec,
-    StructuralPlan,
-)
+from nof1_causal_lab.artifacts.causal_design import CausalDesign
+from nof1_causal_lab.artifacts.parameter import SupportClass
+from nof1_causal_lab.artifacts.statistical_model_spec import LinkFunction, StatisticalModelSpec
 from nof1_causal_lab.distributions import (
     DistributionFamily,
     PriorDistributionFamily,
@@ -30,21 +26,15 @@ from nof1_causal_lab.models.ssm.model import (
     SSMSpec,
 )
 from nof1_causal_lab.models.ssm.parameterization import (
-    SupportClass,
     assemble_deterministics_from_registry,
-    build_prior_runtime_state,
-    build_site_prior_distribution,
     build_site_registry,
-    build_unravel_fn,
     compile_prior_semantics,
-    deserialize_prior_runtime_state,
     deserialize_site_registry,
     load_prior_runtime_bundle,
-    sample_prior_unconstrained,
-    serialize_prior_runtime_state,
+    sample_prior_parameters,
     serialize_site_registry,
 )
-from nof1_causal_lab.models.ssm.priors import PriorSpec
+from nof1_causal_lab.models.ssm.priors import resolve_site_priors
 from nof1_causal_lab.models.ssm.structure import (
     DiffusionBlockSpec,
     ManifestCholBlockSpec,
@@ -52,11 +42,14 @@ from nof1_causal_lab.models.ssm.structure import (
     SparseVectorBlockSpec,
     T0CholBlockSpec,
 )
+from nof1_causal_lab.prior_distributions import distribution_from_params
+from tests.helpers import named_prior_payloads
 
 if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
     from nof1_causal_lab.sampler_config import SamplerConfigOverride
-from nof1_causal_lab.models.ssm.structure.sites import PriorAuthoringTransform, SiteKind
-from tests.helpers import make_prior_plan, make_structural_plan
+from nof1_causal_lab.artifacts.parameter import PriorAuthoringTransform, SiteKind
+from tests.helpers import make_prior_plan, native_axis_metadata
 from tests.ssm_spec_fixtures import (
     default_diffusion_block,
     default_input_effect_block,
@@ -71,7 +64,6 @@ from tests.ssm_spec_fixtures import (
     full_dense_matrix_dynamics_spec,
     full_diagonal_support,
     full_vector_support,
-    prior_registry,
 )
 
 # ---------------------------------------------------------------------------
@@ -109,7 +101,7 @@ def _make_spec(
         t0_chol_block=t0_chol_block or default_t0_chol_block(n_latent),
         input_effect_block=input_effect_block or default_input_effect_block(n_latent),
         static_state_sd_block=static_state_sd_block or default_static_state_sd_block(),
-        **kwargs,
+        **native_axis_metadata(n_latent, n_manifest, kwargs),
     )
 
 
@@ -292,9 +284,21 @@ def statistical_model_spec_and_priors():
     return (
         StatisticalModelSpec.model_validate(
             {
+                "mechanisms": [
+                    {
+                        "kind": "node_potential",
+                        "target_id": "construct:bbc87212909e45b9e6c3",
+                        "center": {"kind": "fixed", "value": 0},
+                        "stiffness": {
+                            "kind": "estimated",
+                            "parameter_id": "parameter:fb33dbedf43eb15e324c86fa97201278e306cb48aa9752104361309d61215122",
+                        },
+                        "quartic": {"kind": "fixed", "value": 0},
+                    }
+                ],
                 "likelihoods": [
                     {
-                        "variable": "mood_score",
+                        "indicator_id": "indicator:45f78731e3e0c6f3efe1",
                         "distribution": "gaussian",
                         "link": "identity",
                         "reasoning": "test",
@@ -302,12 +306,19 @@ def statistical_model_spec_and_priors():
                 ],
                 "parameters": [
                     {
+                        "prior_transform": "dt_persistence_to_ct_decay",
+                        "id": "parameter:fb33dbedf43eb15e324c86fa97201278e306cb48aa9752104361309d61215122",
+                        "owners": [{"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"}],
+                        "quantity": "dynamics_decay",
                         "name": "rho_mood",
                         "role": "ar_coefficient",
                         "constraint": "unit_interval",
                         "description": "AR mood",
                     },
                     {
+                        "id": "parameter:146688c9f8e2c980c9e7963be61deb23225a81f828c204339c2164d1f51d441e",
+                        "owners": [{"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"}],
+                        "quantity": "diffusion_diag",
                         "name": "sigma_mood",
                         "role": "residual_sd",
                         "constraint": "positive",
@@ -319,8 +330,8 @@ def statistical_model_spec_and_priors():
         {
             "rho_mood": {
                 "parameter": "rho_mood",
-                "distribution": "Normal",
-                "params": {"mu": 0.5, "sigma": 0.2},
+                "distribution": "Beta",
+                "params": {"alpha": 2.0, "beta": 2.0},
                 "sources": [],
                 "reasoning": "r",
             },
@@ -336,9 +347,41 @@ def statistical_model_spec_and_priors():
 
 
 def _mood_structural_plan() -> StructuralPlan:
-    plan = make_structural_plan(["mood"], [])
-    plan["semantics"]["indicators"]["indicator:0000"]["name"] = "mood_score"
-    return StructuralPlan.model_validate(plan)
+    from nof1_causal_lab.models.structural import build_structural_plan
+
+    return build_structural_plan(
+        CausalDesign.model_validate(
+            {
+                "latent": {
+                    "constructs": [
+                        {
+                            "id": "construct:bbc87212909e45b9e6c3",
+                            "name": "mood",
+                            "description": "Mood",
+                            "role": "exogenous",
+                            "temporal_status": "time_varying",
+                        }
+                    ],
+                    "edges": [],
+                },
+                "measurement": {
+                    "model_clock": "1d",
+                    "indicators": [
+                        {
+                            "id": "indicator:45f78731e3e0c6f3efe1",
+                            "construct_id": "construct:bbc87212909e45b9e6c3",
+                            "name": "mood_score",
+                            "how_to_measure": "Mood score",
+                            "measurement_dtype": "continuous",
+                            "aggregation": "mean",
+                            "construct_polarity": "positive",
+                        }
+                    ],
+                },
+                "default_outcome": None,
+            }
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -354,6 +397,7 @@ def _assert_registry_matches_trace(registry, site_info):
 
 
 class TestSiteRegistry:
+    @pytest.mark.cpu_expensive
     def test_registry_names_match_trace(self, simple_model):
         """Registry produces the same site names as model tracing."""
         spec = simple_model.spec
@@ -365,6 +409,7 @@ class TestSiteRegistry:
         site_info = _discover_sites(simple_model, obs, times, random.PRNGKey(0), backend)
         _assert_registry_matches_trace(registry, site_info)
 
+    @pytest.mark.cpu_expensive
     def test_registry_names_match_trace_dag(self, dag_model):
         """Registry matches trace for DAG-constrained model with cint."""
         spec = dag_model.spec
@@ -376,6 +421,7 @@ class TestSiteRegistry:
         site_info = _discover_sites(dag_model, obs, times, random.PRNGKey(0), backend)
         _assert_registry_matches_trace(registry, site_info)
 
+    @pytest.mark.cpu_expensive
     def test_registry_shapes_match_trace(self, simple_model):
         """Registry shapes match traced shapes."""
         spec = simple_model.spec
@@ -391,6 +437,7 @@ class TestSiteRegistry:
                 f"registry={site.shape}, trace={site_info[site.name]['shape']}"
             )
 
+    @pytest.mark.cpu_expensive
     def test_registry_shapes_match_trace_partial_manifest_variance_mask(self):
         """Masked manifest variance exposes only free diagonal entries as a site."""
         spec = _make_spec(
@@ -512,6 +559,7 @@ class TestSiteRegistry:
 
         assert "proc_df" in trace
 
+    @pytest.mark.cpu_expensive
     def test_static_state_sd_site_is_registered_and_traced(self):
         """Compiled baseline factors should expose a positive static-state SD site."""
         spec = _make_spec(
@@ -563,8 +611,14 @@ class TestSpecBlockAssembly:
             ),
         )
         model = SSMModel(spec)
-        with handlers.seed(rng_seed=0), handlers.trace() as trace:
-            cov = model._compose_t0_cov({"static_state_sds": jnp.array([2.0])})
+        values = {
+            site.name: jnp.ones(site.shape)
+            for block in spec.parameter_blocks
+            for site in block.iter_sites()
+        }
+        values["static_state_sd_free"] = jnp.array([2.0])
+        with handlers.substitute(data=values), handlers.trace() as trace:
+            cov = model._sample_parameters()["t0_cov"]
         assert "t0_correlation_positive_definite" in trace
 
         np.testing.assert_allclose(
@@ -575,40 +629,7 @@ class TestSpecBlockAssembly:
 
 
 # ---------------------------------------------------------------------------
-# Transforms and unravel
-# ---------------------------------------------------------------------------
-
-
-class TestTransformsAndUnravel:
-    def test_unravel_dimension(self, simple_spec):
-        """Unravel function produces correct flat dimension."""
-        registry = build_site_registry(simple_spec)
-        D, unravel_fn = build_unravel_fn(registry)
-        z = jnp.zeros(D)
-        unc = unravel_fn(z)
-        total = sum(jnp.prod(jnp.array(v.shape)) for v in unc.values())
-        assert int(total) == D
-
-    def test_unravel_matches_trace(self, simple_model):
-        """Registry-based unravel gives same structure as trace-based."""
-        spec = simple_model.spec
-        registry = build_site_registry(spec)
-        D, _unravel_fn = build_unravel_fn(registry)
-
-        backend = get_laplace_backend(simple_model, 6)
-        obs = jnp.zeros((10, spec.n_manifest))
-        times = jnp.linspace(0, 1, 10)
-        site_info = _discover_sites(simple_model, obs, times, random.PRNGKey(0), backend)
-        example_unc = {
-            name: info["transform"].inv(info["value"]) for name, info in site_info.items()
-        }
-        flat_trace, _unravel_trace = ravel_pytree(example_unc)
-
-        assert flat_trace.shape[0] == D
-
-
-# ---------------------------------------------------------------------------
-# Registry-driven deterministic assembly
+# Deterministic assembly
 # ---------------------------------------------------------------------------
 
 
@@ -625,6 +646,7 @@ class TestDeterministicAssembly:
             "manifest_var_diag_free": jnp.array([[0.7, 0.8]], dtype=jnp.float32),
             "t0_means_free": jnp.array([[1.0, -1.0]], dtype=jnp.float32),
             "t0_var_diag_free": jnp.array([[0.9, 1.1]], dtype=jnp.float32),
+            "t0_var_lower_free": jnp.zeros((1, 1), dtype=jnp.float32),
         }
 
         det = assemble_deterministics_from_registry(samples, simple_spec)
@@ -634,7 +656,11 @@ class TestDeterministicAssembly:
         assert jnp.allclose(det["t0_means"][0], jnp.array([1.0, -1.0]))
         assert jnp.allclose(det["t0_cov"][0], jnp.diag(jnp.array([0.81, 1.21])))
 
-    def test_assemble_deterministics_from_registry_fixed_fallbacks(self):
+    def test_missing_declared_free_value_is_rejected(self, simple_spec):
+        with pytest.raises(KeyError, match="diffusion_diag_free"):
+            assemble_deterministics_from_registry({}, simple_spec, n_draws=2)
+
+    def test_assemble_deterministics_from_registry_fixed_blocks(self):
         """Fixed spec matrices are broadcast without any sampled sites."""
         spec = _make_spec(
             n_latent=2,
@@ -708,6 +734,7 @@ class TestDeterministicAssembly:
             "manifest_var_diag_free": jnp.array([[0.9]], dtype=jnp.float32),
             "t0_means_free": jnp.array([[1.0, -1.0]], dtype=jnp.float32),
             "t0_var_diag_free": jnp.array([[0.9, 1.1]], dtype=jnp.float32),
+            "t0_var_lower_free": jnp.zeros((1, 1), dtype=jnp.float32),
         }
 
         det = assemble_deterministics_from_registry(samples, spec)
@@ -778,60 +805,40 @@ class TestDeterministicAssembly:
         assert bool(jnp.isfinite(det["t0_cov"]).all())
         assert float(min_eig) > -1e-6
 
+        model = SSMModel(spec)
+        with handlers.substitute(data={name: value[0] for name, value in samples.items()}):
+            trace = handlers.trace(model._sample_parameters).get_trace()
+        np.testing.assert_allclose(trace["t0_cov"]["value"], det["t0_cov"][0], atol=1e-6)
+        factor = trace["t0_correlation_positive_definite"]
+        assert float(factor["fn"].log_prob(factor["value"])) == pytest.approx(-800000.01, rel=1e-5)
+
 
 # ---------------------------------------------------------------------------
 # Prior runtime state
 # ---------------------------------------------------------------------------
 
 
-class TestPriorRuntimeState:
-    def test_default_state_has_all_sites(self, simple_spec):
-        """Default prior state covers all registry sites."""
+class TestNativeRuntimePriors:
+    def test_sites_have_native_distributions_with_the_declared_shapes(self, simple_spec):
         registry = build_site_registry(simple_spec)
-        state = build_prior_runtime_state(registry)
+        priors = resolve_site_priors(registry)
+        assert set(priors) == {site.name for site in registry}
         for site in registry:
-            assert site.name in state, f"Missing site {site.name}"
+            assert isinstance(priors[site.name], dist.Distribution)
+            assert priors[site.name].batch_shape == site.shape
 
-    def test_state_has_correct_keys(self, simple_spec):
-        """Each site's params have correct keys for its support class."""
+    def test_partial_native_overrides_preserve_other_defaults(self, simple_spec):
         registry = build_site_registry(simple_spec)
-        state = build_prior_runtime_state(registry)
-        for site in registry:
-            params = state[site.name]
-            assert "family" in params
-            if site.support == SupportClass.REAL:
-                assert "loc" in params
-                assert "scale" in params
-            elif site.support == SupportClass.POSITIVE:
-                assert "scale" in params
-                assert "concentration" in params
-                assert "rate" in params
+        priors = resolve_site_priors(registry, {"vf_0_decay": dist.Gamma(4.0, 2.0)})
+        np.testing.assert_allclose(priors["vf_0_decay"].mean, [2.0, 2.0])
+        assert priors["diffusion_diag_free"].batch_shape == (2,)
 
-    def test_custom_priors_reflected(self, simple_spec):
-        """Custom PriorRegistry values appear in the state."""
-        priors = prior_registry(
-            vf_0_decay=PriorSpec(
-                PriorDistributionFamily.GAMMA,
-                {"concentration": 4.0, "rate": 2.0},
-            )
-        )
-        registry = build_site_registry(simple_spec)
-        state = build_prior_runtime_state(registry, priors)
-        assert jnp.allclose(
-            state["vf_0_decay"]["concentration"],
-            jnp.full(2, 4.0),
-        )
-        assert jnp.allclose(state["vf_0_decay"]["rate"], jnp.full(2, 2.0))
-
-    def test_state_is_valid_pytree(self, simple_spec):
-        """Prior state can be flattened/unflattened as a JAX pytree."""
-        registry = build_site_registry(simple_spec)
-        state = build_prior_runtime_state(registry)
-        leaves, treedef = jax.tree_util.tree_flatten(state)
-        state2 = jax.tree_util.tree_unflatten(treedef, leaves)
-        for site in registry:
-            for key in state[site.name]:
-                assert jnp.allclose(state[site.name][key], state2[site.name][key])
+    def test_native_laws_are_jax_pytrees(self, simple_spec):
+        priors = resolve_site_priors(build_site_registry(simple_spec))
+        leaves, tree = jax.tree.flatten(priors)
+        restored = jax.tree.unflatten(tree, leaves)
+        for name, prior in priors.items():
+            np.testing.assert_array_equal(restored[name].mean, prior.mean)
 
 
 # ---------------------------------------------------------------------------
@@ -840,59 +847,29 @@ class TestPriorRuntimeState:
 
 
 class TestSampling:
-    def test_sample_shape(self, simple_spec):
-        """Sampled array has correct shape."""
+    def test_sample_shapes_and_native_support(self, simple_spec):
         registry = build_site_registry(simple_spec)
-        D, _ = build_unravel_fn(registry)
-        state = build_prior_runtime_state(registry)
-        samples, _ = sample_prior_unconstrained(random.PRNGKey(0), registry, state, n_samples=50)
-        assert samples.shape == (50, D)
-
-    def test_samples_finite(self, simple_spec):
-        """All samples are finite."""
-        registry = build_site_registry(simple_spec)
-        state = build_prior_runtime_state(registry)
-        samples, _ = sample_prior_unconstrained(random.PRNGKey(0), registry, state, n_samples=100)
-        assert jnp.all(jnp.isfinite(samples))
-
-    def test_positive_sites_log_space(self, simple_spec):
-        """Samples for POSITIVE sites are in log space (unconstrained)."""
-        registry = build_site_registry(simple_spec)
-        _D, unravel_fn = build_unravel_fn(registry)
-        state = build_prior_runtime_state(registry)
-        samples, _ = sample_prior_unconstrained(random.PRNGKey(0), registry, state, n_samples=100)
-        # Check one sample: exp(unconstrained) should be positive
-        unc = unravel_fn(samples[0])
+        state = resolve_site_priors(registry)
+        samples = sample_prior_parameters(random.PRNGKey(0), registry, state, n_samples=4)
+        assert set(samples) == {site.name for site in registry}
         for site in registry:
+            assert samples[site.name].shape == (4, *site.shape)
+            assert jnp.all(jnp.isfinite(samples[site.name]))
             if site.support == SupportClass.POSITIVE:
-                assert jnp.all(jnp.exp(unc[site.name]) > 0)
+                assert jnp.all(samples[site.name] > 0)
 
     def test_site_streams_are_stable_under_registry_reordering(self, simple_spec):
         registry = build_site_registry(simple_spec)
-        reversed_registry = list(reversed(registry))
-        state = build_prior_runtime_state(registry)
-        samples, _ = sample_prior_unconstrained(random.PRNGKey(7), registry, state, n_samples=4)
-        reversed_samples, _ = sample_prior_unconstrained(
-            random.PRNGKey(7), reversed_registry, state, n_samples=4
+        state = resolve_site_priors(registry)
+        samples = sample_prior_parameters(random.PRNGKey(7), registry, state, n_samples=4)
+        reversed_samples = sample_prior_parameters(
+            random.PRNGKey(7), list(reversed(registry)), state, n_samples=4
         )
+        for site_name in samples:
+            assert jnp.array_equal(samples[site_name], reversed_samples[site_name])
 
-        def _split_by_site(values, sites):
-            offset = 0
-            result = {}
-            for site in sites:
-                size = int(np.prod(site.shape or (1,)))
-                result[site.name] = values[:, offset : offset + size].reshape(
-                    (values.shape[0], *site.shape)
-                )
-                offset += size
-            return result
-
-        by_site = _split_by_site(samples, registry)
-        reversed_by_site = _split_by_site(reversed_samples, reversed_registry)
-
-        assert set(by_site) == set(reversed_by_site)
-        for site_name in by_site:
-            assert jnp.array_equal(by_site[site_name], reversed_by_site[site_name])
+    def test_fixed_model_has_no_sampled_parameters(self):
+        assert sample_prior_parameters(random.PRNGKey(0), [], {}, n_samples=3) == {}
 
 
 # ---------------------------------------------------------------------------
@@ -902,171 +879,46 @@ class TestSampling:
 
 class TestSerialization:
     def test_registry_roundtrip(self, simple_spec):
-        """Site registry survives serialize → deserialize."""
         registry = build_site_registry(simple_spec)
-        payload = serialize_site_registry(registry)
-        restored = deserialize_site_registry(payload)
-        assert len(restored) == len(registry)
-        for orig, rest in zip(registry, restored, strict=True):
-            assert orig.name == rest.name
-            assert orig.shape == rest.shape
-            assert orig.support == rest.support
-            assert orig.assembly_group == rest.assembly_group
-            assert orig.site_kind == rest.site_kind
-            assert orig.transform_kind == rest.transform_kind
-            assert orig.deterministic_name == rest.deterministic_name
-            assert orig.fixed_spec_field == rest.fixed_spec_field
-            assert orig.priors_field == rest.priors_field
-            assert orig.runtime_prior_key == rest.runtime_prior_key
-            assert orig.is_runtime_prior_controlled == rest.is_runtime_prior_controlled
+        restored = deserialize_site_registry(serialize_site_registry(registry))
+        assert [(site.name, site.shape, site.support, site.site_kind) for site in restored] == [
+            (site.name, site.shape, site.support, site.site_kind) for site in registry
+        ]
 
-    def test_prior_state_roundtrip(self, simple_spec):
-        """Prior runtime state survives serialize → deserialize."""
-        registry = build_site_registry(simple_spec)
-        state = build_prior_runtime_state(registry)
-        payload = serialize_prior_runtime_state(state)
-        restored = deserialize_prior_runtime_state(payload, registry)
-        for site in registry:
-            for key in state[site.name]:
-                assert jnp.allclose(
-                    state[site.name][key],
-                    restored[site.name][key],
-                    atol=1e-6,
-                ), f"Mismatch for {site.name}.{key}"
-
-    def test_prior_state_roundtrip_custom_priors(self, simple_spec):
-        """Custom priors survive the roundtrip."""
-        priors = prior_registry(
-            vf_0_decay=PriorSpec(
-                PriorDistributionFamily.GAMMA,
-                {"concentration": 4.0, "rate": 2.0},
-            ),
-            diffusion_diag_free=PriorSpec(PriorDistributionFamily.HALF_NORMAL, {"sigma": 0.5}),
-        )
-        registry = build_site_registry(simple_spec)
-        state = build_prior_runtime_state(registry, priors)
-        payload = serialize_prior_runtime_state(state)
-        restored = deserialize_prior_runtime_state(payload, registry)
-        assert jnp.allclose(
-            restored["vf_0_decay"]["concentration"],
-            jnp.full(2, 4.0),
-            atol=1e-6,
-        )
-        assert jnp.allclose(restored["vf_0_decay"]["rate"], jnp.full(2, 2.0))
-        assert jnp.allclose(
-            restored["diffusion_diag_free"]["scale"],
-            jnp.full(2, 0.5),
-            atol=1e-6,
-        )
-
-    def test_compile_prior_semantics_roundtrip(self, simple_spec):
-        """compile_prior_semantics → deserialize produces valid state."""
-        priors = prior_registry(
-            vf_0_decay=PriorSpec(
-                PriorDistributionFamily.GAMMA,
-                {"concentration": 4.0, "rate": 2.0},
-            )
-        )
+    def test_native_prior_laws_roundtrip(self, simple_spec):
+        priors = {"vf_0_decay": dist.Gamma(jnp.array([3.0, 4.0]), jnp.array([2.0, 5.0]))}
         semantics = compile_prior_semantics(simple_spec, priors)
-        assert semantics.schema_version == 5
-        registry = deserialize_site_registry(semantics.site_registry)
-        state = deserialize_prior_runtime_state(semantics.prior_state, registry)
-        assert "vf_0_decay" in state
-        assert jnp.allclose(
-            state["vf_0_decay"]["concentration"],
-            jnp.full(2, 4.0),
-            atol=1e-6,
+        assert semantics.schema_version == 7
+        restored = load_prior_runtime_bundle(semantics)
+        prior = restored.priors["vf_0_decay"]
+        np.testing.assert_allclose(prior.concentration, [3.0, 4.0])
+        np.testing.assert_allclose(prior.rate, [2.0, 5.0])
+        np.testing.assert_allclose(
+            prior.log_prob(jnp.array([0.5, 1.0])),
+            priors["vf_0_decay"].log_prob(jnp.array([0.5, 1.0])),
         )
 
 
 class TestCanonicalRuntimePriors:
     def test_loaded_runtime_preserves_per_element_priors(self):
-        """Compiled prior semantics preserve vector-valued site parameters exactly."""
         spec = _make_spec(n_latent=3, n_manifest=3)
-        priors = prior_registry(
-            vf_0_decay=PriorSpec(
-                PriorDistributionFamily.GAMMA,
-                {
-                    "concentration": [2.0, 3.0, 4.0],
-                    "rate": [4.0, 5.0, 6.0],
-                },
-            ),
-        )
+        priors = {"vf_0_decay": dist.Gamma(jnp.array([2.0, 3.0, 4.0]), jnp.array([4.0, 5.0, 6.0]))}
         runtime = load_prior_runtime_bundle(compile_prior_semantics(spec, priors))
-        assert runtime.prior_state["vf_0_decay"]["concentration"].shape == (3,)
-        assert jnp.allclose(
-            runtime.prior_state["vf_0_decay"]["concentration"],
-            jnp.array([2.0, 3.0, 4.0], dtype=jnp.float32),
-        )
+        np.testing.assert_allclose(runtime.priors["vf_0_decay"].concentration, [2.0, 3.0, 4.0])
 
-    def test_site_distribution_handles_vector_positive_priors(self, simple_spec):
-        """Canonical site distributions accept vector-valued positive scales."""
-        priors = prior_registry(
-            t0_var_diag_free=PriorSpec(
-                PriorDistributionFamily.HALF_NORMAL,
-                {"sigma": [1.0, 2.0]},
-            )
-        )
+    def test_vector_positive_prior_is_a_native_half_normal(self, simple_spec):
+        priors = {"t0_var_diag_free": dist.HalfNormal(jnp.array([1.0, 2.0]))}
         runtime = load_prior_runtime_bundle(compile_prior_semantics(simple_spec, priors))
-        site = next(
-            site for site in runtime.site_runtime.registry if site.name == "t0_var_diag_free"
-        )
-        prior_dist = build_site_prior_distribution(site, runtime.prior_state[site.name])
-        assert isinstance(prior_dist, dist.HalfNormal)
-        assert prior_dist.batch_shape == (2,)
-        assert jnp.allclose(prior_dist.scale, jnp.array([1.0, 2.0], dtype=jnp.float32))
+        law = runtime.priors["t0_var_diag_free"]
+        assert isinstance(law, dist.HalfNormal)
+        assert law.batch_shape == (2,)
+        np.testing.assert_allclose(law.scale, [1.0, 2.0])
 
-    def test_positive_delta_distribution_samples_fixed_vector(self, simple_spec):
-        """Positive Delta priors build NumPyro Delta distributions and preserve shape."""
-        priors = prior_registry(
-            vf_0_decay=PriorSpec(
-                PriorDistributionFamily.DELTA,
-                {"value": [0.25, 0.5]},
-            )
-        )
+    def test_delta_roundtrip_preserves_fixed_coordinates(self, simple_spec):
+        priors = {"vf_0_decay": dist.Delta(jnp.array([0.25, 0.5]))}
         runtime = load_prior_runtime_bundle(compile_prior_semantics(simple_spec, priors))
-        site = next(site for site in runtime.site_runtime.registry if site.name == "vf_0_decay")
-        prior_dist = build_site_prior_distribution(site, runtime.prior_state[site.name])
-
-        assert isinstance(prior_dist, dist.Delta)
-        assert prior_dist.batch_shape == (2,)
-        assert jnp.allclose(prior_dist.v, jnp.array([0.25, 0.5], dtype=jnp.float32))
-
-    def test_positive_delta_roundtrips_through_serialized_semantics(self, simple_spec):
-        """Positive Delta value survives v5 compiled-prior serialization."""
-        priors = prior_registry(
-            vf_0_decay=PriorSpec(
-                PriorDistributionFamily.DELTA,
-                {"value": [0.25, 0.5]},
-            )
-        )
-        runtime = load_prior_runtime_bundle(compile_prior_semantics(simple_spec, priors))
-
-        assert jnp.allclose(
-            runtime.prior_state["vf_0_decay"]["value"],
-            jnp.array([0.25, 0.5], dtype=jnp.float32),
-        )
-
-    def test_decay_rate_positive_site_keeps_fixed_parameter_keys(self, simple_spec):
-        """Base-decay prior state keeps the same positive-family leaves across prior edits."""
-        runtime = load_prior_runtime_bundle(compile_prior_semantics(simple_spec))
-
-        dynamics_params = runtime.prior_state["vf_0_decay"]
-        assert set(dynamics_params) == {
-            "family",
-            "loc",
-            "scale",
-            "concentration",
-            "rate",
-            "value",
-        }
-        assert jnp.allclose(dynamics_params["concentration"], jnp.full((2,), 2.0))
-        assert jnp.allclose(dynamics_params["rate"], jnp.full((2,), 4.0))
-
-        correlation_params = runtime.prior_state["t0_var_lower_free"]
-        assert set(correlation_params) == {"family", "loc", "scale", "low", "high"}
-        assert jnp.allclose(correlation_params["low"], jnp.full((1,), -1.0))
-        assert jnp.allclose(correlation_params["high"], jnp.full((1,), 1.0))
+        assert isinstance(runtime.priors["vf_0_decay"], dist.Delta)
+        np.testing.assert_array_equal(runtime.priors["vf_0_decay"].v, [0.25, 0.5])
 
 
 # ---------------------------------------------------------------------------
@@ -1092,9 +944,10 @@ class TestCompiledArtifactIntegration:
         )
         statistical_model_spec = StatisticalModelSpec.model_validate(
             {
+                "mechanisms": [],
                 "likelihoods": [
                     {
-                        "variable": "scale",
+                        "indicator_id": "indicator:629caa38759753c3b1e8",
                         "distribution": "ordered_logistic",
                         "link": "cumulative_logit",
                         "reasoning": "test",
@@ -1102,6 +955,9 @@ class TestCompiledArtifactIntegration:
                 ],
                 "parameters": [
                     {
+                        "id": "parameter:70806f3c141a7241a93e94d412f6f7a2a356392c691a2a777c6ac9ed9e3e82f1",
+                        "owners": [{"kind": "indicator", "id": "indicator:8467e96e70bbb56aa963"}],
+                        "quantity": "obs_ordered_base",
                         "name": "obs_ordered_base",
                         "role": "observation_hyperparameter",
                         "constraint": "none",
@@ -1113,15 +969,18 @@ class TestCompiledArtifactIntegration:
 
         with pytest.raises(
             PriorIndexingError,
-            match="Use obs_ordered_base_<indicator>",
+            match="must bind to one active site through its scientific owners",
         ):
             compile_priors(
-                {
-                    "obs_ordered_base": {
-                        "distribution": "Normal",
-                        "params": {"mu": 0.0, "sigma": 1.0},
-                    }
-                },
+                named_prior_payloads(
+                    statistical_model_spec,
+                    {
+                        "obs_ordered_base": {
+                            "distribution": "Normal",
+                            "params": {"mu": 0.0, "sigma": 1.0},
+                        }
+                    },
+                ),
                 statistical_model_spec,
                 spec,
             )
@@ -1146,15 +1005,16 @@ class TestCompiledArtifactIntegration:
         )
         statistical_model_spec = StatisticalModelSpec.model_validate(
             {
+                "mechanisms": [],
                 "likelihoods": [
                     {
-                        "variable": "short_scale",
+                        "indicator_id": "indicator:d50004e46a2ff28d2af2",
                         "distribution": "ordered_logistic",
                         "link": "cumulative_logit",
                         "reasoning": "test",
                     },
                     {
-                        "variable": "long_scale",
+                        "indicator_id": "indicator:153ac0200cf2403b6774",
                         "distribution": "ordered_logistic",
                         "link": "cumulative_logit",
                         "reasoning": "test",
@@ -1162,24 +1022,36 @@ class TestCompiledArtifactIntegration:
                 ],
                 "parameters": [
                     {
+                        "id": "parameter:cf25138fc98c90be59a0cea63209ce252f18f82d932f8ff25dd07241c77df05a",
+                        "owners": [{"kind": "indicator", "id": "indicator:d50004e46a2ff28d2af2"}],
+                        "quantity": "obs_ordered_base",
                         "name": "obs_ordered_base_short_scale",
                         "role": "observation_hyperparameter",
                         "constraint": "none",
                         "description": "short base",
                     },
                     {
+                        "id": "parameter:6c198078516656e980169ef85a15afad18fc7e11b5f1cbe01a61bcb1ebb92df2",
+                        "owners": [{"kind": "indicator", "id": "indicator:d50004e46a2ff28d2af2"}],
+                        "quantity": "obs_ordered_gaps",
                         "name": "obs_ordered_gaps_short_scale",
                         "role": "observation_hyperparameter_positive",
                         "constraint": "positive",
                         "description": "short gaps",
                     },
                     {
+                        "id": "parameter:3f6cad53a748ba6f1e5fcb3bba6af4855f26600fd47a11ed30c47ddbe027fe98",
+                        "owners": [{"kind": "indicator", "id": "indicator:153ac0200cf2403b6774"}],
+                        "quantity": "obs_ordered_base",
                         "name": "obs_ordered_base_long_scale",
                         "role": "observation_hyperparameter",
                         "constraint": "none",
                         "description": "long base",
                     },
                     {
+                        "id": "parameter:d494c90161198c85be93c1aeb380c0a8f915f9934825cb2deb9b18e8af1ae056",
+                        "owners": [{"kind": "indicator", "id": "indicator:153ac0200cf2403b6774"}],
+                        "quantity": "obs_ordered_gaps",
                         "name": "obs_ordered_gaps_long_scale",
                         "role": "observation_hyperparameter_positive",
                         "constraint": "positive",
@@ -1189,29 +1061,34 @@ class TestCompiledArtifactIntegration:
             }
         )
         priors, bindings, _diagnostics = compile_priors(
-            {
-                "obs_ordered_base_short_scale": {
-                    "distribution": "Normal",
-                    "params": {"mu": -1.0, "sigma": 0.5},
+            named_prior_payloads(
+                statistical_model_spec,
+                {
+                    "obs_ordered_base_short_scale": {
+                        "distribution": "Normal",
+                        "params": {"mu": -1.0, "sigma": 0.5},
+                    },
+                    "obs_ordered_gaps_short_scale": {
+                        "distribution": "HalfNormal",
+                        "params": {"sigma": 2.0},
+                    },
+                    "obs_ordered_base_long_scale": {
+                        "distribution": "Normal",
+                        "params": {"mu": -3.0, "sigma": 1.0},
+                    },
+                    "obs_ordered_gaps_long_scale": {
+                        "distribution": "HalfNormal",
+                        "params": {"sigma": 0.5},
+                    },
                 },
-                "obs_ordered_gaps_short_scale": {
-                    "distribution": "HalfNormal",
-                    "params": {"sigma": 2.0},
-                },
-                "obs_ordered_base_long_scale": {
-                    "distribution": "Normal",
-                    "params": {"mu": -3.0, "sigma": 1.0},
-                },
-                "obs_ordered_gaps_long_scale": {
-                    "distribution": "HalfNormal",
-                    "params": {"sigma": 0.5},
-                },
-            },
+            ),
             statistical_model_spec,
             spec,
         )
 
-        binding_by_parameter = bindings.by_parameter
+        binding_by_parameter = {
+            binding.parameter_name: binding for binding in bindings.by_parameter.values()
+        }
         assert binding_by_parameter["obs_ordered_base_short_scale"].flat_index == 0
         assert binding_by_parameter["obs_ordered_base_long_scale"].flat_index == 1
         assert (
@@ -1223,12 +1100,12 @@ class TestCompiledArtifactIntegration:
             is PriorAuthoringTransform.SITE_ROW
         )
 
-        base_prior = priors.priors_by_site["obs_ordered_base"]
-        np.testing.assert_allclose(base_prior.params["mu"], [-1.0, -3.0])
-        np.testing.assert_allclose(base_prior.params["sigma"], [0.5, 1.0])
+        base_prior = priors["obs_ordered_base"]
+        np.testing.assert_allclose(base_prior.loc, [-1.0, -3.0])
+        np.testing.assert_allclose(base_prior.scale, [0.5, 1.0])
 
-        gap_prior = priors.priors_by_site["obs_ordered_gaps"]
-        gap_scales = np.asarray(gap_prior.params["sigma"]).reshape(2, 8)
+        gap_prior = priors["obs_ordered_gaps"]
+        gap_scales = np.asarray(gap_prior.scale).reshape(2, 8)
         np.testing.assert_allclose(gap_scales[0], 2.0)
         np.testing.assert_allclose(gap_scales[1], 0.5)
 
@@ -1245,9 +1122,9 @@ class TestCompiledArtifactIntegration:
         assert not hasattr(artifact, "priors")
         assert artifact.edge_lag_days == []
         sem = artifact.compiled_prior_semantics
-        assert sem.schema_version == 5
+        assert sem.schema_version == 7
         assert sem.site_registry
-        assert sem.prior_state
+        assert sem.priors
 
     def test_known_input_beta_binds_to_input_effect_site(self):
         """A beta from a known input compiles to B, not the latent dynamics matrix."""
@@ -1255,25 +1132,28 @@ class TestCompiledArtifactIntegration:
 
         causal_design = {
             "latent": {
+                "default_outcome": {"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"},
                 "constructs": [
                     {
+                        "id": "construct:16176a18c25802dee8a1",
                         "name": "dose",
                         "description": "Dose",
                         "role": "exogenous",
                         "temporal_status": "time_varying",
                     },
                     {
+                        "id": "construct:bbc87212909e45b9e6c3",
                         "name": "mood",
                         "description": "Mood",
                         "role": "endogenous",
-                        "is_outcome": True,
                         "temporal_status": "time_varying",
                     },
                 ],
                 "edges": [
                     {
-                        "cause": "dose",
-                        "effect": "mood",
+                        "cause_id": "construct:16176a18c25802dee8a1",
+                        "effect_id": "construct:bbc87212909e45b9e6c3",
+                        "id": "edge:3d7176b256a26799c7c4",
                         "description": "Dose affects mood",
                         "lagged": True,
                     }
@@ -1283,16 +1163,18 @@ class TestCompiledArtifactIntegration:
                 "model_clock": "1d",
                 "indicators": [
                     {
+                        "id": "indicator:5806a6a8417abd85897f",
+                        "construct_id": "construct:16176a18c25802dee8a1",
                         "name": "dose_mg",
-                        "construct_name": "dose",
                         "construct_polarity": "positive",
                         "how_to_measure": "Dose in mg",
                         "measurement_dtype": "continuous",
                         "aggregation": "sum",
                     },
                     {
+                        "id": "indicator:45f78731e3e0c6f3efe1",
+                        "construct_id": "construct:bbc87212909e45b9e6c3",
                         "name": "mood_score",
-                        "construct_name": "mood",
                         "construct_polarity": "positive",
                         "how_to_measure": "Mood score",
                         "measurement_dtype": "continuous",
@@ -1302,17 +1184,37 @@ class TestCompiledArtifactIntegration:
             },
             "known_inputs": [
                 {
-                    "construct": "dose",
-                    "source_indicator": "dose_mg",
+                    "construct_id": "construct:16176a18c25802dee8a1",
+                    "source_indicator_id": "indicator:5806a6a8417abd85897f",
                     "scale": 10.0,
                     "missing_policy": "forward_fill",
                 }
             ],
         }
         statistical_model_spec = {
+            "mechanisms": [
+                {
+                    "kind": "node_potential",
+                    "target_id": "construct:bbc87212909e45b9e6c3",
+                    "center": {"kind": "fixed", "value": 0},
+                    "stiffness": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:fb33dbedf43eb15e324c86fa97201278e306cb48aa9752104361309d61215122",
+                    },
+                    "quartic": {"kind": "fixed", "value": 0},
+                },
+                {
+                    "kind": "linear",
+                    "edge_id": "edge:3d7176b256a26799c7c4",
+                    "weight": {
+                        "kind": "estimated",
+                        "parameter_id": "parameter:53affe7fe8301a130af878d322911999e653c62dd0104d07b233ba7cf69c69af",
+                    },
+                },
+            ],
             "likelihoods": [
                 {
-                    "variable": "mood_score",
+                    "indicator_id": "indicator:45f78731e3e0c6f3efe1",
                     "distribution": "gaussian",
                     "link": "identity",
                     "reasoning": "",
@@ -1320,18 +1222,33 @@ class TestCompiledArtifactIntegration:
             ],
             "parameters": [
                 {
+                    "prior_transform": "dt_persistence_to_ct_decay",
+                    "id": "parameter:fb33dbedf43eb15e324c86fa97201278e306cb48aa9752104361309d61215122",
+                    "owners": [{"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"}],
+                    "quantity": "dynamics_decay",
                     "name": "rho_mood",
                     "role": "ar_coefficient",
                     "constraint": "unit_interval",
                     "description": "",
                 },
                 {
+                    "prior_transform": "dt_effect_to_ct_rate",
+                    "id": "parameter:53affe7fe8301a130af878d322911999e653c62dd0104d07b233ba7cf69c69af",
+                    "owners": [
+                        {"kind": "construct", "id": "construct:16176a18c25802dee8a1"},
+                        {"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"},
+                        {"kind": "edge", "id": "edge:3d7176b256a26799c7c4"},
+                    ],
+                    "quantity": "input_effect",
                     "name": "beta_dose_mood",
                     "role": "fixed_effect",
                     "constraint": "none",
                     "description": "",
                 },
                 {
+                    "id": "parameter:146688c9f8e2c980c9e7963be61deb23225a81f828c204339c2164d1f51d441e",
+                    "owners": [{"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"}],
+                    "quantity": "diffusion_diag",
                     "name": "sigma_mood",
                     "role": "residual_sd",
                     "constraint": "positive",
@@ -1363,14 +1280,15 @@ class TestCompiledArtifactIntegration:
         beta_binding = next(
             binding
             for binding in artifact.parameter_bindings
-            if binding.parameter == "beta_dose_mood"
+            if binding.parameter_id
+            == next(p.id for p in artifact.parameters if p.name == "beta_dose_mood")
         )
         assert {
-            "parameter": beta_binding.parameter,
+            "parameter_id": beta_binding.parameter_id,
             "site_name": beta_binding.site_name,
             "flat_index": beta_binding.flat_index,
         } == {
-            "parameter": "beta_dose_mood",
+            "parameter_id": next(p.id for p in artifact.parameters if p.name == "beta_dose_mood"),
             "site_name": "input_effect_free",
             "flat_index": 0,
         }
@@ -1403,8 +1321,8 @@ class TestCompiledArtifactIntegration:
         """Model rebuild fails clearly when compiled semantics are missing."""
         from pydantic import ValidationError
 
+        from nof1_causal_lab.artifacts.compiled_ssm import CompiledSSMArtifact
         from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
-        from nof1_causal_lab.models.ssm.compile.contracts import CompiledSSMArtifact
 
         statistical_model_spec, priors = statistical_model_spec_and_priors
         artifact = compile_ssm_artifact(
@@ -1423,8 +1341,8 @@ class TestCompiledArtifactIntegration:
     ):
         from pydantic import ValidationError
 
+        from nof1_causal_lab.artifacts.compiled_ssm import CompiledSSMArtifact
         from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
-        from nof1_causal_lab.models.ssm.compile.contracts import CompiledSSMArtifact
 
         statistical_model_spec, priors = statistical_model_spec_and_priors
         artifact = compile_ssm_artifact(
@@ -1438,6 +1356,7 @@ class TestCompiledArtifactIntegration:
         with pytest.raises(ValidationError, match="input_lagged"):
             CompiledSSMArtifact.model_validate(payload)
 
+    @pytest.mark.cpu_expensive
     def test_end_to_end_compile_rebuild_sample(self, statistical_model_spec_and_priors):
         """Full roundtrip: compile → rebuild → sample."""
         import numpy as np
@@ -1484,6 +1403,7 @@ class TestCompiledArtifactIntegration:
         )
         assert samples is not None
 
+    @pytest.mark.cpu_expensive
     def test_compiled_model_prior_predictive(self, statistical_model_spec_and_priors):
         """Compiled models can sample prior predictive from artifact semantics."""
         import polars as pl
@@ -1509,15 +1429,13 @@ class TestCompiledArtifactIntegration:
         assert samples["vf_0_decay"].shape[0] == 4
         assert "observations" in samples
 
+    @pytest.mark.cpu_expensive
     def test_compiled_model_traces_vector_t0_prior_without_reconstructing(self):
         """Compiled models execute vector-valued positive priors via runtime semantics."""
         import polars as pl
 
+        from nof1_causal_lab.artifacts.compiled_ssm import CompiledSSMArtifact, CompiledStructure
         from nof1_causal_lab.models.ssm.compile.artifact import serialize_ssm_spec
-        from nof1_causal_lab.models.ssm.compile.contracts import (
-            CompiledSSMArtifact,
-            CompiledStructure,
-        )
         from nof1_causal_lab.models.ssm.runtime import (
             hydrate_compiled_model,
             prepare_fit_inputs,
@@ -1534,13 +1452,16 @@ class TestCompiledArtifactIntegration:
             ),
             manifest_names=["m0", "m1"],
         )
-        priors = prior_registry(
-            t0_var_diag_free=PriorSpec(
+        priors = {
+            "t0_var_diag_free": distribution_from_params(
                 PriorDistributionFamily.HALF_NORMAL,
                 {"sigma": [1.0, 2.0]},
             )
-        )
-        artifact = CompiledSSMArtifact(
+        }
+        artifact = CompiledSSMArtifact.model_construct(
+            observation_bindings={},
+            parameters=[],
+            auxiliary_coordinates=[],
             schema_version=2,
             structure=CompiledStructure(
                 spec=serialize_ssm_spec(spec),

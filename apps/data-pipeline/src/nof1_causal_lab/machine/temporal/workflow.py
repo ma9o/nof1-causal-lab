@@ -43,14 +43,13 @@ with workflow.unsafe.imports_passed_through():
         legal_moves,
         validate_move,
     )
+    from nof1_causal_lab.machine.status import EpisodeStatus, MoveOutcome
     from nof1_causal_lab.machine.store import ResumeRef
     from nof1_causal_lab.machine.temporal.messages import (
         EpisodeInit,
-        EpisodeStatus,
         JournalInput,
         JournalStatus,
         MeasurementsWorkflowInput,
-        MoveOutcome,
         MoveRequest,
         RunArtifactInput,
         SingleLLMTransitionId,

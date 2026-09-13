@@ -12,8 +12,8 @@ from nof1_causal_lab.models.ssm.inference import FittedArtifact, ParticleMCMCPos
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.causal_proofs import PosteriorProvenance
-    from nof1_causal_lab.models.ssm.compile.contracts import CompiledSSMArtifact
+    from nof1_causal_lab.artifacts.compiled_ssm import CompiledSSMArtifact
+    from nof1_causal_lab.artifacts.posterior import PosteriorProvenance
     from nof1_causal_lab.sampler_config import SamplerConfig
 
 
@@ -27,7 +27,7 @@ def _log_ppc(ppc_result: UncheckedJsonObject) -> None:
     if warnings:
         logger.warning("  %d warning(s):", len(warnings))
         for warning in warnings:
-            logger.warning("    - %s: %s", warning["variable"], warning["message"])
+            logger.warning("    - %s: %s", warning["indicator_id"], warning["message"])
         return
 
     logger.info("  All checks passed")
@@ -50,7 +50,7 @@ def build_sampler_config(inference_method: str | None) -> SamplerConfig:
 
 def run_inference_with_data(
     *,
-    compiled_ssm: CompiledSSMArtifact | None,
+    compiled_ssm: CompiledSSMArtifact,
     data_for_model: Any,
     sampler_config: SamplerConfig,
     provenance: PosteriorProvenance,
@@ -100,18 +100,21 @@ def run_inference_with_data(
         times=fitted_result["times"],
         provenance=provenance,
         observation_support=fitted_result["runtime"].observation_support,
-        ppc_result=ppc_result,
     )
 
     _log_ppc(ppc_result)
 
     return {
         "_fitted_artifact": fitted_artifact,
-        "ppc": ppc_result,
+        "draws": result.draws.describe().model_dump(mode="json"),
+        "provenance": provenance.model_dump(mode="json"),
         "inference_metadata": inference_metadata,
-        "mcmc_diagnostics": fitted_result.get("mcmc_diagnostics"),
-        "smc_diagnostics": fitted_result.get("smc_diagnostics"),
-        "loo_diagnostics": fitted_result.get("loo_diagnostics"),
+        "assessment": {
+            "ppc": ppc_result,
+            "mcmc_diagnostics": fitted_result.get("mcmc_diagnostics"),
+            "smc_diagnostics": fitted_result.get("smc_diagnostics"),
+            "loo_diagnostics": fitted_result.get("loo_diagnostics"),
+        },
         "posterior_marginals": fitted_result.get("posterior_marginals"),
         "posterior_pairs": fitted_result.get("posterior_pairs"),
     }

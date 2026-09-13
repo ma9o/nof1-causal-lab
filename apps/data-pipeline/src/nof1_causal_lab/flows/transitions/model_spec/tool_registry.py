@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.flows.artifact_contracts import ToolContract
+    from nof1_causal_lab.flows.contracts_base import ToolDefinition
 
 
 class SearchLiteratureInput(BaseModel):
@@ -31,12 +31,12 @@ async def execute_public_search_literature(
     return {"result": result}
 
 
-def build_model_spec_public_tool_contracts() -> list[ToolContract]:
+def build_model_spec_public_tool_contracts() -> list[ToolDefinition]:
     """Materialize the stateless public model-spec tool contract."""
-    from nof1_causal_lab.flows.contracts_base import ToolContract
+    from nof1_causal_lab.flows.contracts_base import ToolDefinition
 
     return [
-        ToolContract(
+        ToolDefinition(
             name="search_literature",
             description="Search for empirical literature about effect sizes for model parameters.",
             input_schema=SearchLiteratureInput,

@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import jax.numpy as jnp
+import pytest
 
 from nof1_causal_lab.models.ssm.counterfactual import compute_interventions
 from nof1_causal_lab.models.ssm.dynamics import (
@@ -18,6 +19,8 @@ from nof1_causal_lab.models.ssm.dynamics import (
     HillEdgeSpec,
     compile_dynamics,
 )
+
+pytestmark = pytest.mark.cpu_expensive
 
 
 class TestComputeInterventionsDynamics:
@@ -61,6 +64,9 @@ class TestComputeInterventionsDynamics:
         assert entry["treatment"] == "src"
         assert "posterior_draws" in entry
         assert len(entry["posterior_draws"]) == n_draws
+        assert entry["summary"]["mean"] > 0
+        assert entry["summary"]["prob_positive"] == 1.0
+        assert sum(item["count"] for item in entry["histogram"]) == n_draws
         # Increasing 'src' should increase 'tgt' via Hill → positive draws
         assert all(d > 0 for d in entry["posterior_draws"])
 
@@ -76,7 +82,7 @@ class TestComputeInterventionsDynamics:
             latent_names=["x"],
         )
         assert len(results) == 1
-        assert results[0] == {"treatment": "nonexistent"}
+        assert results[0] == {"treatment": "nonexistent", "summary": None, "histogram": []}
 
     def test_empty_param_samples_returns_skeletons(self):
         """Dynamics path must not crash on an empty posterior."""
@@ -89,4 +95,4 @@ class TestComputeInterventionsDynamics:
             outcome="x",
             latent_names=["x"],
         )
-        assert results == [{"treatment": "x"}]
+        assert results == [{"treatment": "x", "summary": None, "histogram": []}]

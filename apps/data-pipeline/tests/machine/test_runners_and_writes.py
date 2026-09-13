@@ -6,6 +6,7 @@ from typing import Any
 import polars as pl
 import pytest
 
+from nof1_causal_lab.artifacts.causal_design import CausalDesign
 from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
 from nof1_causal_lab.flows.transitions.measurement_structure.identification import (
     derive_identification_report,
@@ -16,6 +17,7 @@ from nof1_causal_lab.machine.graph import transition_spec
 from nof1_causal_lab.machine.moves import apply_transition, input_pins
 from nof1_causal_lab.machine.store import ArtifactStore
 from nof1_causal_lab.machine.writes import execute_write
+from tests.helpers import fixture_entity_id
 
 
 @pytest.fixture
@@ -38,8 +40,9 @@ def _valid_causal_design(
             "state_order": ["Stress", "Perf"],
             "edges": [
                 {
-                    "cause": "Stress",
-                    "effect": "Perf",
+                    "cause_id": "construct:98df502ac4daf088ca29",
+                    "effect_id": "construct:dc6723ce621183cd1182",
+                    "id": "edge:399745ac3ae059a06462",
                     "description": "Stress reduces performance",
                     "lagged": True,
                 }
@@ -53,7 +56,7 @@ def _valid_causal_design(
             {}
             if non_identifiable
             else {
-                "Stress": {
+                "construct:98df502ac4daf088ca29": {
                     "method": "do_calculus",
                     "estimand": "P(Perf | do(Stress))",
                     "marginalized_confounders": [],
@@ -70,26 +73,28 @@ def _valid_causal_design(
 
 def _latent_structure() -> dict[str, Any]:
     return {
+        "default_outcome": {"kind": "construct", "id": "construct:dc6723ce621183cd1182"},
         "constructs": [
             {
+                "id": "construct:dc6723ce621183cd1182",
                 "name": "Perf",
                 "description": "Performance",
                 "role": "endogenous",
-                "is_outcome": True,
                 "temporal_status": "time_varying",
             },
             {
+                "id": "construct:98df502ac4daf088ca29",
                 "name": "Stress",
                 "description": "Stress level",
                 "role": "endogenous",
-                "is_outcome": False,
                 "temporal_status": "time_varying",
             },
         ],
         "edges": [
             {
-                "cause": "Stress",
-                "effect": "Perf",
+                "cause_id": "construct:98df502ac4daf088ca29",
+                "effect_id": "construct:dc6723ce621183cd1182",
+                "id": "edge:399745ac3ae059a06462",
                 "description": "Stress reduces performance",
                 "lagged": True,
             }
@@ -102,16 +107,18 @@ def _measurement_structure() -> dict[str, Any]:
         "model_clock": "1d",
         "indicators": [
             {
+                "id": "indicator:3696aef3ff6f446744e5",
+                "construct_id": "construct:98df502ac4daf088ca29",
                 "name": "stress_score",
-                "construct_name": "Stress",
                 "construct_polarity": "positive",
                 "how_to_measure": "Self-reported stress",
                 "measurement_dtype": "continuous",
                 "aggregation": "mean",
             },
             {
+                "id": "indicator:36fc62c6c29760766dd6",
+                "construct_id": "construct:dc6723ce621183cd1182",
                 "name": "perf_score",
-                "construct_name": "Perf",
                 "construct_polarity": "positive",
                 "how_to_measure": "Self-reported performance",
                 "measurement_dtype": "continuous",
@@ -123,17 +130,29 @@ def _measurement_structure() -> dict[str, Any]:
 
 class TestIdentificationReportDerivation:
     def test_explicit_identifiable_treatments_produce_identification_report(self):
-        report = derive_identification_report(_valid_causal_design())
+        report = derive_identification_report(CausalDesign.model_validate(_valid_causal_design()))
         assert report is not None
-        assert report["estimable_treatments"] == ["Stress"]
+        assert report.estimable_treatments == ["construct:98df502ac4daf088ca29"]
+        assert report.outcome_id == "construct:dc6723ce621183cd1182"
 
     def test_missing_identifiability_withholds_identification_report(self):
-        report = derive_identification_report(_valid_causal_design(include_identifiability=False))
+        report = derive_identification_report(
+            CausalDesign.model_validate(_valid_causal_design(include_identifiability=False))
+        )
         assert report is None
 
     def test_all_non_identifiable_withholds_identification_report(self):
         report = derive_identification_report(
-            _valid_causal_design(non_identifiable={"Stress": {"confounders": ["U"]}})
+            CausalDesign.model_validate(
+                _valid_causal_design(
+                    non_identifiable={
+                        "construct:98df502ac4daf088ca29": {
+                            "confounders": [],
+                            "notes": "No identifying strategy",
+                        }
+                    }
+                )
+            )
         )
         assert report is None
 
@@ -220,7 +239,13 @@ class TestStage2Gate:
     def test_nonempty_extraction_produces_panel(self, workspace):
         import asyncio
 
-        rows = [{"indicator": "stress_score", "value": 3.0, "timestamp": "2026-01-01"}]
+        rows = [
+            {
+                "indicator_id": "indicator:3696aef3ff6f446744e5",
+                "value": 3.0,
+                "timestamp": "2026-01-01",
+            }
+        ]
         effects = asyncio.run(self._finalize_measurements(workspace, rows))
         produced = {info.artifact_id for info in effects.produced}
         assert produced == {"measurements", "panel"}
@@ -293,8 +318,8 @@ class TestMeasurementStructureArtifactWrite:
                 "measurement_structure": _measurement_structure(),
                 "known_inputs": [
                     {
-                        "construct": "Stress",
-                        "source_indicator": "stress_score",
+                        "construct_id": "construct:98df502ac4daf088ca29",
+                        "source_indicator_id": "indicator:3696aef3ff6f446744e5",
                         "scale": 2.0,
                         "missing_policy": "forward_fill",
                     }
@@ -315,8 +340,8 @@ class TestMeasurementStructureArtifactWrite:
         )["causal_design"]
         assert causal_design["known_inputs"] == [
             {
-                "construct": "Stress",
-                "source_indicator": "stress_score",
+                "construct_id": "construct:98df502ac4daf088ca29",
+                "source_indicator_id": "indicator:3696aef3ff6f446744e5",
                 "scale": 2.0,
                 "missing_policy": "forward_fill",
             }
@@ -383,8 +408,8 @@ class TestMeasurementStructureArtifactWrite:
                     "measurement_structure": _measurement_structure(),
                     "known_inputs": [
                         {
-                            "construct": "Stress",
-                            "source_indicator": "stress_score",
+                            "construct_id": "construct:98df502ac4daf088ca29",
+                            "source_indicator_id": "indicator:3696aef3ff6f446744e5",
                             "scale": 2.0,
                             "missing_policy": "forward_fill",
                         }
@@ -420,7 +445,9 @@ class TestMeasurementStructureArtifactWrite:
             measurement_info.version,
             "measurement_structure.json",
         )
-        assert measurement_payload["known_inputs"][0]["construct"] == "Stress"
+        assert measurement_payload["known_inputs"][0]["construct_id"] == fixture_entity_id(
+            "construct", "Stress"
+        )
         assert "llm_trace_ref" not in measurement_payload
 
         causal_design_info = next(
@@ -491,8 +518,8 @@ class TestMeasurementStructureArtifactWrite:
             produced_by="derive:identification_report",
             json_files={
                 "identification_report.json": {
-                    "outcome_name": "Perf",
-                    "estimable_treatments": ["Stress"],
+                    "outcome_id": "construct:dc6723ce621183cd1182",
+                    "estimable_treatments": ["construct:98df502ac4daf088ca29"],
                     "non_identifiable_treatments": {},
                 }
             },
@@ -542,7 +569,11 @@ class TestMeasurementStructureArtifactWrite:
             produced_by="run:statistical_model_spec",
             json_files={
                 "statistical_model_spec.json": {
-                    "statistical_model_spec": {"likelihoods": [], "parameters": []},
+                    "statistical_model_spec": {
+                        "mechanisms": [],
+                        "likelihoods": [],
+                        "parameters": [],
+                    },
                     "authored_priors": {},
                     "resolved_priors": [],
                     "prior_predictive_samples": {},

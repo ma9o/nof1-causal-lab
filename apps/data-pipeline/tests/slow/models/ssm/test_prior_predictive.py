@@ -12,7 +12,7 @@ from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
 )
 from tests.models.ssm._support import complex_mixed_runtime_spec
 
-pytestmark = pytest.mark.slow
+pytestmark = [pytest.mark.slow, pytest.mark.cpu_expensive]
 
 
 class TestCompiledPriorPredictiveRuntime:

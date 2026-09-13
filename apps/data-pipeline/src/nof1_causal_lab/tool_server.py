@@ -27,8 +27,10 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ValidationError
 
-from nof1_causal_lab.artifacts import CausalDesign
+from nof1_causal_lab.artifacts.causal_design import CausalDesign
+from nof1_causal_lab.artifacts.compiled_ssm import CompiledSSMArtifact
 from nof1_causal_lab.artifacts.duration import parse_duration_to_hours
+from nof1_causal_lab.artifacts.identity import CausalDesignRef
 from nof1_causal_lab.episode_api import (
     capabilities_router,
     machine_router,
@@ -36,7 +38,7 @@ from nof1_causal_lab.episode_api import (
     workspaces_router,
 )
 from nof1_causal_lab.episode_api import router as episode_router
-from nof1_causal_lab.flows.artifact_contracts import CONTEXT_TOOLS
+from nof1_causal_lab.flows.context_tools import CONTEXT_TOOLS
 from nof1_causal_lab.flows.transitions.latent_structure.grounding import latent_structure_grounding
 from nof1_causal_lab.flows.transitions.measurement_structure.grounding import (
     measurement_structure_grounding,
@@ -47,7 +49,6 @@ from nof1_causal_lab.flows.transitions.model_spec.tool_registry import (
 from nof1_causal_lab.json_types import UncheckedJsonObject
 from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename, pickle_filename
 from nof1_causal_lab.models.causal_proofs import (
-    CausalDesignRef,
     CertifiedCausalAnalysis,
     certify_identified_estimand,
     certify_reportable_posterior,
@@ -80,7 +81,8 @@ type ToolImplementation = Callable[
 ]
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.flows.contracts_base import ToolContract
+    from nof1_causal_lab.flows.contracts_base import ToolDefinition
+    from nof1_causal_lab.models.ssm.inference.types import ParticleMCMCPosterior
 
 _API_DESCRIPTION = """\
 The episode machine is the single interface to an N-of-1 causal analysis. An
@@ -267,31 +269,9 @@ def _serialize_latent_state(state: jnp.ndarray, latent_names: list[str]) -> dict
     return {name: float(value) for name, value in zip(latent_names, state.tolist(), strict=False)}
 
 
-def _fitted_latent_paths_from_result(result: Any) -> jnp.ndarray | None:
-    """Return retained per-draw fitted latent paths as ``(draw, time, latent)``."""
-    paths = result.get_latent_paths() if hasattr(result, "get_latent_paths") else None
-    if paths is None:
-        diagnostics = getattr(result, "diagnostics", {}) or {}
-        paths = diagnostics.get("latent_paths")
-    if paths is None:
-        return None
-
-    latent_paths = jnp.asarray(paths)
-    if latent_paths.ndim == 4:
-        latent_paths = latent_paths.reshape(
-            (
-                latent_paths.shape[0] * latent_paths.shape[1],
-                latent_paths.shape[2],
-                latent_paths.shape[3],
-            )
-        )
-    if latent_paths.ndim != 3:
-        raise HTTPException(
-            400,
-            "Persisted fitted latent paths must have shape "
-            "(draw, time, latent) or (chain, draw, time, latent).",
-        )
-    return latent_paths
+def _fitted_latent_paths_from_result(result: ParticleMCMCPosterior) -> jnp.ndarray | None:
+    """Retained state trajectories share the posterior's leading draw axis."""
+    return result.draws.latent_paths
 
 
 def _resolve_counterfactual_start(
@@ -417,14 +397,25 @@ def _build_ranking_context(workspace_id: str) -> UncheckedJsonObject:
 
     reportable_posterior = certify_reportable_posterior(fitted_artifact)
     fitted_spec = reportable_posterior.artifact.spec
+    compiled_pin = posterior_info.derived_from["compiled_ssm"]
+    fitted_compiler = CompiledSSMArtifact.model_validate(
+        store.read_json_file(
+            "compiled_ssm", compiled_pin, json_filename("compiled_ssm", "compiled_ssm")
+        )
+    )
     runtime = prepare_model_runtime(
         data_for_model=data_for_model,
+        compiled_ssm=fitted_compiler,
         model=SSMModel(fitted_spec),
     )
     fitted_artifact = replace(fitted_artifact, observation_support=runtime.observation_support)
 
     causal_design = CausalDesign.model_validate(causal_design_payload["causal_design"])
-    outcome_name = identification_report["outcome_name"]
+    constructs = {construct.id: construct for construct in causal_design.latent.constructs}
+    outcome_name = constructs[identification_report["outcome_id"]].name
+    treatment_names = [
+        constructs[cid].name for cid in identification_report["estimable_treatments"]
+    ]
     causal_design_ref = CausalDesignRef(
         workspace_id=workspace_id,
         version=identification_report_info.derived_from["causal_design"],
@@ -436,7 +427,7 @@ def _build_ranking_context(workspace_id: str) -> UncheckedJsonObject:
             treatment=treatment,
             outcome=outcome_name,
         )
-        for treatment in identification_report["estimable_treatments"]
+        for treatment in treatment_names
     )
     causal_analysis = CertifiedCausalAnalysis(
         causal_design=causal_design,
@@ -464,6 +455,7 @@ def _build_ranking_context(workspace_id: str) -> UncheckedJsonObject:
 
     return {
         "_workspace_id": workspace_id,
+        "_posterior_version": posterior_info.version,
         "causal_design": causal_design_payload,
         "structural_plan": structural_plan_payload,
         "compiled_ssm": compiled_report,
@@ -474,7 +466,7 @@ def _build_ranking_context(workspace_id: str) -> UncheckedJsonObject:
         "_prepared_runtime": runtime,
         "_observation_timestamps": _extract_observation_timestamps(runtime.observation_data),
         "_outcome_name": outcome_name,
-        "_identifiable_treatments": list(identification_report["estimable_treatments"]),
+        "_identifiable_treatments": treatment_names,
         "_stale_artifacts": stale_artifacts,
     }
 
@@ -670,7 +662,7 @@ def _build_effect_outputs(
     if effect_draws is None:
         raise ValueError("Either effect_draws or effect_paths must be provided.")
 
-    summary = summarize_draws(effect_draws)
+    summary = summarize_draws(effect_draws).model_dump(mode="json")
     manifest_effects = None
     if setup.query.get("projection", "latent") in {"manifest", "both"}:
         manifest_effects = _manifest_effects(
@@ -680,15 +672,20 @@ def _build_effect_outputs(
             setup.manifest_names,
         )
 
+    construct_ids = {
+        item.name: item.id for item in setup.causal_analysis.causal_design.latent.constructs
+    }
     return AnalysisEffectOutputs(
         summary=summary,
         effect_trajectory=effect_trajectory,
         visualization=_build_visualization_payload(
-            setup.latent_names,
+            [construct_ids[name] for name in setup.latent_names],
             reference_node_paths=reference_node_paths,
             action_node_paths=action_node_paths,
             node_effect_paths=node_effect_paths,
-            start_state=start_state,
+            start_state={construct_ids[name]: value for name, value in start_state.items()}
+            if start_state is not None
+            else None,
         ),
         manifest_effects=manifest_effects,
     )
@@ -712,7 +709,7 @@ def _collect_analysis_warnings(
         )
     if include_diagnostic_warnings and treatments:
         posterior = ctx.get("posterior", {})
-        for item in posterior.get("ppc", {}).get("per_variable_warnings", []) or []:
+        for item in posterior["assessment"].get("ppc", {}).get("per_variable_warnings", []) or []:
             message = item.get("message")
             if message:
                 warnings.append(str(message))
@@ -831,7 +828,6 @@ def _build_model_info_payload(
                     "description": item.get("description"),
                     "role": item.get("role"),
                     "temporal_status": item.get("temporal_status"),
-                    "is_outcome": item.get("is_outcome"),
                 }
                 for item in constructs
             ],
@@ -863,7 +859,7 @@ def _build_model_info_payload(
     if "diagnostics" in sections:
         payload["diagnostics"] = {
             "ppc_warning_count": len(
-                (posterior.get("ppc") or {}).get("per_variable_warnings", []) or []
+                (posterior["assessment"].get("ppc") or {}).get("per_variable_warnings", []) or []
             ),
         }
     if "baseline_effects" in sections:
@@ -982,22 +978,59 @@ def _execute_simulate(ctx: UncheckedJsonObject, args: UncheckedJsonObject) -> Un
 
     clamp_variables = [setup.latent_names[clamp.index] for clamp in setup.clamps]
 
+    from nof1_causal_lab.artifacts.identity import ArtifactRef, ModelRef
+    from nof1_causal_lab.artifacts.scenarios import (
+        ScenarioDefinition,
+        ScenarioEvaluation,
+        ScenarioQuery,
+    )
+
+    construct_ids = {
+        item.name: item.id for item in setup.causal_analysis.causal_design.latent.constructs
+    }
+    query = ScenarioQuery.from_definition(
+        ScenarioDefinition.model_validate(
+            {
+                "start": args.get("start", {}),
+                "clamps": [
+                    {**raw, "target": {"id": construct_ids[raw["variable"]]}}
+                    for raw in args["clamps"]
+                ],
+                "outcome": {"id": construct_ids[setup.outcome]},
+                "readout": setup.query,
+            }
+        )
+    )
+
+    evaluation = ScenarioEvaluation.for_query(
+        query,
+        model=ModelRef(id=ctx["_workspace_id"]),
+        posterior=ArtifactRef(artifact_id="posterior", version=ctx["_posterior_version"]),
+    )
     return {
         "result": {
-            "start": start_result,
-            "clamps": list(args.get("clamps") or []),
-            "outcome": setup.outcome,
-            "estimand": estimand,
-            "summary": outputs.summary,
-            "effect_trajectory": outputs.effect_trajectory,
-            "visualization": outputs.visualization,
-            "manifest_effects": outputs.manifest_effects,
-            "reference_mean": reference_mean,
-            "warnings": _collect_analysis_warnings(
-                ctx,
-                treatments=clamp_variables,
-                include_diagnostic_warnings=True,
-            ),
+            "query": query.model_dump(mode="json"),
+            "evaluation": evaluation.model_dump(mode="json"),
+            "result": {
+                "evaluation_id": evaluation.id,
+                "start": start_result,
+                "outcome_label": setup.outcome,
+                "summary": outputs.summary,
+                "effect_trajectory": outputs.effect_trajectory,
+                "trajectory_peak": max(
+                    outputs.effect_trajectory, key=lambda point: abs(point["effect"])
+                )
+                if outputs.effect_trajectory
+                else None,
+                "visualization": outputs.visualization,
+                "manifest_effects": outputs.manifest_effects,
+                "reference_mean": reference_mean,
+                "warnings": _collect_analysis_warnings(
+                    ctx,
+                    treatments=clamp_variables,
+                    include_diagnostic_warnings=True,
+                ),
+            },
         }
     }
 
@@ -1070,7 +1103,7 @@ def _build_context(workspace_id: str, context_id: str) -> UncheckedJsonObject:
     return ctx
 
 
-def _get_tool_contract(context_id: str, tool_name: str) -> ToolContract | None:
+def _get_tool_contract(context_id: str, tool_name: str) -> ToolDefinition | None:
     contracts = CONTEXT_TOOLS.get(context_id) or []
     return next((contract for contract in contracts if contract.name == tool_name), None)
 

@@ -12,8 +12,8 @@ def measurement_structure_grounding(
     """Validate authored measurement and known-input declarations."""
     from pydantic import ValidationError
 
-    from nof1_causal_lab.artifacts.causal_design import KnownInput, ScientificOnlyConstruct
     from nof1_causal_lab.artifacts.latent_structure import LatentStructure
+    from nof1_causal_lab.artifacts.measurement_structure import KnownInput, ScientificOnlyConstruct
     from nof1_causal_lab.flows.transitions.measurement_structure.assemble import (
         build_causal_design,
     )

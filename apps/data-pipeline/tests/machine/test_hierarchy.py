@@ -87,7 +87,7 @@ def test_writable_surface_is_roots_plus_writable_transitions():
 
 def test_roots_declare_their_write_pins():
     roots = {root.artifact_id: root for root in ROOTS}
-    assert roots["saved_scenarios"].write_pins == ("posterior",)
+    assert roots["saved_scenarios"].write_pins == ()
     assert roots["question"].write_pins == ()
 
 

@@ -9,9 +9,17 @@ Extracted from inference.py to separate visualization concerns from inference lo
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, TypedDict
+from collections.abc import Iterator  # noqa: TC003
+from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
+import numpy as np
+
+from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
+from nof1_causal_lab.artifacts.posterior_diagnostics import (
+    EnergyDiagnostics,
+)
+from nof1_causal_lab.json_types import JsonObject  # noqa: TC001
 
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.inference.mcmc_state import TrajectoryMCMCResult
@@ -23,180 +31,69 @@ HIST_PADDING_RATIO = 0.05
 HIST_PADDING_DEFAULT = 0.5
 
 
-class TraceChainData(TypedDict):
-    """One thinned parameter trace for one chain."""
-
-    chain: int
-    values: list[float]
-
-
-class TraceSeriesData(TypedDict):
-    """All thinned chains for one scalar parameter coordinate."""
-
-    parameter: str
-    chains: list[TraceChainData]
-
-
-class RankChainData(TypedDict):
-    """Rank-histogram counts for one chain."""
-
-    chain: int
-    counts: list[int]
-
-
-class RankHistogramData(TypedDict):
-    """Rank histograms for one scalar parameter."""
-
-    parameter: str
-    n_bins: int
-    expected_per_bin: float
-    chains: list[RankChainData]
-
-
-class HistogramData(TypedDict):
-    """A normalized one-dimensional histogram."""
-
-    bin_centers: list[float]
-    density: list[float]
-
-
-class EnergyDiagnosticsData(TypedDict):
-    """Hamiltonian energy and energy-transition diagnostics."""
-
-    energy_hist: HistogramData
-    energy_transition_hist: HistogramData
-    bfmi: list[float]
-
-
-class PosteriorMarginalData(TypedDict):
-    """Histogram and summary statistics for one posterior coordinate."""
-
-    parameter: str
-    x_values: list[float]
-    density: list[float]
-    mean: float
-    sd: float
-    hdi_3: float
-    hdi_97: float
-
-
-class PosteriorPairRequiredData(TypedDict):
-    """Required scatter data for a posterior-coordinate pair."""
-
-    param_x: str
-    param_y: str
-    x_values: list[float]
-    y_values: list[float]
-
-
-class PosteriorPairData(PosteriorPairRequiredData, total=False):
-    """Posterior-coordinate pair with an optional divergence mask."""
-
-    divergent: list[bool]
+def sample_coordinates(
+    samples: dict[str, jnp.ndarray], *, sample_dims: int
+) -> Iterator[tuple[ParameterCoordinate, jnp.ndarray]]:
+    """Iterate every scalar site element while preserving its original array coordinates."""
+    for name, values in samples.items():
+        for indices in np.ndindex(values.shape[sample_dims:]):
+            coordinate = ParameterCoordinate(site_name=name, indices=indices)
+            yield coordinate, values[(slice(None),) * sample_dims + indices]
 
 
 def build_trace_data(
-    chain_samples: dict[str, jnp.ndarray],
-    max_points: int = 200,
-) -> list[TraceSeriesData]:
-    """Build thinned trace plot data from chain-level samples.
-
-    Args:
-        chain_samples: {param: (n_chains, n_samples, *shape)} from get_samples(group_by_chain=True)
-        max_points: Maximum samples per chain in the output.
-
-    Returns:
-        List of {parameter, chains: [{chain, values}]} dicts.
-        Multi-dimensional params are flattened to indexed scalars.
-    """
-    traces: list[TraceSeriesData] = []
-
-    for name, arr in chain_samples.items():
-        n_chains = arr.shape[0]
-        n_samples = arr.shape[1]
-        step = max(1, n_samples // max_points)
-
-        if arr.ndim == 2:
-            thinned = arr[:, ::step]
-            traces.append(
-                {
-                    "parameter": name,
-                    "chains": [
-                        {"chain": int(c), "values": [float(v) for v in thinned[c]]}
-                        for c in range(n_chains)
-                    ],
-                }
-            )
-        elif arr.ndim >= 3:
-            flat = arr.reshape(n_chains, n_samples, -1)
-            n_elem = min(flat.shape[2], 12)
-            for i in range(n_elem):
-                thinned = flat[:, ::step, i]
-                traces.append(
-                    {
-                        "parameter": f"{name}[{i}]",
-                        "chains": [
-                            {"chain": int(c), "values": [float(v) for v in thinned[c]]}
-                            for c in range(n_chains)
-                        ],
-                    }
-                )
-
+    chain_samples: dict[str, jnp.ndarray], max_points: int = 200
+) -> list[JsonObject]:
+    """Build thinned scalar traces with their runtime coordinates."""
+    traces: list[JsonObject] = []
+    for coordinate, values in sample_coordinates(chain_samples, sample_dims=2):
+        step = max(1, values.shape[1] // max_points)
+        thinned = values[:, ::step]
+        traces.append(
+            {
+                "parameter": coordinate.label,
+                "coordinate": coordinate.model_dump(mode="json"),
+                "chains": [
+                    {"chain": chain, "values": [float(v) for v in thinned[chain]]}
+                    for chain in range(values.shape[0])
+                ],
+            }
+        )
     return traces
 
 
 def build_rank_histograms(
-    chain_samples: dict[str, jnp.ndarray],
-    n_bins: int = 20,
-) -> list[RankHistogramData]:
-    """Build rank histogram data for chain mixing assessment.
-
-    Ranks all samples across chains and bins per chain.
-    Uniform histograms indicate good mixing.
-    """
-    histograms: list[RankHistogramData] = []
-
-    for name, arr in chain_samples.items():
-        if arr.ndim > 2:
-            continue
-
-        n_chains, n_samples = arr.shape[:2]
+    chain_samples: dict[str, jnp.ndarray], n_bins: int = 20
+) -> list[JsonObject]:
+    """Build rank histograms for each scalar coordinate, including array-valued sites."""
+    histograms: list[JsonObject] = []
+    for coordinate, values in sample_coordinates(chain_samples, sample_dims=2):
+        n_chains, n_samples = values.shape
         total = n_chains * n_samples
-        all_vals = arr.reshape(-1)
-        ranks = jnp.argsort(jnp.argsort(all_vals)) + 1
-
-        ranks_by_chain = ranks.reshape(n_chains, n_samples)
-        chain_hists: list[RankChainData] = []
-        for c in range(n_chains):
-            hist, _ = jnp.histogram(
-                ranks_by_chain[c],
-                bins=n_bins,
-                range=(1, total + 1),
-            )
-            chain_hists.append(
-                {
-                    "chain": int(c),
-                    "counts": [int(v) for v in hist],
-                }
-            )
-
+        ranks = (jnp.argsort(jnp.argsort(values.reshape(-1))) + 1).reshape(values.shape)
+        chains: list[JsonObject] = []
+        for chain in range(n_chains):
+            hist, _ = jnp.histogram(ranks[chain], bins=n_bins, range=(1, total + 1))
+            chains.append({"chain": chain, "counts": [int(v) for v in hist]})
         histograms.append(
             {
-                "parameter": name,
+                "parameter": coordinate.label,
+                "coordinate": coordinate.model_dump(mode="json"),
                 "n_bins": n_bins,
                 "expected_per_bin": float(n_samples / n_bins),
-                "chains": chain_hists,
+                "chains": list(chains),
             }
         )
-
     return histograms
 
 
-def param_marginal(name: str, values: jnp.ndarray, n_bins: int = 50) -> PosteriorMarginalData:
+def param_marginal(
+    coordinate: ParameterCoordinate, values: jnp.ndarray, n_bins: int = 50
+) -> JsonObject:
     """Compute histogram-based marginal density for a scalar parameter.
 
     Returns:
-        {parameter, x_values, density, mean, sd, hdi_3, hdi_97}
+        {parameter, coordinate, x_values, density, mean, sd, lower, upper, interval_kind, interval_mass}
     """
     v_min, v_max = float(jnp.min(values)), float(jnp.max(values))
     padding = (v_max - v_min) * HIST_PADDING_RATIO if v_max > v_min else HIST_PADDING_DEFAULT
@@ -218,17 +115,20 @@ def param_marginal(name: str, values: jnp.ndarray, n_bins: int = 50) -> Posterio
         hdi_lo, hdi_hi = v_min, v_max
 
     return {
-        "parameter": name,
+        "parameter": coordinate.label,
+        "coordinate": coordinate.model_dump(mode="json"),
         "x_values": [float(v) for v in x_centers],
         "density": [float(v) for v in density],
         "mean": float(jnp.mean(values)),
         "sd": float(jnp.std(values)),
-        "hdi_3": hdi_lo,
-        "hdi_97": hdi_hi,
+        "interval_kind": "hdi",
+        "interval_mass": 0.94,
+        "lower": hdi_lo,
+        "upper": hdi_hi,
     }
 
 
-def build_energy_diagnostics(energy: jnp.ndarray, n_bins: int = 40) -> EnergyDiagnosticsData:
+def build_energy_diagnostics(energy: jnp.ndarray, n_bins: int = 40) -> JsonObject:
     """Build Hamiltonian energy diagnostics (Betancourt 2017).
 
     Computes marginal energy (E) and energy transition (dE) histograms.
@@ -249,7 +149,7 @@ def build_energy_diagnostics(energy: jnp.ndarray, n_bins: int = 40) -> EnergyDia
         var_e = float(jnp.var(e_flat))
         bfmi = [float(jnp.var(de_flat) / var_e) if var_e > 0 else 0.0]
 
-    def _hist(vals: jnp.ndarray) -> HistogramData:
+    def _hist(vals: jnp.ndarray) -> JsonObject:
         lo, hi = float(jnp.min(vals)), float(jnp.max(vals))
         pad = (hi - lo) * HIST_PADDING_RATIO if hi > lo else HIST_PADDING_DEFAULT
         counts, edges = jnp.histogram(vals, bins=n_bins, range=(lo - pad, hi + pad))
@@ -262,30 +162,23 @@ def build_energy_diagnostics(energy: jnp.ndarray, n_bins: int = 40) -> EnergyDia
             "density": [float(v) for v in density],
         }
 
-    return {
-        "energy_hist": _hist(e_flat),
-        "energy_transition_hist": _hist(de_flat),
-        "bfmi": bfmi,
-    }
+    return EnergyDiagnostics.model_validate(
+        {
+            "energy_hist": _hist(e_flat),
+            "energy_transition_hist": _hist(de_flat),
+            "bfmi": bfmi,
+        }
+    ).model_dump(mode="json")
 
 
 def compute_posterior_marginals(
     samples: dict[str, jnp.ndarray], n_bins: int = 50
-) -> list[PosteriorMarginalData]:
+) -> list[JsonObject]:
     """Compute marginal posterior density data for visualization."""
-    marginals: list[PosteriorMarginalData] = []
-
-    for name, values in samples.items():
-        if values.ndim == 1:
-            marginals.append(param_marginal(name, values, n_bins))
-        elif values.ndim >= 2:
-            flat = values.reshape(values.shape[0], -1)
-            n_elem = min(flat.shape[1], 20)
-            for i in range(n_elem):
-                label = f"{name}[{i}]"
-                marginals.append(param_marginal(label, flat[:, i], n_bins))
-
-    return marginals
+    return [
+        param_marginal(coordinate, values, n_bins)
+        for coordinate, values in sample_coordinates(samples, sample_dims=1)
+    ]
 
 
 def compute_posterior_pairs(
@@ -293,20 +186,11 @@ def compute_posterior_pairs(
     mcmc: TrajectoryMCMCResult | None,
     max_params: int = 6,
     max_samples: int = 200,
-) -> list[PosteriorPairData]:
+) -> list[JsonObject]:
     """Compute pairwise scatter data for joint posterior visualization."""
-    scalars: list[tuple[str, jnp.ndarray]] = []
-    for name, values in samples.items():
-        if values.ndim == 1:
-            scalars.append((name, values))
-        elif values.ndim >= 2:
-            flat = values.reshape(values.shape[0], -1)
-            for i in range(min(flat.shape[1], 4)):
-                scalars.append((f"{name}[{i}]", flat[:, i]))
-        if len(scalars) >= max_params:
-            break
+    from itertools import islice
 
-    scalars = scalars[:max_params]
+    scalars = list(islice(sample_coordinates(samples, sample_dims=1), max_params))
     n_draws = scalars[0][1].shape[0] if scalars else 0
     step = max(1, n_draws // max_samples)
 
@@ -323,19 +207,21 @@ def compute_posterior_pairs(
                 exc_info=True,
             )
 
-    pairs: list[PosteriorPairData] = []
+    pairs: list[JsonObject] = []
     for i in range(len(scalars)):
         for j in range(i + 1, len(scalars)):
-            name_x, vals_x = scalars[i]
-            name_y, vals_y = scalars[j]
-            entry: PosteriorPairData = {
-                "param_x": name_x,
-                "param_y": name_y,
+            coordinate_x, vals_x = scalars[i]
+            coordinate_y, vals_y = scalars[j]
+            entry: JsonObject = {
+                "param_x": coordinate_x.label,
+                "coordinate_x": coordinate_x.model_dump(mode="json"),
+                "param_y": coordinate_y.label,
+                "coordinate_y": coordinate_y.model_dump(mode="json"),
                 "x_values": [float(v) for v in vals_x[::step]],
                 "y_values": [float(v) for v in vals_y[::step]],
             }
             if div_mask is not None and any(div_mask):
-                entry["divergent"] = div_mask
+                entry["divergent"] = list(div_mask)
             pairs.append(entry)
 
     return pairs

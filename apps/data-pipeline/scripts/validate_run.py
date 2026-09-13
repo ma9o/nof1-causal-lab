@@ -28,12 +28,13 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from pydantic import ValidationError
-from scripts.artifact_contract_catalog import ARTIFACT_CONTRACTS
+
+from nof1_causal_lab.artifacts.catalog import ARTIFACT_CONTRACTS
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from nof1_causal_lab.machine.artifacts import ArtifactId
+    from nof1_causal_lab.artifacts.identity import ArtifactId
 
 
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
@@ -194,8 +195,11 @@ def _construct_map(latent: UncheckedJsonObject) -> dict[str, UncheckedJsonObject
 
 
 def _outcome_name(latent: UncheckedJsonObject) -> str | None:
+    target = latent.get("default_outcome")
+    if target is None:
+        return None
     for construct in latent.get("constructs", []):
-        if isinstance(construct, dict) and construct.get("is_outcome"):
+        if isinstance(construct, dict) and construct.get("id") == target["id"]:
             return construct.get("name")
     return None
 
@@ -313,7 +317,7 @@ def rule_construct_attributes_stable(ctx: RunContext) -> list[LineageIssue]:
     map_1b = _construct_map(
         ctx.artifacts["causal_design"].get("causal_design", {}).get("latent", {})
     )
-    attrs = ("role", "temporal_status", "is_outcome")
+    attrs = ("role", "temporal_status")
     issues: list[LineageIssue] = []
     for name in sorted(map_1a.keys() & map_1b.keys()):
         c1a, c1b = map_1a[name], map_1b[name]
@@ -343,7 +347,7 @@ def rule_outcome_stable(ctx: RunContext) -> list[LineageIssue]:
                 rule="outcome-stable",
                 severity="error",
                 artifacts=("latent_structure",),
-                message="No construct with is_outcome=true in latent_structure",
+                message="No default query outcome selected in latent_structure",
             )
         ]
     if outcome_1a != outcome_1b:
@@ -679,9 +683,9 @@ def rule_baseline_report_treatments_identifiable(ctx: RunContext) -> list[Lineag
     if "causal_design" not in ctx.artifacts or "baseline_report" not in ctx.artifacts:
         return []
     treatments = {
-        ir.get("treatment")
+        ir.get("treatment_id")
         for ir in (ctx.artifacts["baseline_report"].get("intervention_results") or [])
-        if isinstance(ir, dict) and ir.get("treatment")
+        if isinstance(ir, dict) and ir.get("treatment_id")
     }
     if not treatments:
         return []

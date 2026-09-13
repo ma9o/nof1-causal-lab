@@ -8,7 +8,7 @@ from typing import Final, Literal
 
 
 class DistributionFamily(StrEnum):
-    """Distribution families for observation and process noise."""
+    """This enumeration identifies the probability family used to model an observed variable."""
 
     GAUSSIAN = "gaussian"
     STUDENT_T = "student_t"
@@ -67,7 +67,9 @@ class ObservationFamilyCatalogEntry:
 
 
 class PriorDistributionFamily(StrEnum):
-    """Distribution families allowed in model-spec prior proposals."""
+    """This enumeration identifies the probability families permitted in authored prior
+    proposals.
+    """
 
     NORMAL = "Normal"
     HALF_NORMAL = "HalfNormal"
@@ -85,9 +87,16 @@ class PriorFamilySpec:
     """Central prior-family metadata shared across prompts, docs, and runtime."""
 
     family: PriorDistributionFamily
-    signature: str
     summary: str
     support: Literal["real", "positive", "unit_interval", "bounded"]
+
+    @property
+    def signature(self) -> str:
+        """Render the approved NumPyro constructor in authoring vocabulary."""
+        from nof1_causal_lab.prior_distributions import authored_argument_names
+
+        arguments = ", ".join(authored_argument_names(self.family).values())
+        return f"{self.family.value}({arguments})"
 
 
 @dataclass(frozen=True)
@@ -111,8 +120,10 @@ def render_dynamic_prior_scale_guidance() -> str:
     return (
         "AR coefficients (`rho_*`) should be authored as a baseline discrete-time "
         "persistence per observation interval, absent feedback from incoming "
-        "causes: support on [0, 1] with the prior's location (`mu`) strictly "
-        "inside (0, 1) — 0 and 1 are degenerate (the CT decay is -ln(mu)/dt). "
+        "causes. The entire prior support must lie within [0, 1]: use Beta, "
+        "Uniform, or TruncatedNormal with valid bounds. Unbounded Normal priors "
+        "are invalid here. NumPyro transforms the complete law exactly via "
+        "decay = -ln(rho)/dt, including its density Jacobian. "
         "`beta_*` priors should be authored on the interval they mean. For lagged "
         "`beta_*`, set `reference_interval_days` when the evidence is on a different "
         "interval; otherwise the model interval is assumed. The compiler handles "
@@ -353,64 +364,51 @@ OBSERVATION_FAMILY_SPECS: Final[tuple[ObservationFamilyCatalogEntry, ...]] = (
 PRIOR_FAMILY_SPECS: Final[tuple[PriorFamilySpec, ...]] = (
     PriorFamilySpec(
         family=PriorDistributionFamily.NORMAL,
-        signature="Normal(mu, sigma)",
         summary="Unconstrained effects that can be positive or negative.",
         support="real",
     ),
     PriorFamilySpec(
         family=PriorDistributionFamily.HALF_NORMAL,
-        signature="HalfNormal(sigma)",
         summary="Positive-only parameters such as standard deviations and scales.",
         support="positive",
     ),
     PriorFamilySpec(
         family=PriorDistributionFamily.BETA,
-        signature="Beta(alpha, beta)",
         summary="Parameters constrained to the unit interval [0, 1].",
         support="unit_interval",
     ),
     PriorFamilySpec(
         family=PriorDistributionFamily.UNIFORM,
-        signature="Uniform(lower, upper)",
         summary="Hard-bounded parameters when only plausible limits are known.",
         support="bounded",
     ),
     PriorFamilySpec(
         family=PriorDistributionFamily.TRUNCATED_NORMAL,
-        signature="TruncatedNormal(mu, sigma, lower, upper)",
         summary="Bounded parameters when both a center and hard limits are meaningful.",
         support="bounded",
     ),
     PriorFamilySpec(
         family=PriorDistributionFamily.GAMMA,
-        signature="Gamma(concentration, rate)",
         summary="Positive-only parameters when right-skewed uncertainty is plausible.",
         support="positive",
     ),
     PriorFamilySpec(
         family=PriorDistributionFamily.LOG_NORMAL,
-        signature="LogNormal(mu, sigma)",
         summary="Positive-only parameters when uncertainty is multiplicative on the log scale.",
         support="positive",
     ),
     PriorFamilySpec(
         family=PriorDistributionFamily.EXPONENTIAL,
-        signature="Exponential(rate)",
         summary="Positive-only parameters with mass near zero and a single decay rate.",
         support="positive",
     ),
     PriorFamilySpec(
         family=PriorDistributionFamily.DELTA,
-        signature="Delta(value)",
         summary="Fixed positive value inserted by compiler-owned deterministic repairs.",
         support="positive",
     ),
 )
 
-
-PRIOR_FAMILY_REGISTRY: Final[dict[PriorDistributionFamily, PriorFamilySpec]] = {
-    spec.family: spec for spec in PRIOR_FAMILY_SPECS
-}
 
 OBSERVATION_LINK_VALUES_BY_DISTRIBUTION: Final[dict[DistributionFamily, tuple[str, ...]]] = {
     spec.family: spec.links for spec in OBSERVATION_FAMILY_SPECS
@@ -529,68 +527,8 @@ PRIOR_PARAMETER_GUIDANCE_ROWS: Final[tuple[PriorParameterGuidanceRow, ...]] = (
     PriorParameterGuidanceRow("tau (random SD)", "HalfNormal(0.5)", "[0, 2]", "Data scale"),
 )
 
+
 # Pure-JAX real-support runtime family indices used by parameterization.py.
-REAL_RUNTIME_FAMILY_INDEX: Final[dict[PriorDistributionFamily, int]] = {
-    PriorDistributionFamily.NORMAL: 0,
-    PriorDistributionFamily.TRUNCATED_NORMAL: 1,
-    PriorDistributionFamily.UNIFORM: 2,
-}
-
-PRIMARY_REAL_RUNTIME_KIND_BY_INDEX: Final[dict[int, PriorDistributionFamily]] = {
-    index: kind for kind, index in REAL_RUNTIME_FAMILY_INDEX.items()
-}
-
-# Pure-JAX positive-support runtime family indices used by parameterization.py.
-POSITIVE_RUNTIME_FAMILY_INDEX: Final[dict[PriorDistributionFamily, int]] = {
-    PriorDistributionFamily.HALF_NORMAL: 0,
-    PriorDistributionFamily.GAMMA: 1,
-    PriorDistributionFamily.LOG_NORMAL: 2,
-    PriorDistributionFamily.EXPONENTIAL: 3,
-    PriorDistributionFamily.DELTA: 4,
-}
-
-PRIMARY_POSITIVE_RUNTIME_KIND_BY_INDEX: Final[dict[int, PriorDistributionFamily]] = {
-    index: kind for kind, index in POSITIVE_RUNTIME_FAMILY_INDEX.items()
-}
-
-
-def get_prior_family_spec(family: PriorDistributionFamily | str) -> PriorFamilySpec:
-    """Return the catalog entry for a prior family."""
-    return PRIOR_FAMILY_REGISTRY[PriorDistributionFamily(family)]
-
-
-def get_real_runtime_family_index(family: PriorDistributionFamily) -> int:
-    """Return the executable real-support family index."""
-    try:
-        return REAL_RUNTIME_FAMILY_INDEX[family]
-    except KeyError as exc:
-        raise ValueError(f"{family!r} is not a real-support executable family.") from exc
-
-
-def get_real_runtime_kind_from_index(index: int) -> PriorDistributionFamily:
-    """Return the prior family for a serialized real-support family index."""
-    try:
-        return PRIMARY_REAL_RUNTIME_KIND_BY_INDEX[index]
-    except KeyError as exc:
-        raise ValueError(f"Unsupported serialized real prior family index {index}") from exc
-
-
-def get_positive_runtime_family_index(family: PriorDistributionFamily) -> int:
-    """Return the executable positive-support family index."""
-    try:
-        return POSITIVE_RUNTIME_FAMILY_INDEX[family]
-    except KeyError as exc:
-        raise ValueError(f"{family!r} is not a positive-support executable family.") from exc
-
-
-def get_positive_runtime_kind_from_index(index: int) -> PriorDistributionFamily:
-    """Return the prior family for a serialized positive family index."""
-    try:
-        return PRIMARY_POSITIVE_RUNTIME_KIND_BY_INDEX[index]
-    except KeyError as exc:
-        raise ValueError(f"Unsupported serialized positive prior family index {index}") from exc
-
-
 def _prompt_prior_family_specs(
     *,
     include_delta: bool,
@@ -610,19 +548,6 @@ def format_prior_distribution_choice_list(
     """Render the enum values in catalog order for machine-readable prompts."""
     return separator.join(
         spec.family.value for spec in _prompt_prior_family_specs(include_delta=include_delta)
-    )
-
-
-def format_prior_distribution_name_list(
-    *,
-    quote: str = "",
-    separator: str = ", ",
-    include_delta: bool = False,
-) -> str:
-    """Render the prior family names in catalog order for prose or schema text."""
-    return separator.join(
-        f"{quote}{spec.family.value}{quote}"
-        for spec in _prompt_prior_family_specs(include_delta=include_delta)
     )
 
 

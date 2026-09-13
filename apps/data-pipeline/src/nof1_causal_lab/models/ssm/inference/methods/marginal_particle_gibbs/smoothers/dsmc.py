@@ -1,7 +1,7 @@
 """De-sequentialized conditional-SMC latent smoother (parallel-in-time)."""
 
 # References:
-#   docs/papers/desequentialized-smc.pdf — Corenflos, Chopin & Särkkä (2022),
+#   https://arxiv.org/abs/2202.02264 — Corenflos, Chopin & Särkkä (2022),
 #     arXiv:2202.02264: de-Sequentialized Monte Carlo. The smoothing distribution
 #     is built by a divide-and-conquer binary tree over time (Prop. 2.2 stitching,
 #     eq. 10-11), instead of a sequential forward filter + backward sampling.
@@ -9,8 +9,8 @@
 #     Algorithm 4): the reference trajectory is preserved through every block
 #     combination, making this a valid parallel-in-time conditional-SMC Particle
 #     Gibbs kernel. No backward-sampling step is needed — the balanced tree resamples
-#     every time step at most O(log T) times, so there is no genealogy degeneracy.
-#   docs/papers/particle-gibbs-no-gibbs-bit.pdf — Corenflos (2025), arXiv:2505.04611:
+#     every time step at most O(log T) times. Mixing still depends on the target.
+#   https://arxiv.org/abs/2505.04611 — Corenflos (2025), arXiv:2505.04611:
 #     conditional SMC against the posterior mixture over the parameter ensemble. The
 #     seam weights and trajectory evidence are marginalized over the parameter labels
 #     exactly as in the sibling smoothers (logsumexp over the parameter axis).
@@ -42,25 +42,21 @@ import math
 
 import jax
 import jax.numpy as jnp
-import jax.random as random
+from jax import random
 
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._contract import (
     _DSMC_LEAF_PROPOSAL_PAID_MIX,
     MPGibbsLatentSmootherResult,
 )
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math import (
-    _gaussian_log_prob_shared_cholesky,
     _normalize_log_probs,
     _observation_log_probs_by_param,
 )
 
 
-def smooth(ctx, key, x_ref):
+def step(ctx, key, x_ref):
     """Conditional de-sequentialized SMC sweep over the posterior parameter mixture."""
     contexts = ctx.contexts
-    init_means = ctx.init_means
-    init_chols = ctx.init_chols
-    init_logdets = ctx.init_logdets
     logpi = ctx.initial_label_log_probs
     runtime_observations = ctx.runtime_observations
     obs_increment_fn = ctx.obs_increment_fn
@@ -71,7 +67,7 @@ def smooth(ctx, key, x_ref):
     num_free_particles = ctx.num_free_particles
     latent_dtype = ctx.latent_dtype
     traj_dtype = ctx.traj_dtype
-    latent_dim = int(init_means.shape[-1])
+    latent_dim = int(x_ref.shape[-1])
     dsmc_leaf_proposal = ctx.dsmc_leaf_proposal
     # Both leaves (amala_exact, paid_mix) draw the auxiliary trajectory z and pay its
     # pseudo-observation potential; paid_mix additionally mixes in the fixed pilot
@@ -89,23 +85,17 @@ def smooth(ctx, key, x_ref):
     # reference into every particle. The seams still evaluate the full transition
     # density, so cross-coordinate coupling is priced exactly and the sweep is
     # conditional SMC on the coordinate-block conditional of the same target.
+    # Sampling a key and splitting that same key into descendants reuses its
+    # random stream. Allocate disjoint branches before any draws.
+    aux_key, mask_key, key_leaves, key_tree, key_root = random.split(key, 5)
     block_coords = ctx.latent_block_coords
     if block_coords is not None and block_coords < latent_dim:
-        mask_key = random.fold_in(key, 1)
         chosen_coords = random.permutation(mask_key, latent_dim)[:block_coords]
         coord_mask = jnp.zeros((latent_dim,), dtype=bool).at[chosen_coords].set(True)
         proposed_dim = int(block_coords)
     else:
         coord_mask = None
         proposed_dim = latent_dim
-
-    def _per_param_gaussian_log_probs(values, means, chols, logdets):
-        per_param = jax.vmap(
-            lambda mean, chol, logdet: _gaussian_log_prob_shared_cholesky(
-                values, mean, chol, logdet
-            )
-        )(means, chols, logdets)
-        return jnp.swapaxes(per_param, 0, 1)
 
     def _log_isotropic_density(
         values: jnp.ndarray,
@@ -160,10 +150,9 @@ def smooth(ctx, key, x_ref):
     # z ~ N(x_ref, (delta/2) I) and linearise there; the matching N(z_t; x_t,
     # (delta/2) I) pseudo-observation potential is added to the leaf weight in
     # _leaf, recovering the exact gradient-informed cSMC proposal of section
-    # 3.3.1 in docs/papers/auxiliary-kalman-samplers.pdf. Centring on x_ref
+    # 3.3.1 in the auxiliary Kalman sampler construction. Centring on x_ref
     # directly (the historical amala/amala_plus variants) is reference-dependent
     # without an auxiliary correction and does not leave the target invariant.
-    aux_key = random.fold_in(key, 0)
     lin_pts = x_ref + proposal_scale_by_t[:, None] * random.normal(
         aux_key, x_ref.shape, dtype=latent_dtype
     )
@@ -284,8 +273,8 @@ def smooth(ctx, key, x_ref):
             )
         else:
             proposal_lp = z_proposal_lp
-        init_prior_lp = _per_param_gaussian_log_probs(
-            particles, init_means, init_chols, init_logdets
+        init_prior_lp = jax.vmap(lambda particle: ctx.initial_value_grad_by_param(particle)[0])(
+            particles
         )
         # Pseudo-observation potential N(z_t; x_t, (delta/2) I) of the auxiliary
         # extended target (label-independent, so it factors through the parameter
@@ -361,7 +350,6 @@ def smooth(ctx, key, x_ref):
     with jax.named_scope("dsmc_tree"):
         depth = max((num_steps - 1).bit_length(), 0)
         padded_steps = 1 << depth
-        key_leaves, key_tree, key_root = random.split(key, 3)
         leaf_keys = random.split(key_leaves, num_steps)
         with jax.named_scope("dsmc_leaves"):
             leaf_particles, leaf_psi, leaf_origin, leaf_weights = jax.vmap(_leaf)(

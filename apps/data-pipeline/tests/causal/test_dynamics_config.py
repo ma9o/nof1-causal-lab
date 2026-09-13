@@ -17,6 +17,7 @@ import numpy as np
 import numpyro.distributions as ndist
 from numpyro.handlers import seed
 
+from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
 from nof1_causal_lab.models.ssm.dynamics import (
     DynamicsSpec,
     Fixed,
@@ -30,7 +31,7 @@ from nof1_causal_lab.models.ssm.dynamics import (
     compile_dynamics,
     dynamics_spec_from_dict,
 )
-from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
+from nof1_causal_lab.models.ssm.execution.parameters import sample_sites
 from tests.ssm_spec_fixtures import (
     default_diffusion_block,
     default_input_effect_block,
@@ -213,7 +214,8 @@ class TestBlockSpecEquivalence:
         )
 
         with seed(rng_seed=0), condition(data={"diffusion_diag_free": diag_vals}):
-            block_assembled = block.sample_params(lambda _: ndist.LogNormal(0.0, 1.0))["diffusion"]
+            sampled = sample_sites(block.iter_sites(), lambda _: ndist.LogNormal(0.0, 1.0))
+            block_assembled = block.assemble(sampled["diffusion_diag_free"], None)
 
         np.testing.assert_allclose(block_assembled, expected, atol=1e-12)
 
@@ -279,7 +281,8 @@ class TestBlockSpecEquivalence:
             priors_field="t0_means",
         )
         with seed(rng_seed=0), condition(data={"t0_means_free": free}):
-            assembled = block.sample_params(lambda _: ndist.Normal(jnp.zeros(3), 1.0))["t0_means"]
+            sampled = sample_sites(block.iter_sites(), lambda _: ndist.Normal(jnp.zeros(3), 1.0))
+            assembled = block.assemble(sampled["t0_means_free"])
         np.testing.assert_allclose(assembled, expected, atol=1e-12)
 
 

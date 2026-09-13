@@ -822,9 +822,9 @@ def coda_intro(mo):
     Sections 1–10 are structural: they argue on paper that published **Particle-mGRAD**
     cannot re-bracket into a tree (the `v̄_t` obstruction), whereas an **auxiliary
     target-correct** kernel keeps a bounded seam and trees to `O(log T)`. Our production
-    smoother is exactly that replacement: `amala_exact` and `amala_plus` are the gradient
+    smoother is exactly that replacement: `amala_exact` and `paid_mix` are the corrected
     **leaf proposals inside the conditional de-sequentialized SMC tree**
-    ([`.../marginal_particle_gibbs/smoothers/dsmc.py`](../src/nof1_causal_lab/models/ssm/inference/methods/marginal_particle_gibbs/smoothers/dsmc.py)).
+    ([the app's `smoothers/dsmc.py`](../src/nof1_causal_lab/models/ssm/inference/methods/marginal_particle_gibbs/smoothers/dsmc.py)).
 
     This section runs the real thing. It builds a toy **nonlinear** state-space model,
     then puts four `π_T`-invariant latent-path kernels on the *same* posterior at growing
@@ -838,11 +838,11 @@ def coda_intro(mo):
       auxiliary `u` instead of marginalising it, so the seam stays a bounded pairwise
       transition and the kernel runs on the c-dSMC tree. Implemented here from scratch as a
       tree (our `dsmc.py` ships only isotropic leaves); the tree stitch is validated to
-      reproduce the real `dsmc.smooth` when given an isotropic leaf. (§12.2 stress-tests
+      reproduce the real `dsmc.step` when given an isotropic leaf. (§12.2 stress-tests
       this hand-built leaf and finds its invariance is only approximate — the mixing and
       depth results below stand, but the exactness claim gets corrected there.)
     - **`amala_exact`** — the real source leaf proposal, driven through the actual
-      `dsmc.smooth` c-dSMC tree. Auxiliary trajectory kept ⇒ exact; isotropic (does not fold
+      `dsmc.step` c-dSMC tree. Auxiliary trajectory kept ⇒ exact; isotropic (does not fold
       the prior); bounded seam ⇒ trees. The shipped production default.
     - **`amala_plus`** — the real source *biased* leaf proposal (reference-path
       linearisation, no auxiliary correction). Same tree, no invariance guarantee.
@@ -866,7 +866,6 @@ def coda_intro(mo):
 
 @app.cell
 def coda_imports():
-    import dataclasses
     import math
 
     import jax
@@ -876,11 +875,9 @@ def coda_imports():
     from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._contract import (
         SmootherContext,
     )
-    from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.smoothers import (
-        dsmc,
-    )
+    from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.smoothers import dsmc
 
-    return SmootherContext, dataclasses, dsmc, jax, jnp, math, random
+    return SmootherContext, dsmc, jax, jnp, math, random
 
 
 @app.cell
@@ -957,7 +954,6 @@ def coda_kernels(
     OBS_SD,
     PROC_SD,
     SmootherContext,
-    dataclasses,
     dsmc,
     jax,
     jnp,
@@ -1030,54 +1026,40 @@ def coda_kernels(
 
         return SmootherContext(
             contexts=jnp.zeros((_k, 1), dtype=_DT),
-            parameter_particles=jnp.zeros((_k, 1), dtype=_DT),
-            parameter_log_probs=jnp.zeros((_k,), dtype=_DT),
             initial_label_log_probs=jnp.zeros((_k,), dtype=_DT),
-            init_means=jnp.zeros((_k, _D), dtype=_DT),
-            init_chols=jnp.broadcast_to(jnp.eye(_D) * INIT_SD, (_k, _D, _D)).astype(_DT),
-            init_logdets=jnp.full((_k,), float(np.log(INIT_SD**2)), dtype=_DT),
             num_steps=_t_len,
-            num_free_particles=0,  # set by run_amala via dataclasses.replace
+            num_free_particles=0,  # set by run_amala
             num_parameter_particles=_k,
-            block_size=_t_len,
-            num_blocks=1,
             latent_dtype=_DT,
             traj_dtype=_DT,
-            complete_dtype=_DT,
             obs_increment_fn=_obs_increment_fn,
             runtime_observations=jnp.asarray(y_obs).reshape(_t_len, 1),
-            trajectory_log_prob_fn=None,
-            prior_terms_from_context_fn=None,
-            log_prior_unc_fn=None,
             amala_delta=jnp.full((_D,), delta, dtype=_DT),
             amala_kappa=jnp.asarray(kappa, dtype=_DT),
             amala_grad_clip=jnp.asarray(jnp.inf, dtype=_DT),
             dsmc_leaf_proposal=leaf,
-            diagnostic_metrics=frozenset(),
+            latent_block_coords=None,
+            paid_mix_z_weight=0.85,
+            paid_mix_pilot_weight=0.1,
+            pilot_means=None,
+            pilot_vars=None,
+            pilot_wide_vars=None,
             initial_value_grad_by_param=_initial_value_grad_by_param,
             transition_current_value_grad_by_param=_transition_current_value_grad_by_param,
             transition_next_value_grad_by_param=_transition_next_value_grad_by_param,
             selected_transition_log_probs=_selected_transition_log_probs,
             pairwise_transition_log_probs=_pairwise_transition_log_probs,
-            transition_log_probs_from_fixed_prev=None,
-            transition_log_probs_by_param=None,
-            transition_log_probs_to_next_by_param=None,
-            sample_transition_by_label=None,
-            segment_terminal_label_log_probs=None,
-            path_future_tail_log_probs=None,
             trajectory_label_log_probs=_trajectory_label_log_probs,
         )
 
     def run_amala(y_obs, leaf, n_particles=16, delta=0.7, kappa=0.75, n_iter=700, seed=0):
-        """MCMC chain of latent paths from the REAL dsmc.smooth c-dSMC tree."""
+        """MCMC chain of latent paths from the REAL dsmc.step c-dSMC tree."""
         _t_len = int(y_obs.shape[0])
-        _ctx = dataclasses.replace(
-            _build_ctx(y_obs, delta, kappa, leaf), num_free_particles=n_particles - 1
-        )
+        _ctx = _build_ctx(y_obs, delta, kappa, leaf)._replace(num_free_particles=n_particles - 1)
         _x0 = jnp.asarray(y_obs).reshape(_t_len, 1)
 
         def _body(x_ref, key):
-            _x = dsmc.smooth(_ctx, key, x_ref).latent_path
+            _x = dsmc.step(_ctx, key, x_ref).latent_path
             return _x, _x
 
         _keys = random.split(random.PRNGKey(seed), n_iter)
@@ -1201,7 +1183,7 @@ def coda_tree_machinery(DRIFT_A, DRIFT_B, DRIFT_W, INIT_SD, PROC_SD, jax, jnp, m
 
         leaf_fn(time_idx, key) -> ((P,1) particles with the reference at index 0,
         (P,1) leaf log-potentials). Seams pay the true transition of the model given
-        by (prior_mean, prior_var); the stitch mirrors the production `dsmc.smooth`
+        by (prior_mean, prior_var); the stitch mirrors the production `dsmc.step`
         (validated to reproduce its amala leaf).
         """
 

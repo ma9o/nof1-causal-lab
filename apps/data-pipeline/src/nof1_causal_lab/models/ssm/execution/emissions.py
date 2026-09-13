@@ -10,14 +10,12 @@ from collections.abc import Callable, Sequence
 
 import jax
 import jax.numpy as jnp
-import jax.scipy.linalg as jla
 import jax.scipy.special
 import jax.scipy.stats as jstats
 
 from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily
 from nof1_causal_lab.models.ssm.covariance_utils import (
     inflate_missing_variance,
-    symmetrize_with_jitter,
 )
 from nof1_causal_lab.models.ssm.execution.contracts import (
     MISSING_DATA_LARGE_VAR,
@@ -25,16 +23,16 @@ from nof1_causal_lab.models.ssm.execution.contracts import (
     PROB_CLIP_MIN,
     LikelihoodExtraParams,
 )
+from nof1_causal_lab.models.ssm.execution.observation_distributions import (
+    binary_logits_distribution,
+    categorical_distribution,
+    gaussian_distribution,
+    mean_parameter_distribution,
+    safe_observation_mean,
+    sample_mean_observation,
+)
 from nof1_causal_lab.models.ssm.execution.observation_extra_params import (
     slice_observation_extra_params,
-)
-from nof1_causal_lab.models.ssm.execution.observation_sampling import (
-    sample_bernoulli_from_mean,
-    sample_beta_from_mean,
-    sample_gamma_from_mean,
-    sample_negative_binomial_from_mean,
-    sample_poisson_from_mean,
-    sample_student_t_from_location,
 )
 from nof1_causal_lab.models.ssm.shapes import Array, Bool, Float, FloatScalar, Int, Shaped
 
@@ -206,122 +204,49 @@ def get_categorical_extra_params(
     return level_counts, intercepts, slopes
 
 
-def emission_log_prob_gaussian(
-    y_t: Float[Array, " M"],
-    eta: Float[Array, " M"],
-    R: Float[Array, "M M"],
-    obs_mask_t: Shaped[Array, " M"],
-) -> FloatScalar:
-    """Log p(y_t | eta_t) for Gaussian observations."""
-    residual = (y_t - eta) * obs_mask_t
+def emission_log_prob_gaussian(y_t, eta, R, obs_mask_t) -> FloatScalar:
+    """Native multivariate Gaussian with the existing missing-channel marginalization."""
+    residual = jnp.where(obs_mask_t > 0.5, y_t - eta, 0.0)
     n_obs = jnp.sum(obs_mask_t)
-    R_adj = symmetrize_with_jitter(inflate_missing_variance(R, obs_mask_t))
-    # One Cholesky yields both the log-det (2·Σlog diag) and the whitened solve, vs the
-    # prior slogdet(LU) + solve(pos) which factored R_adj twice (and the LU storm).
-    chol = jnp.linalg.cholesky(R_adj)
-    logdet = 2.0 * jnp.sum(jnp.log(jnp.diag(chol)))
+    law = gaussian_distribution(jnp.zeros_like(eta), inflate_missing_variance(R, obs_mask_t))
     n_missing = y_t.shape[0] - n_obs
-    logdet = logdet - n_missing * jnp.log(MISSING_DATA_LARGE_VAR)
-    whitened = jla.solve_triangular(chol, residual, lower=True)
-    mahal = jnp.sum(whitened * whitened)
-    return jnp.where(n_obs > 0, -0.5 * (n_obs * jnp.log(2 * jnp.pi) + logdet + mahal), 0.0)
+    correction = 0.5 * n_missing * jnp.log(2.0 * jnp.pi * MISSING_DATA_LARGE_VAR)
+    return jnp.where(n_obs > 0, law.log_prob(residual) + correction, 0.0)
 
 
-def emission_log_prob_poisson(
-    y_t: Float[Array, " M"],
-    eta: Float[Array, " M"],
-    _R: Float[Array, "M M"],
-    obs_mask_t: Shaped[Array, " M"],
-) -> FloatScalar:
-    """Log p(y_t | eta_t) for Poisson observations with a log link."""
-    rate = jnp.exp(eta)
-    log_probs = jax.scipy.stats.poisson.logpmf(y_t, rate)
-    return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
+def emission_log_prob_poisson(y_t, eta, R, obs_mask_t) -> FloatScalar:
+    return _mean_log_prob(DistributionFamily.POISSON, y_t, jnp.exp(eta), R, obs_mask_t, {})
 
 
-def emission_log_prob_student_t(
-    y_t: Float[Array, " M"],
-    eta: Float[Array, " M"],
-    R: Float[Array, "M M"],
-    obs_mask_t: Shaped[Array, " M"],
-    df=5.0,
-) -> FloatScalar:
-    """Log p(y_t | eta_t) for Student-t observations."""
-    scale = jnp.sqrt(jnp.diag(R))
-    log_probs = jax.scipy.stats.t.logpdf(y_t, df, loc=eta, scale=scale)
-    return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
+def emission_log_prob_student_t(y_t, eta, R, obs_mask_t, df=5.0) -> FloatScalar:
+    return _mean_log_prob(DistributionFamily.STUDENT_T, y_t, eta, R, obs_mask_t, {"obs_df": df})
 
 
-def emission_log_prob_gamma(
-    y_t: Float[Array, " M"],
-    eta: Float[Array, " M"],
-    _R: Float[Array, "M M"],
-    obs_mask_t: Shaped[Array, " M"],
-    shape=1.0,
-) -> FloatScalar:
-    """Log p(y_t | eta_t) for Gamma observations with a log mean link."""
-    mean = jnp.exp(eta)
-    scale = mean / shape
-    valid_y = jnp.isfinite(y_t) & (y_t > 0.0)
-    safe_y = jnp.where(valid_y, y_t, 1.0)
-    log_probs = jax.scipy.stats.gamma.logpdf(safe_y, shape, scale=scale)
-    return _sum_masked_log_probs(log_probs, obs_mask_t, valid_obs=valid_y)
-
-
-def emission_log_prob_bernoulli(
-    y_t: Float[Array, " M"],
-    eta: Float[Array, " M"],
-    _R: Float[Array, "M M"],
-    obs_mask_t: Shaped[Array, " M"],
-) -> FloatScalar:
-    """Log p(y_t | eta_t) for Bernoulli observations with a logit link."""
-    logit_p = eta
-    log_probs = y_t * jax.nn.log_sigmoid(logit_p) + (1.0 - y_t) * jax.nn.log_sigmoid(-logit_p)
-    return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
-
-
-def emission_log_prob_negative_binomial(
-    y_t: Float[Array, " M"],
-    eta: Float[Array, " M"],
-    _R: Float[Array, "M M"],
-    obs_mask_t: Shaped[Array, " M"],
-    r=5.0,
-) -> FloatScalar:
-    """Log p(y_t | z_t) for Negative Binomial emissions (log-link).
-
-    Parameterisation: mean = exp(eta), overdispersion r.
-    Var = mu + mu^2/r.  As r -> inf this converges to Poisson.
-    """
-    mu = jnp.exp(eta)
-    log_probs = (
-        jax.lax.lgamma(y_t + r)
-        - jax.lax.lgamma(r)
-        - jax.lax.lgamma(y_t + 1.0)
-        + r * jnp.log(r / (r + mu))
-        + y_t * jnp.log(mu / (r + mu) + NUMERICAL_EPSILON)
+def emission_log_prob_gamma(y_t, eta, R, obs_mask_t, shape=1.0) -> FloatScalar:
+    return _mean_log_prob(
+        DistributionFamily.GAMMA, y_t, jnp.exp(eta), R, obs_mask_t, {"obs_shape": shape}
     )
-    return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
 
 
-def emission_log_prob_beta(
-    y_t: Float[Array, " M"],
-    eta: Float[Array, " M"],
-    _R: Float[Array, "M M"],
-    obs_mask_t: Shaped[Array, " M"],
-    concentration=10.0,
-) -> FloatScalar:
-    """Log p(y_t | z_t) for Beta emissions (logit-link).
+def emission_log_prob_bernoulli(y_t, eta, _R, obs_mask_t) -> FloatScalar:
+    return _independent_log_prob(binary_logits_distribution(logits=eta), y_t, obs_mask_t)
 
-    mean = sigmoid(eta), concentration phi.
-    alpha = mean * phi, beta_ = (1 - mean) * phi.
-    """
-    mean = jax.nn.sigmoid(eta)
-    alpha = mean * concentration
-    beta_ = (1.0 - mean) * concentration
-    valid_y = jnp.isfinite(y_t) & (y_t > 0.0) & (y_t < 1.0)
-    safe_y = jnp.where(valid_y, y_t, 0.5)
-    log_probs = jax.scipy.stats.beta.logpdf(safe_y, alpha, beta_)
-    return _sum_masked_log_probs(log_probs, obs_mask_t, valid_obs=valid_y)
+
+def emission_log_prob_negative_binomial(y_t, eta, R, obs_mask_t, r=5.0) -> FloatScalar:
+    return _mean_log_prob(
+        DistributionFamily.NEGATIVE_BINOMIAL, y_t, jnp.exp(eta), R, obs_mask_t, {"obs_r": r}
+    )
+
+
+def emission_log_prob_beta(y_t, eta, R, obs_mask_t, concentration=10.0) -> FloatScalar:
+    return _mean_log_prob(
+        DistributionFamily.BETA,
+        y_t,
+        jax.nn.sigmoid(eta),
+        R,
+        obs_mask_t,
+        {"obs_concentration": concentration},
+    )
 
 
 def emission_log_prob_ordered_logistic(
@@ -335,9 +260,7 @@ def emission_log_prob_ordered_logistic(
     """Log p(y_t | eta_t) for ordered-logistic observations."""
     probs = ordered_logistic_probabilities(eta, cutpoints, level_counts)
     y_idx, valid_obs = _normalize_discrete_observation(y_t, level_counts)
-    chosen_probs = _select_rowwise(probs, y_idx)
-    log_probs = jnp.where(valid_obs, jnp.log(jnp.maximum(chosen_probs, NUMERICAL_EPSILON)), -1e30)
-    return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
+    return _independent_log_prob(categorical_distribution(probs), y_idx, obs_mask_t, valid_obs)
 
 
 def emission_log_prob_categorical(
@@ -352,68 +275,30 @@ def emission_log_prob_categorical(
     """Log p(y_t | eta_t) for categorical softmax observations."""
     probs = categorical_probabilities(eta, intercepts, slopes, level_counts)
     y_idx, valid_obs = _normalize_discrete_observation(y_t, level_counts)
-    chosen_probs = _select_rowwise(probs, y_idx)
-    log_probs = jnp.where(valid_obs, jnp.log(jnp.maximum(chosen_probs, NUMERICAL_EPSILON)), -1e30)
-    return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
+    return _independent_log_prob(categorical_distribution(probs), y_idx, obs_mask_t, valid_obs)
 
 
-def emission_log_prob_bernoulli_probit(
-    y_t: Float[Array, " M"],
-    eta: Float[Array, " M"],
-    _R: Float[Array, "M M"],
-    obs_mask_t: Shaped[Array, " M"],
-) -> FloatScalar:
-    """Log p(y_t | z_t) for Bernoulli emissions (probit-link).
-
-    Uses the normal CDF (Phi) as the inverse link instead of sigmoid.
-    """
-    p = jstats.norm.cdf(eta)
-    p = jnp.clip(p, PROB_CLIP_MIN, 1.0 - PROB_CLIP_MIN)
-    log_probs = y_t * jnp.log(p) + (1.0 - y_t) * jnp.log(1.0 - p)
-    return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
+def emission_log_prob_bernoulli_probit(y_t, eta, R, obs_mask_t) -> FloatScalar:
+    return _mean_log_prob(
+        DistributionFamily.BERNOULLI, y_t, jstats.norm.cdf(eta), R, obs_mask_t, {}
+    )
 
 
-def emission_log_prob_gamma_inverse(
-    y_t: Float[Array, " M"],
-    eta: Float[Array, " M"],
-    _R: Float[Array, "M M"],
-    obs_mask_t: Shaped[Array, " M"],
-    shape=1.0,
-) -> FloatScalar:
-    """Log p(y_t | z_t) for Gamma emissions (inverse-link for mean).
-
-    mean = 1 / eta (canonical link for Gamma).
-    """
+def emission_log_prob_gamma_inverse(y_t, eta, R, obs_mask_t, shape=1.0) -> FloatScalar:
     valid_eta = jnp.isfinite(eta) & (eta > 0.0)
-    safe_eta = jnp.where(valid_eta, eta, 1.0)
-    mean = 1.0 / safe_eta
-    scale = mean / shape
-    valid_y = jnp.isfinite(y_t) & (y_t > 0.0)
-    safe_y = jnp.where(valid_y, y_t, 1.0)
-    log_probs = jax.scipy.stats.gamma.logpdf(safe_y, shape, scale=scale)
-    return _sum_masked_log_probs(log_probs, obs_mask_t, valid_obs=valid_y & valid_eta)
+    mean = jnp.where(valid_eta, 1.0 / jnp.where(valid_eta, eta, 1.0), jnp.nan)
+    return _mean_log_prob(DistributionFamily.GAMMA, y_t, mean, R, obs_mask_t, {"obs_shape": shape})
 
 
-def emission_log_prob_beta_probit(
-    y_t: Float[Array, " M"],
-    eta: Float[Array, " M"],
-    _R: Float[Array, "M M"],
-    obs_mask_t: Shaped[Array, " M"],
-    concentration=10.0,
-) -> FloatScalar:
-    """Log p(y_t | z_t) for Beta emissions (probit-link).
-
-    mean = Phi(eta), concentration phi.
-    alpha = mean * phi, beta_ = (1 - mean) * phi.
-    """
-    mean = jstats.norm.cdf(eta)
-    mean = jnp.clip(mean, PROB_CLIP_MIN, 1.0 - PROB_CLIP_MIN)
-    alpha = mean * concentration
-    beta_ = (1.0 - mean) * concentration
-    valid_y = jnp.isfinite(y_t) & (y_t > 0.0) & (y_t < 1.0)
-    safe_y = jnp.where(valid_y, y_t, 0.5)
-    log_probs = jax.scipy.stats.beta.logpdf(safe_y, alpha, beta_)
-    return _sum_masked_log_probs(log_probs, obs_mask_t, valid_obs=valid_y)
+def emission_log_prob_beta_probit(y_t, eta, R, obs_mask_t, concentration=10.0) -> FloatScalar:
+    return _mean_log_prob(
+        DistributionFamily.BETA,
+        y_t,
+        jstats.norm.cdf(eta),
+        R,
+        obs_mask_t,
+        {"obs_concentration": concentration},
+    )
 
 
 # =============================================================================
@@ -601,174 +486,58 @@ def _score_weight_beta_probit(
     return g, w
 
 
+def _independent_log_prob(law, values, mask, valid_mean=None):
+    valid = jnp.isfinite(values) & law.support(values)
+    if valid_mean is not None:
+        valid = valid & valid_mean
+    # NumPyro supplies a support-interior value so missing/invalid observations
+    # cannot inject undefined densities or gradients into the observed channels.
+    safe_values = jnp.where(valid & (mask > 0.5), values, law.support.feasible_like(values))
+    if law.support.is_discrete:
+        safe_values = safe_values.astype(jnp.int32)
+    return _sum_masked_log_probs(law.log_prob(safe_values), mask, valid_obs=valid)
+
+
+def _mean_log_prob(family, values, mean, covariance, mask, extra_params):
+    safe_mean, valid = safe_observation_mean(family, mean)
+    law = mean_parameter_distribution(
+        family, safe_mean, jnp.sqrt(jnp.diag(covariance)), extra_params
+    )
+    # Gamma and Beta measurements exclude endpoints even where a native density
+    # has a finite limiting value. This is the authored measurement domain.
+    if family == DistributionFamily.GAMMA:
+        valid = valid & (values > 0.0)
+    elif family == DistributionFamily.BETA:
+        valid = valid & (values > 0.0) & (values < 1.0)
+    return _independent_log_prob(law, values, mask, valid)
+
+
 def get_mean_param_log_prob_fn(
     manifest_dist: DistributionFamily | str,
     extra_params: LikelihoodExtraParams | None = None,
 ) -> MeanLogProbFn:
-    """Return log-prob(y | mean-parameter) for one observation vector.
-
-    Unlike ``get_emission_fn()``, this operates directly on the expected mean /
-    location in observation space. It is used for interval-summary measurement
-    semantics where the mean is aggregated over a support window after applying
-    the link function.
-    """
-    from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily
-
-    extra_params = extra_params or {}
-    dist = DistributionFamily(manifest_dist)
-
-    def gaussian(y_t, mean_t, R, obs_mask_t):
-        residual = (y_t - mean_t) * obs_mask_t
-        n_obs = jnp.sum(obs_mask_t)
-        R_adj = symmetrize_with_jitter(inflate_missing_variance(R, obs_mask_t))
-        chol = jnp.linalg.cholesky(R_adj)
-        logdet = 2.0 * jnp.sum(jnp.log(jnp.diag(chol)))
-        n_missing = y_t.shape[0] - n_obs
-        logdet = logdet - n_missing * jnp.log(MISSING_DATA_LARGE_VAR)
-        whitened = jla.solve_triangular(chol, residual, lower=True)
-        mahal = jnp.sum(whitened * whitened)
-        return jnp.where(
-            n_obs > 0,
-            -0.5 * (n_obs * jnp.log(2 * jnp.pi) + logdet + mahal),
-            0.0,
-        )
-
-    def student_t(y_t, mean_t, R, obs_mask_t):
-        df = extra_params.get("obs_df", 5.0)
-        scale = jnp.sqrt(jnp.diag(R))
-        log_probs = jax.scipy.stats.t.logpdf(y_t, df, loc=mean_t, scale=scale)
-        return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
-
-    def poisson(y_t, mean_t, _R, obs_mask_t):
-        valid_mean = jnp.isfinite(mean_t) & (mean_t >= 0.0)
-        rate = jnp.where(valid_mean, mean_t, 1.0)
-        log_probs = jax.scipy.stats.poisson.logpmf(y_t, rate)
-        return _sum_masked_log_probs(log_probs, obs_mask_t, valid_obs=valid_mean)
-
-    def gamma(y_t, mean_t, _R, obs_mask_t):
-        shape = extra_params.get("obs_shape", 1.0)
-        valid_mean = jnp.isfinite(mean_t) & (mean_t > 0.0)
-        safe_mean = jnp.where(valid_mean, mean_t, 1.0)
-        scale = safe_mean / shape
-        valid_y = jnp.isfinite(y_t) & (y_t > 0.0)
-        safe_y = jnp.where(valid_y, y_t, 1.0)
-        log_probs = jax.scipy.stats.gamma.logpdf(safe_y, shape, scale=scale)
-        return _sum_masked_log_probs(log_probs, obs_mask_t, valid_obs=valid_mean & valid_y)
-
-    def bernoulli(y_t, mean_t, _R, obs_mask_t):
-        valid_mean = jnp.isfinite(mean_t) & (mean_t >= 0.0) & (mean_t <= 1.0)
-        valid_y = jnp.isfinite(y_t) & (jnp.isclose(y_t, 0.0) | jnp.isclose(y_t, 1.0))
-        p = jnp.where(valid_mean, mean_t, 0.5)
-        log_probs = jnp.where(jnp.isclose(y_t, 1.0), jnp.log(p), jnp.log1p(-p))
-        return _sum_masked_log_probs(log_probs, obs_mask_t, valid_obs=valid_mean & valid_y)
-
-    def negative_binomial(y_t, mean_t, _R, obs_mask_t):
-        r = extra_params.get("obs_r", 5.0)
-        valid_mean = jnp.isfinite(mean_t) & (mean_t >= 0.0)
-        mu = jnp.where(valid_mean, mean_t, 1.0)
-        log_probs = (
-            jax.lax.lgamma(y_t + r)
-            - jax.lax.lgamma(r)
-            - jax.lax.lgamma(y_t + 1.0)
-            + r * jnp.log(r / (r + mu))
-            + y_t * jnp.log(mu / (r + mu) + NUMERICAL_EPSILON)
-        )
-        return _sum_masked_log_probs(log_probs, obs_mask_t, valid_obs=valid_mean)
-
-    def beta(y_t, mean_t, _R, obs_mask_t):
-        concentration = extra_params.get("obs_concentration", 10.0)
-        valid_mean = jnp.isfinite(mean_t) & (mean_t > 0.0) & (mean_t < 1.0)
-        safe_mean = jnp.where(valid_mean, mean_t, 0.5)
-        alpha = safe_mean * concentration
-        beta_ = (1.0 - safe_mean) * concentration
-        valid_y = jnp.isfinite(y_t) & (y_t > 0.0) & (y_t < 1.0)
-        safe_y = jnp.where(valid_y, y_t, 0.5)
-        log_probs = jax.scipy.stats.beta.logpdf(safe_y, alpha, beta_)
-        return _sum_masked_log_probs(log_probs, obs_mask_t, valid_obs=valid_mean & valid_y)
-
-    mean_log_prob_fns = {
-        DistributionFamily.GAUSSIAN: gaussian,
-        DistributionFamily.STUDENT_T: student_t,
-        DistributionFamily.POISSON: poisson,
-        DistributionFamily.GAMMA: gamma,
-        DistributionFamily.BERNOULLI: bernoulli,
-        DistributionFamily.NEGATIVE_BINOMIAL: negative_binomial,
-        DistributionFamily.BETA: beta,
-    }
-    if dist not in mean_log_prob_fns:
-        raise ValueError(
-            f"Mean-parameter log-prob is not defined for manifest_dist='{manifest_dist}'."
-        )
-    return mean_log_prob_fns[dist]
+    """Density in observation mean space, including interval-summary measurements."""
+    family = DistributionFamily(manifest_dist)
+    if family == DistributionFamily.GAUSSIAN:
+        return emission_log_prob_gaussian
+    if family in {DistributionFamily.CATEGORICAL, DistributionFamily.ORDERED_LOGISTIC}:
+        raise ValueError(f"Mean-parameter log-prob is not defined for {family.value!r}")
+    return lambda y, mean, R, mask: _mean_log_prob(family, y, mean, R, mask, extra_params or {})
 
 
 def get_mean_param_sample_fn(
     manifest_dist: DistributionFamily | str,
     extra_params: LikelihoodExtraParams | None = None,
 ) -> MeanSampleFn:
-    """Return a sampler operating directly in observation mean-parameter space."""
-    from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily
-
-    extra_params = extra_params or {}
-    dist = DistributionFamily(manifest_dist)
-
-    def gaussian(key, mean_t, R):
-        R_adj = symmetrize_with_jitter(R)
-        chol = jnp.linalg.cholesky(R_adj)
-        return mean_t + chol @ jax.random.normal(key, mean_t.shape)
-
-    def student_t(key, mean_t, R):
-        df = extra_params.get("obs_df", 5.0)
-        scale = jnp.sqrt(jnp.maximum(jnp.diag(R), NUMERICAL_EPSILON))
-        return sample_student_t_from_location(key, mean_t, scale, df)
-
-    def poisson(key, mean_t, _R):
-        valid_mean = jnp.isfinite(mean_t) & (mean_t >= 0.0)
-        safe_rate = jnp.where(valid_mean, mean_t, 1.0)
-        draw = sample_poisson_from_mean(key, safe_rate)
-        return jnp.where(valid_mean, draw, jnp.nan)
-
-    def gamma(key, mean_t, _R):
-        shape = extra_params.get("obs_shape", 1.0)
-        valid_mean = jnp.isfinite(mean_t) & (mean_t > 0.0)
-        safe_mean = jnp.where(valid_mean, mean_t, 1.0)
-        draw = sample_gamma_from_mean(key, safe_mean, shape)
-        return jnp.where(valid_mean, draw, jnp.nan)
-
-    def bernoulli(key, mean_t, _R):
-        valid_mean = jnp.isfinite(mean_t) & (mean_t >= 0.0) & (mean_t <= 1.0)
-        safe_p = jnp.where(valid_mean, mean_t, 0.5)
-        draw = sample_bernoulli_from_mean(key, safe_p)
-        return jnp.where(valid_mean, draw, jnp.nan)
-
-    def negative_binomial(key, mean_t, _R):
-        r = extra_params.get("obs_r", 5.0)
-        valid_mean = jnp.isfinite(mean_t) & (mean_t >= 0.0)
-        safe_mean = jnp.where(valid_mean, mean_t, 1.0)
-        draw = sample_negative_binomial_from_mean(key, safe_mean, r)
-        return jnp.where(valid_mean, draw, jnp.nan)
-
-    def beta(key, mean_t, _R):
-        concentration = extra_params.get("obs_concentration", 10.0)
-        valid_mean = jnp.isfinite(mean_t) & (mean_t > 0.0) & (mean_t < 1.0)
-        safe_mean = jnp.where(valid_mean, mean_t, 0.5)
-        draw = sample_beta_from_mean(key, safe_mean, concentration)
-        return jnp.where(valid_mean, draw, jnp.nan)
-
-    mean_sample_fns = {
-        DistributionFamily.GAUSSIAN: gaussian,
-        DistributionFamily.STUDENT_T: student_t,
-        DistributionFamily.POISSON: poisson,
-        DistributionFamily.GAMMA: gamma,
-        DistributionFamily.BERNOULLI: bernoulli,
-        DistributionFamily.NEGATIVE_BINOMIAL: negative_binomial,
-        DistributionFamily.BETA: beta,
-    }
-    if dist not in mean_sample_fns:
-        raise ValueError(
-            f"Mean-parameter sampler is not defined for manifest_dist='{manifest_dist}'."
-        )
-    return mean_sample_fns[dist]
+    """Draw from the same native law used by the observation likelihood."""
+    family = DistributionFamily(manifest_dist)
+    if family == DistributionFamily.GAUSSIAN:
+        return lambda key, mean, R: gaussian_distribution(mean, R).sample(key)
+    if family in {DistributionFamily.CATEGORICAL, DistributionFamily.ORDERED_LOGISTIC}:
+        raise ValueError(f"Mean-parameter sampler is not defined for {family.value!r}")
+    return lambda key, mean, R: sample_mean_observation(
+        family, key, mean, jnp.sqrt(jnp.diag(R)), extra_params or {}
+    )
 
 
 def build_heterogeneous_mean_log_prob_fn(

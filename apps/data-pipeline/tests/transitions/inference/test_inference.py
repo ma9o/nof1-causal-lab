@@ -1,7 +1,7 @@
 """Tests for Stage 5 inference task logging and orchestration."""
 
 import logging
-from typing import TYPE_CHECKING, Any, cast, override
+from typing import TYPE_CHECKING, cast, override
 
 import jax.numpy as jnp
 import numpy as np
@@ -11,6 +11,7 @@ from nof1_causal_lab.flows.transitions.inference import fit as stage5_inference
 from nof1_causal_lab.models.ssm import SSMSpec
 from nof1_causal_lab.models.ssm.execution.planning import InferenceStructurePlan
 from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior
+from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
 from nof1_causal_lab.models.ssm.model import SSMModel
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 from nof1_causal_lab.models.ssm.runtime import PreparedModelRuntime
@@ -27,15 +28,15 @@ from tests.ssm_spec_fixtures import (
 )
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.compile.contracts import CompiledSSMArtifact
+    from nof1_causal_lab.artifacts.compiled_ssm import CompiledSSMArtifact
     from nof1_causal_lab.sampler_config import SamplerConfigOverride
 
 
 class _FakeResult(ParticleMCMCPosterior):
     def __init__(self) -> None:
         self.method = "marginal_particle_gibbs"
-        self.diagnostics = {"likelihood_backend": object()}
-        self._samples = {"theta": jnp.zeros((4, 1), dtype=jnp.float32)}
+        self.diagnostics = {}
+        self.draws = JointPosteriorDraws(parameters={"theta": jnp.zeros((4, 1), dtype=jnp.float32)})
 
     @override
     def get_smc_diagnostics(self):
@@ -44,16 +45,15 @@ class _FakeResult(ParticleMCMCPosterior):
     @override
     def get_loo_diagnostics(
         self,
-        model_fn=None,
-        observations: jnp.ndarray | None = None,
-        times: jnp.ndarray | None = None,
+        *,
+        observations: jnp.ndarray,
     ):
         return {"elpd_loo": -12.3}
 
     @override
     def get_posterior_marginals(self, n_bins: int = 50):
         del n_bins
-        return [{"parameter": "theta"}]
+        return []
 
     @override
     def get_posterior_pairs(self, max_params: int = 6, max_samples: int = 200):
@@ -140,6 +140,7 @@ def _make_runtime(model: SSMModel) -> PreparedModelRuntime:
         times=jnp.array([0.0, 1.5], dtype=jnp.float32),
         transition_inputs=None,
         manifest_names=["sleep_avg", "energy"],
+        manifest_ids=["indicator:sleep_avg", "indicator:energy"],
     )
 
 
@@ -153,7 +154,7 @@ def test_fit_model_logs_runtime_summary_and_diagnostic_boundaries(monkeypatch, c
 
     data_for_model = pl.DataFrame(
         {
-            "indicator": ["sleep_avg", "energy", "energy"],
+            "indicator_id": ["indicator:sleep_avg", "indicator:energy", "indicator:energy"],
             "value": [0.2, 0.8, 0.5],
             "anchor_time": [
                 "2024-01-01T00:00:00",
@@ -165,7 +166,7 @@ def test_fit_model_logs_runtime_summary_and_diagnostic_boundaries(monkeypatch, c
 
     with caplog.at_level(logging.INFO, logger=stage5_inference.logger.name):
         result = stage5_inference.fit_model(
-            None,
+            _compiled_fixture(),
             data_for_model,
             sampler_config=cast(
                 "SamplerConfigOverride",
@@ -184,7 +185,7 @@ def test_fit_model_logs_runtime_summary_and_diagnostic_boundaries(monkeypatch, c
     ) in caplog.text
     assert "Starting inference kernel..." in caplog.text
     assert "Collecting sampler diagnostics..." in caplog.text
-    assert "Computing LOO diagnostics..." in caplog.text
+    assert "Computing leave-one-measurement-row-out diagnostics..." in caplog.text
     assert "Extracting posterior summaries..." in caplog.text
     assert "Posterior summaries ready in" in caplog.text
 
@@ -199,7 +200,7 @@ def test_fit_model_can_skip_loo_diagnostics(monkeypatch, caplog):
 
     data_for_model = pl.DataFrame(
         {
-            "indicator": ["sleep_avg"],
+            "indicator_id": ["indicator:sleep_avg"],
             "value": [0.2],
             "anchor_time": ["2024-01-01T00:00:00"],
         }
@@ -207,7 +208,7 @@ def test_fit_model_can_skip_loo_diagnostics(monkeypatch, caplog):
 
     with caplog.at_level(logging.INFO, logger=stage5_inference.logger.name):
         result = stage5_inference.fit_model(
-            None,
+            _compiled_fixture(),
             data_for_model,
             sampler_config=cast(
                 "SamplerConfigOverride",
@@ -220,14 +221,14 @@ def test_fit_model_can_skip_loo_diagnostics(monkeypatch, caplog):
     assert result["fitted"] is True
     assert result["loo_diagnostics"] is None
     assert "Skipping LOO diagnostics by configuration." in caplog.text
-    assert "Computing LOO diagnostics..." not in caplog.text
+    assert "Computing leave-one-measurement-row-out diagnostics..." not in caplog.text
 
 
 def test_fit_model_restores_compile_cache_before_preparing_runtime(monkeypatch):
     fake_result = _FakeResult()
     fake_model = _make_fake_model()
     runtime = _make_runtime(fake_model)
-    restore_calls: list[tuple[str | None, dict[str, Any] | None, bool]] = []
+    restore_calls: list[tuple[str | None, CompiledSSMArtifact | None, bool]] = []
 
     monkeypatch.setattr(
         stage5_inference,
@@ -241,12 +242,12 @@ def test_fit_model_restores_compile_cache_before_preparing_runtime(monkeypatch):
 
     data_for_model = pl.DataFrame(
         {
-            "indicator": ["sleep_avg"],
+            "indicator_id": ["indicator:sleep_avg"],
             "value": [0.2],
             "anchor_time": ["2024-01-01T00:00:00"],
         }
     )
-    compiled_ssm = {"spec": {"n_latent": 1}}
+    compiled_ssm = _compiled_fixture()
 
     result = stage5_inference.fit_model(
         cast("CompiledSSMArtifact", compiled_ssm),
@@ -261,3 +262,10 @@ def test_fit_model_restores_compile_cache_before_preparing_runtime(monkeypatch):
 
     assert restore_calls == [("workspace-123", compiled_ssm, True)]
     assert result["fitted"] is True
+
+
+def _compiled_fixture():
+    from nof1_causal_lab.artifacts.compiled_ssm import CompiledSSMArtifact
+    from tests.integration.transition_runner_fixtures import compiled_ssm
+
+    return CompiledSSMArtifact.model_validate(compiled_ssm())

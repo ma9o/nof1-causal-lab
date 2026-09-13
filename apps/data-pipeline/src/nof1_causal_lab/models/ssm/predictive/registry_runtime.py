@@ -1,7 +1,7 @@
 """Compile-stable prior predictive runtime.
 
 Builds prior predictive samples directly from compiled prior semantics or
-``PriorRegistry`` without tracing back through ``SSMModel.model()``.
+native NumPyro priors without tracing back through ``SSMModel.model()``.
 """
 
 from __future__ import annotations
@@ -28,11 +28,11 @@ from nof1_causal_lab.models.ssm.covariance_utils import (
     stable_cholesky,
 )
 from nof1_causal_lab.models.ssm.dynamics.intervention import Intervention
-from nof1_causal_lab.models.ssm.dynamics.runtime import pack_vector_field_params_from_samples
 from nof1_causal_lab.models.ssm.dynamics.serialization import dynamics_spec_to_dict
 from nof1_causal_lab.models.ssm.dynamics.simulator import SimulationConfig, simulate
 from nof1_causal_lab.models.ssm.dynamics.spec import (
     compile_dynamics,
+    pack_component_params_from_samples,
 )
 from nof1_causal_lab.models.ssm.execution.observation_families import (
     any_family_needs_level_metadata,
@@ -42,7 +42,7 @@ from nof1_causal_lab.models.ssm.parameterization import (
     assemble_deterministics_from_registry,
     assemble_extra_params_from_registry,
     build_site_registry,
-    sample_prior_unconstrained,
+    sample_prior_parameters,
 )
 
 if TYPE_CHECKING:
@@ -63,44 +63,6 @@ def predictive_keys(seed: int) -> PredictiveKeys:
     """Derive independent parameter, latent, and observation streams."""
     parameter_key, latent_key, observation_key = random.split(random.PRNGKey(seed), 3)
     return PredictiveKeys(parameter_key, latent_key, observation_key)
-
-
-class _InputDrivenVectorField(eqx.Module):
-    """Vector-field wrapper adding piecewise-constant known-input forcing."""
-
-    base: Any
-    input_effect: jnp.ndarray
-    times: jnp.ndarray
-    transition_inputs: jnp.ndarray
-    n_latent: int = eqx.field(static=True)
-
-    def __call__(self, t: jnp.ndarray, eta: jnp.ndarray, args):
-        drift = self.base(t, eta, args)
-        idx = jnp.clip(
-            jnp.searchsorted(self.times, t, side="right"),
-            1,
-            self.transition_inputs.shape[0] - 1,
-        )
-        return drift + self.input_effect @ self.transition_inputs[idx]
-
-    def initial_condition(self, eta0: jnp.ndarray, args, t0: jnp.ndarray | float = 0.0):
-        return self.base.initial_condition(eta0, args, t0)
-
-    def steady_state_residual(self, eta: jnp.ndarray, args):
-        return self.base.steady_state_residual(eta, args)
-
-    def linearize(
-        self,
-        x_lin: jnp.ndarray,
-        args,
-        t: jnp.ndarray | None = None,
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
-        if t is None:
-            t = jnp.asarray(0.0)
-        f_at_x = self(t, x_lin, args)
-        jacobian = jax.jacfwd(lambda x: self(t, x, args))(x_lin)
-        intercept = f_at_x - jacobian @ x_lin
-        return jacobian, intercept
 
 
 def _ensure_discrete_metadata(spec: SSMSpec) -> None:
@@ -144,32 +106,6 @@ def _ensure_gaussian_process_diffusion(spec: SSMSpec) -> None:
             "Vector-field prior predictive simulation currently requires Gaussian process "
             f"diffusion; got {non_gaussian}."
         )
-
-
-def _prepare_vector_field_for_draw(
-    base_vector_field,
-    *,
-    input_effect: jnp.ndarray,
-    times: jnp.ndarray,
-    transition_inputs: jnp.ndarray | None,
-):
-    if input_effect.shape[1] == 0:
-        return base_vector_field
-    if transition_inputs is None:
-        raise ValueError("SSM has known input effects but transition_inputs was not provided.")
-    transition_inputs = jnp.asarray(transition_inputs, dtype=input_effect.dtype)
-    if transition_inputs.shape != (times.shape[0], input_effect.shape[1]):
-        raise ValueError(
-            "transition_inputs must have shape "
-            f"({times.shape[0]}, {input_effect.shape[1]}), got {transition_inputs.shape}"
-        )
-    return _InputDrivenVectorField(
-        base=base_vector_field,
-        input_effect=input_effect,
-        times=times,
-        transition_inputs=transition_inputs,
-        n_latent=base_vector_field.n_latent,
-    )
 
 
 def _linear_predictors_from_latents(
@@ -337,14 +273,8 @@ def _simulate_vector_field_predictive_latent_draw(
     if int(times.shape[0]) == 1:
         latent_trajectory = eta0[None, :]
     else:
-        vector_field = _prepare_vector_field_for_draw(
-            base_vector_field,
-            input_effect=input_effect,
-            times=times,
-            transition_inputs=transition_inputs,
-        )
         latent_trajectory = simulate(
-            vector_field,
+            base_vector_field,
             vf_params,
             Intervention.none(),
             eta0,
@@ -352,6 +282,8 @@ def _simulate_vector_field_predictive_latent_draw(
             config=_predictive_sde_config(draw, span),
             key=key_latent,
             diffusion_cov=diffusion_chol @ diffusion_chol.T,
+            input_effect=input_effect,
+            transition_inputs=transition_inputs,
         )
     return latent_trajectory
 
@@ -410,7 +342,9 @@ def _simulate_vector_field_predictive_latents(
     # Pack component parameters before entering the compiled simulation. Closing
     # over ``spec`` keeps its structural dataclasses out of JIT's static-argument
     # cache, while vmap broadcasts any component-fixed scalar across draws.
-    vf_params = jax.vmap(lambda draw: pack_vector_field_params_from_samples(spec, draw))(samples)
+    vf_params = jax.vmap(lambda draw: pack_component_params_from_samples(spec.dynamics_spec, draw))(
+        samples
+    )
     span = float(times[-1] - times[0]) if int(times.shape[0]) > 1 else 0.0
     cache_key = _prior_predictive_latent_cache_key(
         spec,
@@ -454,13 +388,12 @@ def sample_prior_parameters_from_runtime(
     rng_key: jax.Array,
 ) -> dict[str, jnp.ndarray]:
     """Sample and assemble the parameter layer of a prior predictive run."""
-    z_samples, _rng_key = sample_prior_unconstrained(
+    constrained_samples = sample_prior_parameters(
         rng_key,
-        runtime.site_runtime.registry,
-        runtime.prior_state,
+        runtime.registry,
+        runtime.priors,
         n_samples=num_samples,
     )
-    constrained_samples = runtime.site_runtime.constrain_batched(z_samples)
     deterministic_samples = assemble_deterministics_from_registry(
         constrained_samples,
         spec,
@@ -469,7 +402,7 @@ def sample_prior_parameters_from_runtime(
     extra_params = _assemble_extra_params_batched(
         spec,
         constrained_samples,
-        runtime.site_runtime.registry,
+        runtime.registry,
         n_draws=num_samples,
     )
     return {

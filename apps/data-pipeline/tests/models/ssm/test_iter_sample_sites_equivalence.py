@@ -10,6 +10,7 @@ from __future__ import annotations
 import jax.numpy as jnp
 import numpy as np
 
+from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
 from nof1_causal_lab.models.ssm import SSMSpec
 from nof1_causal_lab.models.ssm.parameterization import build_site_registry
 from nof1_causal_lab.models.ssm.structure import (
@@ -19,7 +20,6 @@ from nof1_causal_lab.models.ssm.structure import (
     SparseVectorBlockSpec,
     T0CholBlockSpec,
 )
-from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 from tests.ssm_spec_fixtures import (
     default_diffusion_block,
     default_input_effect_block,
@@ -207,7 +207,6 @@ def _descriptor_fields(s):
         s.support,
         s.assembly_group,
         s.site_kind,
-        s.transform_kind,
         s.deterministic_name,
         s.fixed_spec_field,
         s.priors_field,

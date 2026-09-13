@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -20,8 +19,7 @@ class MPGibbsDiagnosticMetric(StrEnum):
 MPGIBBS_DIAGNOSTIC_METRIC_VALUES = tuple(metric.value for metric in MPGibbsDiagnosticMetric)
 
 
-@dataclass(frozen=True)
-class MPGibbsDiagnosticFlags:
+class MPGibbsDiagnosticFlags(NamedTuple):
     """Resolved static switches for optional MPGibbs diagnostic traces."""
 
     particle_identity: bool

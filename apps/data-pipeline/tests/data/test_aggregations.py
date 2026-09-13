@@ -126,11 +126,15 @@ class TestEncodeNonContinuous:
     def test_binary_true_false(self):
         df = pl.DataFrame(
             {
-                "indicator": ["mood", "mood", "mood"],
+                "indicator_id": [
+                    "indicator:869e1d0209fb25a7fc06",
+                    "indicator:869e1d0209fb25a7fc06",
+                    "indicator:869e1d0209fb25a7fc06",
+                ],
                 "value": ["true", "false", "yes"],
             }
         )
-        result = _encode_non_continuous(df, {"mood": "binary"})
+        result = _encode_non_continuous(df, {"indicator:869e1d0209fb25a7fc06": "binary"})
         values = result.sort("value")["value"].to_list()
         # "false" -> "0.0", "true" -> "1.0", "yes" -> "1.0"
         assert "0.0" in values
@@ -139,14 +143,18 @@ class TestEncodeNonContinuous:
     def test_ordinal_numeric_codes_passthrough(self):
         df = pl.DataFrame(
             {
-                "indicator": ["pain", "pain", "pain"],
+                "indicator_id": [
+                    "indicator:036fd134b9ad32d7a2ca",
+                    "indicator:036fd134b9ad32d7a2ca",
+                    "indicator:036fd134b9ad32d7a2ca",
+                ],
                 "value": ["0", "1", "2"],
             }
         )
         result = _encode_non_continuous(
             df,
-            {"pain": "ordinal"},
-            ordinal_levels_lookup={"pain": ["low", "medium", "high"]},
+            {"indicator:036fd134b9ad32d7a2ca": "ordinal"},
+            ordinal_levels_lookup={"indicator:036fd134b9ad32d7a2ca": ["low", "medium", "high"]},
         )
         vals = sorted(float(v) for v in result["value"].to_list())
         assert vals == [0.0, 1.0, 2.0]
@@ -154,29 +162,35 @@ class TestEncodeNonContinuous:
     def test_ordinal_out_of_range_code_becomes_null(self):
         df = pl.DataFrame(
             {
-                "indicator": ["pain", "pain"],
+                "indicator_id": [
+                    "indicator:036fd134b9ad32d7a2ca",
+                    "indicator:036fd134b9ad32d7a2ca",
+                ],
                 "value": ["2", "3"],
             }
         )
         result = _encode_non_continuous(
             df,
-            {"pain": "ordinal"},
-            ordinal_levels_lookup={"pain": ["low", "medium", "high"]},
+            {"indicator:036fd134b9ad32d7a2ca": "ordinal"},
+            ordinal_levels_lookup={"indicator:036fd134b9ad32d7a2ca": ["low", "medium", "high"]},
         ).sort("value", nulls_last=True)
         assert result["value"].to_list() == ["2.0", None]
 
     def test_continuous_passthrough(self):
         df = pl.DataFrame(
             {
-                "indicator": ["weight", "weight"],
+                "indicator_id": [
+                    "indicator:c5b118ae552981435d7b",
+                    "indicator:c5b118ae552981435d7b",
+                ],
                 "value": [70.5, 80.2],
             }
         )
-        result = _encode_non_continuous(df, {"weight": "continuous"})
+        result = _encode_non_continuous(df, {"indicator:c5b118ae552981435d7b": "continuous"})
         assert result["value"].to_list() == [70.5, 80.2]
 
     def test_empty_dtype_lookup(self):
-        df = pl.DataFrame({"indicator": ["x"], "value": [1.0]})
+        df = pl.DataFrame({"indicator_id": ["indicator:1f4c67cecb9238ee1a80"], "value": [1.0]})
         result = _encode_non_continuous(df, {})
         assert result["value"].to_list() == [1.0]
 
@@ -184,13 +198,22 @@ class TestEncodeNonContinuous:
         """Only non-continuous indicators should be encoded; continuous left unchanged."""
         df = pl.DataFrame(
             {
-                "indicator": ["mood", "weight"],
+                "indicator_id": [
+                    "indicator:869e1d0209fb25a7fc06",
+                    "indicator:c5b118ae552981435d7b",
+                ],
                 "value": ["true", "70.5"],
             }
         )
-        result = _encode_non_continuous(df, {"mood": "binary", "weight": "continuous"})
-        mood_row = result.filter(pl.col("indicator") == "mood")
-        weight_row = result.filter(pl.col("indicator") == "weight")
+        result = _encode_non_continuous(
+            df,
+            {
+                "indicator:869e1d0209fb25a7fc06": "binary",
+                "indicator:c5b118ae552981435d7b": "continuous",
+            },
+        )
+        mood_row = result.filter(pl.col("indicator_id") == "indicator:869e1d0209fb25a7fc06")
+        weight_row = result.filter(pl.col("indicator_id") == "indicator:c5b118ae552981435d7b")
         assert float(mood_row["value"][0]) == 1.0
         assert weight_row["value"][0] == "70.5"
 
@@ -223,11 +246,16 @@ class TestComputeIndicators:
         """Mean of heart_rate across 3 daily ticks."""
         df = _make_raw_df()
         indicators = [
-            {"name": "avg_hr", "source_columns": ["heart_rate"], "aggregation": "mean"},
+            {
+                "id": "indicator:c21b43949b3712e734c8",
+                "name": "avg_hr",
+                "source_columns": ["heart_rate"],
+                "aggregation": "mean",
+            },
         ]
         result = compute_indicators(df, indicators, "1d", "timestamp")
-        assert result.columns == ["indicator", "value", "timestamp"]
-        assert result["indicator"].to_list() == ["avg_hr"] * 3
+        assert result.columns == ["indicator_id", "value", "timestamp"]
+        assert result["indicator_id"].to_list() == ["indicator:c21b43949b3712e734c8"] * 3
         # Day 1: mean(72, 85, 68) = 75.0
         values = [float(v) for v in result["value"].to_list()]
         assert abs(values[0] - 75.0) < 0.01
@@ -236,7 +264,12 @@ class TestComputeIndicators:
         """Sum of steps across daily ticks."""
         df = _make_raw_df()
         indicators = [
-            {"name": "total_steps", "source_columns": ["steps"], "aggregation": "sum"},
+            {
+                "id": "indicator:a0ce08437c19d06aafd1",
+                "name": "total_steps",
+                "source_columns": ["steps"],
+                "aggregation": "sum",
+            },
         ]
         result = compute_indicators(df, indicators, "1d", "timestamp")
         values = [float(v) for v in result["value"].to_list()]
@@ -247,23 +280,41 @@ class TestComputeIndicators:
         """Two computed indicators in one call."""
         df = _make_raw_df()
         indicators = [
-            {"name": "avg_hr", "source_columns": ["heart_rate"], "aggregation": "mean"},
-            {"name": "total_steps", "source_columns": ["steps"], "aggregation": "sum"},
+            {
+                "id": "indicator:c21b43949b3712e734c8",
+                "name": "avg_hr",
+                "source_columns": ["heart_rate"],
+                "aggregation": "mean",
+            },
+            {
+                "id": "indicator:a0ce08437c19d06aafd1",
+                "name": "total_steps",
+                "source_columns": ["steps"],
+                "aggregation": "sum",
+            },
         ]
         result = compute_indicators(df, indicators, "1d", "timestamp")
         # 3 ticks * 2 indicators = 6 rows
         assert len(result) == 6
-        assert set(result["indicator"].to_list()) == {"avg_hr", "total_steps"}
+        assert set(result["indicator_id"].to_list()) == {
+            "indicator:c21b43949b3712e734c8",
+            "indicator:a0ce08437c19d06aafd1",
+        }
 
     def test_output_schema(self):
         """Output columns are exactly {indicator, value, timestamp} as Utf8."""
         df = _make_raw_df()
         indicators = [
-            {"name": "avg_hr", "source_columns": ["heart_rate"], "aggregation": "mean"},
+            {
+                "id": "indicator:c21b43949b3712e734c8",
+                "name": "avg_hr",
+                "source_columns": ["heart_rate"],
+                "aggregation": "mean",
+            },
         ]
         result = compute_indicators(df, indicators, "1d", "timestamp")
-        assert result.columns == ["indicator", "value", "timestamp"]
-        assert result.schema["indicator"] == pl.Utf8
+        assert result.columns == ["indicator_id", "value", "timestamp"]
+        assert result.schema["indicator_id"] == pl.Utf8
         assert result.schema["value"] == pl.Utf8
         assert result.schema["timestamp"] == pl.Utf8
 
@@ -271,7 +322,7 @@ class TestComputeIndicators:
         """Empty indicator list returns empty DataFrame with correct schema."""
         df = _make_raw_df()
         result = compute_indicators(df, [], "1d", "timestamp")
-        assert result.columns == ["indicator", "value", "timestamp"]
+        assert result.columns == ["indicator_id", "value", "timestamp"]
         assert len(result) == 0
 
     def test_trend_aggregation(self):
@@ -286,7 +337,14 @@ class TestComputeIndicators:
                 "hr": [70.0, 75.0, 80.0],  # increasing → positive slope
             }
         )
-        indicators = [{"name": "hr_trend", "source_columns": ["hr"], "aggregation": "trend"}]
+        indicators = [
+            {
+                "id": "indicator:cacaf060b8afc7a952d9",
+                "name": "hr_trend",
+                "source_columns": ["hr"],
+                "aggregation": "trend",
+            }
+        ]
         result = compute_indicators(df, indicators, "1d", "timestamp")
         assert len(result) == 1
         assert float(result["value"][0]) > 0  # positive slope
@@ -295,7 +353,12 @@ class TestComputeIndicators:
         """Missing source column is skipped with warning, not crash."""
         df = _make_raw_df()
         indicators = [
-            {"name": "missing", "source_columns": ["nonexistent_col"], "aggregation": "mean"},
+            {
+                "id": "indicator:938f71ec0999bbbe342c",
+                "name": "missing",
+                "source_columns": ["nonexistent_col"],
+                "aggregation": "mean",
+            },
         ]
         result = compute_indicators(df, indicators, "1d", "timestamp")
         assert len(result) == 0
@@ -312,7 +375,14 @@ class TestComputeIndicators:
                 "hr": [72.0, None, 68.0],
             }
         )
-        indicators = [{"name": "avg_hr", "source_columns": ["hr"], "aggregation": "mean"}]
+        indicators = [
+            {
+                "id": "indicator:c21b43949b3712e734c8",
+                "name": "avg_hr",
+                "source_columns": ["hr"],
+                "aggregation": "mean",
+            }
+        ]
         result = compute_indicators(df, indicators, "1d", "timestamp")
         assert len(result) == 1
         # mean(72, 68) = 70.0 (null ignored)
@@ -332,6 +402,7 @@ class TestComputeIndicators:
         )
         indicators = [
             {
+                "id": "indicator:c0486b3cc6b5559e95d0",
                 "name": "first_setting",
                 "source_columns": ["care_setting"],
                 "measurement_dtype": "categorical",
@@ -356,6 +427,7 @@ class TestComputeIndicators:
         )
         indicators = [
             {
+                "id": "indicator:c664114dcb2ded460d6e",
                 "name": "last_setting",
                 "source_columns": ["care_setting"],
                 "measurement_dtype": "categorical",
@@ -380,6 +452,7 @@ class TestComputeIndicators:
         )
         indicators = [
             {
+                "id": "indicator:5dc4b94693df7e0aef53",
                 "name": "closing_mood",
                 "source_columns": ["mood_label"],
                 "measurement_dtype": "ordinal",
@@ -406,6 +479,7 @@ class TestComputeIndicators:
         )
         indicators = [
             {
+                "id": "indicator:6a123c22171bbe49ee54",
                 "name": "text_events",
                 "source_columns": ["message_text"],
                 "measurement_dtype": "count",
@@ -432,13 +506,12 @@ class TestComputeIndicators:
         )
         indicators = [
             {
+                "id": "indicator:46df40a36557ed795b7b",
                 "name": "map",
                 "source_columns": ["systolic_bp", "diastolic_bp"],
                 "measurement_dtype": "continuous",
                 "aggregation": "mean",
-                "computed_rule": {
-                    "window_expr": "mean(diastolic_bp + (systolic_bp - diastolic_bp) / 3)"
-                },
+                "computed_rule": "mean(diastolic_bp + (systolic_bp - diastolic_bp) / 3)",
             }
         ]
 
@@ -465,13 +538,12 @@ class TestComputeIndicators:
         )
         indicators = [
             {
+                "id": "indicator:097d80d6767b143a71b4",
                 "name": "missed_doses",
                 "source_columns": ["event_type", "admin_status"],
                 "measurement_dtype": "count",
                 "aggregation": "sum",
-                "computed_rule": {
-                    "window_expr": 'None if count_true(event_type == "med_admin") == 0 else sum(1 if (event_type == "med_admin" and admin_status == "missed") else 0)'
-                },
+                "computed_rule": 'None if count_true(event_type == "med_admin") == 0 else sum(1 if (event_type == "med_admin" and admin_status == "missed") else 0)',
             }
         ]
 
@@ -498,12 +570,14 @@ class TestComputeIndicators:
         )
         indicators = [
             {
+                "id": "indicator:e8bcfd4304d709a5cce3",
                 "name": "event_count",
                 "source_columns": ["event_id"],
                 "measurement_dtype": "count",
                 "aggregation": "count",
             },
             {
+                "id": "indicator:422841bed8b563beeec0",
                 "name": "score_mean",
                 "source_columns": ["score"],
                 "measurement_dtype": "continuous",
@@ -513,8 +587,8 @@ class TestComputeIndicators:
 
         result = compute_indicators(df, indicators, "1d", "timestamp")
 
-        counts = result.filter(pl.col("indicator") == "event_count")
-        means = result.filter(pl.col("indicator") == "score_mean")
+        counts = result.filter(pl.col("indicator_id") == "indicator:e8bcfd4304d709a5cce3")
+        means = result.filter(pl.col("indicator_id") == "indicator:422841bed8b563beeec0")
         assert counts["timestamp"].to_list() == [
             "2024-01-01T00:00:00",
             "2024-01-02T00:00:00",
@@ -537,13 +611,12 @@ class TestComputeIndicators:
         )
         indicators = [
             {
+                "id": "indicator:42b9030df461ee342451",
                 "name": "stress_mentions",
                 "source_columns": ["title"],
                 "measurement_dtype": "count",
                 "aggregation": "count",
-                "computed_rule": {
-                    "window_expr": 'count_true(contains(lower(coalesce(title, "")), "stress"))'
-                },
+                "computed_rule": 'count_true(contains(lower(coalesce(title, "")), "stress"))',
             }
         ]
 
@@ -574,13 +647,12 @@ class TestComputeIndicators:
         )
         indicators = [
             {
+                "id": "indicator:86e4453f8f098e1007ef",
                 "name": "low_spo2",
                 "source_columns": ["spo2_pct"],
                 "measurement_dtype": "binary",
                 "aggregation": "last",
-                "computed_rule": {
-                    "window_expr": "1 if any(spo2_pct < 92) else (0 if count_non_null(spo2_pct) > 0 else None)"
-                },
+                "computed_rule": "1 if any(spo2_pct < 92) else (0 if count_non_null(spo2_pct) > 0 else None)",
             }
         ]
 
@@ -606,13 +678,12 @@ class TestComputeIndicators:
         )
         indicators = [
             {
+                "id": "indicator:cce51902cd8da81b8457",
                 "name": "social_media_hits",
                 "source_columns": ["title_url"],
                 "measurement_dtype": "count",
                 "aggregation": "count",
-                "computed_rule": {
-                    "window_expr": 'count_true(contains_any(title_url, ["facebook.com", "reddit.com"]))'
-                },
+                "computed_rule": 'count_true(contains_any(title_url, ["facebook.com", "reddit.com"]))',
             }
         ]
 
@@ -650,13 +721,12 @@ class TestComputeIndicators:
         )
         indicators = [
             {
+                "id": "indicator:1d23877d34bd268f1d4d",
                 "name": "stress_content_count",
                 "source_columns": ["timestamp", "title", "title_url"],
                 "measurement_dtype": "count",
                 "aggregation": "count",
-                "computed_rule": {
-                    "window_expr": 'None if count_non_null(timestamp) == 0 else count_true(contains_any(lower(coalesce(title, "")), ["stress", "burnout"]) or contains_any(lower(coalesce(title_url, "")), ["stress", "burnout"]))'
-                },
+                "computed_rule": 'None if count_non_null(timestamp) == 0 else count_true(contains_any(lower(coalesce(title, "")), ["stress", "burnout"]) or contains_any(lower(coalesce(title_url, "")), ["stress", "burnout"]))',
             }
         ]
 
@@ -673,7 +743,12 @@ class TestComputeIndicators:
         """Computed timestamps match the ISO format from bucket_by_clock."""
         df = _make_raw_df()
         indicators = [
-            {"name": "avg_hr", "source_columns": ["heart_rate"], "aggregation": "mean"},
+            {
+                "id": "indicator:c21b43949b3712e734c8",
+                "name": "avg_hr",
+                "source_columns": ["heart_rate"],
+                "aggregation": "mean",
+            },
         ]
         result = compute_indicators(df, indicators, "1d", "timestamp")
         # Should be ISO format: YYYY-MM-DDTHH:MM:SS
@@ -692,7 +767,12 @@ class TestComputeIndicators:
             }
         )
         indicators = [
-            {"name": "avg_hr", "source_columns": ["heart_rate"], "aggregation": "mean"},
+            {
+                "id": "indicator:c21b43949b3712e734c8",
+                "name": "avg_hr",
+                "source_columns": ["heart_rate"],
+                "aggregation": "mean",
+            },
         ]
 
         result = compute_indicators(df, indicators, "1d", "timestamp")
@@ -704,7 +784,12 @@ class TestComputeIndicators:
         """Hourly model_clock produces every support tick in the observed span."""
         df = _make_raw_df()
         indicators = [
-            {"name": "avg_hr", "source_columns": ["heart_rate"], "aggregation": "mean"},
+            {
+                "id": "indicator:c21b43949b3712e734c8",
+                "name": "avg_hr",
+                "source_columns": ["heart_rate"],
+                "aggregation": "mean",
+            },
         ]
         result = compute_indicators(df, indicators, "1h", "timestamp")
         assert len(result) == 51
@@ -717,6 +802,7 @@ class TestComputeIndicators:
         df = _make_raw_df()
         indicators = [
             {
+                "id": "indicator:f56b7b4807d8c6627ccb",
                 "name": "weekly_steps",
                 "source_columns": ["steps"],
                 "aggregation": "sum",

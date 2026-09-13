@@ -17,47 +17,14 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-ArtifactId = Literal[
-    "question",
-    "raw_data",
-    "latent_structure",
-    "measurement_structure",
-    "causal_design",
-    "structural_plan",
-    "identification_report",
-    "measurements",
-    "panel",
-    "validation_report",
-    "statistical_model_spec",
-    "compiled_ssm",
-    "posterior",
-    "baseline_report",
-    "saved_scenarios",
-]
+from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS, ArtifactId
 
-ARTIFACT_IDS: tuple[ArtifactId, ...] = (
-    "question",
-    "raw_data",
-    "latent_structure",
-    "measurement_structure",
-    "causal_design",
-    "structural_plan",
-    "identification_report",
-    "measurements",
-    "panel",
-    "validation_report",
-    "statistical_model_spec",
-    "compiled_ssm",
-    "posterior",
-    "baseline_report",
-    "saved_scenarios",
-)
-
-Provenance = Literal["computed", "human", "llm"]
+type Provenance = Literal["computed", "human", "llm"]
 
 
 class ArtifactVersionInfo(BaseModel):
-    """Immutable metadata for one artifact version (payload lives in the store).
+    """Artifact version metadata records how a stored artifact was produced and which inputs it
+    used.
 
     ``derived_from`` pins the exact input versions the payload was computed
     from. For root artifacts (user writes) it is empty. ``created_at`` is
@@ -76,7 +43,8 @@ class ArtifactVersionInfo(BaseModel):
 
 
 class EpisodeState(BaseModel):
-    """Current artifact versions of one episode. Pure value, no payloads.
+    """Episode state identifies the artifact versions currently selected by the transition
+    journal.
 
     ``current`` maps artifact id → the version info that is *current* for the
     episode. Absent key = the artifact does not exist (either never produced,

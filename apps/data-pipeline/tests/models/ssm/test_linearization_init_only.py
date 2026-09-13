@@ -23,15 +23,17 @@ _LAPLACE_BACKEND_SYMBOLS = (
     "make_laplace_backend",
     "build_laplace_backend",
     "LaplaceLikelihood",
+    "LocalLinearizationConfig",
+    "ExactAffineConfig",
+    "linearized_transition_parameters",
 )
 
 # The ONLY modules permitted to reference the Laplace backend: its own
 # implementation package, the inference-owned factory, and the warmup/init path
-# (Pathfinder/MAP positions + preconditioner, cSMC reference trajectory, and the
-# m-PGibbs diagnostic backend stored alongside — never the sampler target).
+# (Pathfinder/MAP positions + preconditioner and the cSMC reference trajectory).
 _ALLOWED_EXACT = {
     "models/ssm/inference/backend_factory.py",
-    "models/ssm/inference/methods/marginal_particle_gibbs/fit.py",
+    "models/ssm/inference/targets/transitions.py",
     "models/ssm/inference/warmup/latent_init.py",
     "models/ssm/inference/warmup/map.py",
     "models/ssm/inference/warmup/scipy_pathfinder.py",

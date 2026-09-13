@@ -1,665 +1,101 @@
-"""Semantic prior binding for statistical-model-spec parameters -> SSM sample sites."""
+"""Scientific parameter IDs bound to native sample sites through explicit ownership."""
 
 from __future__ import annotations
 
-import logging
-from collections.abc import Callable
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from nof1_causal_lab.artifacts.statistical_model_spec import ParameterRole, StatisticalModelSpec
+from nof1_causal_lab.artifacts.parameter import PriorAuthoringTransform, SiteKind
 from nof1_causal_lab.compilation_errors import AggregatedCompileError
-from nof1_causal_lab.models.ssm.compile.common import axis_names_with_fallback
-from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
-from nof1_causal_lab.models.ssm.parameter_names import (
-    resolve_initial_state_correlation_bindings,
-    split_compound_name,
-)
 from nof1_causal_lab.models.ssm.parameterization import build_site_registry
-from nof1_causal_lab.models.ssm.structure.sites import (
-    PriorAuthoringTransform,
-    SemanticBinding,
-    SiteDescriptor,
-    site_size,
-)
+from nof1_causal_lab.models.ssm.structure.sites import SemanticBinding
 
 if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.identity import ParameterId
+    from nof1_causal_lab.artifacts.statistical_model_spec import ParameterSpec, StatisticalModelSpec
     from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
     from nof1_causal_lab.models.ssm.model import SSMSpec
-
-logger = logging.getLogger("nof1_causal_lab.models.ssm.compile.inputs")
+    from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor, SitePosition
 
 
 class PriorIndexingError(AggregatedCompileError):
-    """Aggregate independent structural binding failures for strict causal designs."""
+    """Aggregate independent scientific-ownership binding failures."""
 
     header = "Prior index binding failed"
 
 
 @dataclass(frozen=True)
 class SemanticBindingRegistry:
-    """Named replacement for the old positional prior-index tuple."""
+    """Parameter-ID keyed bindings; runtime aliases are display metadata only."""
 
-    bindings: tuple[SemanticBinding, ...] = field(default_factory=tuple)
-
-    @property
-    def by_parameter(self) -> dict[str, SemanticBinding]:
-        return {binding.parameter_name: binding for binding in self.bindings}
-
-    def get(self, parameter: str) -> SemanticBinding | None:
-        return self.by_parameter.get(parameter)
+    by_parameter: dict[ParameterId, SemanticBinding] = field(default_factory=dict)
 
 
 def empty_prior_bindings() -> SemanticBindingRegistry:
-    """Return an empty semantic binding registry for spec-only code paths."""
-    return SemanticBindingRegistry(())
+    return SemanticBindingRegistry()
 
 
-def _site_by_prior_field(
-    sites: list[SiteDescriptor],
-    prior_field: str,
-) -> SiteDescriptor | None:
-    matches = [site for site in sites if site.priors_field == prior_field]
-    if not matches:
-        return None
-    if len(matches) > 1:
-        raise ValueError(
-            f"Prior field {prior_field!r} maps to multiple active sample sites: "
-            f"{[site.name for site in matches]}"
-        )
-    return matches[0]
+def _axis(ids: list[str] | None, size: int, label: str) -> dict[str, int]:
+    if ids is None or len(ids) != size or len(set(ids)) != size:
+        raise ValueError(f"Scientific prior binding requires {size} explicit unique {label} IDs")
+    return {key: index for index, key in enumerate(ids)}
 
 
-def _binding_for_site(
-    *,
-    parameter: str,
-    site: SiteDescriptor,
-    flat_index: int,
-    transform: PriorAuthoringTransform = PriorAuthoringTransform.IDENTITY,
-    construct_names: tuple[str, ...] = (),
-    indicator_names: tuple[str, ...] = (),
-    component_index: int | None = None,
-    effect_idx: int | None = None,
-    cause_idx: int | None = None,
-) -> SemanticBinding:
-    return SemanticBinding(
-        parameter_name=parameter,
-        site_name=site.name,
-        prior_field=site.priors_field or site.name,
-        flat_index=flat_index,
-        site_kind=site.site_kind,
-        transform=transform,
-        construct_names=construct_names,
-        indicator_names=indicator_names,
-        component_index=component_index,
-        effect_idx=effect_idx,
-        cause_idx=cause_idx,
-    )
+def _owners(parameter: ParameterSpec, kind: str) -> set[str]:
+    return {owner.id for owner in parameter.owners if owner.kind == kind}
 
 
-def _add_site_binding(
-    bindings: dict[str, SemanticBinding],
-    parameter_name: str,
-    binding: SemanticBinding,
-) -> None:
-    existing = bindings.get(parameter_name)
-    if existing is not None:
-        raise ValueError(
-            f"Parameter {parameter_name!r} maps to multiple compiled sample sites: "
-            f"{existing.site_name}[{existing.flat_index}] and "
-            f"{binding.site_name}[{binding.flat_index}]"
-        )
-    bindings[parameter_name] = (
-        binding
-        if binding.parameter_name == parameter_name
-        else replace(binding, parameter_name=parameter_name)
-    )
-
-
-def _component_binding_candidates(
-    ssm_spec: SSMSpec,
-    active_sites: list[SiteDescriptor],
+def _native_dynamics_bindings(
+    spec: SSMSpec, model: StatisticalModelSpec, plan: StructuralPlan | None
 ) -> dict[str, SemanticBinding]:
-    """Build component-owned semantic binding candidates for dynamics sites."""
-    from nof1_causal_lab.models.ssm.dynamics.spec import (
-        iter_dynamics_semantic_bindings,
+    """Bind an explicitly supplied native component composition by quantity and axis IDs."""
+    from nof1_causal_lab.models.ssm.dynamics.spec import iter_dynamics_semantic_bindings
+
+    axis = _axis(spec.latent_ids, spec.n_latent, "latent")
+    if spec.latent_names is None:
+        raise ValueError("Native semantic bindings require latent labels alongside their IDs")
+    axis_ids = list(axis)
+    sites = {site.name: site for site in build_site_registry(spec)}
+
+    def owner_ids(binding: SemanticBinding) -> set[str]:
+        position = sites[binding.site_name].positions[binding.flat_index]
+        indices = (position,) if isinstance(position, int) else position
+        return {axis_ids[index] for index in indices}
+
+    def matches_edge(binding: SemanticBinding, parameter: ParameterSpec) -> bool:
+        if plan is None or not _owners(parameter, "edge"):
+            return True
+        if binding.cause_idx is None or binding.effect_idx is None:
+            return False
+        edge_ids = {
+            edge.id
+            for edge in plan.semantics.edges.values()
+            if edge.cause_id == axis_ids[binding.cause_idx]
+            and edge.effect_id == axis_ids[binding.effect_idx]
+        }
+        return _owners(parameter, "edge") == edge_ids
+
+    candidates = list(
+        iter_dynamics_semantic_bindings(spec.dynamics_spec, latent_names=tuple(spec.latent_names))
     )
-
-    sites_by_name = {site.name: site for site in active_sites}
-    latent_names = axis_names_with_fallback(
-        ssm_spec.latent_names,
-        expected=ssm_spec.n_latent,
-        prefix="latent",
-    )
-    candidates: dict[str, SemanticBinding] = {}
-
-    def _put(name: str, binding: SemanticBinding) -> None:
-        if name in candidates:
-            raise ValueError(f"Component semantic parameter name {name!r} is ambiguous.")
-        candidates[name] = binding
-
-    for binding in iter_dynamics_semantic_bindings(
-        ssm_spec.dynamics_spec,
-        latent_names=tuple(latent_names),
-    ):
-        site = sites_by_name.get(binding.site_name)
-        if site is None:
-            continue
-        prior_field = binding.prior_field or site.priors_field or site.name
-        _put(
-            binding.parameter_name,
-            replace(binding, site_kind=site.site_kind, prior_field=prior_field),
-        )
-
-    return candidates
-
-
-# ---------------------------------------------------------------------------
-# Role dispatch
-#
-# Every parameter role with a single-axis lookup (rho_*, sigma_*, t0_mean_*,
-# t0_sd_*, cint_*, manifest_mean_*, obs_sd_*) follows the same shape: strip
-# prefix(es), look up the construct in an axis index map, look up the position
-# in a parameter_layout index, attach a binding with optional transform. The
-# only variation is (prefixes, axis, prior_field, layout attr, transform,
-# error message, component-fallback). _SimpleAxisRule encodes that variation.
-#
-# Roles that branch on cause type (FIXED_EFFECT), parse compound names
-# (LOADING, CORRELATION), or use direct site lookups (STATIC_STATE_SD,
-# OBSERVATION_HYPERPARAMETER*, DYNAMICS_PARAMETER*) get dedicated handlers.
-# INITIAL_STATE_CORRELATION runs as a block step after the per-parameter pass
-# because it has its own resolver that handles many parameters at once.
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class _SimpleAxisRule:
-    """Declarative rule for the single-axis prior-binding pattern."""
-
-    prefixes: tuple[str, ...]
-    axis_kind: str  # "latent" or "manifest"
-    prior_field: str | None
-    layout_index_attr: str | None
-    transform: PriorAuthoringTransform = PriorAuthoringTransform.IDENTITY
-    component_fallback_pattern: str | None = None
-    error_template: str | None = None
-
-
-@dataclass
-class _BindingContext:
-    """Mutable state plus helpers shared by every role handler."""
-
-    spec_obj: StatisticalModelSpec
-    ssm_spec: SSMSpec
-    latent_names: list[str]
-    manifest_names: list[str]
-    latent_idx_map: dict[str, int]
-    manifest_idx_map: dict[str, int]
-    input_idx_map: dict[str, int]
-    latent_name_set: set[str]
-    input_name_set: set[str]
-    manifest_name_set: set[str]
-    parameter_layout: SSMParameterLayout
-    active_sites: list[SiteDescriptor]
-    sites_by_name: dict[str, SiteDescriptor]
-    component_candidates: dict[str, SemanticBinding]
-    bindings: dict[str, SemanticBinding] = field(default_factory=dict)
-    errors: list[str] = field(default_factory=list)
-    strict_structure: bool = False
-
-    def site_for_field(self, prior_field: str) -> SiteDescriptor | None:
-        return _site_by_prior_field(self.active_sites, prior_field)
-
-    def add(
-        self,
-        parameter_name: str,
-        site: SiteDescriptor | None,
-        flat_index: int | None,
-        *,
-        transform: PriorAuthoringTransform = PriorAuthoringTransform.IDENTITY,
-        construct_names: tuple[str, ...] = (),
-        indicator_names: tuple[str, ...] = (),
-        effect_idx: int | None = None,
-        cause_idx: int | None = None,
-        error_message: str | None = None,
-    ) -> None:
-        if site is None or flat_index is None:
-            if self.strict_structure and error_message:
-                self.errors.append(error_message)
-            return
-        _add_site_binding(
-            self.bindings,
-            parameter_name,
-            _binding_for_site(
-                parameter=parameter_name,
-                site=site,
-                flat_index=flat_index,
-                transform=transform,
-                construct_names=construct_names,
-                indicator_names=indicator_names,
-                effect_idx=effect_idx,
-                cause_idx=cause_idx,
-            ),
-        )
-
-    def add_site_binding(self, parameter_name: str, binding: SemanticBinding) -> None:
-        _add_site_binding(self.bindings, parameter_name, binding)
-
-
-type SpecialParameterHandler = Callable[[Any, _BindingContext], None]
-
-
-def _split_compound_parameter(
-    compound: str,
-    left_names: set[str],
-    right_names: set[str],
-    *,
-    error_message: str,
-    ctx: _BindingContext,
-) -> tuple[str, str] | None:
-    result = split_compound_name(compound, left_names, right_names)
-    if result is not None:
-        return result
-    if ctx.strict_structure:
-        ctx.errors.append(error_message)
-    else:
-        logger.warning("%s", error_message)
-    return None
-
-
-def _apply_simple_axis_rule(
-    rule: _SimpleAxisRule,
-    parameter: Any,
-    ctx: _BindingContext,
-) -> None:
-    construct = parameter.name
-    for prefix in rule.prefixes:
-        construct = construct.removeprefix(prefix)
-    if rule.component_fallback_pattern is not None:
-        candidate = ctx.component_candidates.get(
-            rule.component_fallback_pattern.format(construct=construct)
-        )
-        if candidate is not None:
-            ctx.add_site_binding(parameter.name, candidate)
-            return
-    if rule.prior_field is None or rule.layout_index_attr is None:
-        if ctx.strict_structure and rule.error_template is not None:
-            ctx.errors.append(rule.error_template.format(param=parameter.name))
-        return
-
-    axis_idx_map = ctx.latent_idx_map if rule.axis_kind == "latent" else ctx.manifest_idx_map
-    axis_idx = axis_idx_map.get(construct)
-    layout_index = getattr(ctx.parameter_layout, rule.layout_index_attr)
-    flat_idx = layout_index.get(axis_idx) if axis_idx is not None else None
-    if flat_idx is not None:
-        ctx.add(
-            parameter.name,
-            ctx.site_for_field(rule.prior_field),
-            flat_idx,
-            transform=rule.transform,
-            construct_names=(construct,),
-        )
-        return
-    if ctx.strict_structure and rule.error_template is not None:
-        ctx.errors.append(rule.error_template.format(param=parameter.name))
-
-
-def _handle_fixed_effect(parameter: Any, ctx: _BindingContext) -> None:
-    compound = parameter.name.removeprefix("beta_")
-    result = _split_compound_parameter(
-        compound,
-        ctx.latent_name_set | ctx.input_name_set,
-        ctx.latent_name_set,
-        error_message=(
-            "Could not parse FIXED_EFFECT parameter "
-            f"{parameter.name!r} into (cause, effect) from known causes "
-            f"{sorted(ctx.latent_name_set | ctx.input_name_set)} and latent effects "
-            f"{sorted(ctx.latent_name_set)}"
-        ),
-        ctx=ctx,
-    )
-    if result is None:
-        return
-    cause_name, effect_name = result
-    effect_idx = ctx.latent_idx_map[effect_name]
-    if cause_name in ctx.input_idx_map:
-        position = (effect_idx, ctx.input_idx_map[cause_name])
-        ctx.add(
-            parameter.name,
-            ctx.site_for_field("input_effect"),
-            ctx.parameter_layout.input_effect_index.get(position),
-            transform=PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE,
-            construct_names=(cause_name, effect_name),
-            effect_idx=effect_idx,
-            error_message=(
-                "FIXED_EFFECT parameter does not correspond to a known-input edge "
-                f"in structural_plan: {parameter.name!r}"
-            ),
-        )
-        return
-    candidate = ctx.component_candidates.get(parameter.name)
-    if candidate is not None:
-        ctx.add_site_binding(parameter.name, candidate)
-    elif ctx.strict_structure:
-        ctx.errors.append(
-            "FIXED_EFFECT parameter does not correspond to an edge in structural_plan: "
-            f"{parameter.name!r}"
-        )
-
-
-def _handle_loading(parameter: Any, ctx: _BindingContext) -> None:
-    compound = parameter.name.removeprefix("lambda_")
-    result = _split_compound_parameter(
-        compound,
-        ctx.manifest_name_set,
-        ctx.latent_name_set,
-        error_message=(
-            "Could not parse LOADING parameter "
-            f"{parameter.name!r} into (indicator, construct) from known manifests "
-            f"{sorted(ctx.manifest_name_set)} / latents {sorted(ctx.latent_name_set)}"
-        ),
-        ctx=ctx,
-    )
-    if result is None:
-        return
-    indicator_name, construct_name = result
-    position = (
-        ctx.manifest_idx_map[indicator_name],
-        ctx.latent_idx_map[construct_name],
-    )
-    ctx.add(
-        parameter.name,
-        ctx.site_for_field("lambda_free"),
-        ctx.parameter_layout.lambda_free_index.get(position),
-        construct_names=(construct_name,),
-        indicator_names=(indicator_name,),
-        error_message=(
-            "LOADING parameter does not correspond to a free loading in structural_plan: "
-            f"{parameter.name!r}"
-        ),
-    )
-
-
-def _handle_static_state_sd(parameter: Any, ctx: _BindingContext) -> None:
-    factor_idx = ctx.parameter_layout.static_factor_name_index.get(parameter.name)
-    flat_idx = (
-        ctx.parameter_layout.static_state_sd_free_index.get(factor_idx)
-        if factor_idx is not None
-        else None
-    )
-    ctx.add(
-        parameter.name,
-        ctx.site_for_field("static_state_sd"),
-        flat_idx,
-        construct_names=tuple(getattr(parameter, "construct_names", ()) or ()),
-        error_message=(
-            "STATIC_STATE_SD parameter does not correspond to a free compiled "
-            f"baseline-factor scale: {parameter.name!r}"
-        ),
-    )
-
-
-def _handle_observation_hyperparameter(parameter: Any, ctx: _BindingContext) -> None:
-    if parameter.name in {"obs_ordered_base", "obs_ordered_gaps"}:
-        ctx.errors.append(
-            f"Global ordered-logistic prior {parameter.name!r} is not an authorable parameter. "
-            f"Use {parameter.name}_<indicator> for each ordered indicator."
-        )
-        return
-
-    ordered_component_prefixes = (
-        (
-            "obs_ordered_base_",
-            "obs_ordered_base",
-            PriorAuthoringTransform.IDENTITY,
-        ),
-        (
-            "obs_ordered_gaps_",
-            "obs_ordered_gaps",
-            PriorAuthoringTransform.SITE_ROW,
-        ),
-    )
-    for prefix, site_name, transform in ordered_component_prefixes:
-        if not parameter.name.startswith(prefix):
-            continue
-        indicator_name = parameter.name.removeprefix(prefix)
-        manifest_idx = ctx.manifest_idx_map.get(indicator_name)
-        ctx.add(
-            parameter.name,
-            ctx.sites_by_name.get(site_name),
-            manifest_idx,
-            transform=transform,
-            indicator_names=(indicator_name,),
-            error_message=(
-                "Ordered-logistic observation parameter does not correspond to an active "
-                f"manifest component: {parameter.name!r}"
-            ),
-        )
-        return
-
-    site = ctx.sites_by_name.get(parameter.name)
-    if site is not None:
-        ctx.add(
-            parameter.name,
-            site,
-            0,
-            transform=PriorAuthoringTransform.SITE_WIDE,
-        )
-    elif ctx.strict_structure:
-        ctx.errors.append(
-            "Observation hyperparameter does not correspond to an active compiled "
-            f"observation site: {parameter.name!r}"
-        )
-
-
-def _handle_dynamics_parameter(parameter: Any, ctx: _BindingContext) -> None:
-    candidate = ctx.component_candidates.get(parameter.name)
-    if candidate is not None:
-        ctx.add_site_binding(parameter.name, candidate)
-        return
-    site = ctx.sites_by_name.get(parameter.name)
-    if site is not None and site.assembly_group == "dynamics":
-        ctx.add(
-            parameter.name,
-            site,
-            0,
-            transform=(
-                PriorAuthoringTransform.SITE_WIDE
-                if site_size(site.shape) > 1
-                else PriorAuthoringTransform.IDENTITY
-            ),
-        )
-        return
-    ctx.errors.append(
-        f"Dynamics parameter {parameter.name!r} does not correspond to a component-owned "
-        "dynamics sample site."
-    )
-
-
-def _handle_correlation(parameter: Any, ctx: _BindingContext) -> None:
-    if ctx.parameter_layout.n_diffusion_lower <= 0:
-        return
-    compound = parameter.name.removeprefix("cor_")
-    result = _split_compound_parameter(
-        compound,
-        ctx.latent_name_set,
-        ctx.latent_name_set,
-        error_message=(
-            "Could not parse CORRELATION parameter "
-            f"{parameter.name!r} into (state1, state2) from known latents "
-            f"{sorted(ctx.latent_name_set)}"
-        ),
-        ctx=ctx,
-    )
-    if result is None:
-        return
-    state1_name, state2_name = result
-    idx1 = ctx.latent_idx_map[state1_name]
-    idx2 = ctx.latent_idx_map[state2_name]
-    position = (max(idx1, idx2), min(idx1, idx2))
-    ctx.add(
-        parameter.name,
-        ctx.site_for_field("diffusion_offdiag"),
-        ctx.parameter_layout.diffusion_lower_index.get(position),
-        construct_names=(state1_name, state2_name),
-        error_message=(
-            "CORRELATION parameter does not correspond to a modeled latent pair: "
-            f"{parameter.name!r}"
-        ),
-    )
-
-
-def _handle_initial_state_correlation_block(ctx: _BindingContext) -> None:
-    if ctx.parameter_layout.n_t0_correlation <= 0:
-        return
-    try:
-        t0_bindings = resolve_initial_state_correlation_bindings(ctx.latent_names, ctx.spec_obj)
-    except ValueError as exc:
-        if ctx.strict_structure:
-            ctx.errors.append(str(exc))
-        logger.warning("%s", exc)
-        t0_bindings = []
-    for binding in t0_bindings:
-        position = (binding.row, binding.col)
-        ctx.add(
-            binding.parameter_name,
-            ctx.site_for_field("t0_var_offdiag"),
-            ctx.parameter_layout.t0_correlation_index.get(position),
-            transform=PriorAuthoringTransform.INITIAL_STATE_CORRELATION,
-            construct_names=(
-                ctx.latent_names[binding.col],
-                ctx.latent_names[binding.row],
-            ),
-            error_message=(
-                "INITIAL_STATE_CORRELATION parameter does not correspond to a modeled "
-                f"initial-state pair: {binding.parameter_name!r}"
-            ),
-        )
-
-
-_SIMPLE_AXIS_RULES: dict[ParameterRole, _SimpleAxisRule] = {
-    ParameterRole.AR_COEFFICIENT: _SimpleAxisRule(
-        prefixes=("rho_", "ar_"),
-        axis_kind="latent",
-        prior_field=None,
-        layout_index_attr=None,
-        transform=PriorAuthoringTransform.DT_PERSISTENCE_TO_CT_DECAY,
-        component_fallback_pattern="rho_{construct}",
-        error_template=(
-            "AR parameter does not correspond to a free dynamics decay term in "
-            "structural_plan: {param!r}"
-        ),
-    ),
-    ParameterRole.RESIDUAL_SD: _SimpleAxisRule(
-        prefixes=("sigma_",),
-        axis_kind="latent",
-        prior_field="diffusion_diag",
-        layout_index_attr="diffusion_diag_index",
-        error_template=(
-            "RESIDUAL_SD parameter does not correspond to a free diffusion "
-            "diagonal term in structural_plan: {param!r}"
-        ),
-    ),
-    ParameterRole.INITIAL_STATE_MEAN: _SimpleAxisRule(
-        prefixes=("t0_mean_",),
-        axis_kind="latent",
-        prior_field="t0_means",
-        layout_index_attr="t0_means_free_index",
-        error_template=(
-            "INITIAL_STATE_MEAN parameter does not correspond to a free initial-state "
-            "mean in structural_plan: {param!r}"
-        ),
-    ),
-    ParameterRole.INITIAL_STATE_SD: _SimpleAxisRule(
-        prefixes=("t0_sd_",),
-        axis_kind="latent",
-        prior_field="t0_var_diag",
-        layout_index_attr="t0_diag_free_index",
-        error_template=(
-            "INITIAL_STATE_SD parameter does not correspond to a free initial-state "
-            "standard deviation in structural_plan: {param!r}"
-        ),
-    ),
-    ParameterRole.STATE_INTERCEPT: _SimpleAxisRule(
-        prefixes=("cint_",),
-        axis_kind="latent",
-        prior_field=None,
-        layout_index_attr=None,
-        component_fallback_pattern="cint_{construct}",
-        error_template=(
-            "STATE_INTERCEPT parameter does not correspond to a free continuous-time "
-            "intercept in structural_plan: {param!r}"
-        ),
-    ),
-    ParameterRole.OBSERVATION_INTERCEPT: _SimpleAxisRule(
-        prefixes=("manifest_mean_",),
-        axis_kind="manifest",
-        prior_field="manifest_means",
-        layout_index_attr="manifest_means_free_index",
-        error_template=(
-            "OBSERVATION_INTERCEPT parameter does not correspond to a free manifest "
-            "intercept in structural_plan: {param!r}"
-        ),
-    ),
-    ParameterRole.MEASUREMENT_ERROR_SD: _SimpleAxisRule(
-        prefixes=("obs_sd_",),
-        axis_kind="manifest",
-        prior_field="manifest_var_diag",
-        layout_index_attr="manifest_var_free_index",
-        error_template=(
-            "MEASUREMENT_ERROR_SD parameter does not correspond to a free manifest "
-            "noise term in structural_plan: {param!r}"
-        ),
-    ),
-}
-
-
-_SPECIAL_HANDLERS: dict[ParameterRole, SpecialParameterHandler] = {
-    ParameterRole.FIXED_EFFECT: _handle_fixed_effect,
-    ParameterRole.LOADING: _handle_loading,
-    ParameterRole.STATIC_STATE_SD: _handle_static_state_sd,
-    ParameterRole.OBSERVATION_HYPERPARAMETER: _handle_observation_hyperparameter,
-    ParameterRole.OBSERVATION_HYPERPARAMETER_POSITIVE: _handle_observation_hyperparameter,
-    ParameterRole.DYNAMICS_PARAMETER: _handle_dynamics_parameter,
-    ParameterRole.DYNAMICS_PARAMETER_POSITIVE: _handle_dynamics_parameter,
-    ParameterRole.CORRELATION: _handle_correlation,
-}
-
-
-# Role groups, processed in this order. Within a group, parameters are visited
-# in source order — preserving the original ordering of error messages when a
-# group covers multiple ParameterRole members (DYNAMICS_*, OBS_HYPER_*).
-_ROLE_PROCESSING_GROUPS: tuple[tuple[ParameterRole, ...], ...] = (
-    (ParameterRole.AR_COEFFICIENT,),
-    (ParameterRole.RESIDUAL_SD,),
-    (ParameterRole.INITIAL_STATE_MEAN,),
-    (ParameterRole.INITIAL_STATE_SD,),
-    (ParameterRole.STATE_INTERCEPT,),
-    (ParameterRole.FIXED_EFFECT,),
-    (ParameterRole.LOADING,),
-    (ParameterRole.OBSERVATION_INTERCEPT,),
-    (ParameterRole.MEASUREMENT_ERROR_SD,),
-    (ParameterRole.STATIC_STATE_SD,),
-    (
-        ParameterRole.OBSERVATION_HYPERPARAMETER,
-        ParameterRole.OBSERVATION_HYPERPARAMETER_POSITIVE,
-    ),
-    (
-        ParameterRole.DYNAMICS_PARAMETER,
-        ParameterRole.DYNAMICS_PARAMETER_POSITIVE,
-    ),
-    (ParameterRole.CORRELATION,),
-)
-
-
-def _dispatch_parameter(parameter: Any, ctx: _BindingContext) -> None:
-    rule = _SIMPLE_AXIS_RULES.get(parameter.role)
-    if rule is not None:
-        _apply_simple_axis_rule(rule, parameter, ctx)
-        return
-    handler = _SPECIAL_HANDLERS.get(parameter.role)
-    if handler is not None:
-        handler(parameter, ctx)
+    result = {}
+    for parameter in model.parameters:
+        matches = {
+            (binding.site_name, binding.flat_index): binding
+            for binding in candidates
+            if binding.site_kind == parameter.quantity
+            and owner_ids(binding) == _owners(parameter, "construct")
+            and matches_edge(binding, parameter)
+        }
+        if len(matches) > 1:
+            raise ValueError(f"Parameter {parameter.id!r} targets multiple native dynamics sites")
+        if matches:
+            result[parameter.id] = replace(
+                next(iter(matches.values())),
+                parameter_name=parameter.name,
+                transform=parameter.prior_transform,
+            )
+    return result
 
 
 def build_semantic_prior_bindings(
@@ -668,87 +104,101 @@ def build_semantic_prior_bindings(
     *,
     structural_plan: StructuralPlan | None = None,
 ) -> SemanticBindingRegistry:
-    """Build parameter-name -> compiled sample-site bindings."""
-    latent_names = axis_names_with_fallback(
-        ssm_spec.latent_names,
-        expected=ssm_spec.n_latent,
-        prefix="latent",
-    )
-    manifest_names = axis_names_with_fallback(
-        ssm_spec.manifest_names,
-        expected=ssm_spec.n_manifest,
-        prefix="manifest",
-    )
-    latent_idx_map = {name: idx for idx, name in enumerate(latent_names)}
-    manifest_idx_map = {name: idx for idx, name in enumerate(manifest_names)}
-    input_names = ssm_spec.input_names or []
-    input_idx_map = {name: idx for idx, name in enumerate(input_names)}
-    parameter_layout = SSMParameterLayout.from_spec(ssm_spec)
-    active_sites = build_site_registry(ssm_spec)
-    sites_by_name = {site.name: site for site in active_sites}
-    component_candidates = _component_binding_candidates(ssm_spec, active_sites)
+    """Bind by mechanism coefficient references, quantities, and scientific owner IDs."""
+    from nof1_causal_lab.models.ssm.compile.parameter_identity import SHARED_OBSERVATION_FAMILIES
 
-    ctx = _BindingContext(
-        spec_obj=statistical_model_spec,
-        ssm_spec=ssm_spec,
-        latent_names=latent_names,
-        manifest_names=manifest_names,
-        latent_idx_map=latent_idx_map,
-        manifest_idx_map=manifest_idx_map,
-        input_idx_map=input_idx_map,
-        latent_name_set=set(latent_idx_map),
-        input_name_set=set(input_idx_map),
-        manifest_name_set=set(manifest_idx_map),
-        parameter_layout=parameter_layout,
-        active_sites=active_sites,
-        sites_by_name=sites_by_name,
-        component_candidates=component_candidates,
-        strict_structure=structural_plan is not None,
-    )
+    bindings = _native_dynamics_bindings(ssm_spec, statistical_model_spec, structural_plan)
+    latent = _axis(ssm_spec.latent_ids, ssm_spec.n_latent, "latent")
+    manifest = _axis(ssm_spec.manifest_ids, ssm_spec.n_manifest, "manifest")
+    inputs = _axis(ssm_spec.input_ids, ssm_spec.input_effect_block.n_cols, "input")
+    sites = build_site_registry(ssm_spec)
+    errors: list[str] = []
+    latent_names = ssm_spec.latent_names
+    manifest_names = ssm_spec.manifest_names
+    assert latent_names is not None
+    assert manifest_names is not None
 
-    for role_group in _ROLE_PROCESSING_GROUPS:
-        role_set = frozenset(role_group)
-        for parameter in statistical_model_spec.parameters:
-            if parameter.role not in role_set:
-                continue
-            _dispatch_parameter(parameter, ctx)
-
-    _handle_initial_state_correlation_block(ctx)
-
-    if ctx.errors:
-        raise PriorIndexingError(ctx.errors)
-
-    return SemanticBindingRegistry(tuple(ctx.bindings[name] for name in sorted(ctx.bindings)))
-
-
-def check_backward_closure(
-    ssm_spec: SSMSpec,
-    bindings: SemanticBindingRegistry,
-) -> list[str]:
-    """Check that every non-likelihood free runtime site scalar has one semantic owner."""
-    active_sites = build_site_registry(ssm_spec)
-    bound_counts: dict[str, int] = {}
-    for binding in bindings.bindings:
-        if binding.transform == PriorAuthoringTransform.SITE_WIDE:
-            site = next(site for site in active_sites if site.name == binding.site_name)
-            bound_counts[binding.site_name] = bound_counts.get(binding.site_name, 0) + site_size(
-                site.shape
+    for parameter in statistical_model_spec.parameters:
+        if parameter.id in bindings:
+            continue
+        kind = parameter.quantity
+        matches: list[tuple[SiteDescriptor, int]] = []
+        construct_ids = _owners(parameter, "construct")
+        indicator_ids = _owners(parameter, "indicator")
+        state_indices = {latent[key] for key in construct_ids if key in latent}
+        indicator_indices = {manifest[key] for key in indicator_ids if key in manifest}
+        input_indices = {inputs[key] for key in construct_ids if key in inputs}
+        position: SitePosition | None = None
+        transform = parameter.prior_transform
+        if kind in SHARED_OBSERVATION_FAMILIES:
+            matches = [(site, 0) for site in sites if site.site_kind == kind]
+            transform = PriorAuthoringTransform.SITE_WIDE
+        elif kind in {SiteKind.OBS_ORDERED_BASE, SiteKind.OBS_ORDERED_GAPS}:
+            if len(indicator_indices) == 1:
+                matches = [
+                    (site, next(iter(indicator_indices)))
+                    for site in sites
+                    if site.site_kind == kind
+                ]
+            transform = (
+                PriorAuthoringTransform.SITE_ROW
+                if kind == SiteKind.OBS_ORDERED_GAPS
+                else PriorAuthoringTransform.IDENTITY
             )
         else:
-            bound_counts[binding.site_name] = bound_counts.get(binding.site_name, 0) + 1
-
-    violations: list[str] = []
-    for site in active_sites:
-        if site.assembly_group == "likelihood":
-            continue
-        n_free = site_size(site.shape)
-        n_bound = bound_counts.get(site.name, 0)
-        if n_free != n_bound:
-            violations.append(
-                f"Backward closure violation in {site.name}: {n_free} free site(s), "
-                f"{n_bound} bound parameter(s)"
+            if kind == SiteKind.STATIC_STATE_SD:
+                if (
+                    ssm_spec.static_factor_ids is not None
+                    and parameter.id in ssm_spec.static_factor_ids
+                ):
+                    position = ssm_spec.static_factor_ids.index(parameter.id)
+            elif kind == SiteKind.LOADING:
+                if len(indicator_indices) == 1 and len(state_indices) == 1:
+                    position = (next(iter(indicator_indices)), next(iter(state_indices)))
+            elif kind == SiteKind.INPUT_EFFECT:
+                if len(state_indices) == 1 and len(input_indices) == 1:
+                    position = (next(iter(state_indices)), next(iter(input_indices)))
+            elif kind in {SiteKind.DIFFUSION_LOWER, SiteKind.T0_VAR_LOWER}:
+                if len(state_indices) == 2:
+                    position = (max(state_indices), min(state_indices))
+            elif kind in {SiteKind.MANIFEST_MEANS, SiteKind.MANIFEST_VAR_DIAG}:
+                if len(indicator_indices) == 1:
+                    position = next(iter(indicator_indices))
+            elif (
+                kind in {SiteKind.DIFFUSION_DIAG, SiteKind.T0_MEANS, SiteKind.T0_VAR_DIAG}
+                and len(state_indices) == 1
+            ):
+                position = next(iter(state_indices))
+            if position is not None:
+                matches = [
+                    (site, index)
+                    for site in sites
+                    if site.site_kind == kind
+                    for index, candidate in enumerate(site.positions)
+                    if candidate == position
+                ]
+        if len(matches) != 1:
+            errors.append(
+                f"Parameter {parameter.name!r} ({parameter.id}, {kind.value}) must bind to "
+                f"one active site through its scientific owners; found {len(matches)}"
             )
-    return violations
+            continue
+        site, flat_index = matches[0]
+        bindings[parameter.id] = SemanticBinding(
+            parameter_name=parameter.name,
+            site_name=site.name,
+            prior_field=site.priors_field,
+            flat_index=flat_index,
+            site_kind=kind,
+            transform=transform,
+            construct_names=tuple(latent_names[index] for index in sorted(state_indices))
+            + tuple((ssm_spec.input_names or [])[index] for index in sorted(input_indices)),
+            indicator_names=tuple(manifest_names[index] for index in sorted(indicator_indices)),
+            effect_idx=next(iter(state_indices)) if kind == SiteKind.INPUT_EFFECT else None,
+        )
+    if errors:
+        raise PriorIndexingError(errors)
+    return SemanticBindingRegistry(bindings)
 
 
 __all__ = [
@@ -757,6 +207,5 @@ __all__ = [
     "SemanticBinding",
     "SemanticBindingRegistry",
     "build_semantic_prior_bindings",
-    "check_backward_closure",
     "empty_prior_bindings",
 ]

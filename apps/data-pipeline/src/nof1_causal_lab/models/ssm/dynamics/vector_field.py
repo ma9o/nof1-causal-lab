@@ -129,29 +129,3 @@ class VectorField(eqx.Module):
         for component, slice_params in zip(self.components, args.params, strict=True):
             accumulator = component.contribute(accumulator, eta, eta_eff, t, slice_params)
         return accumulator
-
-    def linearize(
-        self,
-        x_lin: Float[Array, " D"],
-        args: VectorFieldArgs,
-        t: Array | None = None,
-    ) -> tuple[Float[Array, "D D"], Float[Array, " D"]]:
-        """Local affine approximation ``f(t, x, args) ≈ A · x + b`` near ``x_lin``.
-
-        ``A`` is the Jacobian ``∂f/∂x`` evaluated at ``x_lin`` via
-        ``jax.jacfwd``; ``b = f(x_lin) - A · x_lin`` is the implied
-        intercept. For a single ``DenseLinear`` component without
-        intervention, ``A`` equals ``params['drift']`` and ``b`` equals
-        ``params['cint']`` exactly. For non-linear components (Hill,
-        Multiplicative, ...) the Jacobian falls out of autodiff.
-
-        This is the seam through which the existing CT→DT expm
-        discretization extends to non-linear vector fields: discretize the
-        locally-linearized system at the filter's current mean estimate.
-        """
-        if t is None:
-            t = jnp.asarray(0.0)
-        f_at_x = self(t, x_lin, args)
-        jacobian = jax.jacfwd(lambda x: self(t, x, args))(x_lin)
-        intercept = f_at_x - jacobian @ x_lin
-        return jacobian, intercept

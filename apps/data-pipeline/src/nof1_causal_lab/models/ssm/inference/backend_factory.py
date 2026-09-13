@@ -5,8 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.execution.contracts import ExecutableSSM
-    from nof1_causal_lab.models.ssm.model import SSMSpec
+    from nof1_causal_lab.models.ssm.model import SSMModel, SSMSpec
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
 
@@ -32,7 +31,7 @@ def build_laplace_backend(
     )
 
 
-def get_laplace_backend(model: ExecutableSSM, n_ieks_iters: int):
+def get_laplace_backend(model: SSMModel, n_ieks_iters: int):
     """Construct or reuse the warmup-only Laplace backend for one model."""
     return model.get_cached_artifact(
         (

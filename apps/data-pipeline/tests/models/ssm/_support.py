@@ -14,7 +14,8 @@ import numpy as np
 import numpyro
 import numpyro.distributions as dist
 
-from nof1_causal_lab.artifacts import LinkFunction
+from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
+from nof1_causal_lab.artifacts.statistical_model_spec import LinkFunction
 from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.ssm import SSMSpec
 from nof1_causal_lab.models.ssm.structure import (
@@ -24,7 +25,6 @@ from nof1_causal_lab.models.ssm.structure import (
     SparseVectorBlockSpec,
     T0CholBlockSpec,
 )
-from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 from tests.ssm_spec_fixtures import (
     default_input_effect_block,
     default_static_state_sd_block,

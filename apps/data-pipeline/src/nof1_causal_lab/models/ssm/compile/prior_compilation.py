@@ -4,28 +4,29 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
+import numpyro.distributions as dist
 import scipy.linalg
 
+from nof1_causal_lab.artifacts.compiled_ssm import CompiledParameterBinding
 from nof1_causal_lab.artifacts.duration import parse_duration_to_hours
+from nof1_causal_lab.artifacts.parameter import (
+    ParameterCoordinate,
+    PriorAuthoringTransform,
+    SiteKind,
+)
 from nof1_causal_lab.artifacts.prior import (
     PriorPathologyCertificate,
     PriorValidationResult,
 )
 from nof1_causal_lab.compilation_errors import AggregatedCompileError
-from nof1_causal_lab.distributions import (
-    PriorDistributionFamily,
-    get_positive_runtime_family_index,
-    get_real_runtime_family_index,
-)
+from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.models.ssm.compile.common import (
     axis_names_with_fallback,
-    normalize_prior_params,
 )
-from nof1_causal_lab.models.ssm.compile.contracts import CompiledParameterBinding
 from nof1_causal_lab.models.ssm.compile.prior_indexing import (
     SemanticBindingRegistry,
     build_semantic_prior_bindings,
@@ -33,28 +34,28 @@ from nof1_causal_lab.models.ssm.compile.prior_indexing import (
 )
 from nof1_causal_lab.models.ssm.compile.spec_translation import get_construct_dt_days
 from nof1_causal_lab.models.ssm.execution.contracts import NUMERICAL_EPSILON
-from nof1_causal_lab.models.ssm.parameterization import SupportClass, build_site_registry
+from nof1_causal_lab.models.ssm.parameterization import build_site_registry
 from nof1_causal_lab.models.ssm.priors import (
-    PriorRegistry,
-    PriorSpec,
     default_prior_for_descriptor,
-    prior_spec_from_normalized_params,
-    prior_spec_to_normalized_params,
+    site_constraint,
+    validate_site_prior,
 )
-from nof1_causal_lab.models.ssm.structure.sites import (
-    PriorAuthoringTransform,
-    SemanticBinding,
-    SiteDescriptor,
-    SiteKind,
-    site_size,
+from nof1_causal_lab.models.ssm.structure.sites import SemanticBinding, SiteDescriptor, site_size
+from nof1_causal_lab.prior_distributions import (
+    batch_prior_distributions,
+    deserialize_distribution,
+    distribution_from_params,
+    interval_effect_to_rate,
+    persistence_to_decay,
+    prior_reference_value,
+    serialize_distribution,
 )
 from nof1_causal_lab.utils.structural_plan import get_model_clock
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from nof1_causal_lab.artifacts.statistical_model_spec import (
         ParameterRole,
+        ParameterSpec,
         StatisticalModelSpec,
     )
     from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
@@ -91,96 +92,28 @@ def _validate_nondegenerate_prior(
     distribution: PriorDistributionFamily | str,
     raw_params: UncheckedJsonObject,
 ) -> list[str]:
-    """Reject Stage-4-authored priors with zero variance or explicit point masses.
-
-    The validator runs on the LLM-authored (raw) params dict so error messages
-    reference what was actually authored. Family-specific positivity checks cover
-    every distribution that ``normalize_prior_params`` accepts.
-    """
-    family_str = (
-        distribution.value
-        if isinstance(distribution, PriorDistributionFamily)
-        else str(distribution)
-    )
-    family_lower = family_str.lower().replace("-", "_")
-    issues: list[str] = []
-
-    def _err(detail: str, suggestion: str = "") -> str:
-        message = f"Prior {parameter!r} ({family_str}): {detail}. {_DEGENERATE_PRIOR_PREAMBLE}"
-        if suggestion:
-            message += " " + suggestion
-        return message
-
-    if family_lower in {"delta", "dirac"}:
+    """Keep the scientific no-point-mass rule; NumPyro validates numeric arguments."""
+    if PriorDistributionFamily(distribution) == PriorDistributionFamily.DELTA:
         return [
-            _err(
-                "Delta/point-mass priors are not supported on the prior surface",
-                "If a parameter must be fixed, change the structural surface instead.",
-            )
+            f"Prior {parameter!r}: Delta/point-mass priors are not supported. {_DEGENERATE_PRIOR_PREAMBLE}"
         ]
-
-    if "value" in raw_params:
-        issues.append(
-            _err(
-                "explicit 'value' fields are not supported on the prior surface",
-                "If you intended to fix the parameter, use the structural surface.",
-            )
+    law = distribution_from_params(distribution, raw_params)
+    # NumPyro's two-sided truncation has no variance property. Its positive
+    # base scale and nonzero truncation interval establish nondegeneracy.
+    variance_scale = (
+        np.minimum(
+            np.asarray(raw_params["sigma"]),
+            np.asarray(raw_params["upper"]) - np.asarray(raw_params["lower"]),
         )
-
-    sigma = raw_params.get("sigma")
-    lower = raw_params.get("lower")
-    upper = raw_params.get("upper")
-    alpha = raw_params.get("alpha")
-    beta = raw_params.get("beta")
-    concentration = raw_params.get("concentration")
-    rate = raw_params.get("rate")
-
-    sigma_families = {
-        "normal",
-        "truncated_normal",
-        "truncatednormal",
-        "half_normal",
-        "halfnormal",
-        "log_normal",
-        "lognormal",
-    }
-    if family_lower in sigma_families and sigma is not None and float(sigma) <= _NONDEGENERATE_TOL:
-        issues.append(_err(f"sigma={float(sigma):.3g} must be strictly positive"))
-
-    bound_families = {"uniform", "truncated_normal", "truncatednormal"}
-    if (
-        family_lower in bound_families
-        and lower is not None
-        and upper is not None
-        and float(upper) - float(lower) <= _NONDEGENERATE_TOL
-    ):
-        issues.append(
-            _err(
-                f"support [{float(lower):.4g}, {float(upper):.4g}] has zero width "
-                f"(lower must be strictly less than upper)",
-                f"For tight belief near {float(lower):.4g}, author a Beta or "
-                "Gamma with small but positive sd, or widen the bounds.",
-            )
-        )
-
-    if family_lower == "beta":
-        if alpha is not None and float(alpha) <= 0.0:
-            issues.append(_err(f"alpha={float(alpha):.3g} must be strictly positive"))
-        if beta is not None and float(beta) <= 0.0:
-            issues.append(_err(f"beta={float(beta):.3g} must be strictly positive"))
-
-    if family_lower == "gamma":
-        if concentration is not None and float(concentration) <= 0.0:
-            issues.append(
-                _err(f"concentration={float(concentration):.3g} must be strictly positive")
-            )
-        if rate is not None and float(rate) <= 0.0:
-            issues.append(_err(f"rate={float(rate):.3g} must be strictly positive"))
-
-    if family_lower == "exponential" and rate is not None and float(rate) <= 0.0:
-        issues.append(_err(f"rate={float(rate):.3g} must be strictly positive"))
-
-    return issues
+        ** 2
+        if PriorDistributionFamily(distribution) == PriorDistributionFamily.TRUNCATED_NORMAL
+        else np.asarray(law.variance)
+    )
+    if np.any(variance_scale <= _NONDEGENERATE_TOL**2):
+        return [
+            f"Prior {parameter!r} must have strictly positive variance. {_DEGENERATE_PRIOR_PREAMBLE}"
+        ]
+    return []
 
 
 class PriorCompilationError(AggregatedCompileError):
@@ -213,7 +146,7 @@ def _decay_bindings(ssm_spec: SSMSpec) -> tuple[SemanticBinding, ...]:
         binding
         for binding in _component_semantic_bindings(ssm_spec)
         if binding.site_kind == SiteKind.DYNAMICS_DECAY
-        and binding.parameter_name.startswith(("rho_", "ar_"))
+        and binding.transform == PriorAuthoringTransform.DT_PERSISTENCE_TO_CT_DECAY
     )
 
 
@@ -228,7 +161,7 @@ def _linear_effect_bindings(
         cause_idx = binding.cause_idx
         if (
             binding.site_kind == SiteKind.DYNAMICS_WEIGHT
-            and binding.parameter_name.startswith("beta_")
+            and binding.transform == PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE
             and effect_idx is not None
             and cause_idx is not None
         ):
@@ -390,11 +323,14 @@ def collect_interval_provenance_warnings(
     *,
     edge_lag_days: dict[tuple[int, int], float] | None = None,
     raw_priors: dict[str, UncheckedJsonObject] | None = None,
+    authored_bindings: SemanticBindingRegistry | None = None,
 ) -> list[CompileDiagnostic]:
     """Collect deterministic interval-authoring diagnostics for lagged dynamics priors."""
     edge_lags = edge_lag_days or {}
-    if not edge_lags:
+    if not edge_lags or not raw_priors:
         return []
+    if authored_bindings is None:
+        raise ValueError("Prior interval provenance requires explicit parameter-ID bindings")
 
     latent_names = axis_names_with_fallback(
         ssm_spec.latent_names,
@@ -403,15 +339,21 @@ def collect_interval_provenance_warnings(
     )
     warnings: list[CompileDiagnostic] = []
 
-    for binding, effect_idx, cause_idx in _linear_effect_bindings(ssm_spec):
-        if (effect_idx, cause_idx) not in edge_lags:
+    for parameter_id, binding in authored_bindings.by_parameter.items():
+        effect_idx, cause_idx = binding.effect_idx, binding.cause_idx
+        if (
+            binding.transform != PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE
+            or effect_idx is None
+            or cause_idx is None
+            or (effect_idx, cause_idx) not in edge_lags
+        ):
             continue
 
         parameter_name = binding.parameter_name
         cause_name = latent_names[cause_idx]
         effect_name = latent_names[effect_idx]
         expected_lag_days = edge_lags[(effect_idx, cause_idx)]
-        prior_spec = (raw_priors or {}).get(parameter_name) or {}
+        prior_spec = raw_priors[parameter_id]
         ref_days = prior_spec.get("reference_interval_days")
         source_intervals = _collect_source_intervals(prior_spec)
         if not source_intervals:
@@ -491,7 +433,8 @@ def collect_compile_diagnostics(
     *,
     edge_lag_days: dict[tuple[int, int], float] | None = None,
     raw_priors: dict[str, UncheckedJsonObject] | None = None,
-    prior_registry: PriorRegistry | None = None,
+    authored_bindings: SemanticBindingRegistry | None = None,
+    prior_registry: dict[str, dist.Distribution] | None = None,
     offdiag_interval_days: dict[tuple[int, int], float] | None = None,
 ) -> list[CompileDiagnostic]:
     """Collect structured compiler diagnostics for downstream consumers."""
@@ -499,6 +442,7 @@ def collect_compile_diagnostics(
         ssm_spec,
         edge_lag_days=edge_lag_days,
         raw_priors=raw_priors,
+        authored_bindings=authored_bindings,
     )
     if prior_registry is not None:
         diagnostics.extend(
@@ -518,7 +462,7 @@ def _log_compile_diagnostics(diagnostics: list[CompileDiagnostic]) -> None:
 
 
 def collect_first_order_approximation_warnings(
-    prior_registry: PriorRegistry,
+    prior_registry: dict[str, dist.Distribution],
     *,
     ssm_spec: SSMSpec | None = None,
     edge_lag_days: dict[tuple[int, int], float] | None = None,
@@ -527,7 +471,7 @@ def collect_first_order_approximation_warnings(
     """Return warnings when exact matrix-log DT->CT diagnostics diverge from beta/dt."""
     if ssm_spec is None:
         return []
-    taylor_drift = _assemble_mean_drift_from_component_priors(prior_registry, ssm_spec)
+    taylor_drift = _assemble_reference_drift_from_component_priors(prior_registry, ssm_spec)
     if taylor_drift is None:
         return []
 
@@ -557,10 +501,10 @@ def collect_first_order_approximation_warnings(
         prefix="latent",
     )
     for binding, effect_idx, cause_idx in _linear_effect_bindings(ssm_spec):
-        prior = _prior_for_site(prior_registry, binding.site_name)
+        prior = prior_registry.get(binding.site_name)
         if prior is None:
             continue
-        offdiag_mu = _prior_values_1d(prior.params.get("mu"))
+        offdiag_mu = np.asarray(prior_reference_value(prior)).reshape(-1)
         if offdiag_mu.size == 0:
             continue
         offdiag_value = _value_at(offdiag_mu, binding.flat_index, default=0.0)
@@ -640,13 +584,6 @@ def collect_first_order_approximation_warnings(
     return warnings
 
 
-def _prior_values_1d(value: Any) -> np.ndarray:
-    if value is None:
-        return np.asarray([], dtype=float)
-    array = np.asarray(value if isinstance(value, list | tuple) else [value], dtype=float)
-    return array.reshape(-1)
-
-
 def _value_at(values: np.ndarray, flat_index: int, *, default: float) -> float:
     if values.size == 0:
         return float(default)
@@ -657,66 +594,19 @@ def _value_at(values: np.ndarray, flat_index: int, *, default: float) -> float:
     return float(default)
 
 
-def _prior_param_values(
-    params: Mapping[str, Any], key: str, *, n: int, default: float
-) -> np.ndarray:
-    values = _prior_values_1d(params.get(key))
-    if values.size == 0:
-        return np.full(n, default, dtype=float)
-    if values.size == 1:
-        return np.full(n, float(values[0]), dtype=float)
-    if values.size != n:
-        raise ValueError(f"Prior field {key!r} has {values.size} values; expected {n}.")
-    return values.astype(float)
-
-
-def _positive_prior_mean_values(prior: PriorSpec) -> np.ndarray:
-    params = prior.params
-    sizes = [
-        _prior_values_1d(params.get(key)).size
-        for key in ("sigma", "mu", "loc", "concentration", "rate", "value")
-    ]
-    n = max(sizes, default=0)
-    if n == 0:
-        return np.asarray([], dtype=float)
-
-    scale = _prior_param_values(params, "sigma", n=n, default=1.0)
-    loc_key = "mu" if "mu" in params else "loc"
-    loc = _prior_param_values(params, loc_key, n=n, default=0.0)
-    concentration = _prior_param_values(params, "concentration", n=n, default=1.0)
-    rate = _prior_param_values(params, "rate", n=n, default=1.0)
-    value = _prior_param_values(params, "value", n=n, default=1.0)
-
-    means = np.empty(n, dtype=float)
-    for idx in range(n):
-        if prior.family == PriorDistributionFamily.HALF_NORMAL:
-            means[idx] = scale[idx] * math.sqrt(2.0 / math.pi)
-        elif prior.family == PriorDistributionFamily.GAMMA:
-            means[idx] = concentration[idx] / rate[idx]
-        elif prior.family == PriorDistributionFamily.LOG_NORMAL:
-            means[idx] = math.exp(loc[idx] + 0.5 * scale[idx] ** 2)
-        elif prior.family == PriorDistributionFamily.EXPONENTIAL:
-            means[idx] = 1.0 / rate[idx]
-        elif prior.family == PriorDistributionFamily.DELTA:
-            means[idx] = value[idx]
-        else:
-            raise ValueError(f"Unsupported positive prior family {prior.family.value!r}.")
-    return means
-
-
-def _assemble_mean_drift_from_component_priors(
-    prior_registry: PriorRegistry,
+def _assemble_reference_drift_from_component_priors(
+    prior_registry: dict[str, dist.Distribution],
     ssm_spec: SSMSpec,
 ) -> np.ndarray | None:
     drift = np.zeros((ssm_spec.n_latent, ssm_spec.n_latent), dtype=float)
     populated = False
 
     for binding in _decay_bindings(ssm_spec):
-        prior = _prior_for_site(prior_registry, binding.site_name)
+        prior = prior_registry.get(binding.site_name)
         latent_idx = _binding_latent_index(binding, ssm_spec)
         if prior is None or latent_idx is None:
             continue
-        decay_mu = _positive_prior_mean_values(prior)
+        decay_mu = np.asarray(prior_reference_value(prior)).reshape(-1)
         if decay_mu.size == 0:
             continue
         drift[latent_idx, latent_idx] = -_value_at(
@@ -727,10 +617,10 @@ def _assemble_mean_drift_from_component_priors(
         populated = True
 
     for binding, effect_idx, cause_idx in _linear_effect_bindings(ssm_spec):
-        prior = _prior_for_site(prior_registry, binding.site_name)
+        prior = prior_registry.get(binding.site_name)
         if prior is None:
             continue
-        weight_mu = _prior_values_1d(prior.params.get("mu"))
+        weight_mu = np.asarray(prior_reference_value(prior)).reshape(-1)
         if weight_mu.size == 0:
             continue
         drift[effect_idx, cause_idx] = _value_at(
@@ -802,191 +692,27 @@ def _collect_role_lookup(
         return role_by_name
 
     for parameter in statistical_model_spec.parameters:
-        role_by_name[parameter.name] = parameter.role
+        role_by_name[parameter.id] = parameter.role
     return role_by_name
 
 
-def _append_structured_prior(
-    per_element: dict[str, list[tuple[int, dict[str, float | int]]]],
-    attr: str,
-    idx: int,
-    normalized: dict[str, float | int],
-) -> None:
-    per_element.setdefault(attr, []).append((idx, normalized))
-
-
-def _build_site_prior_payload(
-    site: SiteDescriptor,
-    entries: list[tuple[int, dict[str, float | int]]],
-    current: dict[str, float | int],
-) -> UncheckedJsonObject:
-    """Build an array-valued prior payload keyed by one unique sample site."""
-    if not entries:
-        raise ValueError(
-            f"_build_site_prior_payload({site.name!r}) called with no entries; "
-            "callers must filter out fields without any bound prior before invoking."
-        )
-    n_total = site_size(site.shape)
-
-    include_mu = "mu" in current or any("mu" in normalized for _, normalized in entries)
-    include_sigma = "sigma" in current or any("sigma" in normalized for _, normalized in entries)
-    include_loc = "loc" in current or any("loc" in normalized for _, normalized in entries)
-    include_family = "family" in current or any("family" in normalized for _, normalized in entries)
-    include_lower = "lower" in current or any("lower" in normalized for _, normalized in entries)
-    include_upper = "upper" in current or any("upper" in normalized for _, normalized in entries)
-    include_concentration = "concentration" in current or any(
-        "concentration" in normalized for _, normalized in entries
-    )
-    include_rate = "rate" in current or any("rate" in normalized for _, normalized in entries)
-    include_value = "value" in current or any("value" in normalized for _, normalized in entries)
-
-    lower_indices = {idx for idx, normalized in entries if "lower" in normalized}
-    upper_indices = {idx for idx, normalized in entries if "upper" in normalized}
-    all_indices = set(range(n_total))
-
-    if include_lower and "lower" not in current and lower_indices != all_indices:
-        raise ValueError(
-            f"_build_site_prior_payload({site.name!r}): some entries specify 'lower' but no "
-            "baseline was provided in the prior default. Provide a default 'lower' in current, "
-            "or ensure every entry specifies one."
-        )
-    if include_upper and "upper" not in current and upper_indices != all_indices:
-        raise ValueError(
-            f"_build_site_prior_payload({site.name!r}): some entries specify 'upper' but no "
-            "baseline was provided in the prior default."
-        )
-
-    mu_arr = [float(current.get("mu", 0.0))] * n_total if include_mu else None
-    sigma_arr = [float(current.get("sigma", 0.5))] * n_total if include_sigma else None
-    loc_arr = [float(current.get("loc", 0.0))] * n_total if include_loc else None
-    family_arr = [int(current.get("family", 0))] * n_total if include_family else None
-    lower_default = None
-    if include_lower:
-        lower_default = (
-            float(current["lower"])
-            if "lower" in current
-            else float(
-                next(normalized["lower"] for _, normalized in entries if "lower" in normalized)
-            )
-        )
-    upper_default = None
-    if include_upper:
-        upper_default = (
-            float(current["upper"])
-            if "upper" in current
-            else float(
-                next(normalized["upper"] for _, normalized in entries if "upper" in normalized)
-            )
-        )
-    lower_arr = [lower_default] * n_total if include_lower else None
-    upper_arr = [upper_default] * n_total if include_upper else None
-    concentration_arr = (
-        [float(current.get("concentration", 1.0))] * n_total if include_concentration else None
-    )
-    rate_arr = [float(current.get("rate", 1.0))] * n_total if include_rate else None
-    value_arr = [float(current.get("value", 1.0))] * n_total if include_value else None
-
-    for idx, normalized in entries:
-        if idx < 0 or idx >= n_total:
-            raise ValueError(
-                f"Prior binding for site {site.name!r} has flat index {idx}; "
-                f"expected 0 <= index < {n_total}."
-            )
-        if "mu" in normalized and mu_arr is not None:
-            mu_arr[idx] = float(normalized["mu"])
-        if "sigma" in normalized and sigma_arr is not None:
-            sigma_arr[idx] = float(normalized["sigma"])
-        if "loc" in normalized and loc_arr is not None:
-            loc_arr[idx] = float(normalized["loc"])
-        if "family" in normalized and family_arr is not None:
-            family_arr[idx] = int(normalized["family"])
-        if "lower" in normalized and lower_arr is not None:
-            lower_arr[idx] = float(normalized["lower"])
-        if "upper" in normalized and upper_arr is not None:
-            upper_arr[idx] = float(normalized["upper"])
-        if "concentration" in normalized and concentration_arr is not None:
-            concentration_arr[idx] = float(normalized["concentration"])
-        if "rate" in normalized and rate_arr is not None:
-            rate_arr[idx] = float(normalized["rate"])
-        if "value" in normalized and value_arr is not None:
-            value_arr[idx] = float(normalized["value"])
-
-    def _scalar_or_site_shape(values: list[Any]) -> Any:
-        if site.shape == ():
-            return values[0]
-        return np.asarray(values).reshape(site.shape).tolist()
-
-    result: UncheckedJsonObject = {}
-    if mu_arr is not None:
-        result["mu"] = _scalar_or_site_shape(mu_arr)
-    if sigma_arr is not None:
-        result["sigma"] = _scalar_or_site_shape(sigma_arr)
-    if loc_arr is not None:
-        result["loc"] = _scalar_or_site_shape(loc_arr)
-    if family_arr is not None:
-        result["family"] = _scalar_or_site_shape(family_arr)
-    if lower_arr is not None:
-        result["lower"] = _scalar_or_site_shape(lower_arr)
-    if upper_arr is not None:
-        result["upper"] = _scalar_or_site_shape(upper_arr)
-    if concentration_arr is not None:
-        result["concentration"] = _scalar_or_site_shape(concentration_arr)
-    if rate_arr is not None:
-        result["rate"] = _scalar_or_site_shape(rate_arr)
-    if value_arr is not None:
-        result["value"] = _scalar_or_site_shape(value_arr)
-    return result
-
-
-def _support_name(support: SupportClass) -> str:
-    if support == SupportClass.POSITIVE:
-        return "positive"
-    if support == SupportClass.CORRELATION:
-        return "correlation"
-    return "real"
-
-
-def _normalized_params_for_site_prior(support: SupportClass, prior: PriorSpec):
-    normalized = prior_spec_to_normalized_params(prior)
-    if support == SupportClass.POSITIVE:
-        if prior.family != PriorDistributionFamily.HALF_NORMAL:
-            normalized["family"] = get_positive_runtime_family_index(prior.family)
-        return normalized
-    if prior.family != PriorDistributionFamily.NORMAL:
-        normalized["family"] = get_real_runtime_family_index(prior.family)
-    elif support == SupportClass.CORRELATION:
-        normalized["family"] = get_real_runtime_family_index(
-            PriorDistributionFamily.TRUNCATED_NORMAL
-        )
-    return normalized
-
-
-def _site_prior_from_normalized(
-    support: SupportClass,
-    normalized: UncheckedJsonObject,
-) -> PriorSpec:
-    return prior_spec_from_normalized_params(normalized, support=_support_name(support))
-
-
-def _prior_for_site(registry: PriorRegistry, site_name: str) -> PriorSpec | None:
-    return registry.priors_by_site.get(site_name)
-
-
-def _coerce_initial_state_correlation_prior(
-    normalized: dict[str, float | int],
-) -> dict[str, float | int]:
-    """Interpret authored initial-state priors on the correlation scale."""
-    coerced = dict(normalized)
-    lower = max(float(coerced.get("lower", -1.0)), -1.0)
-    upper = min(float(coerced.get("upper", 1.0)), 1.0)
-    if lower >= upper:
-        raise ValueError(
-            "Initial-state correlation priors must have bounds within [-1, 1] "
-            f"with lower < upper; got lower={lower}, upper={upper}."
-        )
-    coerced["lower"] = lower
-    coerced["upper"] = upper
-    return coerced
+def _correlation_prior(prior: dist.Distribution) -> dist.Distribution:
+    """Apply the declared correlation domain to Normal and bounded priors."""
+    if isinstance(prior, dist.Normal):
+        return dist.TruncatedNormal(prior.loc, prior.scale, low=-1.0, high=1.0)
+    if isinstance(prior, dist.TwoSidedTruncatedDistribution):
+        low = np.maximum(np.asarray(prior.low), -1.0)
+        high = np.minimum(np.asarray(prior.high), 1.0)
+        if np.any(low >= high):
+            raise ValueError("Initial-state correlation prior has no support within [-1, 1]")
+        return dist.TruncatedNormal(prior.base_dist.loc, prior.base_dist.scale, low=low, high=high)
+    if isinstance(prior, dist.Uniform):
+        low = np.maximum(np.asarray(prior.low), -1.0)
+        high = np.minimum(np.asarray(prior.high), 1.0)
+        if np.any(low >= high):
+            raise ValueError("Initial-state correlation prior has no support within [-1, 1]")
+        return dist.Uniform(low, high)
+    return prior
 
 
 def compile_priors(
@@ -995,15 +721,29 @@ def compile_priors(
     ssm_spec: SSMSpec | None,
     edge_lag_days: dict[tuple[int, int], float] | None = None,
     structural_plan: StructuralPlan | None = None,
-) -> tuple[PriorRegistry, SemanticBindingRegistry, list[CompileDiagnostic]]:
+) -> tuple[dict[str, dist.Distribution], SemanticBindingRegistry, list[CompileDiagnostic]]:
     """Compile prior proposals into a site-keyed prior registry with explicit index maps."""
     active_sites = build_site_registry(ssm_spec) if ssm_spec is not None else []
-    prior_entries: dict[str, PriorSpec] = {
+    prior_entries: dict[str, dist.Distribution] = {
         site.name: default_prior_for_descriptor(site) for site in active_sites
     }
     site_by_name = {site.name: site for site in active_sites}
     role_by_name = _collect_role_lookup(statistical_model_spec)
-    per_site: dict[str, list[tuple[int, dict[str, float | int]]]] = {}
+    per_site: dict[str, dict[int, dist.Distribution]] = {}
+
+    def attach(site: SiteDescriptor, index: int, prior: dist.Distribution) -> None:
+        if index < 0 or index >= site_size(site.shape):
+            raise ValueError(
+                f"Prior index {index} is outside site {site.name!r} shape {site.shape}"
+            )
+        if prior.batch_shape or prior.event_shape:
+            raise ValueError("Each authored prior must describe one scalar parameter")
+        validate_site_prior(site, prior)
+        values = per_site.setdefault(site.name, {})
+        if index in values:
+            raise ValueError(f"Multiple authored priors bind to {site.name!r} coordinate {index}")
+        values[index] = prior
+
     if statistical_model_spec is not None and ssm_spec is not None:
         bindings = build_semantic_prior_bindings(
             ssm_spec,
@@ -1027,15 +767,15 @@ def compile_priors(
 
     for param_name, prior_spec in raw_priors.items():
         try:
-            distribution = prior_spec.get("distribution", "Normal")
-            raw_prior_params = prior_spec.get("params", {})
+            distribution = prior_spec["distribution"]
+            raw_prior_params = prior_spec["params"]
             degenerate_issues = _validate_nondegenerate_prior(
                 param_name, distribution, raw_prior_params
             )
             if degenerate_issues:
                 errors.extend(degenerate_issues)
                 continue
-            normalized = normalize_prior_params(distribution, raw_prior_params)
+            prior = distribution_from_params(distribution, raw_prior_params)
             binding = binding_by_parameter.get(param_name)
             if binding is None:
                 role = role_by_name.get(param_name)
@@ -1057,10 +797,8 @@ def compile_priors(
                     raise ValueError(
                         f"Prior {param_name!r} maps to inactive site {binding.site_name!r}."
                     )
-                prior_entries[binding.site_name] = _site_prior_from_normalized(
-                    site.support,
-                    dict(normalized),
-                )
+                for index in range(site_size(site.shape)):
+                    attach(site, index, prior)
                 continue
 
             if binding.transform == PriorAuthoringTransform.SITE_ROW:
@@ -1082,16 +820,11 @@ def compile_priors(
                         f"{binding.site_name!r}, which has {n_rows} rows."
                     )
                 for col_idx in range(n_cols):
-                    _append_structured_prior(
-                        per_site,
-                        binding.site_name,
-                        row_idx * n_cols + col_idx,
-                        normalized,
-                    )
+                    attach(site, row_idx * n_cols + col_idx, prior)
                 continue
 
             if binding.transform == PriorAuthoringTransform.DT_PERSISTENCE_TO_CT_DECAY:
-                construct_name = param_name.removeprefix("rho_").removeprefix("ar_")
+                construct_name = binding.construct_names[0]
                 ref_days = prior_spec.get("reference_interval_days")
                 resolved_ref_days = float(ref_days) if ref_days is not None else None
                 if resolved_ref_days is not None and resolved_ref_days <= 0:
@@ -1105,51 +838,10 @@ def compile_priors(
                     if resolved_ref_days is not None
                     else get_construct_dt_days(structural_plan, construct_name)
                 )
-                param_errors: list[str] = []
-                lower = normalized.get("lower")
-                upper = normalized.get("upper")
-                if lower is not None and float(lower) < 0.0:
-                    param_errors.append(
-                        f"AR prior '{param_name}' must be on the DT persistence scale in [0, 1], "
-                        f"but lower bound is {float(lower):.3g}"
-                    )
-                if upper is not None and float(upper) > 1.0:
-                    param_errors.append(
-                        f"AR prior '{param_name}' must be on the DT persistence scale in [0, 1], "
-                        f"but upper bound is {float(upper):.3g}"
-                    )
-
-                mu_ar = float(normalized.get("mu", 0.5))
-                if not 0.0 < mu_ar < 1.0:
-                    param_errors.append(
-                        f"AR prior '{param_name}' location `mu` must lie strictly inside "
-                        f"(0, 1), got {mu_ar:.3g}. `mu` anchors the CT decay via "
-                        f"-ln(mu)/dt (mu=0 is degenerate), so author it as the DT "
-                        f"persistence you expect after one model-clock interval "
-                        f"(e.g. 0.2-0.9) — not as a lower bound of the distribution."
-                    )
-                if param_errors:
-                    errors.extend(param_errors)
-                    continue
-
-                sigma_ar = float(normalized.get("sigma", 0.2))
-                if sigma_ar <= 0.0:
-                    errors.append(
-                        f"AR prior '{param_name}' resolved to non-positive sigma "
-                        f"{sigma_ar:.3g} during compilation."
-                    )
-                    continue
-                ct_decay = -math.log(mu_ar) / dt
-                sd = sigma_ar / (mu_ar * dt)
-                _append_structured_prior(
-                    per_site,
-                    binding.site_name,
+                attach(
+                    site_by_name[binding.site_name],
                     binding.flat_index,
-                    {
-                        "family": get_positive_runtime_family_index(PriorDistributionFamily.GAMMA),
-                        "concentration": (ct_decay / sd) ** 2,
-                        "rate": ct_decay / (sd**2),
-                    },
+                    persistence_to_decay(prior, dt),
                 )
                 continue
 
@@ -1187,32 +879,16 @@ def compile_priors(
                     raise ValueError(
                         f"Dynamics effect prior {param_name!r} is missing effect/cause metadata."
                     )
-                _append_structured_prior(
-                    per_site,
-                    binding.site_name,
+                attach(
+                    site_by_name[binding.site_name],
                     binding.flat_index,
-                    {
-                        "mu": normalized.get("mu", 0.0) / dt,
-                        "sigma": normalized.get("sigma", 0.5) / dt,
-                    },
+                    interval_effect_to_rate(prior, dt),
                 )
                 continue
 
             if binding.transform == PriorAuthoringTransform.INITIAL_STATE_CORRELATION:
-                _append_structured_prior(
-                    per_site,
-                    binding.site_name,
-                    binding.flat_index,
-                    _coerce_initial_state_correlation_prior(normalized),
-                )
-                continue
-
-            _append_structured_prior(
-                per_site,
-                binding.site_name,
-                binding.flat_index,
-                normalized,
-            )
+                prior = _correlation_prior(prior)
+            attach(site_by_name[binding.site_name], binding.flat_index, prior)
         except ValueError as exc:
             errors.append(str(exc))
             continue
@@ -1224,12 +900,17 @@ def compile_priors(
         site = site_by_name.get(site_name)
         if site is None:
             raise ValueError(f"Prior site {site_name!r} maps to no active sample site.")
-        current_prior = prior_entries[site.name]
-        current = _normalized_params_for_site_prior(site.support, current_prior)
-        result = _build_site_prior_payload(site, entries, current)
-        prior_entries[site.name] = _site_prior_from_normalized(site.support, result)
+        coordinates = [
+            deserialize_distribution(recipe)
+            for recipe in serialize_distribution(prior_entries[site.name].expand(site.shape))
+        ]
+        for index, prior in entries.items():
+            coordinates[index] = prior
+        prior_entries[site.name] = batch_prior_distributions(
+            coordinates, site.shape, support=site_constraint(site)
+        )
 
-    prior_registry = PriorRegistry(prior_entries)
+    prior_registry = prior_entries
 
     diagnostics: list[CompileDiagnostic] = []
     if ssm_spec is not None:
@@ -1237,6 +918,7 @@ def compile_priors(
             ssm_spec,
             edge_lag_days=edge_lag_days,
             raw_priors=raw_priors,
+            authored_bindings=bindings,
             prior_registry=prior_registry,
             offdiag_interval_days=offdiag_interval_days,
         )
@@ -1245,21 +927,207 @@ def compile_priors(
     return prior_registry, bindings, diagnostics
 
 
-def bind_parameters(bindings: SemanticBindingRegistry) -> list[CompiledParameterBinding]:
-    """Map semantic parameter names to NumPyro sample sites."""
-    return [
-        CompiledParameterBinding(
-            parameter=binding.parameter_name,
-            site_name=binding.site_name,
-            prior_field=binding.prior_field,
-            flat_index=binding.flat_index,
-            site_kind=binding.site_kind,
-            transform=binding.transform,
-            construct_names=list(binding.construct_names),
-            indicator_names=list(binding.indicator_names),
-            component_index=binding.component_index,
-            effect_idx=binding.effect_idx,
-            cause_idx=binding.cause_idx,
+def bind_parameters(
+    bindings: SemanticBindingRegistry,
+    ssm_spec: SSMSpec,
+    structural_plan: StructuralPlan | None,
+    parameters: list[ParameterSpec],
+) -> tuple[list[ParameterSpec], list[CompiledParameterBinding], list[ParameterCoordinate]]:
+    """Compile scientific definitions into explicit scalar execution bindings."""
+    from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
+    from nof1_causal_lab.artifacts.statistical_model_spec import ParameterSpec
+    from nof1_causal_lab.models.ssm.compile.parameter_identity import (
+        SHARED_OBSERVATION_FAMILIES,
+        component_identity,
+        declare_parameter,
+        validate_parameter_owners,
+    )
+    from nof1_causal_lab.models.ssm.structure.sites import SemanticBinding
+
+    sites = {site.name: site for site in build_site_registry(ssm_spec)}
+    definitions = {parameter.id: parameter for parameter in parameters}
+    all_bindings = dict(bindings.by_parameter)
+    covered_sites = {binding.site_name for binding in all_bindings.values()}
+    # Scalar likelihood defaults are model quantities too: declare them at their
+    # producer, even when no prior was explicitly authored for them.
+    families = SHARED_OBSERVATION_FAMILIES
+    if structural_plan is not None:
+        assert ssm_spec.manifest_names is not None
+        indicator_lookup = {
+            item.name: item for item in structural_plan.semantics.indicators.values()
+        }
+        construct_lookup = structural_plan.semantics.constructs
+        initial_roles = {
+            SiteKind.T0_MEANS: ("t0_mean", "initial_state_mean", "none"),
+            SiteKind.T0_VAR_DIAG: ("t0_sd", "initial_state_sd", "positive"),
+        }
+        occupied = {(binding.site_name, binding.flat_index) for binding in all_bindings.values()}
+        for site in sites.values():
+            if site.site_kind not in initial_roles:
+                continue
+            prefix, role, constraint = initial_roles[site.site_kind]
+            for flat_index, position in enumerate(site.positions):
+                if (site.name, flat_index) in occupied:
+                    continue
+                assert isinstance(position, int)
+                construct = construct_lookup[structural_plan.state_order[position]]
+                candidate = declare_parameter(
+                    {
+                        "name": f"{prefix}_{construct.name}",
+                        "quantity": site.site_kind.value,
+                        "role": role,
+                        "constraint": constraint,
+                        "construct": construct.name,
+                        "description": f"Initial state {prefix} for {construct.name}",
+                    },
+                    structural_plan,
+                )
+                definition = ParameterSpec.model_validate(candidate)
+                definitions[definition.id] = definition
+                all_bindings[definition.id] = SemanticBinding(
+                    parameter_name=definition.name,
+                    site_name=site.name,
+                    flat_index=flat_index,
+                    site_kind=site.site_kind,
+                    prior_field=site.priors_field,
+                    construct_names=(construct.name,),
+                )
+        for site in sites.values():
+            if site.site_kind not in families:
+                continue
+            names = [
+                name
+                for name, family in zip(
+                    ssm_spec.manifest_names, ssm_spec.manifest_dists, strict=True
+                )
+                if family.value == families[site.site_kind]
+            ]
+            positive = site.support.value == "positive"
+            candidate = declare_parameter(
+                {
+                    "name": site.name,
+                    "quantity": site.site_kind.value,
+                    "role": "observation_hyperparameter_positive"
+                    if positive
+                    else "observation_hyperparameter",
+                    "constraint": "positive" if positive else "none",
+                    "description": f"{site.site_kind.value} for {', '.join(names)}",
+                    "indicator_names": names,
+                    "construct_names": [
+                        construct_lookup[indicator_lookup[name].construct_id].name for name in names
+                    ],
+                },
+                structural_plan,
+            )
+            if site.name in covered_sites:
+                parameter_id = next(
+                    key for key, item in all_bindings.items() if item.site_name == site.name
+                )
+                definition = definitions[parameter_id]
+                if definition.id != candidate["id"]:
+                    raise ValueError(
+                        f"Shared parameter {definition.name!r} must own exactly its active likelihood channels"
+                    )
+                continue
+            definition = ParameterSpec.model_validate(candidate)
+            definitions[definition.id] = definition
+            all_bindings[definition.id] = SemanticBinding(
+                parameter_name=site.name,
+                site_name=site.name,
+                flat_index=0,
+                site_kind=site.site_kind,
+                transform=PriorAuthoringTransform.SITE_WIDE,
+                prior_field=site.priors_field,
+                indicator_names=tuple(names),
+                construct_names=tuple(
+                    construct_lookup[indicator_lookup[name].construct_id].name for name in names
+                ),
+            )
+        validate_parameter_owners(list(definitions.values()), structural_plan)
+
+    result = []
+    compiled_definitions = []
+    bound_coordinates = set()
+    auxiliary = []
+    for parameter_id, binding in sorted(all_bindings.items()):
+        definition = definitions[parameter_id]
+        if structural_plan is not None:
+            constructs_by_name = {
+                item.name: item for item in structural_plan.semantics.constructs.values()
+            }
+            indicators_by_name = {
+                item.name: item for item in structural_plan.semantics.indicators.values()
+            }
+            expected_owners = {constructs_by_name[name].id for name in binding.construct_names}
+            expected_owners.update(indicators_by_name[name].id for name in binding.indicator_names)
+            if not expected_owners <= {owner.id for owner in definition.owners}:
+                raise ValueError(
+                    f"Parameter {definition.name!r} scientific owners disagree with its execution binding"
+                )
+        site = sites[binding.site_name]
+        shape = site.shape
+        if definition.quantity != binding.site_kind:
+            raise ValueError(
+                f"Parameter {definition.name!r} declares {definition.quantity.value} but compiles to {binding.site_kind.value}"
+            )
+        if binding.transform == PriorAuthoringTransform.SITE_WIDE:
+            indices = list(np.ndindex(shape))
+        elif binding.transform == PriorAuthoringTransform.SITE_ROW:
+            indices = [(binding.flat_index, column) for column in range(shape[1])]
+        else:
+            indices = [tuple(int(i) for i in np.unravel_index(binding.flat_index, shape))]
+        elements, coordinates = {}, {}
+        for index in indices:
+            coordinate = ParameterCoordinate(site_name=site.name, indices=index)
+            if coordinate in bound_coordinates:
+                raise ValueError(
+                    f"Runtime coordinate {coordinate.label} has multiple scientific owners"
+                )
+            bound_coordinates.add(coordinate)
+            component = component_identity(
+                definition, index, binding, site, ssm_spec, structural_plan
+            )
+            if component is None:
+                auxiliary.append(coordinate)
+                continue
+            element_id, label = component
+            if element_id in elements:
+                raise ValueError(f"Parameter {definition.name!r} has duplicate logical components")
+            elements[element_id] = label
+            coordinates[element_id] = coordinate
+        if not coordinates:
+            continue
+        compiled_definitions.append(
+            definition.model_copy(
+                update={"elements": elements, "prior_transform": binding.transform}
+            )
         )
-        for binding in sorted(bindings.bindings, key=lambda item: item.parameter_name)
-    ]
+        result.append(
+            CompiledParameterBinding(
+                parameter_id=definition.id,
+                coordinates=coordinates,
+                site_name=site.name,
+                prior_field=binding.prior_field,
+                flat_index=binding.flat_index,
+                site_kind=binding.site_kind,
+                transform=binding.transform,
+                construct_names=list(binding.construct_names),
+                indicator_names=list(binding.indicator_names),
+                component_index=binding.component_index,
+                effect_idx=binding.effect_idx,
+                cause_idx=binding.cause_idx,
+            )
+        )
+    # Rectangular likelihood tensors contain padded/unused indicator rows. Their
+    # explicit execution-only status keeps them out of reported scientific findings.
+    for site in sites.values():
+        for index in np.ndindex(site.shape):
+            coordinate = ParameterCoordinate(site_name=site.name, indices=index)
+            if coordinate in bound_coordinates:
+                continue
+            if site.site_kind not in {SiteKind.OBS_ORDERED_BASE, SiteKind.OBS_ORDERED_GAPS}:
+                raise ValueError(
+                    f"Runtime coordinate {coordinate.label} has no scientific parameter definition"
+                )
+            auxiliary.append(coordinate)
+    return compiled_definitions, result, auxiliary

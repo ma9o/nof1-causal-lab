@@ -6,7 +6,7 @@ import pytest
 
 from tests.ssm_spec_fixtures import block_ssm_spec, dense_matrix_dynamics_spec
 
-pytestmark = pytest.mark.slow
+pytestmark = [pytest.mark.slow, pytest.mark.cpu_expensive]
 
 
 def _make_simple_ssm():

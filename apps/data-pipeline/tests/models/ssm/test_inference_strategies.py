@@ -27,26 +27,34 @@ import jax.numpy as jnp
 import jax.random as random
 import numpy as np
 import pytest
+from dynestyx import StochasticContinuousTimeStateEvolution
+from dynestyx.inference.particle_runtime import Parameterization
+from numpyro.distributions import MultivariateNormal
 
-from nof1_causal_lab.artifacts import LinkFunction
+from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
+from nof1_causal_lab.artifacts.statistical_model_spec import LinkFunction
 from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.ssm import SSMModel
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
 from nof1_causal_lab.models.ssm.dynamics.vector_field import VectorField
-from nof1_causal_lab.models.ssm.execution.contracts import (
-    InitialStateParams,
-    LikelihoodExtraParams,
-    MeasurementParams,
-    RuntimeDynamics,
-)
+from nof1_causal_lab.models.ssm.execution.contracts import LikelihoodExtraParams, MeasurementParams
+from nof1_causal_lab.models.ssm.execution.dynamical_model import continuous_state_evolution
 from nof1_causal_lab.models.ssm.execution.emissions import get_mean_param_log_prob_fn
-from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior, fit
-from nof1_causal_lab.models.ssm.inference.backend_factory import get_laplace_backend
-from nof1_causal_lab.models.ssm.inference.bundle import build_particle_runtime_bundle
-from nof1_causal_lab.models.ssm.inference.targets.kernels import (
+from nof1_causal_lab.models.ssm.execution.observation_model import (
     build_observation_kernel,
     compile_observation_model,
 )
+from nof1_causal_lab.models.ssm.execution.observation_operator import (
+    compile_observation_operator,
+    expected_observation_mean,
+    get_point_like_mask,
+    get_summary_operator_codes,
+    get_support_kind_codes,
+    trajectory_observation_log_probs,
+)
+from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior, fit
+from nof1_causal_lab.models.ssm.inference.backend_factory import get_laplace_backend
+from nof1_causal_lab.models.ssm.inference.problem import build_particle_problem
 from nof1_causal_lab.models.ssm.inference.targets.laplace import (
     LaplaceLikelihood,
     _assemble_support_aware_observation_system,
@@ -75,14 +83,7 @@ from nof1_causal_lab.models.ssm.inference.targets.laplace.point import (
 from nof1_causal_lab.models.ssm.inference.targets.laplace.support import (
     _support_aware_laplace_terms_from_mode,
 )
-from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
-    compile_observation_operator,
-    expected_observation_mean,
-    get_point_like_mask,
-    get_summary_operator_codes,
-    get_support_kind_codes,
-    trajectory_observation_log_probs,
-)
+from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
 from nof1_causal_lab.models.ssm.inference.utils import _discover_sites
 from nof1_causal_lab.models.ssm.inference.warmup.map import (
     _build_map_laplace_bundle,
@@ -95,7 +96,6 @@ from nof1_causal_lab.models.ssm.structure import (
     SparseVectorBlockSpec,
     T0CholBlockSpec,
 )
-from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 from tests.ssm_spec_fixtures import (
     block_ssm_spec,
     dense_matrix_dynamics_spec,
@@ -104,9 +104,13 @@ from tests.ssm_spec_fixtures import (
 )
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.inference.bundle import ParticleRuntimeBundle
+    from dynestyx.inference.particle_runtime import ParticleRuntime
+
     from nof1_causal_lab.models.ssm.inference.types import InferenceMethod
     from nof1_causal_lab.sampler_config import MarginalParticleGibbsOptions
+
+
+pytestmark = pytest.mark.cpu_expensive
 
 
 def _dense_matrix_dynamics_spec(
@@ -147,11 +151,11 @@ def _runtime_dynamics(
     diffusion_cov: jnp.ndarray,
     cint: jnp.ndarray | None = None,
     input_effect: jnp.ndarray | None = None,
-) -> RuntimeDynamics:
+) -> StochasticContinuousTimeStateEvolution:
     params = {"drift": drift}
     if cint is not None:
         params["cint"] = cint
-    return RuntimeDynamics(
+    return continuous_state_evolution(
         vector_field=VectorField(
             n_latent=int(drift.shape[0]),
             components=(DenseLinear(),),
@@ -503,9 +507,9 @@ class TestLaplaceEMBlockSolver:
             diffusion_cov=jnp.array([[0.07]], dtype=jnp.float32),
             cint=jnp.array([0.0], dtype=jnp.float32),
         )
-        init = InitialStateParams(
-            mean=jnp.array([0.05], dtype=jnp.float32),
-            cov=jnp.array([[0.6]], dtype=jnp.float32),
+        init = MultivariateNormal(
+            loc=jnp.array([0.05], dtype=jnp.float32),
+            covariance_matrix=jnp.array([[0.6]], dtype=jnp.float32),
         )
         observations = jnp.array([[0.1], [0.3], [-0.2], [0.15]], dtype=jnp.float32)
         time_intervals = jnp.array([1.0, 1.0, 1.0, 1.0], dtype=jnp.float32)
@@ -1135,9 +1139,9 @@ class TestLaplaceBackendCaching:
             manifest_means=jnp.array([0.0], dtype=jnp.float32),
             manifest_cov=jnp.array([[0.2]], dtype=jnp.float32),
         )
-        init = InitialStateParams(
-            mean=jnp.array([0.0], dtype=jnp.float32),
-            cov=jnp.array([[1.0]], dtype=jnp.float32),
+        init = MultivariateNormal(
+            loc=jnp.array([0.0], dtype=jnp.float32),
+            covariance_matrix=jnp.array([[1.0]], dtype=jnp.float32),
         )
         observations = jnp.array([[0.0], [0.25], [0.5]], dtype=jnp.float32)
         time_intervals = jnp.array([1.0, 1.0, 1.0], dtype=jnp.float32)
@@ -1207,9 +1211,9 @@ class TestLaplaceBackendCaching:
             manifest_means=jnp.array([0.0], dtype=jnp.float32),
             manifest_cov=jnp.array([[0.2]], dtype=jnp.float32),
         )
-        init = InitialStateParams(
-            mean=jnp.array([0.0], dtype=jnp.float32),
-            cov=jnp.array([[1.0]], dtype=jnp.float32),
+        init = MultivariateNormal(
+            loc=jnp.array([0.0], dtype=jnp.float32),
+            covariance_matrix=jnp.array([[1.0]], dtype=jnp.float32),
         )
         observations = jnp.array([[jnp.nan], [jnp.nan], [0.25]], dtype=jnp.float32)
         time_intervals = jnp.array([1.0, 1.0, 1.0], dtype=jnp.float32)
@@ -1315,9 +1319,9 @@ class TestLaplaceBackendCaching:
             manifest_means=jnp.zeros(n_manifest, dtype=jnp.float32),
             manifest_cov=jnp.diag(jnp.linspace(0.05, 0.09, n_manifest, dtype=jnp.float32)),
         )
-        init = InitialStateParams(
-            mean=jnp.zeros(n_latent, dtype=jnp.float32),
-            cov=jnp.eye(n_latent, dtype=jnp.float32),
+        init = MultivariateNormal(
+            loc=jnp.zeros(n_latent, dtype=jnp.float32),
+            covariance_matrix=jnp.eye(n_latent, dtype=jnp.float32),
         )
 
         assert _should_use_dense_support_laplace(n_time=n_time, n_latent=n_latent) is False
@@ -1445,7 +1449,9 @@ class TestDefaultMethodRouting:
         def fake_fit_marginal_particle_gibbs(_model, _observations, _times, **kwargs):
             del kwargs
             return ParticleMCMCPosterior(
-                _samples={"vf_0_decay": jnp.zeros((1, 1), dtype=jnp.float32)},
+                draws=JointPosteriorDraws(
+                    parameters={"vf_0_decay": jnp.zeros((1, 1), dtype=jnp.float32)}
+                ),
                 diagnostics={},
             )
 
@@ -1940,7 +1946,7 @@ def test_marginal_particle_gibbs_paid_mix_requires_pilot_moments():
     spec = _make_aux_kalman_mcmc_smoke_spec()
     model = SSMModel(spec)
     observations, times = _small_kalman_observations_and_times()
-    bundle = build_particle_runtime_bundle(
+    bundle = build_particle_problem(
         model,
         observations,
         times,
@@ -1950,7 +1956,7 @@ def test_marginal_particle_gibbs_paid_mix_requires_pilot_moments():
     )
     with pytest.raises(ValueError, match="requires pilot"):
         build_marginal_particle_gibbs_kernel(
-            bundle,
+            bundle.runtime,
             num_particles=3,
             num_parameter_particles=2,
             param_step_size=0.001,
@@ -1965,7 +1971,7 @@ def test_marginal_particle_gibbs_rejects_nonfinite_initial_state():
     spec = _make_aux_kalman_mcmc_smoke_spec()
     model = SSMModel(spec)
     observations, times = _small_kalman_observations_and_times()
-    bundle = build_particle_runtime_bundle(
+    bundle = build_particle_problem(
         model,
         observations,
         times,
@@ -1973,9 +1979,11 @@ def test_marginal_particle_gibbs_rejects_nonfinite_initial_state():
         trace_key=jax.random.PRNGKey(0),
         reparam=None,
     )
-    dim = int(bundle.cached.flat_example.shape[0])
+    dim = int(bundle.runtime.initial_position.shape[0])
 
-    with pytest.raises(ValueError, match="non-finite for chain"):
+    import equinox as eqx
+
+    with pytest.raises(eqx.EquinoxRuntimeError, match="non-finite transition covariance"):
         fit(
             model,
             observations=observations,
@@ -2054,14 +2062,14 @@ def test_marginal_particle_gibbs_consumes_initial_latent_trajectories():
 
 
 def test_marginal_particle_gibbs_rejects_unknown_parameter_proposal():
-    from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs import (
+    from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.kernel import (
         build_marginal_particle_gibbs_kernel,
     )
 
-    # Validation fires before any bundle access, so an empty bundle is fine here.
+    # Configuration validation fires before any target access.
     with pytest.raises(ValueError, match="parameter_proposal"):
         build_marginal_particle_gibbs_kernel(
-            cast("ParticleRuntimeBundle", {}),
+            cast("ParticleRuntime", {}),
             num_particles=2,
             num_parameter_particles=2,
             param_step_size=0.1,
@@ -2071,13 +2079,13 @@ def test_marginal_particle_gibbs_rejects_unknown_parameter_proposal():
 
 
 def test_marginal_particle_gibbs_rejects_unknown_latent_smoother():
-    from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs import (
+    from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.kernel import (
         build_marginal_particle_gibbs_kernel,
     )
 
     with pytest.raises(ValueError, match="latent_smoother"):
         build_marginal_particle_gibbs_kernel(
-            cast("ParticleRuntimeBundle", {}),
+            cast("ParticleRuntime", {}),
             num_particles=2,
             num_parameter_particles=2,
             param_step_size=0.1,
@@ -2230,6 +2238,8 @@ def test_map_support_aware_uses_exact_gradient_outer_optimizer(monkeypatch):
             "flat_example": flat_example,
             "site_info": {"theta": object()},
             "unravel_fn": lambda z: {"theta": z},
+            "parameters": object(),
+            "public_sites": set(),
             "log_lik_fn": log_lik_fn,
             "log_prior_unc_fn": log_prior_unc_fn,
             "log_posterior_fn": log_posterior_fn,
@@ -2396,6 +2406,8 @@ def test_map_generic_path_uses_multistart_lbfgsb(monkeypatch):
             "flat_example": flat_example,
             "site_info": {"theta": object()},
             "unravel_fn": lambda z: {"theta": z},
+            "parameters": object(),
+            "public_sites": set(),
             "log_lik_fn": log_lik_fn,
             "log_prior_unc_fn": log_prior_unc_fn,
             "log_posterior_fn": log_posterior_fn,
@@ -2566,6 +2578,8 @@ def test_map_emits_prefect_progress_logs(monkeypatch, caplog):
             "flat_example": flat_example,
             "site_info": {"theta": object()},
             "unravel_fn": lambda z: {"theta": z},
+            "parameters": object(),
+            "public_sites": set(),
             "log_lik_fn": log_lik_fn,
             "log_prior_unc_fn": log_prior_unc_fn,
             "log_posterior_fn": log_posterior_fn,
@@ -2732,6 +2746,8 @@ def test_map_can_skip_parameter_hessian(monkeypatch):
             "flat_example": flat_example,
             "site_info": {"theta": object()},
             "unravel_fn": lambda z: {"theta": z},
+            "parameters": object(),
+            "public_sites": set(),
             "log_lik_fn": log_lik_fn,
             "log_prior_unc_fn": log_prior_unc_fn,
             "log_posterior_fn": log_posterior_fn,
@@ -2879,6 +2895,8 @@ def test_map_can_use_optimizer_hess_inv_covariance(monkeypatch):
             "flat_example": flat_example,
             "site_info": {"theta": object()},
             "unravel_fn": lambda z: {"theta": z},
+            "parameters": object(),
+            "public_sites": set(),
             "log_lik_fn": log_lik_fn,
             "log_prior_unc_fn": log_prior_unc_fn,
             "log_posterior_fn": log_posterior_fn,
@@ -2969,10 +2987,6 @@ def test_map_bundle_reuses_runtime_objectives_across_same_shape_datasets(monkeyp
     times_b = jnp.array([0.0, 2.0], dtype=jnp.float32)
     counters = {"discover": 0, "build_eval_fns": 0}
 
-    class _IdentityTransform:
-        def inv(self, value):
-            return value
-
     class _FakeModel:
         def __init__(self):
             self._artifact_cache: dict[tuple[object, ...], object] = {}
@@ -2982,37 +2996,26 @@ def test_map_bundle_reuses_runtime_objectives_across_same_shape_datasets(monkeyp
                 self._artifact_cache[cache_key] = factory()
             return self._artifact_cache[cache_key]
 
-    def fake_discover_sites(
-        _model,
-        _observations,
-        _times,
-        _trace_key,
-        _likelihood_backend,
-        reparam=None,
-    ):
+    def fake_prepare_parameters(_model, _observations, _times, _trace_key, reparam):
         del reparam
         counters["discover"] += 1
-        return {
-            "theta": {
-                "transform": _IdentityTransform(),
-                "value": jnp.array([0.5, -0.25], dtype=jnp.float32),
-                "distribution": object(),
-            }
-        }
+        values = jnp.array([0.5, -0.25], dtype=jnp.float32)
+        parameters = Parameterization(
+            values, lambda z: {"theta": z}, lambda z: {"theta": z}, lambda z: -jnp.sum(z**2)
+        )
+        return parameters, {"theta": {"value": values}}, {"theta"}
 
     def fake_build_eval_fns(
         _model,
         _observations,
         _times,
-        _site_info,
-        _unravel_fn,
+        _parameters,
         likelihood_backend,
-        reparam=None,
         *,
         include_likelihood_aux,
         runtime_observations_times,
     ):
-        del likelihood_backend, reparam
+        del likelihood_backend
         counters["build_eval_fns"] += 1
         assert include_likelihood_aux is True
         assert runtime_observations_times is True
@@ -3043,8 +3046,8 @@ def test_map_bundle_reuses_runtime_objectives_across_same_shape_datasets(monkeyp
         return log_lik_fn, log_prior_unc_fn, log_lik_with_aux_fn
 
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.warmup.map._discover_sites",
-        fake_discover_sites,
+        "nof1_causal_lab.models.ssm.inference.warmup.map.prepare_model_parameters",
+        fake_prepare_parameters,
     )
     monkeypatch.setattr(
         "nof1_causal_lab.models.ssm.inference.warmup.map._build_eval_fns",

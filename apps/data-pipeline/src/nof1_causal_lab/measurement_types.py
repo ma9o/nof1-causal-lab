@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Literal
 
-MeasurementDtype = Literal["continuous", "binary", "count", "ordinal", "categorical"]
+type MeasurementDtype = Literal["continuous", "binary", "count", "ordinal", "categorical"]
 
-AggregationFunction = Literal[
+type AggregationFunction = Literal[
     "mean",
     "sum",
     "min",

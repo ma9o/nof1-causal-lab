@@ -28,62 +28,43 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import numpyro.distributions as dist
 
 from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily, LinkFunction
-from nof1_causal_lab.distributions import get_real_runtime_kind_from_index
-from nof1_causal_lab.models.ssm.priors import (
-    PriorDistributionFamily,
-    PriorSpec,
-)
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.execution.contracts import ExecutableSSM
+    from nof1_causal_lab.models.ssm.model import SSMModel
 
 LOCATION_REACH_SIGMAS = 6.0
 STANDARDIZED_MEAN_SD_RATIO = 0.5
 STANDARDIZED_SD_BAND = (0.5, 2.0)
 
 _LOCATION_FAMILIES = (DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T)
-_REACH_PRIOR_FAMILIES = (
-    PriorDistributionFamily.NORMAL,
-    PriorDistributionFamily.TRUNCATED_NORMAL,
-)
 
 
 class ObservationPreflightError(ValueError):
     """Observed data is inconsistent with the spec/prior configuration."""
 
 
-def _resolve_site_prior(model: ExecutableSSM, site_name: str) -> PriorSpec | None:
-    """Read the prior actually sampled by the executable runtime."""
-    bundle = model.get_prior_runtime_bundle()
-    site = next(
-        (candidate for candidate in bundle.site_runtime.registry if candidate.name == site_name),
-        None,
-    )
-    if site is None:
+def _prior_loc_scale(
+    prior: dist.Distribution, n_free: int, free_idx: int
+) -> tuple[str, float, float] | None:
+    if isinstance(prior, dist.MixtureGeneral):
+        prior = prior.component_distributions[free_idx]
+    while isinstance(prior, (dist.ExpandedDistribution, dist.MaskedDistribution)):
+        prior = prior.base_dist
+    family = type(prior).__name__
+    if isinstance(prior, dist.TwoSidedTruncatedDistribution):
+        prior = prior.base_dist
+        family = "TruncatedNormal"
+    if not isinstance(prior, dist.Normal):
         return None
-    params = bundle.prior_state[site_name]
-    family_values = np.asarray(params["family"], dtype=int).ravel()
-    if family_values.size == 0 or not np.all(family_values == family_values[0]):
-        return None
-    family = get_real_runtime_kind_from_index(int(family_values[0]))
-    return PriorSpec(
-        family,
-        {
-            "mu": np.asarray(params["loc"], dtype=np.float64),
-            "sigma": np.asarray(params["scale"], dtype=np.float64),
-        },
-    )
+    mu = np.broadcast_to(np.asarray(prior.loc, dtype=np.float64), (n_free,))
+    sigma = np.broadcast_to(np.asarray(prior.scale, dtype=np.float64), (n_free,))
+    return family, float(mu[free_idx]), float(sigma[free_idx])
 
 
-def _prior_loc_scale(prior: PriorSpec, n_free: int, free_idx: int) -> tuple[float, float]:
-    mu = np.broadcast_to(np.asarray(prior.params.get("mu", 0.0), dtype=np.float64), (n_free,))
-    sigma = np.broadcast_to(np.asarray(prior.params.get("sigma", 1.0), dtype=np.float64), (n_free,))
-    return float(mu[free_idx]), float(sigma[free_idx])
-
-
-def validate_observations_for_fit(model: ExecutableSSM, observations: Any) -> None:
+def validate_observations_for_fit(model: SSMModel, observations: Any) -> None:
     """Validate (spec, priors, observations) consistency before fitting.
 
     Raises:
@@ -115,7 +96,9 @@ def validate_observations_for_fit(model: ExecutableSSM, observations: Any) -> No
     means_block = spec.manifest_means_block
     free_support = np.asarray(means_block.free_support, dtype=bool)
     n_free = int(free_support.sum())
-    free_prior = _resolve_site_prior(model, means_block.free_site_name) if n_free else None
+    free_prior = (
+        model.get_prior_runtime_bundle().priors[means_block.free_site_name] if n_free else None
+    )
 
     problems: list[str] = []
     for j in range(spec.n_manifest):
@@ -147,18 +130,21 @@ def validate_observations_for_fit(model: ExecutableSSM, observations: Any) -> No
             continue
         if not bool(free_support[j]):
             continue
-        if free_prior is None or free_prior.family not in _REACH_PRIOR_FAMILIES:
+        if free_prior is None:
             continue
 
         free_idx = int(free_support[:j].sum())
-        mu_j, sigma_j = _prior_loc_scale(free_prior, n_free, free_idx)
+        prior_summary = _prior_loc_scale(free_prior, n_free, free_idx)
+        if prior_summary is None:
+            continue
+        prior_family, mu_j, sigma_j = prior_summary
         if sigma_j <= 0.0:
             continue
         z = abs(mean_j - mu_j) / sigma_j
         if z > LOCATION_REACH_SIGMAS:
             problems.append(
                 f"{names[j]}: observed mean {mean_j:.4g} lies {z:.1f} prior sd from its free "
-                f"manifest-mean prior {free_prior.family.name}(mu={mu_j:.4g}, sigma={sigma_j:.4g}); "
+                f"manifest-mean prior {prior_family}(mu={mu_j:.4g}, sigma={sigma_j:.4g}); "
                 "the posterior cannot reach the data location — mark the indicator standardized "
                 "(and standardize the data) or author the prior on the data scale"
             )

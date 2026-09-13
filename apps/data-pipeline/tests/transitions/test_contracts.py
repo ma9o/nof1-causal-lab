@@ -8,8 +8,30 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from nof1_causal_lab.flows.artifact_contracts import CONTEXT_TOOLS
+from nof1_causal_lab.flows.context_tools import CONTEXT_TOOLS
 from tests.artifact_contract_support import validate_artifact_payload
+
+
+def _saved_query():
+    from nof1_causal_lab.artifacts.scenarios import ScenarioDefinition, ScenarioQuery
+
+    return ScenarioQuery.from_definition(
+        ScenarioDefinition.model_validate(
+            {
+                "start": {"kind": "baseline"},
+                "clamps": [
+                    {
+                        "variable": "Stress",
+                        "target": {"kind": "construct", "id": "construct:stress"},
+                        "mode": "shift",
+                        "amount": -0.5,
+                    }
+                ],
+                "outcome": {"kind": "construct", "id": "construct:outcome"},
+                "readout": {},
+            }
+        )
+    ).model_dump(mode="json")
 
 
 @pytest.fixture
@@ -25,26 +47,28 @@ def valid_artifact_payloads() -> dict[str, dict[str, Any]]:
         },
         "latent_structure": {
             "latent_structure": {
+                "default_outcome": {"kind": "construct", "id": "construct:dc6723ce621183cd1182"},
                 "constructs": [
                     {
+                        "id": "construct:dc6723ce621183cd1182",
                         "name": "Perf",
                         "description": "Performance",
                         "role": "endogenous",
-                        "is_outcome": True,
                         "temporal_status": "time_varying",
                     },
                     {
+                        "id": "construct:98df502ac4daf088ca29",
                         "name": "Stress",
                         "description": "Stress level",
                         "role": "endogenous",
-                        "is_outcome": False,
                         "temporal_status": "time_varying",
                     },
                 ],
                 "edges": [
                     {
-                        "cause": "Stress",
-                        "effect": "Perf",
+                        "cause_id": "construct:98df502ac4daf088ca29",
+                        "effect_id": "construct:dc6723ce621183cd1182",
+                        "id": "edge:399745ac3ae059a06462",
                         "description": "Stress reduces performance",
                         "lagged": True,
                     }
@@ -56,8 +80,9 @@ def valid_artifact_payloads() -> dict[str, dict[str, Any]]:
                 "model_clock": "1d",
                 "indicators": [
                     {
+                        "id": "indicator:3696aef3ff6f446744e5",
+                        "construct_id": "construct:98df502ac4daf088ca29",
                         "name": "stress_score",
-                        "construct_name": "Stress",
                         "construct_polarity": "positive",
                         "how_to_measure": "Self-reported stress",
                         "measurement_dtype": "continuous",
@@ -81,7 +106,7 @@ def valid_artifact_payloads() -> dict[str, dict[str, Any]]:
         "validation_report": {
             "is_valid": True,
             "indicators": {
-                "stress_score": {
+                "indicator:3696aef3ff6f446744e5": {
                     "profile": {
                         "measurement_dtype": "continuous",
                         "n_obs": 10,
@@ -124,9 +149,21 @@ def valid_artifact_payloads() -> dict[str, dict[str, Any]]:
         },
         "statistical_model_spec": {
             "statistical_model_spec": {
+                "mechanisms": [
+                    {
+                        "kind": "node_potential",
+                        "target_id": "construct:98df502ac4daf088ca29",
+                        "center": {"kind": "fixed", "value": 0},
+                        "stiffness": {
+                            "kind": "estimated",
+                            "parameter_id": "parameter:067ff49138696d741faffe7e2dc6684225435e905b47cba9dbd3b216d7bbe749",
+                        },
+                        "quartic": {"kind": "fixed", "value": 0},
+                    }
+                ],
                 "likelihoods": [
                     {
-                        "variable": "stress_score",
+                        "indicator_id": "indicator:3696aef3ff6f446744e5",
                         "distribution": "gaussian",
                         "link": "identity",
                         "reasoning": "continuous variable",
@@ -134,6 +171,10 @@ def valid_artifact_payloads() -> dict[str, dict[str, Any]]:
                 ],
                 "parameters": [
                     {
+                        "prior_transform": "dt_persistence_to_ct_decay",
+                        "id": "parameter:067ff49138696d741faffe7e2dc6684225435e905b47cba9dbd3b216d7bbe749",
+                        "owners": [{"kind": "construct", "id": "construct:98df502ac4daf088ca29"}],
+                        "quantity": "dynamics_decay",
                         "name": "rho_Stress",
                         "role": "ar_coefficient",
                         "constraint": "unit_interval",
@@ -142,8 +183,8 @@ def valid_artifact_payloads() -> dict[str, dict[str, Any]]:
                 ],
             },
             "authored_priors": {
-                "rho_Stress": {
-                    "parameter": "rho_Stress",
+                "parameter:067ff49138696d741faffe7e2dc6684225435e905b47cba9dbd3b216d7bbe749": {
+                    "parameter_id": "parameter:067ff49138696d741faffe7e2dc6684225435e905b47cba9dbd3b216d7bbe749",
                     "distribution": "Normal",
                     "params": {"mu": 0.0, "sigma": 0.3},
                     "sources": [],
@@ -152,21 +193,21 @@ def valid_artifact_payloads() -> dict[str, dict[str, Any]]:
             },
             "resolved_priors": [
                 {
-                    "parameter": "rho_Stress",
+                    "parameter_id": "parameter:067ff49138696d741faffe7e2dc6684225435e905b47cba9dbd3b216d7bbe749",
                     "distribution": "Normal",
                     "params": {"mu": 0.0, "sigma": 0.3},
                     "sources": [],
                     "reasoning": "weakly informative",
                 },
                 {
-                    "parameter": "t0_mean_Stress",
+                    "parameter_id": "parameter:d77e4a1b0c7fcea313d4ec8447243b0bd8e30da13b2608fe153953a9e7819665",
                     "distribution": "Normal",
                     "params": {"mu": 0.0, "sigma": 2.0},
                     "sources": [],
                     "reasoning": "Default weakly informative prior for the initial state mean of Stress.",
                 },
                 {
-                    "parameter": "t0_sd_Stress",
+                    "parameter_id": "parameter:c222b3cc20c9b8103e8ad2e464ab87e5aec6c6f52973848da70de46eea9041aa",
                     "distribution": "HalfNormal",
                     "params": {"sigma": 2.0},
                     "sources": [],
@@ -176,37 +217,48 @@ def valid_artifact_payloads() -> dict[str, dict[str, Any]]:
                     ),
                 },
             ],
-            "prior_predictive_samples": {"stress_score": [0.1, -0.2, 0.3]},
+            "prior_predictive_samples": {"indicator:3696aef3ff6f446744e5": [0.1, -0.2, 0.3]},
         },
         "posterior": {
-            "ppc": {
-                "per_variable_warnings": [],
-                "checked": True,
-                "overlays": [],
-                "test_stats": [],
+            "draws": {"n_draws": 1000, "parameter_shapes": {"theta": [1]}, "latent_shape": [3, 1]},
+            "provenance": {
+                "causal_design": {"workspace_id": "TEST", "version": 1},
+                "compiled_ssm_version": 1,
+                "panel_version": 1,
             },
             "inference_metadata": {
                 "method": "marginal_particle_gibbs",
                 "n_samples": 1000,
                 "duration_seconds": 1.2,
             },
-            "mcmc_diagnostics": None,
-            "loo_diagnostics": None,
-            "posterior_marginals": None,
-            "posterior_pairs": None,
+            "assessment": {
+                "ppc": {
+                    "per_variable_warnings": [],
+                    "checked": True,
+                    "overlays": [],
+                    "test_stats": [],
+                },
+            },
         },
         "baseline_report": {
             "intervention_results": [
                 {
                     "treatment": "Stress",
+                    "treatment_id": "construct:stress",
                     "posterior_draws": [0.08, 0.11, 0.14, 0.09, 0.15, 0.12, 0.10, 0.13],
+                    "summary": {
+                        "mean": 0.115,
+                        "median": 0.115,
+                        "lower_95": 0.08175,
+                        "upper_95": 0.14825,
+                        "prob_positive": 1.0,
+                    },
                 }
             ],
             "saved_scenarios": [
                 {
                     "label": "Stress shift",
-                    "query": "simulate_intervention(shift=-0.5)",
-                    "summary": "Negative stress shift improves the outcome in the forward simulation.",
+                    "query": _saved_query(),
                 }
             ],
             "final_summary": "Stress reduction remains the dominant actionable lever.",

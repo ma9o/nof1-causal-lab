@@ -27,7 +27,8 @@ from nof1_causal_lab.machine.store import ArtifactStore
 if TYPE_CHECKING:
     import polars as pl
 
-    from nof1_causal_lab.machine.artifacts import ArtifactId, ArtifactVersionInfo, EpisodeState
+    from nof1_causal_lab.artifacts.identity import ArtifactId
+    from nof1_causal_lab.machine.artifacts import ArtifactVersionInfo, EpisodeState
 
 
 def _panel_df(store: ArtifactStore, pins: dict[ArtifactId, int]) -> pl.DataFrame:
@@ -40,13 +41,13 @@ async def _run_posterior(
     pins: dict[ArtifactId, int],
     options: ExecOptions,
 ) -> list[ArtifactVersionInfo]:
-    from nof1_causal_lab.flows.artifact_contracts import PosteriorContract
+    from nof1_causal_lab.artifacts.compiled_ssm import CompiledSSMArtifact
+    from nof1_causal_lab.artifacts.identity import CausalDesignRef
+    from nof1_causal_lab.artifacts.posterior import PosteriorArtifact, PosteriorProvenance
     from nof1_causal_lab.flows.transitions.inference.flow import (
         build_sampler_config,
         run_inference_with_data,
     )
-    from nof1_causal_lab.models.causal_proofs import CausalDesignRef, PosteriorProvenance
-    from nof1_causal_lab.models.ssm.compile.contracts import CompiledSSMArtifact
     from nof1_causal_lab.utils.config import get_config
 
     compiled_ssm = CompiledSSMArtifact.model_validate(
@@ -78,7 +79,7 @@ async def _run_posterior(
     )
 
     fitted_artifact = result.pop("_fitted_artifact", None)
-    payload = project_model_fields(PosteriorContract, result)
+    payload = project_model_fields(PosteriorArtifact, result)
     info = store.write_version(
         "posterior",
         provenance="computed",

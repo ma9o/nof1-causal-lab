@@ -63,6 +63,7 @@ def test_workbench_replay_reuses_cached_evaluation_and_invalidates_semantic_inpu
     )
     proposal = {
         "construct": "sleep",
+        "mechanisms": [],
         "indicators": [],
         "priors": {
             "rho_sleep": {
