@@ -114,14 +114,6 @@ def read_artifact_views(
         if aid != "panel"
     }
 
-    def compatible(output: ArtifactId, *inputs: ArtifactId) -> bool:
-        info = state.get(output)
-        return info is not None and all(
-            (selected := state.get(aid)) is not None
-            and info.derived_from.get(aid) == selected.version
-            for aid in inputs
-        )
-
     values = {
         aid: payloads[aid]
         for aid in ("latent_structure", "validation_report", "posterior", "baseline_report")
@@ -134,7 +126,7 @@ def read_artifact_views(
                 "raw_data", state.current["raw_data"].version, parquet_filename("raw_data", "raw")
             ),
         )
-    if compatible("causal_design", "measurement_structure") and compatible(
+    if state.matches_inputs("causal_design", "measurement_structure") and state.matches_inputs(
         "structural_plan", "causal_design"
     ):
         values["measurement_structure"] = MeasurementStructureViewData(
@@ -175,7 +167,7 @@ def read_artifact_views(
     if "statistical_model_spec" in payloads:
         spec = cast("StatisticalModelSpecArtifact", payloads["statistical_model_spec"])
         diagnostics = {}
-        if panel is not None and compatible("statistical_model_spec", "panel", "validation_report"):
+        if panel is not None and state.matches_inputs("statistical_model_spec", "panel", "validation_report"):
             audits = cast("ValidationReportArtifact", payloads["validation_report"]).indicators
             for likelihood in spec.statistical_model_spec.likelihoods:
                 observations = panel.filter(pl.col("indicator_id") == likelihood.indicator_id)[
@@ -237,16 +229,16 @@ def read_artifact_views(
                 spec.statistical_model_spec,
                 cast("StructuralPlanArtifact", payloads["structural_plan"]).structural_plan,
             )
-            if compatible("statistical_model_spec", "structural_plan")
+            if state.matches_inputs("statistical_model_spec", "structural_plan")
             else [],
             likelihood_diagnostics=diagnostics,
             structural_plan=cast(
                 "StructuralPlanArtifact", payloads["structural_plan"]
             ).structural_plan
-            if compatible("statistical_model_spec", "structural_plan")
+            if state.matches_inputs("statistical_model_spec", "structural_plan")
             else None,
             parameters=cast("CompiledSSMArtifact", payloads["compiled_ssm"]).parameters
-            if compatible("compiled_ssm", "statistical_model_spec")
+            if state.matches_inputs("compiled_ssm", "statistical_model_spec")
             else [],
         )
     if "baseline_report" in values and "saved_scenarios" in payloads:

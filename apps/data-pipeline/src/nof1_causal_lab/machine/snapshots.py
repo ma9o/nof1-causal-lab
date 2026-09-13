@@ -99,14 +99,6 @@ class ModelReader:
             ArtifactRef(artifact_id=artifact_id, version=self.state.current[artifact_id].version),
         )
 
-    def _compatible(self, output: ArtifactId, input_id: ArtifactId) -> bool:
-        output_info, input_info = self.state.get(output), self.state.get(input_id)
-        return (
-            output_info is not None
-            and input_info is not None
-            and output_info.derived_from.get(input_id) == input_info.version
-        )
-
     def source(self, artifact_id: ArtifactId, pointer: str) -> FactSource:
         return FactSource(
             artifact=ArtifactRef(
@@ -197,7 +189,7 @@ class ModelReader:
         if not self.state.has("statistical_model_spec"):
             return None
         spec = cast("StatisticalModelSpecArtifact", self.selected("statistical_model_spec"))
-        compatible = self._compatible("compiled_ssm", "statistical_model_spec")
+        compatible = self.state.matches_inputs("compiled_ssm", "statistical_model_spec")
         edge_ids = {item.id for item in self.edges()}
         return self.fact(
             spec.model_copy(
@@ -242,7 +234,7 @@ class ModelReader:
         if not self.state.has("posterior"):
             return None
         posterior = cast("PosteriorArtifact", self.selected("posterior"))
-        compatible = self._compatible("posterior", "compiled_ssm")
+        compatible = self.state.matches_inputs("posterior", "compiled_ssm")
         mcmc = posterior.assessment.mcmc_diagnostics
         # Joint fit metadata and predictive checks remain inspectable when a compiler changes.
         # Parameter findings can only be attached to the compiler that defined their coordinates.

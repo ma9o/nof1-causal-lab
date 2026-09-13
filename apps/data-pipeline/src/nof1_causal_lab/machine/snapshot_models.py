@@ -198,32 +198,31 @@ class ModelSnapshot(SnapshotValue):
                 raise ValueError("Admission owner does not exist in the snapshot")
             if any(item.parameter_id not in parameters for item in spec.resolved_priors):
                 raise ValueError("Prior finding has no compiled parameter definition")
-            if spec.resolved_priors and not self._compatible(
+            if spec.resolved_priors and not self.state.matches_inputs(
                 "compiled_ssm", "statistical_model_spec"
             ):
                 raise ValueError("Prior findings require the selected specification's compiler")
         if self.fit:
             fit = self.fit.value
             marginals = fit.posterior.posterior_marginals or []
+            pairs = fit.posterior.posterior_pairs or []
             mcmc = fit.posterior.assessment.mcmc_diagnostics
             diagnostics = mcmc.per_parameter if mcmc else []
             if any(
                 item.subject.parameter_id not in parameters for item in (*marginals, *diagnostics)
             ):
                 raise ValueError("Posterior finding has no compiled parameter definition")
+            if any(
+                subject.parameter_id not in parameters
+                for pair in pairs
+                for subject in (pair.subject_x, pair.subject_y)
+            ):
+                raise ValueError("Posterior pair has no compiled parameter definition")
             if (
-                marginals or diagnostics or fit.edge_estimates or fit.decay_estimates
-            ) and not self._compatible("posterior", "compiled_ssm"):
+                marginals or diagnostics or pairs or fit.edge_estimates or fit.decay_estimates
+            ) and not self.state.matches_inputs("posterior", "compiled_ssm"):
                 raise ValueError("Posterior findings require the selected compiler version")
         return self
-
-    def _compatible(self, output: ArtifactId, input_id: ArtifactId) -> bool:
-        output_info, input_info = self.state.get(output), self.state.get(input_id)
-        return (
-            output_info is not None
-            and input_info is not None
-            and output_info.derived_from.get(input_id) == input_info.version
-        )
 
     def _validate_source(self, source: FactSource, artifact_id: str) -> None:
         ref = source.artifact

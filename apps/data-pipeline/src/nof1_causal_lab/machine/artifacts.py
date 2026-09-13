@@ -61,6 +61,15 @@ class EpisodeState(BaseModel):
     def has(self, artifact_id: ArtifactId) -> bool:
         return artifact_id in self.current
 
+    def matches_inputs(self, output: ArtifactId, *inputs: ArtifactId) -> bool:
+        """Whether an artifact pins exactly the selected versions of these inputs."""
+        info = self.get(output)
+        return info is not None and all(
+            (selected := self.get(artifact_id)) is not None
+            and info.derived_from.get(artifact_id) == selected.version
+            for artifact_id in inputs
+        )
+
     def with_versions(self, infos: list[ArtifactVersionInfo]) -> EpisodeState:
         """Return a new state with ``infos`` installed as current versions."""
         merged = dict(self.current)
