@@ -18,6 +18,8 @@ Dagster
 docstrings
 Duolingo
 Dynamax
+Dynestyx
+Diffrax
 elementwise
 Emax
 enabledness

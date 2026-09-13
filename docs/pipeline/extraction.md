@@ -51,7 +51,7 @@ Both paths begin by [truncating the raw time column to each indicator's observat
 - *No duplicate `(window_start, indicator)` pairs* within the chunk
 - *Ordinal bounds:* ordinal codes fall within `0..len(ordinal_levels) − 1`
 
-**Merge & Annotate:** Both paths emit raw `(indicator, value, timestamp)` tuples where `timestamp` is the support-window start. The annotation step joins these rows with indicator metadata from the `CausalDesign` to produce the canonical [`ObservationRecord`](#observationrecord).
+**Merge & Annotate:** Both paths emit raw `(indicator_id, value, timestamp)` tuples where `timestamp` is the support-window start. The annotation step joins these rows with indicator metadata from the `CausalDesign` to produce the canonical [`ObservationRecord`](#observationrecord).
 
 ### Example
 
@@ -67,7 +67,7 @@ For a study of classroom interventions and student learning where `measurement_s
 
 | Field | Type | Description |
 |---|---|---|
-| `indicator` | `str` | Indicator name, referencing the [measurement structure](measurement-structure.md#measurementstructure) |
+| `indicator_id` | `IndicatorId` | Persistent indicator ID, referencing the [measurement structure](measurement-structure.md#measurementstructure) |
 | `value` | `Float64` | Extracted value (numerically encoded; non-continuous types label-encoded) |
 | `anchor_time` | `datetime` | Latent-grid attachment time—the timestamp downstream models use for this observation |
 | `support_kind` | `"point"` \| `"interval"` | Whether the measurement is point-local (`first`/`last`) or an interval summary (`sum`/`count`/`mean`/`std`) |

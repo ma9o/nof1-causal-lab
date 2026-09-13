@@ -50,7 +50,7 @@ flowchart LR
 - priors for incoming or cycle-closing causal effects; and
 - optional written acceptance rationales for soft reachability findings.
 
-Unknown or non-free parameter names are rejected. A cycle-closing construct must author the closing edge in the same submission so the restricted cumulative model never contains an unbound edge site.
+Each submission declares its mechanisms separately from its priors. Estimated coefficient slots reference parameter IDs; fixed slots carry continuous-time values. Unknown or non-free authoring aliases are rejected. A cycle-closing construct must author the closing edge in the same submission so the restricted cumulative model never contains an unbound edge site.
 
 **Validation:** Each submission compiles its immutable causal-ancestor closure plus the proposed construct and simulates it through the exact nonlinear prior-predictive engine. Hard failures require revision. Soft failures require either revision or an explicit rationale accepting the consequence. Each successful branch merges as it completes, allowing newly ready descendants to start while unrelated work remains in flight.
 
@@ -93,14 +93,14 @@ For a study of classroom engagement and academic performance, the transition cou
 |---|---|---|
 | `statistical_model_spec` | `StatisticalModelSpec` | Complete statistical model specification |
 | `prior_predictive_diagnostics` | `list[PriorPredictiveDiagnostic]` | Compact accepted C1–C5 results, including feedback-component rechecks |
-| `prior_predictive_samples` | `dict[str, list[float]]` | Full-model exact prior-predictive observation samples for Data-vs-Prior inspection |
+| `prior_predictive_samples` | `dict[IndicatorId, list[float]]` | Exact prior-predictive observation samples keyed by indicator ID for Data-vs-Prior inspection |
 | `_compiled_ssm` | [`CompiledSSMArtifact`](../reference/compilation.md) | Serializable compiled model consumed by [`posterior` transition](inference.md); contains a nested compiled structure with total source bindings and anchor certificates, compiled prior semantics, parameter bindings, and compile diagnostics |
 
 ### StatisticalModelSpec.LikelihoodSpec
 
 | Field | Type | Description |
 |---|---|---|
-| `variable` | `str` | Name of the observed indicator |
+| `indicator_id` | `IndicatorId` | Persistent identity of the observed [indicator](measurement-structure.md#indicator) |
 | `distribution` | [`DistributionFamily`](../reference/statistical-model-spec/likelihoods.md#distribution-families) | Observation-model distribution family |
 | `link` | [`LinkFunction`](../reference/statistical-model-spec/likelihoods.md#link-functions) | Link function mapping latent state to distribution parameter |
 | `standardized` | `bool` | Deterministic auto-standardization flag for additive-location indicators whose observed values are mean-centered and scaled to unit sd before fitting |
@@ -109,20 +109,51 @@ For a study of classroom engagement and academic performance, the transition cou
 
 | Field | Type | Description |
 |---|---|---|
-| `name` | `str` | Parameter name such as `beta_stress_anxiety`, `rho_mood`, or `sigma_sleep` |
+| `id` | `ParameterId` | Scientific identity based on the quantity and its explicit owners |
+| `owners` | `list[EntityRef]` | Construct, indicator, and edge IDs owning this quantity |
+| `quantity` | `SiteKind` | Meaning of the model quantity, including distinctions such as decay, input effect, and well centre |
+| `name` | `str` | Display and authoring alias; references use `id` |
+| `prior_transform` | `PriorAuthoringTransform` | Declared relationship between the authored prior scale and runtime quantity |
+| `elements` | `dict[ParameterElementId, str]` | Logical scalar element IDs and display labels, filled by the compiler |
 | `role` | [`ParameterRole`](../reference/statistical-model-spec/parameters.md#parameter-roles) | Role in the model |
 | `constraint` | [`ParameterConstraint`](../reference/statistical-model-spec/parameters.md#parameter-roles) | Domain constraint |
 | `description` | `str` | Human-readable description |
+
+### `PriorProposal`
+
+| Field | Type | Description |
+|---|---|---|
+| `parameter_id` | `ParameterId` | Referenced [parameter definition](#statisticalmodelspecparameterspec) |
+| `distribution`, `params` | Distribution specification | Prior law on the declared authoring scale |
+| `reference_interval_days` | `float` ∣ `null` | Elicitation interval for interval-based priors |
+| `reasoning`, `sources` | Evidence metadata | Rationale and supporting literature |
+| `density_points` | Density samples ∣ `null` | Backend-computed points for display |
 
 ### StatisticalModelSpec
 
 | Field | Type | Description |
 |---|---|---|
 | `likelihoods` | `list[LikelihoodSpec]` | One likelihood row per retained manifest indicator |
+| `mechanisms` | `list[DynamicsMechanism]` | Explicit drift components targeting construct or directed edge IDs, with fixed or estimated coefficient slots |
 | `parameters` | `list[ParameterSpec]` | Compiler-authoritative semantic prior surfaces that remain active after model decisions are locked |
 | `initialization_policy` | `\"stationary\" \| \"free\"` | Whether dynamic-state initial conditions are stationary-derived or exposed as free `t0_*` surfaces |
 | `observation_intercept_policy` | `\"free\" \| \"fixed\"` | Whether eligible manifest intercepts `manifest_mean_*` remain free or are fixed |
-| `equilibrium_forcing` | `bool` | Whether eligible dynamic constructs may expose a continuous-time intercept `cint_*`; eligible means the construct has a standardized channel serving as its [location anchor](../reference/statistical-model-spec/identification.md#location-anchors) |
+
+### DynamicsMechanism
+
+| Variant | Fields | Description |
+|---|---|---|
+| `NodePotentialMechanism` | `target_id`, `center`, `stiffness`, `quartic` | Restoring drift around a declared centre; a fixed zero quartic gives quadratic dynamics |
+| `ConstantDriftMechanism` | `target_id`, `intercept` | Additive constant drift with an estimated coefficient |
+| `LinearEdgeMechanism` | `edge_id`, `weight` | Linear effect of a state or known input, with an estimated coefficient |
+| `HillEdgeMechanism` | `edge_id`, `emax`, `ec50`, `n` | Saturating effect with independently fixed or estimated coefficients |
+
+### MechanismCoefficient
+
+| Variant | Fields | Description |
+|---|---|---|
+| `FixedCoefficient` | `kind="fixed"`, `value` | Finite value on the continuous-time model scale |
+| `EstimatedCoefficient` | `kind="estimated"`, `parameter_id` | Reference to the [parameter definition](#statisticalmodelspecparameterspec) whose prior and authoring transform define this coefficient |
 
 [^gelman2020]: Gelman, A., Vehtari, A., Simpson, D., et al. (2020). Bayesian Workflow. arXiv:2011.01808. [Bibliography entry](../reference/bibliography.md)
 [^gelman2013]: Gelman, A., Carlin, J. B., Stern, H. S., Dunson, D. B., Vehtari, A., & Rubin, D. B. (2013). *Bayesian Data Analysis* (3rd ed.). CRC Press. [Bibliography entry](../reference/bibliography.md)

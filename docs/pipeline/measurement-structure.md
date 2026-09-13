@@ -74,8 +74,9 @@ Indicators are reflective[^bollen1989]: the construct causes the indicator value
 
 | Field | Type | Description |
 |---|---|---|
-| `name` | `str` | Indicator name used everywhere downstream |
-| `construct_name` | `str` | Name of the parent construct in the latent structure |
+| `id` | `IndicatorId` | Persistent `indicator:` identity, preserved when revising or renaming the same indicator |
+| `construct_id` | `ConstructId` | Persistent owner reference to the [authored construct](latent-structure.md#construct) |
+| `name` | `str` | Current indicator name used downstream |
 | `how_to_measure` | `str` | Human-readable measurement instructions grounded in the dataset |
 | `measurement_dtype` | `str` | Semantic value type: `continuous`, `binary`, `count`, `ordinal`, or `categorical` |
 | `aggregation` | `str` | Summary operator applied within each realized support window |
@@ -83,14 +84,15 @@ Indicators are reflective[^bollen1989]: the construct causes the indicator value
 | `ordinal_levels` | `list[str]` \| `null` | Ordered labels when `measurement_dtype="ordinal"` |
 | `categorical_levels` | `list[str]` \| `null` | Exhaustive labels when `measurement_dtype="categorical"` |
 | `source_columns` | `list[str]` | Raw columns needed to compute or interpret the indicator |
+| `computed_rule` | `WindowExpression` \| `null` | Validated expression string producing one scalar per window from declared source columns; requires computed extraction |
 | `extraction_mode` | `str` | Whether extraction is deterministic (`computed`) or LLM-mediated (`semantic`) |
 
 ### `KnownInput`
 
 | Field | Type | Description |
 |---|---|---|
-| `construct` | `str` | Construct removed from the latent state vector and treated as an observed transition driver |
-| `source_indicator` | `str` | Indicator for the same construct that supplies the input trajectory |
+| `construct_id` | `ConstructId` | Construct removed from the latent state vector and treated as an observed transition driver |
+| `source_indicator_id` | `IndicatorId` | Indicator for the same construct that supplies the input trajectory |
 | `scale` | `float` | Positive divisor applied to the source values before inference |
 | `missing_policy` | `str` | Whether missing grid values become zero or carry the last observed value forward |
 
@@ -98,7 +100,7 @@ Indicators are reflective[^bollen1989]: the construct causes the indicator value
 
 | Field | Type | Description |
 |---|---|---|
-| `construct` | `str` | Measured scientific-DAG construct excluded from the executable state vector |
+| `construct_id` | `ConstructId` | Measured scientific-DAG construct excluded from the executable state vector |
 | `reason` | `str` | Explicit scientific or identification rationale for the exclusion |
 
 ### `observation_window` and `model_clock`
@@ -158,16 +160,16 @@ The `MeasurementStructure` does not store row timestamps itself, but it fully de
 
 | Field | Type | Description |
 |---|---|---|
-| `identifiable_treatments` | `dict[str, IdentifiedTreatmentStatus]` | Treatment names mapped to the identification method, estimand, marginalized confounders, and any instruments used |
-| `non_identifiable_treatments` | `dict[str, NonIdentifiableTreatmentStatus]` | Treatment names mapped to the blocking confounders and optional notes |
+| `identifiable_treatments` | `dict[ConstructId, IdentifiedTreatmentStatus]` | Treatment IDs mapped to the identification method, estimand, marginalized confounder IDs, and instrument IDs |
+| `non_identifiable_treatments` | `dict[ConstructId, NonIdentifiableTreatmentStatus]` | Treatment IDs mapped to blocking confounder IDs and optional notes |
 
 ### `IdentificationReport`
 
 | Field | Type | Description |
 |---|---|---|
-| `outcome_name` | `str` | Outcome construct name |
-| `estimable_treatments` | `list[str]` | Nonempty list of treatments with explicitly identified effects |
-| `non_identifiable_treatments` | `dict[str, NonIdentifiableTreatmentStatus]` | Treatment names mapped to the blocking confounders and optional notes |
+| `outcome_id` | `ConstructId` | Persistent outcome identity |
+| `estimable_treatments` | `list[ConstructId]` | Nonempty list of treatment IDs with explicitly identified effects |
+| `non_identifiable_treatments` | `dict[ConstructId, NonIdentifiableTreatmentStatus]` | Treatment IDs mapped to blocking confounder IDs and optional notes |
 
 The identifiability assumptions, including temporal unrolling and the internal DAG-to-ADMG projection, live in [causal-design/identifiability.md](../reference/causal-design/identifiability.md).
 

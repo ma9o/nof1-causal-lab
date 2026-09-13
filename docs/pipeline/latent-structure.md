@@ -55,9 +55,28 @@ For a question about whether tutoring intensity improves exam performance throug
 
 | Field | Type | Description |
 |---|---|---|
-| `constructs` | `list[Construct]` | Theoretical constructs in the model. Exactly one construct must have `is_outcome=true`. |
+| `constructs` | `list[Construct]` | Nonempty collection of theoretical constructs in the model |
+| `default_outcome` | `ConstructRef` \| null | Optional endogenous target for the workflow’s default question; individual [scenario queries](analysis.md#scenarioquery) own their outcome selection |
 | `edges` | `list[CausalEdge]` | Directed causal edges between constructs. `lagged=true` means the effect at time `t` depends on the cause at `t-1`. |
 
-Each `Construct` carries `name`, `description`, `role`, `is_outcome`, and `temporal_status`. Each `CausalEdge` carries `cause`, `effect`, `description`, and `lagged`. There is no notion of latent confounding yet.
+### `Construct`
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `ConstructId` | Persistent `construct:` identity, preserved when revising or renaming the same entity |
+| `name` | `str` | Current construct name |
+| `description` | `str` | Meaning of the construct |
+| `role` | `Role` | Endogenous or exogenous |
+| `temporal_status` | `TemporalStatus` | Time-varying or time-invariant |
+
+### `CausalEdge`
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `EdgeId` | Persistent `edge:` identity, preserved when revising the same edge |
+| `cause_id`, `effect_id` | `ConstructId` | Persistent references to the endpoint construct definitions |
+| `description` | `str` | Theoretical justification for the causal relationship |
+| `lagged` | `bool` | Whether the cause precedes the effect by one model-clock tick |
+| `sources` | `list[LiteratureSource]` | Supporting literature with title, optional URL, and excerpt |
 
 [^pearl2009]: Pearl, J. (2009). *Causality: Models, Reasoning, and Inference* (2nd ed.). Cambridge University Press. [Bibliography entry](../reference/bibliography.md)

@@ -10,6 +10,23 @@
 
 ## Prerequisites
 
+### Test cost
+
+`bun run --cwd apps/data-pipeline test` and direct `uv run pytest tests/` runs
+use one worker and exclude `slow`, `cpu_expensive`, and `gpu` tests by default.
+Mark tests that compile numerical inference kernels, fit models, or run batches
+of forward simulations with `@pytest.mark.cpu_expensive`. This marker applies
+regardless of the device executing the numerical work. Mark tests that require
+GPU hardware with `@pytest.mark.gpu`; retain `slow` for other long-running tests.
+Contract, identity, projection, and small array-reduction tests remain in the
+default selection.
+
+Expensive tests require an explicit request. When authorized, select the desired
+marker with `-m`; `test:all` explicitly includes every marker. Worker parallelism
+also requires an explicit `-n` override.
+
+### Local stack
+
 ```bash
 bun run integration:start
 ```
@@ -84,8 +101,8 @@ Regenerate the deterministic artificial completion from DEMO's real latent and
 measurement structures, validation profiles, and panel with:
 
 ```bash
-bun run fixture:complete-demo
-bun run fixture:check-demo
+bun run fixture:demo
+bun run fixture:demo:check
 ```
 
 This leaves `data/DEMO/store/` and the episode journal untouched. Inside the
@@ -144,6 +161,8 @@ curl -s "http://localhost:8100/api/episodes/$WORKSPACE_ID/events" | jq '.events[
 ### 3. Verify via browser automation
 
 Navigate to `http://localhost:3000/analysis/{WORKSPACE_ID}`, screenshot the progress bar, then poll and screenshot each artifact section as it completes through the final "Complete" badge.
+
+The persistent model view lives at `http://localhost:3000/model/{WORKSPACE_ID}`: one causal model per workspace with the version scrubber across the top, the graph over the scoped details pane, and the journal as a conversation on the right. Select a scrubber tick to open that move's version scope and its time breakdown; double-click a tick to view the asset as it stood then.
 
 If the UI behaves unexpectedly, check Next.js devtools MCP errors before debugging the browser script.
 

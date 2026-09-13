@@ -38,7 +38,7 @@ Consider a study with `model_clock = "1d"` and an indicator *daily mean mood* (`
 | **1b** | The measurement structure declares `aggregation = mean` → `support_kind = interval`, `anchor_policy = support_end`. | `observation_window = "1d"` committed |
 | **2** | The extractor averages mood values from 2025-03-01 00:00 to 2025-03-02 00:00, producing value 6.2. | `ObservationRecord(anchor_time = 2025-03-02, support_start = 2025-03-01, support_end = 2025-03-02)` |
 | **5** | The previous observation was anchored at 2025-03-01; the estimator computes `dt = 1.0 day` and discretizes: `A_d = exp(A · 1.0)`. | `dt = 1.0` day feeds the Kalman/PF step |
-| **6** | After fitting, an intervention `do(exercise = baseline+1)` is simulated forward 30 days at 1-day steps from the baseline steady state, producing `TemporalEffect(effect_1d, effect_7d, effect_30d, peak_effect, time_to_peak_days)`. | Horizon = 30 d at `model_clock` resolution |
+| **6** | After fitting, an intervention `do(exercise = baseline+1)` is simulated forward 30 days at 1-day steps from the baseline steady state, producing [`TemporalEffect`](../pipeline/analysis.md#temporaleffect) with requested horizon samples and peak timing. | Horizon = 30 d at `model_clock` resolution |
 
 The key invariant: `model_clock` sets the resolution; `observation_window` says how much real-world time each datum summarizes; `anchor_time` places it on the grid; `dt` discretizes the SDE between grid points; the intervention horizon projects the fitted model forward on that same grid.
 

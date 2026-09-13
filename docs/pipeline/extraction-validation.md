@@ -65,12 +65,19 @@ For a study tracking developer productivity where `measurements` transition extr
 | Output | Type | Description |
 |---|---|---|
 | `is_valid` | `bool` | `true` if no error-severity issues exist across all indicators and dataset checks |
-| `indicators` | `dict[str, IndicatorAudit]` | Keyed by indicator name; each entry bundles the [empirical profile](#empiricalprofile) and validation findings |
+| `indicators` | `dict[IndicatorId, IndicatorAudit]` | Keyed by persistent indicator ID; each entry bundles the [empirical profile](#empiricalprofile) and validation findings |
 | `dataset_issues` | `list[ValidationIssue]` | Issues not attributable to a single indicator (e.g., negative cross-indicator correlations) |
 
-### `EmpiricalProfile`
+### `ValidationIssue`
 
-Contained in each `IndicatorAudit`.
+| Field | Type | Description |
+|---|---|---|
+| `subject` | `EntityRef` ∣ `null` | Explicit indicator or construct owner; null for a dataset-wide issue |
+| `severity` | `str` | Issue severity |
+| `issue_type` | `str` | Validation rule identifier |
+| `message` | `str` | Explanation of the finding |
+
+### `EmpiricalProfile`
 
 | Field | Type | Description |
 |---|---|---|

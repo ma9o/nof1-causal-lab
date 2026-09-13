@@ -66,15 +66,46 @@ The web viewer works standalone with mock data. Live episodes also need the Temp
 
 ## Common Commands
 
-All commands run from the repo root via Turbo across all packages:
+Run these commands from the repo root. Shared development and quality tasks use
+Turbo across the workspaces; generators and maintenance commands run in their
+owning package.
 
 ```bash
 bun run lint          # Lint (ruff, eslint, biome)
 bun run lint:fix      # Auto-fix lint issues
 bun run format        # Format (ruff, biome)
 bun run format:check  # Check formatting without writing
-bun run test          # Tests (pytest -m 'not slow', vitest)
-bun run type-check    # TypeScript type-check
+bun run test          # Lightweight backend tests (one worker) and Vitest
+bun run type-check    # Python and TypeScript type checks
 bun run codegen:check # Generated API artifact drift
 bun run docs:check    # Generated documentation drift and markdown
 ```
+
+### Script organization
+
+Each `package.json` groups scripts by workflow: development, quality checks,
+generation, maintenance, and install hooks. Aggregate commands come before their
+subcommands. Related commands share a colon namespace; artifact checks end in
+`:check`, fixes in `:fix`, and updates in `:update`.
+
+| Workflow | Root commands |
+|----------|---------------|
+| Development | `dev`, `build`, `storybook`, `integration:start` |
+| Quality | `check`, `lint`, `lint:fix`, `format`, `format:check`, `type-check`, `test`, `test:all`, `test:fixture-promotion`, `knip`, `duplicates` |
+| API generation | `codegen`, `codegen:check`, `types:graph` |
+| Documentation | `docs:codegen`, `docs:check`; individual tasks under `docs:distribution`, `docs:latex`, `docs:markdown:check`, `docs:spell:check` |
+| Fixtures | `fixture:promote`, `fixture:demo`, `fixture:demo:check` |
+
+Use `bun run` to list root scripts, or `bun run --cwd <workspace>` to list one
+package's scripts. Run focused tasks in their workspace, for example:
+
+```bash
+bun run --cwd apps/web storybook:build
+bun run --cwd apps/data-pipeline lint:type-boundaries:tests
+bun run --cwd packages/api-types codegen:contracts:json:check
+```
+
+Check and update variants reuse their base command with the relevant flag. Keep
+the underlying command in one place when adding a new variant. `test:all` includes
+expensive tests; see the [test cost policy](agentic_integration_testing.md#test-cost)
+before using it.

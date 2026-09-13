@@ -26,7 +26,7 @@ graph TD
             translate_out --> prior_idx["build_semantic_prior_bindings() — compile/prior_indexing.py"]
             prior_idx --> priors["compile_priors() — compile/prior_compilation.py"]
             translate_out --> priors
-            priors --> priors_out(["PriorRegistry + SemanticBindingRegistry"])
+            priors --> priors_out(["NumPyro distributions + SemanticBindingRegistry"])
             priors_out --> bind["bind_parameters() — compile/prior_compilation.py"]
             bind --> bind_out(["parameter_bindings"])
             priors_out --> attach_diag["_attach_compile_binding_provenance()"]
@@ -53,7 +53,7 @@ graph TD
         ssm_model --> arrays["prepare_fit_inputs()\nobservations + times + manifest order"]
         arrays --> support["compile_observation_support_runtime()"]
         support --> registry["Site registry + PriorRuntimeBundle\n(derived from SSMSpec)"]
-        registry --> assemble["Runtime assembly\n(component params + block params -> RuntimeDynamics / diffusion / loadings / t0)"]
+        registry --> assemble["Shared parameter assembly\n(component params + block matrices -> Dynestyx model)"]
     end
 
     ssm_model --> fit["flows/transitions/inference.fit_prepared_model(runtime)\n→ ParticleMCMCPosterior"]
@@ -76,11 +76,12 @@ graph TD
 | `PriorPlan` | `artifacts/prior.py` | Complete, family-validated executable priors keyed exactly to `StatisticalModelSpec` parameters |
 | `SSMSpec` | `models/ssm/model.py` | SSM artifact: dimensions, names, distributions, structure blocks, and composite drift spec |
 | `SiteDescriptor` | `models/ssm/structure/sites.py` | Canonical sample-site identity: name, shape, support, semantic kind, assembly group, and prior binding field |
-| `PriorRegistry` | `models/ssm/priors.py` | Site-keyed canonical priors for both structure blocks and dynamics components |
-| `PriorRuntimeBundle` | `models/ssm/parameterization.py` | Runtime site registry, transforms, and prior-state arrays reconstructed without model tracing |
-| `SemanticBindingRegistry` | `models/ssm/compile/prior_indexing.py` | Named registry of parameter-name → compiled sample-site bindings; replaces the old positional prior-index tuple |
-| `CompiledStructure` | `models/ssm/compile/contracts.py` | Serialized SSM structure, source bindings, edge lags, and identification-anchor certificates |
-| `CompiledSSMArtifact` | `models/ssm/compile/contracts.py` | Serializable bundle: compiled structure + compiled prior semantics + parameter bindings + diagnostics |
+| `dict[str, numpyro.distributions.Distribution]` | `models/ssm/priors.py` | Native laws keyed by sample site, shared by inference and prior prediction |
+| `CompiledDistribution` | `artifacts/distribution.py` | Scalar JSON recipe containing an approved family, its strict parameters, and its declared transforms |
+| `PriorRuntimeBundle` | `models/ssm/parameterization.py` | Runtime site registry and native NumPyro distributions reconstructed without model tracing |
+| `SemanticBindingRegistry` | `models/ssm/compile/prior_indexing.py` | Parameter-ID registry of compiled sample-site coordinates |
+| `CompiledStructure` | `artifacts/compiled_ssm.py` | Serialized SSM structure, source bindings, edge lags, and identification-anchor certificates |
+| `CompiledSSMArtifact` | `artifacts/compiled_ssm.py` | Serializable bundle: compiled structure + compiled prior semantics + parameter bindings + diagnostics |
 | `SSMModel` | `models/ssm/model.py` | Executable NumPyro generative model |
 | `ParticleMCMCPosterior` | `models/ssm/inference/types.py` | Production particle-MCMC samples, diagnostics, and engine evidence |
 | `WarmupProposal` | `models/ssm/inference/types.py` | Laplace/IEKS initialization draws and proposal preconditioning only |
@@ -98,12 +99,12 @@ Converts a `StatisticalModelSpec` + `StructuralPlan` into an `SSMSpec` — the a
 **What it does:**
 
 - Extracts latent construct layout from the structural plan (names, order, time-invariant mask)
-- Builds the **dynamics spec** as a composite vector field. The standard affine artifact uses `DiagonalDecaySpec` for per-latent decay, `LinearEdgeSpec` for cross-lag dynamics, and `StateInterceptSpec` for any free continuous-time state intercepts.
+- Lowers the declared [scientific mechanisms](../pipeline/statistical-model-spec.md#dynamicsmechanism) to native vector-field components. Construct and edge IDs select the targets; coefficient slots select fixed values or estimated parameters. Labels do not select model structure.
 - Builds the **loading template** (`lambda_mat`) plus `lambda_mask`: fixed indicator-to-construct loadings and free non-reference loadings
 - Compiles concrete templates plus masks for `cint`, `static_state_sds`, `diffusion_chol`, `manifest_means`, `manifest_chol`, `t0_means`, and `t0_chol`.
 - Converts marginalized time-invariant confounders into compiled low-rank baseline factors of the form `B diag(tau^2) B^T` rather than free pairwise `cor0_*` surfaces
 - Derives deterministic `manifest_standardized` flags from the locked likelihood family, link, and observation support semantics
-- Applies `initialization_policy` and `equilibrium_forcing` to determine which `t0_*`, `cint_*`, and `manifest_mean_*` surfaces remain free
+- Applies initial-state and observation-intercept policies. A mechanism declares its own centre or constant forcing; the compiler checks the required identification anchors.
 - Computes **edge_lag_days**: for each cross-lag edge, the lag in days (used by prior compilation to scale DT→CT)
 - Selects observation distribution families from `measurement_dtype`
 - Eliminates legacy string matrix modes: translation always emits concrete templates and explicit masks
@@ -112,20 +113,20 @@ Converts a `StatisticalModelSpec` + `StructuralPlan` into an `SSMSpec` — the a
 
 ## `measurements` transition: Semantic Prior Bindings (`compile/prior_indexing.py`)
 
-Builds the mapping from semantic parameter names (e.g., `"rho_mood"`, `"beta_mood_stress"`) to canonical sample-site indices in the SSM structure and dynamics components.
+Binds scientific parameter IDs to canonical sample-site indices using their quantities, explicit owners, and the native structure's ID-labelled axes.
 
 **What it does:**
 
-- For each parameter in `StatisticalModelSpec`, determines its role (AR coefficient, fixed effect, loading, residual SD, state intercept, observation intercept, static baseline-factor SD, correlation, and observation-family auxiliary site)
+- Reads each parameter's declared quantity, owners, and prior-authoring transform
 - Maps it to the correct SSM site (`vf_0_decay`, `vf_2_weight`, `lambda_free`, `manifest_means_free`, `static_state_sd_free`, etc.) and flat index
 - Derives the canonical free-entry order from block and dynamics `SiteDescriptor`s so the compiler, runtime assembly, and posterior name resolution all share one site registry.
-- Uses `split_compound_name()` to parse compound names like `"beta_mood_stress"` into (cause, effect)
+- Checks directed edge IDs, so opposite feedback edges remain distinct even though they share endpoints. Renaming or duplicating parameter display labels leaves bindings unchanged.
 
 **Key function:** `build_semantic_prior_bindings(ssm_spec, statistical_model_spec, *, structural_plan=None) -> SemanticBindingRegistry`
 
 This is now a strict internal helper: it requires both a translated `SSMSpec` and a semantic `StatisticalModelSpec`. Spec-only entrypoints decide explicitly when no semantic bindings should be produced; the indexer no longer falls back to all-empty maps.
 
-**Returns:** a `SemanticBindingRegistry` — an immutable, parameter-name-keyed collection of `SemanticBinding`s (queryable via `by_parameter` and `by_site_kind`) that replaces the old positional 14-tuple. Each binding records the parameter's site kind, canonical site name, and flat index. Bindings span the full set of site categories:
+**Returns:** a `SemanticBindingRegistry` with parameter-ID-keyed `by_parameter` entries. Each binding records the parameter's site kind, canonical site name, and flat index. Bindings span the full set of site categories:
 
 - cross-lag effects (drift off-diagonal) and factor loadings
 - AR coefficients (baseline decay for the derived drift diagonal)
@@ -139,30 +140,32 @@ This is now a strict internal helper: it requires both a translated `SSMSpec` an
 
 ## `validation_report` derivation: Prior Compilation (`compile/prior_compilation.py`)
 
-Translates a complete typed `PriorPlan` into a site-keyed `PriorRegistry` with the correct parameterization. Evidence, citations, and agent-facing rationales stay in `PriorProposal`; only family-validated executable fields cross the compiler boundary.
+Translates a complete typed `PriorPlan` into site-keyed NumPyro distributions with the correct parameterization. Evidence, citations, and agent-facing rationales stay in `PriorProposal`; only family-validated executable fields cross the compiler boundary.
 
 **Critical transformations:**
 
-- **AR coefficients (DT→CT):** User specifies `rho_*` as baseline persistence in `(0, 1)` over the authored interval, absent incoming feedback. The compiler transforms it to positive continuous-time base decay with `base_decay = −log(rho) / dt`; nondegenerate priors are moment-matched to `Gamma(concentration, rate)`, and fixed-width `rho_*` priors compile to positive `Delta(value)`.
+- **AR coefficients (DT→CT):** User specifies `rho_*` as baseline persistence in `(0, 1)` over the authored interval, absent incoming feedback. The compiler transforms it to positive continuous-time base decay with `base_decay = −log(rho) / dt`; NumPyro applies this change of variables to the complete authored law with its exact density Jacobian. Persistence priors must have their entire support within `[0, 1]`, such as Beta, Uniform, or TruncatedNormal with valid bounds. Unbounded Normal and authored point-mass priors are rejected. There is no Gamma approximation.
 - **Hard-sparsity drift assembly:** Off-diagonal entries are compiled as `A_ij = beta_ij / dt` on allowed edges only. For each dynamic row, the realised diagonal is derived as `A_ii = -(base_decay_i + sum_j |A_ij| + stability_margin)`, preserving structural zeros while guaranteeing strict row diagonal dominance.
-- **Cross-lag effects:** Scaled by an explicitly resolved positive interval in this order: `reference_interval_days`, then compiled `edge_lag_days`, then the structural-plan model clock. If none exists, compilation raises instead of silently assuming `1.0d`.
+- **Cross-lag effects:** The complete distribution is rescaled by a native affine transform, preserving its family and bounds. The positive interval is resolved in this order: `reference_interval_days`, then compiled `edge_lag_days`, then the structural-plan model clock. If none exists, compilation raises instead of silently assuming `1.0d`.
 - **Site binding:** compiled priors attach to canonical `SiteDescriptor`s. Structure blocks and dynamics components use the same prior materialization path.
+
+Authored proposals, executable priors, and compiled recipes share [`DistributionSpec`](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/distribution.py): the family and its complete numeric arguments are validated together by NumPyro. Its JSON schema derives inline family-specific signatures from native argument metadata, without separate parameter classes. The application retains family approval, scientific domains, parameter ownership, and evidence. NumPyro owns argument constraints, distribution moments, densities, sampling, and transform Jacobians. Nonlinear transformed reference values used by compile diagnostics are anchors, not claims about the transformed distribution's mean.
 
 **Public boundary:** `compile_ssm_inputs_from_statistical_model_spec(statistical_model_spec, prior_plan, structural_plan=...)`. The internal `compile_priors()` helper receives compiler payloads projected from the plan.
 
 **Post-compilation diagnostics:**
 
 - `collect_interval_provenance_warnings()` — warns when cited source intervals and authored/model intervals materially disagree
-- `collect_first_order_approximation_warnings()` — uses the full matrix logarithm `logm(A_dt) / dt` to flag cross-lag priors whose elementwise `beta_dt / dt` CT coupling materially differs from the full-system CT scale
+- `collect_first_order_approximation_warnings()` — uses deterministic reference values (the base-law mean passed through the declared transforms) and the full matrix logarithm `logm(A_dt) / dt` to flag cross-lag priors whose elementwise `beta_dt / dt` CT coupling materially differs from the full-system CT scale
 - `collect_compile_diagnostics()` — combines these warnings into the structured diagnostics payload persisted on the artifact
 
 ## `statistical_model_spec` transition: Parameter Bindings (`compile/prior_compilation.py`)
 
-Creates the mapping from semantic parameter names to NumPyro sample sites — the bridge between the statistical model specification and posterior extraction.
+Creates the mapping from scientific parameter IDs to NumPyro sample sites — the bridge between the statistical model specification and posterior extraction.
 
 **Key function:** `bind_parameters(index_maps) -> list[dict]`
 
-Each binding is: `{parameter: "rho_mood", site_name: "vf_0_decay", flat_index: 0}`
+Each binding references a parameter ID, its logical element ID, the native site name, and the coordinate within that site.
 
 This allows `ParticleMCMCPosterior` to map posterior samples back to user-facing parameter names. `bind_parameters()` consumes the already-compiled `SemanticBindingRegistry` from `validation_report` derivation rather than rebuilding it, and only the compile entrypoints decide whether semantic bindings should exist at all.
 
@@ -180,17 +183,19 @@ CompiledSSMArtifact = {
         "anchor_certificates": [...],   # per-latent location/scale proof
     },
     "compiled_prior_semantics": {...},  # serialized PriorRuntimeBundle payload
-    "parameter_bindings": [...],        # semantic name → NumPyro site mappings
+    "parameter_bindings": [...],        # scientific parameter IDs → NumPyro coordinates
     "compile_diagnostics": [...],       # compile-time warnings / notes
 }
 ```
 
-The artifact stores `compiled_prior_semantics`, the canonical runtime prior block used to reconstruct `PriorRuntimeBundle` without retracing the model.
+The artifact stores `compiled_prior_semantics`, the canonical runtime prior block used to reconstruct `PriorRuntimeBundle` without retracing the model. Its [version 7 contract](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/compiled_ssm.py) stores site metadata and a list of scalar distribution recipes per site. Runtime hydration constructs native NumPyro distributions from these recipes; there are no integer family tags or parallel numeric prior-state arrays. NumPyro owns inference coordinate transforms; prior prediction samples the distributions directly. Earlier compiled-prior versions require recompilation.
 
 Also provides validation entry points used by earlier pipeline transitions:
 
 - `validate_statistical_model_spec_for_compilation()` — catches structural errors before committing to compilation
 - `trial_compile_statistical_model_spec()` / `trial_compile_measurement_structure()` — dry-run compilation that returns an error string or None
+
+Observation likelihoods and predictive draws share the native laws in [`observation_distributions.py`](../../apps/data-pipeline/src/nof1_causal_lab/models/ssm/execution/observation_distributions.py). Beta shape parameters and negative-binomial rates have no sampler-only floors. Binary boundary probabilities and zero-mean count distributions retain their exact limiting laws. The application still owns links, aggregation windows, measurement support, covariance structure, and missing measurements. Changing to native samplers preserves these laws but does not promise identical draws for historical random seeds.
 
 ## Stage 5: Runtime Preparation (`runtime.py`, `serialization.py`, `observation_support.py`)
 
@@ -213,7 +218,7 @@ The application-owned `flows/transitions/inference/fit.py` adapter applies sampl
 Runtime reconstruction now has three layers:
 
 - **`SSMSpec`** remains the serialization and validation boundary. It owns persisted templates, masks, distributions, names, and the composite drift spec.
-- **`PriorRuntimeBundle`** is rebuilt from `compiled_prior_semantics` and owns sample-site registry, transforms, and prior-state semantics.
+- **`PriorRuntimeBundle`** is rebuilt from `compiled_prior_semantics` and owns the sample-site registry and native prior distributions.
 - **`RuntimeDynamics`** is sampled through the compiled composite drift spec. Inference backends then derive affine or local-linear views from the vector field instead of splitting linear vs nonlinear at the spec level.
 
 **Why `fit()` stays outside `SSMModel`:** the runtime separates three concerns:

@@ -24,7 +24,7 @@ Channel-side location parameters are then identified *relative to* the anchor an
 
 Latent-side location parameters are gated on the standardized-channel anchor, mirroring ctsem's rule that the continuous intercept and the manifest means must not both be free[^driver2017]:
 
-- `cint_*` (the free well center under `equilibrium_forcing`) activates only for constructs with a standardized channel;
+- an estimated centre in a [node-potential mechanism](../../pipeline/statistical-model-spec.md#dynamicsmechanism) requires a standardized channel;
 - `t0_mean_*` for time-invariant constructs activates only under the same condition.
 
 Without this gate, the free latent-side location and the channel-side location parameters move together on an exact additive ridge — and because structural edges act on raw states, the ridge propagates through every downstream construct whose center is free.
