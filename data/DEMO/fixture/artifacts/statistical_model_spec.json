@@ -2,7 +2,7 @@
   "statistical_model_spec": {
     "likelihoods": [
       {
-        "variable": "phq9_screening_score",
+        "indicator_id": "indicator:93c7007ff8e5a6565b25",
         "distribution": "ordered_logistic",
         "link": "cumulative_logit",
         "standardized": false,
@@ -10,7 +10,7 @@
         "sources": []
       },
       {
-        "variable": "gad7_screening_score",
+        "indicator_id": "indicator:b3eb347f05220d9f4130",
         "distribution": "ordered_logistic",
         "link": "cumulative_logit",
         "standardized": false,
@@ -18,7 +18,7 @@
         "sources": []
       },
       {
-        "variable": "state_of_mind_valence",
+        "indicator_id": "indicator:b20fa3887689d5616a60",
         "distribution": "gaussian",
         "link": "identity",
         "standardized": true,
@@ -26,7 +26,7 @@
         "sources": []
       },
       {
-        "variable": "journal_internalizing_symptom_severity",
+        "indicator_id": "indicator:8e1b73dd3c754b48e92c",
         "distribution": "ordered_logistic",
         "link": "cumulative_logit",
         "standardized": false,
@@ -34,7 +34,7 @@
         "sources": []
       },
       {
-        "variable": "taper_speed_instruction_intensity",
+        "indicator_id": "indicator:eca6b8b2c4379267b6c8",
         "distribution": "ordered_logistic",
         "link": "cumulative_logit",
         "standardized": false,
@@ -42,15 +42,15 @@
         "sources": []
       },
       {
-        "variable": "escitalopram_documented_dose_mg",
-        "distribution": "gamma",
-        "link": "log",
-        "standardized": false,
+        "indicator_id": "indicator:eb0949a188790298c25d",
+        "distribution": "gaussian",
+        "link": "identity",
+        "standardized": true,
         "reasoning": "continuous support with point / last semantics; empirical profile n=19, mean=16.84, sd=4.78.",
         "sources": []
       },
       {
-        "variable": "medication_adherence_documented",
+        "indicator_id": "indicator:1f8878c9ba1ad571b89e",
         "distribution": "ordered_logistic",
         "link": "cumulative_logit",
         "standardized": false,
@@ -58,15 +58,15 @@
         "sources": []
       },
       {
-        "variable": "sleep_efficiency_pct",
-        "distribution": "gamma",
-        "link": "log",
-        "standardized": false,
+        "indicator_id": "indicator:7a4890fc254d4a508b7c",
+        "distribution": "gaussian",
+        "link": "identity",
+        "standardized": true,
         "reasoning": "continuous support with interval / mean semantics; empirical profile n=1448, mean=86.72, sd=3.86.",
         "sources": []
       },
       {
-        "variable": "daily_step_count",
+        "indicator_id": "indicator:21069529417a9a99ee50",
         "distribution": "negative_binomial",
         "link": "log",
         "standardized": false,
@@ -74,7 +74,7 @@
         "sources": []
       },
       {
-        "variable": "journal_stress_severity",
+        "indicator_id": "indicator:9becfedce394873f8c0c",
         "distribution": "ordered_logistic",
         "link": "cumulative_logit",
         "standardized": false,
@@ -87,298 +87,1078 @@
         "name": "obs_sd_state_of_mind_valence",
         "role": "measurement_error_sd",
         "constraint": "positive",
-        "description": "Measurement-error SD for state_of_mind_valence"
-      },
-      {
-        "name": "manifest_mean_escitalopram_documented_dose_mg",
-        "role": "observation_intercept",
-        "constraint": "none",
-        "description": "Observation intercept for escitalopram_documented_dose_mg"
-      },
-      {
-        "name": "manifest_mean_sleep_efficiency_pct",
-        "role": "observation_intercept",
-        "constraint": "none",
-        "description": "Observation intercept for sleep_efficiency_pct"
+        "description": "Measurement-error SD for state_of_mind_valence",
+        "id": "parameter:145cae7b491088b812e4c26ad611489cf0f1c53e028abbd083dbcf800675aaef",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:6ca86c47aaf18b2472ce"
+          },
+          {
+            "kind": "indicator",
+            "id": "indicator:b20fa3887689d5616a60"
+          }
+        ],
+        "quantity": "manifest_var_diag",
+        "prior_transform": "identity"
       },
       {
         "name": "manifest_mean_daily_step_count",
         "role": "observation_intercept",
         "constraint": "none",
-        "description": "Observation intercept for daily_step_count"
-      },
-      {
-        "name": "obs_shape",
-        "role": "observation_hyperparameter_positive",
-        "constraint": "positive",
-        "description": "Gamma observation shape"
+        "description": "Observation intercept for daily_step_count",
+        "id": "parameter:4c69c0ffa919eabbb08eed0878b3bf24a3fb06c1cd111d5a091f8fcddd8537e6",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:07f8d9915eaa311c9e50"
+          },
+          {
+            "kind": "indicator",
+            "id": "indicator:21069529417a9a99ee50"
+          }
+        ],
+        "quantity": "manifest_means",
+        "prior_transform": "identity"
       },
       {
         "name": "obs_r",
         "role": "observation_hyperparameter_positive",
         "constraint": "positive",
-        "description": "Negative-binomial observation dispersion"
+        "description": "Negative-binomial observation dispersion",
+        "id": "parameter:682bd44790ce8d881c45c2aa166884c83146b6f6a175a779c90033b22ba9403f",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:07f8d9915eaa311c9e50"
+          },
+          {
+            "kind": "indicator",
+            "id": "indicator:21069529417a9a99ee50"
+          }
+        ],
+        "quantity": "obs_r",
+        "prior_transform": "site_wide"
       },
       {
         "name": "obs_ordered_base_phq9_screening_score",
         "role": "observation_hyperparameter",
         "constraint": "none",
-        "description": "Ordered-logistic threshold base for phq9_screening_score"
+        "description": "Ordered-logistic threshold base for phq9_screening_score",
+        "id": "parameter:9ec837565ea8266acf16f4e878ab3ec49c793f747dd1620cb8872a15b6d48170",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:6ca86c47aaf18b2472ce"
+          },
+          {
+            "kind": "indicator",
+            "id": "indicator:93c7007ff8e5a6565b25"
+          }
+        ],
+        "quantity": "obs_ordered_base",
+        "prior_transform": "identity"
       },
       {
         "name": "obs_ordered_gaps_phq9_screening_score",
         "role": "observation_hyperparameter_positive",
         "constraint": "positive",
-        "description": "Ordered-logistic threshold gaps for phq9_screening_score"
+        "description": "Ordered-logistic threshold gaps for phq9_screening_score",
+        "id": "parameter:2098505b8d1d7997f62805340a3ff337efeeae3695f6f6e97a5d36b530ab9961",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:6ca86c47aaf18b2472ce"
+          },
+          {
+            "kind": "indicator",
+            "id": "indicator:93c7007ff8e5a6565b25"
+          }
+        ],
+        "quantity": "obs_ordered_gaps",
+        "prior_transform": "site_row"
       },
       {
         "name": "obs_ordered_base_gad7_screening_score",
         "role": "observation_hyperparameter",
         "constraint": "none",
-        "description": "Ordered-logistic threshold base for gad7_screening_score"
+        "description": "Ordered-logistic threshold base for gad7_screening_score",
+        "id": "parameter:6e11cf59457acf739c486d4638043ab03622923871577e92928fdb95b23d4022",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:6ca86c47aaf18b2472ce"
+          },
+          {
+            "kind": "indicator",
+            "id": "indicator:b3eb347f05220d9f4130"
+          }
+        ],
+        "quantity": "obs_ordered_base",
+        "prior_transform": "identity"
       },
       {
         "name": "obs_ordered_gaps_gad7_screening_score",
         "role": "observation_hyperparameter_positive",
         "constraint": "positive",
-        "description": "Ordered-logistic threshold gaps for gad7_screening_score"
+        "description": "Ordered-logistic threshold gaps for gad7_screening_score",
+        "id": "parameter:975f2d0c21bddf6371a2c1d8dcea40ddfc63416258239751962298592d74b9f8",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:6ca86c47aaf18b2472ce"
+          },
+          {
+            "kind": "indicator",
+            "id": "indicator:b3eb347f05220d9f4130"
+          }
+        ],
+        "quantity": "obs_ordered_gaps",
+        "prior_transform": "site_row"
       },
       {
         "name": "obs_ordered_base_journal_internalizing_symptom_severity",
         "role": "observation_hyperparameter",
         "constraint": "none",
-        "description": "Ordered-logistic threshold base for journal_internalizing_symptom_severity"
+        "description": "Ordered-logistic threshold base for journal_internalizing_symptom_severity",
+        "id": "parameter:2e77fa252226c51341ede18b3f1d464dbeb890f4a60a438d704f0fefbc38188e",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:6ca86c47aaf18b2472ce"
+          },
+          {
+            "kind": "indicator",
+            "id": "indicator:8e1b73dd3c754b48e92c"
+          }
+        ],
+        "quantity": "obs_ordered_base",
+        "prior_transform": "identity"
       },
       {
         "name": "obs_ordered_gaps_journal_internalizing_symptom_severity",
         "role": "observation_hyperparameter_positive",
         "constraint": "positive",
-        "description": "Ordered-logistic threshold gaps for journal_internalizing_symptom_severity"
+        "description": "Ordered-logistic threshold gaps for journal_internalizing_symptom_severity",
+        "id": "parameter:6d06d0c355dba2e8343ac2e243a6754ed91712effdd567e08a2c88d6fac3fa86",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:6ca86c47aaf18b2472ce"
+          },
+          {
+            "kind": "indicator",
+            "id": "indicator:8e1b73dd3c754b48e92c"
+          }
+        ],
+        "quantity": "obs_ordered_gaps",
+        "prior_transform": "site_row"
       },
       {
         "name": "obs_ordered_base_taper_speed_instruction_intensity",
         "role": "observation_hyperparameter",
         "constraint": "none",
-        "description": "Ordered-logistic threshold base for taper_speed_instruction_intensity"
+        "description": "Ordered-logistic threshold base for taper_speed_instruction_intensity",
+        "id": "parameter:4d037b0571237ffe38d08e6503b98580c2a7370156a7757848ffaa5fd1728fdd",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:7b3d7a5f98ae353c60b6"
+          },
+          {
+            "kind": "indicator",
+            "id": "indicator:eca6b8b2c4379267b6c8"
+          }
+        ],
+        "quantity": "obs_ordered_base",
+        "prior_transform": "identity"
       },
       {
         "name": "obs_ordered_gaps_taper_speed_instruction_intensity",
         "role": "observation_hyperparameter_positive",
         "constraint": "positive",
-        "description": "Ordered-logistic threshold gaps for taper_speed_instruction_intensity"
+        "description": "Ordered-logistic threshold gaps for taper_speed_instruction_intensity",
+        "id": "parameter:60c1e5624e5768a3cb12b77bca44cd14f93f40096f1954d34b8ef00457b560cd",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:7b3d7a5f98ae353c60b6"
+          },
+          {
+            "kind": "indicator",
+            "id": "indicator:eca6b8b2c4379267b6c8"
+          }
+        ],
+        "quantity": "obs_ordered_gaps",
+        "prior_transform": "site_row"
       },
       {
         "name": "obs_ordered_base_medication_adherence_documented",
         "role": "observation_hyperparameter",
         "constraint": "none",
-        "description": "Ordered-logistic threshold base for medication_adherence_documented"
+        "description": "Ordered-logistic threshold base for medication_adherence_documented",
+        "id": "parameter:773a0c8da725a4e3f6240c7807ad981e4948eead8c502f9fe316d4ababbc2e6d",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:b7418d1841c57d53abf8"
+          },
+          {
+            "kind": "indicator",
+            "id": "indicator:1f8878c9ba1ad571b89e"
+          }
+        ],
+        "quantity": "obs_ordered_base",
+        "prior_transform": "identity"
       },
       {
         "name": "obs_ordered_gaps_medication_adherence_documented",
         "role": "observation_hyperparameter_positive",
         "constraint": "positive",
-        "description": "Ordered-logistic threshold gaps for medication_adherence_documented"
+        "description": "Ordered-logistic threshold gaps for medication_adherence_documented",
+        "id": "parameter:ce1ebad1f8bd081a26421cfcf318798e7c0081cfa7e691a0938d3039982206ec",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:b7418d1841c57d53abf8"
+          },
+          {
+            "kind": "indicator",
+            "id": "indicator:1f8878c9ba1ad571b89e"
+          }
+        ],
+        "quantity": "obs_ordered_gaps",
+        "prior_transform": "site_row"
       },
       {
         "name": "obs_ordered_base_journal_stress_severity",
         "role": "observation_hyperparameter",
         "constraint": "none",
-        "description": "Ordered-logistic threshold base for journal_stress_severity"
+        "description": "Ordered-logistic threshold base for journal_stress_severity",
+        "id": "parameter:0e9a1b1dfe541174568e14b1ff28869410c133c12d1e3a9af74267469c804720",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:bb5a697c4e5f020f733d"
+          },
+          {
+            "kind": "indicator",
+            "id": "indicator:9becfedce394873f8c0c"
+          }
+        ],
+        "quantity": "obs_ordered_base",
+        "prior_transform": "identity"
       },
       {
         "name": "obs_ordered_gaps_journal_stress_severity",
         "role": "observation_hyperparameter_positive",
         "constraint": "positive",
-        "description": "Ordered-logistic threshold gaps for journal_stress_severity"
+        "description": "Ordered-logistic threshold gaps for journal_stress_severity",
+        "id": "parameter:d04f9da05c382797cd6ece7e35dc6fe984ba19224c035803da1b904139904cef",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:bb5a697c4e5f020f733d"
+          },
+          {
+            "kind": "indicator",
+            "id": "indicator:9becfedce394873f8c0c"
+          }
+        ],
+        "quantity": "obs_ordered_gaps",
+        "prior_transform": "site_row"
       },
       {
         "name": "rho_taper_speed_dose_reduction",
         "role": "ar_coefficient",
         "constraint": "unit_interval",
-        "description": "Baseline daily persistence absent incoming feedback for taper_speed_dose_reduction"
+        "description": "Baseline daily persistence absent incoming feedback for taper_speed_dose_reduction",
+        "id": "parameter:77da8f35596cde3b54170a7e261723af9567a7427aadceff11ef155e561cd796",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:7b3d7a5f98ae353c60b6"
+          }
+        ],
+        "quantity": "dynamics_decay",
+        "prior_transform": "dt_persistence_to_ct_decay"
       },
       {
         "name": "rho_adherence_to_regimen",
         "role": "ar_coefficient",
         "constraint": "unit_interval",
-        "description": "Baseline daily persistence absent incoming feedback for adherence_to_regimen"
+        "description": "Baseline daily persistence absent incoming feedback for adherence_to_regimen",
+        "id": "parameter:a0df5a904f414d8def6f80971c113311003df775f3a852ee6416649b19f79f52",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:b7418d1841c57d53abf8"
+          }
+        ],
+        "quantity": "dynamics_decay",
+        "prior_transform": "dt_persistence_to_ct_decay"
       },
       {
         "name": "rho_escitalopram_dose_taken",
         "role": "ar_coefficient",
         "constraint": "unit_interval",
-        "description": "Baseline daily persistence absent incoming feedback for escitalopram_dose_taken"
+        "description": "Baseline daily persistence absent incoming feedback for escitalopram_dose_taken",
+        "id": "parameter:91175af6ef094fbbb471849776735144f0ba7e5cc5c2664c14380f0c69e8d6b4",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:27f64faaddd59b2ad491"
+          }
+        ],
+        "quantity": "dynamics_decay",
+        "prior_transform": "dt_persistence_to_ct_decay"
       },
       {
         "name": "rho_perceived_stress_burden",
         "role": "ar_coefficient",
         "constraint": "unit_interval",
-        "description": "Baseline daily persistence absent incoming feedback for perceived_stress_burden"
+        "description": "Baseline daily persistence absent incoming feedback for perceived_stress_burden",
+        "id": "parameter:57a748d4308cc7c65237d3503d25891d7bcab4e4677e6170fa96681806af0fbe",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:bb5a697c4e5f020f733d"
+          }
+        ],
+        "quantity": "dynamics_decay",
+        "prior_transform": "dt_persistence_to_ct_decay"
       },
       {
         "name": "rho_physical_activity",
         "role": "ar_coefficient",
         "constraint": "unit_interval",
-        "description": "Baseline daily persistence absent incoming feedback for physical_activity"
+        "description": "Baseline daily persistence absent incoming feedback for physical_activity",
+        "id": "parameter:403138f9139a89157ab357b2110c3403119f75bf1e0c31596acdd5c487325950",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:07f8d9915eaa311c9e50"
+          }
+        ],
+        "quantity": "dynamics_decay",
+        "prior_transform": "dt_persistence_to_ct_decay"
       },
       {
         "name": "rho_sleep_circadian_disruption",
         "role": "ar_coefficient",
         "constraint": "unit_interval",
-        "description": "Baseline daily persistence absent incoming feedback for sleep_circadian_disruption"
+        "description": "Baseline daily persistence absent incoming feedback for sleep_circadian_disruption",
+        "id": "parameter:ad61a0f32551731a26fb7c623747bf8799d3951df5237a374764a7766a01a7b3",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:5bf588dc29d582cd7423"
+          }
+        ],
+        "quantity": "dynamics_decay",
+        "prior_transform": "dt_persistence_to_ct_decay"
       },
       {
         "name": "rho_internalizing_symptom_burden",
         "role": "ar_coefficient",
         "constraint": "unit_interval",
-        "description": "Baseline daily persistence absent incoming feedback for internalizing_symptom_burden"
+        "description": "Baseline daily persistence absent incoming feedback for internalizing_symptom_burden",
+        "id": "parameter:3ea8343eb30d9377d456fad107bbd306a10c09bc939e36b8f8e3d0ef301f4628",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:6ca86c47aaf18b2472ce"
+          }
+        ],
+        "quantity": "dynamics_decay",
+        "prior_transform": "dt_persistence_to_ct_decay"
       },
       {
         "name": "beta_taper_speed_dose_reduction_escitalopram_dose_taken",
         "role": "fixed_effect",
         "constraint": "none",
-        "description": "Effect of taper_speed_dose_reduction on escitalopram_dose_taken (lagged)"
+        "description": "Effect of taper_speed_dose_reduction on escitalopram_dose_taken (lagged)",
+        "id": "parameter:bf1215a4bf993c55ef79d0d512f3c3750d0e56174370128986e13bb7d3157a43",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:27f64faaddd59b2ad491"
+          },
+          {
+            "kind": "construct",
+            "id": "construct:7b3d7a5f98ae353c60b6"
+          },
+          {
+            "kind": "edge",
+            "id": "edge:66bd0e882b7fbd2118a1"
+          }
+        ],
+        "quantity": "dynamics_weight",
+        "prior_transform": "dt_effect_to_ct_rate"
       },
       {
         "name": "beta_adherence_to_regimen_escitalopram_dose_taken",
         "role": "fixed_effect",
         "constraint": "none",
-        "description": "Effect of adherence_to_regimen on escitalopram_dose_taken (lagged)"
+        "description": "Effect of adherence_to_regimen on escitalopram_dose_taken (lagged)",
+        "id": "parameter:a75d44df5da494db0ca3779b25cc59b24d4cd5d9030a3c701ed136593c50c33b",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:b7418d1841c57d53abf8"
+          },
+          {
+            "kind": "construct",
+            "id": "construct:27f64faaddd59b2ad491"
+          },
+          {
+            "kind": "edge",
+            "id": "edge:14682ec416926f40197b"
+          }
+        ],
+        "quantity": "dynamics_weight",
+        "prior_transform": "dt_effect_to_ct_rate"
       },
       {
         "name": "beta_internalizing_symptom_burden_adherence_to_regimen",
         "role": "fixed_effect",
         "constraint": "none",
-        "description": "Effect of internalizing_symptom_burden on adherence_to_regimen (lagged)"
+        "description": "Effect of internalizing_symptom_burden on adherence_to_regimen (lagged)",
+        "id": "parameter:7e6249b6cf43302cb7a74fa16333923f7472486a5db49375070a39cfc68c07ca",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:b7418d1841c57d53abf8"
+          },
+          {
+            "kind": "construct",
+            "id": "construct:6ca86c47aaf18b2472ce"
+          },
+          {
+            "kind": "edge",
+            "id": "edge:c8efa1de930a894c06ce"
+          }
+        ],
+        "quantity": "dynamics_weight",
+        "prior_transform": "dt_effect_to_ct_rate"
       },
       {
         "name": "beta_escitalopram_dose_taken_internalizing_symptom_burden",
         "role": "fixed_effect",
         "constraint": "none",
-        "description": "Effect of escitalopram_dose_taken on internalizing_symptom_burden (lagged)"
+        "description": "Effect of escitalopram_dose_taken on internalizing_symptom_burden (lagged)",
+        "id": "parameter:a8a505e47c943789c333dcc759e7d84cec651d24a6de8c8c1cbd460425914d72",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:27f64faaddd59b2ad491"
+          },
+          {
+            "kind": "construct",
+            "id": "construct:6ca86c47aaf18b2472ce"
+          },
+          {
+            "kind": "edge",
+            "id": "edge:e96deda9a6084d6d4ed9"
+          }
+        ],
+        "quantity": "dynamics_weight",
+        "prior_transform": "dt_effect_to_ct_rate"
       },
       {
         "name": "beta_external_stressful_events_perceived_stress_burden",
         "role": "fixed_effect",
         "constraint": "none",
-        "description": "Effect of external_stressful_events on perceived_stress_burden (contemporaneous)"
+        "description": "Effect of external_stressful_events on perceived_stress_burden (contemporaneous)",
+        "id": "parameter:02ef1ca5f2f48383150cffb0fee1cdfbc66aa47cd582de102bd25fa8ed8b451a",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:ac82920bb78125ab0aca"
+          },
+          {
+            "kind": "construct",
+            "id": "construct:bb5a697c4e5f020f733d"
+          },
+          {
+            "kind": "edge",
+            "id": "edge:6001378d624b64d8db27"
+          }
+        ],
+        "quantity": "input_effect",
+        "prior_transform": "dt_effect_to_ct_rate"
       },
       {
         "name": "beta_perceived_stress_burden_sleep_circadian_disruption",
         "role": "fixed_effect",
         "constraint": "none",
-        "description": "Effect of perceived_stress_burden on sleep_circadian_disruption (lagged)"
+        "description": "Effect of perceived_stress_burden on sleep_circadian_disruption (lagged)",
+        "id": "parameter:6692ecb01dc3bdba7bf9cba8d92edb2b2f9b2302273f6f7fee3b9f52986a1964",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:bb5a697c4e5f020f733d"
+          },
+          {
+            "kind": "construct",
+            "id": "construct:5bf588dc29d582cd7423"
+          },
+          {
+            "kind": "edge",
+            "id": "edge:466eed55d5293ecb5f6a"
+          }
+        ],
+        "quantity": "dynamics_weight",
+        "prior_transform": "dt_effect_to_ct_rate"
       },
       {
         "name": "beta_perceived_stress_burden_internalizing_symptom_burden",
         "role": "fixed_effect",
         "constraint": "none",
-        "description": "Effect of perceived_stress_burden on internalizing_symptom_burden (lagged)"
+        "description": "Effect of perceived_stress_burden on internalizing_symptom_burden (lagged)",
+        "id": "parameter:0c678da82765711f324fdea0c0ae6c7f4fb3d90ea29f267aa7698caac85bc6d6",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:6ca86c47aaf18b2472ce"
+          },
+          {
+            "kind": "construct",
+            "id": "construct:bb5a697c4e5f020f733d"
+          },
+          {
+            "kind": "edge",
+            "id": "edge:9df1507c29b9de944a33"
+          }
+        ],
+        "quantity": "dynamics_weight",
+        "prior_transform": "dt_effect_to_ct_rate"
       },
       {
         "name": "beta_physical_activity_sleep_circadian_disruption",
         "role": "fixed_effect",
         "constraint": "none",
-        "description": "Effect of physical_activity on sleep_circadian_disruption (lagged)"
+        "description": "Effect of physical_activity on sleep_circadian_disruption (lagged)",
+        "id": "parameter:63fcec10a4bb4e58d27b3b66e9a15526dbdda6af2315a130558a8f16b33e3602",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:07f8d9915eaa311c9e50"
+          },
+          {
+            "kind": "construct",
+            "id": "construct:5bf588dc29d582cd7423"
+          },
+          {
+            "kind": "edge",
+            "id": "edge:00282e82c6e558b8219b"
+          }
+        ],
+        "quantity": "dynamics_weight",
+        "prior_transform": "dt_effect_to_ct_rate"
       },
       {
         "name": "beta_physical_activity_internalizing_symptom_burden",
         "role": "fixed_effect",
         "constraint": "none",
-        "description": "Effect of physical_activity on internalizing_symptom_burden (lagged)"
+        "description": "Effect of physical_activity on internalizing_symptom_burden (lagged)",
+        "id": "parameter:8fc990c1e8e036d312ba7c9eda8c256bfb61cb7aa47e2ad0ddd36c50d8444a28",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:6ca86c47aaf18b2472ce"
+          },
+          {
+            "kind": "construct",
+            "id": "construct:07f8d9915eaa311c9e50"
+          },
+          {
+            "kind": "edge",
+            "id": "edge:0ffc13808e1300eb0e24"
+          }
+        ],
+        "quantity": "dynamics_weight",
+        "prior_transform": "dt_effect_to_ct_rate"
       },
       {
         "name": "beta_sleep_circadian_disruption_internalizing_symptom_burden",
         "role": "fixed_effect",
         "constraint": "none",
-        "description": "Effect of sleep_circadian_disruption on internalizing_symptom_burden (lagged)"
+        "description": "Effect of sleep_circadian_disruption on internalizing_symptom_burden (lagged)",
+        "id": "parameter:e777921423828bb89bf90440f88224bcf3007db160ae83a54a82b4ce3f01f553",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:6ca86c47aaf18b2472ce"
+          },
+          {
+            "kind": "construct",
+            "id": "construct:5bf588dc29d582cd7423"
+          },
+          {
+            "kind": "edge",
+            "id": "edge:347cf99a9951dfd01cf4"
+          }
+        ],
+        "quantity": "dynamics_weight",
+        "prior_transform": "dt_effect_to_ct_rate"
       },
       {
         "name": "beta_internalizing_symptom_burden_sleep_circadian_disruption",
         "role": "fixed_effect",
         "constraint": "none",
-        "description": "Effect of internalizing_symptom_burden on sleep_circadian_disruption (lagged)"
+        "description": "Effect of internalizing_symptom_burden on sleep_circadian_disruption (lagged)",
+        "id": "parameter:a28518e09d92789103ad234d7661f3e7437d9763341aa3edbe188826314a2d98",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:6ca86c47aaf18b2472ce"
+          },
+          {
+            "kind": "construct",
+            "id": "construct:5bf588dc29d582cd7423"
+          },
+          {
+            "kind": "edge",
+            "id": "edge:bc472e241b3651bc152a"
+          }
+        ],
+        "quantity": "dynamics_weight",
+        "prior_transform": "dt_effect_to_ct_rate"
       },
       {
         "name": "beta_internalizing_symptom_burden_physical_activity",
         "role": "fixed_effect",
         "constraint": "none",
-        "description": "Effect of internalizing_symptom_burden on physical_activity (lagged)"
+        "description": "Effect of internalizing_symptom_burden on physical_activity (lagged)",
+        "id": "parameter:3eb77244e3a500a71f80918993ba55e0577e2fd75e9372111343d00505657a61",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:6ca86c47aaf18b2472ce"
+          },
+          {
+            "kind": "construct",
+            "id": "construct:07f8d9915eaa311c9e50"
+          },
+          {
+            "kind": "edge",
+            "id": "edge:cbe7ea3961c0a9149ae2"
+          }
+        ],
+        "quantity": "dynamics_weight",
+        "prior_transform": "dt_effect_to_ct_rate"
       },
       {
         "name": "beta_other_psychotropic_or_somatic_treatments_internalizing_symptom_burden",
         "role": "fixed_effect",
         "constraint": "none",
-        "description": "Effect of other_psychotropic_or_somatic_treatments on internalizing_symptom_burden (lagged)"
+        "description": "Effect of other_psychotropic_or_somatic_treatments on internalizing_symptom_burden (lagged)",
+        "id": "parameter:546dd52c6f78d4a291af6f8570315c19bf55c73e0a6afc03d4f7f80881d8afcc",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:6ca86c47aaf18b2472ce"
+          },
+          {
+            "kind": "construct",
+            "id": "construct:428de2b75c12e36ca19d"
+          },
+          {
+            "kind": "edge",
+            "id": "edge:2c2a94ecd60e62fa9f59"
+          }
+        ],
+        "quantity": "input_effect",
+        "prior_transform": "dt_effect_to_ct_rate"
       },
       {
         "name": "sigma_taper_speed_dose_reduction",
         "role": "residual_sd",
         "constraint": "positive",
-        "description": "Residual/innovation SD for taper_speed_dose_reduction"
+        "description": "Residual/innovation SD for taper_speed_dose_reduction",
+        "id": "parameter:6914c1f9f6cf7cc676006f1b1149cdf41592f7ff0e549e7c1efa85d888925eba",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:7b3d7a5f98ae353c60b6"
+          }
+        ],
+        "quantity": "diffusion_diag",
+        "prior_transform": "identity"
       },
       {
         "name": "sigma_adherence_to_regimen",
         "role": "residual_sd",
         "constraint": "positive",
-        "description": "Residual/innovation SD for adherence_to_regimen"
+        "description": "Residual/innovation SD for adherence_to_regimen",
+        "id": "parameter:a522641efd5adb152c5c47a37e5cb0881ff86a0ddfdb11151dda3735a0646a09",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:b7418d1841c57d53abf8"
+          }
+        ],
+        "quantity": "diffusion_diag",
+        "prior_transform": "identity"
       },
       {
         "name": "sigma_escitalopram_dose_taken",
         "role": "residual_sd",
         "constraint": "positive",
-        "description": "Residual/innovation SD for escitalopram_dose_taken"
+        "description": "Residual/innovation SD for escitalopram_dose_taken",
+        "id": "parameter:6657e5ab0107fe6a181dfe91715b2003fb0f4bb5e65f903639c56bb7afb97500",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:27f64faaddd59b2ad491"
+          }
+        ],
+        "quantity": "diffusion_diag",
+        "prior_transform": "identity"
       },
       {
         "name": "sigma_perceived_stress_burden",
         "role": "residual_sd",
         "constraint": "positive",
-        "description": "Residual/innovation SD for perceived_stress_burden"
+        "description": "Residual/innovation SD for perceived_stress_burden",
+        "id": "parameter:595facfc46354b6582dae818836589a0643813eae29b42665949b9383de56f29",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:bb5a697c4e5f020f733d"
+          }
+        ],
+        "quantity": "diffusion_diag",
+        "prior_transform": "identity"
       },
       {
         "name": "sigma_physical_activity",
         "role": "residual_sd",
         "constraint": "positive",
-        "description": "Residual/innovation SD for physical_activity"
+        "description": "Residual/innovation SD for physical_activity",
+        "id": "parameter:19d63341a2cedf238201371098567432f756f81a31323d6428e69e87e94b1a19",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:07f8d9915eaa311c9e50"
+          }
+        ],
+        "quantity": "diffusion_diag",
+        "prior_transform": "identity"
       },
       {
         "name": "sigma_sleep_circadian_disruption",
         "role": "residual_sd",
         "constraint": "positive",
-        "description": "Residual/innovation SD for sleep_circadian_disruption"
+        "description": "Residual/innovation SD for sleep_circadian_disruption",
+        "id": "parameter:9cf821d64c956fb794f034de7b9143541795b485e3177647c1e24ea922bc177f",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:5bf588dc29d582cd7423"
+          }
+        ],
+        "quantity": "diffusion_diag",
+        "prior_transform": "identity"
       },
       {
         "name": "sigma_internalizing_symptom_burden",
         "role": "residual_sd",
         "constraint": "positive",
-        "description": "Residual/innovation SD for internalizing_symptom_burden"
+        "description": "Residual/innovation SD for internalizing_symptom_burden",
+        "id": "parameter:10b6c3148f914ad631ff5205317ae8e4054f987ae4976b0ca02ff5dd6bd5dbeb",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:6ca86c47aaf18b2472ce"
+          }
+        ],
+        "quantity": "diffusion_diag",
+        "prior_transform": "identity"
       },
       {
         "name": "lambda_phq9_screening_score_internalizing_symptom_burden",
         "role": "loading",
         "constraint": "positive",
-        "description": "Factor loading for phq9_screening_score on internalizing_symptom_burden"
+        "description": "Factor loading for phq9_screening_score on internalizing_symptom_burden",
+        "id": "parameter:501e52abe92a871a95f3b4b56fad364ae360efc3c575c1e877d754d470292cdc",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:6ca86c47aaf18b2472ce"
+          },
+          {
+            "kind": "indicator",
+            "id": "indicator:93c7007ff8e5a6565b25"
+          }
+        ],
+        "quantity": "loading",
+        "prior_transform": "identity"
       },
       {
         "name": "lambda_gad7_screening_score_internalizing_symptom_burden",
         "role": "loading",
         "constraint": "positive",
-        "description": "Factor loading for gad7_screening_score on internalizing_symptom_burden"
+        "description": "Factor loading for gad7_screening_score on internalizing_symptom_burden",
+        "id": "parameter:7965e9dce8c03b2a8ec99330856f28b3a430e74768c60d5068ea3111ba94566f",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:6ca86c47aaf18b2472ce"
+          },
+          {
+            "kind": "indicator",
+            "id": "indicator:b3eb347f05220d9f4130"
+          }
+        ],
+        "quantity": "loading",
+        "prior_transform": "identity"
       },
       {
         "name": "lambda_journal_internalizing_symptom_severity_internalizing_symptom_burden",
         "role": "loading",
         "constraint": "positive",
-        "description": "Factor loading for journal_internalizing_symptom_severity on internalizing_symptom_burden"
+        "description": "Factor loading for journal_internalizing_symptom_severity on internalizing_symptom_burden",
+        "id": "parameter:dff8a815d1f023dc237fcc95c1b14df7b8aeb51f7f1fa5c35830c3ac3893e0bc",
+        "owners": [
+          {
+            "kind": "construct",
+            "id": "construct:6ca86c47aaf18b2472ce"
+          },
+          {
+            "kind": "indicator",
+            "id": "indicator:8e1b73dd3c754b48e92c"
+          }
+        ],
+        "quantity": "loading",
+        "prior_transform": "identity"
+      }
+    ],
+    "mechanisms": [
+      {
+        "kind": "node_potential",
+        "target_id": "construct:7b3d7a5f98ae353c60b6",
+        "center": {
+          "kind": "fixed",
+          "value": 0.0
+        },
+        "stiffness": {
+          "kind": "estimated",
+          "parameter_id": "parameter:77da8f35596cde3b54170a7e261723af9567a7427aadceff11ef155e561cd796"
+        },
+        "quartic": {
+          "kind": "fixed",
+          "value": 0.0
+        }
+      },
+      {
+        "kind": "node_potential",
+        "target_id": "construct:b7418d1841c57d53abf8",
+        "center": {
+          "kind": "fixed",
+          "value": 0.0
+        },
+        "stiffness": {
+          "kind": "estimated",
+          "parameter_id": "parameter:a0df5a904f414d8def6f80971c113311003df775f3a852ee6416649b19f79f52"
+        },
+        "quartic": {
+          "kind": "fixed",
+          "value": 0.0
+        }
+      },
+      {
+        "kind": "node_potential",
+        "target_id": "construct:27f64faaddd59b2ad491",
+        "center": {
+          "kind": "fixed",
+          "value": 0.0
+        },
+        "stiffness": {
+          "kind": "estimated",
+          "parameter_id": "parameter:91175af6ef094fbbb471849776735144f0ba7e5cc5c2664c14380f0c69e8d6b4"
+        },
+        "quartic": {
+          "kind": "fixed",
+          "value": 0.0
+        }
+      },
+      {
+        "kind": "node_potential",
+        "target_id": "construct:bb5a697c4e5f020f733d",
+        "center": {
+          "kind": "fixed",
+          "value": 0.0
+        },
+        "stiffness": {
+          "kind": "estimated",
+          "parameter_id": "parameter:57a748d4308cc7c65237d3503d25891d7bcab4e4677e6170fa96681806af0fbe"
+        },
+        "quartic": {
+          "kind": "fixed",
+          "value": 0.0
+        }
+      },
+      {
+        "kind": "node_potential",
+        "target_id": "construct:07f8d9915eaa311c9e50",
+        "center": {
+          "kind": "fixed",
+          "value": 0.0
+        },
+        "stiffness": {
+          "kind": "estimated",
+          "parameter_id": "parameter:403138f9139a89157ab357b2110c3403119f75bf1e0c31596acdd5c487325950"
+        },
+        "quartic": {
+          "kind": "fixed",
+          "value": 0.0
+        }
+      },
+      {
+        "kind": "node_potential",
+        "target_id": "construct:5bf588dc29d582cd7423",
+        "center": {
+          "kind": "fixed",
+          "value": 0.0
+        },
+        "stiffness": {
+          "kind": "estimated",
+          "parameter_id": "parameter:ad61a0f32551731a26fb7c623747bf8799d3951df5237a374764a7766a01a7b3"
+        },
+        "quartic": {
+          "kind": "fixed",
+          "value": 0.0
+        }
+      },
+      {
+        "kind": "node_potential",
+        "target_id": "construct:6ca86c47aaf18b2472ce",
+        "center": {
+          "kind": "fixed",
+          "value": 0.0
+        },
+        "stiffness": {
+          "kind": "estimated",
+          "parameter_id": "parameter:3ea8343eb30d9377d456fad107bbd306a10c09bc939e36b8f8e3d0ef301f4628"
+        },
+        "quartic": {
+          "kind": "fixed",
+          "value": 0.0
+        }
+      },
+      {
+        "kind": "linear",
+        "edge_id": "edge:c8efa1de930a894c06ce",
+        "weight": {
+          "kind": "estimated",
+          "parameter_id": "parameter:7e6249b6cf43302cb7a74fa16333923f7472486a5db49375070a39cfc68c07ca"
+        }
+      },
+      {
+        "kind": "linear",
+        "edge_id": "edge:66bd0e882b7fbd2118a1",
+        "weight": {
+          "kind": "estimated",
+          "parameter_id": "parameter:bf1215a4bf993c55ef79d0d512f3c3750d0e56174370128986e13bb7d3157a43"
+        }
+      },
+      {
+        "kind": "linear",
+        "edge_id": "edge:14682ec416926f40197b",
+        "weight": {
+          "kind": "estimated",
+          "parameter_id": "parameter:a75d44df5da494db0ca3779b25cc59b24d4cd5d9030a3c701ed136593c50c33b"
+        }
+      },
+      {
+        "kind": "linear",
+        "edge_id": "edge:6001378d624b64d8db27",
+        "weight": {
+          "kind": "estimated",
+          "parameter_id": "parameter:02ef1ca5f2f48383150cffb0fee1cdfbc66aa47cd582de102bd25fa8ed8b451a"
+        }
+      },
+      {
+        "kind": "linear",
+        "edge_id": "edge:cbe7ea3961c0a9149ae2",
+        "weight": {
+          "kind": "estimated",
+          "parameter_id": "parameter:3eb77244e3a500a71f80918993ba55e0577e2fd75e9372111343d00505657a61"
+        }
+      },
+      {
+        "kind": "linear",
+        "edge_id": "edge:466eed55d5293ecb5f6a",
+        "weight": {
+          "kind": "estimated",
+          "parameter_id": "parameter:6692ecb01dc3bdba7bf9cba8d92edb2b2f9b2302273f6f7fee3b9f52986a1964"
+        }
+      },
+      {
+        "kind": "linear",
+        "edge_id": "edge:00282e82c6e558b8219b",
+        "weight": {
+          "kind": "estimated",
+          "parameter_id": "parameter:63fcec10a4bb4e58d27b3b66e9a15526dbdda6af2315a130558a8f16b33e3602"
+        }
+      },
+      {
+        "kind": "linear",
+        "edge_id": "edge:bc472e241b3651bc152a",
+        "weight": {
+          "kind": "estimated",
+          "parameter_id": "parameter:a28518e09d92789103ad234d7661f3e7437d9763341aa3edbe188826314a2d98"
+        }
+      },
+      {
+        "kind": "linear",
+        "edge_id": "edge:2c2a94ecd60e62fa9f59",
+        "weight": {
+          "kind": "estimated",
+          "parameter_id": "parameter:546dd52c6f78d4a291af6f8570315c19bf55c73e0a6afc03d4f7f80881d8afcc"
+        }
+      },
+      {
+        "kind": "linear",
+        "edge_id": "edge:e96deda9a6084d6d4ed9",
+        "weight": {
+          "kind": "estimated",
+          "parameter_id": "parameter:a8a505e47c943789c333dcc759e7d84cec651d24a6de8c8c1cbd460425914d72"
+        }
+      },
+      {
+        "kind": "linear",
+        "edge_id": "edge:9df1507c29b9de944a33",
+        "weight": {
+          "kind": "estimated",
+          "parameter_id": "parameter:0c678da82765711f324fdea0c0ae6c7f4fb3d90ea29f267aa7698caac85bc6d6"
+        }
+      },
+      {
+        "kind": "linear",
+        "edge_id": "edge:0ffc13808e1300eb0e24",
+        "weight": {
+          "kind": "estimated",
+          "parameter_id": "parameter:8fc990c1e8e036d312ba7c9eda8c256bfb61cb7aa47e2ad0ddd36c50d8444a28"
+        }
+      },
+      {
+        "kind": "linear",
+        "edge_id": "edge:347cf99a9951dfd01cf4",
+        "weight": {
+          "kind": "estimated",
+          "parameter_id": "parameter:e777921423828bb89bf90440f88224bcf3007db160ae83a54a82b4ce3f01f553"
+        }
       }
     ],
     "initialization_policy": "stationary",
-    "observation_intercept_policy": "free",
-    "equilibrium_forcing": false
+    "observation_intercept_policy": "free"
   },
   "authored_priors": {
-    "obs_sd_state_of_mind_valence": {
-      "parameter": "obs_sd_state_of_mind_valence",
+    "parameter:145cae7b491088b812e4c26ad611489cf0f1c53e028abbd083dbcf800675aaef": {
+      "parameter_id": "parameter:145cae7b491088b812e4c26ad611489cf0f1c53e028abbd083dbcf800675aaef",
       "distribution": "HalfNormal",
       "params": {
         "sigma": 0.45
@@ -593,8 +1373,8 @@
         }
       ]
     },
-    "manifest_mean_escitalopram_documented_dose_mg": {
-      "parameter": "manifest_mean_escitalopram_documented_dose_mg",
+    "parameter:4c69c0ffa919eabbb08eed0878b3bf24a3fb06c1cd111d5a091f8fcddd8537e6": {
+      "parameter_id": "parameter:4c69c0ffa919eabbb08eed0878b3bf24a3fb06c1cd111d5a091f8fcddd8537e6",
       "distribution": "Normal",
       "params": {
         "mu": 0.0,
@@ -810,659 +1590,8 @@
         }
       ]
     },
-    "manifest_mean_sleep_efficiency_pct": {
-      "parameter": "manifest_mean_sleep_efficiency_pct",
-      "distribution": "Normal",
-      "params": {
-        "mu": 0.0,
-        "sigma": 1.0
-      },
-      "sources": [],
-      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
-      "reference_interval_days": null,
-      "density_points": [
-        {
-          "x": -3.5,
-          "y": 0.00087
-        },
-        {
-          "x": -3.36,
-          "y": 0.00141
-        },
-        {
-          "x": -3.22,
-          "y": 0.00224
-        },
-        {
-          "x": -3.08,
-          "y": 0.00348
-        },
-        {
-          "x": -2.94,
-          "y": 0.0053
-        },
-        {
-          "x": -2.8,
-          "y": 0.00792
-        },
-        {
-          "x": -2.66,
-          "y": 0.0116
-        },
-        {
-          "x": -2.52,
-          "y": 0.01667
-        },
-        {
-          "x": -2.38,
-          "y": 0.02349
-        },
-        {
-          "x": -2.24,
-          "y": 0.03246
-        },
-        {
-          "x": -2.1,
-          "y": 0.04398
-        },
-        {
-          "x": -1.96,
-          "y": 0.05844
-        },
-        {
-          "x": -1.82,
-          "y": 0.07614
-        },
-        {
-          "x": -1.68,
-          "y": 0.09728
-        },
-        {
-          "x": -1.54,
-          "y": 0.12188
-        },
-        {
-          "x": -1.4,
-          "y": 0.14973
-        },
-        {
-          "x": -1.26,
-          "y": 0.18037
-        },
-        {
-          "x": -1.12,
-          "y": 0.21307
-        },
-        {
-          "x": -0.98,
-          "y": 0.24681
-        },
-        {
-          "x": -0.84,
-          "y": 0.28034
-        },
-        {
-          "x": -0.7,
-          "y": 0.31225
-        },
-        {
-          "x": -0.56,
-          "y": 0.34105
-        },
-        {
-          "x": -0.42,
-          "y": 0.36526
-        },
-        {
-          "x": -0.28,
-          "y": 0.38361
-        },
-        {
-          "x": -0.14,
-          "y": 0.39505
-        },
-        {
-          "x": 0.0,
-          "y": 0.39894
-        },
-        {
-          "x": 0.14,
-          "y": 0.39505
-        },
-        {
-          "x": 0.28,
-          "y": 0.38361
-        },
-        {
-          "x": 0.42,
-          "y": 0.36526
-        },
-        {
-          "x": 0.56,
-          "y": 0.34105
-        },
-        {
-          "x": 0.7,
-          "y": 0.31225
-        },
-        {
-          "x": 0.84,
-          "y": 0.28034
-        },
-        {
-          "x": 0.98,
-          "y": 0.24681
-        },
-        {
-          "x": 1.12,
-          "y": 0.21307
-        },
-        {
-          "x": 1.26,
-          "y": 0.18037
-        },
-        {
-          "x": 1.4,
-          "y": 0.14973
-        },
-        {
-          "x": 1.54,
-          "y": 0.12188
-        },
-        {
-          "x": 1.68,
-          "y": 0.09728
-        },
-        {
-          "x": 1.82,
-          "y": 0.07614
-        },
-        {
-          "x": 1.96,
-          "y": 0.05844
-        },
-        {
-          "x": 2.1,
-          "y": 0.04398
-        },
-        {
-          "x": 2.24,
-          "y": 0.03246
-        },
-        {
-          "x": 2.38,
-          "y": 0.02349
-        },
-        {
-          "x": 2.52,
-          "y": 0.01667
-        },
-        {
-          "x": 2.66,
-          "y": 0.0116
-        },
-        {
-          "x": 2.8,
-          "y": 0.00792
-        },
-        {
-          "x": 2.94,
-          "y": 0.0053
-        },
-        {
-          "x": 3.08,
-          "y": 0.00348
-        },
-        {
-          "x": 3.22,
-          "y": 0.00224
-        },
-        {
-          "x": 3.36,
-          "y": 0.00141
-        },
-        {
-          "x": 3.5,
-          "y": 0.00087
-        }
-      ]
-    },
-    "manifest_mean_daily_step_count": {
-      "parameter": "manifest_mean_daily_step_count",
-      "distribution": "Normal",
-      "params": {
-        "mu": 0.0,
-        "sigma": 1.0
-      },
-      "sources": [],
-      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
-      "reference_interval_days": null,
-      "density_points": [
-        {
-          "x": -3.5,
-          "y": 0.00087
-        },
-        {
-          "x": -3.36,
-          "y": 0.00141
-        },
-        {
-          "x": -3.22,
-          "y": 0.00224
-        },
-        {
-          "x": -3.08,
-          "y": 0.00348
-        },
-        {
-          "x": -2.94,
-          "y": 0.0053
-        },
-        {
-          "x": -2.8,
-          "y": 0.00792
-        },
-        {
-          "x": -2.66,
-          "y": 0.0116
-        },
-        {
-          "x": -2.52,
-          "y": 0.01667
-        },
-        {
-          "x": -2.38,
-          "y": 0.02349
-        },
-        {
-          "x": -2.24,
-          "y": 0.03246
-        },
-        {
-          "x": -2.1,
-          "y": 0.04398
-        },
-        {
-          "x": -1.96,
-          "y": 0.05844
-        },
-        {
-          "x": -1.82,
-          "y": 0.07614
-        },
-        {
-          "x": -1.68,
-          "y": 0.09728
-        },
-        {
-          "x": -1.54,
-          "y": 0.12188
-        },
-        {
-          "x": -1.4,
-          "y": 0.14973
-        },
-        {
-          "x": -1.26,
-          "y": 0.18037
-        },
-        {
-          "x": -1.12,
-          "y": 0.21307
-        },
-        {
-          "x": -0.98,
-          "y": 0.24681
-        },
-        {
-          "x": -0.84,
-          "y": 0.28034
-        },
-        {
-          "x": -0.7,
-          "y": 0.31225
-        },
-        {
-          "x": -0.56,
-          "y": 0.34105
-        },
-        {
-          "x": -0.42,
-          "y": 0.36526
-        },
-        {
-          "x": -0.28,
-          "y": 0.38361
-        },
-        {
-          "x": -0.14,
-          "y": 0.39505
-        },
-        {
-          "x": 0.0,
-          "y": 0.39894
-        },
-        {
-          "x": 0.14,
-          "y": 0.39505
-        },
-        {
-          "x": 0.28,
-          "y": 0.38361
-        },
-        {
-          "x": 0.42,
-          "y": 0.36526
-        },
-        {
-          "x": 0.56,
-          "y": 0.34105
-        },
-        {
-          "x": 0.7,
-          "y": 0.31225
-        },
-        {
-          "x": 0.84,
-          "y": 0.28034
-        },
-        {
-          "x": 0.98,
-          "y": 0.24681
-        },
-        {
-          "x": 1.12,
-          "y": 0.21307
-        },
-        {
-          "x": 1.26,
-          "y": 0.18037
-        },
-        {
-          "x": 1.4,
-          "y": 0.14973
-        },
-        {
-          "x": 1.54,
-          "y": 0.12188
-        },
-        {
-          "x": 1.68,
-          "y": 0.09728
-        },
-        {
-          "x": 1.82,
-          "y": 0.07614
-        },
-        {
-          "x": 1.96,
-          "y": 0.05844
-        },
-        {
-          "x": 2.1,
-          "y": 0.04398
-        },
-        {
-          "x": 2.24,
-          "y": 0.03246
-        },
-        {
-          "x": 2.38,
-          "y": 0.02349
-        },
-        {
-          "x": 2.52,
-          "y": 0.01667
-        },
-        {
-          "x": 2.66,
-          "y": 0.0116
-        },
-        {
-          "x": 2.8,
-          "y": 0.00792
-        },
-        {
-          "x": 2.94,
-          "y": 0.0053
-        },
-        {
-          "x": 3.08,
-          "y": 0.00348
-        },
-        {
-          "x": 3.22,
-          "y": 0.00224
-        },
-        {
-          "x": 3.36,
-          "y": 0.00141
-        },
-        {
-          "x": 3.5,
-          "y": 0.00087
-        }
-      ]
-    },
-    "obs_shape": {
-      "parameter": "obs_shape",
-      "distribution": "Gamma",
-      "params": {
-        "concentration": 5.0,
-        "rate": 1.0
-      },
-      "sources": [],
-      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
-      "reference_interval_days": null,
-      "density_points": [
-        {
-          "x": 0.001,
-          "y": 0.0
-        },
-        {
-          "x": 0.27987,
-          "y": 0.00019
-        },
-        {
-          "x": 0.55873,
-          "y": 0.00232
-        },
-        {
-          "x": 0.8376,
-          "y": 0.00887
-        },
-        {
-          "x": 1.11646,
-          "y": 0.0212
-        },
-        {
-          "x": 1.39533,
-          "y": 0.03913
-        },
-        {
-          "x": 1.67419,
-          "y": 0.06136
-        },
-        {
-          "x": 1.95306,
-          "y": 0.08599
-        },
-        {
-          "x": 2.23192,
-          "y": 0.11097
-        },
-        {
-          "x": 2.51079,
-          "y": 0.13446
-        },
-        {
-          "x": 2.78965,
-          "y": 0.15505
-        },
-        {
-          "x": 3.06852,
-          "y": 0.17174
-        },
-        {
-          "x": 3.34739,
-          "y": 0.18402
-        },
-        {
-          "x": 3.62625,
-          "y": 0.19176
-        },
-        {
-          "x": 3.90512,
-          "y": 0.19514
-        },
-        {
-          "x": 4.18398,
-          "y": 0.19457
-        },
-        {
-          "x": 4.46285,
-          "y": 0.19057
-        },
-        {
-          "x": 4.74171,
-          "y": 0.18375
-        },
-        {
-          "x": 5.02058,
-          "y": 0.17474
-        },
-        {
-          "x": 5.29944,
-          "y": 0.16413
-        },
-        {
-          "x": 5.57831,
-          "y": 0.15247
-        },
-        {
-          "x": 5.85717,
-          "y": 0.14022
-        },
-        {
-          "x": 6.13604,
-          "y": 0.12779
-        },
-        {
-          "x": 6.41491,
-          "y": 0.1155
-        },
-        {
-          "x": 6.69377,
-          "y": 0.10361
-        },
-        {
-          "x": 6.97264,
-          "y": 0.0923
-        },
-        {
-          "x": 7.2515,
-          "y": 0.0817
-        },
-        {
-          "x": 7.53037,
-          "y": 0.07189
-        },
-        {
-          "x": 7.80923,
-          "y": 0.06291
-        },
-        {
-          "x": 8.0881,
-          "y": 0.05477
-        },
-        {
-          "x": 8.36696,
-          "y": 0.04746
-        },
-        {
-          "x": 8.64583,
-          "y": 0.04094
-        },
-        {
-          "x": 8.92469,
-          "y": 0.03517
-        },
-        {
-          "x": 9.20356,
-          "y": 0.0301
-        },
-        {
-          "x": 9.48242,
-          "y": 0.02566
-        },
-        {
-          "x": 9.76129,
-          "y": 0.0218
-        },
-        {
-          "x": 10.04016,
-          "y": 0.01847
-        },
-        {
-          "x": 10.31902,
-          "y": 0.01559
-        },
-        {
-          "x": 10.59789,
-          "y": 0.01312
-        },
-        {
-          "x": 10.87675,
-          "y": 0.01102
-        },
-        {
-          "x": 11.15562,
-          "y": 0.00922
-        },
-        {
-          "x": 11.43448,
-          "y": 0.0077
-        },
-        {
-          "x": 11.71335,
-          "y": 0.00642
-        },
-        {
-          "x": 11.99221,
-          "y": 0.00534
-        },
-        {
-          "x": 12.27108,
-          "y": 0.00443
-        },
-        {
-          "x": 12.54994,
-          "y": 0.00366
-        },
-        {
-          "x": 12.82881,
-          "y": 0.00303
-        },
-        {
-          "x": 13.10768,
-          "y": 0.0025
-        },
-        {
-          "x": 13.38654,
-          "y": 0.00205
-        },
-        {
-          "x": 13.66541,
-          "y": 0.00169
-        },
-        {
-          "x": 13.94427,
-          "y": 0.00139
-        }
-      ]
-    },
-    "obs_r": {
-      "parameter": "obs_r",
+    "parameter:682bd44790ce8d881c45c2aa166884c83146b6f6a175a779c90033b22ba9403f": {
+      "parameter_id": "parameter:682bd44790ce8d881c45c2aa166884c83146b6f6a175a779c90033b22ba9403f",
       "distribution": "Gamma",
       "params": {
         "concentration": 3.0,
@@ -1678,8 +1807,8 @@
         }
       ]
     },
-    "obs_ordered_base_phq9_screening_score": {
-      "parameter": "obs_ordered_base_phq9_screening_score",
+    "parameter:9ec837565ea8266acf16f4e878ab3ec49c793f747dd1620cb8872a15b6d48170": {
+      "parameter_id": "parameter:9ec837565ea8266acf16f4e878ab3ec49c793f747dd1620cb8872a15b6d48170",
       "distribution": "Normal",
       "params": {
         "mu": 0.0,
@@ -1895,8 +2024,8 @@
         }
       ]
     },
-    "obs_ordered_gaps_phq9_screening_score": {
-      "parameter": "obs_ordered_gaps_phq9_screening_score",
+    "parameter:2098505b8d1d7997f62805340a3ff337efeeae3695f6f6e97a5d36b530ab9961": {
+      "parameter_id": "parameter:2098505b8d1d7997f62805340a3ff337efeeae3695f6f6e97a5d36b530ab9961",
       "distribution": "HalfNormal",
       "params": {
         "sigma": 0.65
@@ -2111,8 +2240,8 @@
         }
       ]
     },
-    "obs_ordered_base_gad7_screening_score": {
-      "parameter": "obs_ordered_base_gad7_screening_score",
+    "parameter:6e11cf59457acf739c486d4638043ab03622923871577e92928fdb95b23d4022": {
+      "parameter_id": "parameter:6e11cf59457acf739c486d4638043ab03622923871577e92928fdb95b23d4022",
       "distribution": "Normal",
       "params": {
         "mu": 0.0,
@@ -2328,8 +2457,8 @@
         }
       ]
     },
-    "obs_ordered_gaps_gad7_screening_score": {
-      "parameter": "obs_ordered_gaps_gad7_screening_score",
+    "parameter:975f2d0c21bddf6371a2c1d8dcea40ddfc63416258239751962298592d74b9f8": {
+      "parameter_id": "parameter:975f2d0c21bddf6371a2c1d8dcea40ddfc63416258239751962298592d74b9f8",
       "distribution": "HalfNormal",
       "params": {
         "sigma": 0.65
@@ -2544,8 +2673,8 @@
         }
       ]
     },
-    "obs_ordered_base_journal_internalizing_symptom_severity": {
-      "parameter": "obs_ordered_base_journal_internalizing_symptom_severity",
+    "parameter:2e77fa252226c51341ede18b3f1d464dbeb890f4a60a438d704f0fefbc38188e": {
+      "parameter_id": "parameter:2e77fa252226c51341ede18b3f1d464dbeb890f4a60a438d704f0fefbc38188e",
       "distribution": "Normal",
       "params": {
         "mu": 0.0,
@@ -2761,8 +2890,8 @@
         }
       ]
     },
-    "obs_ordered_gaps_journal_internalizing_symptom_severity": {
-      "parameter": "obs_ordered_gaps_journal_internalizing_symptom_severity",
+    "parameter:6d06d0c355dba2e8343ac2e243a6754ed91712effdd567e08a2c88d6fac3fa86": {
+      "parameter_id": "parameter:6d06d0c355dba2e8343ac2e243a6754ed91712effdd567e08a2c88d6fac3fa86",
       "distribution": "HalfNormal",
       "params": {
         "sigma": 0.65
@@ -2977,8 +3106,8 @@
         }
       ]
     },
-    "obs_ordered_base_taper_speed_instruction_intensity": {
-      "parameter": "obs_ordered_base_taper_speed_instruction_intensity",
+    "parameter:4d037b0571237ffe38d08e6503b98580c2a7370156a7757848ffaa5fd1728fdd": {
+      "parameter_id": "parameter:4d037b0571237ffe38d08e6503b98580c2a7370156a7757848ffaa5fd1728fdd",
       "distribution": "Normal",
       "params": {
         "mu": 0.0,
@@ -3194,8 +3323,8 @@
         }
       ]
     },
-    "obs_ordered_gaps_taper_speed_instruction_intensity": {
-      "parameter": "obs_ordered_gaps_taper_speed_instruction_intensity",
+    "parameter:60c1e5624e5768a3cb12b77bca44cd14f93f40096f1954d34b8ef00457b560cd": {
+      "parameter_id": "parameter:60c1e5624e5768a3cb12b77bca44cd14f93f40096f1954d34b8ef00457b560cd",
       "distribution": "HalfNormal",
       "params": {
         "sigma": 0.65
@@ -3410,8 +3539,8 @@
         }
       ]
     },
-    "obs_ordered_base_medication_adherence_documented": {
-      "parameter": "obs_ordered_base_medication_adherence_documented",
+    "parameter:773a0c8da725a4e3f6240c7807ad981e4948eead8c502f9fe316d4ababbc2e6d": {
+      "parameter_id": "parameter:773a0c8da725a4e3f6240c7807ad981e4948eead8c502f9fe316d4ababbc2e6d",
       "distribution": "Normal",
       "params": {
         "mu": 0.0,
@@ -3627,8 +3756,8 @@
         }
       ]
     },
-    "obs_ordered_gaps_medication_adherence_documented": {
-      "parameter": "obs_ordered_gaps_medication_adherence_documented",
+    "parameter:ce1ebad1f8bd081a26421cfcf318798e7c0081cfa7e691a0938d3039982206ec": {
+      "parameter_id": "parameter:ce1ebad1f8bd081a26421cfcf318798e7c0081cfa7e691a0938d3039982206ec",
       "distribution": "HalfNormal",
       "params": {
         "sigma": 0.65
@@ -3843,8 +3972,8 @@
         }
       ]
     },
-    "obs_ordered_base_journal_stress_severity": {
-      "parameter": "obs_ordered_base_journal_stress_severity",
+    "parameter:0e9a1b1dfe541174568e14b1ff28869410c133c12d1e3a9af74267469c804720": {
+      "parameter_id": "parameter:0e9a1b1dfe541174568e14b1ff28869410c133c12d1e3a9af74267469c804720",
       "distribution": "Normal",
       "params": {
         "mu": 0.0,
@@ -4060,8 +4189,8 @@
         }
       ]
     },
-    "obs_ordered_gaps_journal_stress_severity": {
-      "parameter": "obs_ordered_gaps_journal_stress_severity",
+    "parameter:d04f9da05c382797cd6ece7e35dc6fe984ba19224c035803da1b904139904cef": {
+      "parameter_id": "parameter:d04f9da05c382797cd6ece7e35dc6fe984ba19224c035803da1b904139904cef",
       "distribution": "HalfNormal",
       "params": {
         "sigma": 0.65
@@ -4276,8 +4405,8 @@
         }
       ]
     },
-    "rho_taper_speed_dose_reduction": {
-      "parameter": "rho_taper_speed_dose_reduction",
+    "parameter:77da8f35596cde3b54170a7e261723af9567a7427aadceff11ef155e561cd796": {
+      "parameter_id": "parameter:77da8f35596cde3b54170a7e261723af9567a7427aadceff11ef155e561cd796",
       "distribution": "Beta",
       "params": {
         "alpha": 11.04178,
@@ -4493,8 +4622,8 @@
         }
       ]
     },
-    "rho_adherence_to_regimen": {
-      "parameter": "rho_adherence_to_regimen",
+    "parameter:a0df5a904f414d8def6f80971c113311003df775f3a852ee6416649b19f79f52": {
+      "parameter_id": "parameter:a0df5a904f414d8def6f80971c113311003df775f3a852ee6416649b19f79f52",
       "distribution": "Beta",
       "params": {
         "alpha": 10.71081,
@@ -4710,8 +4839,8 @@
         }
       ]
     },
-    "rho_escitalopram_dose_taken": {
-      "parameter": "rho_escitalopram_dose_taken",
+    "parameter:91175af6ef094fbbb471849776735144f0ba7e5cc5c2664c14380f0c69e8d6b4": {
+      "parameter_id": "parameter:91175af6ef094fbbb471849776735144f0ba7e5cc5c2664c14380f0c69e8d6b4",
       "distribution": "Beta",
       "params": {
         "alpha": 10.30199,
@@ -4927,8 +5056,8 @@
         }
       ]
     },
-    "rho_perceived_stress_burden": {
-      "parameter": "rho_perceived_stress_burden",
+    "parameter:57a748d4308cc7c65237d3503d25891d7bcab4e4677e6170fa96681806af0fbe": {
+      "parameter_id": "parameter:57a748d4308cc7c65237d3503d25891d7bcab4e4677e6170fa96681806af0fbe",
       "distribution": "Beta",
       "params": {
         "alpha": 11.30051,
@@ -5144,8 +5273,8 @@
         }
       ]
     },
-    "rho_physical_activity": {
-      "parameter": "rho_physical_activity",
+    "parameter:403138f9139a89157ab357b2110c3403119f75bf1e0c31596acdd5c487325950": {
+      "parameter_id": "parameter:403138f9139a89157ab357b2110c3403119f75bf1e0c31596acdd5c487325950",
       "distribution": "Beta",
       "params": {
         "alpha": 11.61076,
@@ -5361,8 +5490,8 @@
         }
       ]
     },
-    "rho_sleep_circadian_disruption": {
-      "parameter": "rho_sleep_circadian_disruption",
+    "parameter:ad61a0f32551731a26fb7c623747bf8799d3951df5237a374764a7766a01a7b3": {
+      "parameter_id": "parameter:ad61a0f32551731a26fb7c623747bf8799d3951df5237a374764a7766a01a7b3",
       "distribution": "Beta",
       "params": {
         "alpha": 11.73819,
@@ -5578,8 +5707,8 @@
         }
       ]
     },
-    "rho_internalizing_symptom_burden": {
-      "parameter": "rho_internalizing_symptom_burden",
+    "parameter:3ea8343eb30d9377d456fad107bbd306a10c09bc939e36b8f8e3d0ef301f4628": {
+      "parameter_id": "parameter:3ea8343eb30d9377d456fad107bbd306a10c09bc939e36b8f8e3d0ef301f4628",
       "distribution": "Beta",
       "params": {
         "alpha": 10.68042,
@@ -5795,8 +5924,8 @@
         }
       ]
     },
-    "beta_taper_speed_dose_reduction_escitalopram_dose_taken": {
-      "parameter": "beta_taper_speed_dose_reduction_escitalopram_dose_taken",
+    "parameter:bf1215a4bf993c55ef79d0d512f3c3750d0e56174370128986e13bb7d3157a43": {
+      "parameter_id": "parameter:bf1215a4bf993c55ef79d0d512f3c3750d0e56174370128986e13bb7d3157a43",
       "distribution": "Normal",
       "params": {
         "mu": -0.14918,
@@ -6012,8 +6141,8 @@
         }
       ]
     },
-    "beta_adherence_to_regimen_escitalopram_dose_taken": {
-      "parameter": "beta_adherence_to_regimen_escitalopram_dose_taken",
+    "parameter:a75d44df5da494db0ca3779b25cc59b24d4cd5d9030a3c701ed136593c50c33b": {
+      "parameter_id": "parameter:a75d44df5da494db0ca3779b25cc59b24d4cd5d9030a3c701ed136593c50c33b",
       "distribution": "Normal",
       "params": {
         "mu": 0.07811,
@@ -6229,8 +6358,8 @@
         }
       ]
     },
-    "beta_internalizing_symptom_burden_adherence_to_regimen": {
-      "parameter": "beta_internalizing_symptom_burden_adherence_to_regimen",
+    "parameter:7e6249b6cf43302cb7a74fa16333923f7472486a5db49375070a39cfc68c07ca": {
+      "parameter_id": "parameter:7e6249b6cf43302cb7a74fa16333923f7472486a5db49375070a39cfc68c07ca",
       "distribution": "Normal",
       "params": {
         "mu": -0.13082,
@@ -6446,8 +6575,8 @@
         }
       ]
     },
-    "beta_escitalopram_dose_taken_internalizing_symptom_burden": {
-      "parameter": "beta_escitalopram_dose_taken_internalizing_symptom_burden",
+    "parameter:a8a505e47c943789c333dcc759e7d84cec651d24a6de8c8c1cbd460425914d72": {
+      "parameter_id": "parameter:a8a505e47c943789c333dcc759e7d84cec651d24a6de8c8c1cbd460425914d72",
       "distribution": "Normal",
       "params": {
         "mu": 0.0659,
@@ -6663,8 +6792,8 @@
         }
       ]
     },
-    "beta_external_stressful_events_perceived_stress_burden": {
-      "parameter": "beta_external_stressful_events_perceived_stress_burden",
+    "parameter:02ef1ca5f2f48383150cffb0fee1cdfbc66aa47cd582de102bd25fa8ed8b451a": {
+      "parameter_id": "parameter:02ef1ca5f2f48383150cffb0fee1cdfbc66aa47cd582de102bd25fa8ed8b451a",
       "distribution": "Normal",
       "params": {
         "mu": 0.10475,
@@ -6880,8 +7009,8 @@
         }
       ]
     },
-    "beta_perceived_stress_burden_sleep_circadian_disruption": {
-      "parameter": "beta_perceived_stress_burden_sleep_circadian_disruption",
+    "parameter:6692ecb01dc3bdba7bf9cba8d92edb2b2f9b2302273f6f7fee3b9f52986a1964": {
+      "parameter_id": "parameter:6692ecb01dc3bdba7bf9cba8d92edb2b2f9b2302273f6f7fee3b9f52986a1964",
       "distribution": "Normal",
       "params": {
         "mu": -0.11251,
@@ -7097,8 +7226,8 @@
         }
       ]
     },
-    "beta_perceived_stress_burden_internalizing_symptom_burden": {
-      "parameter": "beta_perceived_stress_burden_internalizing_symptom_burden",
+    "parameter:0c678da82765711f324fdea0c0ae6c7f4fb3d90ea29f267aa7698caac85bc6d6": {
+      "parameter_id": "parameter:0c678da82765711f324fdea0c0ae6c7f4fb3d90ea29f267aa7698caac85bc6d6",
       "distribution": "Normal",
       "params": {
         "mu": 0.31,
@@ -7314,8 +7443,8 @@
         }
       ]
     },
-    "beta_physical_activity_sleep_circadian_disruption": {
-      "parameter": "beta_physical_activity_sleep_circadian_disruption",
+    "parameter:63fcec10a4bb4e58d27b3b66e9a15526dbdda6af2315a130558a8f16b33e3602": {
+      "parameter_id": "parameter:63fcec10a4bb4e58d27b3b66e9a15526dbdda6af2315a130558a8f16b33e3602",
       "distribution": "Normal",
       "params": {
         "mu": -0.09832,
@@ -7531,8 +7660,8 @@
         }
       ]
     },
-    "beta_physical_activity_internalizing_symptom_burden": {
-      "parameter": "beta_physical_activity_internalizing_symptom_burden",
+    "parameter:8fc990c1e8e036d312ba7c9eda8c256bfb61cb7aa47e2ad0ddd36c50d8444a28": {
+      "parameter_id": "parameter:8fc990c1e8e036d312ba7c9eda8c256bfb61cb7aa47e2ad0ddd36c50d8444a28",
       "distribution": "Normal",
       "params": {
         "mu": -0.18,
@@ -7748,8 +7877,8 @@
         }
       ]
     },
-    "beta_sleep_circadian_disruption_internalizing_symptom_burden": {
-      "parameter": "beta_sleep_circadian_disruption_internalizing_symptom_burden",
+    "parameter:e777921423828bb89bf90440f88224bcf3007db160ae83a54a82b4ce3f01f553": {
+      "parameter_id": "parameter:e777921423828bb89bf90440f88224bcf3007db160ae83a54a82b4ce3f01f553",
       "distribution": "Normal",
       "params": {
         "mu": 0.29,
@@ -7965,8 +8094,8 @@
         }
       ]
     },
-    "beta_internalizing_symptom_burden_sleep_circadian_disruption": {
-      "parameter": "beta_internalizing_symptom_burden_sleep_circadian_disruption",
+    "parameter:a28518e09d92789103ad234d7661f3e7437d9763341aa3edbe188826314a2d98": {
+      "parameter_id": "parameter:a28518e09d92789103ad234d7661f3e7437d9763341aa3edbe188826314a2d98",
       "distribution": "Normal",
       "params": {
         "mu": 0.10854,
@@ -8182,8 +8311,8 @@
         }
       ]
     },
-    "beta_internalizing_symptom_burden_physical_activity": {
-      "parameter": "beta_internalizing_symptom_burden_physical_activity",
+    "parameter:3eb77244e3a500a71f80918993ba55e0577e2fd75e9372111343d00505657a61": {
+      "parameter_id": "parameter:3eb77244e3a500a71f80918993ba55e0577e2fd75e9372111343d00505657a61",
       "distribution": "Normal",
       "params": {
         "mu": -0.17325,
@@ -8399,8 +8528,8 @@
         }
       ]
     },
-    "beta_other_psychotropic_or_somatic_treatments_internalizing_symptom_burden": {
-      "parameter": "beta_other_psychotropic_or_somatic_treatments_internalizing_symptom_burden",
+    "parameter:546dd52c6f78d4a291af6f8570315c19bf55c73e0a6afc03d4f7f80881d8afcc": {
+      "parameter_id": "parameter:546dd52c6f78d4a291af6f8570315c19bf55c73e0a6afc03d4f7f80881d8afcc",
       "distribution": "Normal",
       "params": {
         "mu": -0.07114,
@@ -8616,8 +8745,8 @@
         }
       ]
     },
-    "sigma_taper_speed_dose_reduction": {
-      "parameter": "sigma_taper_speed_dose_reduction",
+    "parameter:6914c1f9f6cf7cc676006f1b1149cdf41592f7ff0e549e7c1efa85d888925eba": {
+      "parameter_id": "parameter:6914c1f9f6cf7cc676006f1b1149cdf41592f7ff0e549e7c1efa85d888925eba",
       "distribution": "HalfNormal",
       "params": {
         "sigma": 0.45
@@ -8832,8 +8961,8 @@
         }
       ]
     },
-    "sigma_adherence_to_regimen": {
-      "parameter": "sigma_adherence_to_regimen",
+    "parameter:a522641efd5adb152c5c47a37e5cb0881ff86a0ddfdb11151dda3735a0646a09": {
+      "parameter_id": "parameter:a522641efd5adb152c5c47a37e5cb0881ff86a0ddfdb11151dda3735a0646a09",
       "distribution": "HalfNormal",
       "params": {
         "sigma": 0.45
@@ -9048,8 +9177,8 @@
         }
       ]
     },
-    "sigma_escitalopram_dose_taken": {
-      "parameter": "sigma_escitalopram_dose_taken",
+    "parameter:6657e5ab0107fe6a181dfe91715b2003fb0f4bb5e65f903639c56bb7afb97500": {
+      "parameter_id": "parameter:6657e5ab0107fe6a181dfe91715b2003fb0f4bb5e65f903639c56bb7afb97500",
       "distribution": "HalfNormal",
       "params": {
         "sigma": 0.45
@@ -9264,8 +9393,8 @@
         }
       ]
     },
-    "sigma_perceived_stress_burden": {
-      "parameter": "sigma_perceived_stress_burden",
+    "parameter:595facfc46354b6582dae818836589a0643813eae29b42665949b9383de56f29": {
+      "parameter_id": "parameter:595facfc46354b6582dae818836589a0643813eae29b42665949b9383de56f29",
       "distribution": "HalfNormal",
       "params": {
         "sigma": 0.45
@@ -9480,8 +9609,8 @@
         }
       ]
     },
-    "sigma_physical_activity": {
-      "parameter": "sigma_physical_activity",
+    "parameter:19d63341a2cedf238201371098567432f756f81a31323d6428e69e87e94b1a19": {
+      "parameter_id": "parameter:19d63341a2cedf238201371098567432f756f81a31323d6428e69e87e94b1a19",
       "distribution": "HalfNormal",
       "params": {
         "sigma": 0.45
@@ -9696,8 +9825,8 @@
         }
       ]
     },
-    "sigma_sleep_circadian_disruption": {
-      "parameter": "sigma_sleep_circadian_disruption",
+    "parameter:9cf821d64c956fb794f034de7b9143541795b485e3177647c1e24ea922bc177f": {
+      "parameter_id": "parameter:9cf821d64c956fb794f034de7b9143541795b485e3177647c1e24ea922bc177f",
       "distribution": "HalfNormal",
       "params": {
         "sigma": 0.45
@@ -9912,8 +10041,8 @@
         }
       ]
     },
-    "sigma_internalizing_symptom_burden": {
-      "parameter": "sigma_internalizing_symptom_burden",
+    "parameter:10b6c3148f914ad631ff5205317ae8e4054f987ae4976b0ca02ff5dd6bd5dbeb": {
+      "parameter_id": "parameter:10b6c3148f914ad631ff5205317ae8e4054f987ae4976b0ca02ff5dd6bd5dbeb",
       "distribution": "HalfNormal",
       "params": {
         "sigma": 0.45
@@ -10128,8 +10257,8 @@
         }
       ]
     },
-    "lambda_phq9_screening_score_internalizing_symptom_burden": {
-      "parameter": "lambda_phq9_screening_score_internalizing_symptom_burden",
+    "parameter:501e52abe92a871a95f3b4b56fad364ae360efc3c575c1e877d754d470292cdc": {
+      "parameter_id": "parameter:501e52abe92a871a95f3b4b56fad364ae360efc3c575c1e877d754d470292cdc",
       "distribution": "TruncatedNormal",
       "params": {
         "mu": 1.0,
@@ -10347,8 +10476,8 @@
         }
       ]
     },
-    "lambda_gad7_screening_score_internalizing_symptom_burden": {
-      "parameter": "lambda_gad7_screening_score_internalizing_symptom_burden",
+    "parameter:7965e9dce8c03b2a8ec99330856f28b3a430e74768c60d5068ea3111ba94566f": {
+      "parameter_id": "parameter:7965e9dce8c03b2a8ec99330856f28b3a430e74768c60d5068ea3111ba94566f",
       "distribution": "TruncatedNormal",
       "params": {
         "mu": 1.0,
@@ -10566,8 +10695,8 @@
         }
       ]
     },
-    "lambda_journal_internalizing_symptom_severity_internalizing_symptom_burden": {
-      "parameter": "lambda_journal_internalizing_symptom_severity_internalizing_symptom_burden",
+    "parameter:dff8a815d1f023dc237fcc95c1b14df7b8aeb51f7f1fa5c35830c3ac3893e0bc": {
+      "parameter_id": "parameter:dff8a815d1f023dc237fcc95c1b14df7b8aeb51f7f1fa5c35830c3ac3893e0bc",
       "distribution": "TruncatedNormal",
       "params": {
         "mu": 1.0,
@@ -10788,7 +10917,7 @@
   },
   "resolved_priors": [
     {
-      "parameter": "obs_sd_state_of_mind_valence",
+      "parameter_id": "parameter:145cae7b491088b812e4c26ad611489cf0f1c53e028abbd083dbcf800675aaef",
       "distribution": "HalfNormal",
       "params": {
         "sigma": 0.45
@@ -11004,7 +11133,7 @@
       ]
     },
     {
-      "parameter": "manifest_mean_escitalopram_documented_dose_mg",
+      "parameter_id": "parameter:4c69c0ffa919eabbb08eed0878b3bf24a3fb06c1cd111d5a091f8fcddd8537e6",
       "distribution": "Normal",
       "params": {
         "mu": 0.0,
@@ -11221,658 +11350,7 @@
       ]
     },
     {
-      "parameter": "manifest_mean_sleep_efficiency_pct",
-      "distribution": "Normal",
-      "params": {
-        "mu": 0.0,
-        "sigma": 1.0
-      },
-      "sources": [],
-      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
-      "reference_interval_days": null,
-      "density_points": [
-        {
-          "x": -3.5,
-          "y": 0.00087
-        },
-        {
-          "x": -3.36,
-          "y": 0.00141
-        },
-        {
-          "x": -3.22,
-          "y": 0.00224
-        },
-        {
-          "x": -3.08,
-          "y": 0.00348
-        },
-        {
-          "x": -2.94,
-          "y": 0.0053
-        },
-        {
-          "x": -2.8,
-          "y": 0.00792
-        },
-        {
-          "x": -2.66,
-          "y": 0.0116
-        },
-        {
-          "x": -2.52,
-          "y": 0.01667
-        },
-        {
-          "x": -2.38,
-          "y": 0.02349
-        },
-        {
-          "x": -2.24,
-          "y": 0.03246
-        },
-        {
-          "x": -2.1,
-          "y": 0.04398
-        },
-        {
-          "x": -1.96,
-          "y": 0.05844
-        },
-        {
-          "x": -1.82,
-          "y": 0.07614
-        },
-        {
-          "x": -1.68,
-          "y": 0.09728
-        },
-        {
-          "x": -1.54,
-          "y": 0.12188
-        },
-        {
-          "x": -1.4,
-          "y": 0.14973
-        },
-        {
-          "x": -1.26,
-          "y": 0.18037
-        },
-        {
-          "x": -1.12,
-          "y": 0.21307
-        },
-        {
-          "x": -0.98,
-          "y": 0.24681
-        },
-        {
-          "x": -0.84,
-          "y": 0.28034
-        },
-        {
-          "x": -0.7,
-          "y": 0.31225
-        },
-        {
-          "x": -0.56,
-          "y": 0.34105
-        },
-        {
-          "x": -0.42,
-          "y": 0.36526
-        },
-        {
-          "x": -0.28,
-          "y": 0.38361
-        },
-        {
-          "x": -0.14,
-          "y": 0.39505
-        },
-        {
-          "x": 0.0,
-          "y": 0.39894
-        },
-        {
-          "x": 0.14,
-          "y": 0.39505
-        },
-        {
-          "x": 0.28,
-          "y": 0.38361
-        },
-        {
-          "x": 0.42,
-          "y": 0.36526
-        },
-        {
-          "x": 0.56,
-          "y": 0.34105
-        },
-        {
-          "x": 0.7,
-          "y": 0.31225
-        },
-        {
-          "x": 0.84,
-          "y": 0.28034
-        },
-        {
-          "x": 0.98,
-          "y": 0.24681
-        },
-        {
-          "x": 1.12,
-          "y": 0.21307
-        },
-        {
-          "x": 1.26,
-          "y": 0.18037
-        },
-        {
-          "x": 1.4,
-          "y": 0.14973
-        },
-        {
-          "x": 1.54,
-          "y": 0.12188
-        },
-        {
-          "x": 1.68,
-          "y": 0.09728
-        },
-        {
-          "x": 1.82,
-          "y": 0.07614
-        },
-        {
-          "x": 1.96,
-          "y": 0.05844
-        },
-        {
-          "x": 2.1,
-          "y": 0.04398
-        },
-        {
-          "x": 2.24,
-          "y": 0.03246
-        },
-        {
-          "x": 2.38,
-          "y": 0.02349
-        },
-        {
-          "x": 2.52,
-          "y": 0.01667
-        },
-        {
-          "x": 2.66,
-          "y": 0.0116
-        },
-        {
-          "x": 2.8,
-          "y": 0.00792
-        },
-        {
-          "x": 2.94,
-          "y": 0.0053
-        },
-        {
-          "x": 3.08,
-          "y": 0.00348
-        },
-        {
-          "x": 3.22,
-          "y": 0.00224
-        },
-        {
-          "x": 3.36,
-          "y": 0.00141
-        },
-        {
-          "x": 3.5,
-          "y": 0.00087
-        }
-      ]
-    },
-    {
-      "parameter": "manifest_mean_daily_step_count",
-      "distribution": "Normal",
-      "params": {
-        "mu": 0.0,
-        "sigma": 1.0
-      },
-      "sources": [],
-      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
-      "reference_interval_days": null,
-      "density_points": [
-        {
-          "x": -3.5,
-          "y": 0.00087
-        },
-        {
-          "x": -3.36,
-          "y": 0.00141
-        },
-        {
-          "x": -3.22,
-          "y": 0.00224
-        },
-        {
-          "x": -3.08,
-          "y": 0.00348
-        },
-        {
-          "x": -2.94,
-          "y": 0.0053
-        },
-        {
-          "x": -2.8,
-          "y": 0.00792
-        },
-        {
-          "x": -2.66,
-          "y": 0.0116
-        },
-        {
-          "x": -2.52,
-          "y": 0.01667
-        },
-        {
-          "x": -2.38,
-          "y": 0.02349
-        },
-        {
-          "x": -2.24,
-          "y": 0.03246
-        },
-        {
-          "x": -2.1,
-          "y": 0.04398
-        },
-        {
-          "x": -1.96,
-          "y": 0.05844
-        },
-        {
-          "x": -1.82,
-          "y": 0.07614
-        },
-        {
-          "x": -1.68,
-          "y": 0.09728
-        },
-        {
-          "x": -1.54,
-          "y": 0.12188
-        },
-        {
-          "x": -1.4,
-          "y": 0.14973
-        },
-        {
-          "x": -1.26,
-          "y": 0.18037
-        },
-        {
-          "x": -1.12,
-          "y": 0.21307
-        },
-        {
-          "x": -0.98,
-          "y": 0.24681
-        },
-        {
-          "x": -0.84,
-          "y": 0.28034
-        },
-        {
-          "x": -0.7,
-          "y": 0.31225
-        },
-        {
-          "x": -0.56,
-          "y": 0.34105
-        },
-        {
-          "x": -0.42,
-          "y": 0.36526
-        },
-        {
-          "x": -0.28,
-          "y": 0.38361
-        },
-        {
-          "x": -0.14,
-          "y": 0.39505
-        },
-        {
-          "x": 0.0,
-          "y": 0.39894
-        },
-        {
-          "x": 0.14,
-          "y": 0.39505
-        },
-        {
-          "x": 0.28,
-          "y": 0.38361
-        },
-        {
-          "x": 0.42,
-          "y": 0.36526
-        },
-        {
-          "x": 0.56,
-          "y": 0.34105
-        },
-        {
-          "x": 0.7,
-          "y": 0.31225
-        },
-        {
-          "x": 0.84,
-          "y": 0.28034
-        },
-        {
-          "x": 0.98,
-          "y": 0.24681
-        },
-        {
-          "x": 1.12,
-          "y": 0.21307
-        },
-        {
-          "x": 1.26,
-          "y": 0.18037
-        },
-        {
-          "x": 1.4,
-          "y": 0.14973
-        },
-        {
-          "x": 1.54,
-          "y": 0.12188
-        },
-        {
-          "x": 1.68,
-          "y": 0.09728
-        },
-        {
-          "x": 1.82,
-          "y": 0.07614
-        },
-        {
-          "x": 1.96,
-          "y": 0.05844
-        },
-        {
-          "x": 2.1,
-          "y": 0.04398
-        },
-        {
-          "x": 2.24,
-          "y": 0.03246
-        },
-        {
-          "x": 2.38,
-          "y": 0.02349
-        },
-        {
-          "x": 2.52,
-          "y": 0.01667
-        },
-        {
-          "x": 2.66,
-          "y": 0.0116
-        },
-        {
-          "x": 2.8,
-          "y": 0.00792
-        },
-        {
-          "x": 2.94,
-          "y": 0.0053
-        },
-        {
-          "x": 3.08,
-          "y": 0.00348
-        },
-        {
-          "x": 3.22,
-          "y": 0.00224
-        },
-        {
-          "x": 3.36,
-          "y": 0.00141
-        },
-        {
-          "x": 3.5,
-          "y": 0.00087
-        }
-      ]
-    },
-    {
-      "parameter": "obs_shape",
-      "distribution": "Gamma",
-      "params": {
-        "concentration": 5.0,
-        "rate": 1.0
-      },
-      "sources": [],
-      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
-      "reference_interval_days": null,
-      "density_points": [
-        {
-          "x": 0.001,
-          "y": 0.0
-        },
-        {
-          "x": 0.27987,
-          "y": 0.00019
-        },
-        {
-          "x": 0.55873,
-          "y": 0.00232
-        },
-        {
-          "x": 0.8376,
-          "y": 0.00887
-        },
-        {
-          "x": 1.11646,
-          "y": 0.0212
-        },
-        {
-          "x": 1.39533,
-          "y": 0.03913
-        },
-        {
-          "x": 1.67419,
-          "y": 0.06136
-        },
-        {
-          "x": 1.95306,
-          "y": 0.08599
-        },
-        {
-          "x": 2.23192,
-          "y": 0.11097
-        },
-        {
-          "x": 2.51079,
-          "y": 0.13446
-        },
-        {
-          "x": 2.78965,
-          "y": 0.15505
-        },
-        {
-          "x": 3.06852,
-          "y": 0.17174
-        },
-        {
-          "x": 3.34739,
-          "y": 0.18402
-        },
-        {
-          "x": 3.62625,
-          "y": 0.19176
-        },
-        {
-          "x": 3.90512,
-          "y": 0.19514
-        },
-        {
-          "x": 4.18398,
-          "y": 0.19457
-        },
-        {
-          "x": 4.46285,
-          "y": 0.19057
-        },
-        {
-          "x": 4.74171,
-          "y": 0.18375
-        },
-        {
-          "x": 5.02058,
-          "y": 0.17474
-        },
-        {
-          "x": 5.29944,
-          "y": 0.16413
-        },
-        {
-          "x": 5.57831,
-          "y": 0.15247
-        },
-        {
-          "x": 5.85717,
-          "y": 0.14022
-        },
-        {
-          "x": 6.13604,
-          "y": 0.12779
-        },
-        {
-          "x": 6.41491,
-          "y": 0.1155
-        },
-        {
-          "x": 6.69377,
-          "y": 0.10361
-        },
-        {
-          "x": 6.97264,
-          "y": 0.0923
-        },
-        {
-          "x": 7.2515,
-          "y": 0.0817
-        },
-        {
-          "x": 7.53037,
-          "y": 0.07189
-        },
-        {
-          "x": 7.80923,
-          "y": 0.06291
-        },
-        {
-          "x": 8.0881,
-          "y": 0.05477
-        },
-        {
-          "x": 8.36696,
-          "y": 0.04746
-        },
-        {
-          "x": 8.64583,
-          "y": 0.04094
-        },
-        {
-          "x": 8.92469,
-          "y": 0.03517
-        },
-        {
-          "x": 9.20356,
-          "y": 0.0301
-        },
-        {
-          "x": 9.48242,
-          "y": 0.02566
-        },
-        {
-          "x": 9.76129,
-          "y": 0.0218
-        },
-        {
-          "x": 10.04016,
-          "y": 0.01847
-        },
-        {
-          "x": 10.31902,
-          "y": 0.01559
-        },
-        {
-          "x": 10.59789,
-          "y": 0.01312
-        },
-        {
-          "x": 10.87675,
-          "y": 0.01102
-        },
-        {
-          "x": 11.15562,
-          "y": 0.00922
-        },
-        {
-          "x": 11.43448,
-          "y": 0.0077
-        },
-        {
-          "x": 11.71335,
-          "y": 0.00642
-        },
-        {
-          "x": 11.99221,
-          "y": 0.00534
-        },
-        {
-          "x": 12.27108,
-          "y": 0.00443
-        },
-        {
-          "x": 12.54994,
-          "y": 0.00366
-        },
-        {
-          "x": 12.82881,
-          "y": 0.00303
-        },
-        {
-          "x": 13.10768,
-          "y": 0.0025
-        },
-        {
-          "x": 13.38654,
-          "y": 0.00205
-        },
-        {
-          "x": 13.66541,
-          "y": 0.00169
-        },
-        {
-          "x": 13.94427,
-          "y": 0.00139
-        }
-      ]
-    },
-    {
-      "parameter": "obs_r",
+      "parameter_id": "parameter:682bd44790ce8d881c45c2aa166884c83146b6f6a175a779c90033b22ba9403f",
       "distribution": "Gamma",
       "params": {
         "concentration": 3.0,
@@ -12089,7 +11567,7 @@
       ]
     },
     {
-      "parameter": "obs_ordered_base_phq9_screening_score",
+      "parameter_id": "parameter:9ec837565ea8266acf16f4e878ab3ec49c793f747dd1620cb8872a15b6d48170",
       "distribution": "Normal",
       "params": {
         "mu": 0.0,
@@ -12306,7 +11784,7 @@
       ]
     },
     {
-      "parameter": "obs_ordered_gaps_phq9_screening_score",
+      "parameter_id": "parameter:2098505b8d1d7997f62805340a3ff337efeeae3695f6f6e97a5d36b530ab9961",
       "distribution": "HalfNormal",
       "params": {
         "sigma": 0.65
@@ -12522,7 +12000,7 @@
       ]
     },
     {
-      "parameter": "obs_ordered_base_gad7_screening_score",
+      "parameter_id": "parameter:6e11cf59457acf739c486d4638043ab03622923871577e92928fdb95b23d4022",
       "distribution": "Normal",
       "params": {
         "mu": 0.0,
@@ -12739,7 +12217,7 @@
       ]
     },
     {
-      "parameter": "obs_ordered_gaps_gad7_screening_score",
+      "parameter_id": "parameter:975f2d0c21bddf6371a2c1d8dcea40ddfc63416258239751962298592d74b9f8",
       "distribution": "HalfNormal",
       "params": {
         "sigma": 0.65
@@ -12955,7 +12433,7 @@
       ]
     },
     {
-      "parameter": "obs_ordered_base_journal_internalizing_symptom_severity",
+      "parameter_id": "parameter:2e77fa252226c51341ede18b3f1d464dbeb890f4a60a438d704f0fefbc38188e",
       "distribution": "Normal",
       "params": {
         "mu": 0.0,
@@ -13172,7 +12650,7 @@
       ]
     },
     {
-      "parameter": "obs_ordered_gaps_journal_internalizing_symptom_severity",
+      "parameter_id": "parameter:6d06d0c355dba2e8343ac2e243a6754ed91712effdd567e08a2c88d6fac3fa86",
       "distribution": "HalfNormal",
       "params": {
         "sigma": 0.65
@@ -13388,7 +12866,7 @@
       ]
     },
     {
-      "parameter": "obs_ordered_base_taper_speed_instruction_intensity",
+      "parameter_id": "parameter:4d037b0571237ffe38d08e6503b98580c2a7370156a7757848ffaa5fd1728fdd",
       "distribution": "Normal",
       "params": {
         "mu": 0.0,
@@ -13605,7 +13083,7 @@
       ]
     },
     {
-      "parameter": "obs_ordered_gaps_taper_speed_instruction_intensity",
+      "parameter_id": "parameter:60c1e5624e5768a3cb12b77bca44cd14f93f40096f1954d34b8ef00457b560cd",
       "distribution": "HalfNormal",
       "params": {
         "sigma": 0.65
@@ -13821,7 +13299,7 @@
       ]
     },
     {
-      "parameter": "obs_ordered_base_medication_adherence_documented",
+      "parameter_id": "parameter:773a0c8da725a4e3f6240c7807ad981e4948eead8c502f9fe316d4ababbc2e6d",
       "distribution": "Normal",
       "params": {
         "mu": 0.0,
@@ -14038,7 +13516,7 @@
       ]
     },
     {
-      "parameter": "obs_ordered_gaps_medication_adherence_documented",
+      "parameter_id": "parameter:ce1ebad1f8bd081a26421cfcf318798e7c0081cfa7e691a0938d3039982206ec",
       "distribution": "HalfNormal",
       "params": {
         "sigma": 0.65
@@ -14254,7 +13732,7 @@
       ]
     },
     {
-      "parameter": "obs_ordered_base_journal_stress_severity",
+      "parameter_id": "parameter:0e9a1b1dfe541174568e14b1ff28869410c133c12d1e3a9af74267469c804720",
       "distribution": "Normal",
       "params": {
         "mu": 0.0,
@@ -14471,7 +13949,7 @@
       ]
     },
     {
-      "parameter": "obs_ordered_gaps_journal_stress_severity",
+      "parameter_id": "parameter:d04f9da05c382797cd6ece7e35dc6fe984ba19224c035803da1b904139904cef",
       "distribution": "HalfNormal",
       "params": {
         "sigma": 0.65
@@ -14687,7 +14165,7 @@
       ]
     },
     {
-      "parameter": "rho_taper_speed_dose_reduction",
+      "parameter_id": "parameter:77da8f35596cde3b54170a7e261723af9567a7427aadceff11ef155e561cd796",
       "distribution": "Beta",
       "params": {
         "alpha": 11.04178,
@@ -14904,7 +14382,7 @@
       ]
     },
     {
-      "parameter": "rho_adherence_to_regimen",
+      "parameter_id": "parameter:a0df5a904f414d8def6f80971c113311003df775f3a852ee6416649b19f79f52",
       "distribution": "Beta",
       "params": {
         "alpha": 10.71081,
@@ -15121,7 +14599,7 @@
       ]
     },
     {
-      "parameter": "rho_escitalopram_dose_taken",
+      "parameter_id": "parameter:91175af6ef094fbbb471849776735144f0ba7e5cc5c2664c14380f0c69e8d6b4",
       "distribution": "Beta",
       "params": {
         "alpha": 10.30199,
@@ -15338,7 +14816,7 @@
       ]
     },
     {
-      "parameter": "rho_perceived_stress_burden",
+      "parameter_id": "parameter:57a748d4308cc7c65237d3503d25891d7bcab4e4677e6170fa96681806af0fbe",
       "distribution": "Beta",
       "params": {
         "alpha": 11.30051,
@@ -15555,7 +15033,7 @@
       ]
     },
     {
-      "parameter": "rho_physical_activity",
+      "parameter_id": "parameter:403138f9139a89157ab357b2110c3403119f75bf1e0c31596acdd5c487325950",
       "distribution": "Beta",
       "params": {
         "alpha": 11.61076,
@@ -15772,7 +15250,7 @@
       ]
     },
     {
-      "parameter": "rho_sleep_circadian_disruption",
+      "parameter_id": "parameter:ad61a0f32551731a26fb7c623747bf8799d3951df5237a374764a7766a01a7b3",
       "distribution": "Beta",
       "params": {
         "alpha": 11.73819,
@@ -15989,7 +15467,7 @@
       ]
     },
     {
-      "parameter": "rho_internalizing_symptom_burden",
+      "parameter_id": "parameter:3ea8343eb30d9377d456fad107bbd306a10c09bc939e36b8f8e3d0ef301f4628",
       "distribution": "Beta",
       "params": {
         "alpha": 10.68042,
@@ -16206,7 +15684,7 @@
       ]
     },
     {
-      "parameter": "beta_taper_speed_dose_reduction_escitalopram_dose_taken",
+      "parameter_id": "parameter:bf1215a4bf993c55ef79d0d512f3c3750d0e56174370128986e13bb7d3157a43",
       "distribution": "Normal",
       "params": {
         "mu": -0.14918,
@@ -16423,7 +15901,7 @@
       ]
     },
     {
-      "parameter": "beta_adherence_to_regimen_escitalopram_dose_taken",
+      "parameter_id": "parameter:a75d44df5da494db0ca3779b25cc59b24d4cd5d9030a3c701ed136593c50c33b",
       "distribution": "Normal",
       "params": {
         "mu": 0.07811,
@@ -16640,7 +16118,7 @@
       ]
     },
     {
-      "parameter": "beta_internalizing_symptom_burden_adherence_to_regimen",
+      "parameter_id": "parameter:7e6249b6cf43302cb7a74fa16333923f7472486a5db49375070a39cfc68c07ca",
       "distribution": "Normal",
       "params": {
         "mu": -0.13082,
@@ -16857,7 +16335,7 @@
       ]
     },
     {
-      "parameter": "beta_escitalopram_dose_taken_internalizing_symptom_burden",
+      "parameter_id": "parameter:a8a505e47c943789c333dcc759e7d84cec651d24a6de8c8c1cbd460425914d72",
       "distribution": "Normal",
       "params": {
         "mu": 0.0659,
@@ -17074,7 +16552,7 @@
       ]
     },
     {
-      "parameter": "beta_external_stressful_events_perceived_stress_burden",
+      "parameter_id": "parameter:02ef1ca5f2f48383150cffb0fee1cdfbc66aa47cd582de102bd25fa8ed8b451a",
       "distribution": "Normal",
       "params": {
         "mu": 0.10475,
@@ -17291,7 +16769,7 @@
       ]
     },
     {
-      "parameter": "beta_perceived_stress_burden_sleep_circadian_disruption",
+      "parameter_id": "parameter:6692ecb01dc3bdba7bf9cba8d92edb2b2f9b2302273f6f7fee3b9f52986a1964",
       "distribution": "Normal",
       "params": {
         "mu": -0.11251,
@@ -17508,7 +16986,7 @@
       ]
     },
     {
-      "parameter": "beta_perceived_stress_burden_internalizing_symptom_burden",
+      "parameter_id": "parameter:0c678da82765711f324fdea0c0ae6c7f4fb3d90ea29f267aa7698caac85bc6d6",
       "distribution": "Normal",
       "params": {
         "mu": 0.31,
@@ -17725,7 +17203,7 @@
       ]
     },
     {
-      "parameter": "beta_physical_activity_sleep_circadian_disruption",
+      "parameter_id": "parameter:63fcec10a4bb4e58d27b3b66e9a15526dbdda6af2315a130558a8f16b33e3602",
       "distribution": "Normal",
       "params": {
         "mu": -0.09832,
@@ -17942,7 +17420,7 @@
       ]
     },
     {
-      "parameter": "beta_physical_activity_internalizing_symptom_burden",
+      "parameter_id": "parameter:8fc990c1e8e036d312ba7c9eda8c256bfb61cb7aa47e2ad0ddd36c50d8444a28",
       "distribution": "Normal",
       "params": {
         "mu": -0.18,
@@ -18159,7 +17637,7 @@
       ]
     },
     {
-      "parameter": "beta_sleep_circadian_disruption_internalizing_symptom_burden",
+      "parameter_id": "parameter:e777921423828bb89bf90440f88224bcf3007db160ae83a54a82b4ce3f01f553",
       "distribution": "Normal",
       "params": {
         "mu": 0.29,
@@ -18376,7 +17854,7 @@
       ]
     },
     {
-      "parameter": "beta_internalizing_symptom_burden_sleep_circadian_disruption",
+      "parameter_id": "parameter:a28518e09d92789103ad234d7661f3e7437d9763341aa3edbe188826314a2d98",
       "distribution": "Normal",
       "params": {
         "mu": 0.10854,
@@ -18593,7 +18071,7 @@
       ]
     },
     {
-      "parameter": "beta_internalizing_symptom_burden_physical_activity",
+      "parameter_id": "parameter:3eb77244e3a500a71f80918993ba55e0577e2fd75e9372111343d00505657a61",
       "distribution": "Normal",
       "params": {
         "mu": -0.17325,
@@ -18810,7 +18288,7 @@
       ]
     },
     {
-      "parameter": "beta_other_psychotropic_or_somatic_treatments_internalizing_symptom_burden",
+      "parameter_id": "parameter:546dd52c6f78d4a291af6f8570315c19bf55c73e0a6afc03d4f7f80881d8afcc",
       "distribution": "Normal",
       "params": {
         "mu": -0.07114,
@@ -19027,7 +18505,7 @@
       ]
     },
     {
-      "parameter": "sigma_taper_speed_dose_reduction",
+      "parameter_id": "parameter:6914c1f9f6cf7cc676006f1b1149cdf41592f7ff0e549e7c1efa85d888925eba",
       "distribution": "HalfNormal",
       "params": {
         "sigma": 0.45
@@ -19243,7 +18721,7 @@
       ]
     },
     {
-      "parameter": "sigma_adherence_to_regimen",
+      "parameter_id": "parameter:a522641efd5adb152c5c47a37e5cb0881ff86a0ddfdb11151dda3735a0646a09",
       "distribution": "HalfNormal",
       "params": {
         "sigma": 0.45
@@ -19459,7 +18937,7 @@
       ]
     },
     {
-      "parameter": "sigma_escitalopram_dose_taken",
+      "parameter_id": "parameter:6657e5ab0107fe6a181dfe91715b2003fb0f4bb5e65f903639c56bb7afb97500",
       "distribution": "HalfNormal",
       "params": {
         "sigma": 0.45
@@ -19675,7 +19153,7 @@
       ]
     },
     {
-      "parameter": "sigma_perceived_stress_burden",
+      "parameter_id": "parameter:595facfc46354b6582dae818836589a0643813eae29b42665949b9383de56f29",
       "distribution": "HalfNormal",
       "params": {
         "sigma": 0.45
@@ -19891,7 +19369,7 @@
       ]
     },
     {
-      "parameter": "sigma_physical_activity",
+      "parameter_id": "parameter:19d63341a2cedf238201371098567432f756f81a31323d6428e69e87e94b1a19",
       "distribution": "HalfNormal",
       "params": {
         "sigma": 0.45
@@ -20107,7 +19585,7 @@
       ]
     },
     {
-      "parameter": "sigma_sleep_circadian_disruption",
+      "parameter_id": "parameter:9cf821d64c956fb794f034de7b9143541795b485e3177647c1e24ea922bc177f",
       "distribution": "HalfNormal",
       "params": {
         "sigma": 0.45
@@ -20323,7 +19801,7 @@
       ]
     },
     {
-      "parameter": "sigma_internalizing_symptom_burden",
+      "parameter_id": "parameter:10b6c3148f914ad631ff5205317ae8e4054f987ae4976b0ca02ff5dd6bd5dbeb",
       "distribution": "HalfNormal",
       "params": {
         "sigma": 0.45
@@ -20539,7 +20017,7 @@
       ]
     },
     {
-      "parameter": "lambda_phq9_screening_score_internalizing_symptom_burden",
+      "parameter_id": "parameter:501e52abe92a871a95f3b4b56fad364ae360efc3c575c1e877d754d470292cdc",
       "distribution": "TruncatedNormal",
       "params": {
         "mu": 1.0,
@@ -20758,7 +20236,7 @@
       ]
     },
     {
-      "parameter": "lambda_gad7_screening_score_internalizing_symptom_burden",
+      "parameter_id": "parameter:7965e9dce8c03b2a8ec99330856f28b3a430e74768c60d5068ea3111ba94566f",
       "distribution": "TruncatedNormal",
       "params": {
         "mu": 1.0,
@@ -20977,7 +20455,7 @@
       ]
     },
     {
-      "parameter": "lambda_journal_internalizing_symptom_severity_internalizing_symptom_burden",
+      "parameter_id": "parameter:dff8a815d1f023dc237fcc95c1b14df7b8aeb51f7f1fa5c35830c3ac3893e0bc",
       "distribution": "TruncatedNormal",
       "params": {
         "mu": 1.0,
@@ -21202,7 +20680,7 @@
     "Sparse or near-degenerate channels retained for UI coverage: phq9_screening_score, gad7_screening_score."
   ],
   "prior_predictive_samples": {
-    "phq9_screening_score": [
+    "indicator:93c7007ff8e5a6565b25": [
       5.0,
       15.0,
       5.0,
@@ -21300,7 +20778,7 @@
       0.0,
       16.0
     ],
-    "gad7_screening_score": [
+    "indicator:b3eb347f05220d9f4130": [
       2.0,
       10.0,
       5.0,
@@ -21398,7 +20876,7 @@
       11.0,
       7.0
     ],
-    "state_of_mind_valence": [
+    "indicator:b20fa3887689d5616a60": [
       0.70773,
       -0.06331,
       0.05192,
@@ -21496,7 +20974,7 @@
       -0.01599,
       0.33014
     ],
-    "journal_internalizing_symptom_severity": [
+    "indicator:8e1b73dd3c754b48e92c": [
       1.0,
       1.0,
       2.0,
@@ -21594,7 +21072,7 @@
       2.0,
       0.0
     ],
-    "taper_speed_instruction_intensity": [
+    "indicator:eca6b8b2c4379267b6c8": [
       0.0,
       0.0,
       0.0,
@@ -21692,7 +21170,7 @@
       1.0,
       1.0
     ],
-    "escitalopram_documented_dose_mg": [
+    "indicator:eb0949a188790298c25d": [
       12.86477,
       16.62827,
       20.26068,
@@ -21790,7 +21268,7 @@
       17.08507,
       16.64009
     ],
-    "medication_adherence_documented": [
+    "indicator:1f8878c9ba1ad571b89e": [
       1.0,
       2.0,
       2.0,
@@ -21888,7 +21366,7 @@
       2.0,
       2.0
     ],
-    "sleep_efficiency_pct": [
+    "indicator:7a4890fc254d4a508b7c": [
       90.88461,
       85.98723,
       89.44414,
@@ -21986,7 +21464,7 @@
       86.67686,
       76.00097
     ],
-    "daily_step_count": [
+    "indicator:21069529417a9a99ee50": [
       7740.0,
       10323.0,
       6797.0,
@@ -22084,7 +21562,7 @@
       8672.0,
       8921.0
     ],
-    "journal_stress_severity": [
+    "indicator:9becfedce394873f8c0c": [
       1.0,
       1.0,
       1.0,
@@ -22186,7 +21664,7 @@
   "prior_predictive_diagnostics": [
     {
       "check": "construct_admission",
-      "target": "taper_speed_dose_reduction",
+      "construct_id": "construct:7b3d7a5f98ae353c60b6",
       "value": "1 channel(s); 96 draws",
       "band": "finite exact prior-predictive draws with support respected",
       "passed": true,
@@ -22196,7 +21674,7 @@
     },
     {
       "check": "construct_admission",
-      "target": "adherence_to_regimen",
+      "construct_id": "construct:b7418d1841c57d53abf8",
       "value": "1 channel(s); 96 draws",
       "band": "finite exact prior-predictive draws with support respected",
       "passed": true,
@@ -22206,7 +21684,7 @@
     },
     {
       "check": "construct_admission",
-      "target": "escitalopram_dose_taken",
+      "construct_id": "construct:27f64faaddd59b2ad491",
       "value": "1 channel(s); 96 draws",
       "band": "finite exact prior-predictive draws with support respected",
       "passed": true,
@@ -22216,7 +21694,7 @@
     },
     {
       "check": "construct_admission",
-      "target": "perceived_stress_burden",
+      "construct_id": "construct:bb5a697c4e5f020f733d",
       "value": "1 channel(s); 96 draws",
       "band": "finite exact prior-predictive draws with support respected",
       "passed": true,
@@ -22226,7 +21704,7 @@
     },
     {
       "check": "construct_admission",
-      "target": "physical_activity",
+      "construct_id": "construct:07f8d9915eaa311c9e50",
       "value": "1 channel(s); 96 draws",
       "band": "finite exact prior-predictive draws with support respected",
       "passed": true,
@@ -22236,7 +21714,7 @@
     },
     {
       "check": "construct_admission",
-      "target": "sleep_circadian_disruption",
+      "construct_id": "construct:5bf588dc29d582cd7423",
       "value": "1 channel(s); 96 draws",
       "band": "finite exact prior-predictive draws with support respected",
       "passed": true,
@@ -22246,7 +21724,7 @@
     },
     {
       "check": "construct_admission",
-      "target": "internalizing_symptom_burden",
+      "construct_id": "construct:6ca86c47aaf18b2472ce",
       "value": "4 channel(s); 384 draws",
       "band": "finite exact prior-predictive draws with support respected",
       "passed": true,

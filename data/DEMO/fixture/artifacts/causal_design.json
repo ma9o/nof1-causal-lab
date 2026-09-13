@@ -1,138 +1,144 @@
 {
   "causal_design": {
     "latent": {
+      "default_outcome": {
+        "kind": "construct",
+        "id": "construct:6ca86c47aaf18b2472ce"
+      },
       "constructs": [
         {
+          "id": "construct:517d64db16ceb6e6a692",
           "name": "natural_recovery_propensity",
           "description": "Tendency for the original episode to remit or remain well without medication because of natural history, resilience, regression to the mean, and nonpharmacologic recovery.",
           "role": "exogenous",
-          "is_outcome": false,
           "temporal_status": "time_invariant"
         },
         {
+          "id": "construct:4cfc4a70f9d59a668364",
           "name": "past_escitalopram_response_tolerability",
           "description": "Historical symptom improvement, relapse prevention, side effects, and functional change while on escitalopram, reflecting drug effect plus natural recovery and expectancy.",
           "role": "endogenous",
-          "is_outcome": false,
           "temporal_status": "time_invariant"
         },
         {
+          "id": "construct:47ab45d6fa00e93be7ee",
           "name": "patient_taper_preference_beliefs",
           "description": "Current motivation to taper or continue, perceived medication benefit, concerns about dependence or side effects, fear of relapse, and coping confidence.",
           "role": "endogenous",
-          "is_outcome": false,
           "temporal_status": "time_varying"
         },
         {
+          "id": "construct:7b3d7a5f98ae353c60b6",
           "name": "taper_speed_dose_reduction",
           "description": "Rate and size of escitalopram dose reductions, including abrupt, linear, hyperbolic, paused, or reversed taper patterns.",
           "role": "endogenous",
-          "is_outcome": false,
           "temporal_status": "time_varying"
         },
         {
+          "id": "construct:b7418d1841c57d53abf8",
           "name": "adherence_to_regimen",
           "description": "Consistency with intended dose or taper plan, including missed doses, extra doses, and reinstatement behavior.",
           "role": "endogenous",
-          "is_outcome": false,
           "temporal_status": "time_varying"
         },
         {
+          "id": "construct:27f64faaddd59b2ad491",
           "name": "escitalopram_dose_taken",
           "description": "Actual escitalopram amount ingested at each model tick after taper instructions and adherence are realized.",
           "role": "endogenous",
-          "is_outcome": false,
           "temporal_status": "time_varying"
         },
         {
+          "id": "construct:4a7b8d4d0772b0b10e4e",
           "name": "duration_current_escitalopram_use",
           "description": "Length of continuous escitalopram use before taper decision, including time at stable maintenance dose.",
           "role": "endogenous",
-          "is_outcome": false,
           "temporal_status": "time_invariant"
         },
         {
+          "id": "construct:1ca8eec7961c69a0cbe1",
           "name": "stable_withdrawal_susceptibility",
           "description": "Stable person-specific susceptibility to SSRI discontinuation symptoms, distinct from the historical fact of prior withdrawal episodes.",
           "role": "exogenous",
-          "is_outcome": false,
           "temporal_status": "time_invariant"
         },
         {
+          "id": "construct:eb28b45b275c6732596f",
           "name": "neuroadaptation_dependence_state",
           "description": "Physiologic adaptation to sustained SSRI exposure that can make rapid reductions destabilizing even if the original disorder is inactive.",
           "role": "endogenous",
-          "is_outcome": false,
           "temporal_status": "time_varying"
         },
         {
+          "id": "construct:2da513406663702e475d",
           "name": "withdrawal_symptom_burden",
           "description": "Discontinuation symptoms after dose reduction, including dizziness, insomnia, anxiety, irritability, flu-like symptoms, nausea, and disequilibrium.",
           "role": "endogenous",
-          "is_outcome": false,
           "temporal_status": "time_varying"
         },
         {
+          "id": "construct:ac82920bb78125ab0aca",
           "name": "external_stressful_events",
           "description": "External shocks during follow-up such as loss, conflict, job strain, financial events, illness in others, or major schedule disruption.",
           "role": "exogenous",
-          "is_outcome": false,
           "temporal_status": "time_varying"
         },
         {
+          "id": "construct:bb5a697c4e5f020f733d",
           "name": "perceived_stress_burden",
           "description": "Subjective stress load, threat appraisal, overload, uncontrollability, and daily hassles.",
           "role": "endogenous",
-          "is_outcome": false,
           "temporal_status": "time_varying"
         },
         {
+          "id": "construct:07f8d9915eaa311c9e50",
           "name": "physical_activity",
           "description": "Amount and regularity of movement and exercise sufficient to affect sleep, reward, energy, and mood regulation.",
           "role": "endogenous",
-          "is_outcome": false,
           "temporal_status": "time_varying"
         },
         {
+          "id": "construct:5bf588dc29d582cd7423",
           "name": "sleep_circadian_disruption",
           "description": "Insomnia, hypersomnia, irregular sleep timing, circadian misalignment, and poor sleep quality.",
           "role": "endogenous",
-          "is_outcome": false,
           "temporal_status": "time_varying"
         },
         {
+          "id": "construct:ecfbf689dbd8add308bb",
           "name": "clinical_monitoring_rescue_care",
           "description": "Frequency and quality of clinical follow-up, safety monitoring, medication review, dose rescue, and crisis support.",
           "role": "endogenous",
-          "is_outcome": false,
           "temporal_status": "time_varying"
         },
         {
+          "id": "construct:428de2b75c12e36ca19d",
           "name": "other_psychotropic_or_somatic_treatments",
           "description": "Concurrent medication changes, supplements, sleep aids, anxiolytics, stimulants, hormonal treatments, or somatic treatments affecting symptoms or exposure.",
           "role": "endogenous",
-          "is_outcome": false,
           "temporal_status": "time_varying"
         },
         {
+          "id": "construct:6ca86c47aaf18b2472ce",
           "name": "internalizing_symptom_burden",
           "description": "Primary outcome: latent depressive and anxiety symptom burden over the next two months, including mood, anhedonia, worry, irritability, somatic anxiety, and distress.",
           "role": "endogenous",
-          "is_outcome": true,
           "temporal_status": "time_varying"
         }
       ],
       "edges": [
         {
-          "cause": "natural_recovery_propensity",
-          "effect": "internalizing_symptom_burden",
+          "id": "edge:f01776f0929a8eccc2fc",
+          "cause_id": "construct:517d64db16ceb6e6a692",
+          "effect_id": "construct:6ca86c47aaf18b2472ce",
           "description": "Underlying remission and relapse propensity changes symptom burden independently of the taper pathway.",
           "lagged": true,
           "sources": []
         },
         {
-          "cause": "natural_recovery_propensity",
-          "effect": "past_escitalopram_response_tolerability",
+          "id": "edge:9f17859ba14225cbef18",
+          "cause_id": "construct:517d64db16ceb6e6a692",
+          "effect_id": "construct:4cfc4a70f9d59a668364",
           "description": "Natural improvement can be misattributed to escitalopram if medication began during spontaneous improvement.",
           "lagged": false,
           "sources": [
@@ -144,50 +150,57 @@
           ]
         },
         {
-          "cause": "past_escitalopram_response_tolerability",
-          "effect": "duration_current_escitalopram_use",
+          "id": "edge:06d2e4026996e4b9379f",
+          "cause_id": "construct:4cfc4a70f9d59a668364",
+          "effect_id": "construct:4a7b8d4d0772b0b10e4e",
           "description": "Perceived benefit and acceptable tolerability make extended use more likely.",
           "lagged": false,
           "sources": []
         },
         {
-          "cause": "past_escitalopram_response_tolerability",
-          "effect": "patient_taper_preference_beliefs",
+          "id": "edge:3d92787d7a5f9e0201a9",
+          "cause_id": "construct:4cfc4a70f9d59a668364",
+          "effect_id": "construct:47ab45d6fa00e93be7ee",
           "description": "Perceived past benefit discourages tapering, while side effects or lack of perceived benefit encourage it.",
           "lagged": false,
           "sources": []
         },
         {
-          "cause": "internalizing_symptom_burden",
-          "effect": "patient_taper_preference_beliefs",
+          "id": "edge:93cda69e8ea3105f7cde",
+          "cause_id": "construct:6ca86c47aaf18b2472ce",
+          "effect_id": "construct:47ab45d6fa00e93be7ee",
           "description": "Worsening symptoms can increase fear of tapering; wellness can increase confidence to taper.",
           "lagged": true,
           "sources": []
         },
         {
-          "cause": "patient_taper_preference_beliefs",
-          "effect": "taper_speed_dose_reduction",
+          "id": "edge:ffb1bdc7cf492b1d7f1d",
+          "cause_id": "construct:47ab45d6fa00e93be7ee",
+          "effect_id": "construct:7b3d7a5f98ae353c60b6",
           "description": "Motivation, fear of relapse, and coping confidence affect how quickly the person attempts to reduce dose.",
           "lagged": true,
           "sources": []
         },
         {
-          "cause": "patient_taper_preference_beliefs",
-          "effect": "adherence_to_regimen",
+          "id": "edge:027439d7acff15a9f7f3",
+          "cause_id": "construct:47ab45d6fa00e93be7ee",
+          "effect_id": "construct:b7418d1841c57d53abf8",
           "description": "Beliefs about benefit, harm, or dependence influence missed doses, self-directed dose changes, and reinstatement.",
           "lagged": true,
           "sources": []
         },
         {
-          "cause": "taper_speed_dose_reduction",
-          "effect": "escitalopram_dose_taken",
+          "id": "edge:66bd0e882b7fbd2118a1",
+          "cause_id": "construct:7b3d7a5f98ae353c60b6",
+          "effect_id": "construct:27f64faaddd59b2ad491",
           "description": "Planned reductions mechanically lower the subsequent amount of escitalopram taken.",
           "lagged": true,
           "sources": []
         },
         {
-          "cause": "adherence_to_regimen",
-          "effect": "escitalopram_dose_taken",
+          "id": "edge:14682ec416926f40197b",
+          "cause_id": "construct:b7418d1841c57d53abf8",
+          "effect_id": "construct:27f64faaddd59b2ad491",
           "description": "Missed doses, extra doses, and partial adherence change actual escitalopram dose relative to the plan.",
           "lagged": true,
           "sources": [
@@ -199,8 +212,9 @@
           ]
         },
         {
-          "cause": "internalizing_symptom_burden",
-          "effect": "adherence_to_regimen",
+          "id": "edge:c8efa1de930a894c06ce",
+          "cause_id": "construct:6ca86c47aaf18b2472ce",
+          "effect_id": "construct:b7418d1841c57d53abf8",
           "description": "Worsening depression or anxiety can reduce organization and motivation for taking medication as intended, or prompt rescue dosing.",
           "lagged": true,
           "sources": [
@@ -212,8 +226,9 @@
           ]
         },
         {
-          "cause": "withdrawal_symptom_burden",
-          "effect": "escitalopram_dose_taken",
+          "id": "edge:e41bd8d330491d104a1a",
+          "cause_id": "construct:2da513406663702e475d",
+          "effect_id": "construct:27f64faaddd59b2ad491",
           "description": "Withdrawal symptoms can lead to pausing the taper, reinstating, or taking rescue doses.",
           "lagged": true,
           "sources": [
@@ -225,15 +240,17 @@
           ]
         },
         {
-          "cause": "withdrawal_symptom_burden",
-          "effect": "patient_taper_preference_beliefs",
+          "id": "edge:326df5ec6c9291a64dea",
+          "cause_id": "construct:2da513406663702e475d",
+          "effect_id": "construct:47ab45d6fa00e93be7ee",
           "description": "Discontinuation symptoms update beliefs about how risky or feasible tapering is.",
           "lagged": true,
           "sources": []
         },
         {
-          "cause": "duration_current_escitalopram_use",
-          "effect": "neuroadaptation_dependence_state",
+          "id": "edge:8b0771916792e703d7e9",
+          "cause_id": "construct:4a7b8d4d0772b0b10e4e",
+          "effect_id": "construct:eb28b45b275c6732596f",
           "description": "Longer continuous exposure allows more physiologic adaptation to SSRI blockade.",
           "lagged": false,
           "sources": [
@@ -245,8 +262,9 @@
           ]
         },
         {
-          "cause": "stable_withdrawal_susceptibility",
-          "effect": "withdrawal_symptom_burden",
+          "id": "edge:73e5ab450d651575bcd5",
+          "cause_id": "construct:1ca8eec7961c69a0cbe1",
+          "effect_id": "construct:2da513406663702e475d",
           "description": "Underlying discontinuation susceptibility causally affects current withdrawal burden, while prior history is treated as a marker and belief-shaper.",
           "lagged": false,
           "sources": [
@@ -258,15 +276,17 @@
           ]
         },
         {
-          "cause": "taper_speed_dose_reduction",
-          "effect": "withdrawal_symptom_burden",
+          "id": "edge:55e88b356c8e0a1a6eb2",
+          "cause_id": "construct:7b3d7a5f98ae353c60b6",
+          "effect_id": "construct:2da513406663702e475d",
           "description": "Faster or larger dose reductions can precipitate withdrawal when physiologic adaptation and susceptibility are present.",
           "lagged": true,
           "sources": []
         },
         {
-          "cause": "neuroadaptation_dependence_state",
-          "effect": "withdrawal_symptom_burden",
+          "id": "edge:b3c79da49c3d691b8d84",
+          "cause_id": "construct:eb28b45b275c6732596f",
+          "effect_id": "construct:2da513406663702e475d",
           "description": "Greater adaptation to chronic SSRI exposure increases susceptibility to symptoms when exposure falls.",
           "lagged": true,
           "sources": [
@@ -278,8 +298,9 @@
           ]
         },
         {
-          "cause": "withdrawal_symptom_burden",
-          "effect": "sleep_circadian_disruption",
+          "id": "edge:41f8d691f9ffb9121691",
+          "cause_id": "construct:2da513406663702e475d",
+          "effect_id": "construct:5bf588dc29d582cd7423",
           "description": "Discontinuation symptoms often include insomnia or disturbed sleep, which can worsen mood and anxiety.",
           "lagged": true,
           "sources": [
@@ -291,15 +312,17 @@
           ]
         },
         {
-          "cause": "withdrawal_symptom_burden",
-          "effect": "perceived_stress_burden",
+          "id": "edge:94b56531da4578528cca",
+          "cause_id": "construct:2da513406663702e475d",
+          "effect_id": "construct:bb5a697c4e5f020f733d",
           "description": "Unpleasant or frightening withdrawal sensations increase threat appraisal and stress.",
           "lagged": true,
           "sources": []
         },
         {
-          "cause": "withdrawal_symptom_burden",
-          "effect": "internalizing_symptom_burden",
+          "id": "edge:0956802ffa3b8f7363c5",
+          "cause_id": "construct:2da513406663702e475d",
+          "effect_id": "construct:6ca86c47aaf18b2472ce",
           "description": "Withdrawal can directly raise anxiety, irritability, low mood, distress, and somatic symptoms.",
           "lagged": true,
           "sources": [
@@ -311,15 +334,17 @@
           ]
         },
         {
-          "cause": "escitalopram_dose_taken",
-          "effect": "internalizing_symptom_burden",
+          "id": "edge:e96deda9a6084d6d4ed9",
+          "cause_id": "construct:27f64faaddd59b2ad491",
+          "effect_id": "construct:6ca86c47aaf18b2472ce",
           "description": "Actual dose changes the maintenance of antidepressant benefit and can alter subsequent internalizing symptom burden.",
           "lagged": true,
           "sources": []
         },
         {
-          "cause": "external_stressful_events",
-          "effect": "perceived_stress_burden",
+          "id": "edge:6001378d624b64d8db27",
+          "cause_id": "construct:ac82920bb78125ab0aca",
+          "effect_id": "construct:bb5a697c4e5f020f733d",
           "description": "External life events and demands increase perceived stress depending on appraisal and resources.",
           "lagged": false,
           "sources": [
@@ -331,29 +356,33 @@
           ]
         },
         {
-          "cause": "perceived_stress_burden",
-          "effect": "sleep_circadian_disruption",
+          "id": "edge:466eed55d5293ecb5f6a",
+          "cause_id": "construct:bb5a697c4e5f020f733d",
+          "effect_id": "construct:5bf588dc29d582cd7423",
           "description": "Stress and arousal impair sleep onset, continuity, and circadian regularity.",
           "lagged": true,
           "sources": []
         },
         {
-          "cause": "perceived_stress_burden",
-          "effect": "internalizing_symptom_burden",
+          "id": "edge:9df1507c29b9de944a33",
+          "cause_id": "construct:bb5a697c4e5f020f733d",
+          "effect_id": "construct:6ca86c47aaf18b2472ce",
           "description": "Perceived overload and threat directly increase anxiety, dysphoria, irritability, and bodily arousal.",
           "lagged": true,
           "sources": []
         },
         {
-          "cause": "physical_activity",
-          "effect": "sleep_circadian_disruption",
+          "id": "edge:00282e82c6e558b8219b",
+          "cause_id": "construct:07f8d9915eaa311c9e50",
+          "effect_id": "construct:5bf588dc29d582cd7423",
           "description": "Regular physical activity improves sleep pressure, circadian stability, and sleep quality.",
           "lagged": true,
           "sources": []
         },
         {
-          "cause": "physical_activity",
-          "effect": "internalizing_symptom_burden",
+          "id": "edge:0ffc13808e1300eb0e24",
+          "cause_id": "construct:07f8d9915eaa311c9e50",
+          "effect_id": "construct:6ca86c47aaf18b2472ce",
           "description": "Exercise can directly improve mood, anxiety, energy, and self-efficacy.",
           "lagged": true,
           "sources": [
@@ -365,8 +394,9 @@
           ]
         },
         {
-          "cause": "sleep_circadian_disruption",
-          "effect": "internalizing_symptom_burden",
+          "id": "edge:347cf99a9951dfd01cf4",
+          "cause_id": "construct:5bf588dc29d582cd7423",
+          "effect_id": "construct:6ca86c47aaf18b2472ce",
           "description": "Poor sleep and circadian disruption worsen next-period mood, anxiety, irritability, energy, and concentration.",
           "lagged": true,
           "sources": [
@@ -378,43 +408,49 @@
           ]
         },
         {
-          "cause": "internalizing_symptom_burden",
-          "effect": "sleep_circadian_disruption",
+          "id": "edge:bc472e241b3651bc152a",
+          "cause_id": "construct:6ca86c47aaf18b2472ce",
+          "effect_id": "construct:5bf588dc29d582cd7423",
           "description": "Depression and anxiety can disturb sleep through worry, arousal, hypersomnia, irregular routines, and low activity.",
           "lagged": true,
           "sources": []
         },
         {
-          "cause": "internalizing_symptom_burden",
-          "effect": "physical_activity",
+          "id": "edge:cbe7ea3961c0a9149ae2",
+          "cause_id": "construct:6ca86c47aaf18b2472ce",
+          "effect_id": "construct:07f8d9915eaa311c9e50",
           "description": "Symptoms reduce energy, motivation, confidence, and routine, lowering subsequent physical activity.",
           "lagged": true,
           "sources": []
         },
         {
-          "cause": "withdrawal_symptom_burden",
-          "effect": "clinical_monitoring_rescue_care",
+          "id": "edge:1198da260c8bcf398021",
+          "cause_id": "construct:2da513406663702e475d",
+          "effect_id": "construct:ecfbf689dbd8add308bb",
           "description": "Severe discontinuation symptoms prompt clinician contact and potential taper modification.",
           "lagged": true,
           "sources": []
         },
         {
-          "cause": "internalizing_symptom_burden",
-          "effect": "clinical_monitoring_rescue_care",
+          "id": "edge:1d473931f0684c7749af",
+          "cause_id": "construct:6ca86c47aaf18b2472ce",
+          "effect_id": "construct:ecfbf689dbd8add308bb",
           "description": "Worsening symptoms prompt more clinical contact, safety monitoring, and treatment adjustment.",
           "lagged": true,
           "sources": []
         },
         {
-          "cause": "clinical_monitoring_rescue_care",
-          "effect": "other_psychotropic_or_somatic_treatments",
+          "id": "edge:a3d943e0f5e7db74a977",
+          "cause_id": "construct:ecfbf689dbd8add308bb",
+          "effect_id": "construct:428de2b75c12e36ca19d",
           "description": "Clinical contact can initiate or change adjunctive treatments for sleep, anxiety, mood, or medical contributors.",
           "lagged": true,
           "sources": []
         },
         {
-          "cause": "other_psychotropic_or_somatic_treatments",
-          "effect": "internalizing_symptom_burden",
+          "id": "edge:2c2a94ecd60e62fa9f59",
+          "cause_id": "construct:428de2b75c12e36ca19d",
+          "effect_id": "construct:6ca86c47aaf18b2472ce",
           "description": "Other medication or somatic treatment changes can improve or worsen mood and anxiety independently of escitalopram tapering.",
           "lagged": true,
           "sources": []
@@ -424,8 +460,9 @@
     "measurement": {
       "indicators": [
         {
+          "id": "indicator:93c7007ff8e5a6565b25",
+          "construct_id": "construct:6ca86c47aaf18b2472ce",
           "name": "phq9_screening_score",
-          "construct_name": "internalizing_symptom_burden",
           "how_to_measure": "Use the `phq9_score` column directly when a PHQ-9 screening scale score is recorded. The score reflects depressive symptom burden over the prior two weeks ending at the visit date. Return null for support windows with no recorded PHQ-9 score.",
           "construct_polarity": "positive",
           "measurement_dtype": "ordinal",
@@ -466,14 +503,12 @@
             "phq9_score"
           ],
           "computed_rule": null,
-          "extraction_mode": "computed",
-          "support_kind": "point",
-          "summary_operator": "last",
-          "anchor_policy": "support_end"
+          "extraction_mode": "computed"
         },
         {
+          "id": "indicator:b3eb347f05220d9f4130",
+          "construct_id": "construct:6ca86c47aaf18b2472ce",
           "name": "gad7_screening_score",
-          "construct_name": "internalizing_symptom_burden",
           "how_to_measure": "Use the `gad7_score` column directly when a GAD-7 screening scale score is recorded. The score reflects anxiety symptom burden over the prior two weeks ending at the visit date. Return null for support windows with no recorded GAD-7 score.",
           "construct_polarity": "positive",
           "measurement_dtype": "ordinal",
@@ -508,14 +543,12 @@
             "gad7_score"
           ],
           "computed_rule": null,
-          "extraction_mode": "computed",
-          "support_kind": "point",
-          "summary_operator": "last",
-          "anchor_policy": "support_end"
+          "extraction_mode": "computed"
         },
         {
+          "id": "indicator:b20fa3887689d5616a60",
+          "construct_id": "construct:6ca86c47aaf18b2472ce",
           "name": "state_of_mind_valence",
-          "construct_name": "internalizing_symptom_burden",
           "how_to_measure": "Use the `mood_valence` column directly from Apple State of Mind entries. Average all observed entries within the day. Higher valence means better mood and therefore less internalizing symptom burden.",
           "construct_polarity": "negative",
           "measurement_dtype": "continuous",
@@ -527,14 +560,12 @@
             "mood_valence"
           ],
           "computed_rule": null,
-          "extraction_mode": "computed",
-          "support_kind": "interval",
-          "summary_operator": "mean",
-          "anchor_policy": "support_end"
+          "extraction_mode": "computed"
         },
         {
+          "id": "indicator:8e1b73dd3c754b48e92c",
+          "construct_id": "construct:6ca86c47aaf18b2472ce",
           "name": "journal_internalizing_symptom_severity",
-          "construct_name": "internalizing_symptom_burden",
           "how_to_measure": "Within each day, inspect `local_date`, `journal_text`, `imessage_text`, `mood_labels`, and `mood_associations` for first-person evidence of depressed mood, anhedonia, anxiety, worry, irritability, panic, somatic anxiety, hopelessness, guilt, or distress. Rate severity as none, mild, moderate, or severe based only on evidence in that day. Return `none` only when there is usable mood-related text or labels and they indicate no such symptoms; return null when there is no usable symptom evidence in the support window.",
           "construct_polarity": "positive",
           "measurement_dtype": "ordinal",
@@ -555,14 +586,12 @@
             "mood_associations"
           ],
           "computed_rule": null,
-          "extraction_mode": "semantic",
-          "support_kind": "point",
-          "summary_operator": "last",
-          "anchor_policy": "support_end"
+          "extraction_mode": "semantic"
         },
         {
+          "id": "indicator:eca6b8b2c4379267b6c8",
+          "construct_id": "construct:7b3d7a5f98ae353c60b6",
           "name": "taper_speed_instruction_intensity",
-          "construct_name": "taper_speed_dose_reduction",
           "how_to_measure": "Within each day, inspect `plan_text`, `clinical_note_text`, `medication_action`, `medication_name`, and `drug_name` for the escitalopram taper plan. Classify the intended reduction speed as none_or_continue, slow_or_paused_reduction, moderate_reduction, or rapid_stop_or_large_reduction. Return null if no escitalopram taper or continuation plan is documented in the support window.",
           "construct_polarity": "positive",
           "measurement_dtype": "ordinal",
@@ -583,14 +612,12 @@
             "drug_name"
           ],
           "computed_rule": null,
-          "extraction_mode": "semantic",
-          "support_kind": "point",
-          "summary_operator": "last",
-          "anchor_policy": "support_end"
+          "extraction_mode": "semantic"
         },
         {
+          "id": "indicator:eb0949a188790298c25d",
+          "construct_id": "construct:27f64faaddd59b2ad491",
           "name": "escitalopram_documented_dose_mg",
-          "construct_name": "escitalopram_dose_taken",
           "how_to_measure": "Within each day, use medication rows where `medication_name` or `drug_name` contains escitalopram or Lexapro. Return the last non-null `medication_dose_mg` documented for escitalopram that day, in milligrams. Return null if no escitalopram dose is documented that day. This is a documented dose proxy, not proof of ingestion.",
           "construct_polarity": "positive",
           "measurement_dtype": "continuous",
@@ -603,17 +630,13 @@
             "drug_name",
             "medication_dose_mg"
           ],
-          "computed_rule": {
-            "window_expr": "last(medication_dose_mg if contains_any(lower(coalesce(medication_name, drug_name, \"\")), [\"escitalopram\", \"lexapro\"]) else None)"
-          },
-          "extraction_mode": "computed",
-          "support_kind": "point",
-          "summary_operator": "last",
-          "anchor_policy": "support_end"
+          "computed_rule": "last(medication_dose_mg if contains_any(lower(coalesce(medication_name, drug_name, \"\")), [\"escitalopram\", \"lexapro\"]) else None)",
+          "extraction_mode": "computed"
         },
         {
+          "id": "indicator:1f8878c9ba1ad571b89e",
+          "construct_id": "construct:b7418d1841c57d53abf8",
           "name": "medication_adherence_documented",
-          "construct_name": "adherence_to_regimen",
           "how_to_measure": "Within each day, inspect `clinical_note_text`, `plan_text`, `journal_text`, and `imessage_text` for evidence about taking escitalopram as prescribed, missed doses, extra doses, self-directed changes, or reinstatement. Rate adherence as poor, partial, or consistent. Use `consistent` only when source evidence explicitly says the medication was taken as directed or no missed doses were reported in a medication-adherence context. Return null when there is no usable adherence evidence.",
           "construct_polarity": "positive",
           "measurement_dtype": "ordinal",
@@ -632,14 +655,12 @@
             "imessage_text"
           ],
           "computed_rule": null,
-          "extraction_mode": "semantic",
-          "support_kind": "point",
-          "summary_operator": "last",
-          "anchor_policy": "support_end"
+          "extraction_mode": "semantic"
         },
         {
+          "id": "indicator:7a4890fc254d4a508b7c",
+          "construct_id": "construct:5bf588dc29d582cd7423",
           "name": "sleep_efficiency_pct",
-          "construct_name": "sleep_circadian_disruption",
           "how_to_measure": "Use the `sleep_efficiency_pct` column directly from Oura sleep periods. Average values over all sleep periods assigned to the day. Higher sleep efficiency indicates less sleep/circadian disruption.",
           "construct_polarity": "negative",
           "measurement_dtype": "continuous",
@@ -651,14 +672,12 @@
             "sleep_efficiency_pct"
           ],
           "computed_rule": null,
-          "extraction_mode": "computed",
-          "support_kind": "interval",
-          "summary_operator": "mean",
-          "anchor_policy": "support_end"
+          "extraction_mode": "computed"
         },
         {
+          "id": "indicator:21069529417a9a99ee50",
+          "construct_id": "construct:07f8d9915eaa311c9e50",
           "name": "daily_step_count",
-          "construct_name": "physical_activity",
           "how_to_measure": "Use the `step_count_count` column directly from Apple Health step count intervals. Sum all step counts within the day.",
           "construct_polarity": "positive",
           "measurement_dtype": "count",
@@ -670,14 +689,12 @@
             "step_count_count"
           ],
           "computed_rule": null,
-          "extraction_mode": "computed",
-          "support_kind": "interval",
-          "summary_operator": "sum",
-          "anchor_policy": "support_end"
+          "extraction_mode": "computed"
         },
         {
+          "id": "indicator:9becfedce394873f8c0c",
+          "construct_id": "construct:bb5a697c4e5f020f733d",
           "name": "journal_stress_severity",
-          "construct_name": "perceived_stress_burden",
           "how_to_measure": "Within each day, inspect `journal_text`, `imessage_text`, `mood_labels`, and `mood_associations` for subjective stress, overwhelm, threat, uncontrollability, pressure, daily hassles, or feeling unable to cope. Rate as none, mild, moderate, or severe. Return `none` only when usable affect/stress evidence is present and indicates low or absent stress; return null if there is no usable evidence.",
           "construct_polarity": "positive",
           "measurement_dtype": "ordinal",
@@ -697,14 +714,12 @@
             "mood_associations"
           ],
           "computed_rule": null,
-          "extraction_mode": "semantic",
-          "support_kind": "point",
-          "summary_operator": "last",
-          "anchor_policy": "support_end"
+          "extraction_mode": "semantic"
         },
         {
+          "id": "indicator:0b02f0d32a40caec29ef",
+          "construct_id": "construct:ac82920bb78125ab0aca",
           "name": "external_stressor_event_count",
-          "construct_name": "external_stressful_events",
           "how_to_measure": "Within each day, inspect `calendar_summary`, `calendar_description`, `journal_text`, `imessage_text`, `transaction_name`, `merchant_name`, `finance_category_primary`, and `finance_category_detailed` for external stressful events such as conflict, deadlines, job strain, illness in self/others, bereavement, financial shock, legal/administrative problems, travel disruption, or major schedule disruption. Count distinct stressful events in the day. Return 0 if there is usable daily source evidence and no stressful event is indicated; return null if no usable event/text/transaction evidence exists.",
           "construct_polarity": "positive",
           "measurement_dtype": "count",
@@ -723,14 +738,12 @@
             "finance_category_detailed"
           ],
           "computed_rule": null,
-          "extraction_mode": "semantic",
-          "support_kind": "interval",
-          "summary_operator": "count",
-          "anchor_policy": "support_end"
+          "extraction_mode": "semantic"
         },
         {
+          "id": "indicator:7f51bc663e8e0bbea95f",
+          "construct_id": "construct:428de2b75c12e36ca19d",
           "name": "other_treatment_change_count",
-          "construct_name": "other_psychotropic_or_somatic_treatments",
           "how_to_measure": "Within each day, inspect `medication_name`, `drug_name`, `medication_dose_mg`, `medication_action`, `clinical_note_text`, `assessment_text`, and `plan_text` for non-escitalopram psychotropic medications, sleep aids, anxiolytics, stimulants, supplements, hormonal treatments, or somatic treatments that are initiated, stopped, increased, decreased, or used as needed. Count distinct non-escitalopram treatment changes or active PRN uses. Return 0 if medication/treatment evidence is present and no relevant non-escitalopram treatment is active or changed; return null if there is no usable treatment evidence.",
           "construct_polarity": "positive",
           "measurement_dtype": "count",
@@ -748,14 +761,12 @@
             "plan_text"
           ],
           "computed_rule": null,
-          "extraction_mode": "semantic",
-          "support_kind": "interval",
-          "summary_operator": "count",
-          "anchor_policy": "support_end"
+          "extraction_mode": "semantic"
         },
         {
+          "id": "indicator:c9a9156464b8dce5ba14",
+          "construct_id": "construct:47ab45d6fa00e93be7ee",
           "name": "patient_taper_preference_level",
-          "construct_name": "patient_taper_preference_beliefs",
           "how_to_measure": "Within each day, inspect `journal_text`, `imessage_text`, `clinical_note_text`, and `plan_text` for the patient's motivation to taper or continue escitalopram, perceived benefit, side-effect concerns, dependence concerns, fear of relapse, and coping confidence. Rate taper preference as wants_continue, ambivalent, prefers_slow_taper, or wants_stop_or_fast_taper. Return null if there is no usable preference/belief evidence.",
           "construct_polarity": "positive",
           "measurement_dtype": "ordinal",
@@ -775,14 +786,12 @@
             "plan_text"
           ],
           "computed_rule": null,
-          "extraction_mode": "semantic",
-          "support_kind": "point",
-          "summary_operator": "last",
-          "anchor_policy": "support_end"
+          "extraction_mode": "semantic"
         },
         {
+          "id": "indicator:a1c5e49b6b167636f7a0",
+          "construct_id": "construct:517d64db16ceb6e6a692",
           "name": "natural_recovery_evidence_level",
-          "construct_name": "natural_recovery_propensity",
           "how_to_measure": "Inspect `clinical_note_text`, `assessment_text`, `journal_text`, `mood_valence`, `phq9_score`, and `gad7_score` for evidence that symptoms improved or remained well during periods without medication change, through nonpharmacologic coping, stable life conditions, or spontaneous remission. Rate as low, moderate, or high. Return null if the available evidence cannot distinguish natural recovery or resilience from medication response.",
           "construct_polarity": "positive",
           "measurement_dtype": "ordinal",
@@ -803,14 +812,12 @@
             "gad7_score"
           ],
           "computed_rule": null,
-          "extraction_mode": "semantic",
-          "support_kind": "point",
-          "summary_operator": "last",
-          "anchor_policy": "support_end"
+          "extraction_mode": "semantic"
         },
         {
+          "id": "indicator:cd5618fdf5311bf6e90d",
+          "construct_id": "construct:4cfc4a70f9d59a668364",
           "name": "past_escitalopram_response_tolerability_level",
-          "construct_name": "past_escitalopram_response_tolerability",
           "how_to_measure": "Inspect `clinical_note_text`, `assessment_text`, `plan_text`, `journal_text`, medication fields, `phq9_score`, and `gad7_score` for historical improvement, relapse prevention, side effects, dose changes due to response/tolerability, or patient-reported benefit/harm while taking escitalopram. Rate net historical response/tolerability as poor_or_harmful, mixed_or_unclear, beneficial_with_side_effects, or clearly_beneficial_tolerated. Return null if no usable escitalopram response/tolerability history is available.",
           "construct_polarity": "positive",
           "measurement_dtype": "ordinal",
@@ -835,14 +842,12 @@
             "gad7_score"
           ],
           "computed_rule": null,
-          "extraction_mode": "semantic",
-          "support_kind": "point",
-          "summary_operator": "last",
-          "anchor_policy": "support_end"
+          "extraction_mode": "semantic"
         },
         {
+          "id": "indicator:ea0f209a3393fba5194e",
+          "construct_id": "construct:4a7b8d4d0772b0b10e4e",
           "name": "current_escitalopram_use_duration_proxy",
-          "construct_name": "duration_current_escitalopram_use",
           "how_to_measure": "Use escitalopram-related `drug_name`, `medication_name`, `timestamp`, `local_date`, `days_supply`, `clinical_note_text`, and `plan_text` to estimate the length of continuous current escitalopram use before the taper decision. Prefer explicit duration statements in notes; otherwise use the span from first documented escitalopram record to the latest pre-taper escitalopram record when continuity is plausible from fills/notes. Return duration in days; return null if current-use duration cannot be estimated.",
           "construct_polarity": "positive",
           "measurement_dtype": "continuous",
@@ -860,14 +865,12 @@
             "plan_text"
           ],
           "computed_rule": null,
-          "extraction_mode": "semantic",
-          "support_kind": "point",
-          "summary_operator": "last",
-          "anchor_policy": "support_end"
+          "extraction_mode": "semantic"
         },
         {
+          "id": "indicator:d14078f40ae3b26ae799",
+          "construct_id": "construct:eb28b45b275c6732596f",
           "name": "long_term_ssri_adaptation_proxy",
-          "construct_name": "neuroadaptation_dependence_state",
           "how_to_measure": "Within each day, inspect escitalopram-related `clinical_note_text`, `plan_text`, `medication_name`, `drug_name`, `medication_dose_mg`, `days_supply`, and `strength` for evidence of ongoing long-term escitalopram use or stable maintenance dosing. Rate adaptation proxy as none, short_or_uncertain, ongoing_maintenance, or long_term_maintenance. Return null if no escitalopram-use-duration or maintenance context is available in that day.",
           "construct_polarity": "positive",
           "measurement_dtype": "ordinal",
@@ -890,14 +893,12 @@
             "strength"
           ],
           "computed_rule": null,
-          "extraction_mode": "semantic",
-          "support_kind": "point",
-          "summary_operator": "last",
-          "anchor_policy": "support_end"
+          "extraction_mode": "semantic"
         },
         {
+          "id": "indicator:80833c21d9dd9f2ce5d5",
+          "construct_id": "construct:ecfbf689dbd8add308bb",
           "name": "clinical_contact_count",
-          "construct_name": "clinical_monitoring_rescue_care",
           "how_to_measure": "Count non-null `clinical_note_text` rows within each day. This measures clinical monitoring/contact volume. Return 0 when the day has rows from other sources but no clinical note; return null only if the support window has no rows at all.",
           "construct_polarity": "positive",
           "measurement_dtype": "count",
@@ -909,14 +910,12 @@
             "clinical_note_text"
           ],
           "computed_rule": null,
-          "extraction_mode": "computed",
-          "support_kind": "interval",
-          "summary_operator": "count",
-          "anchor_policy": "support_end"
+          "extraction_mode": "computed"
         },
         {
+          "id": "indicator:a7234127c37d7ce4a0c2",
+          "construct_id": "construct:ecfbf689dbd8add308bb",
           "name": "rescue_or_monitoring_action",
-          "construct_name": "clinical_monitoring_rescue_care",
           "how_to_measure": "Within each day, inspect `plan_text`, `clinical_note_text`, `medication_action`, `visit_type`, `department`, `calendar_summary`, and `calendar_description` for monitoring visits, follow-up plans, medication rescue, dose reinstatement, urgent care, crisis support, safety monitoring, or advice to pause/reverse taper. Return 1 if such monitoring or rescue care is documented, 0 if a relevant clinical/taper plan is present and no monitoring or rescue action is indicated, and null if there is no usable clinical or taper-care evidence.",
           "construct_polarity": "positive",
           "measurement_dtype": "binary",
@@ -934,125 +933,136 @@
             "calendar_description"
           ],
           "computed_rule": null,
-          "extraction_mode": "semantic",
-          "support_kind": "point",
-          "summary_operator": "last",
-          "anchor_policy": "support_end"
+          "extraction_mode": "semantic"
         }
       ],
       "model_clock": "1d"
     },
     "identifiability": {
       "identifiable_treatments": {
-        "adherence_to_regimen": {
+        "construct:b7418d1841c57d53abf8": {
+          "status": "identified",
           "method": "do_calculus",
           "estimand": "Sum[escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1})))",
           "marginalized_confounders": [
-            "withdrawal_symptom_burden"
+            "construct:2da513406663702e475d"
           ],
           "instruments": []
         },
-        "clinical_monitoring_rescue_care": {
+        "construct:ecfbf689dbd8add308bb": {
+          "status": "identified",
           "method": "do_calculus",
           "estimand": "Sum[escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1})))",
           "marginalized_confounders": [
-            "withdrawal_symptom_burden"
+            "construct:2da513406663702e475d"
           ],
           "instruments": []
         },
-        "duration_current_escitalopram_use": {
+        "construct:4a7b8d4d0772b0b10e4e": {
+          "status": "identified",
           "method": "do_calculus",
           "estimand": "Sum[escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1})))",
           "marginalized_confounders": [
-            "withdrawal_symptom_burden"
+            "construct:2da513406663702e475d"
           ],
           "instruments": []
         },
-        "escitalopram_dose_taken": {
+        "construct:27f64faaddd59b2ad491": {
+          "status": "identified",
           "method": "do_calculus",
           "estimand": "Sum[external_stressful_events_{t-1}, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}](P(internalizing_symptom_burden_t | escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}) * P(internalizing_symptom_burden_{t-1} | natural_recovery_propensity) * P(perceived_stress_burden_{t-1} | external_stressful_events_{t-1}) * Sum[escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, sleep_circadian_disruption_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}))) * Sum[escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}))) * Sum[escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}))) * Sum[escitalopram_dose_taken_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}))) * Sum[escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}))))",
           "marginalized_confounders": [
-            "withdrawal_symptom_burden"
+            "construct:2da513406663702e475d"
           ],
           "instruments": []
         },
-        "external_stressful_events": {
+        "construct:ac82920bb78125ab0aca": {
+          "status": "identified",
           "method": "do_calculus",
           "estimand": "Sum[escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1})))",
           "marginalized_confounders": [
-            "withdrawal_symptom_burden"
+            "construct:2da513406663702e475d"
           ],
           "instruments": []
         },
-        "natural_recovery_propensity": {
+        "construct:517d64db16ceb6e6a692": {
+          "status": "identified",
           "method": "do_calculus",
           "estimand": "Sum[escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_{t-1}, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}](P(internalizing_symptom_burden_t | escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}) * P(internalizing_symptom_burden_{t-1} | natural_recovery_propensity) * P(perceived_stress_burden_{t-1} | external_stressful_events_{t-1}) * Sum[escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, sleep_circadian_disruption_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}))) * Sum[escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}))) * Sum[escitalopram_dose_taken_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}))) * Sum[external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}))) * Sum[escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}))))",
           "marginalized_confounders": [
-            "withdrawal_symptom_burden"
+            "construct:2da513406663702e475d"
           ],
           "instruments": []
         },
-        "neuroadaptation_dependence_state": {
+        "construct:eb28b45b275c6732596f": {
+          "status": "identified",
           "method": "do_calculus",
           "estimand": "Sum[escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1})))",
           "marginalized_confounders": [
-            "withdrawal_symptom_burden"
+            "construct:2da513406663702e475d"
           ],
           "instruments": []
         },
-        "other_psychotropic_or_somatic_treatments": {
+        "construct:428de2b75c12e36ca19d": {
+          "status": "identified",
           "method": "do_calculus",
           "estimand": "Sum[escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}](P(internalizing_symptom_burden_t | escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}) * P(internalizing_symptom_burden_{t-1} | natural_recovery_propensity) * P(perceived_stress_burden_{t-1} | external_stressful_events_{t-1}) * Sum[escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, sleep_circadian_disruption_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}))) * Sum[escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}))) * Sum[escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}))) * Sum[escitalopram_dose_taken_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}))) * Sum[external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}))))",
           "marginalized_confounders": [
-            "withdrawal_symptom_burden"
+            "construct:2da513406663702e475d"
           ],
           "instruments": []
         },
-        "past_escitalopram_response_tolerability": {
+        "construct:4cfc4a70f9d59a668364": {
+          "status": "identified",
           "method": "do_calculus",
           "estimand": "Sum[escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1})))",
           "marginalized_confounders": [
-            "withdrawal_symptom_burden"
+            "construct:2da513406663702e475d"
           ],
           "instruments": []
         },
-        "patient_taper_preference_beliefs": {
+        "construct:47ab45d6fa00e93be7ee": {
+          "status": "identified",
           "method": "do_calculus",
           "estimand": "Sum[escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1})))",
           "marginalized_confounders": [
-            "withdrawal_symptom_burden"
+            "construct:2da513406663702e475d"
           ],
           "instruments": []
         },
-        "perceived_stress_burden": {
+        "construct:bb5a697c4e5f020f733d": {
+          "status": "identified",
           "method": "do_calculus",
           "estimand": "Sum[escitalopram_dose_taken_{t-1}, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}](P(internalizing_symptom_burden_t | escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}) * P(internalizing_symptom_burden_{t-1} | natural_recovery_propensity) * Sum[escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, sleep_circadian_disruption_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}))) * Sum[escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}))) * Sum[escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}))) * Sum[external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}))) * Sum[escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}))))",
           "marginalized_confounders": [
-            "withdrawal_symptom_burden"
+            "construct:2da513406663702e475d"
           ],
           "instruments": []
         },
-        "physical_activity": {
+        "construct:07f8d9915eaa311c9e50": {
+          "status": "identified",
           "method": "do_calculus",
           "estimand": "Sum[escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, sleep_circadian_disruption_{t-1}](P(internalizing_symptom_burden_t | escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}) * P(internalizing_symptom_burden_{t-1} | natural_recovery_propensity) * P(perceived_stress_burden_{t-1} | external_stressful_events_{t-1}) * Sum[escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}))) * Sum[escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}))) * Sum[escitalopram_dose_taken_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}))) * Sum[external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}))) * Sum[escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}))))",
           "marginalized_confounders": [
-            "withdrawal_symptom_burden"
+            "construct:2da513406663702e475d"
           ],
           "instruments": []
         },
-        "sleep_circadian_disruption": {
+        "construct:5bf588dc29d582cd7423": {
+          "status": "identified",
           "method": "do_calculus",
           "estimand": "Sum[escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}](P(internalizing_symptom_burden_t | escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}) * P(internalizing_symptom_burden_{t-1} | natural_recovery_propensity) * P(perceived_stress_burden_{t-1} | external_stressful_events_{t-1}) * Sum[escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, sleep_circadian_disruption_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}))) * Sum[escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}))) * Sum[escitalopram_dose_taken_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}))) * Sum[external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}))) * Sum[escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}))))",
           "marginalized_confounders": [
-            "withdrawal_symptom_burden"
+            "construct:2da513406663702e475d"
           ],
           "instruments": []
         },
-        "taper_speed_dose_reduction": {
+        "construct:7b3d7a5f98ae353c60b6": {
+          "status": "identified",
           "method": "do_calculus",
           "estimand": "Sum[escitalopram_dose_taken_{t-1}, external_stressful_events_{t-1}, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, other_psychotropic_or_somatic_treatments_{t-1}, perceived_stress_burden_{t-1}, physical_activity_{t-1}, sleep_circadian_disruption_{t-1}](Sum[adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, external_stressful_events_t, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, physical_activity_t, sleep_circadian_disruption_t, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1}](P(adherence_to_regimen_t, adherence_to_regimen_{t-1}, clinical_monitoring_rescue_care_t, clinical_monitoring_rescue_care_{t-1}, duration_current_escitalopram_use, escitalopram_dose_taken_t, escitalopram_dose_taken_{t-1}, external_stressful_events_t, external_stressful_events_{t-1}, internalizing_symptom_burden_t, internalizing_symptom_burden_{t-1}, natural_recovery_propensity, neuroadaptation_dependence_state_t, neuroadaptation_dependence_state_{t-1}, other_psychotropic_or_somatic_treatments_t, other_psychotropic_or_somatic_treatments_{t-1}, past_escitalopram_response_tolerability, patient_taper_preference_beliefs_t, patient_taper_preference_beliefs_{t-1}, perceived_stress_burden_t, perceived_stress_burden_{t-1}, physical_activity_t, physical_activity_{t-1}, sleep_circadian_disruption_t, sleep_circadian_disruption_{t-1}, taper_speed_dose_reduction_t, taper_speed_dose_reduction_{t-1}, withdrawal_symptom_burden_t, withdrawal_symptom_burden_{t-1})))",
           "marginalized_confounders": [
-            "withdrawal_symptom_burden"
+            "construct:2da513406663702e475d"
           ],
           "instruments": []
         }
@@ -1061,41 +1071,41 @@
     },
     "known_inputs": [
       {
-        "construct": "external_stressful_events",
-        "source_indicator": "external_stressor_event_count",
+        "construct_id": "construct:ac82920bb78125ab0aca",
+        "source_indicator_id": "indicator:0b02f0d32a40caec29ef",
         "scale": 1.0,
         "missing_policy": "zero"
       },
       {
-        "construct": "other_psychotropic_or_somatic_treatments",
-        "source_indicator": "other_treatment_change_count",
+        "construct_id": "construct:428de2b75c12e36ca19d",
+        "source_indicator_id": "indicator:7f51bc663e8e0bbea95f",
         "scale": 1.0,
         "missing_policy": "zero"
       }
     ],
     "scientific_only_constructs": [
       {
-        "construct": "patient_taper_preference_beliefs",
+        "construct_id": "construct:47ab45d6fa00e93be7ee",
         "reason": "The sparse semantic proxy is entangled with the documented taper plan, so it remains assignment context rather than an executable latent state."
       },
       {
-        "construct": "duration_current_escitalopram_use",
+        "construct_id": "construct:4a7b8d4d0772b0b10e4e",
         "reason": "Historical exposure duration is observed only as sparse static context and feeds an unsupported neuroadaptation mechanism."
       },
       {
-        "construct": "neuroadaptation_dependence_state",
+        "construct_id": "construct:eb28b45b275c6732596f",
         "reason": "The available text-derived adaptation proxy cannot independently resolve the physiologic state from duration and taper documentation."
       },
       {
-        "construct": "natural_recovery_propensity",
+        "construct_id": "construct:517d64db16ceb6e6a692",
         "reason": "Only sparse retrospective evidence is available for the untreated illness course, so it remains scientific and identification context."
       },
       {
-        "construct": "past_escitalopram_response_tolerability",
+        "construct_id": "construct:4cfc4a70f9d59a668364",
         "reason": "Historical response is represented by a sparse retrospective summary, so it remains measured assignment context rather than an executable dynamic state."
       },
       {
-        "construct": "clinical_monitoring_rescue_care",
+        "construct_id": "construct:ecfbf689dbd8add308bb",
         "reason": "Clinical contacts and rescue actions are sparse, event-triggered assignment signals that preserve treatment-change context without supporting a latent state."
       }
     ]

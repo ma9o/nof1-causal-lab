@@ -29,7 +29,7 @@
     },
     {
       "role": "assistant",
-      "content": "Materialized one likelihood per indicator (gamma=2, gaussian=1, negative_binomial=1, ordered_logistic=6) and 48 compiler-shaped prior surfaces. The model uses stationary initialization, free eligible observation intercepts, and no equilibrium forcing. Sparse safety and event channels remain visible as warnings rather than being silently removed.",
+      "content": "Materialized one likelihood per indicator (gaussian=3, negative_binomial=1, ordered_logistic=6) and 45 compiler-shaped prior surfaces. The model uses stationary initialization, free eligible observation intercepts, and no equilibrium forcing. Sparse safety and event channels remain visible as warnings rather than being silently removed.",
       "reasoning": "Resolve support-compatible likelihoods from declared dtypes and empirical profiles; then enumerate persistence, causal-edge, diffusion, measurement, threshold, loading, and static-state parameters in the same semantic namespaces used by compilation.",
       "tool_calls": null,
       "tool_call_id": null,
