@@ -5,16 +5,18 @@ from __future__ import annotations
 from functools import cache, cached_property
 from typing import TYPE_CHECKING, Literal, cast
 
-from nof1_causal_lab.artifacts.causal_design import IdentifiabilityStatus
-from nof1_causal_lab.artifacts.identity import ArtifactRef, ModelRef
-from nof1_causal_lab.artifacts.mechanism import ConstantDriftMechanism, NodePotentialMechanism
+from nof1_causal_lab.artifacts.identification import IdentificationReport  # noqa: TC001
+from nof1_causal_lab.artifacts.identity import ArtifactRef, ModelRef, TransitionRef
 from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorEstimate
 from nof1_causal_lab.machine.moves import freshness_report, is_stale
 from nof1_causal_lab.machine.snapshot_models import (
     FactSource,
     FitSummary,
+    ModelData,
+    ModelFindings,
     ModelSnapshot,
+    SnapshotContext,
     Sourced,
     SourceValidity,
 )
@@ -22,33 +24,18 @@ from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal, replay_
 from nof1_causal_lab.machine.views import read_artifact_views, read_payload
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.baseline_report import (
-        BaselineReportArtifact,
-        SavedScenariosArtifact,
-    )
-    from nof1_causal_lab.artifacts.causal_design import CausalDesignArtifact
-    from nof1_causal_lab.artifacts.compiled_ssm import CompiledSSMArtifact
-    from nof1_causal_lab.artifacts.identity import ArtifactId, EntityRef
-    from nof1_causal_lab.artifacts.latent_structure import (
-        CausalEdge,
-        Construct,
-        LatentStructure,
-        LatentStructureArtifact,
-    )
-    from nof1_causal_lab.artifacts.measurement_structure import (
-        Indicator,
-        MeasurementStructureArtifact,
-    )
-    from nof1_causal_lab.artifacts.posterior import PosteriorArtifact
-    from nof1_causal_lab.artifacts.question import QuestionArtifact
-    from nof1_causal_lab.artifacts.statistical_model_spec import (
-        ParameterSpec,
-        StatisticalModelSpecArtifact,
-    )
-    from nof1_causal_lab.artifacts.structural_plan import (
+    from nof1_causal_lab.artifacts.admission import AdmissionReport
+    from nof1_causal_lab.artifacts.baseline_report import BaselineReportArtifact
+    from nof1_causal_lab.artifacts.construct import CausalEdge, Construct
+    from nof1_causal_lab.artifacts.execution import (
         StructuralItemDisposition,
-        StructuralPlanArtifact,
     )
+    from nof1_causal_lab.artifacts.identity import ArtifactId, EntityRef
+    from nof1_causal_lab.artifacts.indicator import Indicator
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
+    from nof1_causal_lab.artifacts.posterior import InferenceReport
+    from nof1_causal_lab.artifacts.question import QuestionArtifact
 
 
 class SnapshotRevisionNotFound(ValueError):
@@ -90,7 +77,7 @@ class ModelReader:
             workspace_id, at_seq
         )
         self.store = ArtifactStore(workspace_id)
-        self.model = ModelRef(id=workspace_id)
+        self.reference = ModelRef(id=workspace_id)
         self.selected = cache(self._selected)
 
     def _selected(self, artifact_id: ArtifactId):
@@ -101,7 +88,7 @@ class ModelReader:
 
     def source(self, artifact_id: ArtifactId, pointer: str) -> FactSource:
         return FactSource(
-            artifact=ArtifactRef(
+            ref=ArtifactRef(
                 artifact_id=artifact_id, version=self.state.current[artifact_id].version
             ),
             pointer=pointer,
@@ -113,200 +100,85 @@ class ModelReader:
     def fact[T](self, value: T, artifact_id: ArtifactId, pointer: str) -> Sourced[T]:
         return Sourced(value=value, source=self.source(artifact_id, pointer))
 
-    def latent_structure(self) -> Sourced[LatentStructure] | None:
-        if not self.state.has("latent_structure"):
-            return None
-        latent = cast("LatentStructureArtifact", self.selected("latent_structure")).latent_structure
-        return self.fact(latent, "latent_structure", "/latent_structure")
+    @cached_property
+    def model(self) -> ModelSpec | None:
+        return cast("ModelSpec", self.selected("model")) if self.state.has("model") else None
 
     def constructs(self) -> tuple[Construct, ...]:
-        latent = self.latent_structure()
-        return tuple(latent.value.constructs) if latent else ()
+        return self.model.constructs if self.model else ()
 
     def edges(self) -> tuple[CausalEdge, ...]:
-        latent = self.latent_structure()
-        return tuple(latent.value.edges) if latent else ()
+        return self.model.edges if self.model else ()
+
+    def indicators(self) -> tuple[Indicator, ...]:
+        return self.model.indicators if self.model else ()
+
+    def parameters(self, owner: EntityRef | None = None) -> tuple[ParameterSpec, ...]:
+        if self.model is None:
+            return ()
+        return self.model.parameters if owner is None else self.model.parameters_for(owner.id)
 
     @cached_property
     def _construct_ids(self):
         return {item.id for item in self.constructs()}
 
-    def measurement_structure(self) -> Sourced[MeasurementStructureArtifact] | None:
-        if not self.state.has("measurement_structure"):
-            return None
-        measurement = cast("MeasurementStructureArtifact", self.selected("measurement_structure"))
-        indicators = measurement.measurement_structure.indicators
-        if not is_stale(self.state, "measurement_structure"):
-            if any(item.construct_id not in self._construct_ids for item in indicators):
-                raise ValueError("Indicator owner does not exist in the selected revision")
-        else:
-            # Keep the canonical hierarchy while removing relations to deleted current owners.
-            # The immutable, unprojected artifact remains available through artifact inspection.
-            measurement = measurement.model_copy(
-                update={
-                    "measurement_structure": measurement.measurement_structure.model_copy(
-                        update={
-                            "indicators": [
-                                item
-                                for item in indicators
-                                if item.construct_id in self._construct_ids
-                            ],
-                        }
-                    ),
-                    "known_inputs": [
-                        item
-                        for item in measurement.known_inputs
-                        if item.construct_id in self._construct_ids
-                    ],
-                    "scientific_only_constructs": [
-                        item
-                        for item in measurement.scientific_only_constructs
-                        if item.construct_id in self._construct_ids
-                    ],
-                }
-            )
-        return self.fact(measurement, "measurement_structure", "")
-
-    def indicators(self) -> tuple[Indicator, ...]:
-        measurement = self.measurement_structure()
-        return tuple(measurement.value.measurement_structure.indicators) if measurement else ()
-
     @cached_property
     def _indicator_ids(self):
         return {item.id for item in self.indicators()}
 
-    def parameters(self, owner: EntityRef | None = None) -> tuple[ParameterSpec, ...]:
-        if not self.state.has("compiled_ssm"):
-            return ()
-        compiled = cast("CompiledSSMArtifact", self.selected("compiled_ssm"))
-        return tuple(item for item in compiled.parameters if owner is None or owner in item.owners)
-
-    @cached_property
-    def _parameter_ids(self):
-        return {item.id for item in self.parameters()}
-
-    def specification(self) -> Sourced[StatisticalModelSpecArtifact] | None:
-        if not self.state.has("statistical_model_spec"):
-            return None
-        spec = cast("StatisticalModelSpecArtifact", self.selected("statistical_model_spec"))
-        edge_ids = {item.id for item in self.edges()}
-        return self.fact(
-            spec.model_copy(
-                update={
-                    "statistical_model_spec": spec.statistical_model_spec.model_copy(
-                        update={
-                            "mechanisms": [
-                                item
-                                for item in spec.statistical_model_spec.mechanisms
-                                if (
-                                    item.target_id in self._construct_ids
-                                    if isinstance(
-                                        item, (NodePotentialMechanism, ConstantDriftMechanism)
-                                    )
-                                    else item.edge_id in edge_ids
-                                )
-                            ],
-                            "likelihoods": [
-                                item
-                                for item in spec.statistical_model_spec.likelihoods
-                                if item.indicator_id in self._indicator_ids
-                            ],
-                        }
-                    ),
-                    "prior_predictive_diagnostics": [
-                        item
-                        for item in spec.prior_predictive_diagnostics
-                        if item.construct_id in self._construct_ids
-                    ],
-                }
-            ),
-            "statistical_model_spec",
-            "",
+    def inference_report(self) -> Sourced[InferenceReport] | None:
+        from nof1_causal_lab.artifacts.posterior import InferenceReport
+        from nof1_causal_lab.machine.inference import (
+            inference_report_is_current,
+            inference_report_record,
         )
 
-    def posterior(self) -> Sourced[PosteriorArtifact] | None:
-        if not self.state.has("posterior"):
+        if not self.state.has("model"):
             return None
-        posterior = cast("PosteriorArtifact", self.selected("posterior"))
-        compatible = self.state.matches_inputs("posterior", "compiled_ssm")
-        mcmc = posterior.assessment.mcmc_diagnostics
-        # Joint fit metadata and predictive checks remain inspectable when a compiler changes.
-        # Parameter findings can only be attached to the compiler that defined their coordinates.
-        return self.fact(
-            posterior.model_copy(
-                update={
-                    "posterior_marginals": [
-                        item
-                        for item in posterior.posterior_marginals or []
-                        if compatible and item.subject.parameter_id in self._parameter_ids
-                    ],
-                    "posterior_pairs": [
-                        item
-                        for item in posterior.posterior_pairs or []
-                        if compatible
-                        and item.subject_x.parameter_id in self._parameter_ids
-                        and item.subject_y.parameter_id in self._parameter_ids
-                    ],
-                    "assessment": posterior.assessment.model_copy(
-                        update={
-                            "mcmc_diagnostics": mcmc.model_copy(
-                                update={
-                                    "per_parameter": [
-                                        item
-                                        for item in mcmc.per_parameter
-                                        if compatible
-                                        and item.subject.parameter_id in self._parameter_ids
-                                    ],
-                                }
-                            )
-                            if mcmc
-                            else None,
-                        }
-                    ),
-                }
+        record = inference_report_record(
+            (
+                record
+                for record in EpisodeJournal(self.store.workspace_id).read_all()
+                if record.seq <= self.seq
             ),
-            "posterior",
-            "",
+            self.state,
+        )
+        if record is None:
+            return None
+        report = InferenceReport.model_validate(record.diagnostics["report"])
+        current = inference_report_is_current(record, self.state)
+        return Sourced(
+            value=report
+            if current
+            else report.model_copy(update={"posterior_marginals": [], "posterior_pairs": []}),
+            source=FactSource(
+                ref=TransitionRef(seq=record.seq),
+                pointer="/diagnostics/report",
+                validity=SourceValidity.FRESH if current else SourceValidity.STALE,
+            ),
         )
 
-    def identification(self) -> Sourced[IdentifiabilityStatus] | None:
-        if not self.state.has("causal_design"):
+    def identification(self) -> Sourced[IdentificationReport] | None:
+        if not self.state.has("identification_report"):
             return None
-        identification = cast(
-            "CausalDesignArtifact", self.selected("causal_design")
-        ).causal_design.identifiability
-        if identification is None:
-            return None
-        return self.fact(
-            IdentifiabilityStatus(
-                identifiable_treatments={
-                    cid: item
-                    for cid, item in identification.identifiable_treatments.items()
-                    if cid in self._construct_ids
-                },
-                non_identifiable_treatments={
-                    cid: item
-                    for cid, item in identification.non_identifiable_treatments.items()
-                    if cid in self._construct_ids
-                },
-            ),
-            "causal_design",
-            "/causal_design/identifiability",
-        )
+        report = cast("IdentificationReport", self.selected("identification_report"))
+        if self.model is None:
+            raise ValueError("Identification requires its scientific model")
+        report.validate_model(self.model)
+        return self.fact(report, "identification_report", "")
 
     def dispositions(self) -> Sourced[tuple[StructuralItemDisposition, ...]] | None:
-        if not self.state.has("structural_plan"):
+        if self.model is None or self.model.measurement_clock is None or not self.model.indicators:
             return None
-        plan = cast("StructuralPlanArtifact", self.selected("structural_plan")).structural_plan
         owners = self._construct_ids | self._indicator_ids | {item.id for item in self.edges()}
         return self.fact(
-            tuple(item for item in plan.dispositions if item.source_id in owners),
-            "structural_plan",
-            "/structural_plan/dispositions",
+            tuple(item for item in self.model.structural_dispositions if item.source_id in owners),
+            "model",
+            "",
         )
 
     def fit(self) -> Sourced[FitSummary] | None:
-        read = self.posterior()
+        read = self.inference_report()
         if read is None:
             return None
         posterior = read.value
@@ -314,41 +186,45 @@ class ModelReader:
         for item in posterior.posterior_marginals or []:
             marginals.setdefault(item.subject.parameter_id, []).append(item)
         edge_estimates, decay_estimates = {}, {}
+        model = self.model
+        assert model is not None
         for parameter in self.parameters():
             findings = marginals.get(parameter.id, [])
             if len(findings) != 1:
                 continue
             estimate = PosteriorEstimate.model_validate(findings[0], from_attributes=True)
-            for owner in parameter.owners:
-                if parameter.quantity == SiteKind.DYNAMICS_WEIGHT and owner.kind == "edge":
+            for owner in model.parameter_context(parameter.id).owners:
+                if (
+                    model.parameter_context(parameter.id).quantity == SiteKind.DYNAMICS_WEIGHT
+                    and owner.kind == "edge"
+                ):
                     edge_estimates[owner.id] = estimate
-                elif parameter.quantity == SiteKind.DYNAMICS_DECAY and owner.kind == "construct":
+                elif (
+                    model.parameter_context(parameter.id).quantity == SiteKind.DYNAMICS_DECAY
+                    and owner.kind == "construct"
+                ):
                     decay_estimates[owner.id] = estimate
         warnings = posterior.assessment.ppc.per_variable_warnings
-        return self.fact(
-            FitSummary(
-                posterior=posterior,
+        return Sourced(
+            value=FitSummary(
+                report=posterior,
                 predictive_checks_passed=sum(item.passed for item in warnings),
                 predictive_checks_total=len(warnings),
                 edge_estimates=edge_estimates,
                 decay_estimates=decay_estimates,
             ),
-            "posterior",
-            "",
+            source=read.source,
         )
 
     def snapshot(self) -> ModelSnapshot:
         """Batch the aggregate reads and server-composed table facts at this revision."""
+        from nof1_causal_lab.machine.inference import inference_is_current
+
         identification, dispositions = self.identification(), self.dispositions()
         blocking = set()
-        # Include confounders of historical treatments, even if that treatment was removed.
-        if self.state.has("causal_design"):
-            status = cast(
-                "CausalDesignArtifact", self.selected("causal_design")
-            ).causal_design.identifiability
-            if status:
-                for cid, finding in status.non_identifiable_treatments.items():
-                    blocking.update([cid, *finding.confounders])
+        if identification:
+            for cid, finding in identification.value.status.non_identifiable_treatments.items():
+                blocking.update([cid, *finding.confounders])
         disposition_by_id = (
             {item.source_id: item for item in dispositions.value} if dispositions else {}
         )
@@ -361,7 +237,7 @@ class ModelReader:
             for cid in self._construct_ids
             if cid in disposition_by_id
         }
-        views = read_artifact_views(self.store, self.state, self.installed_at)
+        views = read_artifact_views(self.store, self.state)
         measurements = views.measurements
         if measurements:
             measurements = measurements.model_copy(
@@ -400,42 +276,64 @@ class ModelReader:
                 "baseline_report",
                 "",
             )
-        return ModelSnapshot(
-            model=self.model,
-            seq=self.seq,
-            state=self.state,
-            question=self.fact(cast("QuestionArtifact", self.selected("question")), "question", "")
-            if self.state.has("question")
-            else None,
-            latent_structure=self.latent_structure(),
-            measurement_structure=self.measurement_structure(),
-            identification=identification,
-            dispositions=dispositions,
-            graph_status=graph_status,
-            raw_data=self.fact(views.raw_data, "raw_data", "") if views.raw_data else None,
-            measurements=self.fact(measurements, "panel", "") if measurements else None,
-            validation_report=self.fact(validation, "validation_report", "")
-            if validation
-            else None,
-            specification=self.specification(),
-            compiled_parameters=self.fact(self.parameters(), "compiled_ssm", "/parameters")
-            if self.state.has("compiled_ssm")
-            else None,
-            fit=self.fit(),
-            baseline_report=report,
-            saved_scenarios=self.fact(
-                cast("SavedScenariosArtifact", self.selected("saved_scenarios")),
-                "saved_scenarios",
-                "",
-            )
-            if self.state.has("saved_scenarios")
-            else None,
-            artifacts=freshness_report(self.state),
-            installed_at=self.installed_at,
-            retracted=self.retracted,
+        admission = (
+            cast("AdmissionReport", self.selected("admission_report"))
+            if self.state.has("admission_report")
+            else None
         )
-
-
-def read_model_snapshot(workspace_id: str, *, at_seq: int | None = None) -> ModelSnapshot:
-    """Read the UI batch through a single pinned accessor transaction."""
-    return ModelReader(workspace_id, at_seq=at_seq).snapshot()
+        if admission:
+            admission = admission.model_copy(
+                update={
+                    "prior_predictive_diagnostics": [
+                        item
+                        for item in admission.prior_predictive_diagnostics
+                        if item.construct_id in self._construct_ids
+                    ]
+                }
+            )
+        return ModelSnapshot(
+            model=self.fact(self.model, "model", "") if self.model else None,
+            context=SnapshotContext(
+                workspace=self.reference,
+                seq=self.seq,
+                can_simulate=bool(
+                    self.model
+                    and self.model.execution_readiness.ready
+                    and self.model.distributions
+                    and self.model.time_points
+                    and inference_is_current(self.state)
+                    and identification
+                    and identification.value.estimable_treatments
+                ),
+                state=self.state,
+                artifacts=freshness_report(self.state),
+                installed_at=self.installed_at,
+                retracted=self.retracted,
+            ),
+            data=ModelData(
+                question=self.fact(
+                    cast("QuestionArtifact", self.selected("question")), "question", ""
+                )
+                if self.state.has("question")
+                else None,
+                raw_data=self.fact(views.raw_data, "raw_data", "") if views.raw_data else None,
+                measurements=self.fact(measurements, "panel", "") if measurements else None,
+            ),
+            findings=ModelFindings(
+                identification=identification,
+                execution=self.fact(self.model.execution_readiness, "model", "")
+                if self.model
+                else None,
+                dispositions=dispositions,
+                graph_status=graph_status,
+                validation_report=self.fact(validation, "validation_report", "")
+                if validation
+                else None,
+                admission_report=self.fact(admission, "admission_report", "")
+                if admission
+                else None,
+                diagnostics=views.model_diagnostics,
+                fit=self.fit(),
+                baseline_report=report,
+            ),
+        )

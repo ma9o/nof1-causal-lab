@@ -9,34 +9,20 @@ import numpyro.distributions as ndist
 from dynestyx import StochasticContinuousTimeStateEvolution
 
 from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
-from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.models.ssm.dynamics import (
-    DiagonalDecaySpec,
     DynamicsSpec,
-    HillEdgeSpec,
     Intervention,
-    LinearEdgeSpec,
-    StateDecaySpec,
-    StateInterceptSpec,
     VectorFieldArgs,
     compile_dynamics,
     infer_linearisation,
 )
-from nof1_causal_lab.prior_distributions import distribution_from_params
-from tests.ssm_spec_fixtures import (
+from tests.dynamics_fixtures import decay_term, hill_term, intercept_term, linear_term
+from tests.model_fixtures import (
     default_input_effect_block,
     default_manifest_means_block,
     default_static_state_sd_block,
+    model_fixture,
 )
-
-
-def _decay_prior_registry(values) -> dict[str, dist.Distribution]:
-    return {
-        "vf_0_decay": distribution_from_params(
-            PriorDistributionFamily.DELTA,
-            {"value": values},
-        )
-    }
 
 
 class TestInferLinearisation:
@@ -44,8 +30,8 @@ class TestInferLinearisation:
         spec = DynamicsSpec(
             n_latent=2,
             components=(
-                StateDecaySpec(target=0),
-                StateDecaySpec(target=1),
+                decay_term(target=0),
+                decay_term(target=1),
             ),
         )
         compiled = compile_dynamics(spec)
@@ -55,8 +41,8 @@ class TestInferLinearisation:
         spec = DynamicsSpec(
             n_latent=2,
             components=(
-                DiagonalDecaySpec(),
-                LinearEdgeSpec(source=0, target=1),
+                *(decay_term(target=i) for i in range(2)),
+                linear_term(source=0, target=1),
             ),
         )
         compiled = compile_dynamics(spec)
@@ -66,8 +52,8 @@ class TestInferLinearisation:
         spec = DynamicsSpec(
             n_latent=2,
             components=(
-                DiagonalDecaySpec(),
-                HillEdgeSpec(
+                *(decay_term(target=i) for i in range(2)),
+                hill_term(
                     source=0,
                     target=1,
                 ),
@@ -84,7 +70,7 @@ class TestSSMModelDynamicsDispatch:
         import numpyro
         from numpyro import handlers
 
-        from nof1_causal_lab.models.ssm import SSMModel, SSMSpec
+        from nof1_causal_lab.models.ssm import SSMModel
 
         pass
         from nof1_causal_lab.models.ssm.structure import (
@@ -112,15 +98,17 @@ class TestSSMModelDynamicsDispatch:
                     "backend_n_vf_components",
                     jnp.asarray(len(dynamics.drift.args.params)),
                 )
-                numpyro.deterministic("backend_decay", dynamics.drift.args.params[0]["decay"])
+                numpyro.deterministic(
+                    "backend_drift", dynamics.drift(jnp.ones(2), jnp.empty(0), 0.0)
+                )
                 return jnp.zeros_like(time_intervals)
 
-        spec = SSMSpec(
+        spec = model_fixture(
             n_latent=2,
-            n_manifest=1,
+            n_manifest=2,
             dynamics_spec=DynamicsSpec(
                 n_latent=2,
-                components=(DiagonalDecaySpec(),),
+                components=(*(decay_term(target=i) for i in range(2)),),
             ),
             diffusion_block=DiffusionBlockSpec(
                 n_latent=2,
@@ -128,10 +116,10 @@ class TestSSMModelDynamicsDispatch:
                 diffusion_chol_template=jnp.eye(2) * 0.1,
             ),
             lambda_block=SparseMatrixBlockSpec(
-                n_rows=1,
+                n_rows=2,
                 n_cols=2,
-                free_support=np.zeros((1, 2), dtype=bool),
-                template=jnp.array([[1.0, 0.0]]),
+                free_support=np.zeros((2, 2), dtype=bool),
+                template=jnp.eye(2),
                 free_site_name="lambda_free",
                 det_site_name="lambda",
                 support=SupportClass.REAL,
@@ -140,11 +128,11 @@ class TestSSMModelDynamicsDispatch:
                 fixed_spec_field="lambda_mat",
                 priors_field="lambda_free",
             ),
-            manifest_means_block=default_manifest_means_block(1),
+            manifest_means_block=default_manifest_means_block(2),
             manifest_chol_block=ManifestCholBlockSpec(
-                n_manifest=1,
-                diag_support=np.zeros(1, dtype=bool),
-                template=jnp.array([[0.2]]),
+                n_manifest=2,
+                diag_support=np.zeros(2, dtype=bool),
+                template=jnp.eye(2) * 0.2,
             ),
             t0_means_block=SparseVectorBlockSpec(
                 n=2,
@@ -167,18 +155,18 @@ class TestSSMModelDynamicsDispatch:
             input_effect_block=default_input_effect_block(2),
             static_state_sd_block=default_static_state_sd_block(),
         )
-        model = SSMModel(spec, priors=_decay_prior_registry([0.3, 0.5]))
+        model = SSMModel(spec, priors={"vf_0_p0": dist.Delta(0.3), "vf_1_p0": dist.Delta(0.5)})
         tr = handlers.trace(handlers.seed(model.model, rng_seed=0)).get_trace(
-            observations=jnp.zeros((4, 1)),
+            observations=jnp.zeros((4, 2)),
             times=jnp.arange(4, dtype=jnp.float32),
             likelihood_backend=DynamicsAwareBackend(),
         )
 
-        assert "vf_0_decay" in tr
-        assert int(tr["backend_n_vf_components"]["value"]) == 1
+        assert "vf_0_p0" in tr
+        assert int(tr["backend_n_vf_components"]["value"]) == 2
         np.testing.assert_allclose(
-            tr["backend_decay"]["value"],
-            np.array([0.3, 0.5]),
+            tr["backend_drift"]["value"],
+            np.array([-0.3, -0.5]),
         )
 
 
@@ -191,12 +179,12 @@ class TestComponentNativeLinearDynamics:
         spec = DynamicsSpec(
             n_latent=3,
             components=(
-                StateDecaySpec(target=0),
-                StateDecaySpec(target=1),
-                StateDecaySpec(target=2),
-                LinearEdgeSpec(source=1, target=0),
-                LinearEdgeSpec(source=2, target=1),
-                LinearEdgeSpec(source=0, target=2),
+                decay_term(target=0),
+                decay_term(target=1),
+                decay_term(target=2),
+                linear_term(source=1, target=0),
+                linear_term(source=2, target=1),
+                linear_term(source=0, target=2),
             ),
         )
         compiled = compile_dynamics(spec)
@@ -234,7 +222,7 @@ class TestComponentNativeLinearDynamics:
 
         spec = DynamicsSpec(
             n_latent=2,
-            components=(StateDecaySpec(target=1),),
+            components=(decay_term(target=1),),
         )
         compiled = compile_dynamics(spec)
         with seed(rng_seed=0):
@@ -249,8 +237,8 @@ class TestComponentNativeLinearDynamics:
         spec = DynamicsSpec(
             n_latent=3,
             components=(
-                StateInterceptSpec(target=0),
-                StateInterceptSpec(target=2),
+                intercept_term(target=0),
+                intercept_term(target=2),
             ),
         )
         compiled = compile_dynamics(spec)

@@ -11,7 +11,7 @@ from nof1_causal_lab.models.ssm.dynamics.linearisation import infer_linearisatio
 from nof1_causal_lab.models.ssm.shapes import Array, Float
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.execution.dynamical_model import StructuralDrift
+    from nof1_causal_lab.models.ssm.dynamics.vector_field import StructuralDrift
 
 
 def build_discrete_transitions(

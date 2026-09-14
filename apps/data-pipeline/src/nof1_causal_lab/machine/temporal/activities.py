@@ -34,7 +34,7 @@ from nof1_causal_lab.machine.temporal.measurement_structure_activities import (
 )
 from nof1_causal_lab.machine.temporal.messages import (  # noqa: TC001
     JournalInput,
-    RunArtifactInput,
+    RunOperationInput,
     WriteArtifactInput,
 )
 from nof1_causal_lab.machine.temporal.raw_data_activities import RAW_DATA_ACTIVITIES
@@ -45,11 +45,11 @@ from nof1_causal_lab.machine.writes import execute_write
 
 
 @activity.defn
-async def run_transition_activity(input: RunArtifactInput) -> TransitionEffects:
+async def run_transition_activity(input: RunOperationInput) -> TransitionEffects:
     try:
         return await execute_transition(
             input.workspace_id,
-            input.artifact_id,
+            input.operation_id,
             input.state,
             input.options,
         )
@@ -71,6 +71,7 @@ async def write_artifact_activity(input: WriteArtifactInput) -> TransitionEffect
             input.payload,
             input.provenance,
             input.state,
+            expected_model_version=input.expected_model_version,
         )
     except ArtifactWriteRejected as exc:
         raise ApplicationError(

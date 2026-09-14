@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily, LinkFunction
+from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
 
 _ADDITIVE_LOCATION_POINT_OPERATORS = frozenset({"first", "last"})
 _ADDITIVE_LOCATION_INTERVAL_OPERATORS = frozenset({"mean"})
@@ -74,7 +74,9 @@ def indicator_requires_observation_intercept(
     if family in _NONSTANDARDIZABLE_SCALAR_FAMILIES:
         return True
 
-    if family in _LOCATION_FAMILIES and resolved_link == LinkFunction.IDENTITY:
+    if (
+        family in _LOCATION_FAMILIES or family == DistributionFamily.DELTA
+    ) and resolved_link == LinkFunction.IDENTITY:
         return not standardized
 
     return False

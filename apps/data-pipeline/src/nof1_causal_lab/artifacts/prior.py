@@ -1,35 +1,10 @@
-"""Scientific prior evidence, density display points, and validation findings."""
+"""Scientific prior evidence and validation findings."""
 
 from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
-
-from .evidence import LiteratureSource
-
-
-class DensityPoint(BaseModel):
-    """A density point stores one coordinate of a prior density curve for plotting."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    x: float
-    y: float = Field(ge=0)
-
-
-class PriorSource(LiteratureSource):
-    """A prior source records literature evidence used to justify a parameter's prior
-    distribution.
-    """
-
-    effect_size: str | None = Field(
-        default=None, description="Reported effect size if available (e.g., 'r=0.3', 'β=0.2')"
-    )
-    study_interval_days: float | None = Field(
-        default=None,
-        description="Observation/measurement interval of this study in days (daily=1, weekly=7, monthly=30)",
-    )
+from pydantic import BaseModel, Field
 
 
 class PriorRepairScope(BaseModel):

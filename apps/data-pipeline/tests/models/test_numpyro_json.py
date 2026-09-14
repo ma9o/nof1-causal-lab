@@ -6,15 +6,15 @@ import jax.numpy as jnp
 import numpy as np
 import numpyro.distributions as dist
 import pytest
+from notebooks.prior_specification_support import parameter_with_prior
 from pydantic import TypeAdapter, ValidationError
 
 from nof1_causal_lab.artifacts.identity import ConstructRef
 from nof1_causal_lab.artifacts.parameter import SiteKind
-from nof1_causal_lab.artifacts.statistical_model_spec import ParameterSpec
-from nof1_causal_lab.models.prior_planning import parameter_with_prior
-from nof1_causal_lab.models.ssm.compile.parameter_identity import parameter_identity
+from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 from nof1_causal_lab.numpyro_json import NumPyroDistribution
 from nof1_causal_lab.prior_distributions import persistence_to_decay
+from tests.slot_fixtures import fixture_parameter_id
 
 _ADAPTER = TypeAdapter(NumPyroDistribution)
 
@@ -58,6 +58,10 @@ def test_native_json_roundtrip_preserves_law_and_dimensions(law, value):
     [
         {"distribution": "NotANumPyroDistribution", "params": {}},
         {"distribution": "Normal", "params": {"loc": 0.0, "scale": -1.0}},
+        {
+            "distribution": "Normal",
+            "params": {"loc": 0.0, "scale": -1.0, "validate_args": False},
+        },
         {"distribution": "Normal", "params": {"loc": 0.0, "scale": 1.0, "unknown": 2.0}},
     ],
 )
@@ -66,15 +70,11 @@ def test_invalid_native_constructors_are_rejected(payload):
         _ADAPTER.validate_python(payload)
 
 
-def test_parameter_keeps_identity_and_evidence_when_prior_is_updated():
+def test_parameter_changes_distribution_without_keeping_authoring_history():
     owner = ConstructRef(id="construct:test")
     parameter = ParameterSpec(
-        id=parameter_identity(SiteKind.DYNAMICS_WEIGHT, [owner]),
-        owners=[owner],
-        quantity=SiteKind.DYNAMICS_WEIGHT,
+        id=fixture_parameter_id(SiteKind.DYNAMICS_WEIGHT, [owner]),
         name="effect",
-        role="fixed_effect",
-        constraint="none",
         description="Effect",
     )
     specified = parameter_with_prior(
@@ -96,26 +96,20 @@ def test_parameter_keeps_identity_and_evidence_when_prior_is_updated():
     restored = ParameterSpec.model_validate_json(specified.model_dump_json())
     assert restored == specified
     assert restored.id == parameter.id
-    assert parameter.prior is None
-    assert isinstance(restored.prior, dist.Normal)
-    assert restored.prior_reasoning == "Weekly effect estimate"
-    assert restored.prior_sources[0].title == "A study"
+    assert parameter.distribution is None
+    assert isinstance(restored.distribution, dist.Normal)
     assert restored.reference_interval_days == 7.0
-    revised = restored.model_copy(update={"prior": dist.Normal(0.3, 0.1)})
+    revised = restored.model_copy(update={"distribution": dist.Normal(0.3, 0.1)})
     assert revised.id == restored.id
-    assert revised.prior_sources == restored.prior_sources
+    assert not hasattr(revised, "prior_sources")
     assert not hasattr(revised, "original_proposal")
 
 
 def test_parameter_tool_boundary_validates_the_reference_interval():
     owner = ConstructRef(id="construct:test")
     parameter = ParameterSpec(
-        id=parameter_identity(SiteKind.DYNAMICS_WEIGHT, [owner]),
-        owners=[owner],
-        quantity=SiteKind.DYNAMICS_WEIGHT,
+        id=fixture_parameter_id(SiteKind.DYNAMICS_WEIGHT, [owner]),
         name="effect",
-        role="fixed_effect",
-        constraint="none",
         description="Effect",
     )
     with pytest.raises(ValidationError):
@@ -130,28 +124,20 @@ def test_parameter_tool_boundary_validates_the_reference_interval():
 
 
 def test_completed_model_requires_a_prior_on_each_parameter():
-    from nof1_causal_lab.artifacts.statistical_model_spec import (
-        StatisticalModelSpec,
-        StatisticalModelSpecArtifact,
-    )
+    from nof1_causal_lab.compilation_errors import IncompleteModelError
     from nof1_causal_lab.models.prior_planning import complete_parameter_priors
+    from tests.helpers import complete_test_model, make_model
 
-    owner = ConstructRef(id="construct:test")
-    parameter = ParameterSpec(
-        id=parameter_identity(SiteKind.DYNAMICS_WEIGHT, [owner]),
-        owners=[owner],
-        quantity=SiteKind.DYNAMICS_WEIGHT,
-        name="effect",
-        role="fixed_effect",
-        constraint="none",
-        description="Effect",
+    science = complete_test_model(make_model(["X"]))
+    draft = science.revised(
+        parameters=tuple(
+            parameter.model_copy(update={"distribution": None}) for parameter in science.parameters
+        )
     )
-    draft = StatisticalModelSpec(parameters=[parameter], likelihoods=[], mechanisms=[])
-    with pytest.raises(ValidationError, match="prior"):
-        StatisticalModelSpecArtifact(statistical_model_spec=draft)
-    completed = StatisticalModelSpecArtifact(
-        statistical_model_spec=complete_parameter_priors(draft)
-    )
-    assert completed.statistical_model_spec.parameters[0].id == parameter.id
-    assert completed.statistical_model_spec.parameters[0].prior is not None
-    assert draft.parameters[0].prior is None
+    with pytest.raises(IncompleteModelError, match="prior"):
+        draft.require_priors()
+    completed = complete_parameter_priors(draft)
+    completed.require_priors()
+    assert [p.id for p in completed.parameters] == [p.id for p in draft.parameters]
+    assert all(p.distribution is not None for p in completed.parameters)
+    assert all(p.distribution is None for p in draft.parameters)

@@ -50,7 +50,7 @@ def test_graph_traverses_union_and_container_references_and_filters_roots():
     assert set(graph.edges) == {("Root", "A"), ("Root", "B"), ("A", "Owner")}
     assert graph.edges["Root", "A"]["fields"] == {"entities"}
     dot = graph_dot(graph, "Types")
-    assert '"A" -> "Owner" [label="owner"]' in dot
+    assert '"A" -> "Owner" [xlabel="owner", constraint=false]' in dot
     label = dot.split('"Root" [label=<', 1)[1].split(">, fillcolor", 1)[0]
     assert "<B>Root</B>" in label
     assert "The root combines A &amp; B into one view." in label
@@ -151,14 +151,14 @@ def projection_schema() -> JsonObject:
             "WindowExpression": {
                 "type": "string",
                 "description": "A validated support-window expression.",
-                "x-concern": "data_measurement",
+                "x-concern": "scientific_model",
                 "x-layer": "authored",
             },
             "Mode": {
                 "type": "string",
                 "enum": ["retained", "excluded"],
                 "description": "A mode records an allowed disposition.",
-                "x-concern": "model_specification",
+                "x-concern": "scientific_model",
                 "x-layer": "authored",
             },
             "FactSource": _record("FactSource", {"pointer": {"type": "string"}}),
@@ -170,15 +170,15 @@ def projection_schema() -> JsonObject:
             "IdentificationReport": _record(
                 "IdentificationReport",
                 {"finding": _ref("Record")},
-                concern="model_specification",
+                concern="scientific_model",
                 layer="findings",
             ),
-            "RunArtifact": _record(
-                "RunArtifact", {}, concern="execution_provenance", layer="machine"
+            "RunOperation": _record(
+                "RunOperation", {}, concern="execution_provenance", layer="machine"
             ),
             "Response": _record(
                 "Response",
-                {"move": _ref("RunArtifact"), "result": _ref("Record")},
+                {"move": _ref("RunOperation"), "result": _ref("Record")},
                 concern="api_tools",
                 layer="transport",
             ),
@@ -244,12 +244,12 @@ def test_artifact_view_uses_registered_payloads_and_machine_view_marks_its_bound
     stored = select_view(graph, "artifacts")
     assert stored.graph["roots"] == {"IdentificationReport"}
     assert "Record" in stored
-    assert not {"RunArtifact", "Response", "ModelSnapshot"} & stored.nodes
+    assert not {"RunOperation", "Response", "ModelSnapshot"} & stored.nodes
     machine = select_view(graph, "machine")
-    assert set(machine) == {"RunArtifact", "Response", "Record"}
-    assert set(machine.edges) == {("Response", "RunArtifact"), ("Response", "Record")}
+    assert set(machine) == {"RunOperation", "Response", "Record"}
+    assert set(machine.edges) == {("Response", "RunOperation"), ("Response", "Record")}
     assert machine.nodes["Record"]["external"] is True
     assert "external" not in graph.nodes["Record"]
     semantic = select_view(graph, "semantic")
     assert semantic.graph["roots"] == {"ModelSnapshot"}
-    assert not {"Response", "RunArtifact", "IdentificationReport"} & semantic.nodes
+    assert not {"Response", "RunOperation", "IdentificationReport"} & semantic.nodes

@@ -21,3 +21,7 @@ class AggregatedCompileError(ValueError):
             bullets = "\n".join(f"- {error}" for error in self.errors)
             message = f"{self.header}:\n{bullets}"
         super().__init__(message)
+
+
+class IncompleteModelError(ValueError):
+    """A valid partial model is missing choices required by the requested operation."""

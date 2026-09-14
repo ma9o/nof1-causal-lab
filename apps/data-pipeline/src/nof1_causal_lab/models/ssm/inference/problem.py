@@ -14,14 +14,13 @@ from dynestyx.inference.particle_runtime import (
     ParticleSchedule,
 )
 
-from nof1_causal_lab.artifacts.statistical_model_spec import LinkFunction
+from nof1_causal_lab.distributions import DistributionFamily
+from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.covariance_utils import CHOL_JITTER
 from nof1_causal_lab.models.ssm.execution.dynamical_model import build_dynamical_model
 from nof1_causal_lab.models.ssm.inference.utils import (
-    _assemble_likelihood_inputs,
     prepare_model_parameters,
 )
-from nof1_causal_lab.models.ssm.parameterization import build_site_registry
 from nof1_causal_lab.models.ssm.spec_metadata import has_student_t_diffusion
 from nof1_causal_lab.models.ssm.transition_kinds import LATENT_TRANSITION_EULER_MARUYAMA
 
@@ -49,6 +48,18 @@ def build_particle_problem(model, observations, times, *, scheme, trace_key, rep
     """Prepare the application model; Dynestyx owns posterior composition."""
     if scheme != LATENT_TRANSITION_EULER_MARUYAMA:
         raise ValueError(f"Particle inference requires 'euler_maruyama'; got {scheme!r}.")
+    exact_indicators = [
+        indicator.name
+        for indicator in numeric.observed_indicators(model.spec)
+        if indicator.likelihood is not None
+        and indicator.likelihood.law.family == DistributionFamily.DELTA
+    ]
+    if exact_indicators:
+        raise ValueError(
+            f"Delta observations {exact_indicators} require constraint-preserving particle "
+            "proposals, which are not implemented. Continuous proposals cannot condition on "
+            "exact equalities."
+        )
     if has_student_t_diffusion(model.spec):
         raise ValueError(
             "Particle inference currently requires Gaussian latent diffusion for every state."
@@ -56,26 +67,13 @@ def build_particle_problem(model, observations, times, *, scheme, trace_key, rep
     support = model.observation_support
     if support is not None and support.requires_interval_summary_handling:
         raise ValueError("Particle inference supports only point measurements.")
-    links = tuple(model.spec.manifest_links or [LinkFunction.IDENTITY] * model.spec.n_manifest)
-    families = tuple(model.spec.manifest_dists)
     parameters, site_info, public_sites = prepare_model_parameters(
         model, observations, times, trace_key, reparam
     )
-    registry = build_site_registry(model.spec)
 
     def continuous_model(position, runtime_times):
-        dynamics, measurement, initial, extra = _assemble_likelihood_inputs(
-            parameters.constrain(position), model.spec, registry=registry
-        )
         return build_dynamical_model(
-            dynamics,
-            measurement,
-            initial,
-            families,
-            links,
-            extra,
-            control_dim=len(model.spec.input_names or []),
-            t0=runtime_times[0],
+            model.spec, parameters.constrain(position), t0=runtime_times[0]
         )
 
     # Partition once to retain static metadata outside the sampler state. Every

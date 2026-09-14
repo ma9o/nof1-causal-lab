@@ -8,7 +8,6 @@ from typing import Any
 from temporalio import activity
 
 from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
-from nof1_causal_lab.machine.derivations import complete_computed_transition
 from nof1_causal_lab.machine.graph import transition_spec
 from nof1_causal_lab.machine.moves import TransitionEffects, input_pins
 from nof1_causal_lab.machine.store import ArtifactStore
@@ -29,10 +28,6 @@ from nof1_causal_lab.utils import storage
 
 def _write_measurement_structure_json(path: str, value: Any) -> None:
     storage.write_text(path, json.dumps(value))
-
-
-def _read_measurement_structure_json(path: str) -> Any:
-    return storage.read_json(path)
 
 
 @activity.defn
@@ -56,27 +51,14 @@ async def plan_measurement_structure_activity(
         pins["question"],
         json_filename("question", "question"),
     )["text"]
-    profile = store.read_json_file(
-        "raw_data",
-        pins["raw_data"],
-        json_filename("raw_data", "profile"),
-    )
-    raw_df = store.read_parquet_file(
+    raw_table = store.read_parquet_table(
         "raw_data",
         pins["raw_data"],
         parquet_filename("raw_data", "raw"),
     )
-    latent_payload = store.read_json_file(
-        "latent_structure",
-        pins["latent_structure"],
-        json_filename("latent_structure", "latent_structure"),
-    )
-    latent_structure = latent_payload["latent_structure"]
-    column_descriptions = {
-        column["name"]: column["description"] for column in profile.get("column_descriptions", [])
-    }
-    dataset_schema = format_schema_for_llm(raw_df, column_descriptions)
-    dataset_summary = f"{raw_df.shape[0]} rows x {raw_df.shape[1]} columns"
+    model = store.read_json_file("model", pins["model"], json_filename("model", "model"))
+    dataset_schema = format_schema_for_llm(raw_table)
+    dataset_summary = f"{raw_table.num_rows} rows x {raw_table.num_columns} columns"
     context_ref = storage.join(
         subroutine_root(input.workspace_id, run_id, "measurement-structure"),
         "context.json",
@@ -88,13 +70,13 @@ async def plan_measurement_structure_activity(
             "user_messages": [
                 build_measurement_structure_user_prompt(
                     question,
-                    latent_structure,
+                    model,
                     [dataset_schema],
                     dataset_summary,
                 ),
                 templates.REVIEW,
             ],
-            "latent_structure": latent_structure,
+            "model": model,
         },
     )
 
@@ -114,32 +96,10 @@ async def plan_measurement_structure_activity(
 async def finalize_measurement_structure_activity(
     input: SingleLLMTransitionFinalizeInput,
 ) -> TransitionEffects:
-    from nof1_causal_lab.artifacts.measurement_structure import MeasurementStructureArtifact
+    from nof1_causal_lab.machine.temporal.model_authoring import finalize_model_revision
 
     try:
-        if input.result_ref is None:
-            raise RuntimeError("measurement-structure subroutine completed without a result ref")
-        payload = _read_measurement_structure_json(input.result_ref)
-        report = MeasurementStructureArtifact.model_validate(payload).model_dump(mode="json")
-
-        store = ArtifactStore(input.workspace_id)
-        produced = [
-            store.write_version(
-                "measurement_structure",
-                provenance="computed",
-                derived_from=input.pins,
-                produced_by="run:measurement_structure",
-                json_files={
-                    json_filename("measurement_structure", "measurement_structure"): report
-                },
-            )
-        ]
-        return complete_computed_transition(
-            store,
-            input.state,
-            "measurement_structure",
-            produced,
-        )
+        return finalize_model_revision(input, "measurement_structure")
     except Exception as exc:
         raise as_non_retryable_application_error(exc) from exc
 

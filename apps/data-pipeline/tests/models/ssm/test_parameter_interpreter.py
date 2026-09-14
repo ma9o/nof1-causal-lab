@@ -12,7 +12,7 @@ from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
 from nof1_causal_lab.models.ssm import parameterization
 from nof1_causal_lab.models.ssm.model import SSMModel
 from nof1_causal_lab.models.ssm.structure.sites import make_site
-from tests.ssm_spec_fixtures import block_ssm_spec, full_dense_matrix_dynamics_spec
+from tests.model_fixtures import full_dense_matrix_dynamics_spec, model_fixture
 
 
 def test_prior_draws_keep_native_values_and_the_existing_random_streams():
@@ -40,7 +40,7 @@ def test_prior_draws_keep_native_values_and_the_existing_random_streams():
 
 
 def test_parameter_trace_preserves_site_order_shapes_and_public_deterministics():
-    spec = block_ssm_spec(n_latent=2, dynamics_spec=full_dense_matrix_dynamics_spec(2))
+    spec = model_fixture(n_latent=2, dynamics_spec=full_dense_matrix_dynamics_spec(2))
     model = SSMModel(spec)
     values = {
         "diffusion_diag_free": jnp.array([0.4, 0.6]),

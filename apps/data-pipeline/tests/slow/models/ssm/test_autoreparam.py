@@ -4,7 +4,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from tests.ssm_spec_fixtures import block_ssm_spec, dense_matrix_dynamics_spec
+from tests.model_fixtures import dense_matrix_dynamics_spec, model_fixture
 
 pytestmark = [pytest.mark.slow, pytest.mark.cpu_expensive]
 
@@ -13,7 +13,7 @@ def _make_simple_ssm():
     from nof1_causal_lab.models.ssm.model import SSMModel
 
     return SSMModel(
-        spec=block_ssm_spec(
+        spec=model_fixture(
             n_latent=2,
             n_manifest=2,
             dynamics_spec=dense_matrix_dynamics_spec(

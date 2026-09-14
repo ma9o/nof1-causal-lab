@@ -9,7 +9,7 @@ from typing import Any
 from temporalio import activity
 
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
-from nof1_causal_lab.machine.artifact_files import json_filename, pickle_filename
+from nof1_causal_lab.machine.artifact_files import json_filename
 from nof1_causal_lab.machine.derivations import complete_computed_transition
 from nof1_causal_lab.machine.graph import transition_spec
 from nof1_causal_lab.machine.model_contracts import project_model_fields
@@ -52,13 +52,13 @@ def _first_baseline_assistant_summary(trace: UncheckedJsonObject) -> str | None:
 async def plan_baseline_report_activity(
     input: SingleLLMTransitionWorkflowInput,
 ) -> SingleLLMTransitionPlan:
-    from nof1_causal_lab.artifacts.causal_design import CausalDesign
-    from nof1_causal_lab.artifacts.identity import CausalDesignRef
+    from nof1_causal_lab.artifacts.identification import IdentificationReport
+    from nof1_causal_lab.artifacts.identity import ModelRevision
     from nof1_causal_lab.flows.transitions.analysis.interventions import run_interventions
+    from nof1_causal_lab.machine.derivations import read_model
     from nof1_causal_lab.models.causal_proofs import (
         CertifiedCausalAnalysis,
         certify_identified_estimand,
-        certify_reportable_posterior,
     )
     from nof1_causal_lab.utils.config import get_config
 
@@ -67,51 +67,47 @@ async def plan_baseline_report_activity(
     pins = input_pins(input.state, spec)
     run_id = f"seq-{input.seq:06d}"
 
-    diagnostics = store.read_json_file(
-        "posterior",
-        pins["posterior"],
-        json_filename("posterior", "diagnostics"),
+    from nof1_causal_lab.machine.inference import inference_is_current, inference_record
+    from nof1_causal_lab.machine.store import EpisodeJournal
+
+    if not inference_is_current(input.state):
+        raise ValueError("Baseline reporting requires a current conditioned model")
+    record = inference_record(EpisodeJournal(input.workspace_id).read_all(), pins["model"])
+    if record is None:
+        raise ValueError("Baseline reporting requires the committed inference log")
+    diagnostics = record.diagnostics["report"]
+    identification = IdentificationReport.model_validate(
+        store.read_json_file(
+            "identification_report",
+            pins["identification_report"],
+            json_filename("identification_report", "identification_report"),
+        )
     )
-    causal_design_payload = store.read_json_file(
-        "causal_design",
-        pins["causal_design"],
-        json_filename("causal_design", "causal_design"),
-    )
-    causal_design = causal_design_payload["causal_design"]
-    identification_report = store.read_json_file(
-        "identification_report",
-        pins["identification_report"],
-        json_filename("identification_report", "identification_report"),
-    )
-    fitted_artifact = storage.read_pickle(
-        store.file_path("posterior", pins["posterior"], pickle_filename("posterior", "fitted"))
-    )
-    causal_design_model = CausalDesign.model_validate(causal_design)
-    constructs = {construct.id: construct for construct in causal_design_model.latent.constructs}
-    treatments = [constructs[cid].name for cid in identification_report["estimable_treatments"]]
-    outcome_name = constructs[identification_report["outcome_id"]].name
-    identification_meta = store.read_meta("identification_report", pins["identification_report"])
-    causal_design_ref = CausalDesignRef(
-        workspace_id=input.workspace_id,
-        version=identification_meta.derived_from["causal_design"],
-    )
+    model_revision = ModelRevision(workspace_id=input.workspace_id, version=pins["model"])
+    model = read_model(store, model_revision.version)
+    constructs = {construct.id: construct for construct in model.constructs}
+    treatments = [constructs[cid].name for cid in identification.estimable_treatments]
+    if identification.outcome is None:
+        raise ValueError("A baseline report requires an identified outcome")
+    outcome_name = constructs[identification.outcome].name
     estimands = tuple(
         certify_identified_estimand(
-            causal_design_model,
-            causal_design_ref=causal_design_ref,
+            model,
+            identification,
+            model_revision=model_revision,
             treatment=treatment,
             outcome=outcome_name,
         )
         for treatment in treatments
     )
     analysis = CertifiedCausalAnalysis(
-        causal_design=causal_design_model,
-        causal_design_ref=CausalDesignRef(
-            workspace_id=input.workspace_id,
-            version=pins["causal_design"],
+        model=model,
+        model_revision=ModelRevision(
+            workspace_id=input.workspace_id, version=model_revision.version
         ),
+        identification=identification,
         estimands=estimands,
-        posterior=certify_reportable_posterior(fitted_artifact),
+        inference=record,
     )
 
     logger.info("=== analysis: Treatment Effects ===")
@@ -138,7 +134,7 @@ async def plan_baseline_report_activity(
         "outcome": outcome_name,
         "identifiable_treatments": treatments,
         "excluded_non_identifiable_treatments": sorted(
-            constructs[cid].name for cid in identification_report["non_identifiable_treatments"]
+            constructs[cid].name for cid in identification.non_identifiable
         ),
         "top_ranked_effects": top_results,
         "ppc_warnings": ppc_warnings,

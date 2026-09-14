@@ -8,14 +8,13 @@ import numpy as np
 import polars as pl
 
 from nof1_causal_lab.flows.transitions.inference import fit as stage5_inference
-from nof1_causal_lab.models.ssm import SSMSpec
 from nof1_causal_lab.models.ssm.execution.planning import InferenceStructurePlan
 from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior
 from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
 from nof1_causal_lab.models.ssm.model import SSMModel
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 from nof1_causal_lab.models.ssm.runtime import PreparedModelRuntime
-from tests.ssm_spec_fixtures import (
+from tests.model_fixtures import (
     default_diffusion_block,
     default_input_effect_block,
     default_lambda_block,
@@ -25,17 +24,17 @@ from tests.ssm_spec_fixtures import (
     default_t0_chol_block,
     default_t0_means_block,
     full_dense_matrix_dynamics_spec,
+    model_fixture,
 )
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.compiled_ssm import CompiledSSMArtifact
     from nof1_causal_lab.sampler_config import SamplerConfigOverride
 
 
 class _FakeResult(ParticleMCMCPosterior):
     def __init__(self) -> None:
         self.method = "marginal_particle_gibbs"
-        self.diagnostics = {}
+        self.diagnostics = {"marginal_particle_gibbs": {"experimental_metric": [0.25, None]}}
         self.draws = JointPosteriorDraws(parameters={"theta": jnp.zeros((4, 1), dtype=jnp.float32)})
 
     @override
@@ -63,7 +62,7 @@ class _FakeResult(ParticleMCMCPosterior):
 
 def _make_fake_model() -> SSMModel:
     return SSMModel(
-        SSMSpec(
+        model_fixture(
             n_latent=1,
             n_manifest=2,
             dynamics_spec=full_dense_matrix_dynamics_spec(1),
@@ -76,15 +75,14 @@ def _make_fake_model() -> SSMModel:
             input_effect_block=default_input_effect_block(1),
             static_state_sd_block=default_static_state_sd_block(),
             latent_names=["sleep_state"],
-            manifest_names=["sleep_avg", "energy"],
         )
     )
 
 
 def _make_observation_support_runtime() -> ObservationSupportRuntime:
     return ObservationSupportRuntime(
-        anchor_times=np.array([0.0, 1.5]),
         manifest_names=["sleep_avg", "energy"],
+        anchor_times=np.array([0.0, 1.5]),
         support_kinds=["interval", "point"],
         summary_operators=["mean", None],
         anchor_policies=["end", "end"],
@@ -116,8 +114,6 @@ def _make_observation_support_runtime() -> ObservationSupportRuntime:
 def _make_runtime(model: SSMModel) -> PreparedModelRuntime:
     return PreparedModelRuntime(
         model=model,
-        spec=model.spec,
-        parameter_layout=model.parameter_layout,
         sampler_config=cast(
             "SamplerConfigOverride",
             {"method": "marginal_particle_gibbs"},
@@ -139,8 +135,6 @@ def _make_runtime(model: SSMModel) -> PreparedModelRuntime:
         observations=jnp.array([[0.2, 0.8], [jnp.nan, 0.5]], dtype=jnp.float32),
         times=jnp.array([0.0, 1.5], dtype=jnp.float32),
         transition_inputs=None,
-        manifest_names=["sleep_avg", "energy"],
-        manifest_ids=["indicator:sleep_avg", "indicator:energy"],
     )
 
 
@@ -166,7 +160,7 @@ def test_fit_model_logs_runtime_summary_and_diagnostic_boundaries(monkeypatch, c
 
     with caplog.at_level(logging.INFO, logger=stage5_inference.logger.name):
         result = stage5_inference.fit_model(
-            _compiled_fixture(),
+            fake_model.spec,
             data_for_model,
             sampler_config=cast(
                 "SamplerConfigOverride",
@@ -176,9 +170,13 @@ def test_fit_model_logs_runtime_summary_and_diagnostic_boundaries(monkeypatch, c
         )
 
     assert result["fitted"] is True
+    assert result["inference_diagnostics"] == {
+        "smc": {"n_levels": 3},
+        "marginal_particle_gibbs": {"experimental_metric": [0.25, None]},
+    }
     assert "Prepared runtime in" in caplog.text
     assert "support=interval(1: sleep_avg) max_active_windows=2" in caplog.text
-    assert "Manifest order: sleep_avg, energy" in caplog.text
+    assert "Manifest order: manifest_0, manifest_1" in caplog.text
     assert (
         "Inference route: requested_method=marginal_particle_gibbs resolved_method=marginal_particle_gibbs "
         "structural_backend=laplace method_override=none"
@@ -208,7 +206,7 @@ def test_fit_model_can_skip_loo_diagnostics(monkeypatch, caplog):
 
     with caplog.at_level(logging.INFO, logger=stage5_inference.logger.name):
         result = stage5_inference.fit_model(
-            _compiled_fixture(),
+            fake_model.spec,
             data_for_model,
             sampler_config=cast(
                 "SamplerConfigOverride",
@@ -228,13 +226,13 @@ def test_fit_model_restores_compile_cache_before_preparing_runtime(monkeypatch):
     fake_result = _FakeResult()
     fake_model = _make_fake_model()
     runtime = _make_runtime(fake_model)
-    restore_calls: list[tuple[str | None, CompiledSSMArtifact | None, bool]] = []
+    restore_calls: list[tuple[str | None, object, bool]] = []
 
     monkeypatch.setattr(
         stage5_inference,
         "restore_model_spec_compile_cache",
-        lambda workspace_id, compiled_ssm, *, wait_for_pending: (
-            restore_calls.append((workspace_id, compiled_ssm, wait_for_pending)) or True
+        lambda workspace_id, model_spec, *, wait_for_pending: (
+            restore_calls.append((workspace_id, model_spec, wait_for_pending)) or True
         ),
     )
     monkeypatch.setattr(stage5_inference, "prepare_model_runtime", lambda **_kwargs: runtime)
@@ -247,10 +245,10 @@ def test_fit_model_restores_compile_cache_before_preparing_runtime(monkeypatch):
             "anchor_time": ["2024-01-01T00:00:00"],
         }
     )
-    compiled_ssm = _compiled_fixture()
+    _model_fixture()
 
     result = stage5_inference.fit_model(
-        cast("CompiledSSMArtifact", compiled_ssm),
+        fake_model.spec,
         data_for_model,
         sampler_config=cast(
             "SamplerConfigOverride",
@@ -260,12 +258,11 @@ def test_fit_model_restores_compile_cache_before_preparing_runtime(monkeypatch):
         wait_for_compile_cache=True,
     )
 
-    assert restore_calls == [("workspace-123", compiled_ssm, True)]
+    assert restore_calls == [("workspace-123", fake_model.spec, True)]
     assert result["fitted"] is True
 
 
-def _compiled_fixture():
-    from nof1_causal_lab.artifacts.compiled_ssm import CompiledSSMArtifact
-    from tests.integration.transition_runner_fixtures import compiled_ssm
+def _model_fixture():
+    from tests.integration.transition_runner_fixtures import scientific_model
 
-    return CompiledSSMArtifact.model_validate(compiled_ssm())
+    return scientific_model()

@@ -10,7 +10,7 @@ import numpy as np
 import numpyro.distributions as dist
 import pytest
 
-from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily
+from nof1_causal_lab.artifacts.likelihood import DistributionFamily
 from nof1_causal_lab.models.ssm.execution.emissions import (
     emission_log_prob_bernoulli,
     get_mean_param_log_prob_fn,
@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 @pytest.mark.parametrize(
     ("family", "link", "predictor", "mean", "extra_params", "std"),
     [
+        ("delta", "identity", -0.4, -0.4, {}, 0.0),
         ("student_t", "identity", 0.4, 0.4, {"obs_df": 4.0}, 0.7),
         ("poisson", "log", 0.4, float(jnp.exp(0.4)), {}, 1.0),
         ("gamma", "log", 0.4, float(jnp.exp(0.4)), {"obs_shape": 2.0}, 1.0),

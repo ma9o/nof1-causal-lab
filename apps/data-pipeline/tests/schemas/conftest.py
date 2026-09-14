@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING, Literal
 
 import pytest
 
-from nof1_causal_lab.artifacts.latent_structure import Construct, Role, TemporalStatus
-from nof1_causal_lab.artifacts.measurement_structure import Indicator, IndicatorPolarity
+from nof1_causal_lab.artifacts.construct import Construct, Role, TemporalStatus
+from nof1_causal_lab.artifacts.indicator import Indicator, IndicatorPolarity
 from tests.helpers import fixture_entity_id
 
 if TYPE_CHECKING:
@@ -46,12 +46,11 @@ def indicator_factory():
 
     Usage:
         def test_something(indicator_factory):
-            ind = indicator_factory("mood_rating", "mood")
+            ind = indicator_factory("mood_rating")
     """
 
     def _make(
         name: str,
-        construct_name: str,
         dtype: MeasurementDtype = "continuous",
         aggregation: AggregationFunction = "mean",
         construct_polarity: IndicatorPolarity = IndicatorPolarity.POSITIVE,
@@ -64,7 +63,6 @@ def indicator_factory():
             ordinal_levels = ["low", "medium", "high"]
         return Indicator(
             id=fixture_entity_id("indicator", name),
-            construct_id=fixture_entity_id("construct", construct_name),
             name=name,
             construct_polarity=construct_polarity,
             how_to_measure=f"Extract {name}",

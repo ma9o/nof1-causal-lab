@@ -17,13 +17,13 @@ import pytest
 
 from nof1_causal_lab.machine.graph import transition_spec
 from nof1_causal_lab.machine.moves import (
-    RunArtifact,
+    RunOperation,
     TransitionEffects,
     WriteArtifact,
     run_retractions,
 )
 from nof1_causal_lab.machine.store import EpisodeJournal, TransitionRecord, derive_current_state
-from nof1_causal_lab.machine.temporal import latent_structure_activities
+from nof1_causal_lab.machine.temporal import model_authoring
 from nof1_causal_lab.machine.temporal.messages import EpisodeInit, MoveRequest
 from nof1_causal_lab.machine.temporal.workflow import EpisodeWorkflow
 
@@ -33,26 +33,22 @@ pytestmark = pytest.mark.timeout(240)
 def _valid_latent_structure() -> dict[str, Any]:
     return {
         "default_outcome": {"kind": "construct", "id": "construct:cdc0b2958a9512b2abad"},
-        "constructs": [
-            {
-                "id": "construct:c665e6cdc48fc83e0915",
-                "name": "exercise",
-                "description": "exercise level",
-                "role": "exogenous",
-                "temporal_status": "time_varying",
-            },
-            {
-                "id": "construct:cdc0b2958a9512b2abad",
-                "name": "sleep",
-                "description": "sleep quality",
-                "role": "endogenous",
-                "temporal_status": "time_varying",
-            },
-        ],
         "edges": [
             {
-                "cause_id": "construct:c665e6cdc48fc83e0915",
-                "effect_id": "construct:cdc0b2958a9512b2abad",
+                "cause": {
+                    "id": "construct:c665e6cdc48fc83e0915",
+                    "name": "exercise",
+                    "description": "exercise level",
+                    "role": "exogenous",
+                    "temporal_status": "time_varying",
+                },
+                "effect": {
+                    "id": "construct:cdc0b2958a9512b2abad",
+                    "name": "sleep",
+                    "description": "sleep quality",
+                    "role": "endogenous",
+                    "temporal_status": "time_varying",
+                },
                 "id": "edge:ee04dac06187e4b97ab3",
                 "description": "exercise can affect sleep",
                 "lagged": True,
@@ -102,7 +98,7 @@ def resume_env(monkeypatch, tmp_path):
         )
 
     monkeypatch.setattr(
-        latent_structure_activities,
+        model_authoring,
         "complete_computed_transition",
         complete_without_derivations,
     )
@@ -186,7 +182,7 @@ def resume_env(monkeypatch, tmp_path):
                         "function": {
                             "name": "validate_latent_structure",
                             "arguments": json.dumps(
-                                {"structure_json": json.dumps(_valid_latent_structure())}
+                                {"model_json": json.dumps(_valid_latent_structure())}
                             ),
                         },
                     }
@@ -253,7 +249,7 @@ def test_workflow_resumes_from_seeded_init(resume_env):
                     task_queue="test-episodes",
                 )
                 await propose(first, WriteArtifact(artifact_id="question"), payload={"text": "q?"})
-                stage0 = await propose(first, RunArtifact(artifact_id="raw_data"))
+                stage0 = await propose(first, RunOperation(operation_id="raw_data"))
                 assert stage0.status == "applied"
                 await first.terminate()
 
@@ -282,10 +278,10 @@ def test_workflow_resumes_from_seeded_init(resume_env):
                 assert {"question", "raw_data"} <= present
 
                 # Downstream continues from the rehydrated state, numbering onward.
-                stage1a = await propose(resumed, RunArtifact(artifact_id="latent_structure"))
+                stage1a = await propose(resumed, RunOperation(operation_id="latent_structure"))
                 assert stage1a.status == "applied"
                 assert stage1a.seq == seed_seq + 1
-                assert stage1a.state.has("latent_structure")
+                assert stage1a.state.has("model")
         finally:
             await env.shutdown()
 

@@ -13,26 +13,14 @@ Three layers:
    compartment, HillEdge, plus DiagonalDecay and Intercept components.
 """
 
+from nof1_causal_lab.artifacts.identity import scientific_id
+from tests.dynamics_fixtures import hill_term, interaction_term
 from __future__ import annotations
 
 import jax.numpy as jnp
 import pytest
 
-from nof1_causal_lab.models.ssm.dynamics import (
-    DiagonalDecay,
-    EdgeInputOverride,
-    HillEdge,
-    Intercept,
-    Intervention,
-    LinearEdge,
-    MultiplicativeEdge,
-    VariableOverride,
-    VectorField,
-    VectorFieldArgs,
-    compute_steady_state,
-    constant_value,
-    simulate,
-)
+from nof1_causal_lab.models.ssm.dynamics import DiagonalDecay, EdgeInputOverride, Intercept, Intervention, LinearEdge, VariableOverride, VectorField, VectorFieldArgs, compute_steady_state, constant_value, simulate
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
 
 
@@ -63,41 +51,41 @@ class TestLinearEdge:
 
 class TestHillEdge:
     def test_zero_at_zero(self):
-        edge = HillEdge(source=0, target=1)
+        edge = hill_term(source=0, target=1).build()
         dynamics = jnp.zeros(2)
         eta_per_edge = jnp.zeros((2, 2))
-        params = {"Emax": jnp.asarray(2.0), "EC50": jnp.asarray(1.0), "n": jnp.asarray(2.0)}
+        params = {scientific_id("parameter", "emax"): jnp.asarray(2.0), scientific_id("parameter", "ec50"): jnp.asarray(1.0), scientific_id("parameter", "exponent"): jnp.asarray(2.0)}
         out = edge.contribute(dynamics, jnp.zeros(2), eta_per_edge, jnp.asarray(0.0), params)
         assert float(out[1]) == pytest.approx(0.0, abs=1e-10)
 
     def test_half_emax_at_ec50(self):
-        edge = HillEdge(source=0, target=1)
+        edge = hill_term(source=0, target=1).build()
         dynamics = jnp.zeros(2)
         eta_per_edge = jnp.array([[0.0, 0.0], [1.0, 0.0]])  # source-as-seen-by-1 == EC50
-        params = {"Emax": jnp.asarray(2.0), "EC50": jnp.asarray(1.0), "n": jnp.asarray(2.0)}
+        params = {scientific_id("parameter", "emax"): jnp.asarray(2.0), scientific_id("parameter", "ec50"): jnp.asarray(1.0), scientific_id("parameter", "exponent"): jnp.asarray(2.0)}
         out = edge.contribute(dynamics, jnp.zeros(2), eta_per_edge, jnp.asarray(0.0), params)
         assert float(out[1]) == pytest.approx(1.0, abs=1e-6)
 
     def test_saturates_at_emax(self):
-        edge = HillEdge(source=0, target=1)
+        edge = hill_term(source=0, target=1).build()
         dynamics = jnp.zeros(2)
         eta_per_edge = jnp.array([[0.0, 0.0], [1000.0, 0.0]])
-        params = {"Emax": jnp.asarray(2.0), "EC50": jnp.asarray(1.0), "n": jnp.asarray(2.0)}
+        params = {scientific_id("parameter", "emax"): jnp.asarray(2.0), scientific_id("parameter", "ec50"): jnp.asarray(1.0), scientific_id("parameter", "exponent"): jnp.asarray(2.0)}
         out = edge.contribute(dynamics, jnp.zeros(2), eta_per_edge, jnp.asarray(0.0), params)
         assert float(out[1]) == pytest.approx(2.0, abs=1e-4)
 
     def test_clamps_negative_source(self):
-        edge = HillEdge(source=0, target=1)
+        edge = hill_term(source=0, target=1).build()
         dynamics = jnp.zeros(2)
         eta_per_edge = jnp.array([[0.0, 0.0], [-5.0, 0.0]])
-        params = {"Emax": jnp.asarray(2.0), "EC50": jnp.asarray(1.0), "n": jnp.asarray(2.0)}
+        params = {scientific_id("parameter", "emax"): jnp.asarray(2.0), scientific_id("parameter", "ec50"): jnp.asarray(1.0), scientific_id("parameter", "exponent"): jnp.asarray(2.0)}
         out = edge.contribute(dynamics, jnp.zeros(2), eta_per_edge, jnp.asarray(0.0), params)
         assert float(out[1]) == pytest.approx(0.0, abs=1e-10)
 
 
 class TestMultiplicativeEdge:
     def test_product_of_two_sources(self):
-        edge = MultiplicativeEdge(source_a=0, source_b=1, target=2)
+        edge = interaction_term(source_a=0, source_b=1, target=2).build()
         dynamics = jnp.zeros(3)
         eta_per_edge = jnp.array(
             [
@@ -106,7 +94,7 @@ class TestMultiplicativeEdge:
                 [3.0, 4.0, 0.0],
             ]
         )
-        params = {"weight": jnp.asarray(0.5)}
+        params = {scientific_id("parameter", "weight"): jnp.asarray(0.5)}
         out = edge.contribute(dynamics, jnp.zeros(3), eta_per_edge, jnp.asarray(0.0), params)
         assert float(out[2]) == pytest.approx(6.0)
 
@@ -307,9 +295,9 @@ class TestSSRIChain:
             components=(
                 DiagonalDecay(),
                 Intercept(),
-                MultiplicativeEdge(source_a=self.DOSE, source_b=self.ADHERENCE, target=self.C_P),
+                interaction_term(source_a=self.DOSE, source_b=self.ADHERENCE, target=self.C_P).build(),
                 LinearEdge(source=self.C_P, target=self.C_E),
-                HillEdge(source=self.C_E, target=self.AFFECTIVE),
+                hill_term(source=self.C_E, target=self.AFFECTIVE).build(),
             ),
         )
         k_p = 1.0
@@ -318,12 +306,12 @@ class TestSSRIChain:
         params = (
             {"decay": jnp.array([1.0, 1.0, k_p, k_e0, decay_aff])},
             {"cint": jnp.array([1.0, 1.0, 0.0, 0.0, 0.0])},
-            {"weight": jnp.asarray(k_p)},
+            {scientific_id("parameter", "weight"): jnp.asarray(k_p)},
             {"weight": jnp.asarray(k_e0)},
             {
-                "Emax": jnp.asarray(2.0),
-                "EC50": jnp.asarray(1.0),
-                "n": jnp.asarray(2.0),
+                scientific_id("parameter", "emax"): jnp.asarray(2.0),
+                scientific_id("parameter", "ec50"): jnp.asarray(1.0),
+                scientific_id("parameter", "exponent"): jnp.asarray(2.0),
             },
         )
         return vf, params

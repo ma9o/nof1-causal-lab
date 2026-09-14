@@ -1,203 +1,174 @@
-"""Tests for the run lineage validator script."""
+"""Lineage validation uses canonical IDs and original artifact pins."""
 
-from __future__ import annotations
+from dataclasses import replace
 
-import importlib.util
-import sys
-from pathlib import Path
-from typing import Any, ClassVar
+import polars as pl
 
-
-def _load_validate_run() -> Any:
-    module_name = "validate_run_under_test"
-    path = Path(__file__).resolve().parents[2] / "scripts" / "validate_run.py"
-    spec = importlib.util.spec_from_file_location(module_name, path)
-    assert spec is not None
-    assert spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    spec.loader.exec_module(module)
-    return module
+from nof1_causal_lab.artifacts.identity import ConstructRef
+from nof1_causal_lab.artifacts.raw_data import with_column_descriptions
+from nof1_causal_lab.machine.artifacts import ArtifactVersionInfo, EpisodeState
+from nof1_causal_lab.machine.store import ArtifactStore
+from nof1_causal_lab.models.identification import identify_model
+from nof1_causal_lab.models.model_checks import check_execution
+from scripts import validate_run
+from tests.helpers import complete_test_model, graph_constructs, make_model
 
 
-def test_source_column_rules_use_raw_parquet_schema_when_descriptions_are_absent() -> None:
-    validate_run = _load_validate_run()
-    ctx = validate_run.RunContext(
-        workspace_id="ws",
-        artifacts={
-            "raw_data": {"column_descriptions": []},
-            "causal_design": {
-                "causal_design": {
-                    "measurement": {
-                        "indicators": [
-                            {"name": "observed_value", "source_columns": ["value"]},
-                        ],
-                    },
-                },
-            },
-        },
-        artifact_paths={},
-        model_indicators=None,
-        raw_input_columns={"timestamp", "value"},
+def _context(artifacts, *, pins=None, model_indicators=None, raw_columns=None):
+    state = EpisodeState().with_versions(
+        [
+            ArtifactVersionInfo(
+                artifact_id=name,
+                version=1,
+                provenance="computed",
+                derived_from=(pins or {}).get(name, {}),
+            )
+            for name in artifacts
+        ]
     )
+    return validate_run.RunContext("ws", state, artifacts, {}, model_indicators, raw_columns)
 
-    assert validate_run.rule_raw_data_columns_match_raw_parquet(ctx) == []
+
+def test_source_columns_use_raw_parquet_columns():
+    model = make_model(["observed_value"])
+    payload = model.model_dump(mode="json")
+    graph_constructs(payload)[0]["indicators"][0]["source_columns"] = ["value"]
+    ctx = _context(
+        {"model": payload},
+        raw_columns={"timestamp", "value"},
+    )
     assert validate_run.rule_source_columns_in_raw_data(ctx) == []
+    bad = replace(ctx, raw_input_columns={"timestamp"})
+    [issue] = validate_run.rule_source_columns_in_raw_data(bad)
+    assert issue.rule == "source-columns-in-raw-data"
+    assert "value" in issue.message
 
-    bad_ctx = validate_run.RunContext(
-        workspace_id="ws",
-        artifacts={
-            **ctx.artifacts,
-            "causal_design": {
-                "causal_design": {
-                    "measurement": {
-                        "indicators": [
-                            {"name": "missing_value", "source_columns": ["missing"]},
-                        ],
-                    },
-                },
-            },
-        },
-        artifact_paths={},
-        model_indicators=None,
-        raw_input_columns={"timestamp", "value"},
+
+def test_baseline_treatments_require_positive_identification():
+    model = make_model(
+        ["Treatment", "Outcome", "Unclassified"],
+        [("Treatment", "Outcome"), ("Outcome", "Unclassified")],
     )
-
-    issues = validate_run.rule_source_columns_in_raw_data(bad_ctx)
-    assert len(issues) == 1
-    assert issues[0].rule == "source-columns-in-raw-data"
-    assert "missing" in issues[0].message
-
-
-def test_baseline_report_treatments_must_be_explicitly_identified() -> None:
-    validate_run = _load_validate_run()
-    ctx = validate_run.RunContext(
-        workspace_id="ws",
-        artifacts={
-            "causal_design": {
-                "causal_design": {
-                    "identifiability": {
-                        "identifiable_treatments": {"construct:identified_treatment": {}},
-                        "non_identifiable_treatments": {"construct:blocked_treatment": {}},
-                    },
-                },
-            },
-            "baseline_report": {
-                "intervention_results": [
-                    {
-                        "treatment": "renamed_identified_treatment",
-                        "treatment_id": "construct:identified_treatment",
-                    },
-                    {
-                        "treatment": "renamed_blocked_treatment",
-                        "treatment_id": "construct:blocked_treatment",
-                    },
-                    {
-                        "treatment": "renamed_unclassified_treatment",
-                        "treatment_id": "construct:unclassified_treatment",
-                    },
-                ],
-            },
+    model = model.revised(default_outcome=ConstructRef(id=model.constructs[1].id))
+    identification = identify_model(model)
+    report = {
+        "intervention_results": [
+            {"treatment_id": c.id, "manifest_effects": None}
+            for c in (model.constructs[0], model.constructs[2])
+        ]
+    }
+    ctx = _context(
+        {
+            "model": model.model_dump(mode="json"),
+            "identification_report": identification.model_dump(mode="json"),
+            "baseline_report": report,
         },
-        artifact_paths={},
-        model_indicators=None,
-        raw_input_columns=None,
+        pins={"baseline_report": {"model": 1, "identification_report": 1}},
     )
-
-    issues = validate_run.rule_baseline_report_treatments_identifiable(ctx)
-    assert len(issues) == 1
-    assert issues[0].rule == "baseline-report-treatments-identifiable"
-    assert "blocked_treatment" in issues[0].message
-    assert "unclassified_treatment" in issues[0].message
-    assert "identified_treatment" not in issues[0].message
+    [issue] = validate_run.rule_baseline_report_treatments_identifiable(ctx)
+    assert issue.rule == "baseline-report-treatments-identifiable"
+    assert model.constructs[2].id in issue.message
+    assert model.constructs[0].id not in issue.message
 
 
-def test_baseline_report_treatments_fail_when_identifiability_verdicts_are_missing() -> None:
-    validate_run = _load_validate_run()
-    ctx = validate_run.RunContext(
-        workspace_id="ws",
-        artifacts={
-            "causal_design": {"causal_design": {}},
-            "baseline_report": {
-                "intervention_results": [
-                    {"treatment": "renamed_treatment", "treatment_id": "construct:treatment"}
-                ]
-            },
-        },
-        artifact_paths={},
-        model_indicators=None,
-        raw_input_columns=None,
+def test_baseline_results_fail_without_identification_pin():
+    ctx = _context(
+        {"baseline_report": {"intervention_results": [{"treatment_id": "construct:treatment"}]}}
     )
-
-    issues = validate_run.rule_baseline_report_treatments_identifiable(ctx)
-    assert len(issues) == 1
-    assert "no identifiability verdicts" in issues[0].message
+    [issue] = validate_run.rule_baseline_report_treatments_identifiable(ctx)
+    assert "no identifiability verdicts" in issue.message
 
 
-def test_indicators_in_panel_ignores_future_measurements_artifacts() -> None:
-    validate_run = _load_validate_run()
-    ctx = validate_run.RunContext(
-        workspace_id="ws",
-        artifacts={
-            "causal_design": {
-                "causal_design": {
-                    "measurement": {
-                        "indicators": [{"name": "declared_indicator"}],
-                    },
-                },
-            },
-        },
-        artifact_paths={},
-        model_indicators=set(),
-        raw_input_columns=None,
-    )
-
+def test_panel_coverage_requires_a_panel_and_uses_its_model_pin():
+    model = make_model(["declared"])
+    ctx = _context({"model": model.model_dump(mode="json")}, model_indicators=set())
     assert validate_run.rule_indicators_in_panel(ctx) == []
+    extracted = _context(
+        {**ctx.artifacts, "panel": {}},
+        model_indicators=set(),
+        pins={"panel": {"model": 1}},
+    )
+    [issue] = validate_run.rule_indicators_in_panel(extracted)
+    assert model.indicators[0].id in issue.message
 
 
-def test_load_run_context_respects_up_to_when_loading_measurements_artifacts(monkeypatch) -> None:
-    validate_run = _load_validate_run()
+def test_loading_cutoff_does_not_open_downstream_panels(monkeypatch, tmp_path):
+    from nof1_causal_lab.utils import data as data_module
 
-    class FakeRawDataFrame:
-        columns: ClassVar[list[str]] = ["timestamp", "value"]
-
+    monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
+    store = ArtifactStore("ws")
+    raw = store.write_version(
+        "raw_data",
+        provenance="computed",
+        derived_from={},
+        produced_by="run:raw_data",
+        parquet_files={
+            "raw.parquet": with_column_descriptions(
+                pl.DataFrame({"timestamp": [0], "value": [1]}).to_arrow(),
+                {"timestamp": "Observation time", "value": "Observed value"},
+            )
+        },
+    )
+    model = store.write_version(
+        "model",
+        provenance="human",
+        derived_from={},
+        produced_by="write:model",
+        json_files={"model.json": make_model(["value"]).model_dump(mode="json")},
+    )
+    panel = store.write_version(
+        "panel",
+        provenance="computed",
+        derived_from={"model": 1},
+        produced_by="run:measurements",
+        parquet_files={"panel.parquet": pl.DataFrame({"indicator_id": ["indicator:downstream"]})},
+    )
     monkeypatch.setattr(
         validate_run,
-        "_result_artifact_order",
-        lambda: ("raw_data", "latent_structure", "causal_design", "measurements"),
+        "derive_current_state",
+        lambda _: EpisodeState().with_versions([raw, model, panel]),
     )
-
-    class FakeInfo:
-        version = 1
-
-    class FakeState:
-        def get(self, artifact_id: str) -> FakeInfo | None:
-            present = {"raw_data", "latent_structure", "causal_design"}
-            return FakeInfo() if artifact_id in present else None
-
-    class FakeStore:
-        def __init__(self, _workspace_id: str) -> None:
-            pass
-
-        def read_json_file(self, artifact_id: str, _version: int, _filename: str) -> dict[str, str]:
-            return {"artifact_id": artifact_id}
-
-        def file_path(self, artifact_id: str, _version: int, filename: str) -> str:
-            return f"/tmp/ws/store/{artifact_id}/v1/{filename}"
-
-    monkeypatch.setattr(validate_run, "derive_current_state", lambda _workspace_id: FakeState())
-    monkeypatch.setattr(validate_run, "ArtifactStore", FakeStore)
-
-    def fake_current_artifact_file(_workspace_id: str, artifact_id: str, _filename: str) -> str:
-        if artifact_id == "raw_data":
-            return "/tmp/raw.parquet"
-        raise AssertionError(f"{artifact_id} should not be loaded past --up-to causal_design")
-
-    monkeypatch.setattr(validate_run, "current_artifact_file", fake_current_artifact_file)
-    monkeypatch.setattr(validate_run, "load_parquet", lambda _path: FakeRawDataFrame())
-
-    ctx = validate_run.load_run_context("ws", up_to="causal_design")
-
-    assert set(ctx.artifacts) == {"raw_data", "latent_structure", "causal_design"}
+    ctx = validate_run.load_run_context("ws", up_to="model")
+    assert set(ctx.artifacts) == {"model"}
     assert ctx.model_indicators is None
     assert ctx.raw_input_columns == {"timestamp", "value"}
+    assert validate_run.rule_contract_conformance(ctx) == []
+    undescribed = replace(ctx, raw_table=pl.DataFrame({"value": [1]}).to_arrow())
+    [issue] = validate_run.rule_contract_conformance(undescribed)
+    assert issue.artifacts == ("raw_data",)
+    assert "Missing description" in issue.message
+
+
+def test_current_model_readiness_allows_incomplete_scientific_revisions(monkeypatch, tmp_path):
+    from nof1_causal_lab.utils import data as data_module
+
+    monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
+    store = ArtifactStore("ws")
+    model = complete_test_model(make_model(["mood"]))
+    check_execution(model)
+    store.write_version(
+        "model",
+        provenance="human",
+        derived_from={},
+        produced_by="write:model",
+        json_files={"model.json": model.model_dump(mode="json")},
+    )
+    latest = store.write_version(
+        "model",
+        provenance="human",
+        derived_from={"model": 1},
+        produced_by="write:model",
+        json_files={"model.json": make_model(["other"]).model_dump(mode="json")},
+    )
+    ctx = validate_run.RunContext(
+        "ws",
+        EpisodeState().with_versions([latest]),
+        {
+            "model": make_model(["other"]).model_dump(mode="json"),
+        },
+        {},
+        None,
+        None,
+    )
+    assert validate_run.rule_pinned_model_contracts(ctx) == []
+    assert not make_model(["other"]).execution_readiness.ready

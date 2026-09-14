@@ -19,6 +19,7 @@ class DistributionFamily(StrEnum):
     BETA = "beta"
     ORDERED_LOGISTIC = "ordered_logistic"
     CATEGORICAL = "categorical"
+    DELTA = "delta"
 
     @property
     def is_discrete(self) -> bool:
@@ -159,147 +160,6 @@ def constraint_domain(constraint: str) -> str:
     return _CONSTRAINT_DOMAINS[constraint]
 
 
-@dataclass(frozen=True)
-class ParameterRoleSpec:
-    """Metadata for a parameter role used by docs codegen and validation."""
-
-    role: str  # matches ParameterRole enum value
-    symbol: str
-    count: str
-    constraint: str  # matches ParameterConstraint enum value
-    ssm_location: str
-    note: str = ""
-
-    @property
-    def domain(self) -> str:
-        return _CONSTRAINT_DOMAINS[self.constraint]
-
-
-PARAMETER_ROLE_SPECS: Final[tuple[ParameterRoleSpec, ...]] = (
-    ParameterRoleSpec(
-        role="ar_coefficient",
-        symbol="rho",
-        count="One per endogenous time-varying construct",
-        constraint="unit_interval",
-        ssm_location="State-decay dynamics site",
-        note="model-spec elicits baseline discrete-time persistence absent feedback; "
-        "[compilation](../compilation.md) binds it to the owning decay component "
-        "and converts to continuous-time decay scale",
-    ),
-    ParameterRoleSpec(
-        role="fixed_effect",
-        symbol="beta",
-        count="One per causal edge",
-        constraint="none",
-        ssm_location="Dynamics edge or input-effect site",
-        note="Causal effects can be positive or negative; compiler binds each "
-        "coefficient to the owning edge component or known-input effect site",
-    ),
-    ParameterRoleSpec(
-        role="dynamics_parameter",
-        symbol="theta",
-        count="One per real-valued component-owned dynamics parameter",
-        constraint="none",
-        ssm_location="Component dynamics site",
-        note="Used for component-owned dynamics parameters that are not authored "
-        "as interval-scale effect coefficients.",
-    ),
-    ParameterRoleSpec(
-        role="dynamics_parameter_positive",
-        symbol="theta+",
-        count="One per positive component-owned dynamics parameter",
-        constraint="positive",
-        ssm_location="Component dynamics site",
-        note="Used for positive component-owned dynamics parameters such as Hill Emax and EC50.",
-    ),
-    ParameterRoleSpec(
-        role="residual_sd",
-        symbol="sigma",
-        count="One per construct",
-        constraint="positive",
-        ssm_location="Diffusion diagonal",
-    ),
-    ParameterRoleSpec(
-        role="state_intercept",
-        symbol="cint",
-        count="One per eligible dynamic construct when equilibrium forcing is enabled",
-        constraint="none",
-        ssm_location="Continuous-time state intercept",
-    ),
-    ParameterRoleSpec(
-        role="observation_intercept",
-        symbol="manifest_mean",
-        count="One per manifest channel whose observation family requires a baseline intercept",
-        constraint="none",
-        ssm_location="Manifest intercept vector",
-    ),
-    ParameterRoleSpec(
-        role="initial_state_mean",
-        symbol="t0_mean",
-        count="One per latent construct",
-        constraint="none",
-        ssm_location="Initial-state mean vector",
-    ),
-    ParameterRoleSpec(
-        role="initial_state_sd",
-        symbol="t0_sd",
-        count="One per latent construct",
-        constraint="positive",
-        ssm_location="Initial-state covariance diagonal",
-    ),
-    ParameterRoleSpec(
-        role="static_state_sd",
-        symbol="tau",
-        count="One per compiled baseline factor induced by marginalized time-invariant confounders",
-        constraint="positive",
-        ssm_location="Static baseline-factor covariance",
-        note="Used to build low-rank initial-state covariance contributions of the form "
-        "`B diag(tau^2) B^T`.",
-    ),
-    ParameterRoleSpec(
-        role="loading",
-        symbol="lambda",
-        count="One per non-reference indicator in multi-indicator constructs",
-        constraint="positive",
-        ssm_location="Observation model",
-        note="measurement-structure indicator polarity fixes each loading sign as either "
-        "`positive` or `negative`; model-spec no longer chooses loading orientation",
-    ),
-    ParameterRoleSpec(
-        role="measurement_error_sd",
-        symbol="obs_sd",
-        count="One per free manifest measurement-error SD",
-        constraint="positive",
-        ssm_location="Manifest variance diagonal",
-        note="Surfaced only when measurement error is separately estimated "
-        "(multi-indicator constructs).",
-    ),
-    ParameterRoleSpec(
-        role="observation_hyperparameter",
-        symbol="obs_*",
-        count="One per active real-valued observation-family hyperparameter site",
-        constraint="none",
-        ssm_location="Observation-family auxiliary site",
-        note="Examples include ordered-threshold bases and categorical logit offsets.",
-    ),
-    ParameterRoleSpec(
-        role="observation_hyperparameter_positive",
-        symbol="obs_*",
-        count="One per active positive observation-family hyperparameter site",
-        constraint="positive",
-        ssm_location="Observation-family auxiliary site",
-        note="Examples include Student-t degrees of freedom, Gamma shape, and NB dispersion.",
-    ),
-    ParameterRoleSpec(
-        role="correlation",
-        symbol="cor",
-        count="One per construct-pair with marginalized confounder",
-        constraint="correlation",
-        ssm_location="Diffusion covariance",
-    ),
-)
-
-
 OBSERVATION_FAMILY_SPECS: Final[tuple[ObservationFamilyCatalogEntry, ...]] = (
     ObservationFamilyCatalogEntry(
         family=DistributionFamily.GAUSSIAN,
@@ -358,6 +218,15 @@ OBSERVATION_FAMILY_SPECS: Final[tuple[ObservationFamilyCatalogEntry, ...]] = (
         ),
         links=("softmax",),
         hyperparameters=("obs_cat_intercepts", "obs_cat_slopes"),
+    ),
+    ObservationFamilyCatalogEntry(
+        family=DistributionFamily.DELTA,
+        summary=(
+            "Exact observation of a state or its declared window summary, with no measurement "
+            "noise. Missing observations impose no constraint. Requires constrained inference, "
+            "which the particle backend does not yet support."
+        ),
+        links=("identity",),
     ),
 )
 
@@ -422,11 +291,20 @@ VALID_LIKELIHOODS_FOR_DTYPE: Final[dict[str, tuple[DistributionFamily, ...]]] = 
         DistributionFamily.STUDENT_T,
         DistributionFamily.GAMMA,
         DistributionFamily.BETA,
+        DistributionFamily.DELTA,
     ),
-    "binary": (DistributionFamily.BERNOULLI,),
-    "count": (DistributionFamily.POISSON, DistributionFamily.NEGATIVE_BINOMIAL),
-    "ordinal": (DistributionFamily.ORDERED_LOGISTIC,),
-    "categorical": (DistributionFamily.CATEGORICAL, DistributionFamily.ORDERED_LOGISTIC),
+    "binary": (DistributionFamily.BERNOULLI, DistributionFamily.DELTA),
+    "count": (
+        DistributionFamily.POISSON,
+        DistributionFamily.NEGATIVE_BINOMIAL,
+        DistributionFamily.DELTA,
+    ),
+    "ordinal": (DistributionFamily.ORDERED_LOGISTIC, DistributionFamily.DELTA),
+    "categorical": (
+        DistributionFamily.CATEGORICAL,
+        DistributionFamily.ORDERED_LOGISTIC,
+        DistributionFamily.DELTA,
+    ),
 }
 
 PRIOR_PARAMETER_GUIDANCE_ROWS: Final[tuple[PriorParameterGuidanceRow, ...]] = (

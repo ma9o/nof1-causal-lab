@@ -30,7 +30,8 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import numpyro.distributions as dist
 
-from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily, LinkFunction
+from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
+from nof1_causal_lab.models.ssm import numerics as numeric
 
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.model import SSMModel
@@ -72,28 +73,30 @@ def validate_observations_for_fit(model: SSMModel, observations: Any) -> None:
     """
     spec = model.spec
     obs = np.asarray(observations, dtype=np.float64)
-    if obs.ndim != 2 or obs.shape[1] != spec.n_manifest:
+    if obs.ndim != 2 or obs.shape[1] != numeric.n_observations(spec):
         raise ObservationPreflightError(
-            f"observations must have shape (N, {spec.n_manifest}), got {obs.shape}"
+            f"observations must have shape (N, {numeric.n_observations(spec)}), got {obs.shape}"
         )
 
-    dists = list(spec.manifest_dists or [])
+    dists = list(numeric.observation_families(spec) or [])
     if not dists:
         return
 
     links = (
-        list(spec.manifest_links)
-        if spec.manifest_links is not None
-        else [LinkFunction.IDENTITY] * spec.n_manifest
+        list(numeric.observation_links(spec))
+        if numeric.observation_links(spec) is not None
+        else [LinkFunction.IDENTITY] * numeric.n_observations(spec)
     )
-    standardized = list(spec.manifest_standardized or [False] * spec.n_manifest)
+    standardized = list(
+        numeric.observation_standardized(spec) or [False] * numeric.n_observations(spec)
+    )
     names = (
-        list(spec.manifest_names)
-        if spec.manifest_names is not None
-        else [f"manifest[{idx}]" for idx in range(spec.n_manifest)]
+        list(numeric.observation_names(spec))
+        if numeric.observation_names(spec) is not None
+        else [f"manifest[{idx}]" for idx in range(numeric.n_observations(spec))]
     )
 
-    means_block = spec.manifest_means_block
+    means_block = numeric.observation_mean_block(spec)
     free_support = np.asarray(means_block.free_support, dtype=bool)
     n_free = int(free_support.sum())
     free_prior = (
@@ -101,7 +104,7 @@ def validate_observations_for_fit(model: SSMModel, observations: Any) -> None:
     )
 
     problems: list[str] = []
-    for j in range(spec.n_manifest):
+    for j in range(numeric.n_observations(spec)):
         finite = obs[:, j][np.isfinite(obs[:, j])]
         if finite.size == 0:
             continue

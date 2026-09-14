@@ -30,19 +30,7 @@ def symmetrize_with_jitter(
     return symmetrize(M) + eye * jitter
 
 
-def inflate_missing_variance(
-    cov: Float[Array, "N N"], mask_float: Shaped[Array, " N"]
-) -> Float[Array, "N N"]:
-    """Inflate covariance diagonal for unobserved channels.
 
-    Args:
-        cov: Covariance matrix to inflate.
-        mask_float: Observation mask (observed = 1.0/True, missing = 0.0/False);
-            consumed as ``1.0 - mask_float``, so bool or float is accepted.
-    """
-    from nof1_causal_lab.models.ssm.execution.contracts import MISSING_DATA_LARGE_VAR
-
-    return cov + jnp.diag((1.0 - mask_float) * MISSING_DATA_LARGE_VAR)
 
 
 def stabilize_covariance_for_cholesky(
@@ -58,17 +46,7 @@ def stabilize_covariance_for_cholesky(
     return cov_sym + jitter * eye, min_eig
 
 
-def stable_cholesky(
-    cov: Float[Array, "N N"],
-    *,
-    min_eigenvalue: float = CHOL_JITTER,
-) -> Float[Array, "N N"]:
-    """Return a stable Cholesky factor from a possibly near-PSD covariance."""
-    stabilized_cov, _min_eig = stabilize_covariance_for_cholesky(
-        cov,
-        min_eigenvalue=min_eigenvalue,
-    )
-    return jnp.linalg.cholesky(stabilized_cov)
+
 
 
 def logdet_from_cholesky(cholesky: Float[Array, "*batch N N"]) -> Float[Array, "*batch"]:
@@ -77,7 +55,7 @@ def logdet_from_cholesky(cholesky: Float[Array, "*batch N N"]) -> Float[Array, "
     Computes ``2 · Σ log diag(L)``, batched over any leading dimensions. Expects a
     valid Cholesky factor (strictly positive diagonal); callers guarantee positive
     definiteness upstream (e.g. via :func:`symmetrize_with_jitter` /
-    :func:`stable_cholesky`), so no diagonal clipping is needed.
+    :func:`stabilize_covariance_for_cholesky`), so no diagonal clipping is needed.
     """
     diagonal = jnp.diagonal(cholesky, axis1=-2, axis2=-1)
     return 2.0 * jnp.sum(jnp.log(diagonal), axis=-1)

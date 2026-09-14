@@ -9,7 +9,6 @@ from pydantic import ValidationError
 
 from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
 from nof1_causal_lab.artifacts.posterior_diagnostics import (
-    EnergyDiagnostics,
     PosteriorEstimate,
 )
 from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
@@ -88,24 +87,24 @@ class TestParamMarginal:
 class TestBuildEnergyDiagnostics:
     def test_energy_shape_2d(self):
         energy = jnp.ones((2, 200))
-        result = EnergyDiagnostics.model_validate(_build_energy_diagnostics(energy, n_bins=20))
-        assert len(result.bfmi) == 2
-        assert len(result.energy_hist.bin_centers) == 20
-        assert len(result.energy_hist.density) == 20
-        assert len(result.energy_transition_hist.bin_centers) == 20
+        result: Any = _build_energy_diagnostics(energy, n_bins=20)
+        assert len(result["bfmi"]) == 2
+        assert len(result["energy_hist"]["bin_centers"]) == 20
+        assert len(result["energy_hist"]["density"]) == 20
+        assert len(result["energy_transition_hist"]["bin_centers"]) == 20
 
     def test_energy_shape_1d(self):
         energy = jnp.ones(400)
-        result = EnergyDiagnostics.model_validate(_build_energy_diagnostics(energy, n_bins=15))
-        assert len(result.bfmi) == 1
-        assert len(result.energy_hist.bin_centers) == 15
+        result: Any = _build_energy_diagnostics(energy, n_bins=15)
+        assert len(result["bfmi"]) == 1
+        assert len(result["energy_hist"]["bin_centers"]) == 15
 
     def test_bfmi_reasonable(self):
         # Random energy => BFMI should be a positive finite number
         key = random.PRNGKey(99)
         energy = random.normal(key, (2, 500))
-        result = EnergyDiagnostics.model_validate(_build_energy_diagnostics(energy))
-        for b in result.bfmi:
+        result: Any = _build_energy_diagnostics(energy)
+        for b in result["bfmi"]:
             assert b > 0
             assert b < 10  # sanity bound
 

@@ -24,7 +24,7 @@ import numpy as np
 from jax import core as jax_core
 
 import nof1_causal_lab.models.ssm.execution.emissions as emission_math
-from nof1_causal_lab.artifacts.statistical_model_spec import (
+from nof1_causal_lab.artifacts.likelihood import (
     VALID_LINKS_FOR_DISTRIBUTION,
     DistributionFamily,
     LinkFunction,
@@ -101,7 +101,7 @@ class ObservationFamilySpec:
     make_variance_fn: VarianceFactory
     """(extra_params, manifest_cov) -> variance_fn."""
     grad_hess_strategy: str
-    """One of 'gaussian', 'student_t', or 'glm'."""
+    """One of 'gaussian', 'student_t', 'glm', or 'delta' (no smooth density)."""
     make_response_fn: ResponseFactory | None
     """(extra_params) -> response_fn, or None to use _RESPONSE_FNS[link]."""
     posterior_predictive_fns: dict[str, PosteriorPredictiveFn]
@@ -220,6 +220,10 @@ def _build_link_dispatch_map[T: Callable[..., object]](
 # ---------------------------------------------------------------------------
 # Emission-fn factories  (link_str -> factory(extra_params) -> callable)
 # ---------------------------------------------------------------------------
+
+
+def _emission_factory_delta(_params: LikelihoodExtraParams):
+    return emission_math.emission_log_prob_delta
 
 
 def _emission_factory_gaussian(_params: LikelihoodExtraParams):
@@ -347,6 +351,13 @@ def _sw_factory_categorical(params: LikelihoodExtraParams):
 # ---------------------------------------------------------------------------
 
 
+def _variance_factory_delta(
+    _params: LikelihoodExtraParams,
+    _manifest_cov: jnp.ndarray | None,
+):
+    return lambda mean: jnp.zeros((mean.size, mean.size), dtype=mean.dtype)
+
+
 def _variance_factory_gaussian_like(
     _params: LikelihoodExtraParams,
     manifest_cov: jnp.ndarray | None,
@@ -438,6 +449,12 @@ def _response_factory_categorical(params: LikelihoodExtraParams):
 
 def _sample_discrete_from_probs(key: jax.Array, probs: jnp.ndarray) -> jnp.ndarray:
     return categorical_distribution(probs).sample(key).astype(jnp.float32)
+
+
+def _ppc_delta(
+    loc, key, _std, _df, _shape, _r, _phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
+):
+    return sample_mean_observation(DistributionFamily.DELTA, key, loc, 0.0, {})
 
 
 def _ppc_gaussian(
@@ -830,6 +847,34 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
             DistributionFamily.CATEGORICAL,
             LinkFunction.SOFTMAX,
             _ppc_categorical,
+            include_default_key=False,
+        ),
+    ),
+    DistributionFamily.DELTA: ObservationFamilySpec(
+        default_link=LinkFunction.IDENTITY,
+        validate_support=_no_constraint,
+        support_description="",
+        hydrate_levels=_no_levels,
+        needs_level_metadata=False,
+        emission_fns=_build_link_dispatch_map(
+            DistributionFamily.DELTA,
+            LinkFunction.IDENTITY,
+            _emission_factory_delta,
+            include_default_key=True,
+        ),
+        score_weight_fns=_build_link_dispatch_map(
+            DistributionFamily.DELTA,
+            LinkFunction.IDENTITY,
+            _sw_factory_none,
+            include_default_key=True,
+        ),
+        make_variance_fn=_variance_factory_delta,
+        grad_hess_strategy="delta",
+        make_response_fn=None,
+        posterior_predictive_fns=_build_link_dispatch_map(
+            DistributionFamily.DELTA,
+            LinkFunction.IDENTITY,
+            _ppc_delta,
             include_default_key=False,
         ),
     ),

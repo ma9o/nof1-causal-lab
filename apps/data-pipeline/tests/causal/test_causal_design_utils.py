@@ -6,25 +6,26 @@ the helpers with real transformation or graph logic:
 - ``build_digraph``
 - ``get_outcome_name``
 - ``get_all_treatments``
-- StructuralPlan state and marginalized-scale accessors
+- ModelSpec state and marginalized-scale accessors
 """
 
 from typing import Any
 
 import pytest
 
-from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
+from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.utils.causal_design import (
     build_digraph_from_edges,
     get_all_treatments,
     get_outcome_name,
     make_measurement_extraction_context,
 )
-from nof1_causal_lab.utils.structural_plan import (
+from nof1_causal_lab.utils.model_structure import (
     get_marginalized_scales,
     get_state_names,
 )
-from tests.helpers import make_structural_plan
+from tests.helpers import make_model
 
 
 def _full_spec():
@@ -103,6 +104,7 @@ class TestMakeMeasurementExtractionContext:
         ctx = make_measurement_extraction_context(spec["measurement"])
         ind = ctx["indicators"][0]
         assert set(ind.keys()) == {
+            "id",
             "name",
             "measurement_dtype",
             "how_to_measure",
@@ -331,15 +333,15 @@ class TestGetAllTreatments:
         )
 
 
-class TestStructuralPlanAccessors:
+class TestModelSpecAccessors:
     def test_get_state_names_preserves_compiled_order(self):
-        plan = make_structural_plan(["stress", "mood"], [("stress", "mood")])
-        assert get_state_names(StructuralPlan.model_validate(plan)) == ["stress", "mood"]
+        plan = make_model(["stress", "mood"], [("stress", "mood")])
+        assert get_state_names(ModelSpec.model_validate(plan)) == ["stress", "mood"]
 
 
 class TestGetMarginalizedScales:
     @staticmethod
-    def _spec(induced_dependencies: list[dict[str, Any]]) -> StructuralPlan:
+    def _spec(induced_dependencies: list[dict[str, Any]]) -> ModelSpec:
         state_names = sorted(
             {str(state) for dependency in induced_dependencies for state in dependency["between"]}
         )
@@ -350,41 +352,67 @@ class TestGetMarginalizedScales:
                 for source in dependency["source_confounders"]
             }
         )
-        plan = make_structural_plan(state_names, [])
-        construct_id_by_name = {
-            construct["name"]: source_id
-            for source_id, construct in plan["semantics"]["constructs"].items()
-        }
-        for source_name in source_names:
-            source_id = f"construct:{len(construct_id_by_name):04d}"
-            construct_id_by_name[source_name] = source_id
-            plan["semantics"]["constructs"][source_id] = {
-                "id": source_id,
-                "name": source_name,
-                "description": source_name,
-                "role": "exogenous",
-                "temporal_status": "time_invariant",
-            }
-            plan["dispositions"].append(
-                {
-                    "source_id": source_id,
-                    "source_kind": "construct",
-                    "disposition": "marginalized",
-                    "reason": "test confounder",
-                }
+        from nof1_causal_lab.artifacts.construct import CausalEdge, Construct
+        from tests.helpers import fixture_entity_id, make_model
+
+        model = make_model(state_names or ["observed"])
+        confounders = tuple(
+            Construct(
+                id=fixture_entity_id("construct", name),
+                name=name,
+                description="Latent root",
+                role="exogenous",
+                temporal_status=(
+                    "time_invariant"
+                    if next(
+                        dep["kind"]
+                        for dep in induced_dependencies
+                        if name in dep["source_confounders"]
+                    )
+                    == "initial_state_correlation"
+                    else "time_varying"
+                ),
             )
-        plan["induced_dependencies"] = [
-            {
-                "source_id": f"dependency:{index:04d}",
-                "between": [construct_id_by_name[name] for name in dependency["between"]],
-                "kind": dependency["kind"],
-                "source_confounder_ids": [
-                    construct_id_by_name[name] for name in dependency["source_confounders"]
-                ],
+            for name in source_names
+        )
+        pairs = {
+            (source, child)
+            for dep in induced_dependencies
+            for source in dep["source_confounders"]
+            for child in dep["between"]
+        }
+        model = model.revised(
+            edges=replace_constructs(
+                model.edges
+                + tuple(
+                    CausalEdge(
+                        id=fixture_entity_id("edge", source + "->" + child),
+                        cause=next(item for item in confounders if item.name == source),
+                        effect=model.get_construct(fixture_entity_id("construct", child)),
+                        description="Explicit confounding",
+                        lagged=False,
+                    )
+                    for source, child in sorted(pairs)
+                ),
+                tuple(c for c in model.constructs if c.indicators) + confounders,
+            )
+        )
+        # Seed the derived dependency cache to exercise grouping independently,
+        # including inconsistent kinds that a valid model would never derive.
+        return model.model_copy(
+            update={
+                "induced_dependencies": {
+                    (
+                        fixture_entity_id("construct", dep["between"][0]),
+                        fixture_entity_id("construct", dep["between"][1]),
+                        dep["kind"],
+                    ): tuple(
+                        fixture_entity_id("construct", name) for name in dep["source_confounders"]
+                    )
+                    for dep in induced_dependencies
+                }
             }
-            for index, dependency in enumerate(induced_dependencies)
-        ]
-        return StructuralPlan.model_validate(plan)
+        )
 
     def test_golden_like_three_plus_one_confounders_yield_two_scales(self):
         spec = self._spec(

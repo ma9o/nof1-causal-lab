@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
 from nof1_causal_lab.machine.graph import Derivation, topological_derivation_order, transition_spec
 from nof1_causal_lab.machine.moves import (
@@ -18,8 +17,8 @@ from nof1_causal_lab.machine.moves import (
 if TYPE_CHECKING:
     import polars as pl
 
-    from nof1_causal_lab.artifacts.identity import ArtifactId
-    from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
+    from nof1_causal_lab.artifacts.identity import ArtifactId, OperationId
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.machine.artifacts import ArtifactVersionInfo, EpisodeState
     from nof1_causal_lab.machine.store import ArtifactStore
 
@@ -27,7 +26,7 @@ if TYPE_CHECKING:
 def complete_computed_transition(
     store: ArtifactStore,
     state: EpisodeState,
-    transition_id: ArtifactId,
+    transition_id: OperationId,
     produced: list[ArtifactVersionInfo],
 ) -> TransitionEffects:
     """Apply optional-output retractions and the derivation cascade for one run."""
@@ -50,6 +49,11 @@ def complete_derivation_cascade(
     }
 
     try:
+        from nof1_causal_lab.models.model_checks import execution_readiness
+
+        for info in produced:
+            if info.artifact_id == "model":
+                execution_readiness(read_model(store, info.version))
         for spec in topological_derivation_order():
             parents = _current_parent_versions(next_state, spec)
             if parents is None:
@@ -75,6 +79,9 @@ def complete_derivation_cascade(
                     all_retracted.append(retraction)
                     next_state = next_state.without([spec.produces])
                     affected.add(spec.produces)
+                continue
+
+            if next_state.matches_inputs(spec.produces, *spec.from_):
                 continue
 
             if not affected.intersection(spec.from_):
@@ -133,145 +140,44 @@ def _derive_one(
     spec: Derivation,
     pins: dict[ArtifactId, int],
 ) -> ArtifactVersionInfo | None:
-    if spec.produces == "causal_design":
-        return _derive_causal_design(store, pins)
-    if spec.produces == "structural_plan":
-        return _derive_structural_plan(store, pins)
     if spec.produces == "identification_report":
         return _derive_identification_report(store, pins)
     if spec.produces == "validation_report":
         return _derive_validation_report(store, pins)
-    if spec.produces == "compiled_ssm":
-        return _derive_compiled_ssm(store, pins)
     raise AssertionError(f"No derivation body for {spec.produces}")
 
 
-def _read_latent_structure(store: ArtifactStore, version: int) -> UncheckedJsonObject:
-    payload = store.read_json_file(
-        "latent_structure",
-        version,
-        json_filename("latent_structure", "latent_structure"),
+def read_model(store: ArtifactStore, version: int) -> ModelSpec:
+    from functools import cache
+
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+
+    return ModelSpec.model_validate(
+        store.read_json_file("model", version, json_filename("model", "model")),
+        context={"distribution_array_loader": cache(store.read_array)},
     )
-    return payload["latent_structure"]
-
-
-def _read_measurement_structure_contract(
-    store: ArtifactStore,
-    version: int,
-) -> UncheckedJsonObject:
-    return store.read_json_file(
-        "measurement_structure",
-        version,
-        json_filename("measurement_structure", "measurement_structure"),
-    )
-
-
-def _read_causal_design(store: ArtifactStore, version: int) -> UncheckedJsonObject:
-    payload = store.read_json_file(
-        "causal_design",
-        version,
-        json_filename("causal_design", "causal_design"),
-    )
-    return payload["causal_design"]
-
-
-def _read_structural_plan(store: ArtifactStore, version: int) -> StructuralPlan:
-    from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
-
-    payload = store.read_json_file(
-        "structural_plan",
-        version,
-        json_filename("structural_plan", "structural_plan"),
-    )
-    return StructuralPlan.model_validate(payload["structural_plan"])
 
 
 def _read_panel(store: ArtifactStore, version: int) -> pl.DataFrame:
     return store.read_parquet_file("panel", version, parquet_filename("panel", "panel"))
 
 
-def _derive_causal_design(
-    store: ArtifactStore,
-    pins: dict[ArtifactId, int],
-) -> ArtifactVersionInfo:
-    from nof1_causal_lab.flows.transitions.measurement_structure.assemble import build_causal_design
-    from nof1_causal_lab.utils.identifiability import check_identifiability
-
-    latent_structure = _read_latent_structure(store, pins["latent_structure"])
-    measurement_contract = _read_measurement_structure_contract(
-        store,
-        pins["measurement_structure"],
-    )
-    measurement_structure = measurement_contract["measurement_structure"]
-    known_inputs = measurement_contract["known_inputs"]
-    scientific_only_constructs = measurement_contract["scientific_only_constructs"]
-    id_result = check_identifiability(latent_structure, measurement_structure)
-    id_status = {
-        "identifiable_treatments": id_result.get("identifiable_treatments", {}),
-        "non_identifiable_treatments": id_result.get("non_identifiable_treatments", {}),
-    }
-    causal_design = build_causal_design(
-        latent_structure,
-        measurement_structure,
-        id_status,
-        known_inputs=known_inputs,
-        scientific_only_constructs=scientific_only_constructs,
-    )
-    return store.write_version(
-        "causal_design",
-        provenance="computed",
-        derived_from=pins,
-        produced_by="derive:causal_design",
-        json_files={
-            json_filename("causal_design", "causal_design"): {
-                "causal_design": causal_design.model_dump(mode="json")
-            }
-        },
-    )
-
-
-def _derive_structural_plan(
-    store: ArtifactStore,
-    pins: dict[ArtifactId, int],
-) -> ArtifactVersionInfo:
-    from nof1_causal_lab.artifacts.causal_design import CausalDesign
-    from nof1_causal_lab.models.structural import build_structural_plan
-
-    causal_design = CausalDesign.model_validate(_read_causal_design(store, pins["causal_design"]))
-    structural_plan = build_structural_plan(causal_design)
-    return store.write_version(
-        "structural_plan",
-        provenance="computed",
-        derived_from=pins,
-        produced_by="derive:structural_plan",
-        json_files={
-            json_filename("structural_plan", "structural_plan"): {
-                "structural_plan": structural_plan.model_dump(mode="json")
-            }
-        },
-    )
-
-
 def _derive_identification_report(
-    store: ArtifactStore,
-    pins: dict[ArtifactId, int],
-) -> ArtifactVersionInfo | None:
-    from nof1_causal_lab.artifacts.causal_design import CausalDesign
-    from nof1_causal_lab.flows.transitions.measurement_structure.identification import (
-        derive_identification_report,
-    )
+    store: ArtifactStore, pins: dict[ArtifactId, int]
+) -> ArtifactVersionInfo:
+    from nof1_causal_lab.models.identification import identify_model
 
-    causal_design = _read_causal_design(store, pins["causal_design"])
-    report = derive_identification_report(CausalDesign.model_validate(causal_design))
-    if report is None:
-        return None
-    validated = report.model_dump(mode="json")
+    report = identify_model(read_model(store, pins["model"]))
     return store.write_version(
         "identification_report",
         provenance="computed",
         derived_from=pins,
         produced_by="derive:identification_report",
-        json_files={json_filename("identification_report", "identification_report"): validated},
+        json_files={
+            json_filename("identification_report", "identification_report"): report.model_dump(
+                mode="json"
+            )
+        },
     )
 
 
@@ -285,9 +191,9 @@ def _derive_validation_report(
         validate_extraction,
     )
 
-    causal_design = _read_causal_design(store, pins["causal_design"])
+    model = read_model(store, pins["model"])
     panel = _read_panel(store, pins["panel"])
-    audit_result = validate_extraction(causal_design, [panel])
+    audit_result = validate_extraction(model, [panel])
     if not audit_result:
         raise RuntimeError(
             "validation_report derivation returned an empty audit result; "
@@ -313,37 +219,5 @@ def _derive_validation_report(
     )
 
 
-def _derive_compiled_ssm(
-    store: ArtifactStore,
-    pins: dict[ArtifactId, int],
-) -> ArtifactVersionInfo:
-    from nof1_causal_lab.artifacts.statistical_model_spec import StatisticalModelSpec
-    from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
-
-    structural_plan = _read_structural_plan(store, pins["structural_plan"])
-    report = store.read_json_file(
-        "statistical_model_spec",
-        pins["statistical_model_spec"],
-        json_filename("statistical_model_spec", "statistical_model_spec"),
-    )
-    statistical_model_spec = StatisticalModelSpec.model_validate(report["statistical_model_spec"])
-    compiled_ssm = compile_ssm_artifact(
-        statistical_model_spec,
-        structural_plan=structural_plan,
-    )
-    return store.write_version(
-        "compiled_ssm",
-        provenance="computed",
-        derived_from=pins,
-        produced_by="derive:compiled_ssm",
-        json_files={
-            json_filename("compiled_ssm", "compiled_ssm"): compiled_ssm.model_dump(mode="json"),
-            json_filename("compiled_ssm", "report"): report,
-        },
-    )
-
-
 def _empty_finding_reason(artifact_id: ArtifactId) -> str:
-    if artifact_id == "identification_report":
-        return "causal_design.identifiability.identifiable_treatments"
-    raise AssertionError(f"Unexpected optional derivation with empty finding: {artifact_id}")
+    return f"{artifact_id}.model_requirements_missing"

@@ -26,27 +26,6 @@
       "scripts/validate_run.py",
       "<module>",
       "unchecked-json-usage",
-      "UncheckedJsonObject[10]"
-    ],
-    [
-      "CUSTOM005",
-      "src/nof1_causal_lab/artifacts/latent_structure.py",
-      "<module>",
-      "unchecked-json-usage",
-      "UncheckedJsonObject[1]"
-    ],
-    [
-      "CUSTOM005",
-      "src/nof1_causal_lab/artifacts/measurement_structure.py",
-      "<module>",
-      "unchecked-json-usage",
-      "UncheckedJsonObject[1]"
-    ],
-    [
-      "CUSTOM005",
-      "src/nof1_causal_lab/artifacts/statistical_model_spec.py",
-      "<module>",
-      "unchecked-json-usage",
       "UncheckedJsonObject[2]"
     ],
     [
@@ -72,13 +51,6 @@
     ],
     [
       "CUSTOM005",
-      "src/nof1_causal_lab/flows/pipeline_helpers.py",
-      "<module>",
-      "unchecked-json-usage",
-      "UncheckedJsonObject[1]"
-    ],
-    [
-      "CUSTOM005",
       "src/nof1_causal_lab/flows/transitions/analysis/interventions.py",
       "<module>",
       "unchecked-json-usage",
@@ -89,7 +61,7 @@
       "src/nof1_causal_lab/flows/transitions/extraction/materialization.py",
       "<module>",
       "unchecked-json-usage",
-      "UncheckedJsonObject[3]"
+      "UncheckedJsonObject[1]"
     ],
     [
       "CUSTOM005",
@@ -121,20 +93,6 @@
     ],
     [
       "CUSTOM005",
-      "src/nof1_causal_lab/flows/transitions/measurement_structure/assemble.py",
-      "<module>",
-      "unchecked-json-usage",
-      "UncheckedJsonObject[5]"
-    ],
-    [
-      "CUSTOM005",
-      "src/nof1_causal_lab/flows/transitions/measurement_structure/grounding.py",
-      "<module>",
-      "unchecked-json-usage",
-      "UncheckedJsonObject[3]"
-    ],
-    [
-      "CUSTOM005",
       "src/nof1_causal_lab/flows/transitions/measurement_structure/prompting/__init__.py",
       "<module>",
       "unchecked-json-usage",
@@ -145,35 +103,21 @@
       "src/nof1_causal_lab/flows/transitions/model_spec/agentic/construct_flow.py",
       "<module>",
       "unchecked-json-usage",
-      "UncheckedJsonObject[12]"
+      "UncheckedJsonObject[10]"
     ],
     [
       "CUSTOM005",
       "src/nof1_causal_lab/flows/transitions/model_spec/agentic/construct_prompt.py",
       "<module>",
       "unchecked-json-usage",
-      "UncheckedJsonObject[8]"
-    ],
-    [
-      "CUSTOM005",
-      "src/nof1_causal_lab/flows/transitions/model_spec/agentic/parameter_surfaces.py",
-      "<module>",
-      "unchecked-json-usage",
-      "UncheckedJsonObject[2]"
-    ],
-    [
-      "CUSTOM005",
-      "src/nof1_causal_lab/flows/transitions/model_spec/agentic/skeleton.py",
-      "<module>",
-      "unchecked-json-usage",
-      "UncheckedJsonObject[47]"
+      "UncheckedJsonObject[7]"
     ],
     [
       "CUSTOM005",
       "src/nof1_causal_lab/flows/transitions/model_spec/assembly.py",
       "<module>",
       "unchecked-json-usage",
-      "UncheckedJsonObject[6]"
+      "UncheckedJsonObject[5]"
     ],
     [
       "CUSTOM005",
@@ -194,7 +138,7 @@
       "src/nof1_causal_lab/flows/transitions/validation/flow.py",
       "<module>",
       "unchecked-json-usage",
-      "UncheckedJsonObject[2]"
+      "UncheckedJsonObject[1]"
     ],
     [
       "CUSTOM005",
@@ -202,13 +146,6 @@
       "<module>",
       "unchecked-json-usage",
       "UncheckedJsonObject[19]"
-    ],
-    [
-      "CUSTOM005",
-      "src/nof1_causal_lab/machine/derivations.py",
-      "<module>",
-      "unchecked-json-usage",
-      "UncheckedJsonObject[3]"
     ],
     [
       "CUSTOM005",
@@ -222,7 +159,7 @@
       "src/nof1_causal_lab/machine/store.py",
       "<module>",
       "unchecked-json-usage",
-      "UncheckedJsonObject[3]"
+      "UncheckedJsonObject[2]"
     ],
     [
       "CUSTOM005",
@@ -250,14 +187,14 @@
       "src/nof1_causal_lab/machine/temporal/measurement_activities.py",
       "<module>",
       "unchecked-json-usage",
-      "UncheckedJsonObject[6]"
+      "UncheckedJsonObject[2]"
     ],
     [
       "CUSTOM005",
       "src/nof1_causal_lab/machine/temporal/model_spec_checkpoints.py",
       "<module>",
       "unchecked-json-usage",
-      "UncheckedJsonObject[6]"
+      "UncheckedJsonObject[2]"
     ],
     [
       "CUSTOM005",
@@ -278,7 +215,7 @@
       "src/nof1_causal_lab/machine/writes.py",
       "<module>",
       "unchecked-json-usage",
-      "UncheckedJsonObject[6]"
+      "UncheckedJsonObject[4]"
     ],
     [
       "CUSTOM005",
@@ -289,24 +226,10 @@
     ],
     [
       "CUSTOM005",
-      "src/nof1_causal_lab/models/ssm/compile/artifact.py",
-      "<module>",
-      "unchecked-json-usage",
-      "UncheckedJsonObject[1]"
-    ],
-    [
-      "CUSTOM005",
-      "src/nof1_causal_lab/models/ssm/compile/structural/closure.py",
-      "<module>",
-      "unchecked-json-usage",
-      "UncheckedJsonObject[3]"
-    ],
-    [
-      "CUSTOM005",
       "src/nof1_causal_lab/models/ssm/counterfactual/orchestration.py",
       "<module>",
       "unchecked-json-usage",
-      "UncheckedJsonObject[7]"
+      "UncheckedJsonObject[5]"
     ],
     [
       "CUSTOM005",
@@ -320,7 +243,7 @@
       "src/nof1_causal_lab/models/ssm/dynamics/serialization.py",
       "<module>",
       "unchecked-json-usage",
-      "UncheckedJsonObject[5]"
+      "UncheckedJsonObject[3]"
     ],
     [
       "CUSTOM005",
@@ -345,17 +268,10 @@
     ],
     [
       "CUSTOM005",
-      "src/nof1_causal_lab/models/ssm/serialization.py",
-      "<module>",
-      "unchecked-json-usage",
-      "UncheckedJsonObject[8]"
-    ],
-    [
-      "CUSTOM005",
       "src/nof1_causal_lab/tool_server.py",
       "<module>",
       "unchecked-json-usage",
-      "UncheckedJsonObject[50]"
+      "UncheckedJsonObject[44]"
     ],
     [
       "CUSTOM005",
@@ -369,7 +285,7 @@
       "src/nof1_causal_lab/utils/causal_design.py",
       "<module>",
       "unchecked-json-usage",
-      "UncheckedJsonObject[23]"
+      "UncheckedJsonObject[17]"
     ],
     [
       "CUSTOM005",
@@ -464,10 +380,10 @@
     ],
     [
       "CUSTOM005",
-      "src/nof1_causal_lab/utils/structural_plan.py",
+      "src/nof1_causal_lab/utils/model_structure.py",
       "<module>",
       "unchecked-json-usage",
-      "UncheckedJsonObject[10]"
+      "UncheckedJsonObject[9]"
     ],
     [
       "CUSTOM005",

@@ -17,17 +17,161 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Final
 
 from nof1_causal_lab.distributions import (
     OBSERVATION_FAMILY_SPECS,
     OBSERVATION_LINK_VALUES_BY_DISTRIBUTION,
-    PARAMETER_ROLE_SPECS,
     PRIOR_FAMILY_SPECS,
     VALID_LIKELIHOODS_FOR_DTYPE,
     DistributionFamily,
+    constraint_domain,
     render_prior_parameter_guidance_markdown_table,
 )
+
+
+@dataclass(frozen=True)
+class ParameterRoleSpec:
+    """Metadata for a parameter role used by docs codegen and validation."""
+
+    role: str  # matches ParameterRole enum value
+    symbol: str
+    count: str
+    constraint: str  # matches ParameterConstraint enum value
+    ssm_location: str
+    note: str = ""
+
+    @property
+    def domain(self) -> str:
+        return constraint_domain(self.constraint)
+
+
+PARAMETER_ROLE_SPECS: Final[tuple[ParameterRoleSpec, ...]] = (
+    ParameterRoleSpec(
+        role="ar_coefficient",
+        symbol="rho",
+        count="One per endogenous time-varying construct",
+        constraint="unit_interval",
+        ssm_location="State-decay dynamics site",
+        note="model-spec elicits baseline discrete-time persistence absent feedback; "
+        "[compilation](../compilation.md) binds it to the owning decay component "
+        "and converts to continuous-time decay scale",
+    ),
+    ParameterRoleSpec(
+        role="fixed_effect",
+        symbol="beta",
+        count="One per causal edge",
+        constraint="none",
+        ssm_location="Dynamics edge or input-effect site",
+        note="Causal effects can be positive or negative; compiler binds each "
+        "coefficient to the owning edge component or known-input effect site",
+    ),
+    ParameterRoleSpec(
+        role="dynamics_parameter",
+        symbol="theta",
+        count="One per real-valued component-owned dynamics parameter",
+        constraint="none",
+        ssm_location="Component dynamics site",
+        note="Used for component-owned dynamics parameters that are not authored "
+        "as interval-scale effect coefficients.",
+    ),
+    ParameterRoleSpec(
+        role="dynamics_parameter_positive",
+        symbol="theta+",
+        count="One per positive component-owned dynamics parameter",
+        constraint="positive",
+        ssm_location="Component dynamics site",
+        note="Used for positive component-owned dynamics parameters such as Hill Emax and EC50.",
+    ),
+    ParameterRoleSpec(
+        role="residual_sd",
+        symbol="sigma",
+        count="One per construct",
+        constraint="positive",
+        ssm_location="Diffusion diagonal",
+    ),
+    ParameterRoleSpec(
+        role="state_intercept",
+        symbol="cint",
+        count="One per eligible dynamic construct when equilibrium forcing is enabled",
+        constraint="none",
+        ssm_location="Continuous-time state intercept",
+    ),
+    ParameterRoleSpec(
+        role="observation_intercept",
+        symbol="manifest_mean",
+        count="One per manifest channel whose observation family requires a baseline intercept",
+        constraint="none",
+        ssm_location="Manifest intercept vector",
+    ),
+    ParameterRoleSpec(
+        role="initial_state_mean",
+        symbol="t0_mean",
+        count="One per latent construct",
+        constraint="none",
+        ssm_location="Initial-state mean vector",
+    ),
+    ParameterRoleSpec(
+        role="initial_state_sd",
+        symbol="t0_sd",
+        count="One per latent construct",
+        constraint="positive",
+        ssm_location="Initial-state covariance diagonal",
+    ),
+    ParameterRoleSpec(
+        role="static_state_sd",
+        symbol="tau",
+        count="One per compiled baseline factor induced by marginalized time-invariant confounders",
+        constraint="positive",
+        ssm_location="Static baseline-factor covariance",
+        note="Used to build low-rank initial-state covariance contributions of the form "
+        "`B diag(tau^2) B^T`.",
+    ),
+    ParameterRoleSpec(
+        role="loading",
+        symbol="lambda",
+        count="One per non-reference indicator in multi-indicator constructs",
+        constraint="positive",
+        ssm_location="Observation model",
+        note="measurement-structure indicator polarity fixes each loading sign as either "
+        "`positive` or `negative`; model-spec no longer chooses loading orientation",
+    ),
+    ParameterRoleSpec(
+        role="measurement_error_sd",
+        symbol="obs_sd",
+        count="One per free manifest measurement-error SD",
+        constraint="positive",
+        ssm_location="Manifest variance diagonal",
+        note="Surfaced only when measurement error is separately estimated "
+        "(multi-indicator constructs).",
+    ),
+    ParameterRoleSpec(
+        role="observation_hyperparameter",
+        symbol="obs_*",
+        count="One per active real-valued observation-family hyperparameter site",
+        constraint="none",
+        ssm_location="Observation-family auxiliary site",
+        note="Examples include ordered-threshold bases and categorical logit offsets.",
+    ),
+    ParameterRoleSpec(
+        role="observation_hyperparameter_positive",
+        symbol="obs_*",
+        count="One per active positive observation-family hyperparameter site",
+        constraint="positive",
+        ssm_location="Observation-family auxiliary site",
+        note="Examples include Student-t degrees of freedom, Gamma shape, and NB dispersion.",
+    ),
+    ParameterRoleSpec(
+        role="correlation",
+        symbol="cor",
+        count="One per construct-pair with marginalized confounder",
+        constraint="correlation",
+        ssm_location="Diffusion covariance",
+    ),
+)
+
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _DOCS_DIR = _REPO_ROOT / "docs" / "reference" / "statistical-model-spec"
@@ -82,7 +226,7 @@ def _render_dtype_likelihood_markdown_table() -> str:
 def _render_distribution_families_prose() -> str:
     names = [f"`{spec.family.value}`" for spec in OBSERVATION_FAMILY_SPECS]
     return (
-        "`DistributionFamily` enumerates the valid likelihood distribution names: "
+        "`DistributionFamily` names the internal numerical emission kernels: "
         f"{', '.join(names[:-1])}, and {names[-1]}."
     )
 
@@ -92,7 +236,7 @@ def _render_link_functions_prose() -> str:
         dict.fromkeys(f"`{link}`" for spec in OBSERVATION_FAMILY_SPECS for link in spec.links)
     )
     return (
-        "`LinkFunction` enumerates the valid link function names: "
+        "`LinkFunction` names the internal responses derived from conditional expressions: "
         f"{', '.join(links[:-1])}, and {links[-1]}."
     )
 
@@ -137,8 +281,9 @@ def _export_parameters(*, check: bool) -> bool:
 
     roles_body = "\n".join(
         [
-            "The [model-spec skeleton](../../pipeline/statistical-model-spec.md) creates exactly "
-            "the following parameters from a [`StructuralPlan`](../../pipeline/measurement-structure.md#structuralplan):",
+            "[Component authoring](../../pipeline/statistical-model-spec.md) derives these prompt roles "
+            "from the coefficient slots of a concrete model proposal. Fixed slots need no prior; "
+            "roles and constraints are not stored again on the parameter definition:",
             "",
             _render_parameter_roles_markdown_table(),
             "",
@@ -183,9 +328,9 @@ def _export_likelihoods(*, check: bool) -> bool:
     dtype_body = "\n".join(
         [
             "Each indicator's [`measurement_dtype`](../../pipeline/measurement-structure.md#indicator) "
-            "determines the default distribution and link function. "
+            "selects the default conditional law. The family and link names below describe its numerical lowering. "
             "Where the dtype admits only one valid combination, the likelihood is locked "
-            "deterministically by the [model-spec skeleton](../../pipeline/statistical-model-spec.md). "
+            "by [component authoring](../../pipeline/statistical-model-spec.md). "
             "Where alternatives exist, the LLM chooses via a decision card.",
             "",
             _render_dtype_likelihood_markdown_table(),

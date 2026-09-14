@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 
-from nof1_causal_lab.machine.moves import RunArtifact
+from nof1_causal_lab.machine.moves import RunOperation
 from nof1_causal_lab.machine.store import EpisodeJournal, ResumeRef, TransitionRecord
 from nof1_causal_lab.machine.sweep import sweep_workspace
 from nof1_causal_lab.utils import data as data_module
@@ -27,7 +27,7 @@ def test_offline_run_collection_preserves_only_latest_resume_run(monkeypatch, tm
         TransitionRecord(
             seq=3,
             ts="2026-07-15T00:00:00Z",
-            move=RunArtifact(artifact_id="statistical_model_spec"),
+            move=RunOperation(operation_id="statistical_model_spec"),
             status="raised",
             trace_ids=[],
             resume=ResumeRef(

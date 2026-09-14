@@ -31,6 +31,8 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 import equinox as eqx
 import jax.numpy as jnp
 
+from nof1_causal_lab.scalar_functions import hill_response
+
 if TYPE_CHECKING:
     from jax import Array
 
@@ -155,37 +157,6 @@ class StateIntercept(eqx.Module):
         return accumulator.at[self.target].add(params["cint"])
 
 
-class NodePotential(eqx.Module):
-    """Node-intrinsic self-regulation: ``drift = -dV/dη`` at ``target``.
-
-    The potential is ``V(η) = ½·stiffness·d² + ¼·quartic·d⁴`` with
-    ``d = η[target] - center``, so the contribution is
-    ``-(stiffness·d + quartic·d³)``.
-
-    This is the gradient (curl-free) part of the drift — node self-dynamics,
-    *not* a directed edge. ``quartic == 0`` reproduces ``StateDecay`` +
-    ``StateIntercept`` exactly (``-stiffness·(η-center) = -stiffness·η +
-    stiffness·center``), so ``stiffness`` is the relaxation rate and ``center``
-    is the set-point (the well minimum). ``quartic > 0`` adds stiffening
-    self-limitation (bounded excursions); a bistable landscape is a later
-    opt-in variant.
-    """
-
-    target: int = eqx.field(static=True)
-
-    def contribute(
-        self,
-        accumulator: Array,
-        eta: Array,
-        _eta_per_edge: Array,
-        _t: Array,
-        params: dict[str, Array],
-    ) -> Array:
-        d = eta[self.target] - params["center"]
-        force = params["stiffness"] * d + params["quartic"] * d**3  # dV/dη
-        return accumulator.at[self.target].add(-force)
-
-
 # ---------------------------------------------------------------------------
 # Single-target edges
 # ---------------------------------------------------------------------------
@@ -214,50 +185,7 @@ class LinearEdge(eqx.Module):
         return accumulator.at[self.target].add(contribution)
 
 
-class HillEdge(eqx.Module):
-    """Saturating dose-response ``Emax · x^n / (EC50^n + x^n)`` at ``target``.
-
-    Source values are clamped to non-negative since the Hill form is
-    defined for pharmacological concentrations. A tiny denominator
-    jitter keeps gradients finite at ``x = 0``.
-    """
-
-    source: int = eqx.field(static=True)
-    target: int = eqx.field(static=True)
-
-    def contribute(
-        self,
-        accumulator: Array,
-        _eta: Array,
-        eta_per_edge: Array,
-        _t: Array,
-        params: dict[str, Array],
-    ) -> Array:
-        x = jnp.maximum(eta_per_edge[self.target, self.source], 0.0)
-        x_n = x ** params["n"]
-        ec50_n = params["EC50"] ** params["n"]
-        contribution = params["Emax"] * x_n / (ec50_n + x_n + 1e-12)
-        return accumulator.at[self.target].add(contribution)
 
 
-class MultiplicativeEdge(eqx.Module):
-    """Bilinear coupling ``w · η[source_a] · η[source_b]`` at ``target``.
 
-    Both sources obey edge-input overrides via ``eta_per_edge``.
-    """
 
-    source_a: int = eqx.field(static=True)
-    source_b: int = eqx.field(static=True)
-    target: int = eqx.field(static=True)
-
-    def contribute(
-        self,
-        accumulator: Array,
-        _eta: Array,
-        eta_per_edge: Array,
-        _t: Array,
-        params: dict[str, Array],
-    ) -> Array:
-        a = eta_per_edge[self.target, self.source_a]
-        b = eta_per_edge[self.target, self.source_b]
-        return accumulator.at[self.target].add(params["weight"] * a * b)

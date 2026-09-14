@@ -8,7 +8,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
-from nof1_causal_lab.machine.moves import RunArtifact
+from nof1_causal_lab.machine.moves import RunOperation
 from nof1_causal_lab.machine.store import EpisodeJournal, TransitionRecord
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
@@ -32,8 +32,8 @@ def _latest_resume_run(records: list[TransitionRecord]) -> str | None:
     """Resume root selected by the latest model-spec transition attempt."""
     for record in reversed(records):
         if not (
-            isinstance(record.move, RunArtifact)
-            and record.move.artifact_id == "statistical_model_spec"
+            isinstance(record.move, RunOperation)
+            and record.move.operation_id == "statistical_model_spec"
         ):
             continue
         if record.status == "raised" and record.resume is not None:

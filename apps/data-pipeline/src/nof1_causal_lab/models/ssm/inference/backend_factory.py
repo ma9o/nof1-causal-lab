@@ -4,13 +4,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from nof1_causal_lab.models.ssm import numerics as numeric
+
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.model import SSMModel, SSMSpec
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.models.ssm.model import SSMModel
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
 
 def build_laplace_backend(
-    spec: SSMSpec,
+    spec: ModelSpec,
     n_ieks_iters: int,
     observation_support: ObservationSupportRuntime | None = None,
 ):
@@ -22,8 +25,8 @@ def build_laplace_backend(
     )
 
     return LaplaceLikelihood(
-        n_latent=spec.n_latent,
-        n_manifest=spec.n_manifest,
+        n_latent=numeric.n_states(spec),
+        n_manifest=numeric.n_observations(spec),
         manifest_dists=get_per_channel_manifest(spec),
         manifest_links=get_per_channel_links(spec),
         n_ieks_iters=n_ieks_iters,

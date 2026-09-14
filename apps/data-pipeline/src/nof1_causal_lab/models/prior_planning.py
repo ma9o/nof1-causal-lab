@@ -4,99 +4,70 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from nof1_causal_lab.artifacts.statistical_model_spec import (
-    ParameterConstraint,
-    ParameterRole,
-    ParameterSpec,
-    StatisticalModelSpec,
-)
-from nof1_causal_lab.distributions import PriorDistributionFamily
-from nof1_causal_lab.prior_distributions import distribution_from_params
-
 if TYPE_CHECKING:
     import numpyro.distributions as dist
 
-    from nof1_causal_lab.json_types import JsonObject
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.parameter_spec import (
+        ParameterSpec,
+    )
+    from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
 
 
-def default_parameter_prior(parameter: ParameterSpec) -> dist.Distribution:
-    """Choose the explicit authoring default for one semantic parameter."""
-    if parameter.role == ParameterRole.AR_COEFFICIENT:
-        distribution = PriorDistributionFamily.BETA
-        params = {"alpha": 2.0, "beta": 2.0}
-    elif parameter.role == ParameterRole.LOADING:
-        distribution = PriorDistributionFamily.NORMAL
-        params = {
-            "mu": -0.5 if parameter.constraint == ParameterConstraint.NEGATIVE else 0.5,
-            "sigma": 0.5,
-        }
-    elif parameter.constraint == ParameterConstraint.POSITIVE:
-        distribution = PriorDistributionFamily.HALF_NORMAL
-        params = {"sigma": 1.0}
-    elif parameter.constraint == ParameterConstraint.NEGATIVE:
-        distribution = PriorDistributionFamily.TRUNCATED_NORMAL
-        params = {"mu": -1.0, "sigma": 0.5, "lower": -5.0, "upper": 0.0}
-    elif parameter.constraint == ParameterConstraint.UNIT_INTERVAL:
-        distribution = PriorDistributionFamily.BETA
-        params = {"alpha": 2.0, "beta": 2.0}
-    elif parameter.constraint == ParameterConstraint.CORRELATION:
-        distribution = PriorDistributionFamily.UNIFORM
-        params = {"lower": -1.0, "upper": 1.0}
-    else:
-        distribution = PriorDistributionFamily.NORMAL
-        params = {"mu": 0.0, "sigma": 0.5}
+def default_parameter_prior(
+    parameter: ParameterSpec, model: ModelSpec, site: SiteDescriptor
+) -> dist.Distribution:
+    """The authored default policy, using native support and the owner's orientation."""
+    import numpyro.distributions as dist
 
-    if parameter.role in (ParameterRole.RESIDUAL_SD, ParameterRole.STATIC_STATE_SD):
-        distribution = PriorDistributionFamily.HALF_NORMAL
-        params = {"sigma": 1.0}
+    from nof1_causal_lab.artifacts.parameter import PriorAuthoringTransform, SiteKind, SupportClass
 
-    return distribution_from_params(distribution, params)
+    if parameter.distribution_transform == PriorAuthoringTransform.DT_PERSISTENCE_TO_CT_DECAY:
+        return dist.Beta(2.0, 2.0)
+    if site.site_kind == SiteKind.LOADING:
+        indicator = model.indicator(
+            next(
+                owner.id
+                for owner in model.parameter_context(parameter.id).owners
+                if owner.kind == "indicator"
+            )
+        )
+        return dist.Normal(-0.5 if indicator.construct_polarity.value == "negative" else 0.5, 0.5)
+    if site.support == SupportClass.POSITIVE:
+        return dist.HalfNormal(1.0)
+    if site.support == SupportClass.CORRELATION:
+        return dist.Uniform(-1.0, 1.0)
+    return dist.Normal(0.0, 0.5)
 
 
-def complete_parameter_priors(model: StatisticalModelSpec) -> StatisticalModelSpec:
-    """Apply the model's explicit default policy to its still-unassigned parameters."""
-    return model.model_copy(
-        update={
-            "parameters": [
-                parameter
-                if parameter.prior is not None
-                else parameter.model_copy(
-                    update={
-                        "prior": default_parameter_prior(parameter),
-                        "prior_reasoning": "Default scientific prior policy.",
-                    }
-                )
-                for parameter in model.parameters
-            ]
-        }
+def complete_parameter_priors(model: ModelSpec) -> ModelSpec:
+    """Apply the explicit default policy using the native sites of this scientific model."""
+    from nof1_causal_lab.models.ssm.compile.prior_indexing import build_semantic_prior_bindings
+    from nof1_causal_lab.models.ssm.parameterization import build_site_registry
+
+    model.require_execution_structure()
+    bindings = build_semantic_prior_bindings(model).by_parameter
+    sites = {site.name: site for site in build_site_registry(model)}
+    return model.revised(
+        parameters=tuple(
+            parameter
+            if parameter.distribution is not None or parameter.value is not None
+            else parameter.model_copy(
+                update={
+                    "distribution": default_parameter_prior(
+                        parameter, model, sites[bindings[parameter.id].site_name]
+                    ),
+                }
+            )
+            for parameter in model.parameters
+        )
     )
 
 
-def parameter_with_prior(parameter: ParameterSpec, payload: JsonObject) -> ParameterSpec:
-    """Attach a tool submission's distribution and scientific evidence to its parameter."""
-    from pydantic import TypeAdapter
+def complete_model(model: ModelSpec) -> ModelSpec:
+    """Explicitly complete the scientific inventory and prior policy before committing."""
+    from nof1_causal_lab.models.parameter_planning import complete_component_slots
 
-    from nof1_causal_lab.artifacts.prior import DensityPoint, PriorSource
-
-    supplied_id = payload.get("parameter_id")
-    if supplied_id is not None and supplied_id != parameter.id:
-        raise ValueError(f"Prior for {parameter.name!r} references a different parameter")
-    params = payload["params"]
-    if not isinstance(params, dict):
-        raise ValueError("Prior constructor params must be a JSON object")
-    return ParameterSpec.model_validate(
-        {
-            **parameter.model_dump(mode="python"),
-            "prior": distribution_from_params(
-                PriorDistributionFamily(payload["distribution"]), params
-            ),
-            "reference_interval_days": payload.get("reference_interval_days"),
-            "prior_reasoning": payload.get("reasoning", ""),
-            "prior_sources": TypeAdapter(list[PriorSource]).validate_python(
-                payload.get("sources", [])
-            ),
-            "prior_density_points": TypeAdapter(list[DensityPoint] | None).validate_python(
-                payload.get("density_points")
-            ),
-        }
-    )
+    model.require_execution_structure()
+    candidate = complete_component_slots(model)
+    return complete_parameter_priors(candidate)

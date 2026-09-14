@@ -3,17 +3,18 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import asdict
 from typing import TYPE_CHECKING, Any
 
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.errors import ModelFitError
-from nof1_causal_lab.models.ssm.inference import FittedArtifact, ParticleMCMCPosterior
+from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior
+from nof1_causal_lab.models.ssm.inference.persistence import condition_model
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.compiled_ssm import CompiledSSMArtifact
-    from nof1_causal_lab.artifacts.posterior import PosteriorProvenance
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.sampler_config import SamplerConfig
 
 
@@ -50,10 +51,11 @@ def build_sampler_config(inference_method: str | None) -> SamplerConfig:
 
 def run_inference_with_data(
     *,
-    compiled_ssm: CompiledSSMArtifact,
+    model_spec: ModelSpec,
     data_for_model: Any,
     sampler_config: SamplerConfig,
-    provenance: PosteriorProvenance,
+    array_writer,
+    array_loader,
     workspace_id: str,
     compute_loo_diagnostics: bool,
 ) -> UncheckedJsonObject:
@@ -61,7 +63,7 @@ def run_inference_with_data(
     from .fit import fit_model, run_ppc
 
     fitted_result = fit_model(
-        compiled_ssm,
+        model_spec,
         data_for_model,
         sampler_config=sampler_config,
         workspace_id=workspace_id,
@@ -81,8 +83,7 @@ def run_inference_with_data(
             transition_id="posterior",
             diagnostics={
                 "inference_metadata": inference_metadata,
-                "mcmc_diagnostics": fitted_result.get("mcmc_diagnostics"),
-                "smc_diagnostics": fitted_result.get("smc_diagnostics"),
+                "inference_diagnostics": fitted_result.get("inference_diagnostics"),
             },
         )
 
@@ -94,25 +95,23 @@ def run_inference_with_data(
             transition_id="posterior",
         )
 
-    fitted_artifact = FittedArtifact(
-        result=result,
-        spec=fitted_result["spec"],
+    conditioned = condition_model(
+        model_spec,
+        result,
         times=fitted_result["times"],
-        provenance=provenance,
-        observation_support=fitted_result["runtime"].observation_support,
+        array_writer=array_writer,
+        array_loader=array_loader,
     )
 
     _log_ppc(ppc_result)
 
     return {
-        "_fitted_artifact": fitted_artifact,
-        "draws": result.draws.describe().model_dump(mode="json"),
-        "provenance": provenance.model_dump(mode="json"),
+        "_model": conditioned,
+        "engine_evidence": asdict(result.evidence),
         "inference_metadata": inference_metadata,
+        "inference_diagnostics": fitted_result["inference_diagnostics"],
         "assessment": {
             "ppc": ppc_result,
-            "mcmc_diagnostics": fitted_result.get("mcmc_diagnostics"),
-            "smc_diagnostics": fitted_result.get("smc_diagnostics"),
             "loo_diagnostics": fitted_result.get("loo_diagnostics"),
         },
         "posterior_marginals": fitted_result.get("posterior_marginals"),

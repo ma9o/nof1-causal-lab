@@ -11,7 +11,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from nof1_causal_lab.artifacts.identity import ArtifactId  # noqa: TC001
+from nof1_causal_lab.artifacts.identity import ArtifactId, OperationId  # noqa: TC001
 from nof1_causal_lab.json_types import JsonObject  # noqa: TC001
 from nof1_causal_lab.machine.artifacts import (  # noqa: TC001
     ArtifactVersionInfo,
@@ -67,11 +67,11 @@ class MoveRequest(BaseModel):
     options: ExecOptions = Field(default_factory=ExecOptions)  # run moves
 
 
-class RunArtifactInput(BaseModel):
+class RunOperationInput(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     workspace_id: str
-    artifact_id: ArtifactId
+    operation_id: OperationId
     state: EpisodeState
     options: ExecOptions = Field(default_factory=ExecOptions)
 
@@ -647,6 +647,7 @@ class WriteArtifactInput(BaseModel):
     payload: JsonObject
     provenance: Provenance
     state: EpisodeState
+    expected_model_version: int | None = Field(default=None, ge=0)
 
 
 class JournalInput(BaseModel):

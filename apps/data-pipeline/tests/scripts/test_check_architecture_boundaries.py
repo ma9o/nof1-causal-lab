@@ -33,8 +33,8 @@ def test_promoted_boundaries_reject_upward_runtime_imports(tmp_path: Path) -> No
         source_root,
         "models/ssm/compile/example.py",
         """
-from nof1_causal_lab.models.structural import build_structural_plan
-from nof1_causal_lab.models.ssm.runtime import hydrate_compiled_model
+from nof1_causal_lab.utils.identifiability import dag_to_admg
+from nof1_causal_lab.models.ssm.runtime import build_ssm_model
 from nof1_causal_lab.workers.schemas_prior import PriorProposal
 """,
     )
@@ -46,12 +46,12 @@ from nof1_causal_lab.workers.schemas_prior import PriorProposal
     _write_module(
         source_root,
         "models/ssm/runtime.py",
-        "from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact\n",
+        "from nof1_causal_lab.models.model_checks import check_execution\n",
     )
     _write_module(
         source_root,
         "models/ssm/inference/example.py",
-        "from nof1_causal_lab.models.ssm.runtime import hydrate_compiled_model\n",
+        "from nof1_causal_lab.models.ssm.runtime import build_ssm_model\n",
     )
 
     violations = checker.find_violations(source_root)

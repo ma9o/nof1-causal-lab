@@ -7,11 +7,13 @@ table can be deleted (step 3); until then both encodings must agree.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import jax.numpy as jnp
 import numpy as np
 
 from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
-from nof1_causal_lab.models.ssm import SSMSpec
+from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.parameterization import build_site_registry
 from nof1_causal_lab.models.ssm.structure import (
     DiffusionBlockSpec,
@@ -20,7 +22,7 @@ from nof1_causal_lab.models.ssm.structure import (
     SparseVectorBlockSpec,
     T0CholBlockSpec,
 )
-from tests.ssm_spec_fixtures import (
+from tests.model_fixtures import (
     default_diffusion_block,
     default_input_effect_block,
     default_lambda_block,
@@ -31,11 +33,15 @@ from tests.ssm_spec_fixtures import (
     default_t0_means_block,
     dense_matrix_dynamics_spec,
     full_dense_matrix_dynamics_spec,
+    model_fixture,
 )
 
+if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
-def _full_default_spec(n_latent: int = 2, n_manifest: int = 2) -> SSMSpec:
-    return SSMSpec(
+
+def _full_default_spec(n_latent: int = 2, n_manifest: int = 2) -> ModelSpec:
+    return model_fixture(
         n_latent=n_latent,
         n_manifest=n_manifest,
         dynamics_spec=full_dense_matrix_dynamics_spec(n_latent),
@@ -50,11 +56,11 @@ def _full_default_spec(n_latent: int = 2, n_manifest: int = 2) -> SSMSpec:
     )
 
 
-def _sparse_spec_with_inputs_and_static(n_latent: int = 3) -> SSMSpec:
+def _sparse_spec_with_inputs_and_static(n_latent: int = 3) -> ModelSpec:
     n_manifest = 4
     n_input = 2
     n_static = 1
-    return SSMSpec(
+    return model_fixture(
         n_latent=n_latent,
         n_manifest=n_manifest,
         dynamics_spec=dense_matrix_dynamics_spec(
@@ -119,7 +125,7 @@ def _sparse_spec_with_inputs_and_static(n_latent: int = 3) -> SSMSpec:
             fixed_spec_field="static_state_sds",
             priors_field="static_state_sd",
         ),
-        static_factor_loadings=jnp.zeros((n_latent, n_static)),
+        static_factor_loadings=jnp.ones((n_latent, n_static)),
         input_names=[f"input_{i}" for i in range(n_input)],
         input_source_indicators=[f"input_{i}" for i in range(n_input)],
         input_scales=[1.0] * n_input,
@@ -129,9 +135,9 @@ def _sparse_spec_with_inputs_and_static(n_latent: int = 3) -> SSMSpec:
     )
 
 
-def _all_fixed_spec(n_latent: int = 2) -> SSMSpec:
+def _all_fixed_spec(n_latent: int = 2) -> ModelSpec:
     n_manifest = 2
-    return SSMSpec(
+    return model_fixture(
         n_latent=n_latent,
         n_manifest=n_manifest,
         dynamics_spec=dense_matrix_dynamics_spec(
@@ -215,10 +221,10 @@ def _descriptor_fields(s):
     )
 
 
-def _compare_block_owned_with_registry(spec: SSMSpec) -> None:
+def _compare_block_owned_with_registry(spec: ModelSpec) -> None:
     # registry has likelihood extras; restrict to the dense-linear core sites.
     legacy = [s for s in build_site_registry(spec) if s.assembly_group != "likelihood"]
-    block_owned = sorted(spec.iter_sample_sites(), key=lambda s: s.name)
+    block_owned = sorted(numeric.iter_sample_sites(spec), key=lambda s: s.name)
 
     legacy_by_name = {s.name: s for s in legacy}
     new_by_name = {s.name: s for s in block_owned}
@@ -245,5 +251,5 @@ def test_sparse_spec_with_inputs_and_static_equivalence():
 
 def test_all_fixed_spec_yields_no_sites():
     spec = _all_fixed_spec()
-    assert list(spec.iter_sample_sites()) == []
+    assert list(numeric.iter_sample_sites(spec)) == []
     _compare_block_owned_with_registry(spec)

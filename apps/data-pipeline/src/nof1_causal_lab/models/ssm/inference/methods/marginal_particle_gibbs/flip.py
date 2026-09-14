@@ -28,6 +28,8 @@ import jax.numpy as jnp
 from jax.flatten_util import ravel_pytree
 from numpyro.distributions.transforms import IdentityTransform
 
+from nof1_causal_lab.models.ssm import numerics as numeric
+
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.inference.problem import ParticleProblem
     from nof1_causal_lab.models.ssm.model import SSMModel
@@ -54,7 +56,7 @@ def build_sign_flip_spec(model: SSMModel, bundle: ParticleProblem) -> SignFlipSp
         )
 
     positions = model.parameter_layout.lambda_free_positions  # [(manifest_row, latent_col)]
-    n_latent = int(model.spec.n_latent)
+    n_latent = int(numeric.n_states(model.spec))
     unravel_fn = bundle.runtime.parameters.unravel
     flat_example = bundle.runtime.initial_position
     base = dict(unravel_fn(jnp.zeros_like(flat_example)))

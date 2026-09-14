@@ -6,29 +6,26 @@ from dataclasses import dataclass
 
 import jax.numpy as jnp
 import numpy as np
-import numpyro.distributions as dist  # noqa: TC002
+import numpyro.distributions as dist
 
-from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
-from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily, LinkFunction
-from nof1_causal_lab.distributions import PriorDistributionFamily
-from nof1_causal_lab.models.ssm.dynamics.spec import (
-    DynamicsSpec,
-    HillEdgeSpec,
-    MultiplicativeEdgeSpec,
-    StateDecaySpec,
+from nof1_causal_lab.artifacts.expressions import (
+    CoefficientExpression,
+    linear_effect,
+    restoring_force,
 )
-from nof1_causal_lab.models.ssm.model import SSMModel, SSMSpec
+from nof1_causal_lab.artifacts.expressions import (
+    hill as expr_hill,
+)
+from nof1_causal_lab.artifacts.expressions import (
+    state as expr_state,
+)
+from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
+from nof1_causal_lab.artifacts.mechanism import DynamicsMechanism
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.parameter import SiteKind
+from nof1_causal_lab.models.likelihoods import observation_law, revise_law
+from nof1_causal_lab.models.ssm.model import SSMModel
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
-from nof1_causal_lab.models.ssm.priors import default_prior_for_descriptor
-from nof1_causal_lab.models.ssm.structure import (
-    DiffusionBlockSpec,
-    Fixed,
-    ManifestCholBlockSpec,
-    SparseMatrixBlockSpec,
-    SparseVectorBlockSpec,
-    T0CholBlockSpec,
-)
-from nof1_causal_lab.prior_distributions import distribution_from_params
 
 LATENT_NAMES = [
     "affective_state",
@@ -39,9 +36,6 @@ LATENT_NAMES = [
 INPUT_NAMES = [
     "serotonergic_exposure",
     "seasonal_load",
-    "prescription_event",
-    "adherence",
-    "cyp2c19_metabolizer_status",
 ]
 
 MANIFEST_NAMES = [
@@ -91,23 +85,18 @@ TRUE_HILL_BY_SITE = {
     "vf_3_Emax": 0.06,  # diminishing returns: sleep_quality -> affective_state
     "vf_3_EC50": 0.70,
     "vf_3_n": 2.0,
-    "vf_4_Emax": 0.045,  # diminishing returns: physical_activity -> affective_state
-    "vf_4_EC50": 0.75,
-    "vf_4_n": 2.0,
-    "vf_5_Emax": 0.035,  # positive mood improves sleep with saturation
-    "vf_5_EC50": 0.80,
+    "vf_5_Emax": 0.045,  # diminishing returns: physical_activity -> affective_state
+    "vf_5_EC50": 0.75,
     "vf_5_n": 2.0,
-    "vf_6_Emax": 0.030,  # behavioral activation saturates
+    "vf_6_Emax": 0.035,  # positive mood improves sleep with saturation
     "vf_6_EC50": 0.80,
     "vf_6_n": 2.0,
-}
-PINNED_HILL_SHAPE_BY_SITE = {
-    name: value
-    for name, value in TRUE_HILL_BY_SITE.items()
-    if name.endswith("_EC50") or name.endswith("_n")
+    "vf_7_Emax": 0.030,  # behavioral activation saturates
+    "vf_7_EC50": 0.80,
+    "vf_7_n": 2.0,
 }
 TRUE_MULTIPLICATIVE_BY_SITE = {
-    "vf_7_weight": 0.025,  # sleep and activity reinforce mood together
+    "vf_4_weight": 0.025,  # sleep and activity reinforce mood together
     "vf_8_weight": 0.020,  # mood and sleep jointly support activity
 }
 TRUE_OBS_R = 12.0
@@ -125,13 +114,12 @@ TRUE_DRIFT = np.asarray(
 TRUE_DIFFUSION_SD = np.asarray([0.18, 0.16, 0.20], dtype=np.float32)
 TRUE_T0_MEAN = np.asarray([0.0, 0.0, 0.0], dtype=np.float32)
 TRUE_T0_SD = np.asarray([0.55, 0.50, 0.55], dtype=np.float32)
-FIXED_CYP2C19_VALUE = np.float32(0.5)
 
 TRUE_INPUT_EFFECT = np.asarray(
     [
-        [0.08, 0.03, 0.00, 0.00, 0.00],
-        [0.02, 0.00, 0.00, 0.00, 0.00],
-        [0.04, 0.00, 0.00, 0.00, 0.00],
+        [0.08, 0.03],
+        [0.02, 0.00],
+        [0.04, 0.00],
     ],
     dtype=np.float32,
 )
@@ -181,6 +169,16 @@ TRUE_MANIFEST_SD = np.asarray(
     dtype=np.float32,
 )
 
+_manifest_order = sorted(
+    range(len(MANIFEST_NAMES)), key=lambda row: int(np.flatnonzero(TRUE_LOADINGS[row])[0])
+)
+MANIFEST_NAMES = [MANIFEST_NAMES[i] for i in _manifest_order]
+MANIFEST_DISTS = [MANIFEST_DISTS[i] for i in _manifest_order]
+MANIFEST_LINKS = [MANIFEST_LINKS[i] for i in _manifest_order]
+TRUE_LOADINGS = TRUE_LOADINGS[_manifest_order]
+TRUE_MANIFEST_MEANS = TRUE_MANIFEST_MEANS[_manifest_order]
+TRUE_MANIFEST_SD = TRUE_MANIFEST_SD[_manifest_order]
+
 EXACT_MEASUREMENT_MANIFEST_INDICES = tuple(
     idx
     for idx, (dist, link) in enumerate(zip(MANIFEST_DISTS, MANIFEST_LINKS, strict=True))
@@ -209,8 +207,8 @@ MEASUREMENT_MEANS_FREE_SUPPORT = np.asarray(
 )
 ANCHOR_LOADING_POSITIONS = (
     (0, 0),  # state_of_mind_valence anchors affective_state
-    (2, 1),  # total_sleep_hours anchors sleep_quality
-    (6, 2),  # daily_step_count anchors physical_activity
+    (MANIFEST_NAMES.index("total_sleep_hours"), 1),  # sleep anchor
+    (MANIFEST_NAMES.index("daily_step_count"), 2),  # activity anchor
 )
 MEASUREMENT_LOADINGS_FREE_SUPPORT = (
     (~np.isclose(TRUE_LOADINGS, 0.0))
@@ -243,184 +241,251 @@ class SyntheticNonlinearData:
     observation_support: ObservationSupportRuntime
 
 
-def _synthetic_nonlinear_dynamics_spec() -> DynamicsSpec:
-    return DynamicsSpec(
-        n_latent=3,
-        components=(
-            StateDecaySpec(target=0),
-            StateDecaySpec(target=1),
-            StateDecaySpec(target=2),
-            HillEdgeSpec(
-                source=1,
-                target=0,
-                ec50=Fixed(TRUE_HILL_BY_SITE["vf_3_EC50"]),
-                n=Fixed(TRUE_HILL_BY_SITE["vf_3_n"]),
-            ),
-            HillEdgeSpec(
-                source=2,
-                target=0,
-                ec50=Fixed(TRUE_HILL_BY_SITE["vf_4_EC50"]),
-                n=Fixed(TRUE_HILL_BY_SITE["vf_4_n"]),
-            ),
-            HillEdgeSpec(
-                source=0,
-                target=1,
-                ec50=Fixed(TRUE_HILL_BY_SITE["vf_5_EC50"]),
-                n=Fixed(TRUE_HILL_BY_SITE["vf_5_n"]),
-            ),
-            HillEdgeSpec(
-                source=0,
-                target=2,
-                ec50=Fixed(TRUE_HILL_BY_SITE["vf_6_EC50"]),
-                n=Fixed(TRUE_HILL_BY_SITE["vf_6_n"]),
-            ),
-            MultiplicativeEdgeSpec(source_a=1, source_b=2, target=0),
-            MultiplicativeEdgeSpec(source_a=0, source_b=1, target=2),
-        ),
+def build_synthetic_nonlinear_spec(*, diffusion_scale: float = 1.0) -> ModelSpec:
+    """Author the nonlinear recovery fixture as one scientific definition."""
+    from nof1_causal_lab.artifacts.coefficient import FixedCoefficient, ParameterCoefficient
+    from nof1_causal_lab.artifacts.construct import CausalEdge, Construct, KnownInput
+    from nof1_causal_lab.artifacts.identity import (
+        ConstructRef,
+        EdgeRef,
+        IndicatorRef,
+        MechanismRef,
+        scientific_id,
     )
+    from nof1_causal_lab.artifacts.indicator import Indicator
+    from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec
+    from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
+    from nof1_causal_lab.artifacts.state_distribution import InitialStateSpec, InnovationSpec
+    from nof1_causal_lab.models.prior_planning import complete_model
 
+    definitions = {}
 
-def build_synthetic_nonlinear_spec():
-    input_support = np.zeros((3, len(INPUT_NAMES)), dtype=bool)
-    for row, col in TRUE_INPUT_EFFECT_POSITIONS:
-        input_support[row, col] = True
-    return SSMSpec(
-        n_latent=3,
-        n_manifest=11,
-        dynamics_spec=_synthetic_nonlinear_dynamics_spec(),
-        diffusion_block=DiffusionBlockSpec(
-            n_latent=3,
-            # Process-noise SDs FREE (estimated) — numerically stable. The dynamics
-            # regime is set by a regime-scaled PRIOR in build_synthetic_nonlinear_
-            # priors, not by pinning the value (which overflowed predictive init at
-            # T=1000). The data still uses the scaled true noise (simulate(...)).
-            diffusion_chol_support=np.eye(3, dtype=bool),
-            diffusion_chol_template=jnp.diag(jnp.asarray(TRUE_DIFFUSION_SD)),
+    def quantity(kind, owners, value=None):
+        identity = scientific_id("parameter", [kind.value, sorted(owner.id for owner in owners)])
+        definitions[identity] = ParameterSpec(
+            id=identity,
+            name=identity,
+            description="Synthetic fixture quantity",
+            value=value,
+        )
+        return ParameterCoefficient(parameter_id=identity)
+
+    constructs = []
+    for column, name in enumerate(LATENT_NAMES):
+        identity = f"construct:{name}"
+        owner = ConstructRef(id=identity)
+        mechanism_id = f"mechanism:relaxation-{name}"
+        decay = quantity(SiteKind.DYNAMICS_DECAY, [owner, MechanismRef(id=mechanism_id)])
+        indicators = []
+        for row, obs_name in enumerate(MANIFEST_NAMES):
+            if TRUE_LOADINGS[row, column] == 0:
+                continue
+            indicator_id = f"indicator:{obs_name}"
+            refs = [owner, IndicatorRef(id=indicator_id)]
+            loading = quantity(
+                SiteKind.LOADING,
+                refs,
+                None
+                if MEASUREMENT_LOADINGS_FREE_SUPPORT[row, column]
+                else float(TRUE_LOADINGS[row, column]),
+            )
+            intercept = quantity(
+                SiteKind.MANIFEST_MEANS,
+                refs,
+                None if MEASUREMENT_MEANS_FREE_SUPPORT[row] else float(TRUE_MANIFEST_MEANS[row]),
+            )
+            scale = (
+                quantity(SiteKind.MANIFEST_VAR_DIAG, refs)
+                if MANIFEST_DISTS[row].uses_manifest_noise
+                else FixedCoefficient(value=0)
+            )
+            dtype = (
+                "count"
+                if MANIFEST_DISTS[row] == DistributionFamily.NEGATIVE_BINOMIAL
+                else "continuous"
+            )
+            indicators.append(
+                Indicator(
+                    id=indicator_id,
+                    name=obs_name,
+                    how_to_measure="Read the synthetic observation",
+                    construct_polarity="negative" if TRUE_LOADINGS[row, column] < 0 else "positive",
+                    measurement_dtype=dtype,
+                    aggregation="last",
+                    likelihood=revise_law(
+                        LikelihoodSpec(
+                            law=observation_law(identity, MANIFEST_DISTS[row], MANIFEST_LINKS[row]),
+                            reasoning="Synthetic measurement law",
+                        ),
+                        lambda node, loading=loading, intercept=intercept, scale=scale: (
+                            node.model_copy(
+                                update={
+                                    "coefficient": {
+                                        "loading": loading,
+                                        "observation_intercept": intercept,
+                                        "observation_scale": scale,
+                                    }[node.role]
+                                }
+                            )
+                            if isinstance(node, CoefficientExpression)
+                            and node.role
+                            in {"loading", "observation_intercept", "observation_scale"}
+                            else node
+                        ),
+                    ),
+                )
+            )
+        innovation = InnovationSpec(scale=quantity(SiteKind.DIFFUSION_DIAG, [owner]))
+        initial = InitialStateSpec(
+            mean=quantity(SiteKind.T0_MEANS, [owner], float(TRUE_T0_MEAN[column])),
+            scale=quantity(SiteKind.T0_VAR_DIAG, [owner], float(TRUE_T0_SD[column])),
+        )
+        constructs.append(
+            Construct(
+                id=identity,
+                name=name,
+                description="Synthetic latent state",
+                role="endogenous",
+                temporal_status="time_varying",
+                indicators=tuple(indicators),
+                innovation=innovation,
+                initial_state=initial,
+                dynamics=(
+                    DynamicsMechanism(
+                        id=mechanism_id,
+                        expression=restoring_force(
+                            identity,
+                            center=FixedCoefficient(value=0),
+                            stiffness=decay,
+                            quartic=FixedCoefficient(value=0),
+                        ),
+                    ),
+                ),
+            )
+        )
+    edges = {}
+    terms = {}
+
+    def edge(cause, effect, lagged=True):
+        pair = (cause, effect)
+        if pair not in edges:
+            identity = f"edge:{cause}-{effect}"
+            edges[pair] = CausalEdge(
+                id=identity,
+                cause=next(construct for construct in constructs if construct.name == cause),
+                effect=next(construct for construct in constructs if construct.name == effect),
+                lagged=lagged,
+                description="Synthetic causal relationship",
+            )
+            terms[identity] = []
+        return edges[pair]
+
+    def refs(owner, mechanism_id):
+        return [
+            ConstructRef(id=owner.cause.id),
+            ConstructRef(id=owner.effect.id),
+            EdgeRef(id=owner.id),
+            MechanismRef(id=mechanism_id),
+        ]
+
+    for source, target, prefix in [(1, 0, "vf_3"), (2, 0, "vf_5"), (0, 1, "vf_6"), (0, 2, "vf_7")]:
+        owner = edge(LATENT_NAMES[source], LATENT_NAMES[target])
+        mechanism_id = f"mechanism:hill-{source}-{target}"
+        terms[owner.id].append(
+            DynamicsMechanism(
+                id=mechanism_id,
+                expression=expr_hill(
+                    expr_state(owner.cause.id),
+                    emax=quantity(SiteKind.HILL_EMAX, refs(owner, mechanism_id)),
+                    ec50=FixedCoefficient(value=TRUE_HILL_BY_SITE[prefix + "_EC50"]),
+                    n=FixedCoefficient(value=TRUE_HILL_BY_SITE[prefix + "_n"]),
+                ),
+            )
+        )
+    for source, moderator, target in [(1, 2, 0), (0, 1, 2)]:
+        owner = edge(LATENT_NAMES[source], LATENT_NAMES[target])
+        edge(LATENT_NAMES[moderator], LATENT_NAMES[target])
+        mechanism_id = f"mechanism:interaction-{source}-{moderator}-{target}"
+        terms[owner.id].append(
+            DynamicsMechanism(
+                id=mechanism_id,
+                expression=linear_effect(
+                    owner.cause.id,
+                    quantity(
+                        SiteKind.DYNAMICS_WEIGHT,
+                        [
+                            *refs(owner, mechanism_id),
+                            ConstructRef(id=f"construct:{LATENT_NAMES[moderator]}"),
+                        ],
+                    ),
+                )
+                * expr_state(f"construct:{LATENT_NAMES[moderator]}"),
+            )
+        )
+    for name in INPUT_NAMES:
+        indicator = Indicator(
+            id=f"indicator:{name}",
+            name=name,
+            how_to_measure="Read the known driver",
+            construct_polarity="positive",
+            measurement_dtype="continuous",
+            aggregation="last",
+        )
+        constructs.append(
+            Construct(
+                id=f"construct:{name}",
+                name=name,
+                description="Known synthetic input",
+                role="exogenous",
+                temporal_status="time_varying",
+                indicators=(indicator,),
+                usage=KnownInput(source_indicator_id=indicator.id),
+            )
+        )
+    for row, column in TRUE_INPUT_EFFECT_POSITIONS:
+        owner = edge(INPUT_NAMES[column], LATENT_NAMES[row], False)
+        mechanism_id = f"mechanism:input-{row}-{column}"
+        terms[owner.id].append(
+            DynamicsMechanism(
+                id=mechanism_id,
+                expression=linear_effect(
+                    owner.cause.id, quantity(SiteKind.INPUT_EFFECT, refs(owner, mechanism_id))
+                ),
+            )
+        )
+    model = ModelSpec(
+        edges=tuple(
+            owner.model_copy(update={"mechanisms": tuple(terms[owner.id])})
+            for owner in sorted(
+                edges.values(),
+                key=lambda edge: (
+                    [*LATENT_NAMES, *INPUT_NAMES].index(edge.cause.name),
+                    [*LATENT_NAMES, *INPUT_NAMES].index(edge.effect.name),
+                ),
+            )
         ),
-        lambda_block=SparseMatrixBlockSpec(
-            n_rows=11,
-            n_cols=3,
-            free_support=MEASUREMENT_LOADINGS_FREE_SUPPORT,
-            template=jnp.asarray(TRUE_LOADINGS),
-            free_site_name="lambda_free",
-            det_site_name="lambda",
-            support=SupportClass.REAL,
-            site_kind=SiteKind.LOADING,
-            assembly_group="lambda",
-            fixed_spec_field="lambda_mat",
-            priors_field="lambda_free",
-        ),
-        manifest_means_block=SparseVectorBlockSpec(
-            n=11,
-            free_support=MEASUREMENT_MEANS_FREE_SUPPORT,
-            template=jnp.asarray(TRUE_MANIFEST_MEANS),
-            free_site_name="manifest_means_free",
-            det_site_name="manifest_means",
-            support=SupportClass.REAL,
-            site_kind=SiteKind.MANIFEST_MEANS,
-            assembly_group="manifest",
-            fixed_spec_field="manifest_means",
-            priors_field="manifest_means",
-        ),
-        manifest_chol_block=ManifestCholBlockSpec(
-            n_manifest=11,
-            # Measurement-noise SDs stay FREE (estimated). Only the process noise
-            # (diffusion) is fixed for the clean dynamics-axis test; fixing the
-            # measurement SDs too made the tight observation likelihood numerically
-            # brittle (all-particle -inf -> nan) under predictive init.
-            diag_support=np.ones(11, dtype=bool),
-            template=jnp.diag(jnp.asarray(TRUE_MANIFEST_SD)),
-        ),
-        t0_means_block=SparseVectorBlockSpec(
-            n=3,
-            free_support=np.zeros(3, dtype=bool),
-            template=jnp.asarray(TRUE_T0_MEAN),
-            free_site_name="t0_means_free",
-            det_site_name="t0_means",
-            support=SupportClass.REAL,
-            site_kind=SiteKind.T0_MEANS,
-            assembly_group="t0",
-            fixed_spec_field="t0_means",
-            priors_field="t0_means",
-        ),
-        t0_chol_block=T0CholBlockSpec(
-            n_latent=3,
-            diag_support=np.zeros(3, dtype=bool),
-            correlation_support=np.zeros((3, 3), dtype=bool),
-            template=jnp.diag(jnp.asarray(TRUE_T0_SD)),
-        ),
-        input_effect_block=SparseMatrixBlockSpec(
-            n_rows=3,
-            n_cols=len(INPUT_NAMES),
-            free_support=input_support,
-            template=jnp.zeros((3, len(INPUT_NAMES)), dtype=jnp.float32),
-            free_site_name="input_effect_free",
-            det_site_name="input_effect",
-            support=SupportClass.REAL,
-            site_kind=SiteKind.INPUT_EFFECT,
-            assembly_group="input_effect",
-            fixed_spec_field="input_effect",
-            priors_field="input_effect",
-        ),
-        static_state_sd_block=SparseVectorBlockSpec(
-            n=0,
-            free_support=np.zeros(0, dtype=bool),
-            template=jnp.zeros(0),
-            free_site_name="static_state_sd_free",
-            det_site_name="static_state_sds",
-            support=SupportClass.POSITIVE,
-            site_kind=SiteKind.STATIC_STATE_SD,
-            assembly_group="t0",
-            fixed_spec_field="static_state_sds",
-            priors_field="static_state_sd",
-        ),
-        static_factor_loadings=jnp.zeros((3, 0), dtype=jnp.float32),
-        manifest_dists=MANIFEST_DISTS,
-        manifest_links=MANIFEST_LINKS,
-        manifest_names=MANIFEST_NAMES,
-        latent_names=LATENT_NAMES,
-        input_names=INPUT_NAMES,
+        parameters=tuple(definitions.values()),
+        measurement_clock="1d",
     )
-
-
-def build_synthetic_nonlinear_priors(
-    spec, diffusion_scale: float = 1.0
-) -> dict[str, dist.Distribution]:
-    """Honest off-truth priors with a REGIME-SCALED process-noise prior.
-
-    Diffusion stays free/estimated (numerically stable, unlike pinning the tight
-    true value which overflowed predictive init at T=1000). Its prior width scales
-    with the regime, ``HalfNormal(0.4 * diffusion_scale)``, so the analyst's prior
-    is appropriately scaled to each dynamics regime — removing the cross-regime
-    mis-scaling confound that made a single fixed-width prior non-monotonic across
-    scales. Structural sites use the canonical defaults; observation-dispersion
-    params (NegBin ``r``, Gamma ``shape``) use off-truth ``LogNormal`` priors with
-    negligible mass near zero so they cannot collapse to degenerate overdispersion.
-    Free loadings use a widened ``Normal(0, 2.5)``: the true free loadings reach
-    5.0, which sits 9 prior sd outside the canonical ``Normal(0.5, 0.5)`` — an
-    unreachable truth that poisoned recovery the same way the raw-scale manifest
-    means did before they were pinned.
-    """
-    priors: dict[str, dist.Distribution] = {
-        site.name: default_prior_for_descriptor(site) for site in spec.iter_sample_sites()
+    model = complete_model(model)
+    # Off-truth priors are owned by the same scientific quantities as every other law.
+    overrides = {
+        SiteKind.LOADING: dist.Normal(0, 2.5),
+        SiteKind.DIFFUSION_DIAG: dist.HalfNormal(0.4 * float(diffusion_scale)),
+        SiteKind.OBS_R: dist.LogNormal(float(np.log(6.0)), 0.6),
+        SiteKind.OBS_SHAPE: dist.LogNormal(float(np.log(5.0)), 0.6),
     }
-    priors["lambda_free"] = distribution_from_params(
-        PriorDistributionFamily.NORMAL,
-        {"mu": 0.0, "sigma": 2.5},
+    return model.revised(
+        parameters=tuple(
+            parameter.model_copy(
+                update={"distribution": overrides[model.parameter_context(parameter.id).quantity]}
+            )
+            if parameter.value is None
+            and model.parameter_context(parameter.id).quantity in overrides
+            else parameter
+            for parameter in model.parameters
+        )
     )
-    priors["diffusion_diag_free"] = distribution_from_params(
-        PriorDistributionFamily.HALF_NORMAL,
-        {"sigma": 0.4 * float(diffusion_scale)},
-    )
-    priors["obs_r"] = distribution_from_params(
-        PriorDistributionFamily.LOG_NORMAL,
-        {"mu": float(np.log(6.0)), "sigma": 0.6},
-    )
-    priors["obs_shape"] = distribution_from_params(
-        PriorDistributionFamily.LOG_NORMAL,
-        {"mu": float(np.log(5.0)), "sigma": 0.6},
-    )
-    return dict(priors)
 
 
 def build_synthetic_nonlinear_model(
@@ -429,11 +494,7 @@ def build_synthetic_nonlinear_model(
     include_interval_support: bool = False,
     diffusion_scale: float = 1.0,
 ) -> SSMModel:
-    spec = build_synthetic_nonlinear_spec()
-    model = SSMModel(
-        spec,
-        priors=build_synthetic_nonlinear_priors(spec, diffusion_scale=diffusion_scale),
-    )
+    model = SSMModel(build_synthetic_nonlinear_spec(diffusion_scale=diffusion_scale))
     if data is not None:
         model.set_transition_inputs(data.transition_inputs)
         if include_interval_support:
@@ -445,19 +506,7 @@ def _build_transition_inputs(T: int) -> np.ndarray:
     t = np.arange(T, dtype=np.float32)
     serotonergic = 1.0 / (1.0 + np.exp(-(t - 8.0) / 2.0))
     seasonal = np.sin(2.0 * np.pi * t / max(T - 1, 1))
-    prescription_event = np.zeros(T, dtype=np.float32)
-    adherence = np.ones(T, dtype=np.float32)
-    cyp2c19 = np.full(T, FIXED_CYP2C19_VALUE, dtype=np.float32)
-    for event_idx, event_size in ((8, 1.0), (17, 0.8), (25, 0.6)):
-        if event_idx < T:
-            prescription_event[event_idx] = event_size
-    for idx in range(1, T):
-        prescription_event[idx] = max(prescription_event[idx], 0.55 * prescription_event[idx - 1])
-        if idx % 19 == 0:
-            adherence[idx : min(idx + 2, T)] = 0.0
-    return np.column_stack([serotonergic, seasonal, prescription_event, adherence, cyp2c19]).astype(
-        np.float32
-    )
+    return np.column_stack([serotonergic, seasonal]).astype(np.float32)
 
 
 def _build_gp_interval_support(T: int, gp_rows: np.ndarray, window: int = 3):
@@ -552,10 +601,10 @@ def _synthetic_nonlinear_drift(state: np.ndarray, transition_input: np.ndarray) 
     drift = TRUE_DRIFT @ state + TRUE_INPUT_EFFECT @ transition_input
     drift = drift.copy()
     drift[0] += _hill_effect(state[1], "vf_3")
-    drift[0] += _hill_effect(state[2], "vf_4")
-    drift[1] += _hill_effect(state[0], "vf_5")
-    drift[2] += _hill_effect(state[0], "vf_6")
-    drift[0] += TRUE_MULTIPLICATIVE_BY_SITE["vf_7_weight"] * state[1] * state[2]
+    drift[0] += _hill_effect(state[2], "vf_5")
+    drift[1] += _hill_effect(state[0], "vf_6")
+    drift[2] += _hill_effect(state[0], "vf_7")
+    drift[0] += TRUE_MULTIPLICATIVE_BY_SITE["vf_4_weight"] * state[1] * state[2]
     drift[2] += TRUE_MULTIPLICATIVE_BY_SITE["vf_8_weight"] * state[0] * state[1]
     return drift
 
@@ -599,25 +648,27 @@ def simulate_synthetic_nonlinear_data(
 
     linear_predictor = latent @ TRUE_LOADINGS.T + TRUE_MANIFEST_MEANS
     observations = np.full((T, len(MANIFEST_NAMES)), np.nan, dtype=np.float32)
-    gaussian_indices = [0, 2, 3, 5, 7, 8, 9, 10]
+    gaussian_indices = [
+        i for i, family in enumerate(MANIFEST_DISTS) if family == DistributionFamily.GAUSSIAN
+    ]
     for idx in gaussian_indices:
         observations[:, idx] = rng.normal(
             linear_predictor[:, idx],
             TRUE_MANIFEST_SD[idx],
         ).astype(np.float32)
 
-    observations[:, 1] = _sample_negative_binomial(
+    observations[:, MANIFEST_NAMES.index("late_night_message_count")] = _sample_negative_binomial(
         rng,
-        np.exp(linear_predictor[:, 1]),
+        np.exp(linear_predictor[:, MANIFEST_NAMES.index("late_night_message_count")]),
         TRUE_OBS_R,
     )
-    observations[:, 6] = _sample_negative_binomial(
+    observations[:, MANIFEST_NAMES.index("daily_step_count")] = _sample_negative_binomial(
         rng,
-        np.exp(linear_predictor[:, 6]),
+        np.exp(linear_predictor[:, MANIFEST_NAMES.index("daily_step_count")]),
         TRUE_OBS_R,
     )
-    gamma_mean = np.exp(linear_predictor[:, 4])
-    observations[:, 4] = rng.gamma(
+    gamma_mean = np.exp(linear_predictor[:, MANIFEST_NAMES.index("sleep_onset_latency_min")])
+    observations[:, MANIFEST_NAMES.index("sleep_onset_latency_min")] = rng.gamma(
         shape=TRUE_OBS_SHAPE,
         scale=gamma_mean / TRUE_OBS_SHAPE,
     ).astype(np.float32)
@@ -631,9 +682,9 @@ def simulate_synthetic_nonlinear_data(
 
     sparse_keep = {
         0: mood_rows,
-        8: journal_rows,
-        9: journal_rows,
-        10: gp_rows,
+        MANIFEST_NAMES.index("journal_affect_severity"): journal_rows,
+        MANIFEST_NAMES.index("journal_rumination_intensity"): journal_rows,
+        MANIFEST_NAMES.index("gp_clinical_severity"): gp_rows,
     }
     for manifest_idx, rows in sparse_keep.items():
         mask = np.ones(T, dtype=bool)
@@ -670,19 +721,42 @@ def simulate_synthetic_nonlinear_data(
     )
 
 
-SCALAR_RECOVERY_TARGETS = {
-    "vf_0_decay": TRUE_DECAY[0],
-    "vf_1_decay": TRUE_DECAY[1],
-    "vf_2_decay": TRUE_DECAY[2],
-    **{
-        name: value
-        for name, value in TRUE_HILL_BY_SITE.items()
-        if name not in PINNED_HILL_SHAPE_BY_SITE
-    },
-    **TRUE_MULTIPLICATIVE_BY_SITE,
-    "obs_r": TRUE_OBS_R,
-    "obs_shape": TRUE_OBS_SHAPE,
-}
+def _scalar_recovery_targets() -> dict[str, float]:
+    """Bind retained truths through their mechanism identities to current sample sites."""
+    from nof1_causal_lab.artifacts.identity import MechanismRef
+    from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
+
+    truths = {
+        **{
+            f"mechanism:relaxation-{name}": float(TRUE_DECAY[index])
+            for index, name in enumerate(LATENT_NAMES)
+        },
+        **{
+            f"mechanism:hill-{source}-{target}": TRUE_HILL_BY_SITE[f"{prefix}_Emax"]
+            for source, target, prefix in [
+                (1, 0, "vf_3"),
+                (2, 0, "vf_5"),
+                (0, 1, "vf_6"),
+                (0, 2, "vf_7"),
+            ]
+        },
+        "mechanism:interaction-1-2-0": TRUE_MULTIPLICATIVE_BY_SITE["vf_4_weight"],
+        "mechanism:interaction-0-1-2": TRUE_MULTIPLICATIVE_BY_SITE["vf_8_weight"],
+    }
+    model = build_synthetic_nonlinear_spec()
+    targets = {"obs_r": TRUE_OBS_R, "obs_shape": TRUE_OBS_SHAPE}
+    for binding in parameter_bindings(model)[0]:
+        if binding.component_index is not None:
+            mechanism_id = next(
+                ref.id
+                for ref in model.parameter_context(binding.parameter_id).owners
+                if isinstance(ref, MechanismRef)
+            )
+            targets[binding.site_name] = truths[mechanism_id]
+    return targets
+
+
+SCALAR_RECOVERY_TARGETS = _scalar_recovery_targets()
 
 INPUT_EFFECT_RECOVERY_TARGETS = {
     f"input_{INPUT_NAMES[col]}_{LATENT_NAMES[row]}": {

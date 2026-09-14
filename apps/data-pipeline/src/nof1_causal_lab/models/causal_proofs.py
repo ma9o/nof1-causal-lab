@@ -6,16 +6,17 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.causal_design import CausalDesign
-    from nof1_causal_lab.artifacts.identity import CausalDesignRef
-    from nof1_causal_lab.models.ssm.inference.types import FittedArtifact
+    from nof1_causal_lab.artifacts.identification import IdentificationReport
+    from nof1_causal_lab.artifacts.identity import ModelRevision
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.machine.store import TransitionRecord
 
 
 @dataclass(frozen=True, slots=True)
 class IdentifiedEstimand:
     """Positive identification evidence for one treatment/outcome estimand."""
 
-    causal_design: CausalDesignRef
+    model: ModelRevision
     treatment: str
     outcome: str
     method: str
@@ -23,57 +24,40 @@ class IdentifiedEstimand:
 
 
 @dataclass(frozen=True, slots=True)
-class ReportablePosterior:
-    """A persisted posterior certified as production particle-MCMC output."""
-
-    artifact: FittedArtifact
-
-    def __post_init__(self) -> None:
-        _validate_reportable_artifact(self.artifact)
-
-
-@dataclass(frozen=True, slots=True)
 class CertifiedCausalAnalysis:
     """Identification and particle-posterior evidence joined by provenance."""
 
-    causal_design: CausalDesign
-    causal_design_ref: CausalDesignRef
+    model: ModelSpec
+    model_revision: ModelRevision
+    identification: IdentificationReport
     estimands: tuple[IdentifiedEstimand, ...]
-    posterior: ReportablePosterior
+    inference: TransitionRecord
 
     def __post_init__(self) -> None:
         if not self.estimands:
             raise ValueError("at least one identified estimand is required")
-        posterior_design = self.posterior.artifact.provenance.causal_design
-        if posterior_design != self.causal_design_ref:
-            raise ValueError(
-                "causal design payload and posterior provenance reference different designs"
-            )
+        certify_conditioned_model(self.model, self.model_revision, self.inference)
         outcomes = {estimand.outcome for estimand in self.estimands}
         if len(outcomes) != 1:
             raise ValueError("all identified estimands must target the same outcome")
         treatments = [estimand.treatment for estimand in self.estimands]
         if len(treatments) != len(set(treatments)):
             raise ValueError("identified estimands must not contain duplicate treatments")
-        by_name = {
-            construct.name: construct.id for construct in self.causal_design.latent.constructs
-        }
-        status = self.causal_design.identifiability
         for estimand in self.estimands:
-            if estimand.causal_design != self.causal_design_ref:
+            if estimand.model != self.model_revision:
                 raise ValueError(
                     "identification evidence and posterior provenance reference different "
-                    "causal designs"
+                    "model revisions"
                 )
-            details = (
-                status.identifiable_treatments.get(by_name[estimand.treatment])
-                if status is not None
-                else None
+            expected = certify_identified_estimand(
+                self.model,
+                self.identification,
+                model_revision=self.model_revision,
+                treatment=estimand.treatment,
+                outcome=estimand.outcome,
             )
-            if details is None:
-                raise ValueError(f"effect of {estimand.treatment!r} is not identified")
-            if details.method != estimand.method or details.estimand != estimand.estimand:
-                raise ValueError("identification evidence does not match the causal design")
+            if expected != estimand:
+                raise ValueError("identification evidence does not match the model findings")
 
     @property
     def treatments(self) -> list[str]:
@@ -85,37 +69,40 @@ class CertifiedCausalAnalysis:
 
 
 def certify_identified_estimand(
-    causal_design: CausalDesign,
+    model: ModelSpec,
+    identification: IdentificationReport,
     *,
-    causal_design_ref: CausalDesignRef,
+    model_revision: ModelRevision,
     treatment: str,
     outcome: str,
 ) -> IdentifiedEstimand:
     """Validate and materialize identification evidence for one estimand."""
-    default_outcome = causal_design.latent.default_outcome
+    identification.validate_model(model)
+    default_outcome = model.default_outcome
     declared_outcome = next(
         (
             construct.name
-            for construct in causal_design.latent.constructs
+            for construct in model.constructs
             if default_outcome is not None and construct.id == default_outcome.id
         ),
         None,
     )
-    if outcome != declared_outcome:
+    if (
+        default_outcome is None
+        or outcome != declared_outcome
+        or identification.outcome != default_outcome.id
+    ):
         raise ValueError(
-            f"{outcome!r} does not match the outcome covered by the causal design identification"
+            f"{outcome!r} does not match the outcome covered by the model identification"
         )
-    construct_ids = {construct.name: construct.id for construct in causal_design.latent.constructs}
+    construct_ids = {construct.name: construct.id for construct in model.constructs}
     if treatment not in construct_ids:
-        raise ValueError(f"{treatment!r} is not a construct in the causal design")
-    status = causal_design.identifiability
-    details = (
-        status.identifiable_treatments.get(construct_ids[treatment]) if status is not None else None
-    )
+        raise ValueError(f"{treatment!r} is not a construct in the model")
+    details = identification.status.identifiable_treatments.get(construct_ids[treatment])
     if details is None:
         raise ValueError(f"effect of {treatment!r} on {outcome!r} is not identified")
     return IdentifiedEstimand(
-        causal_design=causal_design_ref,
+        model=model_revision,
         treatment=treatment,
         outcome=outcome,
         method=details.method,
@@ -123,24 +110,24 @@ def certify_identified_estimand(
     )
 
 
-def _validate_reportable_artifact(artifact: FittedArtifact) -> None:
-    from nof1_causal_lab.models.ssm.inference.types import ParticleMCMCPosterior
+def certify_conditioned_model(
+    model: ModelSpec, revision: ModelRevision, record: TransitionRecord
+) -> None:
+    """Join the current scientific value to committed exact-engine evidence in its log."""
+    from nof1_causal_lab.machine.inference import inference_record
+    from nof1_causal_lab.models.model_inputs import input_fingerprints
 
-    if not isinstance(artifact.result, ParticleMCMCPosterior):
-        raise TypeError("reporting requires a ParticleMCMCPosterior")
-    evidence = artifact.result.evidence
-    if evidence.engine != "marginal_particle_gibbs":
-        raise ValueError("posterior was not produced by marginalized Particle Gibbs")
-    if evidence.latent_transition != "euler_maruyama":
-        raise ValueError("posterior did not target the nonlinear Euler-Maruyama transition")
-    samples = artifact.result.get_samples()
-    if not samples:
-        raise ValueError("posterior contains no retained samples")
-    draw_counts = {int(values.shape[0]) for values in samples.values()}
-    if len(draw_counts) != 1 or next(iter(draw_counts)) < 1:
-        raise ValueError("posterior sample sites must share a positive draw dimension")
-
-
-def certify_reportable_posterior(artifact: FittedArtifact) -> ReportablePosterior:
-    """Validate particle-engine evidence and non-empty retained posterior draws."""
-    return ReportablePosterior(artifact=artifact)
+    if inference_record([record], revision.version) is None:
+        raise ValueError(
+            "Causal reporting requires the committed inference transition for this model revision"
+        )
+    produced = next(info for info in record.produced if info.artifact_id == "model")
+    if produced.model_inputs["belief"] != input_fingerprints(model)["belief"]:
+        raise ValueError("The model value differs from the revision certified by the inference log")
+    evidence = record.diagnostics["engine_evidence"]
+    if evidence["engine"] != "marginal_particle_gibbs":
+        raise ValueError("Inference did not use the production particle-MCMC target")
+    if evidence["latent_transition"] != "euler_maruyama":
+        raise ValueError("Inference did not target the nonlinear Euler-Maruyama transition")
+    if not model.distributions or not model.time_points:
+        raise ValueError("The model has no retained joint uncertainty")

@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from nof1_causal_lab.machine.moves import RunArtifact
+from nof1_causal_lab.machine.moves import RunOperation
 from nof1_causal_lab.machine.store import (
     EpisodeJournal,
     episode_trace_path,
@@ -87,7 +87,7 @@ def test_raised_transition_discovers_trace_and_retry_no_longer_needs_scratch(dat
     input = JournalInput(
         workspace_id="ws-trace",
         seq=1,
-        move=RunArtifact(artifact_id="latent_structure"),
+        move=RunOperation(operation_id="latent_structure"),
         status="raised",
         error_type="LLMSubroutineError",
         error_message="validation failed",

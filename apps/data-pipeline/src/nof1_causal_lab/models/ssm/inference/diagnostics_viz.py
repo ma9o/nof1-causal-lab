@@ -16,9 +16,6 @@ import jax.numpy as jnp
 import numpy as np
 
 from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
-from nof1_causal_lab.artifacts.posterior_diagnostics import (
-    EnergyDiagnostics,
-)
 from nof1_causal_lab.json_types import JsonObject  # noqa: TC001
 
 if TYPE_CHECKING:
@@ -162,13 +159,11 @@ def build_energy_diagnostics(energy: jnp.ndarray, n_bins: int = 40) -> JsonObjec
             "density": [float(v) for v in density],
         }
 
-    return EnergyDiagnostics.model_validate(
-        {
-            "energy_hist": _hist(e_flat),
-            "energy_transition_hist": _hist(de_flat),
-            "bfmi": bfmi,
-        }
-    ).model_dump(mode="json")
+    return {
+        "energy_hist": _hist(e_flat),
+        "energy_transition_hist": _hist(de_flat),
+        "bfmi": list(bfmi),
+    }
 
 
 def compute_posterior_marginals(

@@ -10,6 +10,7 @@ import jax.numpy as jnp
 
 from nof1_causal_lab.flows.model_spec_compile_cache import restore_model_spec_compile_cache
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.runtime import (
     PreparedModelRuntime,
     prepare_model_runtime,
@@ -18,7 +19,7 @@ from nof1_causal_lab.models.ssm.runtime import (
 if TYPE_CHECKING:
     import polars as pl
 
-    from nof1_causal_lab.artifacts.compiled_ssm import CompiledSSMArtifact
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior
     from nof1_causal_lab.sampler_config import (
         MarginalParticleGibbsOptions,
@@ -86,7 +87,7 @@ def _support_summary(runtime: PreparedModelRuntime) -> str:
 
 
 def fit_model(
-    compiled_ssm: CompiledSSMArtifact,
+    model_spec: ModelSpec,
     data_for_model: pl.DataFrame,
     sampler_config: SamplerConfigInput | None = None,
     model: Any = None,
@@ -97,7 +98,7 @@ def fit_model(
     """Fit the SSM model to data.
 
     Args:
-        compiled_ssm: Serialized executable SSM artifact from stage 4
+        model_spec: Complete scientific definition pinned to this fit
         data_for_model: Canonical observation rows (indicator, value, anchor_time, support metadata)
         sampler_config: Override sampler configuration (None uses config defaults)
         model: Optional pre-built SSMModel
@@ -120,7 +121,7 @@ def fit_model(
 
     cache_restored = restore_model_spec_compile_cache(
         workspace_id,
-        compiled_ssm,
+        model_spec,
         wait_for_pending=wait_for_compile_cache,
     )
     logger.info(
@@ -134,7 +135,7 @@ def fit_model(
         prep_t0 = time.monotonic()
         runtime = prepare_model_runtime(
             data_for_model=data_for_model,
-            compiled_ssm=compiled_ssm,
+            model_spec=model_spec,
             sampler_config=sampler_config,
             model=model,
         )
@@ -145,13 +146,16 @@ def fit_model(
             _fit_elapsed_seconds(prep_t0),
             len(runtime.wide_data),
             len(runtime.times),
-            len(runtime.manifest_names),
+            len(numeric.observation_names(runtime.spec)),
             observed_cells,
             total_cells,
             _time_span_days(runtime.times),
             _support_summary(runtime),
         )
-        logger.info("Manifest order: %s", _format_name_preview(runtime.manifest_names, limit=6))
+        logger.info(
+            "Manifest order: %s",
+            _format_name_preview(numeric.observation_names(runtime.spec), limit=6),
+        )
 
         inference_structure = runtime.inference_structure
         logger.info(
@@ -172,13 +176,12 @@ def fit_model(
             _fit_elapsed_seconds(fit_t0),
             result.method,
             len(runtime.wide_data),
-            len(runtime.manifest_names),
+            len(numeric.observation_names(runtime.spec)),
         )
 
-        # Extract serializable diagnostics (MCMC or SMC)
+        # The engine owns the telemetry payload.
         logger.info("Collecting sampler diagnostics...")
-        mcmc_diag = result.get_mcmc_diagnostics()
-        smc_diag = result.get_smc_diagnostics()
+        inference_diagnostics = result.get_inference_diagnostics()
 
         loo_diag = None
         if compute_loo_diagnostics:
@@ -195,8 +198,8 @@ def fit_model(
             reference_posterior_findings,
         )
 
-        posterior_marginals, posterior_pairs, mcmc_diag = reference_posterior_findings(
-            compiled_ssm, posterior_marginals, posterior_pairs, mcmc_diag
+        posterior_marginals, posterior_pairs = reference_posterior_findings(
+            model_spec, posterior_marginals, posterior_pairs
         )
         samples = result.get_samples()
         n_samples = (
@@ -219,8 +222,7 @@ def fit_model(
             "spec": runtime.spec,
             "runtime": runtime,
             "times": runtime.times,
-            "mcmc_diagnostics": mcmc_diag,
-            "smc_diagnostics": smc_diag,
+            "inference_diagnostics": inference_diagnostics,
             "loo_diagnostics": loo_diag,
             "posterior_marginals": posterior_marginals,
             "posterior_pairs": posterior_pairs,
@@ -271,15 +273,15 @@ def run_ppc(
             result.method,
             posterior_draws,
             len(runtime.times),
-            len(runtime.manifest_names),
+            len(numeric.observation_names(runtime.spec)),
         )
 
-        assert runtime.manifest_ids is not None
+        assert numeric.observation_ids(runtime.spec) is not None
         ppc_result = run_posterior_predictive_checks(
             samples=samples,
             observations=runtime.observations,
             times=runtime.times,
-            indicator_ids=runtime.manifest_ids,
+            indicator_ids=numeric.observation_ids(runtime.spec),
             spec=spec,
             observation_support=runtime.observation_support,
             observation_mask=~jnp.isnan(runtime.observations),

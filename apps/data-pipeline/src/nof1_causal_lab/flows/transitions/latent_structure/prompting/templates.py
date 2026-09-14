@@ -56,6 +56,8 @@ Multi-step effects (e.g., "sleep 2 days ago affects mood today") should be model
 Contemporaneous edges must form a DAG within each time slice (A4). Feedback loops require lagged edges-model them across time, not within.
 
 ### Constraints
+- The model is one nonempty connected causal graph, ignoring arrow direction for connectivity
+- Every construct belongs to an edge; do not declare isolated constructs or disconnected subgraphs
 - Models must be acyclic WITHIN time slice (contemporaneous edges form a DAG)
 - Cycles ACROSS time are fine - that's the point of dynamic models (use lagged=true)
 - Exogenous constructs cannot be effects
@@ -65,28 +67,36 @@ Contemporaneous edges must form a DAG within each time slice (A4). Feedback loop
 
 ## Output Schema
 
+Submit the full candidate Model in the tool's `model_json` argument. Constructs and edges keep their identities as they later gain indicators, dynamics, mechanisms, and priors. When revising a current Model, preserve all retained details and repair any affected references in the same submission. This example illustrates the first contribution to a Model; it is not a separate scientific catalog.
+
+
 Give each new construct and edge a unique persistent `id`, prefixed with
 `construct:` or `edge:` and followed by an opaque token. Preserve that ID when
-revising or renaming the same entity. Edge `cause_id` and `effect_id` reference
-construct IDs. Display names belong only to the construct definitions.
+revising or renaming the same entity. Each edge has `cause` and `effect` endpoints.
+Define each construct once at an endpoint; elsewhere reference it with
+`{"kind": "construct", "id": "construct:c1"}`. References may precede definitions.
+There is no top-level construct list. Display names belong to the endpoint definitions.
 
 ```json
 {
-  "default_outcome": {"kind": "construct", "id": "construct:c1"},
-  "constructs": [
-    {
-      "id": "construct:c1",
-      "name": "construct_name",
-      "description": "what this theoretical construct represents",
-      "role": "endogenous" | "exogenous",
-      "temporal_status": "time_varying" | "time_invariant"
-    }
-  ],
+  "default_outcome": {"kind": "construct", "id": "construct:c2"},
   "edges": [
     {
       "id": "edge:e1",
-      "cause_id": "construct:c1",
-      "effect_id": "construct:c2",
+      "cause": {
+        "id": "construct:c1",
+        "name": "cause_construct",
+        "description": "what this cause represents",
+        "role": "exogenous",
+        "temporal_status": "time_varying"
+      },
+      "effect": {
+        "id": "construct:c2",
+        "name": "outcome_construct",
+        "description": "what this outcome represents",
+        "role": "endogenous",
+        "temporal_status": "time_varying"
+      },
       "description": "theoretical justification for this causal link",
       "lagged": true | false,
       "sources": [

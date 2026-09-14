@@ -3,6 +3,7 @@ import uuid
 from typing import Any
 
 import polars as pl
+import pyarrow as pa
 import pytest
 
 from nof1_causal_lab.machine.temporal.llm_subroutine_activities import (
@@ -185,7 +186,26 @@ def test_execute_llm_tool_calls_activity_dispatches_by_tool_name(tmp_path):
     assert storage.read_json(result_ref)["extractions"][0]["value"] == 1000
 
 
-def test_execute_llm_tool_calls_activity_persists_raw_data_submit_table(tmp_path):
+@pytest.mark.parametrize("remote", [False, True])
+def test_execute_llm_tool_calls_activity_persists_raw_data_submit_table(
+    tmp_path, monkeypatch, remote
+):
+    from nof1_causal_lab.artifacts.raw_data import column_descriptions
+    from nof1_causal_lab.flows.pipeline_helpers import format_schema_for_llm
+    from nof1_causal_lab.machine.artifacts import EpisodeState
+    from nof1_causal_lab.machine.store import ArtifactStore
+    from nof1_causal_lab.machine.temporal.messages import SingleLLMTransitionFinalizeInput
+    from nof1_causal_lab.machine.temporal.raw_data_activities import finalize_raw_data_activity
+    from nof1_causal_lab.machine.views import read_artifact_views
+    from nof1_causal_lab.utils import data as data_module
+
+    monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
+    if remote:
+        import fsspec
+
+        monkeypatch.setattr(storage, "is_remote", lambda: True)
+        filesystem = fsspec.filesystem("memory")
+        monkeypatch.setattr(storage, "get_fs", lambda: filesystem)
     context_ref = str(tmp_path / "context.json")
     assistant_ref = str(tmp_path / "assistant.json")
     conversation_ref = str(tmp_path / "conversation.json")
@@ -202,7 +222,8 @@ def test_execute_llm_tool_calls_activity_persists_raw_data_submit_table(tmp_path
     with storage.open_file(dataframe_ref, "wb") as file:
         dataframe.write_ipc(file)
 
-    output_json = json.dumps({"timestamp": "observation time", "steps": "step count"})
+    descriptions = {"timestamp": "observation time", "steps": "step count — daily"}
+    output_json = json.dumps(descriptions)
     tool_call = {
         "id": "call-raw-submit",
         "type": "function",
@@ -259,8 +280,35 @@ def test_execute_llm_tool_calls_activity_persists_raw_data_submit_table(tmp_path
     assert result.terminal_success is True
     assert result.result_ref == result_ref
     persisted = storage.read_json(result_ref)
-    assert persisted["dataframe_ref"] == dataframe_ref
-    assert persisted["column_descriptions"]["steps"] == "step count"
+    assert set(persisted) == {"table_ref"}
+    with storage.open_file(persisted["table_ref"], "rb") as file:
+        table = pa.ipc.open_file(file).read_all()
+    assert column_descriptions(table) == descriptions
+    assert pl.DataFrame(table).equals(dataframe)
+
+    effects = run_async(
+        finalize_raw_data_activity(
+            SingleLLMTransitionFinalizeInput(
+                workspace_id="ws-test",
+                transition_id="raw_data",
+                state=EpisodeState(),
+                pins={},
+                context_ref=context_ref,
+                result_ref=result_ref,
+                trace_ref="",
+            )
+        )
+    )
+    store = ArtifactStore("ws-test")
+    raw = effects.produced[0]
+    reloaded = store.read_parquet_table("raw_data", raw.version, "raw.parquet")
+    assert reloaded.equals(table, check_metadata=True)
+    assert not storage.exists(store.file_path("raw_data", raw.version, "profile.json"))
+    assert "step count — daily" in format_schema_for_llm(reloaded)
+    view = read_artifact_views(store, EpisodeState().with_versions(effects.produced)).raw_data
+    assert view is not None
+    assert view.n_records == 2
+    assert {column.name: column.description for column in view.column_descriptions} == descriptions
 
 
 def test_execute_llm_tool_calls_activity_executes_raw_python_locally(tmp_path):
@@ -751,26 +799,22 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
     valid_structure = {
         "default_outcome": {"kind": "construct", "id": "construct:cdc0b2958a9512b2abad"},
-        "constructs": [
-            {
-                "id": "construct:c665e6cdc48fc83e0915",
-                "name": "exercise",
-                "description": "exercise level",
-                "role": "exogenous",
-                "temporal_status": "time_varying",
-            },
-            {
-                "id": "construct:cdc0b2958a9512b2abad",
-                "name": "sleep",
-                "description": "sleep quality",
-                "role": "endogenous",
-                "temporal_status": "time_varying",
-            },
-        ],
         "edges": [
             {
-                "cause_id": "construct:c665e6cdc48fc83e0915",
-                "effect_id": "construct:cdc0b2958a9512b2abad",
+                "cause": {
+                    "id": "construct:c665e6cdc48fc83e0915",
+                    "name": "exercise",
+                    "description": "exercise level",
+                    "role": "exogenous",
+                    "temporal_status": "time_varying",
+                },
+                "effect": {
+                    "id": "construct:cdc0b2958a9512b2abad",
+                    "name": "sleep",
+                    "description": "sleep quality",
+                    "role": "endogenous",
+                    "temporal_status": "time_varying",
+                },
                 "id": "edge:ee04dac06187e4b97ab3",
                 "description": "exercise can affect sleep",
                 "lagged": True,
@@ -789,9 +833,7 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
 
         async def turn(self, user_message):
             del user_message
-            self._tool_output = await self._tools[0].execute(
-                structure_json=json.dumps(valid_structure)
-            )
+            self._tool_output = await self._tools[0].execute(model_json=json.dumps(valid_structure))
             self.raw_events.append(
                 {
                     "type": "assistant",
@@ -951,7 +993,11 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
     assert result.result_ref is not None
     assert result.n_harness_turns == 1
     assert "execute_harness_tool_request_activity" in activity_names
-    assert storage.read_json(result.result_ref)["latent_structure"] == valid_structure
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+
+    assert ModelSpec.model_validate(
+        storage.read_json(result.result_ref)
+    ) == ModelSpec.model_validate(valid_structure)
     tool_root = storage.join(
         data_module.scratch_run_dir(workspace_id, "seq-000001"),
         "llm",

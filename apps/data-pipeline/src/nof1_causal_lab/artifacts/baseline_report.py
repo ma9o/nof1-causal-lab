@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from .base import ArtifactPayload
 from .effects import EffectSummary, HistogramBin, TemporalEffect  # noqa: TC001
 from .identity import ConstructId  # noqa: TC001
-from .scenarios import ScenarioEvaluationResult, ScenarioQuery  # noqa: TC001
+from .scenarios import SimulationResult  # noqa: TC001
 
 
 class TreatmentEffect(BaseModel):
@@ -26,43 +26,9 @@ class TreatmentEffect(BaseModel):
     manifest_effects: dict[str, float] | None = None
 
 
-class SavedScenario(BaseModel):
-    """A saved scenario preserves a labeled causal query and its optional narrative summary."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    label: str
-    query: ScenarioQuery
-    evaluations: list[ScenarioEvaluationResult] = Field(default_factory=list)
-    summary: str | None = None
-
-    @model_validator(mode="after")
-    def validate_evaluations(self) -> SavedScenario:
-        identities = [item.evaluation.id for item in self.evaluations]
-        if len(identities) != len(set(identities)):
-            raise ValueError("Saved scenario contains duplicate evaluations")
-        for item in self.evaluations:
-            if item.evaluation.query_id != self.query.id:
-                raise ValueError("Saved scenario evaluation belongs to a different query")
-        return self
-
-
 class BaselineReportArtifact(ArtifactPayload):
-    """A baseline report collects treatment effects and saved scenarios from the fitted model."""
+    """A baseline report collects treatment effects and explicitly retained simulations from the fitted model."""
 
     intervention_results: list[TreatmentEffect]
-    saved_scenarios: list[SavedScenario] | None = None
+    simulation_results: list[SimulationResult] = Field(default_factory=list)
     final_summary: str | None = None
-
-
-class SavedScenariosArtifact(ArtifactPayload):
-    """Saved scenarios preserve the selected queries for a fitted model."""
-
-    scenarios: list[SavedScenario]
-
-    @model_validator(mode="after")
-    def validate_unique_queries(self) -> SavedScenariosArtifact:
-        identities = [item.query.id for item in self.scenarios]
-        if len(identities) != len(set(identities)):
-            raise ValueError("Save each scientific query once, with all its evaluations")
-        return self

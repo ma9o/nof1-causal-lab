@@ -37,10 +37,6 @@ class TransitionExecutionError(Exception):
         self.diagnostics = diagnostics or {}
 
 
-class ModelCompileError(TransitionExecutionError):
-    """The model-spec transition could not compile an executable SSM."""
-
-
 class ModelFitError(TransitionExecutionError):
     """The posterior transition failed to produce a usable fit."""
 

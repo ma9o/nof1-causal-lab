@@ -227,11 +227,3 @@ def read_parquet(path: str) -> Any:
     import polars as pl
 
     return pl.read_parquet(path, storage_options=polars_storage_options())
-
-
-def read_pickle(path: str) -> Any:
-    """Unpickle a value from storage."""
-    import cloudpickle
-
-    with open_file(path, "rb") as f:
-        return cloudpickle.load(f)

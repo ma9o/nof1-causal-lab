@@ -21,6 +21,9 @@ The vector field is responsible for:
 each component reads its own slice and never sees others'.
 """
 
+from typing import TYPE_CHECKING, cast
+
+import dynestyx as dsx
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -29,6 +32,9 @@ from nof1_causal_lab.models.ssm.shapes import Array, Float
 
 from .edges import VectorFieldComponent
 from .intervention import EdgeInputOverride, Intervention, VariableOverride
+
+if TYPE_CHECKING:
+    from .expression import ExpressionComponent
 
 
 class VectorFieldArgs(eqx.Module):
@@ -98,12 +104,27 @@ class VectorField(eqx.Module):
 
     n_latent: int = eqx.field(static=True)
     components: tuple[VectorFieldComponent, ...]
+    potential_indices: tuple[int, ...] = eqx.field(static=True, default=())
+
+    def evolution(self, args: VectorFieldArgs, input_effect=None, diffusion=None):
+        """Bind scientific terms to Dynestyx's drift and native negative-gradient potential."""
+        drift = StructuralDrift(self, args, input_effect)
+        potential = StructuralPotential(self, args) if self.potential_indices else None
+        if diffusion is None:
+            return dsx.DeterministicContinuousTimeStateEvolution(
+                drift=drift, potential=potential, use_negative_gradient=True
+            )
+        return dsx.StochasticContinuousTimeStateEvolution(
+            drift=drift,
+            potential=potential,
+            use_negative_gradient=True,
+            diffusion=diffusion,
+        )
 
     def __call__(
         self, t: Array, eta: Float[Array, " D"], args: VectorFieldArgs
     ) -> Float[Array, " D"]:
-        d_eta = self._natural_derivative(t, eta, args)
-        return _apply_variable_overrides_to_derivative(d_eta, t, args.intervention)
+        return self.evolution(args).total_drift(x=eta, u=None, t=t)
 
     def initial_condition(
         self, eta0: Float[Array, " D"], args: VectorFieldArgs, t0: Array | float = 0.0
@@ -113,7 +134,7 @@ class VectorField(eqx.Module):
     def steady_state_residual(
         self, eta: Float[Array, " D"], args: VectorFieldArgs
     ) -> Float[Array, " D"]:
-        residual = self._natural_derivative(jnp.asarray(0.0), eta, args)
+        residual = self(jnp.asarray(0.0), eta, args)
         for ov in args.intervention.variable_overrides():
             target = ov.value_fn(jnp.asarray(0.0))
             residual = residual.at[ov.index].set(eta[ov.index] - target)
@@ -126,6 +147,41 @@ class VectorField(eqx.Module):
         eta_eff = _apply_edge_input_overrides(eta_eff, t, args.intervention)
 
         accumulator = jnp.zeros(self.n_latent, dtype=eta.dtype)
-        for component, slice_params in zip(self.components, args.params, strict=True):
-            accumulator = component.contribute(accumulator, eta, eta_eff, t, slice_params)
+        for index, (component, slice_params) in enumerate(
+            zip(self.components, args.params, strict=True)
+        ):
+            if index not in self.potential_indices:
+                accumulator = component.contribute(accumulator, eta, eta_eff, t, slice_params)
         return accumulator
+
+
+class StructuralDrift(eqx.Module):
+    """Directed and intrinsic drift contributions, followed by hard interventions."""
+
+    vector_field: VectorField
+    args: VectorFieldArgs
+    input_effect: Array | None = None
+
+    def __call__(self, x, u, t):
+        t = jnp.asarray(t)
+        value = self.vector_field._natural_derivative(t, x, self.args)
+        if self.input_effect is not None and self.input_effect.shape[1]:
+            value = value + self.input_effect @ u
+        return _apply_variable_overrides_to_derivative(value, t, self.args.intervention)
+
+
+class StructuralPotential(eqx.Module):
+    """Sum node energies; intervened nodes have their natural dynamics removed."""
+
+    vector_field: VectorField
+    args: VectorFieldArgs
+
+    def __call__(self, x, u, t):
+        del u, t
+        clamped = {override.index for override in self.args.intervention.variable_overrides()}
+        energy = jnp.zeros((), dtype=x.dtype)
+        for index in self.vector_field.potential_indices:
+            component = cast("ExpressionComponent", self.vector_field.components[index])
+            if component.target not in clamped:
+                energy = energy + component.evaluate(x, self.args.params[index])
+        return energy

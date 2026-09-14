@@ -2,25 +2,20 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
-from nof1_causal_lab.artifacts.statistical_model_spec import (
-    StatisticalModelSpec,
-    validate_statistical_model_spec_dict,
-)
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.compilation_errors import AggregatedCompileError
 from nof1_causal_lab.json_types import UncheckedJsonObject
+from nof1_causal_lab.models.ssm import numerics as numeric
 
 if TYPE_CHECKING:
     import polars as pl
 
-    from nof1_causal_lab.artifacts.compiled_ssm import CompiledSSMArtifact
     from nof1_causal_lab.artifacts.prior import PriorValidationResult
-    from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
 
 _RECOVERABLE_MODEL_SPEC_ASSEMBLY_ERRORS = (
     AggregatedCompileError,
@@ -35,10 +30,9 @@ type Payload = UncheckedJsonObject
 class AssemblyValidation:
     """Result of compile-only assembly validation."""
 
-    normalized_statistical_model_spec: UncheckedJsonObject | None = None
+    model: UncheckedJsonObject | None = None
     compile_ok: bool = True
     compile_error: str | None = None
-    compiled_ssm: CompiledSSMArtifact | None = None
     diagnostics: list[PriorValidationResult] = field(default_factory=list)
 
     @property
@@ -51,34 +45,31 @@ class AssemblyValidation:
 
 
 def validate_assembly(
-    statistical_model_spec: Payload,
-    structural_plan: StructuralPlan,
+    model: Payload,
 ) -> AssemblyValidation:
     """Compile authored inputs and retain compiler-owned diagnostics.
 
     Construct admission and the full-model barrier own statistical validation.
     Assembly intentionally cannot invoke the removed legacy whole-model PPC suite.
     """
-    from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
+    from nof1_causal_lab.models.model_checks import check_execution
+    from nof1_causal_lab.models.ssm.compile.inputs import compile_ssm_inputs_from_model
 
-    candidate_model = _prepare_statistical_model_spec(statistical_model_spec)
+    candidate_model = _prepare_model(model)
     candidate = candidate_model.model_dump(mode="json")
     try:
-        compiled_ssm = compile_ssm_artifact(candidate_model, structural_plan=structural_plan)
+        check_execution(candidate_model)
+        _, _, diagnostics, _, _ = compile_ssm_inputs_from_model(candidate_model)
     except _RECOVERABLE_MODEL_SPEC_ASSEMBLY_ERRORS as exc:
         return AssemblyValidation(
-            normalized_statistical_model_spec=candidate,
+            model=candidate,
             compile_ok=False,
             compile_error=str(exc),
             diagnostics=_collect_compile_failure_diagnostics(exc),
         )
-    candidate["parameters"] = [
-        parameter.model_dump(mode="json") for parameter in compiled_ssm.parameters
-    ]
     return AssemblyValidation(
-        normalized_statistical_model_spec=candidate,
-        diagnostics=_collect_compile_diagnostics(compiled_ssm),
-        compiled_ssm=compiled_ssm,
+        model=candidate,
+        diagnostics=diagnostics,
     )
 
 
@@ -130,25 +121,15 @@ def _collect_compile_failure_diagnostics(failure: Any) -> list[PriorValidationRe
     return typed
 
 
-def _prepare_statistical_model_spec(
-    statistical_model_spec: Payload,
-) -> StatisticalModelSpec:
+def _prepare_model(
+    model: Payload,
+) -> ModelSpec:
     """Normalize a model-spec statistical model spec before any compile-time work."""
-    candidate, errors = validate_statistical_model_spec_dict(deepcopy(statistical_model_spec))
-    if candidate is None:
-        raise ValueError("StatisticalModelSpec validation failed:\n" + "\n".join(errors))
-    return candidate
-
-
-def _collect_compile_diagnostics(
-    compiled_ssm: CompiledSSMArtifact,
-) -> list[PriorValidationResult]:
-    """Collect typed compiler-owned diagnostics for model-spec feedback."""
-    return compiled_ssm.compile_diagnostics
+    return ModelSpec.model_validate(model)
 
 
 def build_exact_prior_predictive_samples(
-    compiled_ssm: CompiledSSMArtifact,
+    model_spec: ModelSpec,
     data_for_model: pl.DataFrame,
     *,
     n_draws: int = 200,
@@ -159,7 +140,7 @@ def build_exact_prior_predictive_samples(
 
     from nof1_causal_lab.models.ssm.runtime import prepare_model_runtime, sample_prior_predictive
 
-    runtime = prepare_model_runtime(data_for_model, compiled_ssm=compiled_ssm)
+    runtime = prepare_model_runtime(data_for_model, model_spec=model_spec)
     observation_mask = jnp.isfinite(jnp.asarray(runtime.observations))
     predictive = sample_prior_predictive(
         runtime.model,
@@ -169,12 +150,12 @@ def build_exact_prior_predictive_samples(
         observation_mask=observation_mask,
         transition_inputs=runtime.transition_inputs,
     )
-    assert runtime.manifest_ids is not None
+    assert numeric.observation_ids(runtime.spec) is not None
     observations = np.asarray(predictive["observations"])
     effective_mask = np.asarray(predictive["observations_mask"], dtype=bool)
     return {
         name: observations[:, :, index][effective_mask[:, :, index]].tolist()
-        for index, name in enumerate(runtime.manifest_ids)
+        for index, name in enumerate(numeric.observation_ids(runtime.spec))
     }
 
 
@@ -188,106 +169,31 @@ def _collect_validation_warning_messages(validation: AssemblyValidation) -> list
     return [message for message in messages if isinstance(message, str)]
 
 
-def compile_model_artifact(
-    statistical_model_spec: Payload,
-    data_for_model: pl.DataFrame,
-    structural_plan: StructuralPlan,
-    compiled_ssm: CompiledSSMArtifact | None = None,
-) -> UncheckedJsonObject:
-    """Compile and verify the executable SSM artifact for model-spec output."""
-    from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
-    from nof1_causal_lab.models.ssm.runtime import prepare_model_runtime
-
-    try:
-        candidate = _prepare_statistical_model_spec(statistical_model_spec)
-        artifact = compiled_ssm or compile_ssm_artifact(
-            candidate,
-            structural_plan=structural_plan,
-        )
-    except _RECOVERABLE_MODEL_SPEC_ASSEMBLY_ERRORS as exc:
-        return {
-            "model_built": False,
-            "error": str(exc),
-        }
-
-    try:
-        prepare_model_runtime(data_for_model, compiled_ssm=artifact)
-        return {
-            "model_built": True,
-            "model_type": "SSM",
-            "compiled_ssm": artifact,
-        }
-    except NotImplementedError:
-        return {
-            "model_built": False,
-            "error": "SSM implementation not available",
-            "compiled_ssm": artifact,
-        }
-    except _RECOVERABLE_MODEL_SPEC_ASSEMBLY_ERRORS as exc:
-        return {
-            "model_built": False,
-            "error": str(exc),
-            "compiled_ssm": artifact,
-        }
-
-
 def materialize_model_spec_result(
     *,
-    statistical_model_spec: UncheckedJsonObject,
+    model: UncheckedJsonObject,
     data_for_model: pl.DataFrame,
     indicator_audits: dict[str, UncheckedJsonObject] | None,
-    structural_plan: StructuralPlan,
     validation: AssemblyValidation | None = None,
     search_queries: dict[str, str] | None = None,
-    skip_ppc: bool = True,
 ) -> UncheckedJsonObject:
-    """Build the persisted result from construct-admitted authored inputs.
-
-    ``skip_ppc`` remains as a compatibility guard for the Temporal caller. The
-    removed whole-model PPC suite cannot be requested; construct admission and the
-    exact full-model barrier own validation.
-    """
-
-    if not skip_ppc:
-        raise ValueError("Legacy whole-model prior-predictive validation has been removed.")
+    """Materialize the canonical model and separately sourced admission findings."""
 
     validation = validation or validate_assembly(
-        statistical_model_spec,
-        structural_plan,
+        model,
     )
     del indicator_audits
-    normalized_statistical_model_spec = (
-        validation.normalized_statistical_model_spec or statistical_model_spec
-    )
-    model_result = compile_model_artifact(
-        normalized_statistical_model_spec,
-        data_for_model,
-        structural_plan=structural_plan,
-        compiled_ssm=validation.compiled_ssm,
-    )
-    compiled_ssm = model_result.pop("compiled_ssm", None)
+    model = validation.model or model
+    if not validation.is_valid:
+        raise ValueError(validation.compile_error)
+    candidate = _prepare_model(model)
+    candidate.check_execution()
+    prior_predictive_samples = build_exact_prior_predictive_samples(candidate, data_for_model)
 
-    prior_predictive_samples = (
-        build_exact_prior_predictive_samples(compiled_ssm, data_for_model)
-        if compiled_ssm is not None
-        else {}
-    )
-
-    if compiled_ssm is not None:
-        normalized_statistical_model_spec = {
-            **normalized_statistical_model_spec,
-            "parameters": [
-                parameter.model_dump(mode="json") for parameter in compiled_ssm.parameters
-            ],
-        }
-    result = {
-        "statistical_model_spec": normalized_statistical_model_spec,
+    return {
+        "model": model,
         "search_queries": search_queries or None,
         "validation_warnings": _collect_validation_warning_messages(validation) or None,
-        "_structural_plan": structural_plan.model_dump(mode="json"),
         "prior_predictive_samples": prior_predictive_samples,
         "prior_predictive_diagnostics": [],
     }
-    if compiled_ssm is not None:
-        result["_compiled_ssm"] = compiled_ssm
-    return result

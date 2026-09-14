@@ -11,16 +11,15 @@ from dynestyx import StochasticContinuousTimeStateEvolution
 from numpyro import handlers
 from numpyro.distributions import MultivariateNormal
 
+from nof1_causal_lab.artifacts.likelihood import LinkFunction
 from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
-from nof1_causal_lab.artifacts.statistical_model_spec import LinkFunction
 from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.ssm import SSMModel
 from nof1_causal_lab.models.ssm.autoreparam import AutoReparam
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
-from nof1_causal_lab.models.ssm.dynamics.vector_field import VectorField
+from nof1_causal_lab.models.ssm.dynamics.vector_field import StructuralDrift, VectorField
 from nof1_causal_lab.models.ssm.execution.contracts import MeasurementParams
 from nof1_causal_lab.models.ssm.execution.dynamical_model import (
-    StructuralDrift,
     continuous_state_evolution,
 )
 from nof1_causal_lab.models.ssm.execution.emissions import (
@@ -37,12 +36,12 @@ from nof1_causal_lab.models.ssm.inference.targets.laplace import (
 from nof1_causal_lab.models.ssm.inference.utils import _build_eval_fns, prepare_model_parameters
 from nof1_causal_lab.models.ssm.inference.warmup.map import fit_map
 from nof1_causal_lab.models.ssm.structure import SparseVectorBlockSpec
-from tests.ssm_spec_fixtures import (
+from tests.model_fixtures import (
     affine_test_evolution,
-    block_ssm_spec,
     dense_matrix_dynamics_spec,
     diagonal_diffusion_block,
     make_observation_support_runtime,
+    model_fixture,
 )
 
 pytestmark = [pytest.mark.slow, pytest.mark.cpu_expensive]
@@ -73,7 +72,7 @@ def _eval_model(model_fn, params_dict, observations, times):
 def _dense_matrix_ssm_spec(n_latent: int, n_manifest: int):
     offdiag = np.ones((n_latent, n_latent), dtype=bool)
     np.fill_diagonal(offdiag, False)
-    return block_ssm_spec(
+    return model_fixture(
         n_latent=n_latent,
         n_manifest=n_manifest,
         dynamics_spec=dense_matrix_dynamics_spec(
@@ -330,7 +329,7 @@ class TestPureJaxLikelihoodEvaluator:
 
     @staticmethod
     def _build_poisson_case():
-        spec = block_ssm_spec(
+        spec = model_fixture(
             n_latent=1,
             n_manifest=1,
             dynamics_spec=dense_matrix_dynamics_spec(

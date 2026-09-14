@@ -63,12 +63,12 @@ if TYPE_CHECKING:
     from dynestyx import StochasticContinuousTimeStateEvolution
     from numpyro.distributions import MultivariateNormal
 
-    from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily, LinkFunction
+    from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
+    from nof1_causal_lab.models.ssm.dynamics.vector_field import StructuralDrift
     from nof1_causal_lab.models.ssm.execution.contracts import (
         LikelihoodExtraParams,
         MeasurementParams,
     )
-    from nof1_causal_lab.models.ssm.execution.dynamical_model import StructuralDrift
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
 
@@ -166,8 +166,8 @@ class LaplaceLikelihood:
             return self._build_support_window_derivatives(observation_model)
 
         signature = (
-            observation_model.manifest_dists,
-            observation_model.manifest_links,
+            observation_model.observation.families,
+            observation_model.observation.links,
             tuple(batch.max_state_len for batch in self._support_window_batches),
             self.n_latent,
             self.n_manifest,

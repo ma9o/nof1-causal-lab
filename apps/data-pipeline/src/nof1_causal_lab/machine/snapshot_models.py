@@ -7,35 +7,33 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from nof1_causal_lab.artifacts.baseline_report import (  # noqa: TC001
-    BaselineReportArtifact,
-    SavedScenariosArtifact,
+from nof1_causal_lab.artifacts.admission import AdmissionReport  # noqa: TC001
+from nof1_causal_lab.artifacts.baseline_report import BaselineReportArtifact  # noqa: TC001
+from nof1_causal_lab.artifacts.execution import (
+    ExecutionReadiness,  # noqa: TC001
+    StructuralItemDisposition,  # noqa: TC001
 )
-from nof1_causal_lab.artifacts.causal_design import IdentifiabilityStatus  # noqa: TC001
-from nof1_causal_lab.artifacts.identity import (  # noqa: TC001
+from nof1_causal_lab.artifacts.identification import IdentificationReport  # noqa: TC001
+from nof1_causal_lab.artifacts.identity import (
     ArtifactId,
     ArtifactRef,
     ConstructId,
     EdgeId,
     ModelRef,
+    TransitionRef,
 )
-from nof1_causal_lab.artifacts.latent_structure import LatentStructure  # noqa: TC001
-from nof1_causal_lab.artifacts.measurement_structure import (
-    MeasurementStructureArtifact,  # noqa: TC001
-)
-from nof1_causal_lab.artifacts.mechanism import ConstantDriftMechanism, NodePotentialMechanism
-from nof1_causal_lab.artifacts.posterior import PosteriorArtifact  # noqa: TC001
+from nof1_causal_lab.artifacts.model_spec import ModelSpec  # noqa: TC001
+from nof1_causal_lab.artifacts.posterior import InferenceReport  # noqa: TC001
 from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorEstimate  # noqa: TC001
 from nof1_causal_lab.artifacts.question import QuestionArtifact  # noqa: TC001
-from nof1_causal_lab.artifacts.statistical_model_spec import (  # noqa: TC001
-    ParameterSpec,
-    StatisticalModelSpecArtifact,
-)
-from nof1_causal_lab.artifacts.structural_plan import StructuralItemDisposition  # noqa: TC001
 from nof1_causal_lab.artifacts.validation_report import ValidationReportArtifact  # noqa: TC001
 from nof1_causal_lab.machine.artifacts import EpisodeState  # noqa: TC001
 from nof1_causal_lab.machine.moves import ArtifactFreshness, is_stale
-from nof1_causal_lab.machine.view_models import MeasurementsData, RawDataData  # noqa: TC001
+from nof1_causal_lab.machine.view_models import (  # noqa: TC001
+    MeasurementsData,
+    ModelDiagnostics,
+    RawDataData,
+)
 
 
 class SnapshotValue(BaseModel):
@@ -54,7 +52,7 @@ class SourceValidity(StrEnum):
 class FactSource(SnapshotValue):
     """A fact source locates supporting content within an artifact version and records its freshness."""
 
-    artifact: ArtifactRef
+    ref: ArtifactRef | TransitionRef
     pointer: str = Field(pattern=r"^(?:/.*)?$")
     validity: SourceValidity
 
@@ -67,162 +65,138 @@ class Sourced[T](SnapshotValue):
 
 
 class FitSummary(SnapshotValue):
-    """A fit read contains the canonical posterior and server-composed display findings."""
+    """A fit read contains the inference log report and server-composed display findings."""
 
-    posterior: PosteriorArtifact
+    report: InferenceReport
     predictive_checks_passed: int = Field(ge=0)
     predictive_checks_total: int = Field(ge=0)
     edge_estimates: dict[EdgeId, PosteriorEstimate] = Field(default_factory=dict)
     decay_estimates: dict[ConstructId, PosteriorEstimate] = Field(default_factory=dict)
 
 
-class ModelSnapshot(SnapshotValue):
-    """A model snapshot batches independently sourced aggregates at one committed revision.
+class SnapshotContext(SnapshotValue):
+    """A snapshot context identifies the selected journal revision and its artifact versions."""
 
-    Authored structure, measurement declarations, specification, and posterior retain their
-    canonical hierarchy. Optional reads represent partial models; each source preserves its
-    own version and freshness. Only cross-artifact ownership and provenance belong here.
-    """
-
-    model: ModelRef
+    workspace: ModelRef
     seq: int = Field(ge=0)
+    can_simulate: bool = False
     state: EpisodeState
-    question: Sourced[QuestionArtifact] | None = None
-    latent_structure: Sourced[LatentStructure] | None = None
-    measurement_structure: Sourced[MeasurementStructureArtifact] | None = None
-    identification: Sourced[IdentifiabilityStatus] | None = None
-    dispositions: Sourced[tuple[StructuralItemDisposition, ...]] | None = None
-    graph_status: dict[ConstructId, Literal["observed", "marginalized", "blocking"]] = Field(
-        default_factory=dict
-    )
-    raw_data: Sourced[RawDataData] | None = None
-    measurements: Sourced[MeasurementsData] | None = None
-    validation_report: Sourced[ValidationReportArtifact] | None = None
-    specification: Sourced[StatisticalModelSpecArtifact] | None = None
-    compiled_parameters: Sourced[tuple[ParameterSpec, ...]] | None = None
-    fit: Sourced[FitSummary] | None = None
-    baseline_report: Sourced[BaselineReportArtifact] | None = None
-    saved_scenarios: Sourced[SavedScenariosArtifact] | None = None
     artifacts: list[ArtifactFreshness] = Field(default_factory=list)
     installed_at: dict[ArtifactId, int] = Field(default_factory=dict)
     retracted: list[ArtifactId] = Field(default_factory=list)
 
+
+class ModelData(SnapshotValue):
+    """ModelSpec data pairs the causal question and observed evidence with their source versions."""
+
+    question: Sourced[QuestionArtifact] | None = None
+    raw_data: Sourced[RawDataData] | None = None
+    measurements: Sourced[MeasurementsData] | None = None
+
+
+class ModelFindings(SnapshotValue):
+    """ModelSpec findings collect identification, validation, and fitted results with their provenance."""
+
+    identification: Sourced[IdentificationReport] | None = None
+    execution: Sourced[ExecutionReadiness] | None = None
+    dispositions: Sourced[tuple[StructuralItemDisposition, ...]] | None = None
+    graph_status: dict[ConstructId, Literal["observed", "marginalized", "blocking"]] = Field(
+        default_factory=dict
+    )
+    validation_report: Sourced[ValidationReportArtifact] | None = None
+    admission_report: Sourced[AdmissionReport] | None = None
+    diagnostics: ModelDiagnostics | None = None
+    fit: Sourced[FitSummary] | None = None
+    baseline_report: Sourced[BaselineReportArtifact] | None = None
+
+
+class ModelSnapshot(SnapshotValue):
+    """The canonical scientific definition with independently sourced inputs and findings."""
+
+    model: Sourced[ModelSpec] | None = None
+    context: SnapshotContext
+    data: ModelData = Field(default_factory=ModelData)
+    findings: ModelFindings = Field(default_factory=ModelFindings)
+
     @model_validator(mode="after")
     def validate_ownership_and_sources(self) -> ModelSnapshot:
         for read, artifact_id in (
-            (self.question, "question"),
-            (self.latent_structure, "latent_structure"),
-            (self.measurement_structure, "measurement_structure"),
-            (self.identification, "causal_design"),
-            (self.dispositions, "structural_plan"),
-            (self.raw_data, "raw_data"),
-            (self.measurements, "panel"),
-            (self.validation_report, "validation_report"),
-            (self.specification, "statistical_model_spec"),
-            (self.compiled_parameters, "compiled_ssm"),
-            (self.fit, "posterior"),
-            (self.baseline_report, "baseline_report"),
-            (self.saved_scenarios, "saved_scenarios"),
+            (self.model, "model"),
+            (self.data.question, "question"),
+            (self.findings.identification, "identification_report"),
+            (self.findings.dispositions, "model"),
+            (self.data.raw_data, "raw_data"),
+            (self.data.measurements, "panel"),
+            (self.findings.validation_report, "validation_report"),
+            (self.findings.admission_report, "admission_report"),
+            (self.findings.execution, "model"),
+            (self.findings.fit, "inference"),
+            (self.findings.baseline_report, "baseline_report"),
         ):
             if read is not None:
                 self._validate_source(read.source, artifact_id)
-
-        latent = self.latent_structure.value if self.latent_structure else None
-        constructs = {item.id for item in latent.constructs} if latent else set()
-        edges = {item.id for item in latent.edges} if latent else set()
-        measurement = self.measurement_structure.value if self.measurement_structure else None
-        indicators = (
-            {item.id for item in measurement.measurement_structure.indicators}
-            if measurement
-            else set()
-        )
-        if measurement:
-            if any(
-                item.construct_id not in constructs
-                for item in measurement.measurement_structure.indicators
-            ):
-                raise ValueError("Indicator owner does not exist in the snapshot")
-            if any(
-                item.construct_id not in constructs
-                for item in (*measurement.known_inputs, *measurement.scientific_only_constructs)
-            ):
-                raise ValueError("Measurement declaration owner does not exist in the snapshot")
-        if self.dispositions and any(
+        model = self.model.value if self.model else None
+        constructs = {item.id for item in model.constructs} if model else set()
+        edges = {item.id for item in model.edges} if model else set()
+        indicators = {item.id for item in model.indicators} if model else set()
+        parameters = {item.id for item in model.parameters} if model else set()
+        findings = self.findings
+        if findings.execution and any(
+            anchor.construct_id not in constructs
+            for anchor in findings.execution.value.anchor_certificates
+        ):
+            raise ValueError("Execution anchor owner does not exist in the snapshot")
+        if findings.dispositions and any(
             item.source_id not in constructs | edges | indicators
-            for item in self.dispositions.value
+            for item in findings.dispositions.value
         ):
             raise ValueError("Disposition owner does not exist in the snapshot")
-        if not self.graph_status.keys() <= constructs:
+        if not findings.graph_status.keys() <= constructs:
             raise ValueError("Graph status owner does not exist in the snapshot")
+        if findings.identification:
+            if model is None:
+                raise ValueError("Identification requires its scientific model")
+            findings.identification.value.validate_model(model)
         if (
-            self.identification
-            and not (
-                self.identification.value.identifiable_treatments.keys()
-                | self.identification.value.non_identifiable_treatments.keys()
-            )
-            <= constructs
-        ):
-            raise ValueError("Identification owner does not exist in the snapshot")
-        if (
-            self.measurements
-            and not self.measurements.value.per_indicator_counts.keys() <= indicators
+            self.data.measurements
+            and not self.data.measurements.value.per_indicator_counts.keys() <= indicators
         ):
             raise ValueError("Observation owner does not exist in the snapshot")
         if (
-            self.validation_report
-            and not self.validation_report.value.indicators.keys() <= indicators
+            findings.validation_report
+            and not findings.validation_report.value.indicators.keys() <= indicators
         ):
             raise ValueError("Validation owner does not exist in the snapshot")
-
-        parameters = (
-            {item.id for item in self.compiled_parameters.value}
-            if self.compiled_parameters
-            else set()
-        )
-        if self.specification:
-            spec = self.specification.value
-            for mechanism in spec.statistical_model_spec.mechanisms:
-                if isinstance(mechanism, (NodePotentialMechanism, ConstantDriftMechanism)):
-                    if mechanism.target_id not in constructs:
-                        raise ValueError("Mechanism target does not exist in the snapshot")
-                elif mechanism.edge_id not in edges:
-                    raise ValueError("Mechanism edge does not exist in the snapshot")
-            if any(
-                item.indicator_id not in indicators
-                for item in spec.statistical_model_spec.likelihoods
-            ):
-                raise ValueError("Likelihood owner does not exist in the snapshot")
-            if any(
-                item.construct_id not in constructs for item in spec.prior_predictive_diagnostics
-            ):
-                raise ValueError("Admission owner does not exist in the snapshot")
-        if self.fit:
-            fit = self.fit.value
-            marginals = fit.posterior.posterior_marginals or []
-            pairs = fit.posterior.posterior_pairs or []
-            mcmc = fit.posterior.assessment.mcmc_diagnostics
-            diagnostics = mcmc.per_parameter if mcmc else []
-            if any(
-                item.subject.parameter_id not in parameters for item in (*marginals, *diagnostics)
-            ):
-                raise ValueError("Posterior finding has no compiled parameter definition")
+        if findings.admission_report and any(
+            item.construct_id not in constructs
+            for item in findings.admission_report.value.prior_predictive_diagnostics
+        ):
+            raise ValueError("Admission owner does not exist in the snapshot")
+        if findings.fit:
+            fit = findings.fit.value
+            marginals = fit.report.posterior_marginals or []
+            pairs = fit.report.posterior_pairs or []
+            if any(item.subject.parameter_id not in parameters for item in marginals):
+                raise ValueError("Posterior finding has no scientific parameter definition")
             if any(
                 subject.parameter_id not in parameters
                 for pair in pairs
                 for subject in (pair.subject_x, pair.subject_y)
             ):
-                raise ValueError("Posterior pair has no compiled parameter definition")
-            if (
-                marginals or diagnostics or pairs or fit.edge_estimates or fit.decay_estimates
-            ) and not self.state.matches_inputs("posterior", "compiled_ssm"):
-                raise ValueError("Posterior findings require the selected compiler version")
+                raise ValueError("Posterior pair has no scientific parameter definition")
         return self
 
     def _validate_source(self, source: FactSource, artifact_id: str) -> None:
-        ref = source.artifact
-        current = self.state.get(ref.artifact_id)
+        ref = source.ref
+        if isinstance(ref, TransitionRef):
+            if artifact_id != "inference" or ref.seq > self.context.seq:
+                raise ValueError(
+                    "Inference findings must refer to a transition in this snapshot's history"
+                )
+            return
+        current = self.context.state.get(ref.artifact_id)
         if ref.artifact_id != artifact_id or current is None or current.version != ref.version:
             raise ValueError("Fact source does not belong to the selected artifact snapshot")
-        expected = "stale" if is_stale(self.state, ref.artifact_id) else "fresh"
+        expected = "stale" if is_stale(self.context.state, ref.artifact_id) else "fresh"
         if source.validity != expected:
             raise ValueError("Fact validity differs from its snapshot provenance")

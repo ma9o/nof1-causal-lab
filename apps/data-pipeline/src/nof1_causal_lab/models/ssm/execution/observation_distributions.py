@@ -9,7 +9,7 @@ import jax.numpy as jnp
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 
-from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily
+from nof1_causal_lab.artifacts.likelihood import DistributionFamily
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
 
 if TYPE_CHECKING:
@@ -33,6 +33,7 @@ def binary_logits_distribution(logits: jax.Array) -> dist.Distribution:
 
 
 _MEAN_DOMAINS = {
+    DistributionFamily.DELTA: constraints.real,
     DistributionFamily.GAUSSIAN: constraints.real,
     DistributionFamily.STUDENT_T: constraints.real,
     DistributionFamily.POISSON: constraints.nonnegative,
@@ -57,6 +58,8 @@ def mean_parameter_distribution(
 ) -> dist.Distribution:
     """Construct the exact independent-channel law for an already valid mean."""
     match family:
+        case DistributionFamily.DELTA:
+            return dist.Delta(mean)
         case DistributionFamily.GAUSSIAN:
             return dist.Normal(mean, scale)
         case DistributionFamily.STUDENT_T:

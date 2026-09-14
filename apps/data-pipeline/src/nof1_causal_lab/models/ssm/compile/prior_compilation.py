@@ -10,7 +10,6 @@ import numpy as np
 import numpyro.distributions as dist
 import scipy.linalg
 
-from nof1_causal_lab.artifacts.compiled_ssm import CompiledParameterBinding
 from nof1_causal_lab.artifacts.duration import parse_duration_to_hours
 from nof1_causal_lab.artifacts.parameter import (
     ParameterCoordinate,
@@ -22,15 +21,16 @@ from nof1_causal_lab.artifacts.prior import (
     PriorValidationResult,
 )
 from nof1_causal_lab.compilation_errors import AggregatedCompileError
+from nof1_causal_lab.models.ssm import numerics as numeric
+from nof1_causal_lab.models.ssm.compile.bindings import CompiledParameterBinding
 from nof1_causal_lab.models.ssm.compile.common import (
     axis_names_with_fallback,
 )
 from nof1_causal_lab.models.ssm.compile.prior_indexing import (
     SemanticBindingRegistry,
     build_semantic_prior_bindings,
-    empty_prior_bindings,
 )
-from nof1_causal_lab.models.ssm.compile.spec_translation import get_construct_dt_days
+from nof1_causal_lab.models.ssm.compile.support import get_construct_dt_days
 from nof1_causal_lab.models.ssm.execution.contracts import NUMERICAL_EPSILON
 from nof1_causal_lab.models.ssm.parameterization import build_site_registry
 from nof1_causal_lab.models.ssm.priors import (
@@ -41,22 +41,17 @@ from nof1_causal_lab.models.ssm.priors import (
 from nof1_causal_lab.models.ssm.structure.sites import SemanticBinding, SiteDescriptor, site_size
 from nof1_causal_lab.prior_distributions import (
     batch_prior_distributions,
-    deserialize_distribution,
     interval_effect_to_rate,
     persistence_to_decay,
     prior_reference_value,
-    serialize_distribution,
 )
-from nof1_causal_lab.utils.structural_plan import get_model_clock
+from nof1_causal_lab.utils.model_structure import get_model_clock
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.statistical_model_spec import (
-        ParameterRole,
-        ParameterSpec,
-        StatisticalModelSpec,
-    )
-    from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
-    from nof1_causal_lab.models.ssm.model import SSMSpec
+    from collections.abc import Sequence
+
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 
 logger = logging.getLogger("nof1_causal_lab.models.ssm.compile.inputs")
 CompileDiagnostic = PriorValidationResult
@@ -74,11 +69,8 @@ _LOGM_IMAG_TOL = 1e-8
 _LOGM_RELATIVE_DEVIATION_WARNING_THRESHOLD = 0.2
 
 _DEGENERATE_PRIOR_PREAMBLE = (
-    "model-spec priors must have strictly positive variance. Zero-width priors assert "
-    "the parameter's value with infinite certainty, which is a structural claim "
-    "rather than a Bayesian belief. Legitimate fixed-value cases (identification "
-    "fixings, baseline policies) belong on the structural surface — the skeleton "
-    "parameter list or statistical-model-spec policy toggles — not on the prior surface."
+    "model-spec priors must have strictly positive variance. Represent a fixed value "
+    "with a fixed component coefficient or ParameterSpec.value."
 )
 
 
@@ -88,41 +80,39 @@ class PriorCompilationError(AggregatedCompileError):
     header = "Prior compilation failed"
 
 
-def _component_semantic_bindings(ssm_spec: SSMSpec) -> tuple[SemanticBinding, ...]:
+def _component_semantic_bindings(model_spec: ModelSpec) -> tuple[SemanticBinding, ...]:
     from nof1_causal_lab.models.ssm.dynamics.spec import iter_dynamics_semantic_bindings
 
-    latent_names = axis_names_with_fallback(
-        ssm_spec.latent_names,
-        expected=ssm_spec.n_latent,
-        prefix="latent",
-    )
-    active_site_names = {site.name for site in build_site_registry(ssm_spec)}
-    return tuple(
-        binding
+    component_sites = {
+        binding.site_name
         for binding in iter_dynamics_semantic_bindings(
-            ssm_spec.dynamics_spec,
-            latent_names=tuple(latent_names),
+            numeric.dynamics_components(model_spec),
+            latent_names=tuple(numeric.state_names(model_spec)),
         )
-        if binding.site_name in active_site_names
+    }
+    return tuple(
+        binding
+        for binding in build_semantic_prior_bindings(model_spec).by_parameter.values()
+        if binding.site_name in component_sites
     )
 
 
-def _decay_bindings(ssm_spec: SSMSpec) -> tuple[SemanticBinding, ...]:
+def _decay_bindings(model_spec: ModelSpec) -> tuple[SemanticBinding, ...]:
     return tuple(
         binding
-        for binding in _component_semantic_bindings(ssm_spec)
+        for binding in _component_semantic_bindings(model_spec)
         if binding.site_kind == SiteKind.DYNAMICS_DECAY
         and binding.transform == PriorAuthoringTransform.DT_PERSISTENCE_TO_CT_DECAY
     )
 
 
 def _linear_effect_bindings(
-    ssm_spec: SSMSpec,
+    model_spec: ModelSpec,
 ) -> tuple[tuple[SemanticBinding, int, int], ...]:
     """Linear (``beta_``) effect bindings, paired with their non-None
     ``(effect_idx, cause_idx)`` so callers receive narrowed ``int`` indices."""
     result: list[tuple[SemanticBinding, int, int]] = []
-    for binding in _component_semantic_bindings(ssm_spec):
+    for binding in _component_semantic_bindings(model_spec):
         effect_idx = binding.effect_idx
         cause_idx = binding.cause_idx
         if (
@@ -135,18 +125,18 @@ def _linear_effect_bindings(
     return tuple(result)
 
 
-def _binding_latent_index(binding: SemanticBinding, ssm_spec: SSMSpec) -> int | None:
+def _binding_latent_index(binding: SemanticBinding, model_spec: ModelSpec) -> int | None:
     if binding.construct_names:
         latent_names = axis_names_with_fallback(
-            ssm_spec.latent_names,
-            expected=ssm_spec.n_latent,
+            numeric.state_names(model_spec),
+            expected=numeric.n_states(model_spec),
             prefix="latent",
         )
         return {name: idx for idx, name in enumerate(latent_names)}.get(binding.construct_names[0])
     site = next(
         (
             candidate
-            for candidate in build_site_registry(ssm_spec)
+            for candidate in build_site_registry(model_spec)
             if candidate.name == binding.site_name
         ),
         None,
@@ -155,29 +145,26 @@ def _binding_latent_index(binding: SemanticBinding, ssm_spec: SSMSpec) -> int | 
         position = site.positions[min(binding.flat_index, len(site.positions) - 1)]
         if isinstance(position, int):
             return int(position)
-    if 0 <= binding.flat_index < ssm_spec.n_latent:
+    if 0 <= binding.flat_index < numeric.n_states(model_spec):
         return int(binding.flat_index)
     return None
 
 
 def _resolve_model_clock_interval_days(
-    structural_plan: StructuralPlan | None,
+    model: ModelSpec,
 ) -> float | None:
     """Resolve the declared model clock interval without silently defaulting to 1 day."""
-    if structural_plan is None:
-        return None
-
     try:
-        interval_days = parse_duration_to_hours(get_model_clock(structural_plan)) / 24.0
+        interval_days = parse_duration_to_hours(get_model_clock(model)) / 24.0
     except ValueError as exc:
         raise ValueError(
-            "structural_plan.semantics.model_clock must parse to a positive interval to "
+            "model.measurement_clock must parse to a positive interval to "
             "compile cross-lag priors without explicit reference_interval_days."
         ) from exc
 
     if interval_days <= 0:
         raise ValueError(
-            "structural_plan.semantics.model_clock must resolve to a positive interval to "
+            "model.measurement_clock must resolve to a positive interval to "
             "compile cross-lag priors."
         )
     return interval_days
@@ -187,9 +174,8 @@ def _resolve_cross_lag_interval_days(
     *,
     param_name: str,
     parameter: ParameterSpec,
-    ssm_spec: SSMSpec,
+    model_spec: ModelSpec,
     edge_lag_days: dict[tuple[int, int], float] | None,
-    structural_plan: StructuralPlan | None,
     effect_idx: int,
     cause_idx: int,
 ) -> float:
@@ -213,40 +199,26 @@ def _resolve_cross_lag_interval_days(
             )
         return interval_days
 
-    if not ssm_spec.latent_names:
+    if not numeric.state_names(model_spec):
         raise ValueError(
             f"Cross-lag prior '{param_name}' cannot resolve effect name: "
-            "SSMSpec.latent_names is empty."
+            "ModelSpec.latent_names is empty."
         )
-    effect_name = ssm_spec.latent_names[effect_idx]
-    interval_days = _resolve_model_clock_interval_days(structural_plan)
+    effect_name = numeric.state_names(model_spec)[effect_idx]
+    interval_days = _resolve_model_clock_interval_days(model_spec)
     if interval_days is not None:
         return interval_days
 
     raise ValueError(
         f"Cross-lag prior '{param_name}' could not resolve an authoring interval. "
         "Set reference_interval_days explicitly, or compile with edge_lag_days / "
-        f"structural_plan model_clock metadata for effect '{effect_name}'."
+        f"model measurement_clock metadata for effect '{effect_name}'."
     )
 
 
 def _format_interval_days(days: float) -> str:
     """Render a positive day interval for diagnostics."""
     return f"{float(days):.1f}d"
-
-
-def _collect_source_intervals(parameter: ParameterSpec) -> list[float]:
-    """Read interval evidence from the scientific parameter."""
-    return [
-        source.study_interval_days
-        for source in parameter.prior_sources
-        if source.study_interval_days is not None and source.study_interval_days > 0
-    ]
-
-
-def _interval_ratio(lhs: float, rhs: float) -> float:
-    """Return the larger/smaller ratio for two positive intervals."""
-    return max(lhs, rhs) / max(min(lhs, rhs), NUMERICAL_EPSILON)
 
 
 def _compile_warning(
@@ -277,137 +249,21 @@ def _compile_warning(
     )
 
 
-def collect_interval_provenance_warnings(
-    ssm_spec: SSMSpec,
-    *,
-    edge_lag_days: dict[tuple[int, int], float] | None = None,
-    parameters: dict[str, ParameterSpec] | None = None,
-    authored_bindings: SemanticBindingRegistry | None = None,
-) -> list[CompileDiagnostic]:
-    """Collect deterministic interval-authoring diagnostics for lagged dynamics priors."""
-    edge_lags = edge_lag_days or {}
-    if not edge_lags or not parameters:
-        return []
-    if authored_bindings is None:
-        raise ValueError("Prior interval provenance requires explicit parameter-ID bindings")
-
-    latent_names = axis_names_with_fallback(
-        ssm_spec.latent_names,
-        expected=ssm_spec.n_latent,
-        prefix="latent",
-    )
-    warnings: list[CompileDiagnostic] = []
-
-    for parameter_id, binding in authored_bindings.by_parameter.items():
-        effect_idx, cause_idx = binding.effect_idx, binding.cause_idx
-        if (
-            binding.transform != PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE
-            or effect_idx is None
-            or cause_idx is None
-            or (effect_idx, cause_idx) not in edge_lags
-        ):
-            continue
-
-        parameter_name = binding.parameter_name
-        cause_name = latent_names[cause_idx]
-        effect_name = latent_names[effect_idx]
-        expected_lag_days = edge_lags[(effect_idx, cause_idx)]
-        parameter = parameters[parameter_id]
-        ref_days = parameter.reference_interval_days
-        source_intervals = _collect_source_intervals(parameter)
-        if not source_intervals:
-            continue
-
-        unique_source_intervals = sorted(dict.fromkeys(source_intervals))
-        if (
-            len(unique_source_intervals) > 1
-            and _interval_ratio(unique_source_intervals[0], unique_source_intervals[-1]) > 2.0
-        ):
-            rendered = ", ".join(_format_interval_days(days) for days in unique_source_intervals)
-            warnings.append(
-                _compile_warning(
-                    code="interval_sources_mixed",
-                    parameter=parameter_name,
-                    issue=(
-                        f"Cited sources for {cause_name}->{effect_name} mix materially different "
-                        f"study intervals ({rendered}), so the authored interval provenance is weak."
-                    ),
-                    suggested_adjustment=(
-                        "Use sources measured on a comparable interval when possible, or explain "
-                        "which interval the prior is expressed on with `reference_interval_days`."
-                    ),
-                )
-            )
-
-        source_interval_days = unique_source_intervals[0]
-        if ref_days is None and _interval_ratio(source_interval_days, expected_lag_days) > 2.0:
-            warnings.append(
-                _compile_warning(
-                    code="interval_reference_missing",
-                    parameter=parameter_name,
-                    issue=(
-                        f"`reference_interval_days` is omitted, so {parameter_name} is being "
-                        f"interpreted on the default model interval ({_format_interval_days(expected_lag_days)}), "
-                        f"but the cited evidence for {cause_name}->{effect_name} is on "
-                        f"{_format_interval_days(source_interval_days)}."
-                    ),
-                    suggested_adjustment=(
-                        "If the authored effect is meant to be on the source study interval, set "
-                        "`reference_interval_days` to that interval. Otherwise explain why a "
-                        "daily-scale prior is appropriate."
-                    ),
-                )
-            )
-        elif ref_days is not None:
-            try:
-                authored_interval_days = float(ref_days)
-            except (TypeError, ValueError):
-                continue
-            if (
-                authored_interval_days > 0
-                and _interval_ratio(authored_interval_days, source_interval_days) > 2.0
-            ):
-                warnings.append(
-                    _compile_warning(
-                        code="interval_reference_mismatch",
-                        parameter=parameter_name,
-                        issue=(
-                            f"{parameter_name} is authored on "
-                            f"{_format_interval_days(authored_interval_days)} via `reference_interval_days`, "
-                            f"but the cited evidence for {cause_name}->{effect_name} is on "
-                            f"{_format_interval_days(source_interval_days)}."
-                        ),
-                        suggested_adjustment=(
-                            "Confirm that the prior was intentionally rescaled to the authored interval, "
-                            "or align `reference_interval_days` with the evidence interval."
-                        ),
-                    )
-                )
-
-    return warnings
-
-
 def collect_compile_diagnostics(
-    ssm_spec: SSMSpec,
+    model_spec: ModelSpec,
     *,
     edge_lag_days: dict[tuple[int, int], float] | None = None,
-    parameters: dict[str, ParameterSpec] | None = None,
-    authored_bindings: SemanticBindingRegistry | None = None,
     prior_registry: dict[str, dist.Distribution] | None = None,
     offdiag_interval_days: dict[tuple[int, int], float] | None = None,
 ) -> list[CompileDiagnostic]:
     """Collect structured compiler diagnostics for downstream consumers."""
-    diagnostics = collect_interval_provenance_warnings(
-        ssm_spec,
-        edge_lag_days=edge_lag_days,
-        parameters=parameters,
-        authored_bindings=authored_bindings,
-    )
+    diagnostics: list[CompileDiagnostic] = []
+
     if prior_registry is not None:
         diagnostics.extend(
             collect_first_order_approximation_warnings(
                 prior_registry,
-                ssm_spec=ssm_spec,
+                model_spec=model_spec,
                 edge_lag_days=edge_lag_days,
                 offdiag_interval_days=offdiag_interval_days,
             )
@@ -423,14 +279,12 @@ def _log_compile_diagnostics(diagnostics: list[CompileDiagnostic]) -> None:
 def collect_first_order_approximation_warnings(
     prior_registry: dict[str, dist.Distribution],
     *,
-    ssm_spec: SSMSpec | None = None,
+    model_spec: ModelSpec,
     edge_lag_days: dict[tuple[int, int], float] | None = None,
     offdiag_interval_days: dict[tuple[int, int], float] | None = None,
 ) -> list[CompileDiagnostic]:
     """Return warnings when exact matrix-log DT->CT diagnostics diverge from beta/dt."""
-    if ssm_spec is None:
-        return []
-    taylor_drift = _assemble_reference_drift_from_component_priors(prior_registry, ssm_spec)
+    taylor_drift = _assemble_reference_drift_from_component_priors(prior_registry, model_spec)
     if taylor_drift is None:
         return []
 
@@ -446,8 +300,8 @@ def collect_first_order_approximation_warnings(
     min_diag_name = next(
         (
             binding.parameter_name
-            for binding in _decay_bindings(ssm_spec)
-            if _binding_latent_index(binding, ssm_spec) == min_diag_latent_idx
+            for binding in _decay_bindings(model_spec)
+            if _binding_latent_index(binding, model_spec) == min_diag_latent_idx
         ),
         None,
     )
@@ -455,11 +309,11 @@ def collect_first_order_approximation_warnings(
 
     warnings: list[CompileDiagnostic] = []
     latent_names = axis_names_with_fallback(
-        ssm_spec.latent_names,
-        expected=ssm_spec.n_latent,
+        numeric.state_names(model_spec),
+        expected=numeric.n_states(model_spec),
         prefix="latent",
     )
-    for binding, effect_idx, cause_idx in _linear_effect_bindings(ssm_spec):
+    for binding, effect_idx, cause_idx in _linear_effect_bindings(model_spec):
         prior = prior_registry.get(binding.site_name)
         if prior is None:
             continue
@@ -555,14 +409,14 @@ def _value_at(values: np.ndarray, flat_index: int, *, default: float) -> float:
 
 def _assemble_reference_drift_from_component_priors(
     prior_registry: dict[str, dist.Distribution],
-    ssm_spec: SSMSpec,
+    model_spec: ModelSpec,
 ) -> np.ndarray | None:
-    drift = np.zeros((ssm_spec.n_latent, ssm_spec.n_latent), dtype=float)
+    drift = np.zeros((numeric.n_states(model_spec), numeric.n_states(model_spec)), dtype=float)
     populated = False
 
-    for binding in _decay_bindings(ssm_spec):
+    for binding in _decay_bindings(model_spec):
         prior = prior_registry.get(binding.site_name)
-        latent_idx = _binding_latent_index(binding, ssm_spec)
+        latent_idx = _binding_latent_index(binding, model_spec)
         if prior is None or latent_idx is None:
             continue
         decay_mu = np.asarray(prior_reference_value(prior)).reshape(-1)
@@ -575,7 +429,7 @@ def _assemble_reference_drift_from_component_priors(
         )
         populated = True
 
-    for binding, effect_idx, cause_idx in _linear_effect_bindings(ssm_spec):
+    for binding, effect_idx, cause_idx in _linear_effect_bindings(model_spec):
         prior = prior_registry.get(binding.site_name)
         if prior is None:
             continue
@@ -643,18 +497,6 @@ def matrix_log_diagnostic_drift(
     return np.real(log_transition) / interval_days
 
 
-def _collect_role_lookup(
-    statistical_model_spec: StatisticalModelSpec | None,
-) -> dict[str, ParameterRole]:
-    role_by_name: dict[str, ParameterRole] = {}
-    if statistical_model_spec is None:
-        return role_by_name
-
-    for parameter in statistical_model_spec.parameters:
-        role_by_name[parameter.id] = parameter.role
-    return role_by_name
-
-
 def _correlation_prior(prior: dist.Distribution) -> dist.Distribution:
     """Apply the declared correlation domain to Normal and bounded priors."""
     if isinstance(prior, dist.Normal):
@@ -675,27 +517,24 @@ def _correlation_prior(prior: dist.Distribution) -> dist.Distribution:
 
 
 def compile_priors(
-    statistical_model_spec: StatisticalModelSpec | None,
-    ssm_spec: SSMSpec | None,
+    model: ModelSpec,
     edge_lag_days: dict[tuple[int, int], float] | None = None,
-    structural_plan: StructuralPlan | None = None,
 ) -> tuple[dict[str, dist.Distribution], SemanticBindingRegistry, list[CompileDiagnostic]]:
     """Bind the model's native distributions to their declared execution coordinates."""
-    parameters = (
-        {parameter.id: parameter for parameter in statistical_model_spec.parameters}
-        if statistical_model_spec is not None
-        else {}
-    )
-    missing = [parameter.id for parameter in parameters.values() if parameter.prior is None]
+    model.require_execution_structure()
+    edge_lag_days = numeric.edge_lag_days(model) if edge_lag_days is None else edge_lag_days
+    parameters = {
+        parameter.id: parameter for parameter in model.parameters if parameter.value is None
+    }
+    missing = [parameter.id for parameter in parameters.values() if parameter.distribution is None]
     if missing:
-        raise ValueError(f"Model parameters require explicit prior distributions: {missing}")
+        raise ValueError(f"ModelSpec parameters require explicit prior distributions: {missing}")
 
-    active_sites = build_site_registry(ssm_spec) if ssm_spec is not None else []
+    active_sites = build_site_registry(model)
     prior_entries: dict[str, dist.Distribution] = {
         site.name: default_prior_for_descriptor(site) for site in active_sites
     }
     site_by_name = {site.name: site for site in active_sites}
-    role_by_name = _collect_role_lookup(statistical_model_spec)
     per_site: dict[str, dict[int, dist.Distribution]] = {}
 
     def attach(site: SiteDescriptor, index: int, prior: dist.Distribution) -> None:
@@ -711,39 +550,26 @@ def compile_priors(
             raise ValueError(f"Multiple authored priors bind to {site.name!r} coordinate {index}")
         values[index] = prior
 
-    if statistical_model_spec is not None and ssm_spec is not None:
-        bindings = build_semantic_prior_bindings(
-            ssm_spec,
-            statistical_model_spec,
-            structural_plan=structural_plan,
-        )
-    elif statistical_model_spec is not None:
-        raise ValueError("Scientific prior compilation requires a translated SSMSpec")
-    else:
-        bindings = empty_prior_bindings()
+    bindings = build_semantic_prior_bindings(model)
     binding_by_parameter = bindings.by_parameter
     errors: list[str] = []
     offdiag_interval_days: dict[tuple[int, int], float] = {}
 
     for param_name, parameter in parameters.items():
         try:
-            prior = parameter.prior
+            prior = parameter.distribution
             assert prior is not None
+            if isinstance(prior, str):
+                raise ValueError(
+                    "This compiler requires independent scalar input laws; shared laws remain intact in ModelSpec. Refit from the original input revision."
+                )
             prior.validate_args()
             if isinstance(prior, dist.Delta):
                 raise ValueError(f"Prior {param_name!r}: {_DEGENERATE_PRIOR_PREAMBLE}")
             binding = binding_by_parameter.get(param_name)
             if binding is None:
-                role = role_by_name.get(param_name)
-                if role is not None:
-                    errors.append(
-                        f"Prior {param_name!r} with role {role.value!r} could not be structurally "
-                        "bound to the compiled SSM. Compile priors with a translated SSMSpec that "
-                        "matches the StatisticalModelSpec."
-                    )
-                    continue
                 errors.append(
-                    f"Prior {param_name!r} does not correspond to any parameter in StatisticalModelSpec."
+                    f"Prior {param_name!r} for {model.parameter_context(parameter.id).quantity.value!r} could not be structurally bound to the compiled SSM."
                 )
                 continue
 
@@ -792,7 +618,7 @@ def compile_priors(
                 dt = (
                     resolved_ref_days
                     if resolved_ref_days is not None
-                    else get_construct_dt_days(structural_plan, construct_name)
+                    else get_construct_dt_days(model, construct_name)
                 )
                 attach(
                     site_by_name[binding.site_name],
@@ -802,9 +628,9 @@ def compile_priors(
                 continue
 
             if binding.transform == PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE:
-                if ssm_spec is None:
+                if model is None:
                     raise ValueError(
-                        "Dynamics effect prior compilation requires a translated SSMSpec runtime."
+                        "Dynamics effect prior compilation requires a translated ModelSpec runtime."
                     )
                 if binding.site_kind == SiteKind.INPUT_EFFECT:
                     ref_days = parameter.reference_interval_days
@@ -818,15 +644,14 @@ def compile_priors(
                     dt = (
                         resolved_ref_days
                         if resolved_ref_days is not None
-                        else get_construct_dt_days(structural_plan)
+                        else get_construct_dt_days(model)
                     )
                 elif binding.effect_idx is not None and binding.cause_idx is not None:
                     dt = _resolve_cross_lag_interval_days(
                         param_name=param_name,
                         parameter=parameter,
-                        ssm_spec=ssm_spec,
+                        model_spec=model,
                         edge_lag_days=edge_lag_days,
-                        structural_plan=structural_plan,
                         effect_idx=binding.effect_idx,
                         cause_idx=binding.cause_idx,
                     )
@@ -856,10 +681,7 @@ def compile_priors(
         site = site_by_name.get(site_name)
         if site is None:
             raise ValueError(f"Prior site {site_name!r} maps to no active sample site.")
-        coordinates = [
-            deserialize_distribution(recipe)
-            for recipe in serialize_distribution(prior_entries[site.name].expand(site.shape))
-        ]
+        coordinates = [prior_entries[site.name]] * site_size(site.shape)
         for index, prior in entries.items():
             coordinates[index] = prior
         prior_entries[site.name] = batch_prior_distributions(
@@ -869,12 +691,10 @@ def compile_priors(
     prior_registry = prior_entries
 
     diagnostics: list[CompileDiagnostic] = []
-    if ssm_spec is not None:
+    if model is not None:
         diagnostics = collect_compile_diagnostics(
-            ssm_spec,
+            model,
             edge_lag_days=edge_lag_days,
-            parameters=parameters,
-            authored_bindings=bindings,
             prior_registry=prior_registry,
             offdiag_interval_days=offdiag_interval_days,
         )
@@ -885,159 +705,26 @@ def compile_priors(
 
 def bind_parameters(
     bindings: SemanticBindingRegistry,
-    ssm_spec: SSMSpec,
-    structural_plan: StructuralPlan | None,
-    parameters: list[ParameterSpec],
-) -> tuple[list[ParameterSpec], list[CompiledParameterBinding], list[ParameterCoordinate]]:
+    model_spec: ModelSpec,
+    parameters: Sequence[ParameterSpec],
+) -> tuple[list[CompiledParameterBinding], list[ParameterCoordinate]]:
     """Compile scientific definitions into explicit scalar execution bindings."""
     from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
-    from nof1_causal_lab.artifacts.statistical_model_spec import ParameterSpec
     from nof1_causal_lab.models.ssm.compile.parameter_identity import (
-        SHARED_OBSERVATION_FAMILIES,
         component_identity,
-        declare_parameter,
-        validate_parameter_owners,
     )
-    from nof1_causal_lab.models.ssm.structure.sites import SemanticBinding
 
-    sites = {site.name: site for site in build_site_registry(ssm_spec)}
+    sites = {site.name: site for site in build_site_registry(model_spec)}
     definitions = {parameter.id: parameter for parameter in parameters}
     all_bindings = dict(bindings.by_parameter)
-    covered_sites = {binding.site_name for binding in all_bindings.values()}
-    # Scalar likelihood defaults are model quantities too: declare them at their
-    # producer, even when no prior was explicitly authored for them.
-    families = SHARED_OBSERVATION_FAMILIES
-    if structural_plan is not None:
-        assert ssm_spec.manifest_names is not None
-        indicator_lookup = {
-            item.name: item for item in structural_plan.semantics.indicators.values()
-        }
-        construct_lookup = structural_plan.semantics.constructs
-        initial_roles = {
-            SiteKind.T0_MEANS: ("t0_mean", "initial_state_mean", "none"),
-            SiteKind.T0_VAR_DIAG: ("t0_sd", "initial_state_sd", "positive"),
-        }
-        occupied = {(binding.site_name, binding.flat_index) for binding in all_bindings.values()}
-        for site in sites.values():
-            if site.site_kind not in initial_roles:
-                continue
-            prefix, role, constraint = initial_roles[site.site_kind]
-            for flat_index, position in enumerate(site.positions):
-                if (site.name, flat_index) in occupied:
-                    continue
-                assert isinstance(position, int)
-                construct = construct_lookup[structural_plan.state_order[position]]
-                candidate = declare_parameter(
-                    {
-                        "name": f"{prefix}_{construct.name}",
-                        "quantity": site.site_kind.value,
-                        "role": role,
-                        "constraint": constraint,
-                        "construct": construct.name,
-                        "description": f"Initial state {prefix} for {construct.name}",
-                    },
-                    structural_plan,
-                )
-                definition = ParameterSpec.model_validate(
-                    {
-                        **candidate,
-                        "prior": default_prior_for_descriptor(site),
-                        "prior_reasoning": f"Default scientific policy for {site.site_kind.value}.",
-                    }
-                )
-                definitions[definition.id] = definition
-                all_bindings[definition.id] = SemanticBinding(
-                    parameter_name=definition.name,
-                    site_name=site.name,
-                    flat_index=flat_index,
-                    site_kind=site.site_kind,
-                    prior_field=site.priors_field,
-                    construct_names=(construct.name,),
-                )
-        for site in sites.values():
-            if site.site_kind not in families:
-                continue
-            names = [
-                name
-                for name, family in zip(
-                    ssm_spec.manifest_names, ssm_spec.manifest_dists, strict=True
-                )
-                if family.value == families[site.site_kind]
-            ]
-            positive = site.support.value == "positive"
-            candidate = declare_parameter(
-                {
-                    "name": site.name,
-                    "quantity": site.site_kind.value,
-                    "role": "observation_hyperparameter_positive"
-                    if positive
-                    else "observation_hyperparameter",
-                    "constraint": "positive" if positive else "none",
-                    "description": f"{site.site_kind.value} for {', '.join(names)}",
-                    "indicator_names": names,
-                    "construct_names": [
-                        construct_lookup[indicator_lookup[name].construct_id].name for name in names
-                    ],
-                },
-                structural_plan,
-            )
-            if site.name in covered_sites:
-                parameter_id = next(
-                    key for key, item in all_bindings.items() if item.site_name == site.name
-                )
-                definition = definitions[parameter_id]
-                if definition.id != candidate["id"]:
-                    raise ValueError(
-                        f"Shared parameter {definition.name!r} must own exactly its active likelihood channels"
-                    )
-                continue
-            definition = ParameterSpec.model_validate(
-                {
-                    **candidate,
-                    "prior": default_prior_for_descriptor(site),
-                    "prior_reasoning": f"Default scientific policy for {site.site_kind.value}.",
-                }
-            )
-            definitions[definition.id] = definition
-            all_bindings[definition.id] = SemanticBinding(
-                parameter_name=site.name,
-                site_name=site.name,
-                flat_index=0,
-                site_kind=site.site_kind,
-                transform=PriorAuthoringTransform.SITE_WIDE,
-                prior_field=site.priors_field,
-                indicator_names=tuple(names),
-                construct_names=tuple(
-                    construct_lookup[indicator_lookup[name].construct_id].name for name in names
-                ),
-            )
-        validate_parameter_owners(list(definitions.values()), structural_plan)
 
     result = []
-    compiled_definitions = []
     bound_coordinates = set()
     auxiliary = []
     for parameter_id, binding in sorted(all_bindings.items()):
         definition = definitions[parameter_id]
-        if structural_plan is not None:
-            constructs_by_name = {
-                item.name: item for item in structural_plan.semantics.constructs.values()
-            }
-            indicators_by_name = {
-                item.name: item for item in structural_plan.semantics.indicators.values()
-            }
-            expected_owners = {constructs_by_name[name].id for name in binding.construct_names}
-            expected_owners.update(indicators_by_name[name].id for name in binding.indicator_names)
-            if not expected_owners <= {owner.id for owner in definition.owners}:
-                raise ValueError(
-                    f"Parameter {definition.name!r} scientific owners disagree with its execution binding"
-                )
         site = sites[binding.site_name]
         shape = site.shape
-        if definition.quantity != binding.site_kind:
-            raise ValueError(
-                f"Parameter {definition.name!r} declares {definition.quantity.value} but compiles to {binding.site_kind.value}"
-            )
         if binding.transform == PriorAuthoringTransform.SITE_WIDE:
             indices = list(np.ndindex(shape))
         elif binding.transform == PriorAuthoringTransform.SITE_ROW:
@@ -1052,9 +739,7 @@ def bind_parameters(
                     f"Runtime coordinate {coordinate.label} has multiple scientific owners"
                 )
             bound_coordinates.add(coordinate)
-            component = component_identity(
-                definition, index, binding, site, ssm_spec, structural_plan
-            )
+            component = component_identity(definition, index, binding, site, model_spec)
             if component is None:
                 auxiliary.append(coordinate)
                 continue
@@ -1065,15 +750,11 @@ def bind_parameters(
             coordinates[element_id] = coordinate
         if not coordinates:
             continue
-        compiled_definitions.append(
-            definition.model_copy(
-                update={"elements": elements, "prior_transform": binding.transform}
-            )
-        )
         result.append(
             CompiledParameterBinding(
                 parameter_id=definition.id,
                 coordinates=coordinates,
+                elements=elements,
                 site_name=site.name,
                 prior_field=binding.prior_field,
                 flat_index=binding.flat_index,
@@ -1098,4 +779,4 @@ def bind_parameters(
                     f"Runtime coordinate {coordinate.label} has no scientific parameter definition"
                 )
             auxiliary.append(coordinate)
-    return compiled_definitions, result, auxiliary
+    return result, auxiliary

@@ -1,6 +1,6 @@
 """Compiled scientific site metadata and prior-predictive parameter assembly.
 
-The registry derives authored sample-site shapes and bindings from SSMSpec
+The registry derives authored sample-site shapes and bindings from ModelSpec
 without tracing. NumPyro distributions preserve native parameter pytrees and
 stable per-site random streams. Particle inference and MAP initialization use
 NumPyro replay through Dynestyx for reparameterized sites, transformations, and
@@ -17,28 +17,20 @@ import jax
 import jax.numpy as jnp
 import jax.random as random
 
-from nof1_causal_lab.artifacts.compiled_ssm import (
-    CompiledPriorSemantics,
-    SerializedSiteDescriptor,
-)
 from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
+from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.execution.parameters import assemble_model_matrices
-from nof1_causal_lab.models.ssm.priors import resolve_site_priors, site_constraint
+from nof1_causal_lab.models.ssm.priors import resolve_site_priors
 from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
 from nof1_causal_lab.models.ssm.structure.sites import (
     make_site as _site,
-)
-from nof1_causal_lab.prior_distributions import (
-    batch_prior_distributions,
-    deserialize_distribution,
-    serialize_distribution,
 )
 
 if TYPE_CHECKING:
     import numpyro.distributions as dist
 
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.models.ssm.execution.contracts import LikelihoodExtraParams
-    from nof1_causal_lab.models.ssm.model import SSMSpec
 
 
 @dataclass
@@ -54,21 +46,23 @@ class PriorRuntimeBundle:
 # ---------------------------------------------------------------------------
 
 
-def build_site_registry(spec: SSMSpec) -> list[SiteDescriptor]:
+def build_site_registry(spec: ModelSpec) -> list[SiteDescriptor]:
     """Collect block, dynamics, and likelihood sites in stable name order."""
-    return sorted([*spec.iter_sample_sites(), *likelihood_sites(spec)], key=lambda site: site.name)
+    return sorted(
+        [*numeric.iter_sample_sites(spec), *likelihood_sites(spec)], key=lambda site: site.name
+    )
 
 
-def likelihood_sites(spec: SSMSpec) -> list[SiteDescriptor]:
+def likelihood_sites(spec: ModelSpec) -> list[SiteDescriptor]:
     """Declare observation/process hyperparameters in their NumPyro sampling order."""
-    from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily
+    from nof1_causal_lab.artifacts.likelihood import DistributionFamily
 
     sites: list[SiteDescriptor] = []
-    n_m = spec.n_manifest
+    n_m = numeric.n_observations(spec)
 
     # -- Likelihood extra-parameter sites -----------------------------------
 
-    manifest_dist_set = set(spec.manifest_dists)
+    manifest_dist_set = set(numeric.observation_families(spec))
 
     if DistributionFamily.STUDENT_T in manifest_dist_set:
         sites.append(
@@ -115,8 +109,8 @@ def likelihood_sites(spec: SSMSpec) -> list[SiteDescriptor]:
             )
         )
 
-    if spec.manifest_level_counts is not None:
-        level_counts_list = list(spec.manifest_level_counts)
+    if numeric.observation_level_counts(spec) is not None:
+        level_counts_list = list(numeric.observation_level_counts(spec))
         max_levels = max(level_counts_list) if level_counts_list else 0
         max_cutpoints = max(max_levels - 1, 0)
 
@@ -217,7 +211,7 @@ def _resolve_num_draws(
 
 def assemble_deterministics_from_registry(
     samples: dict[str, jnp.ndarray],
-    spec: SSMSpec,
+    spec: ModelSpec,
     *,
     n_draws: int | None = None,
 ) -> dict[str, jnp.ndarray]:
@@ -233,7 +227,7 @@ def assemble_deterministics_from_registry(
 
 
 def assemble_extra_params_from_registry(
-    spec: SSMSpec,
+    spec: ModelSpec,
     samples: dict[str, jnp.ndarray],
     registry: list[SiteDescriptor],
 ) -> LikelihoodExtraParams:
@@ -282,83 +276,10 @@ def sample_prior_parameters(
     return draws
 
 
-def serialize_site_registry(registry: list[SiteDescriptor]) -> list[SerializedSiteDescriptor]:
-    """Serialize site registry for JSON storage inside ``_compiled_ssm``."""
-    return [
-        SerializedSiteDescriptor(
-            name=s.name,
-            shape=list(s.shape),
-            support=s.support,
-            assembly_group=s.assembly_group,
-            site_kind=s.site_kind,
-            deterministic_name=s.deterministic_name,
-            fixed_spec_field=s.fixed_spec_field,
-            priors_field=s.priors_field,
-            runtime_prior_key=s.runtime_prior_key,
-            is_runtime_prior_controlled=s.is_runtime_prior_controlled,
-        )
-        for s in registry
-    ]
-
-
-def deserialize_site_registry(payload: list[SerializedSiteDescriptor]) -> list[SiteDescriptor]:
-    """Restore site registry from serialized form."""
-    return [
-        SiteDescriptor(
-            name=d.name,
-            shape=tuple(d.shape),
-            support=d.support,
-            assembly_group=d.assembly_group,
-            site_kind=d.site_kind,
-            deterministic_name=d.deterministic_name,
-            fixed_spec_field=d.fixed_spec_field,
-            priors_field=d.priors_field,
-            runtime_prior_key=d.runtime_prior_key,
-            is_runtime_prior_controlled=d.is_runtime_prior_controlled,
-        )
-        for d in payload
-    ]
-
-
-def compile_prior_semantics(
-    spec: SSMSpec,
-    priors: dict[str, dist.Distribution] | None = None,
-) -> CompiledPriorSemantics:
-    """Persist the native prior laws and scientific site topology."""
-    bundle = build_prior_runtime_bundle(spec, priors)
-    return CompiledPriorSemantics(
-        schema_version=7,
-        site_registry=serialize_site_registry(bundle.registry),
-        priors={name: serialize_distribution(prior) for name, prior in bundle.priors.items()},
-    )
-
-
 def build_prior_runtime_bundle(
-    spec: SSMSpec,
+    spec: ModelSpec,
     priors: dict[str, dist.Distribution] | None = None,
 ) -> PriorRuntimeBundle:
     """Resolve the scientific site declarations to native NumPyro laws."""
     registry = build_site_registry(spec)
-    return PriorRuntimeBundle(registry=registry, priors=resolve_site_priors(registry, priors))
-
-
-def load_prior_runtime_bundle(
-    compiled_prior_semantics: CompiledPriorSemantics,
-) -> PriorRuntimeBundle:
-    """Hydrate prior laws without a parallel runtime parameter representation."""
-    registry = deserialize_site_registry(compiled_prior_semantics.site_registry)
-    expected = {site.name for site in registry}
-    if set(compiled_prior_semantics.priors) != expected:
-        raise ValueError("Compiled priors must exactly cover their declared sample sites")
-    priors = {
-        site.name: batch_prior_distributions(
-            [
-                deserialize_distribution(recipe)
-                for recipe in compiled_prior_semantics.priors[site.name]
-            ],
-            site.shape,
-            support=site_constraint(site),
-        )
-        for site in registry
-    }
     return PriorRuntimeBundle(registry=registry, priors=resolve_site_priors(registry, priors))

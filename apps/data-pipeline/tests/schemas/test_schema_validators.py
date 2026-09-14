@@ -1,193 +1,100 @@
-"""Tests for schema validation functions that collect all errors.
+"""Whole-model authoring returns intrinsic errors and checks requested readiness."""
 
-Covers: validate_latent_structure and validate_measurement_structure.
-"""
+import pytest
+from pydantic import ValidationError
 
-from nof1_causal_lab.artifacts.latent_structure import LatentStructure, validate_latent_structure
-from nof1_causal_lab.artifacts.measurement_structure import validate_measurement_structure
-from tests.helpers import invalid_dict_payload
-
-
-def _require_latent_structure(model: LatentStructure | None) -> LatentStructure:
-    assert model is not None
-    return model
+from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.flows.model_authoring import validate_model_submission
+from tests.helpers import graph_constructs, invalid_dict_payload, make_model
 
 
-def _valid_latent_data():
-    """Minimal valid latent structure dict."""
-    return {
-        "default_outcome": {"kind": "construct", "id": "construct:cdc0b2958a9512b2abad"},
-        "constructs": [
-            {
-                "id": "construct:6b04dc42c531e7091eb8",
-                "name": "stress",
-                "description": "Perceived stress",
-                "role": "exogenous",
-                "temporal_status": "time_varying",
-            },
-            {
-                "id": "construct:cdc0b2958a9512b2abad",
-                "name": "sleep",
-                "description": "Sleep quality",
-                "role": "endogenous",
-                "temporal_status": "time_varying",
-            },
-        ],
+def test_valid_partial_model_can_be_enriched_for_measurement():
+    model = make_model(["stress", "sleep"], [("stress", "sleep")])
+    candidate, message = validate_model_submission(model.model_dump(mode="json"), measurements=True)
+    assert message == "VALID"
+    assert ModelSpec.model_validate(candidate) == model
+    partial = model.revised(
+        edges=replace_constructs(
+            model.edges, tuple(c.model_copy(update={"indicators": ()}) for c in model.constructs)
+        ),
+        measurement_clock=None,
+    )
+    assert validate_model_submission(partial.model_dump(mode="json"))[1] == "VALID"
+    result, error = validate_model_submission(partial.model_dump(mode="json"), measurements=True)
+    assert result is None
+    assert "clock and indicators" in error
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "not a dict",
+        {"edges": []},
+        {"constructs": "bad"},
+        {"constructs": [42]},
+        {"constructs": [{"name": "bad"}]},
+    ],
+)
+def test_invalid_authored_structure_returns_errors(payload):
+    candidate, error = validate_model_submission(invalid_dict_payload(payload))
+    assert candidate is None
+    assert error.startswith("VALIDATION ERRORS:")
+
+
+@pytest.mark.parametrize("bad", ["bad", [42], [{"name": "bad"}]])
+def test_invalid_owned_indicator_returns_errors(bad):
+    data = make_model(["stress"]).model_dump(mode="json")
+    graph_constructs(data)[0]["indicators"] = bad
+    result, error = validate_model_submission(data, measurements=True)
+    assert result is None
+    assert "indicators" in error
+
+
+@pytest.mark.parametrize("kind", ["indicator", "edge"])
+def test_duplicate_entity_identity_is_rejected(kind):
+    data = make_model(["stress", "sleep"], [("stress", "sleep")]).model_dump(mode="json")
+    collection = (
+        graph_constructs(data)[0]["indicators"] if kind == "indicator" else data[kind + "s"]
+    )
+    collection.append(collection[0].copy())
+    result, error = validate_model_submission(data)
+    assert result is None
+    assert f"Duplicate {kind} IDs" in error
+
+
+def test_duplicate_names_with_distinct_identities_are_rejected():
+    data = make_model(["stress", "sleep"], [("stress", "sleep")]).model_dump(mode="json")
+    graph_constructs(data)[1]["name"] = "stress"
+    assert "Duplicate construct names" in validate_model_submission(data)[1]
+    data = make_model(["stress", "sleep"], [("stress", "sleep")]).model_dump(mode="json")
+    graph_constructs(data)[1]["indicators"][0]["name"] = "stress_obs"
+    assert "Duplicate indicator names" in validate_model_submission(data)[1]
+
+
+def test_validation_collects_errors_from_multiple_entities():
+    data = {
         "edges": [
             {
-                "cause_id": "construct:6b04dc42c531e7091eb8",
-                "effect_id": "construct:cdc0b2958a9512b2abad",
-                "id": "edge:4c52fe3e6d34a6f19f8c",
-                "description": "Stress disrupts sleep",
-            },
-        ],
+                "id": "edge:invalid",
+                "description": "Invalid endpoints",
+                "cause": {"name": "bad1"},
+                "effect": {"name": "bad2"},
+            }
+        ]
     }
-
-
-def _valid_measurement_data():
-    """Minimal valid measurement structure dict."""
-    return {
-        "model_clock": "1d",
-        "indicators": [
-            {
-                "id": "indicator:6bde869aba53fb51e0f4",
-                "construct_id": "construct:6b04dc42c531e7091eb8",
-                "name": "pss_score",
-                "construct_polarity": "positive",
-                "how_to_measure": "Perceived Stress Scale score",
-                "measurement_dtype": "continuous",
-                "aggregation": "mean",
-            },
-            {
-                "id": "indicator:9866c549bd1c25f0a5d7",
-                "construct_id": "construct:cdc0b2958a9512b2abad",
-                "name": "sleep_hours",
-                "construct_polarity": "positive",
-                "how_to_measure": "Hours of sleep reported",
-                "measurement_dtype": "continuous",
-                "aggregation": "mean",
-            },
-        ],
+    with pytest.raises(ValidationError) as exc:
+        ModelSpec.model_validate(data)
+    assert {error["loc"][2] for error in exc.value.errors() if len(error["loc"]) > 2} == {
+        "cause",
+        "effect",
     }
+    assert validate_model_submission(data)[0] is None
 
 
-# =============================================================================
-# validate_latent_structure
-# =============================================================================
-
-
-class TestValidateLatentStructure:
-    def test_valid_model_returns_model(self):
-        model, errors = validate_latent_structure(_valid_latent_data())
-        assert model is not None
-        assert errors == []
-
-    def test_not_dict_returns_error(self):
-        model, errors = validate_latent_structure(invalid_dict_payload("not a dict"))
-        assert model is None
-        assert len(errors) == 1
-        assert "dictionary" in errors[0].lower()
-
-    def test_missing_constructs(self):
-        model, errors = validate_latent_structure({"edges": []})
-        assert model is None
-        assert any("constructs" in e.lower() for e in errors)
-
-    def test_constructs_not_list(self):
-        model, errors = validate_latent_structure({"constructs": "not a list", "edges": []})
-        assert model is None
-        assert any("list" in e.lower() for e in errors)
-
-    def test_duplicate_construct_name(self):
-        data = _valid_latent_data()
-        data["constructs"].append(data["constructs"][0].copy())
-        model, errors = validate_latent_structure(data)
-        assert model is None
-        assert any("duplicate" in e.lower() for e in errors)
-
-    def test_invalid_construct_schema(self):
-        data = _valid_latent_data()
-        data["constructs"][0] = {"name": "bad"}  # missing required fields
-        model, errors = validate_latent_structure(data)
-        assert model is None
-        assert len(errors) > 0
-
-    def test_multiple_errors_collected(self):
-        """Should collect all errors, not just the first."""
-        data = {
-            "constructs": [
-                {"name": "bad1"},  # invalid schema
-                {"name": "bad2"},  # invalid schema
-            ],
-            "edges": [],
-        }
-        model, errors = validate_latent_structure(data)
-        assert model is None
-        assert len(errors) >= 2  # at least one per bad construct
-
-    def test_edge_not_dict(self):
-        data = _valid_latent_data()
-        data["edges"].append("not a dict")
-        model, errors = validate_latent_structure(data)
-        assert model is None
-        assert any("dictionary" in e.lower() for e in errors)
-
-    def test_construct_not_dict(self):
-        data = _valid_latent_data()
-        data["constructs"].append(42)
-        model, errors = validate_latent_structure(data)
-        assert model is None
-        assert any("dictionary" in e.lower() for e in errors)
-
-
-# =============================================================================
-# validate_measurement_structure
-# =============================================================================
-
-
-class TestValidateMeasurementStructure:
-    def test_valid_model_returns_model(self):
-        latent, _ = validate_latent_structure(_valid_latent_data())
-        model, errors = validate_measurement_structure(
-            _valid_measurement_data(), _require_latent_structure(latent)
-        )
-        assert model is not None
-        assert errors == []
-
-    def test_not_dict_returns_error(self):
-        latent, _ = validate_latent_structure(_valid_latent_data())
-        model, errors = validate_measurement_structure(
-            invalid_dict_payload("not a dict"), _require_latent_structure(latent)
-        )
-        assert model is None
-        assert len(errors) == 1
-
-    def test_indicators_not_list(self):
-        latent, _ = validate_latent_structure(_valid_latent_data())
-        model, errors = validate_measurement_structure(
-            {"indicators": "bad"}, _require_latent_structure(latent)
-        )
-        assert model is None
-        assert any("list" in e.lower() for e in errors)
-
-    def test_duplicate_indicator_name(self):
-        latent, _ = validate_latent_structure(_valid_latent_data())
-        data = _valid_measurement_data()
-        data["indicators"].append(data["indicators"][0].copy())
-        model, errors = validate_measurement_structure(data, _require_latent_structure(latent))
-        assert model is None
-        assert any("duplicate" in e.lower() for e in errors)
-
-    def test_indicator_not_dict(self):
-        latent, _ = validate_latent_structure(_valid_latent_data())
-        data = {"indicators": [42]}
-        model, errors = validate_measurement_structure(data, _require_latent_structure(latent))
-        assert model is None
-        assert any("dictionary" in e.lower() for e in errors)
-
-    def test_invalid_indicator_schema(self):
-        latent, _ = validate_latent_structure(_valid_latent_data())
-        data = {"indicators": [{"name": "bad"}]}  # missing required fields
-        model, errors = validate_measurement_structure(data, _require_latent_structure(latent))
-        assert model is None
-        assert len(errors) > 0
+def test_edge_payload_must_be_a_valid_entity():
+    data = make_model(["stress"]).model_dump(mode="json")
+    data["edges"] = ["not a dict"]
+    result, error = validate_model_submission(data)
+    assert result is None
+    assert "edges" in error

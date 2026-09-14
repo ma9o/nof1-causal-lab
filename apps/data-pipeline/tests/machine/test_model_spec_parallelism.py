@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
 
-from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.machine.temporal.messages import (
     LLMBackendConfig,
     StatisticalModelSpecAdmissionUnit,
@@ -29,15 +29,15 @@ from nof1_causal_lab.models.ssm.construct_admission import (
     build_construct_units,
     validate_full_admission_state,
 )
-from tests.helpers import make_structural_plan, run_async
+from tests.helpers import make_model, run_async
 
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.construct_admission import DesignInfo
 
 
-def _structural_plan() -> StructuralPlan:
-    return StructuralPlan.model_validate(
-        make_structural_plan(
+def _structure() -> ModelSpec:
+    return ModelSpec.model_validate(
+        make_model(
             ["A", "B", "X", "Y", "Z"],
             [
                 ("A", "X"),
@@ -51,7 +51,7 @@ def _structural_plan() -> StructuralPlan:
 
 
 def _plan() -> StatisticalModelSpecPlan:
-    units = build_construct_units(_structural_plan())
+    units = build_construct_units(_structure())
     return StatisticalModelSpecPlan(
         workspace_id="workspace",
         run_id="seq-000001",
@@ -106,7 +106,7 @@ def test_completed_path_can_advance_while_unrelated_root_remains_in_flight():
 
 
 def test_barrier_reopens_failed_feedback_suffix_and_descendants():
-    units = build_construct_units(_structural_plan())
+    units = build_construct_units(_structure())
 
     assert _barrier_reopen_constructs(units, ["Y"]) == {"Y", "Z"}
     assert _barrier_reopen_constructs(units, ["X"]) == {"X", "Y", "Z"}
@@ -139,9 +139,10 @@ def test_full_barrier_shares_one_exact_simulation(monkeypatch):
     monkeypatch.setattr(construct_admission.jax, "block_until_ready", lambda value: value)
 
     validation = validate_full_admission_state(
-        AdmissionState(names=("A", "B")),
-        (ConstructContribution(name="A"), ConstructContribution(name="B")),
-        _structural_plan(),
+        AdmissionState(model=_structure(), names=("A", "B")),
+        tuple(
+            ConstructContribution(construct=make_model([name]).constructs[0]) for name in ("A", "B")
+        ),
         cast("DesignInfo", object()),
     )
 
@@ -174,9 +175,10 @@ def test_frontier_merge_is_single_writer_and_deterministic(monkeypatch, tmp_path
             parent_ref=initial_ref,
             parent=initial,
             accepted=AcceptedConstructCheckpoint(
-                mechanisms=[],
+                edges=(),
+                parameters=(),
                 submission_id=f"submission-{name}",
-                construct_name=name,
+                entity=make_model([name]).constructs[0],
                 outcome="ADMITTED",
                 feedback="accepted",
             ),

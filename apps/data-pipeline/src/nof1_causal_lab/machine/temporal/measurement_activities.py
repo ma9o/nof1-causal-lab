@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from temporalio import activity
 
@@ -17,7 +17,6 @@ from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
 from nof1_causal_lab.machine.derivations import complete_computed_transition
 from nof1_causal_lab.machine.graph import transition_spec
-from nof1_causal_lab.machine.model_contracts import project_model_fields
 from nof1_causal_lab.machine.moves import TransitionEffects, input_pins
 from nof1_causal_lab.machine.store import ArtifactStore
 from nof1_causal_lab.machine.temporal.activity_errors import (
@@ -39,6 +38,9 @@ from nof1_causal_lab.machine.temporal.messages import (
 )
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.measurements import ObservationRecord
 
 
 def _run_root(workspace_id: str, run_id: str) -> str:
@@ -119,6 +121,7 @@ async def emit_extraction_progress_event_activity(input: ExtractionProgressEvent
 
 @activity.defn
 async def plan_measurements_activity(input: MeasurementsWorkflowInput) -> MeasurementsPlan:
+    import polars as pl
 
     from nof1_causal_lab.flows.transitions.extraction.planning import prepare_semantic_chunks
     from nof1_causal_lab.utils.aggregations import compute_indicators
@@ -135,21 +138,22 @@ async def plan_measurements_activity(input: MeasurementsWorkflowInput) -> Measur
         pins["question"],
         json_filename("question", "question"),
     )["text"]
-    raw_df = store.read_parquet_file(
+    raw_table = store.read_parquet_table(
         "raw_data",
         pins["raw_data"],
         parquet_filename("raw_data", "raw"),
     )
-    measurement_payload = store.read_json_file(
-        "measurement_structure",
-        pins["measurement_structure"],
-        json_filename("measurement_structure", "measurement_structure"),
-    )
-    measurement_structure = measurement_payload["measurement_structure"]
+    raw_df = pl.DataFrame(raw_table)
+    from nof1_causal_lab.machine.derivations import read_model
+    from nof1_causal_lab.models.model_inputs import observation_input
+
+    model = read_model(store, pins["model"])
+    model.require_measurements()
+    measurement_structure = observation_input(model)
 
     config = get_config()
     extraction_workers = config.extraction_workers
-    model_clock = measurement_structure.get("model_clock", "1d")
+    model_clock = measurement_structure["model_clock"]
     time_col = "timestamp"
     all_indicators = list(measurement_structure.get("indicators", []))
     computed_inds = [i for i in all_indicators if i.get("extraction_mode") == "computed"]
@@ -339,9 +343,8 @@ async def finalize_extraction_chunk_activity(
 async def finalize_measurements_activity(input: MeasurementsFinalizeInput) -> TransitionEffects:
     import polars as pl
 
-    from nof1_causal_lab.artifacts.measurements import MeasurementsArtifact, ObservationRecord
     from nof1_causal_lab.flows.transitions.extraction.materialization import (
-        materialize_extraction_outputs,
+        materialize_panel,
     )
     from nof1_causal_lab.utils.data import annotate_observation_rows
 
@@ -353,21 +356,10 @@ async def finalize_measurements_activity(input: MeasurementsFinalizeInput) -> Tr
         results_by_worker = {result.worker_id: result for result in input.chunk_results}
 
         semantic_dicts: list[UncheckedJsonObject] = []
-        worker_statuses: list[UncheckedJsonObject] = []
 
         for chunk_spec in chunk_specs:
             worker_id = int(chunk_spec["worker_id"])
             result = results_by_worker[worker_id]
-            status: UncheckedJsonObject = {
-                "worker_id": worker_id,
-                "status": result.status,
-                "n_extractions": result.n_extractions,
-                "n_windows": result.n_windows,
-            }
-            if result.error is not None:
-                status["error"] = result.error
-            worker_statuses.append(status)
-
             if result.status == "completed" and result.result_ref is not None:
                 chunk_payload = _read_json(result.result_ref)
                 semantic_dicts.extend(chunk_payload.get("dataframe") or [])
@@ -379,31 +371,9 @@ async def finalize_measurements_activity(input: MeasurementsFinalizeInput) -> Tr
             if all_dicts
             else [],
         )
-        extraction_result: UncheckedJsonObject = {
-            "observation_rows": observation_rows,
-            "worker_statuses": worker_statuses,
-            "n_total_extractions": len(computed_dicts)
-            + sum(
-                result.n_extractions
-                for result in input.chunk_results
-                if result.status == "completed"
-            ),
-        }
-        materialized = materialize_extraction_outputs(extraction_result, measurement_structure)
-        panel = materialized["data_for_model"]
-        report: UncheckedJsonObject = {"workers": materialized["worker_statuses"]}
-        report = project_model_fields(MeasurementsArtifact, report)
-
+        panel = materialize_panel(observation_rows, measurement_structure)
         store = ArtifactStore(input.workspace_id)
-        produced = [
-            store.write_version(
-                "measurements",
-                provenance="computed",
-                derived_from=input.pins,
-                produced_by="run:measurements",
-                json_files={json_filename("measurements", "measurements"): report},
-            )
-        ]
+        produced = []
         if len(panel) > 0:
             produced.append(
                 store.write_version(
@@ -415,7 +385,24 @@ async def finalize_measurements_activity(input: MeasurementsFinalizeInput) -> Tr
                 )
             )
 
-        return complete_computed_transition(store, input.state, "measurements", produced)
+        effects = complete_computed_transition(store, input.state, "measurements", produced)
+        return TransitionEffects(
+            produced=effects.produced,
+            retracted=effects.retracted,
+            diagnostics={
+                "workers": [
+                    results_by_worker[int(spec["worker_id"])].model_dump(
+                        mode="json",
+                        exclude={"result_ref"},
+                        exclude_none=True,
+                    )
+                    for spec in chunk_specs
+                ],
+                "input_pins": dict(input.pins),
+                "model_input": input.state.current["model"].model_inputs["extraction"],
+                "n_observations": len(panel),
+            },
+        )
     except Exception as exc:
         raise as_non_retryable_application_error(exc) from exc
 

@@ -4,17 +4,19 @@ from __future__ import annotations
 
 import heapq
 import logging
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import polars as pl
 
+from nof1_causal_lab.models.ssm import numerics as numeric
+
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily
-    from nof1_causal_lab.models.ssm.model import SSMSpec
+    from nof1_causal_lab.artifacts.likelihood import DistributionFamily
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 NON_MANIFEST_COLUMNS = {"time"}
 SECONDS_PER_DAY = 86400.0
@@ -420,16 +422,16 @@ def augment_wide_data_with_support_boundaries(
 
 
 def resolve_manifest_metadata(
-    spec: SSMSpec,
+    spec: ModelSpec,
     X: Any,
 ) -> tuple[list[str], list[DistributionFamily]]:
     """Resolve manifest column names and per-channel distribution families."""
-    manifest_dists = list(spec.manifest_dists)
-    manifest_cols = spec.manifest_names or default_manifest_columns(X)
-    if len(manifest_cols) != spec.n_manifest:
+    manifest_dists = list(numeric.observation_families(spec))
+    manifest_cols = numeric.observation_names(spec) or default_manifest_columns(X)
+    if len(manifest_cols) != numeric.n_observations(spec):
         raise ValueError(
-            "Wide data columns do not match SSMSpec manifest dimensionality: "
-            f"{len(manifest_cols)} vs {spec.n_manifest}"
+            "Wide data columns do not match ModelSpec manifest dimensionality: "
+            f"{len(manifest_cols)} vs {numeric.n_observations(spec)}"
         )
     return manifest_cols, manifest_dists
 
@@ -455,82 +457,34 @@ def extract_numeric_column_values(X: Any, column: str) -> np.ndarray:
     return values[~np.isnan(values)]
 
 
-def hydrate_discrete_manifest_metadata(spec: SSMSpec, X: pl.DataFrame) -> SSMSpec:
-    """Resolve per-channel discrete level counts against encoded wide data.
+def validate_discrete_manifest_metadata(spec: ModelSpec, X: pl.DataFrame) -> None:
+    """Check encoded observations against the levels declared on their indicators."""
+    from nof1_causal_lab.models.ssm.execution.observation_families import get_family_spec
 
-    Declared level counts define the emission support even when the observed
-    panel contains only a subset of those levels. Counts are inferred from the
-    data only for channels whose compiled specification has no declaration.
-    """
-    from nof1_causal_lab.models.ssm.execution.observation_families import (
-        any_family_needs_level_metadata,
-        get_family_spec,
-    )
-
-    manifest_cols, manifest_dists = resolve_manifest_metadata(spec, X)
-    needs_levels = any_family_needs_level_metadata(manifest_dists)
-    if not needs_levels:
-        return spec
-
-    declared_counts = (
-        list(spec.manifest_level_counts) if spec.manifest_level_counts is not None else None
-    )
-    if declared_counts is not None and len(declared_counts) != spec.n_manifest:
-        raise ValueError(
-            "SSMSpec manifest_level_counts length does not match n_manifest: "
-            f"{len(declared_counts)} vs {spec.n_manifest}"
-        )
-
-    resolved_counts = [0] * spec.n_manifest
-    for idx, (column, dist) in enumerate(zip(manifest_cols, manifest_dists, strict=False)):
-        family_spec = get_family_spec(dist)
-        if family_spec is None or not family_spec.needs_level_metadata:
+    for column, family, count in zip(
+        numeric.observation_names(spec),
+        numeric.observation_families(spec),
+        numeric.observation_level_counts(spec),
+        strict=True,
+    ):
+        family_spec = get_family_spec(family)
+        if family_spec is None:
+            raise ValueError(f"Unsupported emission family {family}")
+        if not family_spec.needs_level_metadata:
             continue
-
-        values = (
-            X.select(column)
-            .drop_nulls()
-            .to_series()
-            .cast(pl.Float64, strict=False)
-            .drop_nulls()
-            .to_numpy()
-        )
-        if values.size == 0:
+        if count < 2:
+            raise ValueError(f"Indicator {column!r} requires at least two declared levels")
+        values = extract_numeric_column_values(X, column)
+        rounded = np.rint(values)
+        if not np.allclose(values, rounded, atol=1e-6):
+            raise ValueError(f"Indicator {column!r} observations are not integer-encoded")
+        if np.any((rounded < 0) | (rounded >= count)):
             raise ValueError(
-                f"Indicator '{column}' uses discrete emission '{dist.value}' but has no data"
+                f"Indicator {column!r} observations fall outside declared range 0..{count - 1}"
             )
 
-        declared_count = declared_counts[idx] if declared_counts is not None else 0
-        if declared_count >= 2:
-            rounded = np.rint(values)
-            if not np.allclose(values, rounded, atol=1e-6):
-                raise ValueError(
-                    f"Indicator '{column}' uses discrete emission '{dist.value}' but data are "
-                    "not integer-encoded"
-                )
-            if np.any((rounded < 0) | (rounded >= declared_count)):
-                observed_levels = sorted({int(value) for value in rounded.tolist()})
-                raise ValueError(
-                    f"Indicator '{column}' uses discrete emission '{dist.value}' but encoded "
-                    f"levels {observed_levels} fall outside declared range "
-                    f"0..{declared_count - 1}"
-                )
-            resolved_counts[idx] = declared_count
-            continue
 
-        try:
-            resolved_count = family_spec.hydrate_levels(values)
-        except ValueError as exc:
-            raise ValueError(
-                f"Indicator '{column}' uses discrete emission '{dist.value}' but {exc}"
-            ) from exc
-        if resolved_count is not None:
-            resolved_counts[idx] = resolved_count
-
-    return replace(spec, manifest_level_counts=resolved_counts)
-
-
-def validate_observation_support(spec: SSMSpec, X: Any) -> None:
+def validate_observation_support(spec: ModelSpec, X: Any) -> None:
     """Reject likelihoods whose support is incompatible with observed data."""
     from nof1_causal_lab.models.ssm.execution.observation_families import get_family_spec
 

@@ -12,8 +12,9 @@ to ADMG internally using y0's from_latent_variable_dag() for identification.
 
 Note on IV: y0's nonparametric do-calculus cannot identify effects via IV alone.
 ``check_identifiability`` can additionally report graph-theoretic IV candidates
-when the caller allows the parametric linearity assumption. Set ``iv_allowed=False``
-to return only nonparametric do-calculus identifications.
+when the caller explicitly allows the parametric linearity assumption. The default
+returns only nonparametric do-calculus identifications. Nonlinear ModelSpec
+authoring and causal reporting do not permit the linear-IV argument.
 """
 
 import logging
@@ -39,7 +40,7 @@ def check_identifiability(
     latent_structure: UncheckedJsonObject,
     measurement_structure: UncheckedJsonObject,
     *,
-    iv_allowed: bool = True,
+    iv_allowed: bool = False,
 ) -> UncheckedJsonObject:
     """Check which treatment effects are identifiable using y0's ID algorithm.
 
@@ -50,10 +51,10 @@ def check_identifiability(
     Args:
         latent_structure: Dict with 'constructs' and 'edges'
         measurement_structure: Dict with 'indicators' mapping constructs to measures
-        iv_allowed: When True (default) and y0's nonparametric check fails,
+        iv_allowed: When explicitly True and y0's nonparametric check fails,
             report IV identification via ``find_instruments`` under the
             caller's parametric linearity assumption. When False, only
-            nonparametric do-calculus identifications are returned.
+            nonparametric do-calculus identifications are returned (the default).
 
     Returns:
         Dict with:

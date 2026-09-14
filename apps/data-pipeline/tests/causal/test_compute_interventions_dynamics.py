@@ -13,12 +13,8 @@ import jax.numpy as jnp
 import pytest
 
 from nof1_causal_lab.models.ssm.counterfactual import compute_interventions
-from nof1_causal_lab.models.ssm.dynamics import (
-    DiagonalDecaySpec,
-    DynamicsSpec,
-    HillEdgeSpec,
-    compile_dynamics,
-)
+from nof1_causal_lab.models.ssm.dynamics import DynamicsSpec, compile_dynamics
+from tests.dynamics_fixtures import decay_term, hill_term
 
 pytestmark = pytest.mark.cpu_expensive
 
@@ -31,8 +27,8 @@ class TestComputeInterventionsDynamics:
         spec = DynamicsSpec(
             n_latent=2,
             components=(
-                DiagonalDecaySpec(),
-                HillEdgeSpec(
+                *(decay_term(target=i) for i in range(2)),
+                hill_term(
                     source=0,
                     target=1,
                 ),
@@ -71,7 +67,7 @@ class TestComputeInterventionsDynamics:
         assert all(d > 0 for d in entry["posterior_draws"])
 
     def test_skips_unknown_treatment(self):
-        spec = DynamicsSpec(n_latent=1, components=(DiagonalDecaySpec(),))
+        spec = DynamicsSpec(n_latent=1, components=(*(decay_term(target=i) for i in range(1)),))
         compiled = compile_dynamics(spec)
         param_samples = [({"decay": jnp.array([0.5])},)]
         results = compute_interventions(
@@ -86,7 +82,7 @@ class TestComputeInterventionsDynamics:
 
     def test_empty_param_samples_returns_skeletons(self):
         """Dynamics path must not crash on an empty posterior."""
-        spec = DynamicsSpec(n_latent=1, components=(DiagonalDecaySpec(),))
+        spec = DynamicsSpec(n_latent=1, components=(*(decay_term(target=i) for i in range(1)),))
         compiled = compile_dynamics(spec)
         results = compute_interventions(
             param_samples=[],

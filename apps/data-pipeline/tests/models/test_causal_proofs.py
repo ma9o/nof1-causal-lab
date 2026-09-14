@@ -1,120 +1,67 @@
 """Proof-carrying boundaries for numeric causal analysis."""
 
-import pickle
-from dataclasses import replace
 from typing import Any
 
 import jax.numpy as jnp
-import numpy as np
 import pytest
 
-from nof1_causal_lab.artifacts.causal_design import (
-    CausalDesign,
+from nof1_causal_lab.artifacts.identification import (
     IdentifiabilityStatus,
+    IdentificationReport,
     IdentifiedTreatmentStatus,
 )
-from nof1_causal_lab.artifacts.identity import CausalDesignRef, ConstructRef
-from nof1_causal_lab.artifacts.latent_structure import (
-    CausalEdge,
-    Construct,
-    LatentStructure,
-    Role,
-    TemporalStatus,
-)
-from nof1_causal_lab.artifacts.measurement_structure import MeasurementStructure
-from nof1_causal_lab.artifacts.posterior import PosteriorProvenance
+from nof1_causal_lab.artifacts.identity import ConstructRef, ModelRevision
 from nof1_causal_lab.models.causal_proofs import (
     CertifiedCausalAnalysis,
     certify_identified_estimand,
-    certify_reportable_posterior,
 )
 from nof1_causal_lab.models.ssm.inference.types import (
-    FittedArtifact,
     JointPosteriorDraws,
     ParticleMCMCPosterior,
     WarmupProposal,
 )
-from tests.ssm_spec_fixtures import block_ssm_spec, full_dense_matrix_dynamics_spec
 
 
-def _design() -> CausalDesign:
-    return CausalDesign(
-        latent=LatentStructure(
-            default_outcome=ConstructRef(id="construct:a1cddfa8657e4a8cb3ae"),
-            constructs=[
-                Construct(
-                    id="construct:c270c8ac9df81ed2ec60",
-                    name="treatment",
-                    description="Treatment",
-                    role=Role.EXOGENOUS,
-                    temporal_status=TemporalStatus.TIME_VARYING,
-                ),
-                Construct(
-                    id="construct:a1cddfa8657e4a8cb3ae",
-                    name="outcome",
-                    description="Outcome",
-                    role=Role.ENDOGENOUS,
-                    temporal_status=TemporalStatus.TIME_VARYING,
-                ),
-            ],
-            edges=[
-                CausalEdge(
-                    cause_id="construct:c270c8ac9df81ed2ec60",
-                    effect_id="construct:a1cddfa8657e4a8cb3ae",
-                    id="edge:b3472c637d08744910a8",
-                    description="Test edge",
-                )
-            ],
-        ),
-        measurement=MeasurementStructure(indicators=[], model_clock="1d"),
-        identifiability=IdentifiabilityStatus(
+def _design():
+    from tests.helpers import complete_test_model, make_model
+
+    model = complete_test_model(make_model(["treatment", "outcome"], [("treatment", "outcome")]))
+    return model.revised(default_outcome=ConstructRef(id=model.constructs[1].id))
+
+
+def _identification():
+    model = _design()
+    return IdentificationReport(
+        outcome=model.constructs[1].id,
+        status=IdentifiabilityStatus(
             identifiable_treatments={
-                "construct:c270c8ac9df81ed2ec60": IdentifiedTreatmentStatus(
-                    method="do_calculus",
-                    estimand="E[outcome | do(treatment)]",
+                model.constructs[0].id: IdentifiedTreatmentStatus(
+                    method="do_calculus", estimand="E[outcome | do(treatment)]"
                 )
             }
         ),
     )
 
 
-def _artifact(
-    *,
-    workspace_id: str = "workspace",
-    causal_design_version: int = 1,
-) -> FittedArtifact:
-    return FittedArtifact(
-        result=ParticleMCMCPosterior(
-            draws=JointPosteriorDraws(
-                parameters={"vf_0_decay": jnp.ones((2, 2), dtype=jnp.float32)}
-            )
-        ),
-        spec=block_ssm_spec(
-            n_latent=2,
-            n_manifest=0,
-            dynamics_spec=full_dense_matrix_dynamics_spec(2),
-            latent_names=["treatment", "outcome"],
-            manifest_names=[],
-        ),
-        times=jnp.array([0.0, 1.0], dtype=jnp.float32),
-        provenance=PosteriorProvenance(
-            causal_design=CausalDesignRef(
-                workspace_id=workspace_id,
-                version=causal_design_version,
-            ),
-            compiled_ssm_version=3,
-            panel_version=4,
-        ),
+def _conditioned():
+    from nof1_causal_lab.models.ssm.inference.persistence import condition_model
+    from tests.model_fixtures import parameter_draws
+
+    model = _design()
+    result = ParticleMCMCPosterior(
+        JointPosteriorDraws(parameter_draws(model, 3), jnp.arange(12.0).reshape(3, 2, 2))
     )
+    return condition_model(model, result, times=jnp.arange(2))
 
 
 def test_identification_proof_is_estimand_specific() -> None:
     design = _design()
-    design_ref = CausalDesignRef(workspace_id="workspace", version=1)
+    design_ref = ModelRevision(workspace_id="workspace", version=1)
 
     proof = certify_identified_estimand(
         design,
-        causal_design_ref=design_ref,
+        _identification(),
+        model_revision=design_ref,
         treatment="treatment",
         outcome="outcome",
     )
@@ -125,93 +72,87 @@ def test_identification_proof_is_estimand_specific() -> None:
     assert proof.estimand == "E[outcome | do(treatment)]"
 
 
+def test_identification_contract_rejects_linear_iv_evidence_for_nonlinear_models():
+    from pydantic import ValidationError
+
+    payload = _identification().model_dump(mode="json")
+    finding = next(iter(payload["status"]["identifiable_treatments"].values()))
+    finding.update(method="instrumental_variable", estimand="IV(Z) [requires linearity]")
+    with pytest.raises(ValidationError, match="do_calculus"):
+        IdentificationReport.model_validate(payload)
+
+
 def test_identification_proof_rejects_unidentified_treatment() -> None:
     with pytest.raises(ValueError, match="is not identified"):
         certify_identified_estimand(
             _design(),
-            causal_design_ref=CausalDesignRef(workspace_id="workspace", version=1),
+            _identification(),
+            model_revision=ModelRevision(workspace_id="workspace", version=1),
             treatment="outcome",
             outcome="outcome",
         )
 
 
-def test_reportable_posterior_rejects_warmup_from_untyped_boundary() -> None:
-    artifact = _artifact()
-    untyped_warmup: Any = WarmupProposal(
-        _samples={"vf_0_decay": jnp.ones((2, 2), dtype=jnp.float32)}
-    )
-    artifact = replace(artifact, result=untyped_warmup)
+def test_conditioning_rejects_warmup_from_untyped_boundary():
+    from nof1_causal_lab.models.ssm.inference.persistence import condition_model
 
-    with pytest.raises(TypeError, match="requires a ParticleMCMCPosterior"):
-        certify_reportable_posterior(artifact)
+    untyped: Any = WarmupProposal(_samples={})
+    with pytest.raises(TypeError, match="production particle-MCMC"):
+        condition_model(_design(), untyped, times=jnp.arange(2))
 
 
-def test_reportable_posterior_rejects_empty_particle_draws() -> None:
-    artifact = _artifact()
-    artifact = replace(
-        artifact, result=ParticleMCMCPosterior(draws=JointPosteriorDraws(parameters={}))
-    )
+def test_causal_reporting_requires_retained_uncertainty_and_exact_engine_evidence():
+    from nof1_causal_lab.models.causal_proofs import certify_conditioned_model
+    from tests.inference_fixtures import inference_log
 
-    with pytest.raises(ValueError, match="no retained samples"):
-        certify_reportable_posterior(artifact)
-
-
-def test_causal_analysis_rejects_cross_design_evidence() -> None:
-    design = _design()
-    estimand = certify_identified_estimand(
-        design,
-        causal_design_ref=CausalDesignRef(workspace_id="workspace", version=2),
-        treatment="treatment",
-        outcome="outcome",
-    )
-
-    with pytest.raises(ValueError, match="different designs"):
-        CertifiedCausalAnalysis(
-            causal_design=design,
-            causal_design_ref=CausalDesignRef(workspace_id="workspace", version=2),
-            estimands=(estimand,),
-            posterior=certify_reportable_posterior(_artifact(causal_design_version=1)),
+    model = _conditioned()
+    revision = ModelRevision(workspace_id="workspace", version=2)
+    record = inference_log(model)
+    certify_conditioned_model(model, revision, record)
+    with pytest.raises(ValueError, match="committed inference"):
+        certify_conditioned_model(model, revision.model_copy(update={"version": 3}), record)
+    with pytest.raises(ValueError, match="differs from"):
+        certify_conditioned_model(_design(), revision, record)
+    with pytest.raises(ValueError, match="production particle-MCMC"):
+        certify_conditioned_model(
+            model,
+            revision,
+            record.model_copy(
+                update={
+                    "diagnostics": {
+                        **record.diagnostics,
+                        "engine_evidence": {"engine": "map", "latent_transition": "euler_maruyama"},
+                    }
+                }
+            ),
         )
+    prior = _design()
+    with pytest.raises(ValueError, match="no retained joint uncertainty"):
+        certify_conditioned_model(prior, revision, inference_log(prior))
 
 
-def test_causal_analysis_joins_matching_proofs() -> None:
-    design = _design()
-    design_ref = CausalDesignRef(workspace_id="workspace", version=1)
+def test_causal_analysis_joins_matching_proofs():
+    from tests.inference_fixtures import inference_log
+
+    design = _conditioned()
+    design_ref = ModelRevision(workspace_id="workspace", version=2)
     analysis = CertifiedCausalAnalysis(
-        causal_design=design,
-        causal_design_ref=design_ref,
+        model=design,
+        identification=_identification(),
+        model_revision=design_ref,
         estimands=(
             certify_identified_estimand(
                 design,
-                causal_design_ref=design_ref,
+                _identification(),
+                model_revision=design_ref,
                 treatment="treatment",
                 outcome="outcome",
             ),
         ),
-        posterior=certify_reportable_posterior(_artifact()),
+        inference=inference_log(design),
     )
-
     assert analysis.treatments == ["treatment"]
     assert analysis.outcome == "outcome"
-
-
-def test_fitted_artifact_preserves_aligned_joint_draws_without_sampler_diagnostics():
-    artifact = _artifact()
-    parameters = {"beta": jnp.arange(6.0).reshape(3, 2)}
-    paths = jnp.arange(12.0).reshape(3, 2, 2)
-    draws = JointPosteriorDraws(parameters=parameters, latent_paths=paths)
-    result = ParticleMCMCPosterior(draws=draws, diagnostics={"likelihood_backend": lambda: None})
-    restored = pickle.loads(pickle.dumps(replace(artifact, result=result)))
-    np.testing.assert_array_equal(restored.result.get_samples()["beta"], parameters["beta"])
-    np.testing.assert_array_equal(restored.result.draws.latent_paths, paths)
-    assert restored.result.diagnostics == {}
-    assert restored.provenance == artifact.provenance
-    assert restored.result.draws.describe().model_dump() == {
-        "n_draws": 3,
-        "parameter_shapes": {"beta": [2]},
-        "latent_shape": (2, 2),
-    }
-    assert result.draws is draws
 
 
 @pytest.mark.parametrize(

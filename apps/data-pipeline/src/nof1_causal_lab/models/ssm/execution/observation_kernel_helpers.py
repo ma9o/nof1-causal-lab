@@ -5,7 +5,7 @@ from collections.abc import Callable
 import jax.numpy as jnp
 import numpyro.distributions as dist
 
-from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily
+from nof1_causal_lab.artifacts.likelihood import DistributionFamily
 from nof1_causal_lab.models.ssm.shapes import Array, Float, Int
 
 from .emissions import categorical_moments, ordered_logistic_moments

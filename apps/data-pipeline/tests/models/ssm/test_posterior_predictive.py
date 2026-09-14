@@ -16,6 +16,7 @@ from nof1_causal_lab.models.predictive_simulation import (
     PredictiveObservationMeanOverflow,
     sample_predictive_observations_from_linear_predictors,
 )
+from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.execution.observation_families import (
     get_posterior_predictive_switch_index,
 )
@@ -228,6 +229,10 @@ class TestForwardSimulation:
 
     def test_posterior_runtime_assembles_ordered_cutpoints_from_sample_sites(self, monkeypatch):
         """Posterior PPC derives cutpoints from sampled threshold bases and gaps."""
+        from nof1_causal_lab.models.ssm.parameterization import (
+            assemble_deterministics_from_registry,
+            build_site_registry,
+        )
         from nof1_causal_lab.models.ssm.predictive import registry_runtime
 
         spec = complex_mixed_runtime_spec()
@@ -235,6 +240,10 @@ class TestForwardSimulation:
         ordered_base = jnp.zeros((n_draws, 10), dtype=jnp.float32)
         ordered_base = ordered_base.at[:, 6].set(-1.0)
         samples = {
+            **{
+                site.name: jnp.full((n_draws, *site.shape), 0.5)
+                for site in build_site_registry(spec)
+            },
             "obs_df": jnp.full((n_draws,), 6.0),
             "obs_shape": jnp.full((n_draws,), 3.0),
             "obs_r": jnp.full((n_draws,), 8.0),
@@ -244,16 +253,17 @@ class TestForwardSimulation:
             "obs_cat_intercepts": jnp.zeros((n_draws, 10, 3), dtype=jnp.float32),
             "obs_cat_slopes": jnp.zeros((n_draws, 10, 3), dtype=jnp.float32),
         }
+        samples.update(assemble_deterministics_from_registry(samples, spec))
         captured = {}
 
         def _fake_latents(_spec, _samples, times, **_kwargs):
             return (
-                jnp.zeros((n_draws, times.shape[0], spec.n_latent)),
-                jnp.zeros((n_draws, times.shape[0], spec.n_manifest)),
+                jnp.zeros((n_draws, times.shape[0], numeric.n_states(spec))),
+                jnp.zeros((n_draws, times.shape[0], numeric.n_observations(spec))),
             )
 
-        def _fake_observations(linear_predictors, runtime_samples, *_args, **_kwargs):
-            captured.update(runtime_samples)
+        def _fake_observations(models, linear_predictors, *_args, **_kwargs):
+            captured.update(models.observation_model.extra_params)
             shape = linear_predictors.shape
             return jnp.zeros(shape), jnp.ones(shape, dtype=bool), jnp.zeros(shape)
 
@@ -264,7 +274,7 @@ class TestForwardSimulation:
         )
         monkeypatch.setattr(
             registry_runtime,
-            "sample_predictive_observations_from_linear_predictors",
+            "sample_model_observations",
             _fake_observations,
         )
 

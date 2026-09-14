@@ -13,10 +13,9 @@ import asyncio
 import os
 from typing import TYPE_CHECKING
 
-from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename, pickle_filename
+from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
 from nof1_causal_lab.machine.derivations import complete_computed_transition
 from nof1_causal_lab.machine.graph import transition_spec
-from nof1_causal_lab.machine.model_contracts import project_model_fields
 from nof1_causal_lab.machine.moves import (
     ExecOptions,
     TransitionEffects,
@@ -27,8 +26,8 @@ from nof1_causal_lab.machine.store import ArtifactStore
 if TYPE_CHECKING:
     import polars as pl
 
-    from nof1_causal_lab.artifacts.identity import ArtifactId
-    from nof1_causal_lab.machine.artifacts import ArtifactVersionInfo, EpisodeState
+    from nof1_causal_lab.artifacts.identity import ArtifactId, OperationId
+    from nof1_causal_lab.machine.artifacts import EpisodeState
 
 
 def _panel_df(store: ArtifactStore, pins: dict[ArtifactId, int]) -> pl.DataFrame:
@@ -40,55 +39,53 @@ async def _run_posterior(
     store: ArtifactStore,
     pins: dict[ArtifactId, int],
     options: ExecOptions,
-) -> list[ArtifactVersionInfo]:
-    from nof1_causal_lab.artifacts.compiled_ssm import CompiledSSMArtifact
-    from nof1_causal_lab.artifacts.identity import CausalDesignRef
-    from nof1_causal_lab.artifacts.posterior import PosteriorArtifact, PosteriorProvenance
+) -> TransitionEffects:
+    from nof1_causal_lab.artifacts.posterior import InferenceReport
     from nof1_causal_lab.flows.transitions.inference.flow import (
         build_sampler_config,
         run_inference_with_data,
     )
     from nof1_causal_lab.utils.config import get_config
 
-    compiled_ssm = CompiledSSMArtifact.model_validate(
-        store.read_json_file(
-            "compiled_ssm", pins["compiled_ssm"], json_filename("compiled_ssm", "compiled_ssm")
-        )
-    )
     panel = _panel_df(store, pins)
-    compiled_meta = store.read_meta("compiled_ssm", pins["compiled_ssm"])
-    structural_plan_version = compiled_meta.derived_from["structural_plan"]
-    structural_plan_meta = store.read_meta("structural_plan", structural_plan_version)
-    provenance = PosteriorProvenance(
-        causal_design=CausalDesignRef(
-            workspace_id=workspace_id,
-            version=structural_plan_meta.derived_from["causal_design"],
-        ),
-        compiled_ssm_version=pins["compiled_ssm"],
-        panel_version=pins["panel"],
-    )
+    from functools import cache
+
+    from nof1_causal_lab.machine.derivations import read_model
+    from nof1_causal_lab.machine.inference import inference_input_version
+
+    pins = {**pins, "model": inference_input_version(store, pins["model"])}
+    model_spec = read_model(store, pins["model"])
+    model_spec.check_execution()
 
     result = await asyncio.to_thread(
         run_inference_with_data,
-        compiled_ssm=compiled_ssm,
+        model_spec=model_spec,
         data_for_model=panel,
         sampler_config=build_sampler_config(options.inference_method),
-        provenance=provenance,
+        array_writer=store.write_array,
+        array_loader=cache(store.read_array),
         workspace_id=workspace_id,
         compute_loo_diagnostics=get_config().inference.compute_loo_diagnostics,
     )
 
-    fitted_artifact = result.pop("_fitted_artifact", None)
-    payload = project_model_fields(PosteriorArtifact, result)
+    conditioned = result.pop("_model")
+    evidence = result.pop("engine_evidence")
+    report = InferenceReport.model_validate(result)
     info = store.write_version(
-        "posterior",
+        "model",
         provenance="computed",
         derived_from=pins,
         produced_by="run:posterior",
-        json_files={json_filename("posterior", "diagnostics"): payload},
-        pickle_files={pickle_filename("posterior", "fitted"): fitted_artifact},
+        json_files={json_filename("model", "model"): conditioned.model_dump(mode="json")},
     )
-    return [info]
+    return TransitionEffects(
+        produced=[info],
+        diagnostics={
+            "input_pins": pins,
+            "engine_evidence": evidence,
+            "report": report.model_dump(mode="json"),
+        },
+    )
 
 
 _TRANSITION_RUNNERS = {
@@ -111,7 +108,7 @@ _MODAL_TRANSITIONS = frozenset({"posterior"})
 
 async def execute_transition_locally(
     workspace_id: str,
-    artifact_id: ArtifactId,
+    artifact_id: OperationId,
     pins: dict[ArtifactId, int],
     state: EpisodeState,
     options: ExecOptions,
@@ -125,8 +122,9 @@ async def execute_transition_locally(
     runner = _TRANSITION_RUNNERS[artifact_id]
     emit_transition_event(workspace_id, artifact_id, "running")
     try:
-        produced = await runner(workspace_id, store, pins, options)
-        effects = complete_computed_transition(store, state, artifact_id, produced)
+        run = await runner(workspace_id, store, pins, options)
+        effects = complete_computed_transition(store, state, artifact_id, run.produced)
+        effects = effects.model_copy(update={"diagnostics": run.diagnostics})
     except Exception as exc:
         emit_transition_event(
             workspace_id,
@@ -141,7 +139,7 @@ async def execute_transition_locally(
 
 async def execute_transition(
     workspace_id: str,
-    artifact_id: ArtifactId,
+    artifact_id: OperationId,
     state: EpisodeState,
     options: ExecOptions,
 ) -> TransitionEffects:
@@ -152,6 +150,10 @@ async def execute_transition(
         raise RuntimeError(f"{artifact_id} is implemented only as a Temporal child workflow")
     if os.environ.get("DEPLOYMENT_ENV") == "production" and artifact_id in _MODAL_TRANSITIONS:
         from nof1_causal_lab.flows.modal_runners import run_transition_on_modal
+        from nof1_causal_lab.machine.derivations import read_model
+        from nof1_causal_lab.machine.inference import inference_input_version
 
+        store = ArtifactStore(workspace_id)
+        read_model(store, inference_input_version(store, pins["model"])).check_execution()
         return await run_transition_on_modal(workspace_id, artifact_id, pins, state, options)
     return await execute_transition_locally(workspace_id, artifact_id, pins, state, options)

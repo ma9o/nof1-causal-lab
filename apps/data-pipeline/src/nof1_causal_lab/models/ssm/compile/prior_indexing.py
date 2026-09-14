@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from nof1_causal_lab.artifacts.parameter import PriorAuthoringTransform, SiteKind
 from nof1_causal_lab.compilation_errors import AggregatedCompileError
+from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.parameterization import build_site_registry
 from nof1_causal_lab.models.ssm.structure.sites import SemanticBinding
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.identity import ParameterId
-    from nof1_causal_lab.artifacts.statistical_model_spec import ParameterSpec, StatisticalModelSpec
-    from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
-    from nof1_causal_lab.models.ssm.model import SSMSpec
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
     from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor, SitePosition
 
 
@@ -31,106 +31,79 @@ class SemanticBindingRegistry:
     by_parameter: dict[ParameterId, SemanticBinding] = field(default_factory=dict)
 
 
-def empty_prior_bindings() -> SemanticBindingRegistry:
-    return SemanticBindingRegistry()
-
-
 def _axis(ids: list[str] | None, size: int, label: str) -> dict[str, int]:
     if ids is None or len(ids) != size or len(set(ids)) != size:
         raise ValueError(f"Scientific prior binding requires {size} explicit unique {label} IDs")
     return {key: index for index, key in enumerate(ids)}
 
 
-def _owners(parameter: ParameterSpec, kind: str) -> set[str]:
-    return {owner.id for owner in parameter.owners if owner.kind == kind}
+def _owners(model: ModelSpec, parameter: ParameterSpec, kind: str) -> set[str]:
+    return {
+        owner.id for owner in model.parameter_context(parameter.id).owners if owner.kind == kind
+    }
 
 
-def _native_dynamics_bindings(
-    spec: SSMSpec, model: StatisticalModelSpec, plan: StructuralPlan | None
-) -> dict[str, SemanticBinding]:
-    """Bind an explicitly supplied native component composition by quantity and axis IDs."""
-    from nof1_causal_lab.models.ssm.dynamics.spec import iter_dynamics_semantic_bindings
+def _native_dynamics_bindings(model: ModelSpec) -> dict[str, SemanticBinding]:
+    """Bind coefficient references within the native component emitted by their own term."""
+    from nof1_causal_lab.models.ssm.compile.mechanisms import iter_mechanism_components
 
-    axis = _axis(spec.latent_ids, spec.n_latent, "latent")
-    if spec.latent_names is None:
-        raise ValueError("Native semantic bindings require latent labels alongside their IDs")
-    axis_ids = list(axis)
-    sites = {site.name: site for site in build_site_registry(spec)}
-
-    def owner_ids(binding: SemanticBinding) -> set[str]:
-        position = sites[binding.site_name].positions[binding.flat_index]
-        indices = (position,) if isinstance(position, int) else position
-        return {axis_ids[index] for index in indices}
-
-    def matches_edge(binding: SemanticBinding, parameter: ParameterSpec) -> bool:
-        if plan is None or not _owners(parameter, "edge"):
-            return True
-        if binding.cause_idx is None or binding.effect_idx is None:
-            return False
-        edge_ids = {
-            edge.id
-            for edge in plan.semantics.edges.values()
-            if edge.cause_id == axis_ids[binding.cause_idx]
-            and edge.effect_id == axis_ids[binding.effect_idx]
-        }
-        return _owners(parameter, "edge") == edge_ids
-
-    candidates = list(
-        iter_dynamics_semantic_bindings(spec.dynamics_spec, latent_names=tuple(spec.latent_names))
-    )
+    state_ids = numeric.state_ids(model)
     result = {}
-    for parameter in model.parameters:
-        matches = {
-            (binding.site_name, binding.flat_index): binding
-            for binding in candidates
-            if binding.site_kind == parameter.quantity
-            and owner_ids(binding) == _owners(parameter, "construct")
-            and matches_edge(binding, parameter)
-        }
-        if len(matches) > 1:
-            raise ValueError(f"Parameter {parameter.id!r} targets multiple native dynamics sites")
-        if matches:
-            result[parameter.id] = replace(
-                next(iter(matches.values())),
+    for index, (_, component) in enumerate(iter_mechanism_components(model, state_ids)):
+        for identity, site in component.parameter_sites(f"vf_{index}"):
+            if identity in result:
+                raise ValueError("One parameter cannot own multiple independent runtime sites")
+            parameter = model.parameter(identity)
+            result[identity] = SemanticBinding(
                 parameter_name=parameter.name,
-                transform=parameter.prior_transform,
+                site_name=site.name,
+                flat_index=0,
+                site_kind=site.site_kind,
+                transform=parameter.distribution_transform,
+                prior_field=site.priors_field,
+                construct_names=tuple(
+                    model.get_construct(key).name
+                    for key in state_ids
+                    if key
+                    in {component.state_ids[i] for i in component.sources | {component.target}}
+                ),
+                component_index=index,
+                effect_idx=component.target if component.edge_owned else None,
+                cause_idx=component.source,
             )
     return result
 
 
 def build_semantic_prior_bindings(
-    ssm_spec: SSMSpec,
-    statistical_model_spec: StatisticalModelSpec,
-    *,
-    structural_plan: StructuralPlan | None = None,
+    model: ModelSpec,
 ) -> SemanticBindingRegistry:
     """Bind by mechanism coefficient references, quantities, and scientific owner IDs."""
     from nof1_causal_lab.models.ssm.compile.parameter_identity import SHARED_OBSERVATION_FAMILIES
 
-    bindings = _native_dynamics_bindings(ssm_spec, statistical_model_spec, structural_plan)
-    latent = _axis(ssm_spec.latent_ids, ssm_spec.n_latent, "latent")
-    manifest = _axis(ssm_spec.manifest_ids, ssm_spec.n_manifest, "manifest")
-    inputs = _axis(ssm_spec.input_ids, ssm_spec.input_effect_block.n_cols, "input")
-    sites = build_site_registry(ssm_spec)
+    bindings = _native_dynamics_bindings(model)
+    latent = _axis(numeric.state_ids(model), numeric.n_states(model), "latent")
+    manifest = _axis(numeric.observation_ids(model), numeric.n_observations(model), "manifest")
+    inputs = _axis(numeric.input_ids(model), numeric.input_effect_block(model).n_cols, "input")
+    sites = build_site_registry(model)
     errors: list[str] = []
-    latent_names = ssm_spec.latent_names
-    manifest_names = ssm_spec.manifest_names
+    latent_names = numeric.state_names(model)
+    manifest_names = numeric.observation_names(model)
     assert latent_names is not None
     assert manifest_names is not None
 
-    for parameter in statistical_model_spec.parameters:
-        if parameter.id in bindings:
+    for parameter in model.parameters:
+        if parameter.id in bindings or parameter.value is not None:
             continue
-        kind = parameter.quantity
+        kind = model.parameter_context(parameter.id).quantity
         matches: list[tuple[SiteDescriptor, int]] = []
-        construct_ids = _owners(parameter, "construct")
-        indicator_ids = _owners(parameter, "indicator")
+        construct_ids = _owners(model, parameter, "construct")
+        indicator_ids = _owners(model, parameter, "indicator")
         state_indices = {latent[key] for key in construct_ids if key in latent}
         indicator_indices = {manifest[key] for key in indicator_ids if key in manifest}
         input_indices = {inputs[key] for key in construct_ids if key in inputs}
         position: SitePosition | None = None
-        transform = parameter.prior_transform
-        if kind in SHARED_OBSERVATION_FAMILIES:
+        transform = parameter.distribution_transform
+        if kind in SHARED_OBSERVATION_FAMILIES or kind == SiteKind.PROC_DF:
             matches = [(site, 0) for site in sites if site.site_kind == kind]
             transform = PriorAuthoringTransform.SITE_WIDE
         elif kind in {SiteKind.OBS_ORDERED_BASE, SiteKind.OBS_ORDERED_GAPS}:
@@ -147,11 +120,9 @@ def build_semantic_prior_bindings(
             )
         else:
             if kind == SiteKind.STATIC_STATE_SD:
-                if (
-                    ssm_spec.static_factor_ids is not None
-                    and parameter.id in ssm_spec.static_factor_ids
-                ):
-                    position = ssm_spec.static_factor_ids.index(parameter.id)
+                factor_ids = construct_ids & set(numeric.static_factor_ids(model))
+                if len(factor_ids) == 1:
+                    position = numeric.static_factor_ids(model).index(next(iter(factor_ids)))
             elif kind == SiteKind.LOADING:
                 if len(indicator_indices) == 1 and len(state_indices) == 1:
                     position = (next(iter(indicator_indices)), next(iter(state_indices)))
@@ -192,7 +163,7 @@ def build_semantic_prior_bindings(
             site_kind=kind,
             transform=transform,
             construct_names=tuple(latent_names[index] for index in sorted(state_indices))
-            + tuple((ssm_spec.input_names or [])[index] for index in sorted(input_indices)),
+            + tuple((numeric.input_names(model) or [])[index] for index in sorted(input_indices)),
             indicator_names=tuple(manifest_names[index] for index in sorted(indicator_indices)),
             effect_idx=next(iter(state_indices)) if kind == SiteKind.INPUT_EFFECT else None,
         )
@@ -207,5 +178,4 @@ __all__ = [
     "SemanticBinding",
     "SemanticBindingRegistry",
     "build_semantic_prior_bindings",
-    "empty_prior_bindings",
 ]

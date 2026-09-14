@@ -44,6 +44,30 @@ def _simple_params(n_latent=2, n_manifest=2):
 
 
 class TestGaussianEmission:
+    @pytest.mark.parametrize("mask", [[1, 0, 1], [0, 0, 1], [0, 0, 0], [1, 1, 1]])
+    def test_exact_marginal_and_gradients_ignore_missing_covariance(self, mask):
+        """Missing variances can be arbitrarily large without changing the observed law."""
+        mask = jnp.array(mask, dtype=bool)
+        covariance = jnp.array([[2.0, 1e5, 0.3], [1e5, 1e12, 2e5], [0.3, 2e5, 3.0]])
+        mean = jnp.array([0.5, -2.0, 0.2])
+        values = jnp.array([1.0, 3.0, -1.0])
+        observed = jnp.where(mask)[0]
+
+        def reference(location):
+            if not len(observed):
+                return jnp.array(0.0)
+            return jstats.multivariate_normal.logpdf(
+                values[observed], location[observed], covariance[jnp.ix_(observed, observed)]
+            )
+
+        def score(location):
+            return emission_log_prob_gaussian(
+                jnp.where(mask, values, jnp.nan), location, covariance, mask
+            )
+
+        assert float(score(mean)) == pytest.approx(float(reference(mean)), rel=2e-7, abs=1e-6)
+        assert jnp.allclose(jax.grad(score)(mean), jax.grad(reference)(mean), atol=1e-6)
+
     def test_missing_channel_ignored(self):
         """Masked-out channels should not affect log-prob."""
         H, d, R = _simple_params()

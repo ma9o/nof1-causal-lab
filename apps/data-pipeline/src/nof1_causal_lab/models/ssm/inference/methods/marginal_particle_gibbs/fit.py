@@ -10,6 +10,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as random
 
+from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.inference.methods._pmcmc_shared import (
     build_pmcmc_mcmc_result,
     extract_grouped_public_samples,
@@ -255,7 +256,7 @@ def fit_marginal_particle_gibbs(
             initial_latent_trajectories = ieks_paths
         else:
             ieks_paths = jnp.asarray(initial_latent_trajectories)
-            expected_shape = (num_chains, int(times.shape[0]), int(model.spec.n_latent))
+            expected_shape = (num_chains, int(times.shape[0]), int(numeric.n_states(model.spec)))
             if ieks_paths.shape != expected_shape:
                 raise ValueError(
                     "initial_latent_trajectories must have shape "

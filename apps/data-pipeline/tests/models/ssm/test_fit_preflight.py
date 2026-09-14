@@ -4,9 +4,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
 from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
-from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily, LinkFunction
-from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec, StateDecaySpec
+from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
 from nof1_causal_lab.models.ssm.inference import fit
 from nof1_causal_lab.models.ssm.model import SSMModel
 from nof1_causal_lab.models.ssm.parameterization import (
@@ -23,7 +23,8 @@ from nof1_causal_lab.models.ssm.priors import (
 )
 from nof1_causal_lab.models.ssm.structure import SparseVectorBlockSpec
 from nof1_causal_lab.prior_distributions import distribution_from_params
-from tests.ssm_spec_fixtures import block_ssm_spec
+from tests.dynamics_fixtures import decay_term
+from tests.model_fixtures import model_fixture
 
 RNG = np.random.default_rng(7)
 
@@ -51,10 +52,10 @@ def _model(
     links=(LinkFunction.IDENTITY, LinkFunction.IDENTITY),
     standardized=None,
 ):
-    spec = block_ssm_spec(
+    spec = model_fixture(
         n_latent=1,
         n_manifest=2,
-        dynamics_spec=DynamicsSpec(n_latent=1, components=(StateDecaySpec(target=0),)),
+        dynamics_spec=DynamicsSpec(n_latent=1, components=(decay_term(target=0),)),
         manifest_means_block=_manifest_means_block(free_means, means_template),
         manifest_dists=list(dists),
         manifest_links=list(links),

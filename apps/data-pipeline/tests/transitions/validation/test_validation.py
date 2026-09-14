@@ -11,47 +11,32 @@ from typing import Any
 import polars as pl
 import pytest
 
+from nof1_causal_lab.artifacts.construct import CausalEdge, Construct, replace_constructs
 from nof1_causal_lab.flows.transitions.validation.flow import (
     derive_validation_status,
     validate_extraction,
 )
-from tests.helpers import fixture_entity_id
+from tests.helpers import fixture_entity_id, make_model
 
 
 @pytest.fixture
 def simple_causal_design():
-    """Simple CausalDesign with daily granularity constructs."""
-    return {
-        "latent": {
-            "constructs": [
-                {"id": fixture_entity_id("construct", "stress"), "name": "stress"},
-                {"id": fixture_entity_id("construct", "sleep"), "name": "sleep"},
-            ],
-            "edges": [
-                {
-                    "cause_id": fixture_entity_id("construct", "stress"),
-                    "effect_id": fixture_entity_id("construct", "sleep"),
-                }
-            ],
-        },
-        "measurement": {
-            "model_clock": "1d",
-            "indicators": [
-                {
-                    "id": fixture_entity_id("indicator", "stress_score"),
-                    "name": "stress_score",
-                    "construct_id": fixture_entity_id("construct", "stress"),
-                    "how_to_measure": "Extract stress level",
-                },
-                {
-                    "id": fixture_entity_id("indicator", "sleep_hours"),
-                    "name": "sleep_hours",
-                    "construct_id": fixture_entity_id("construct", "sleep"),
-                    "how_to_measure": "Extract sleep duration",
-                },
-            ],
-        },
-    }
+    stress = _make_spec()
+    sleep = _make_spec(indicator_name="sleep_hours", construct_name="sleep")
+    return stress.revised(
+        edges=replace_constructs(
+            (
+                CausalEdge(
+                    id=fixture_entity_id("edge", "stress->sleep"),
+                    cause=stress.constructs[0],
+                    effect=sleep.constructs[0],
+                    description="Stress affects sleep",
+                    lagged=True,
+                ),
+            ),
+            (stress.constructs[0], sleep.constructs[0]),
+        )
+    )
 
 
 def _create_worker_dfs(records: list[dict[str, Any]]) -> list[pl.DataFrame]:
@@ -100,24 +85,26 @@ def _make_spec(
     if extra_indicators:
         indicators.extend(extra_indicators)
 
-    constructs = [
+    for indicator in indicators:
+        assert indicator.pop("construct_id") == fixture_entity_id("construct", construct_name)
+        indicator.setdefault("construct_polarity", "positive")
+        indicator.setdefault("measurement_dtype", "continuous")
+        indicator.setdefault("how_to_measure", "Read the value")
+        indicator.setdefault("aggregation", "last")
+    model = make_model([construct_name])
+    construct = Construct.model_validate(
         {
             "id": fixture_entity_id("construct", construct_name),
             "name": construct_name,
+            "description": "Validation fixture",
+            "role": "endogenous",
             "temporal_status": temporal_status,
-        },
-    ]
-    # Extra test indicators share the supplied construct definition.
-    assert all(indicator["construct_id"] == constructs[0]["id"] for indicator in indicators)
-
-    measurement: dict[str, Any] = {"indicators": indicators}
-    if model_clock is not None:
-        measurement["model_clock"] = model_clock
-
-    return {
-        "latent": {"constructs": constructs},
-        "measurement": measurement,
-    }
+            "indicators": indicators,
+        }
+    )
+    return model.revised(
+        edges=replace_constructs(model.edges, [construct]), measurement_clock=model_clock
+    )
 
 
 # ==============================================================================

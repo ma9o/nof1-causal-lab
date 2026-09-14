@@ -17,11 +17,11 @@ from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS, ArtifactId
+from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS, ArtifactId, OperationId
+from nof1_causal_lab.json_types import JsonObject  # noqa: TC001
 from nof1_causal_lab.machine.artifacts import ArtifactVersionInfo, Provenance  # noqa: TC001
 from nof1_causal_lab.machine.graph import (
     ARTIFACT_GRAPH,
-    DERIVATIONS,
     WRITABLE_ARTIFACTS,
     transition_spec,
 )
@@ -31,11 +31,11 @@ if TYPE_CHECKING:
     from nof1_causal_lab.machine.graph import Transition
 
 
-class RunArtifact(BaseModel):
+class RunOperation(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     kind: Literal["run"] = "run"
-    artifact_id: ArtifactId
+    operation_id: OperationId
 
 
 class WriteArtifact(BaseModel):
@@ -44,9 +44,10 @@ class WriteArtifact(BaseModel):
     kind: Literal["write"] = "write"
     artifact_id: ArtifactId
     provenance: Provenance = "human"
+    expected_model_version: int | None = Field(default=None, ge=0)
 
 
-type Move = Annotated[RunArtifact | WriteArtifact, Field(discriminator="kind")]
+type Move = Annotated[RunOperation | WriteArtifact, Field(discriminator="kind")]
 
 
 class RetractedArtifact(BaseModel):
@@ -63,6 +64,7 @@ class TransitionEffects(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    diagnostics: JsonObject = Field(default_factory=dict)
     produced: list[ArtifactVersionInfo] = Field(default_factory=list)
     retracted: list[RetractedArtifact] = Field(default_factory=list)
 
@@ -88,9 +90,27 @@ def legal_moves(state: EpisodeState) -> list[Move]:
     moves: list[Move] = []
     for spec in ARTIFACT_GRAPH:
         if all(state.has(artifact) for artifact in spec.consumes):
-            moves.append(RunArtifact(artifact_id=spec.transition_id))
-    moves.extend(WriteArtifact(artifact_id=aid) for aid in WRITABLE_ARTIFACTS)
+            moves.append(RunOperation(operation_id=spec.operation_id))
+    moves.extend(
+        WriteArtifact(
+            artifact_id=aid,
+            expected_model_version=(state.current["model"].version if state.has("model") else 0)
+            if aid == "model"
+            else None,
+        )
+        for aid in WRITABLE_ARTIFACTS
+    )
     return moves
+
+
+def validate_model_base(state: EpisodeState, expected_version: int | None) -> str | None:
+    if expected_version is None:
+        return "A model write requires its expected base version (0 for a new model)"
+    current = state.get("model")
+    version = current.version if current else 0
+    if expected_version != version:
+        return f"Model revision conflict: expected {expected_version}, current {version}"
+    return None
 
 
 def validate_move(state: EpisodeState, move: Move) -> str | None:
@@ -100,14 +120,16 @@ def validate_move(state: EpisodeState, move: Move) -> str | None:
             return "write moves must declare provenance 'human' or 'llm'"
         if move.artifact_id not in WRITABLE_ARTIFACTS:
             return f"artifact '{move.artifact_id}' is not writable"
+        if move.artifact_id == "model":
+            return validate_model_base(state, move.expected_model_version)
         return None
     try:
-        spec = transition_spec(move.artifact_id)
+        spec = transition_spec(move.operation_id)
     except KeyError as exc:
         return str(exc)
     missing = [artifact for artifact in spec.consumes if not state.has(artifact)]
     if missing:
-        return f"{move.artifact_id} requires artifacts that do not exist: {', '.join(missing)}"
+        return f"{move.operation_id} requires artifacts that do not exist: {', '.join(missing)}"
     return None
 
 
@@ -117,8 +139,9 @@ def input_pins(state: EpisodeState, spec: Transition) -> dict[ArtifactId, int]:
     for artifact in spec.consumes:
         info = state.get(artifact)
         if info is None:
-            raise ValueError(f"{spec.transition_id} input '{artifact}' does not exist")
+            raise ValueError(f"{spec.operation_id} input '{artifact}' does not exist")
         pins[artifact] = info.version
+    pins.update(write_pins(state, spec.optional_consumes))
     return pins
 
 
@@ -159,14 +182,11 @@ def run_retractions(
     return [
         RetractedArtifact(
             artifact_id=artifact,
-            reason_ref=f"{spec.transition_id}.produces_optional.{artifact}",
+            reason_ref=f"{spec.operation_id}.produces_optional.{artifact}",
         )
         for artifact in spec.produces_optional
         if artifact not in produced_ids and state.has(artifact)
     ]
-
-
-_DERIVED_ARTIFACTS = frozenset(spec.produces for spec in DERIVATIONS)
 
 
 def is_stale(state: EpisodeState, artifact_id: ArtifactId) -> bool:
@@ -175,7 +195,7 @@ def is_stale(state: EpisodeState, artifact_id: ArtifactId) -> bool:
     Derived artifacts are never stale. If their parents change, the move that
     changed the parents also recomputes or retracts the derivation.
     """
-    if artifact_id in _DERIVED_ARTIFACTS:
+    if artifact_id == "model":
         return False
     return _staleness(state, artifact_id, frozenset())
 
@@ -187,11 +207,11 @@ def _staleness(
     if info is None or artifact_id in visiting:
         return False
     marked = visiting | {artifact_id}
-    for input_id, pinned in info.derived_from.items():
+    for input_id in info.derived_from:
         current = state.get(input_id)
-        if current is None or current.version != pinned:
+        if current is None or not state.matches_inputs(artifact_id, input_id):
             return True
-        if _staleness(state, input_id, marked):
+        if input_id != "model" and _staleness(state, input_id, marked):
             return True
     return False
 

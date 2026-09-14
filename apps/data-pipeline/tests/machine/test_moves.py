@@ -1,10 +1,15 @@
 """legal_moves / apply_transition / staleness / freshness semantics."""
 
+import pytest
+from pydantic import ValidationError
+
 from nof1_causal_lab.machine.artifacts import ArtifactVersionInfo, EpisodeState
 from nof1_causal_lab.machine.graph import WRITABLE_ARTIFACTS, transition_spec
+from nof1_causal_lab.machine.inference import inference_is_current
+from nof1_causal_lab.machine.model_dependencies import MODEL_INPUTS
 from nof1_causal_lab.machine.moves import (
     RetractedArtifact,
-    RunArtifact,
+    RunOperation,
     WriteArtifact,
     apply_transition,
     freshness_report,
@@ -32,7 +37,7 @@ def _state(*infos):
 
 
 def _runnable(state):
-    return {move.artifact_id for move in legal_moves(state) if isinstance(move, RunArtifact)}
+    return {move.operation_id for move in legal_moves(state) if isinstance(move, RunOperation)}
 
 
 class TestLegalMoves:
@@ -51,8 +56,7 @@ class TestLegalMoves:
         }
         assert offered == set(WRITABLE_ARTIFACTS)
         assert "question" in offered
-        assert "measurement_structure" in offered
-        assert "statistical_model_spec" in offered
+        assert "model" in offered
         assert "causal_design" not in offered
         assert "raw_data" not in offered
 
@@ -60,10 +64,7 @@ class TestLegalMoves:
         state = _state(
             _version("question", provenance="human"),
             _version("raw_data"),
-            _version("latent_structure"),
-            _version("measurement_structure"),
-            _version("causal_design"),
-            _version("measurements"),
+            _version("model"),
             _version("panel"),
             _version("validation_report"),
         )
@@ -75,12 +76,8 @@ class TestLegalMoves:
         state = _state(
             _version("question", provenance="human"),
             _version("raw_data"),
-            _version("latent_structure"),
-            _version("measurement_structure"),
-            _version("causal_design"),
-            _version("structural_plan"),
+            _version("model"),
             _version("identification_report"),
-            _version("measurements"),
             _version("panel"),
             _version("validation_report"),
         )
@@ -88,24 +85,23 @@ class TestLegalMoves:
 
     def test_baseline_report_does_not_require_question(self):
         state = _state(
-            _version("causal_design"),
+            _version("model"),
             _version("identification_report"),
-            _version("posterior"),
+            _version("panel"),
         )
         assert "baseline_report" in _runnable(state)
 
 
 class TestValidateMove:
     def test_missing_inputs_rejected_with_names(self):
-        reason = validate_move(EpisodeState(), RunArtifact(artifact_id="measurement_structure"))
+        reason = validate_move(EpisodeState(), RunOperation(operation_id="measurement_structure"))
         assert reason is not None
         assert "question" in reason
-        assert "latent_structure" in reason
+        assert "model" in reason
 
     def test_unknown_transition_rejected(self):
-        reason = validate_move(EpisodeState(), RunArtifact(artifact_id="validation_report"))
-        assert reason is not None
-        assert "Unknown transition" in reason
+        with pytest.raises(ValidationError):
+            RunOperation.model_validate({"operation_id": "validation_report"})
 
     def test_computed_provenance_write_rejected(self):
         reason = validate_move(
@@ -115,12 +111,12 @@ class TestValidateMove:
         assert reason is not None
 
     def test_derived_artifact_write_rejected(self):
-        reason = validate_move(EpisodeState(), WriteArtifact(artifact_id="causal_design"))
+        reason = validate_move(EpisodeState(), WriteArtifact(artifact_id="identification_report"))
         assert reason is not None
         assert "not writable" in reason
 
     def test_legal_run_accepted(self):
-        assert validate_move(EpisodeState(), RunArtifact(artifact_id="raw_data")) is None
+        assert validate_move(EpisodeState(), RunOperation(operation_id="raw_data")) is None
 
 
 class TestApplyTransition:
@@ -141,10 +137,9 @@ class TestApplyTransition:
     def test_optional_artifact_retracted_when_withheld(self):
         spec = transition_spec("measurements")
         state = _state(
-            _version("measurements", version=1),
             _version("panel", version=1),
         )
-        produced = [_version("measurements", version=2)]
+        produced = []
         retracted = run_retractions(state, spec, produced)
         assert retracted == [
             RetractedArtifact(
@@ -154,15 +149,11 @@ class TestApplyTransition:
         ]
         next_state = apply_transition(state, produced, retracted)
         assert not next_state.has("panel")
-        measurements = next_state.get("measurements")
-        assert measurements is not None
-        assert measurements.version == 2
 
     def test_no_retraction_when_optional_still_produced(self):
         spec = transition_spec("measurements")
         state = _state(_version("panel", version=1))
         produced = [
-            _version("measurements"),
             _version("panel", version=2),
         ]
         assert run_retractions(state, spec, produced) == []
@@ -170,192 +161,63 @@ class TestApplyTransition:
 
 class TestStaleness:
     def _fitted_chain(self):
-        question = _version("question", provenance="human")
-        raw = _version("raw_data", produced_by="run:raw_data")
-        latent_structure = _version(
-            "latent_structure", derived_from={"question": 1}, produced_by="run:latent_structure"
-        )
-        measurement_structure = _version(
-            "measurement_structure",
-            derived_from={"question": 1, "raw_data": 1, "latent_structure": 1},
-            produced_by="run:measurement_structure",
-        )
-        causal_design = _version(
-            "causal_design",
-            derived_from={"latent_structure": 1, "measurement_structure": 1},
-            produced_by="derive:causal_design",
-        )
-        identification_report = _version(
-            "identification_report",
-            derived_from={"causal_design": 1},
-            produced_by="derive:identification_report",
-        )
-        measurements = _version(
-            "measurements",
-            derived_from={"question": 1, "raw_data": 1, "measurement_structure": 1},
-            produced_by="run:measurements",
-        )
-        panel = _version(
-            "panel",
-            derived_from={"question": 1, "raw_data": 1, "measurement_structure": 1},
-            produced_by="run:measurements",
-        )
-        validation = _version(
-            "validation_report",
-            derived_from={"panel": 1, "causal_design": 1},
-            produced_by="derive:validation_report",
-        )
-        sms = _version(
-            "statistical_model_spec",
-            derived_from={
-                "question": 1,
-                "causal_design": 1,
-                "identification_report": 1,
-                "panel": 1,
-                "validation_report": 1,
-            },
-            produced_by="run:statistical_model_spec",
-        )
-        compiled = _version(
-            "compiled_ssm",
-            derived_from={"statistical_model_spec": 1, "causal_design": 1},
-            produced_by="derive:compiled_ssm",
-        )
-        posterior = _version(
-            "posterior",
-            derived_from={"compiled_ssm": 1, "panel": 1},
+        inputs = dict.fromkeys(MODEL_INPUTS.values(), "same-scientific-input")
+        model = _version(
+            "model",
+            version=2,
+            derived_from={"model": 1, "panel": 1},
             produced_by="run:posterior",
-        )
+        ).model_copy(update={"model_inputs": inputs})
+        dependents = [
+            _version("identification_report", derived_from={"model": 1}),
+            _version("panel", derived_from={"model": 1}),
+            _version(
+                "baseline_report", derived_from={"model": 2, "panel": 1, "identification_report": 1}
+            ),
+        ]
         return _state(
-            question,
-            raw,
-            latent_structure,
-            measurement_structure,
-            causal_design,
-            identification_report,
-            measurements,
-            panel,
-            validation,
-            sms,
-            compiled,
-            posterior,
+            model,
+            *[
+                item.model_copy(
+                    update={
+                        "consumed_model_inputs": {
+                            MODEL_INPUTS[item.artifact_id]: inputs[MODEL_INPUTS[item.artifact_id]]
+                        }
+                    }
+                )
+                for item in dependents
+            ],
         )
 
     def test_fresh_chain_is_not_stale(self):
         state = self._fitted_chain()
-        assert state.has("posterior")
-        assert not is_stale(state, "posterior")
+        assert inference_is_current(state)
+        assert not is_stale(state, "baseline_report")
 
-    def test_editing_measurement_structure_stales_produced_descendants(self):
-        state = self._fitted_chain()
+    def test_editing_model_stales_produced_descendants(self):
         state = apply_transition(
-            state,
-            [
-                _version("measurement_structure", version=2, provenance="human"),
-                _version(
-                    "causal_design",
-                    version=2,
-                    derived_from={"latent_structure": 1, "measurement_structure": 2},
-                ),
-                _version("identification_report", version=2, derived_from={"causal_design": 2}),
-                _version(
-                    "compiled_ssm",
-                    version=2,
-                    derived_from={"statistical_model_spec": 1, "causal_design": 2},
-                ),
-            ],
+            self._fitted_chain(), [_version("model", version=3, provenance="human")]
         )
-        assert is_stale(state, "measurements")
+        assert not inference_is_current(state)
         assert is_stale(state, "panel")
-        assert is_stale(state, "statistical_model_spec")
-        assert is_stale(state, "posterior")
-        # Derived nodes are recomputed in the move and are never reported stale.
-        assert not is_stale(state, "causal_design")
-        assert not is_stale(state, "identification_report")
-        assert not is_stale(state, "compiled_ssm")
-        assert not is_stale(state, "question")
-        assert not is_stale(state, "latent_structure")
+        assert is_stale(state, "baseline_report")
+        assert not is_stale(state, "model")
 
-    def test_retracted_input_stales_dependents(self):
+    def test_retracted_input_invalidates_fit_and_report(self):
+        state = self._fitted_chain().without(["panel"])
+        assert not inference_is_current(state)
+        assert is_stale(state, "baseline_report")
+
+    def test_republishing_identification_preserves_conditioned_science(self):
         state = self._fitted_chain()
-        state = state.without(["panel"])
-        assert is_stale(state, "posterior")
+        current = state.with_versions(
+            [state.current["identification_report"].model_copy(update={"version": 2})]
+        )
+        assert inference_is_current(current)
+        assert is_stale(current, "baseline_report")
 
     def test_absent_artifact_is_not_stale(self):
-        assert not is_stale(EpisodeState(), "posterior")
-
-    def test_recompute_restores_freshness(self):
-        state = self._fitted_chain()
-        state = apply_transition(
-            state,
-            [
-                _version("measurement_structure", version=2),
-                _version(
-                    "causal_design",
-                    version=2,
-                    derived_from={"latent_structure": 1, "measurement_structure": 2},
-                ),
-                _version("identification_report", version=2, derived_from={"causal_design": 2}),
-            ],
-        )
-        state = apply_transition(
-            state,
-            [
-                _version(
-                    "measurements",
-                    version=2,
-                    derived_from={"question": 1, "raw_data": 1, "measurement_structure": 2},
-                ),
-                _version(
-                    "panel",
-                    version=2,
-                    derived_from={"question": 1, "raw_data": 1, "measurement_structure": 2},
-                ),
-                _version(
-                    "validation_report",
-                    version=2,
-                    derived_from={"panel": 2, "causal_design": 2},
-                ),
-            ],
-        )
-        state = apply_transition(
-            state,
-            [
-                _version(
-                    "statistical_model_spec",
-                    version=2,
-                    derived_from={
-                        "question": 1,
-                        "causal_design": 2,
-                        "identification_report": 2,
-                        "panel": 2,
-                        "validation_report": 2,
-                    },
-                )
-            ],
-        )
-        state = apply_transition(
-            state,
-            [
-                _version(
-                    "compiled_ssm",
-                    version=2,
-                    derived_from={"statistical_model_spec": 2, "causal_design": 2},
-                )
-            ],
-        )
-        state = apply_transition(
-            state,
-            [
-                _version(
-                    "posterior",
-                    version=2,
-                    derived_from={"compiled_ssm": 2, "panel": 2},
-                )
-            ],
-        )
-        assert state.has("posterior")
-        assert not is_stale(state, "posterior")
+        assert not is_stale(EpisodeState(), "baseline_report")
 
 
 class TestInputPins:
@@ -373,5 +235,5 @@ def test_freshness_report_shape():
     by_id = {status.artifact_id: status for status in report}
     assert by_id["question"].exists
     assert by_id["question"].provenance == "human"
-    assert not by_id["posterior"].exists
-    assert not by_id["posterior"].stale
+    assert not by_id["model"].exists
+    assert not by_id["model"].stale

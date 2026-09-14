@@ -1,8 +1,11 @@
 """Shared cross-cutting test helpers (LLM/session fakes, async runners)."""
 
 import asyncio
+from collections.abc import Sequence
 from hashlib import sha256
 from typing import Any
+
+from nof1_causal_lab.artifacts.construct import replace_constructs
 
 
 def fixture_entity_id(kind: str, initial_identity: str) -> str:
@@ -28,10 +31,7 @@ def make_prior_model(statistical_model_spec, priors):
 
 def model_with_prior_payloads(model, payloads):
     """Attach explicit ID-keyed law inputs for compiler behavior tests."""
-    from nof1_causal_lab.models.prior_planning import (
-        complete_parameter_priors,
-        parameter_with_prior,
-    )
+    from notebooks.prior_specification_support import parameter_with_prior
 
     if model is None:
         if payloads:
@@ -41,120 +41,115 @@ def model_with_prior_payloads(model, payloads):
     unknown = payloads.keys() - by_id.keys()
     if unknown:
         raise ValueError(f"Prior input does not correspond to any parameter: {sorted(unknown)}")
-    return complete_parameter_priors(
-        model.model_copy(
-            update={
-                "parameters": [
-                    parameter_with_prior(parameter, payloads[parameter.id])
-                    if parameter.id in payloads
-                    else parameter
-                    for parameter in model.parameters
-                ]
-            }
+    return model.revised(
+        parameters=tuple(
+            parameter_with_prior(parameter, payloads[parameter.id])
+            if parameter.id in payloads
+            else parameter
+            for parameter in model.parameters
         )
     )
 
 
-def parameters_with_distributions(parameters, distributions):
-    """Attach native laws when a fixture writes its parameter table separately."""
-    return tuple(
-        parameter.model_copy(update={"prior": distributions[parameter.name]})
-        for parameter in parameters
+def make_model(state_names: list[str], edges: Sequence[tuple[str, str]] = ()):
+    """A connected test graph; uncoupled states share an unmeasured downstream outcome."""
+    from nof1_causal_lab.artifacts.construct import CausalEdge, Construct
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+
+    constructs = {
+        name: Construct.model_validate(
+            {
+                "id": fixture_entity_id("construct", name),
+                "name": name,
+                "description": name,
+                "role": "endogenous",
+                "temporal_status": "time_varying",
+                "indicators": [
+                    {
+                        "id": fixture_entity_id("indicator", name + "_obs"),
+                        "name": name + "_obs",
+                        "how_to_measure": "measure " + name,
+                        "construct_polarity": "positive",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                    }
+                ],
+            }
+        )
+        for name in state_names
+    }
+    if edges:
+        assert set(state_names) == {name for pair in edges for name in pair}
+    if not edges:
+        outcome = "unmeasured_outcome"
+        constructs[outcome] = Construct(
+            id=fixture_entity_id("construct", outcome),
+            name=outcome,
+            description="A downstream response outside the numerical fixture's measured states.",
+            role="endogenous",
+            temporal_status="time_varying",
+        )
+        edges = [(name, outcome) for name in state_names]
+    return ModelSpec(
+        edges=tuple(
+            CausalEdge(
+                id=fixture_entity_id("edge", cause + "->" + effect),
+                cause=constructs[cause],
+                effect=constructs[effect],
+                description=cause + " causes " + effect,
+            )
+            for cause, effect in edges
+        ),
+        measurement_clock="1d",
     )
 
 
-def make_structural_plan(
-    state_names: list[str],
-    edges: list[tuple[str, str]],
-) -> dict[str, Any]:
-    """Build a minimal strict StructuralPlan for topology-focused tests."""
-    construct_id = {name: f"construct:{index:04d}" for index, name in enumerate(state_names)}
-    edge_ids = [f"edge:{index:04d}" for index in range(len(edges))]
-    indicator_id = {name: f"indicator:{index:04d}" for index, name in enumerate(state_names)}
-    return {
-        "schema_version": 1,
-        "semantics": {
-            "constructs": {
-                construct_id[name]: {
-                    "id": construct_id[name],
-                    "name": name,
-                    "description": name,
-                    "role": "endogenous",
-                    "temporal_status": "time_varying",
-                }
-                for name in state_names
-            },
-            "edges": {
-                source_id: {
-                    "cause_id": construct_id[cause],
-                    "effect_id": construct_id[effect],
-                    "id": source_id,
-                    "description": f"{cause} causes {effect}",
-                    "lagged": True,
-                    "sources": [],
-                }
-                for source_id, (cause, effect) in zip(edge_ids, edges, strict=True)
-            },
-            "indicators": {
-                indicator_id[name]: {
-                    "id": indicator_id[name],
-                    "construct_id": construct_id[name],
-                    "name": f"{name}_obs",
-                    "how_to_measure": f"measure {name}",
-                    "construct_polarity": "positive",
-                    "measurement_dtype": "continuous",
-                    "aggregation": "mean",
-                    "source_columns": [],
-                    "extraction_mode": "semantic",
-                }
-                for name in state_names
-            },
-            "model_clock": "1d",
-        },
-        "state_order": [construct_id[name] for name in state_names],
-        "edges": [
-            {
-                "source_id": source_id,
-                "cause_id": construct_id[cause],
-                "effect_id": construct_id[effect],
-                "lagged": True,
-            }
-            for source_id, (cause, effect) in zip(edge_ids, edges, strict=True)
-        ],
-        "manifest_indicator_order": [indicator_id[name] for name in state_names],
-        "reference_indicator_ids": {construct_id[name]: indicator_id[name] for name in state_names},
-        "known_inputs": [],
-        "induced_dependencies": [],
-        "dispositions": [
-            *[
-                {
-                    "source_id": construct_id[name],
-                    "source_kind": "construct",
-                    "disposition": "retained_state",
-                    "reason": "test state",
-                }
-                for name in state_names
-            ],
-            *[
-                {
-                    "source_id": source_id,
-                    "source_kind": "edge",
-                    "disposition": "retained_edge",
-                    "reason": "test edge",
-                }
-                for source_id in edge_ids
-            ],
-            *[
-                {
-                    "source_id": indicator_id[name],
-                    "source_kind": "indicator",
-                    "disposition": "manifest",
-                    "reason": "test manifest",
-                }
-                for name in state_names
-            ],
-        ],
-    }
+def graph_constructs(payload):
+    """Writable endpoint definitions in a serialized test graph, excluding shared references."""
+    return [
+        endpoint
+        for edge in payload["edges"]
+        for endpoint in (edge["cause"], edge["effect"])
+        if "name" in endpoint
+    ]
+
+
+def complete_test_model(model, *, self_limiting=(), hill_edges=()):
+    """Explicit Gaussian/continuous test choices followed by scientific completion."""
+    from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec
+    from nof1_causal_lab.models.likelihoods import observation_law
+    from nof1_causal_lab.models.model_mechanisms import declare_dynamics
+    from nof1_causal_lab.models.prior_planning import complete_model
+
+    manifest = set(model.manifest_indicator_order)
+    model = model.revised(
+        edges=replace_constructs(
+            model.edges,
+            tuple(
+                c.model_copy(
+                    update={
+                        "indicators": tuple(
+                            i
+                            if i.likelihood is not None or i.id not in manifest
+                            else i.model_copy(
+                                update={
+                                    "likelihood": LikelihoodSpec(
+                                        law=observation_law(c.id, "gaussian", "identity"),
+                                        reasoning="Test Gaussian emission",
+                                        standardized=True,
+                                    )
+                                }
+                            )
+                            for i in c.indicators
+                        )
+                    }
+                )
+                for c in model.constructs
+            ),
+        )
+    )
+    authored = declare_dynamics(model, self_limiting=self_limiting, hill_edges=hill_edges)
+    return complete_model(authored)
 
 
 def make_mock_session_factory(responses: list[str]):
@@ -232,70 +227,21 @@ def native_axis_metadata(n_latent, n_manifest, metadata):
     }
 
 
-def declare_test_dynamics(model, plan, *, quartic_states=(), hill_edges=(), centered_states=()):
+def declare_test_dynamics(
+    model, *, quartic_states=(), hill_edges=(), centered_states=(), additional_parameters=()
+):
     """Author an explicit dynamics fixture with optional quartic, Hill, and center choices."""
-    from nof1_causal_lab.artifacts.statistical_model_spec import ParameterSpec
-    from nof1_causal_lab.models.model_mechanisms import declare_dynamics_mechanisms
-    from nof1_causal_lab.models.ssm.compile.parameter_identity import declare_parameter
+    from nof1_causal_lab.models.model_mechanisms import declare_dynamics
 
-    parameters = list(model.parameters)
-    candidates = [
-        {
-            "name": f"rho_{plan.semantics.constructs[key].name}",
-            "construct": plan.semantics.constructs[key].name,
-            "role": "ar_coefficient",
-            "constraint": "unit_interval",
-            "description": "Test relaxation",
-        }
-        for key in plan.state_order
-        if plan.semantics.constructs[key].temporal_status != "time_invariant"
-    ]
-    candidates.extend(
-        {
-            "name": f"beta_{plan.semantics.constructs[edge.cause_id].name}_{plan.semantics.constructs[edge.effect_id].name}",
-            "cause": plan.semantics.constructs[edge.cause_id].name,
-            "effect": plan.semantics.constructs[edge.effect_id].name,
-            "role": "fixed_effect",
-            "constraint": "none",
-            "description": "Test edge",
-        }
-        for edge in plan.edges
-        if edge.source_id not in hill_edges
+    declared = declare_dynamics(
+        model,
+        self_limiting=quartic_states,
+        hill_edges=hill_edges,
+        centered_states=centered_states,
     )
-    for candidate in candidates:
-        parameter = ParameterSpec.model_validate(declare_parameter(candidate, plan))
-        if not any(
-            existing.quantity == parameter.quantity and existing.owners == parameter.owners
-            for existing in parameters
-        ):
-            parameters.append(parameter)
-    return model.model_copy(
-        update={
-            "parameters": parameters,
-            "mechanisms": declare_dynamics_mechanisms(
-                plan,
-                parameters,
-                self_limiting=quartic_states,
-                hill_edges=hill_edges,
-                centered_states=centered_states,
-            ),
-        }
-    )
-
-
-def trial_compile_statistical_model_spec(
-    statistical_model_spec,
-    structural_plan,
-) -> str | None:
-    """Read structural compiler failures in tests without invoking inference."""
-    from nof1_causal_lab.models.prior_planning import complete_parameter_priors
-    from nof1_causal_lab.models.ssm.compile import artifact as ssm_compiler
-
-    try:
-        ssm_compiler.compile_ssm_artifact(
-            complete_parameter_priors(statistical_model_spec),
-            structural_plan=structural_plan,
+    replacements = {parameter.name: parameter for parameter in additional_parameters}
+    return declared.revised(
+        parameters=tuple(
+            replacements.get(parameter.name, parameter) for parameter in declared.parameters
         )
-    except (ValueError, KeyError, TypeError, RuntimeError) as exc:
-        return str(exc)
-    return None
+    )

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import jax
 import jax.numpy as jnp
 
-from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily
+from nof1_causal_lab.artifacts.likelihood import DistributionFamily
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
 from nof1_causal_lab.models.ssm.execution.contracts import (
     NUMERICAL_EPSILON,
@@ -58,6 +58,7 @@ def get_emission_fn(manifest_dist, extra_params=None, *, link=None):
 class PredictiveObservationSampler:
     """Compiled predictive sampler shared by posterior/prior predictive paths."""
 
+    sample_point: Callable[[jax.Array, jnp.ndarray], jnp.ndarray]
     sample_point_trajectory: Callable[[jax.Array, jnp.ndarray], jnp.ndarray]
     sample_mean_trajectory: Callable[[jax.Array, jnp.ndarray], jnp.ndarray]
     all_gaussian: bool
@@ -114,6 +115,7 @@ def build_predictive_observation_sampler(
         sample_point_trajectory = _trajectory_sampler(_sample_point_vector)
 
         return PredictiveObservationSampler(
+            sample_point=_sample_point_vector,
             sample_point_trajectory=sample_point_trajectory,
             sample_mean_trajectory=sample_mean_trajectory,
             all_gaussian=True,
@@ -201,6 +203,7 @@ def build_predictive_observation_sampler(
     sample_point_trajectory = _trajectory_sampler(_sample_point_vector)
 
     return PredictiveObservationSampler(
+        sample_point=_sample_point_vector,
         sample_point_trajectory=sample_point_trajectory,
         sample_mean_trajectory=sample_mean_trajectory,
         all_gaussian=False,

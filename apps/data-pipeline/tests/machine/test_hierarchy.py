@@ -31,9 +31,9 @@ def test_context_tree_is_closed():
 
 
 def test_transition_actions_cover_graph_exactly_once():
-    transition_ids = {spec.transition_id for spec in ARTIFACT_GRAPH}
+    transition_ids = {spec.operation_id for spec in ARTIFACT_GRAPH}
     action_transition_ids = {
-        action.move.artifact_id
+        action.move.operation_id
         for action in ACTIONS
         if action.move is not None and action.move.kind == "run"
     }
@@ -43,7 +43,7 @@ def test_transition_actions_cover_graph_exactly_once():
         action = primary_transition_action(artifact_id)
         spec = transition_spec(artifact_id)
         assert action.consumes == spec.consumes
-        assert action.produces == (spec.produces,)
+        assert action.produces == spec.produces
         assert action.produces_optional == spec.produces_optional
 
 
@@ -75,19 +75,20 @@ def test_actions_reference_declared_contexts():
 
 
 def test_writable_surface_is_roots_plus_writable_transitions():
-    writable_produced = {spec.produces for spec in ARTIFACT_GRAPH if spec.writable}
+    writable_produced = {
+        output for spec in ARTIFACT_GRAPH if spec.writable for output in spec.produces
+    }
     assert set(WRITABLE_ARTIFACTS) == set(ROOT_ARTIFACTS) | writable_produced
     assert set(ROOT_ARTIFACTS).issubset(WRITABLE_ARTIFACTS)
 
     derived_ids = {spec.produces for spec in DERIVATIONS}
     assert not derived_ids.intersection(WRITABLE_ARTIFACTS)
-    assert "causal_design" in derived_ids
     assert "identification_report" in derived_ids
 
 
 def test_roots_declare_their_write_pins():
     roots = {root.artifact_id: root for root in ROOTS}
-    assert roots["saved_scenarios"].write_pins == ()
+    assert roots["model"].write_pins == ()
     assert roots["question"].write_pins == ()
 
 
@@ -103,11 +104,8 @@ def test_registry_descriptions_are_json_ready():
     }
     edit = next(entry for entry in action_payload if entry["action_id"] == "specify.edit")
     assert edit["derives"] == [
-        "causal_design",
-        "structural_plan",
         "identification_report",
         "validation_report",
-        "compiled_ssm",
     ]
     assert ACTIONS_BY_ID["fit.specify"].lower_context_id == "statistical-model-spec"
     assert CONTEXTS_BY_ID["statistical-model-spec"].runtime_state

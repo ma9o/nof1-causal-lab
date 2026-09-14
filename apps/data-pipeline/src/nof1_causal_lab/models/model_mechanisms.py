@@ -1,101 +1,171 @@
-"""Construct the supported scientific dynamics from explicit authoring choices."""
+"""Author scientific components first; their slots declare the parameters to elicit."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from nof1_causal_lab.artifacts.mechanism import (
-    EstimatedCoefficient,
-    FixedCoefficient,
-    HillEdgeMechanism,
-    LinearEdgeMechanism,
-    NodePotentialMechanism,
+from nof1_causal_lab.artifacts.coefficient import FixedCoefficient, ParameterCoefficient
+from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.expressions import (
+    hill as expr_hill,
 )
-from nof1_causal_lab.artifacts.parameter import SiteKind
+from nof1_causal_lab.artifacts.expressions import (
+    linear_effect,
+    restoring_potential,
+)
+from nof1_causal_lab.artifacts.expressions import (
+    state as expr_state,
+)
+from nof1_causal_lab.artifacts.identity import scientific_id
+from nof1_causal_lab.artifacts.mechanism import DynamicsMechanism
+from nof1_causal_lab.artifacts.parameter import PriorAuthoringTransform
+from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 
 if TYPE_CHECKING:
-    from collections.abc import Collection, Sequence
+    from collections.abc import Collection
 
-    from nof1_causal_lab.artifacts.mechanism import DynamicsMechanism
-    from nof1_causal_lab.artifacts.statistical_model_spec import ParameterSpec
-    from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 
-def declare_dynamics_mechanisms(
-    plan: StructuralPlan,
-    parameters: Sequence[ParameterSpec],
+def default_mechanism_id(owner_id: str, kind: str) -> str:
+    """Allocate one default term; additional additive terms choose distinct persistent IDs."""
+    return scientific_id("mechanism", [owner_id, kind])
+
+
+def declare_dynamics(
+    model: ModelSpec,
     *,
     self_limiting: Collection[str] = (),
     hill_edges: Collection[str] = (),
     centered_states: Collection[str] = (),
-) -> list[DynamicsMechanism]:
-    """Materialize explicit linear/Hill and potential-well choices at authoring time.
+) -> ModelSpec:
+    """Add missing dynamics using explicit choices, preserving existing components."""
+    parameters = {parameter.id: parameter for parameter in model.parameters}
 
-    These are authoring defaults and choices, never compiler inference from a
-    prior or parameter label. Fixed/free refinements can edit the resulting
-    coefficient slots directly.
-    """
-
-    def estimated(quantity: SiteKind, owner_id: str) -> EstimatedCoefficient:
-        matches = [
-            parameter
-            for parameter in parameters
-            if parameter.quantity == quantity
-            and any(owner.id == owner_id for owner in parameter.owners)
-        ]
-        if len(matches) != 1:
-            raise ValueError(
-                f"Expected one {quantity.value} parameter for {owner_id!r}; found {len(matches)}"
-            )
-        return EstimatedCoefficient(parameter_id=matches[0].id)
-
-    states = set(plan.state_order)
-    edge_ids = {edge.source_id for edge in plan.edges}
-    if not set(self_limiting) <= states or not set(centered_states) <= states:
-        raise ValueError("Self-dynamics choices must reference retained states")
-    if not set(hill_edges) <= edge_ids:
-        raise ValueError("Hill choices must reference retained edges")
-    mechanisms: list[DynamicsMechanism] = []
-    for key in plan.state_order:
-        if plan.semantics.constructs[key].temporal_status == "time_invariant":
-            continue
-        mechanisms.append(
-            NodePotentialMechanism(
-                target_id=key,
-                center=estimated(SiteKind.DYNAMICS_POTENTIAL_CENTER, key)
-                if key in centered_states
-                else FixedCoefficient(value=0),
-                stiffness=estimated(SiteKind.DYNAMICS_DECAY, key),
-                quartic=estimated(SiteKind.DYNAMICS_POTENTIAL_QUARTIC, key)
-                if key in self_limiting
-                else FixedCoefficient(value=0),
-            )
+    def coefficient(owner_id, slot, name, transform=PriorAuthoringTransform.IDENTITY):
+        identity = scientific_id("parameter", [owner_id, slot])
+        parameters.setdefault(
+            identity,
+            ParameterSpec(
+                id=identity,
+                name=name,
+                description=f"{slot} of {name}",
+                distribution_transform=transform,
+            ),
         )
-    order = {key: index for index, key in enumerate(plan.state_order)}
-    inputs = {item.construct_id for item in plan.known_inputs}
-    for edge in sorted(plan.edges, key=lambda e: (order[e.effect_id], order.get(e.cause_id, -1))):
-        key = edge.source_id
-        if key in hill_edges:
-            if edge.cause_id in inputs:
+        return ParameterCoefficient(parameter_id=identity)
+
+    states = set(model.state_order)
+    edge_ids = {edge.id for edge in model.execution_edges}
+    if (
+        not set(self_limiting) <= states
+        or not set(centered_states) <= states
+        or not set(hill_edges) <= edge_ids
+    ):
+        raise ValueError("Dynamics choices must reference retained constructs and edges")
+    constructs = []
+    for construct in model.constructs:
+        if (
+            construct.id not in states
+            or construct.temporal_status == "time_invariant"
+            or construct.dynamics
+        ):
+            constructs.append(construct)
+            continue
+        term = default_mechanism_id(construct.id, "node_potential")
+        mechanism = DynamicsMechanism(
+            id=term,
+            kind="potential",
+            expression=restoring_potential(
+                construct.id,
+                center=coefficient(term, "center", f"cint_{construct.name}")
+                if construct.id in centered_states
+                else FixedCoefficient(value=0),
+                stiffness=coefficient(
+                    term,
+                    "stiffness",
+                    f"rho_{construct.name}",
+                    PriorAuthoringTransform.DT_PERSISTENCE_TO_CT_DECAY,
+                ),
+                quartic=coefficient(term, "quartic", f"self_limit_{construct.name}")
+                if construct.id in self_limiting
+                else FixedCoefficient(value=0),
+            ),
+        )
+        constructs.append(construct.model_copy(update={"dynamics": (mechanism,)}))
+    inputs = set(model.known_inputs)
+    edges = []
+    for edge in model.edges:
+        if edge.id not in edge_ids or edge.mechanisms:
+            edges.append(edge)
+            continue
+        cause, effect = edge.cause, edge.effect
+        if edge.id in hill_edges:
+            if edge.cause.id in inputs:
                 raise ValueError("Known inputs currently support linear mechanisms")
-            mechanisms.append(
-                HillEdgeMechanism(
-                    edge_id=key,
-                    emax=estimated(SiteKind.HILL_EMAX, key),
-                    ec50=estimated(SiteKind.HILL_EC50, key),
-                    n=estimated(SiteKind.HILL_N, key),
-                )
+            term = default_mechanism_id(edge.id, "hill")
+            mechanism = DynamicsMechanism(
+                id=term,
+                expression=expr_hill(
+                    expr_state(edge.cause.id),
+                    **{
+                        slot: coefficient(term, slot, f"hill_{slot}_{cause.name}_{effect.name}")
+                        for slot in ("emax", "ec50", "n")
+                    },
+                ),
             )
         else:
-            mechanisms.append(
-                LinearEdgeMechanism(
-                    edge_id=key,
-                    weight=estimated(
-                        SiteKind.INPUT_EFFECT
-                        if edge.cause_id in inputs
-                        else SiteKind.DYNAMICS_WEIGHT,
-                        key,
+            term = default_mechanism_id(edge.id, "linear")
+            mechanism = DynamicsMechanism(
+                id=term,
+                expression=linear_effect(
+                    edge.cause.id,
+                    coefficient(
+                        term,
+                        "weight",
+                        f"beta_{cause.name}_{effect.name}",
+                        PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE,
                     ),
-                )
+                ),
             )
-    return mechanisms
+        edges.append(edge.model_copy(update={"mechanisms": (mechanism,)}))
+    return model.revised(
+        edges=replace_constructs(tuple(edges), tuple(constructs)),
+        parameters=tuple(parameters.values()),
+    )
+
+
+def default_model(model: ModelSpec, **choices) -> ModelSpec:
+    """Produce a concrete editable proposal; uncertainty remains on unresolved parameters."""
+    from nof1_causal_lab.artifacts.likelihood import VALID_LINKS_FOR_DISTRIBUTION, LikelihoodSpec
+    from nof1_causal_lab.distributions import VALID_LIKELIHOODS_FOR_DTYPE
+    from nof1_causal_lab.models.model_semantics import should_auto_standardize_indicator
+    from nof1_causal_lab.models.parameter_planning import complete_component_slots
+    from nof1_causal_lab.utils.observation_semantics import get_observation_semantics
+
+    model = declare_dynamics(model, **choices)
+    manifests = set(model.manifest_indicator_order)
+    constructs = []
+    for construct in model.constructs:
+        indicators = []
+        for indicator in construct.indicators:
+            if indicator.id not in manifests or indicator.likelihood is not None:
+                indicators.append(indicator)
+                continue
+            allowed = VALID_LIKELIHOODS_FOR_DTYPE[indicator.measurement_dtype]
+            family = allowed[0]
+            link = sorted(VALID_LINKS_FOR_DISTRIBUTION[family], key=lambda value: value.value)[0]
+            semantics = get_observation_semantics(indicator.model_dump(mode="json"))
+            from nof1_causal_lab.models.likelihoods import observation_law
+
+            likelihood = LikelihoodSpec(
+                law=observation_law(construct.id, family, link),
+                standardized=should_auto_standardize_indicator(
+                    family, link, semantics.support_kind.value, semantics.summary_operator.value
+                ),
+                reasoning="Editable authoring default.",
+            )
+            indicators.append(indicator.model_copy(update={"likelihood": likelihood}))
+        constructs.append(construct.model_copy(update={"indicators": tuple(indicators)}))
+    model = model.revised(edges=replace_constructs(model.edges, tuple(constructs)))
+    return complete_component_slots(model)

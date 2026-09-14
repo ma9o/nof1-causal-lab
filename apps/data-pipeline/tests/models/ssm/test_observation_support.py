@@ -1,9 +1,8 @@
-from dataclasses import replace
-
 import polars as pl
 import pytest
 
-from nof1_causal_lab.models.ssm.observation_support import hydrate_discrete_manifest_metadata
+from nof1_causal_lab.models.ssm import numerics as numeric
+from nof1_causal_lab.models.ssm.observation_support import validate_discrete_manifest_metadata
 from tests.models.ssm._support import complex_mixed_runtime_spec
 
 
@@ -27,20 +26,28 @@ def _single_row_panel(**overrides: float) -> pl.DataFrame:
 def test_declared_discrete_levels_allow_one_observed_level():
     spec = complex_mixed_runtime_spec()
 
-    hydrated = hydrate_discrete_manifest_metadata(spec, _single_row_panel())
+    validate_discrete_manifest_metadata(spec, _single_row_panel())
 
-    assert hydrated.manifest_level_counts == [0, 0, 0, 0, 0, 0, 4, 4, 0, 0]
+    counts = dict(
+        zip(numeric.observation_names(spec), numeric.observation_level_counts(spec), strict=True)
+    )
+    assert counts["symptom_severity"] == counts["coping_style"] == 4
 
 
 def test_declared_discrete_levels_reject_out_of_range_code():
     spec = complex_mixed_runtime_spec()
 
     with pytest.raises(ValueError, match=r"outside declared range 0\.\.3"):
-        hydrate_discrete_manifest_metadata(spec, _single_row_panel(symptom_severity=4.0))
+        validate_discrete_manifest_metadata(spec, _single_row_panel(symptom_severity=4.0))
 
 
-def test_undeclared_discrete_levels_still_require_observed_support():
-    spec = replace(complex_mixed_runtime_spec(), manifest_level_counts=None)
+def test_missing_declared_levels_are_rejected_in_the_scientific_definition():
+    from nof1_causal_lab.artifacts.indicator import Indicator
 
-    with pytest.raises(ValueError, match=r"only 1 level\(s\) are present"):
-        hydrate_discrete_manifest_metadata(spec, _single_row_panel())
+    indicator = next(
+        item
+        for item in complex_mixed_runtime_spec().indicators
+        if item.measurement_dtype == "ordinal"
+    )
+    with pytest.raises(ValueError, match="ordinal_levels"):
+        Indicator.model_validate({**indicator.model_dump(), "ordinal_levels": None})

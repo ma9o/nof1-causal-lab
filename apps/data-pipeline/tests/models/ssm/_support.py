@@ -8,16 +8,17 @@ Imported from both fast (``tests/models/ssm/``) and slow
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import jax.numpy as jnp
 import jax.random as random
 import numpy as np
 import numpyro
 import numpyro.distributions as dist
 
+from nof1_causal_lab.artifacts.likelihood import LinkFunction
 from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
-from nof1_causal_lab.artifacts.statistical_model_spec import LinkFunction
 from nof1_causal_lab.distributions import DistributionFamily
-from nof1_causal_lab.models.ssm import SSMSpec
 from nof1_causal_lab.models.ssm.structure import (
     DiffusionBlockSpec,
     ManifestCholBlockSpec,
@@ -25,11 +26,15 @@ from nof1_causal_lab.models.ssm.structure import (
     SparseVectorBlockSpec,
     T0CholBlockSpec,
 )
-from tests.ssm_spec_fixtures import (
+from tests.model_fixtures import (
     default_input_effect_block,
     default_static_state_sd_block,
     dense_matrix_dynamics_spec,
+    model_fixture,
 )
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 # ══════════════════════════════════════════════════════════════════════════════
 # AUTOREPARAM
@@ -199,7 +204,7 @@ def make_complex_mixed_samples(
 # ══════════════════════════════════════════════════════════════════════════════
 
 
-def complex_mixed_runtime_spec() -> SSMSpec:
+def complex_mixed_runtime_spec() -> ModelSpec:
     n_latent = 4
     n_manifest = 10
     coupling_template = jnp.array(
@@ -239,7 +244,7 @@ def complex_mixed_runtime_spec() -> SSMSpec:
     )
     t0_chol_template = jnp.eye(n_latent, dtype=jnp.float32) * 0.25
     diffusion_template = jnp.diag(jnp.array([0.2, 0.18, 0.16, 0.14], dtype=jnp.float32))
-    return SSMSpec(
+    return model_fixture(
         n_latent=n_latent,
         n_manifest=n_manifest,
         dynamics_spec=dense_matrix_dynamics_spec(

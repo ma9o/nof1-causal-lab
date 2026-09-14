@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
-
 import jax
 import jax.numpy as jnp
 import jax.random as random
@@ -12,27 +10,24 @@ import numpyro.distributions as dist
 import pytest
 from numpyro import handlers
 
-from nof1_causal_lab.artifacts.causal_design import CausalDesign
-from nof1_causal_lab.artifacts.parameter import SupportClass
-from nof1_causal_lab.artifacts.statistical_model_spec import LinkFunction, StatisticalModelSpec
+from nof1_causal_lab.artifacts.identity import ConstructRef
+from nof1_causal_lab.artifacts.likelihood import LinkFunction
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.parameter import PriorAuthoringTransform, SiteKind, SupportClass
+from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 from nof1_causal_lab.distributions import (
     DistributionFamily,
-    PriorDistributionFamily,
 )
+from nof1_causal_lab.models.ssm import numerics as numeric
+from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
+from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
 from nof1_causal_lab.models.ssm.inference.backend_factory import get_laplace_backend
 from nof1_causal_lab.models.ssm.inference.utils import _discover_sites
-from nof1_causal_lab.models.ssm.model import (
-    SSMModel,
-    SSMSpec,
-)
+from nof1_causal_lab.models.ssm.model import SSMModel
 from nof1_causal_lab.models.ssm.parameterization import (
     assemble_deterministics_from_registry,
     build_site_registry,
-    compile_prior_semantics,
-    deserialize_site_registry,
-    load_prior_runtime_bundle,
     sample_prior_parameters,
-    serialize_site_registry,
 )
 from nof1_causal_lab.models.ssm.priors import resolve_site_priors
 from nof1_causal_lab.models.ssm.structure import (
@@ -42,15 +37,14 @@ from nof1_causal_lab.models.ssm.structure import (
     SparseVectorBlockSpec,
     T0CholBlockSpec,
 )
-from nof1_causal_lab.prior_distributions import distribution_from_params
-from tests.helpers import model_with_prior_payloads, named_prior_payloads
-
-if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
-    from nof1_causal_lab.sampler_config import SamplerConfigOverride
-from nof1_causal_lab.artifacts.parameter import PriorAuthoringTransform, SiteKind
-from tests.helpers import make_prior_model, native_axis_metadata
-from tests.ssm_spec_fixtures import (
+from tests.helpers import (
+    complete_test_model,
+    make_prior_model,
+    model_with_prior_payloads,
+    named_prior_payloads,
+    native_axis_metadata,
+)
+from tests.model_fixtures import (
     default_diffusion_block,
     default_input_effect_block,
     default_lambda_block,
@@ -64,7 +58,9 @@ from tests.ssm_spec_fixtures import (
     full_dense_matrix_dynamics_spec,
     full_diagonal_support,
     full_vector_support,
+    model_fixture,
 )
+from tests.slot_fixtures import fixture_parameter_id
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -85,11 +81,11 @@ def _make_spec(
     input_effect_block=None,
     static_state_sd_block=None,
     **kwargs,
-) -> SSMSpec:
-    """Build an SSMSpec from explicit block specs for tests."""
+) -> ModelSpec:
+    """Build an ModelSpec from explicit block specs for tests."""
     if dynamics_spec is None:
         dynamics_spec = full_dense_matrix_dynamics_spec(n_latent)
-    return SSMSpec(
+    return model_fixture(
         n_latent=n_latent,
         n_manifest=n_manifest,
         dynamics_spec=dynamics_spec,
@@ -280,107 +276,61 @@ def dag_model(dag_spec):
 
 
 @pytest.fixture
-def statistical_model_spec_and_priors():
-    return (
-        StatisticalModelSpec.model_validate(
-            {
-                "mechanisms": [
-                    {
-                        "kind": "node_potential",
-                        "target_id": "construct:bbc87212909e45b9e6c3",
-                        "center": {"kind": "fixed", "value": 0},
-                        "stiffness": {
-                            "kind": "estimated",
-                            "parameter_id": "parameter:fb33dbedf43eb15e324c86fa97201278e306cb48aa9752104361309d61215122",
-                        },
-                        "quartic": {"kind": "fixed", "value": 0},
-                    }
-                ],
-                "likelihoods": [
-                    {
-                        "indicator_id": "indicator:45f78731e3e0c6f3efe1",
-                        "distribution": "gaussian",
-                        "link": "identity",
-                        "reasoning": "test",
-                    }
-                ],
-                "parameters": [
-                    {
-                        "prior_transform": "dt_persistence_to_ct_decay",
-                        "id": "parameter:fb33dbedf43eb15e324c86fa97201278e306cb48aa9752104361309d61215122",
-                        "owners": [{"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"}],
-                        "quantity": "dynamics_decay",
-                        "name": "rho_mood",
-                        "role": "ar_coefficient",
-                        "constraint": "unit_interval",
-                        "description": "AR mood",
-                    },
-                    {
-                        "id": "parameter:146688c9f8e2c980c9e7963be61deb23225a81f828c204339c2164d1f51d441e",
-                        "owners": [{"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"}],
-                        "quantity": "diffusion_diag",
-                        "name": "sigma_mood",
-                        "role": "residual_sd",
-                        "constraint": "positive",
-                        "description": "SD mood",
-                    },
-                ],
-            }
-        ),
-        {
-            "rho_mood": {
-                "parameter": "rho_mood",
-                "distribution": "Beta",
-                "params": {"alpha": 2.0, "beta": 2.0},
-                "sources": [],
-                "reasoning": "r",
-            },
-            "sigma_mood": {
-                "parameter": "sigma_mood",
-                "distribution": "HalfNormal",
-                "params": {"sigma": 1.0},
-                "sources": [],
-                "reasoning": "r",
-            },
+def scientific_model_and_priors():
+    return complete_test_model(_mood_structure()), {
+        "rho_mood": {
+            "parameter": "rho_mood",
+            "distribution": "Beta",
+            "params": {"alpha": 2.0, "beta": 2.0},
+            "sources": [],
+            "reasoning": "r",
         },
-    )
+        "sigma_mood": {
+            "parameter": "sigma_mood",
+            "distribution": "HalfNormal",
+            "params": {"sigma": 1.0},
+            "sources": [],
+            "reasoning": "r",
+        },
+    }
 
 
-def _mood_structural_plan() -> StructuralPlan:
-    from nof1_causal_lab.models.structural import build_structural_plan
+def _mood_structure() -> ModelSpec:
 
-    return build_structural_plan(
-        CausalDesign.model_validate(
-            {
-                "latent": {
-                    "constructs": [
-                        {
-                            "id": "construct:bbc87212909e45b9e6c3",
-                            "name": "mood",
-                            "description": "Mood",
-                            "role": "exogenous",
-                            "temporal_status": "time_varying",
-                        }
-                    ],
-                    "edges": [],
-                },
-                "measurement": {
-                    "model_clock": "1d",
-                    "indicators": [
-                        {
-                            "id": "indicator:45f78731e3e0c6f3efe1",
-                            "construct_id": "construct:bbc87212909e45b9e6c3",
-                            "name": "mood_score",
-                            "how_to_measure": "Mood score",
-                            "measurement_dtype": "continuous",
-                            "aggregation": "mean",
-                            "construct_polarity": "positive",
-                        }
-                    ],
-                },
-                "default_outcome": None,
-            }
-        )
+    return ModelSpec.model_validate(
+        {
+            "edges": [
+                {
+                    "id": "edge:test-outcome-0",
+                    "cause": {
+                        "id": "construct:bbc87212909e45b9e6c3",
+                        "name": "mood",
+                        "description": "Mood",
+                        "role": "exogenous",
+                        "temporal_status": "time_varying",
+                        "indicators": [
+                            {
+                                "id": "indicator:45f78731e3e0c6f3efe1",
+                                "name": "mood_score",
+                                "how_to_measure": "Mood score",
+                                "measurement_dtype": "continuous",
+                                "aggregation": "mean",
+                                "construct_polarity": "positive",
+                            }
+                        ],
+                    },
+                    "effect": {
+                        "id": "construct:unmeasured_outcome",
+                        "name": "unmeasured_outcome",
+                        "description": "Downstream response outside the measured test states.",
+                        "role": "endogenous",
+                        "temporal_status": "time_varying",
+                    },
+                    "description": "Test state affects an unmeasured downstream response",
+                }
+            ],
+            "measurement_clock": "1d",
+        }
     )
 
 
@@ -404,7 +354,7 @@ class TestSiteRegistry:
         registry = build_site_registry(spec)
         backend = get_laplace_backend(simple_model, 6)
         T = 10
-        obs = jnp.zeros((T, spec.n_manifest))
+        obs = jnp.zeros((T, numeric.n_observations(spec)))
         times = jnp.linspace(0, 1, T)
         site_info = _discover_sites(simple_model, obs, times, random.PRNGKey(0), backend)
         _assert_registry_matches_trace(registry, site_info)
@@ -416,7 +366,7 @@ class TestSiteRegistry:
         registry = build_site_registry(spec)
         backend = get_laplace_backend(dag_model, 6)
         T = 10
-        obs = jnp.zeros((T, spec.n_manifest))
+        obs = jnp.zeros((T, numeric.n_observations(spec)))
         times = jnp.linspace(0, 1, T)
         site_info = _discover_sites(dag_model, obs, times, random.PRNGKey(0), backend)
         _assert_registry_matches_trace(registry, site_info)
@@ -428,7 +378,7 @@ class TestSiteRegistry:
         registry = build_site_registry(spec)
         backend = get_laplace_backend(simple_model, 6)
         T = 10
-        obs = jnp.zeros((T, spec.n_manifest))
+        obs = jnp.zeros((T, numeric.n_observations(spec)))
         times = jnp.linspace(0, 1, T)
         site_info = _discover_sites(simple_model, obs, times, random.PRNGKey(0), backend)
         for site in registry:
@@ -453,7 +403,7 @@ class TestSiteRegistry:
         registry = build_site_registry(spec)
         backend = get_laplace_backend(model, 6)
         T = 10
-        obs = jnp.zeros((T, spec.n_manifest))
+        obs = jnp.zeros((T, numeric.n_observations(spec)))
         times = jnp.linspace(0, 1, T)
         site_info = _discover_sites(model, obs, times, random.PRNGKey(0), backend)
 
@@ -471,8 +421,7 @@ class TestSiteRegistry:
             ),
         )
         registry = build_site_registry(spec)
-        names = {s.name for s in registry}
-        assert {"vf_0_decay", "vf_1_decay"}.issubset(names)
+        assert len([site for site in registry if site.site_kind == SiteKind.DYNAMICS_DECAY]) == 2
 
     def test_diag_diffusion_excludes_lower(self):
         """Diagonal diffusion has no lower-triangle sites."""
@@ -512,7 +461,7 @@ class TestSiteRegistry:
         mask[2, 0] = True
         spec = _make_spec(
             n_latent=3,
-            n_manifest=2,
+            n_manifest=3,
             t0_chol_block=_t0_chol_block(
                 3,
                 diag_support=full_diagonal_support(3),
@@ -529,7 +478,11 @@ class TestSiteRegistry:
         registry = build_site_registry(simple_spec)
         support_map = {s.name: s.support for s in registry}
         # POSITIVE support sites
-        assert support_map["vf_0_decay"] == SupportClass.POSITIVE
+        assert all(
+            site.support == SupportClass.POSITIVE
+            for site in registry
+            if site.site_kind == SiteKind.DYNAMICS_DECAY
+        )
         # POSITIVE support sites (HalfNormal priors)
         assert support_map["diffusion_diag_free"] == SupportClass.POSITIVE
         assert support_map["manifest_var_diag_free"] == SupportClass.POSITIVE
@@ -539,7 +492,7 @@ class TestSiteRegistry:
         """Any student-t latent in diffusion_dists should expose proc_df."""
         spec = _make_spec(
             n_latent=2,
-            n_manifest=1,
+            n_manifest=2,
             diffusion_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
         )
         registry = build_site_registry(spec)
@@ -549,7 +502,7 @@ class TestSiteRegistry:
         """The traced model should sample proc_df when diffusion_dists include student_t."""
         spec = _make_spec(
             n_latent=2,
-            n_manifest=1,
+            n_manifest=2,
             diffusion_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
         )
         model = SSMModel(spec)
@@ -564,7 +517,7 @@ class TestSiteRegistry:
         """Compiled baseline factors should expose a positive static-state SD site."""
         spec = _make_spec(
             n_latent=2,
-            n_manifest=1,
+            n_manifest=2,
             static_state_sd_block=_static_state_sd_block(
                 np.array([True]),
                 jnp.zeros(1),
@@ -585,7 +538,7 @@ class TestSiteRegistry:
         assert site_map["static_state_sd_free"].support == SupportClass.POSITIVE
 
         backend = get_laplace_backend(model, 6)
-        obs = jnp.zeros((5, spec.n_manifest))
+        obs = jnp.zeros((5, numeric.n_observations(spec)))
         times = jnp.arange(5, dtype=jnp.float32)
         site_info = _discover_sites(model, obs, times, random.PRNGKey(0), backend)
         _assert_registry_matches_trace(registry, site_info)
@@ -597,7 +550,7 @@ class TestSpecBlockAssembly:
         """Static baseline factors should add `B diag(tau^2) B^T` to the t0 covariance."""
         spec = _make_spec(
             n_latent=2,
-            n_manifest=1,
+            n_manifest=2,
             static_state_sd_block=_static_state_sd_block(
                 np.array([True]),
                 jnp.zeros(1),
@@ -613,7 +566,7 @@ class TestSpecBlockAssembly:
         model = SSMModel(spec)
         values = {
             site.name: jnp.ones(site.shape)
-            for block in spec.parameter_blocks
+            for block in numeric.parameter_blocks(spec)
             for site in block.iter_sites()
         }
         values["static_state_sd_free"] = jnp.array([2.0])
@@ -698,21 +651,21 @@ class TestDeterministicAssembly:
         det = assemble_deterministics_from_registry({}, spec, n_draws=3)
         assert jnp.allclose(
             det["diffusion"],
-            jnp.broadcast_to(spec.diffusion_block.assemble(), (3, 2, 2)),
+            jnp.broadcast_to(numeric.diffusion_block(spec).assemble(), (3, 2, 2)),
         )
         assert jnp.allclose(
             det["lambda"],
-            jnp.broadcast_to(spec.lambda_block.assemble(), (3, 2, 2)),
+            jnp.broadcast_to(numeric.loading_block(spec).assemble(), (3, 2, 2)),
         )
-        manifest_chol = spec.manifest_chol_block.assemble()
+        manifest_chol = numeric.observation_noise_block(spec).assemble()
         expected_manifest_cov = manifest_chol @ manifest_chol.T
         assert jnp.allclose(det["manifest_cov"], jnp.broadcast_to(expected_manifest_cov, (3, 2, 2)))
-        assert isinstance(spec.t0_means_block.assemble(), jnp.ndarray)
+        assert isinstance(numeric.initial_mean_block(spec).assemble(), jnp.ndarray)
         assert jnp.allclose(
             det["t0_means"],
-            jnp.broadcast_to(spec.t0_means_block.assemble(), (3, 2)),
+            jnp.broadcast_to(numeric.initial_mean_block(spec).assemble(), (3, 2)),
         )
-        expected_t0_cov = spec.t0_chol_block.assemble_cov()
+        expected_t0_cov = numeric.initial_covariance_block(spec).assemble_cov()
         assert jnp.allclose(det["t0_cov"], jnp.broadcast_to(expected_t0_cov, (3, 2, 2)))
 
     def test_assemble_deterministics_from_registry_partial_manifest_variance_mask(self):
@@ -829,8 +782,11 @@ class TestNativeRuntimePriors:
 
     def test_partial_native_overrides_preserve_other_defaults(self, simple_spec):
         registry = build_site_registry(simple_spec)
-        priors = resolve_site_priors(registry, {"vf_0_decay": dist.Gamma(4.0, 2.0)})
-        np.testing.assert_allclose(priors["vf_0_decay"].mean, [2.0, 2.0])
+        decay_site = next(
+            site.name for site in registry if site.site_kind == SiteKind.DYNAMICS_DECAY
+        )
+        priors = resolve_site_priors(registry, {decay_site: dist.Gamma(4.0, 2.0)})
+        np.testing.assert_allclose(priors[decay_site].mean, 2.0)
         assert priors["diffusion_diag_free"].batch_shape == (2,)
 
     def test_native_laws_are_jax_pytrees(self, simple_spec):
@@ -877,115 +833,29 @@ class TestSampling:
 # ---------------------------------------------------------------------------
 
 
-class TestSerialization:
-    def test_registry_roundtrip(self, simple_spec):
-        registry = build_site_registry(simple_spec)
-        restored = deserialize_site_registry(serialize_site_registry(registry))
-        assert [(site.name, site.shape, site.support, site.site_kind) for site in restored] == [
-            (site.name, site.shape, site.support, site.site_kind) for site in registry
-        ]
-
-    def test_native_prior_laws_roundtrip(self, simple_spec):
-        priors = {"vf_0_decay": dist.Gamma(jnp.array([3.0, 4.0]), jnp.array([2.0, 5.0]))}
-        semantics = compile_prior_semantics(simple_spec, priors)
-        assert semantics.schema_version == 7
-        restored = load_prior_runtime_bundle(semantics)
-        prior = restored.priors["vf_0_decay"]
-        np.testing.assert_allclose(prior.concentration, [3.0, 4.0])
-        np.testing.assert_allclose(prior.rate, [2.0, 5.0])
-        np.testing.assert_allclose(
-            prior.log_prob(jnp.array([0.5, 1.0])),
-            priors["vf_0_decay"].log_prob(jnp.array([0.5, 1.0])),
-        )
-
-
-class TestCanonicalRuntimePriors:
-    def test_loaded_runtime_preserves_per_element_priors(self):
-        spec = _make_spec(n_latent=3, n_manifest=3)
-        priors = {"vf_0_decay": dist.Gamma(jnp.array([2.0, 3.0, 4.0]), jnp.array([4.0, 5.0, 6.0]))}
-        runtime = load_prior_runtime_bundle(compile_prior_semantics(spec, priors))
-        np.testing.assert_allclose(runtime.priors["vf_0_decay"].concentration, [2.0, 3.0, 4.0])
-
-    def test_vector_positive_prior_is_a_native_half_normal(self, simple_spec):
-        priors = {"t0_var_diag_free": dist.HalfNormal(jnp.array([1.0, 2.0]))}
-        runtime = load_prior_runtime_bundle(compile_prior_semantics(simple_spec, priors))
-        law = runtime.priors["t0_var_diag_free"]
-        assert isinstance(law, dist.HalfNormal)
-        assert law.batch_shape == (2,)
-        np.testing.assert_allclose(law.scale, [1.0, 2.0])
-
-    def test_delta_roundtrip_preserves_fixed_coordinates(self, simple_spec):
-        priors = {"vf_0_decay": dist.Delta(jnp.array([0.25, 0.5]))}
-        runtime = load_prior_runtime_bundle(compile_prior_semantics(simple_spec, priors))
-        assert isinstance(runtime.priors["vf_0_decay"], dist.Delta)
-        np.testing.assert_array_equal(runtime.priors["vf_0_decay"].v, [0.25, 0.5])
-
-
-# ---------------------------------------------------------------------------
-# Compiled artifact integration (hard cutover)
-# ---------------------------------------------------------------------------
-
-
 class TestCompiledArtifactIntegration:
     """Test that compiled_prior_semantics is emitted and correctly consumed."""
 
     def test_global_ordered_threshold_priors_are_not_authorable(self):
-        from nof1_causal_lab.models.ssm.compile.prior_compilation import compile_priors
-        from nof1_causal_lab.models.ssm.compile.prior_indexing import PriorIndexingError
 
         spec = _make_spec(
             n_latent=1,
             n_manifest=1,
             latent_names=["burden"],
+            dynamics_spec=DynamicsSpec(n_latent=1, components=()),
             manifest_names=["scale"],
             manifest_dists=[DistributionFamily.ORDERED_LOGISTIC],
             manifest_links=[LinkFunction.CUMULATIVE_LOGIT],
             manifest_level_counts=[4],
         )
-        statistical_model_spec = StatisticalModelSpec.model_validate(
-            {
-                "mechanisms": [],
-                "likelihoods": [
-                    {
-                        "indicator_id": "indicator:629caa38759753c3b1e8",
-                        "distribution": "ordered_logistic",
-                        "link": "cumulative_logit",
-                        "reasoning": "test",
-                    }
-                ],
-                "parameters": [
-                    {
-                        "id": "parameter:70806f3c141a7241a93e94d412f6f7a2a356392c691a2a777c6ac9ed9e3e82f1",
-                        "owners": [{"kind": "indicator", "id": "indicator:8467e96e70bbb56aa963"}],
-                        "quantity": "obs_ordered_base",
-                        "name": "obs_ordered_base",
-                        "role": "observation_hyperparameter",
-                        "constraint": "none",
-                        "description": "global base",
-                    }
-                ],
-            }
+        owners = (ConstructRef(id=spec.constructs[0].id),)
+        parameter = ParameterSpec(
+            id=fixture_parameter_id(SiteKind.OBS_ORDERED_BASE, owners),
+            name="obs_ordered_base",
+            description="Unbound threshold",
         )
-
-        with pytest.raises(
-            PriorIndexingError,
-            match="must bind to one active site through its scientific owners",
-        ):
-            compile_priors(
-                model_with_prior_payloads(
-                    statistical_model_spec,
-                    named_prior_payloads(
-                        statistical_model_spec,
-                        {
-                            "obs_ordered_base": {
-                                "distribution": "Normal",
-                                "params": {"mu": 0.0, "sigma": 1.0},
-                            }
-                        },
-                    ),
-                ),
-                spec,
-            )
+        with pytest.raises(ValueError, match="not referenced by component slots"):
+            spec.revised(parameters=(*spec.parameters, parameter))
 
     def test_ordered_threshold_priors_bind_per_manifest_component_and_row(self):
         from nof1_causal_lab.models.ssm.compile.prior_compilation import compile_priors
@@ -994,6 +864,7 @@ class TestCompiledArtifactIntegration:
             n_latent=1,
             n_manifest=2,
             latent_names=["burden"],
+            dynamics_spec=DynamicsSpec(n_latent=1, components=()),
             manifest_names=["short_scale", "long_scale"],
             manifest_dists=[
                 DistributionFamily.ORDERED_LOGISTIC,
@@ -1005,68 +876,12 @@ class TestCompiledArtifactIntegration:
             ],
             manifest_level_counts=[4, 10],
         )
-        statistical_model_spec = StatisticalModelSpec.model_validate(
-            {
-                "mechanisms": [],
-                "likelihoods": [
-                    {
-                        "indicator_id": "indicator:d50004e46a2ff28d2af2",
-                        "distribution": "ordered_logistic",
-                        "link": "cumulative_logit",
-                        "reasoning": "test",
-                    },
-                    {
-                        "indicator_id": "indicator:153ac0200cf2403b6774",
-                        "distribution": "ordered_logistic",
-                        "link": "cumulative_logit",
-                        "reasoning": "test",
-                    },
-                ],
-                "parameters": [
-                    {
-                        "id": "parameter:cf25138fc98c90be59a0cea63209ce252f18f82d932f8ff25dd07241c77df05a",
-                        "owners": [{"kind": "indicator", "id": "indicator:d50004e46a2ff28d2af2"}],
-                        "quantity": "obs_ordered_base",
-                        "name": "obs_ordered_base_short_scale",
-                        "role": "observation_hyperparameter",
-                        "constraint": "none",
-                        "description": "short base",
-                    },
-                    {
-                        "id": "parameter:6c198078516656e980169ef85a15afad18fc7e11b5f1cbe01a61bcb1ebb92df2",
-                        "owners": [{"kind": "indicator", "id": "indicator:d50004e46a2ff28d2af2"}],
-                        "quantity": "obs_ordered_gaps",
-                        "name": "obs_ordered_gaps_short_scale",
-                        "role": "observation_hyperparameter_positive",
-                        "constraint": "positive",
-                        "description": "short gaps",
-                    },
-                    {
-                        "id": "parameter:3f6cad53a748ba6f1e5fcb3bba6af4855f26600fd47a11ed30c47ddbe027fe98",
-                        "owners": [{"kind": "indicator", "id": "indicator:153ac0200cf2403b6774"}],
-                        "quantity": "obs_ordered_base",
-                        "name": "obs_ordered_base_long_scale",
-                        "role": "observation_hyperparameter",
-                        "constraint": "none",
-                        "description": "long base",
-                    },
-                    {
-                        "id": "parameter:d494c90161198c85be93c1aeb380c0a8f915f9934825cb2deb9b18e8af1ae056",
-                        "owners": [{"kind": "indicator", "id": "indicator:153ac0200cf2403b6774"}],
-                        "quantity": "obs_ordered_gaps",
-                        "name": "obs_ordered_gaps_long_scale",
-                        "role": "observation_hyperparameter_positive",
-                        "constraint": "positive",
-                        "description": "long gaps",
-                    },
-                ],
-            }
-        )
+        scientific_model = spec
         priors, bindings, _diagnostics = compile_priors(
             model_with_prior_payloads(
-                statistical_model_spec,
+                scientific_model,
                 named_prior_payloads(
-                    statistical_model_spec,
+                    scientific_model,
                     {
                         "obs_ordered_base_short_scale": {
                             "distribution": "Normal",
@@ -1086,8 +901,7 @@ class TestCompiledArtifactIntegration:
                         },
                     },
                 ),
-            ),
-            spec,
+            )
         )
 
         binding_by_parameter = {
@@ -1113,378 +927,134 @@ class TestCompiledArtifactIntegration:
         np.testing.assert_allclose(gap_scales[0], 2.0)
         np.testing.assert_allclose(gap_scales[1], 0.5)
 
-    def test_artifact_contains_compiled_prior_semantics(self, statistical_model_spec_and_priors):
-        """compile_ssm_artifact emits semantics and omits legacy priors."""
-        from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
+    def test_execution_checks_return_anchoring_evidence(self, scientific_model_and_priors):
+        """Execution checks derive evidence without creating a persisted artifact."""
+        from nof1_causal_lab.models.model_checks import check_execution
 
-        statistical_model_spec, priors = statistical_model_spec_and_priors
-        artifact = compile_ssm_artifact(
-            make_prior_model(statistical_model_spec, priors),
-            _mood_structural_plan(),
+        scientific_model, priors = scientific_model_and_priors
+        artifact = check_execution(
+            make_prior_model(scientific_model, priors),
         )
-        assert not hasattr(artifact, "priors")
-        assert artifact.edge_lag_days == []
-        sem = artifact.compiled_prior_semantics
-        assert sem.schema_version == 7
-        assert sem.site_registry
-        assert sem.priors
+        assert artifact
+        assert all(
+            anchor.construct_id in {c.id for c in scientific_model.constructs}
+            for anchor in artifact
+        )
 
     def test_known_input_beta_binds_to_input_effect_site(self):
         """A beta from a known input compiles to B, not the latent dynamics matrix."""
-        from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
+        from nof1_causal_lab.models.model_checks import check_execution
 
-        causal_design = {
-            "latent": {
-                "default_outcome": {"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"},
-                "constructs": [
-                    {
+        scientific_definition = {
+            "default_outcome": {"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"},
+            "edges": [
+                {
+                    "cause": {
                         "id": "construct:16176a18c25802dee8a1",
                         "name": "dose",
                         "description": "Dose",
                         "role": "exogenous",
                         "temporal_status": "time_varying",
+                        "indicators": [
+                            {
+                                "id": "indicator:5806a6a8417abd85897f",
+                                "name": "dose_mg",
+                                "construct_polarity": "positive",
+                                "how_to_measure": "Dose in mg",
+                                "measurement_dtype": "continuous",
+                                "aggregation": "sum",
+                            }
+                        ],
+                        "usage": {
+                            "kind": "known_input",
+                            "source_indicator_id": "indicator:5806a6a8417abd85897f",
+                            "scale": 10.0,
+                            "missing_policy": "forward_fill",
+                        },
                     },
-                    {
+                    "effect": {
                         "id": "construct:bbc87212909e45b9e6c3",
                         "name": "mood",
                         "description": "Mood",
                         "role": "endogenous",
                         "temporal_status": "time_varying",
+                        "indicators": [
+                            {
+                                "id": "indicator:45f78731e3e0c6f3efe1",
+                                "name": "mood_score",
+                                "construct_polarity": "positive",
+                                "how_to_measure": "Mood score",
+                                "measurement_dtype": "continuous",
+                                "aggregation": "mean",
+                            }
+                        ],
                     },
-                ],
-                "edges": [
-                    {
-                        "cause_id": "construct:16176a18c25802dee8a1",
-                        "effect_id": "construct:bbc87212909e45b9e6c3",
-                        "id": "edge:3d7176b256a26799c7c4",
-                        "description": "Dose affects mood",
-                        "lagged": True,
-                    }
-                ],
-            },
-            "measurement": {
-                "model_clock": "1d",
-                "indicators": [
-                    {
-                        "id": "indicator:5806a6a8417abd85897f",
-                        "construct_id": "construct:16176a18c25802dee8a1",
-                        "name": "dose_mg",
-                        "construct_polarity": "positive",
-                        "how_to_measure": "Dose in mg",
-                        "measurement_dtype": "continuous",
-                        "aggregation": "sum",
-                    },
-                    {
-                        "id": "indicator:45f78731e3e0c6f3efe1",
-                        "construct_id": "construct:bbc87212909e45b9e6c3",
-                        "name": "mood_score",
-                        "construct_polarity": "positive",
-                        "how_to_measure": "Mood score",
-                        "measurement_dtype": "continuous",
-                        "aggregation": "mean",
-                    },
-                ],
-            },
-            "known_inputs": [
-                {
-                    "construct_id": "construct:16176a18c25802dee8a1",
-                    "source_indicator_id": "indicator:5806a6a8417abd85897f",
-                    "scale": 10.0,
-                    "missing_policy": "forward_fill",
+                    "id": "edge:3d7176b256a26799c7c4",
+                    "description": "Dose affects mood",
+                    "lagged": True,
                 }
             ],
+            "measurement_clock": "1d",
         }
-        statistical_model_spec = {
-            "mechanisms": [
-                {
-                    "kind": "node_potential",
-                    "target_id": "construct:bbc87212909e45b9e6c3",
-                    "center": {"kind": "fixed", "value": 0},
-                    "stiffness": {
-                        "kind": "estimated",
-                        "parameter_id": "parameter:fb33dbedf43eb15e324c86fa97201278e306cb48aa9752104361309d61215122",
-                    },
-                    "quartic": {"kind": "fixed", "value": 0},
-                },
-                {
-                    "kind": "linear",
-                    "edge_id": "edge:3d7176b256a26799c7c4",
-                    "weight": {
-                        "kind": "estimated",
-                        "parameter_id": "parameter:53affe7fe8301a130af878d322911999e653c62dd0104d07b233ba7cf69c69af",
-                    },
-                },
-            ],
-            "likelihoods": [
-                {
-                    "indicator_id": "indicator:45f78731e3e0c6f3efe1",
-                    "distribution": "gaussian",
-                    "link": "identity",
-                    "reasoning": "",
-                }
-            ],
-            "parameters": [
-                {
-                    "prior_transform": "dt_persistence_to_ct_decay",
-                    "id": "parameter:fb33dbedf43eb15e324c86fa97201278e306cb48aa9752104361309d61215122",
-                    "owners": [{"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"}],
-                    "quantity": "dynamics_decay",
-                    "name": "rho_mood",
-                    "role": "ar_coefficient",
-                    "constraint": "unit_interval",
-                    "description": "",
-                },
-                {
-                    "prior_transform": "dt_effect_to_ct_rate",
-                    "id": "parameter:53affe7fe8301a130af878d322911999e653c62dd0104d07b233ba7cf69c69af",
-                    "owners": [
-                        {"kind": "construct", "id": "construct:16176a18c25802dee8a1"},
-                        {"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"},
-                        {"kind": "edge", "id": "edge:3d7176b256a26799c7c4"},
-                    ],
-                    "quantity": "input_effect",
-                    "name": "beta_dose_mood",
-                    "role": "fixed_effect",
-                    "constraint": "none",
-                    "description": "",
-                },
-                {
-                    "id": "parameter:146688c9f8e2c980c9e7963be61deb23225a81f828c204339c2164d1f51d441e",
-                    "owners": [{"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"}],
-                    "quantity": "diffusion_diag",
-                    "name": "sigma_mood",
-                    "role": "residual_sd",
-                    "constraint": "positive",
-                    "description": "",
-                },
-            ],
-        }
+        scientific_model = complete_test_model(ModelSpec.model_validate(scientific_definition))
         priors = {
             "rho_mood": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
             "beta_dose_mood": {"distribution": "Normal", "params": {"mu": 0.3, "sigma": 0.1}},
             "sigma_mood": {"distribution": "HalfNormal", "params": {"sigma": 1.0}},
         }
 
-        from nof1_causal_lab.models.structural import build_structural_plan
-
-        structural_plan = build_structural_plan(CausalDesign.model_validate(causal_design))
-        typed_statistical_model_spec = StatisticalModelSpec.model_validate(statistical_model_spec)
-        artifact = compile_ssm_artifact(
-            make_prior_model(typed_statistical_model_spec, priors),
-            structural_plan,
+        ModelSpec.model_validate(scientific_definition)
+        typed_scientific_model = ModelSpec.model_validate(scientific_model)
+        check_execution(
+            make_prior_model(typed_scientific_model, priors),
         )
 
-        assert artifact.spec.manifest_names == ["mood_score"]
-        assert artifact.spec.input_names == ["dose"]
-        assert artifact.spec.input_source_indicators == ["dose_mg"]
-        assert artifact.spec.input_lagged == [True]
-        assert artifact.spec.input_effect_block["free_support"] == [[True]]
+        assert numeric.observation_names(typed_scientific_model) == ["mood_score"]
+        assert numeric.input_names(typed_scientific_model) == ["dose"]
+        assert numeric.input_sources(typed_scientific_model) == ["dose_mg"]
+        assert numeric.input_lagged(typed_scientific_model) == [True]
+        assert numeric.input_effect_block(typed_scientific_model).free_support.tolist() == [[True]]
         beta_binding = next(
             binding
-            for binding in artifact.parameter_bindings
+            for binding in parameter_bindings(make_prior_model(typed_scientific_model, priors))[0]
             if binding.parameter_id
-            == next(p.id for p in artifact.parameters if p.name == "beta_dose_mood")
+            == next(p.id for p in typed_scientific_model.parameters if p.name == "beta_dose_mood")
         )
         assert {
             "parameter_id": beta_binding.parameter_id,
             "site_name": beta_binding.site_name,
             "flat_index": beta_binding.flat_index,
         } == {
-            "parameter_id": next(p.id for p in artifact.parameters if p.name == "beta_dose_mood"),
+            "parameter_id": next(
+                p.id for p in typed_scientific_model.parameters if p.name == "beta_dose_mood"
+            ),
             "site_name": "input_effect_free",
             "flat_index": 0,
         }
         assert beta_binding.site_kind is SiteKind.INPUT_EFFECT
         assert beta_binding.transform is PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE
 
-    def test_model_from_artifact_uses_semantics(self, statistical_model_spec_and_priors):
-        """hydrate_compiled_model reads compiled_prior_semantics."""
+    def test_runtime_derives_the_authored_priors(self, scientific_model_and_priors):
         import polars as pl
 
-        from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
-        from nof1_causal_lab.models.ssm.runtime import hydrate_compiled_model
+        from nof1_causal_lab.models.ssm.runtime import build_ssm_model
 
-        statistical_model_spec, priors = statistical_model_spec_and_priors
-        artifact = compile_ssm_artifact(
-            make_prior_model(statistical_model_spec, priors),
-            _mood_structural_plan(),
+        scientific_model, priors = scientific_model_and_priors
+        definition = make_prior_model(scientific_model, priors)
+        model = build_ssm_model(
+            pl.DataFrame({"time": [0.0], "mood_score": [5.0]}), model_spec=definition
         )
-        model = hydrate_compiled_model(
-            artifact,
-            pl.DataFrame({"time": [0.0], "mood_score": [5.0]}),
-        )
-        assert model.priors is not None
-        assert model.get_prior_runtime_bundle() is not None
-
-    def test_model_from_artifact_requires_compiled_prior_semantics(
-        self, statistical_model_spec_and_priors
-    ):
-        """Model rebuild fails clearly when compiled semantics are missing."""
-        from pydantic import ValidationError
-
-        from nof1_causal_lab.artifacts.compiled_ssm import CompiledSSMArtifact
-        from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
-
-        statistical_model_spec, priors = statistical_model_spec_and_priors
-        artifact = compile_ssm_artifact(
-            make_prior_model(statistical_model_spec, priors),
-            _mood_structural_plan(),
-        )
-        payload = artifact.model_dump(mode="json")
-        del payload["compiled_prior_semantics"]
-
-        with pytest.raises(ValidationError, match="compiled_prior_semantics"):
-            CompiledSSMArtifact.model_validate(payload)
-
-    def test_compiled_artifact_requires_input_alignment_metadata(
-        self, statistical_model_spec_and_priors
-    ):
-        from pydantic import ValidationError
-
-        from nof1_causal_lab.artifacts.compiled_ssm import CompiledSSMArtifact
-        from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
-
-        statistical_model_spec, priors = statistical_model_spec_and_priors
-        artifact = compile_ssm_artifact(
-            make_prior_model(statistical_model_spec, priors),
-            _mood_structural_plan(),
-        )
-        payload = artifact.model_dump(mode="json")
-        del payload["structure"]["spec"]["input_lagged"]
-
-        with pytest.raises(ValidationError, match="input_lagged"):
-            CompiledSSMArtifact.model_validate(payload)
-
-    @pytest.mark.cpu_expensive
-    def test_end_to_end_compile_rebuild_sample(self, statistical_model_spec_and_priors):
-        """Full roundtrip: compile → rebuild → sample."""
-        import numpy as np
-        import polars as pl
-
-        from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
-        from nof1_causal_lab.models.ssm.runtime import (
-            prepare_wide_model_runtime,
-            sample_prior_predictive,
-        )
-        from nof1_causal_lab.utils.data import pivot_to_wide
-
-        statistical_model_spec, priors = statistical_model_spec_and_priors
-        artifact = compile_ssm_artifact(
-            make_prior_model(statistical_model_spec, priors),
-            _mood_structural_plan(),
-        )
-
-        rng = np.random.default_rng(42)
-        n = 30
-        data_for_model = pl.DataFrame(
-            {
-                "indicator": ["mood_score"] * n,
-                "value": (rng.standard_normal(n) * 1.5 + 5).tolist(),
-                "anchor_time": list(range(n)),
-            }
-        )
-        runtime = prepare_wide_model_runtime(
-            pivot_to_wide(data_for_model),
-            compiled_ssm=artifact,
-            sampler_config=cast(
-                "SamplerConfigOverride",
-                {"method": "marginal_particle_gibbs"},
-            ),
-        )
-        samples = sample_prior_predictive(
-            runtime.model,
-            samples=5,
-            times=runtime.times,
-            observation_support=runtime.observation_support,
-            observation_mask=~jnp.isnan(runtime.observations),
-            transition_inputs=runtime.transition_inputs,
-        )
-        assert samples is not None
-
-    @pytest.mark.cpu_expensive
-    def test_compiled_model_prior_predictive(self, statistical_model_spec_and_priors):
-        """Compiled models can sample prior predictive from artifact semantics."""
-        import polars as pl
-
-        from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
-        from nof1_causal_lab.models.ssm.runtime import (
-            hydrate_compiled_model,
-            sample_prior_predictive,
-        )
-
-        statistical_model_spec, priors = statistical_model_spec_and_priors
-        artifact = compile_ssm_artifact(
-            make_prior_model(statistical_model_spec, priors),
-            _mood_structural_plan(),
-        )
-        model = hydrate_compiled_model(
-            artifact,
-            pl.DataFrame({"time": [0.0], "mood_score": [5.0]}),
-        )
-        samples = sample_prior_predictive(model, samples=4)
-        assert "vf_0_decay" in samples
-        assert samples["vf_0_decay"].shape[0] == 4
-        assert "observations" in samples
-
-    @pytest.mark.cpu_expensive
-    def test_compiled_model_traces_vector_t0_prior_without_reconstructing(self):
-        """Compiled models execute vector-valued positive priors via runtime semantics."""
-        import polars as pl
-
-        from nof1_causal_lab.artifacts.compiled_ssm import CompiledSSMArtifact, CompiledStructure
-        from nof1_causal_lab.models.ssm.compile.artifact import serialize_ssm_spec
-        from nof1_causal_lab.models.ssm.runtime import (
-            hydrate_compiled_model,
-            prepare_fit_inputs,
-        )
-
-        spec = _make_spec(
-            n_latent=2,
-            n_manifest=2,
-            lambda_block=_lambda_block(2, 2, template=jnp.eye(2)),
-            manifest_chol_block=_manifest_chol_block(
-                2,
-                diag_support=full_diagonal_support(2),
-                template=jnp.zeros((2, 2)),
-            ),
-            manifest_names=["m0", "m1"],
-        )
-        priors = {
-            "t0_var_diag_free": distribution_from_params(
-                PriorDistributionFamily.HALF_NORMAL,
-                {"sigma": [1.0, 2.0]},
-            )
+        assert model.spec is definition
+        assert set(model.get_prior_runtime_bundle().priors) == {
+            site.name for site in build_site_registry(definition)
         }
-        artifact = CompiledSSMArtifact.model_construct(
-            observation_bindings={},
-            parameters=[],
-            auxiliary_coordinates=[],
-            schema_version=2,
-            structure=CompiledStructure(
-                spec=serialize_ssm_spec(spec),
-                edge_lag_days=[],
-                bindings=[],
-                anchor_certificates=[],
-            ),
-            compiled_prior_semantics=compile_prior_semantics(spec, priors),
-            parameter_bindings=[],
-            compile_diagnostics=[],
-        )
-        wide = pl.DataFrame(
-            {
-                "time": [0.0, 1.0, 2.0],
-                "m0": [0.1, 0.2, 0.3],
-                "m1": [0.4, 0.5, 0.6],
-            }
-        )
 
-        model = hydrate_compiled_model(artifact, wide)
-        observations, times, _manifest_names, _wide = prepare_fit_inputs(model.spec, wide)
-        backend = get_laplace_backend(model, 6)
-        trace = handlers.trace(handlers.seed(model.model, rng_seed=0)).get_trace(
-            observations,
-            times,
-            likelihood_backend=backend,
-        )
+    def test_readiness_rejects_a_second_model_definition(self, scientific_model_and_priors):
+        from nof1_causal_lab.artifacts.execution import ExecutionReadiness
 
-        assert trace["t0_var_diag_free"]["value"].shape == (2,)
+        scientific_model, priors = scientific_model_and_priors
+        definition = make_prior_model(scientific_model, priors)
+        with pytest.raises(ValueError, match="Extra inputs"):
+            ExecutionReadiness.model_validate(
+                {**definition.execution_readiness.model_dump(), "spec": definition.model_dump()}
+            )

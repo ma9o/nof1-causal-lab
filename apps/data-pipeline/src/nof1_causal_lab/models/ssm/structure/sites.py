@@ -18,7 +18,7 @@ from nof1_causal_lab.artifacts.parameter import (
     SupportClass,
 )
 
-type SitePosition = int | tuple[int, int] | tuple[int, int, int]
+type SitePosition = int | tuple[int, ...]
 
 
 @dataclass(frozen=True)

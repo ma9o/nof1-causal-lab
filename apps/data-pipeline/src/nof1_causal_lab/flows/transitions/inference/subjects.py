@@ -7,34 +7,35 @@ from typing import TYPE_CHECKING, Any
 from nof1_causal_lab.artifacts.identity import ParameterRef
 from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
 from nof1_causal_lab.artifacts.posterior_diagnostics import (
-    MCMCDiagnostics,
     PosteriorMarginal,
     PosteriorPair,
 )
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.compiled_ssm import CompiledSSMArtifact
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.json_types import JsonObject
 
 # Numerical-engine rows carry runtime coordinates until this boundary validates
-# their public diagnostic schemas and replaces coordinates with scientific refs.
+# their scientific result schemas and replaces coordinates with scientific refs.
 type RuntimeFindingPayload = dict[str, Any]
 
 
 def reference_posterior_findings(
-    compiled: CompiledSSMArtifact,
+    model_spec: ModelSpec,
     marginals: list[RuntimeFindingPayload],
     pairs: list[RuntimeFindingPayload],
-    mcmc: RuntimeFindingPayload | None,
-) -> tuple[list[JsonObject], list[JsonObject], JsonObject | None]:
+) -> tuple[list[JsonObject], list[JsonObject]]:
     """Translate the compiler's exact mapping once; unknown coordinates are errors."""
-    parameters = {parameter.id: parameter for parameter in compiled.parameters}
+    from nof1_causal_lab.models.ssm.compile.inputs import compile_ssm_inputs_from_model
+
+    _, compiled_bindings, _, _, auxiliary_coordinates = compile_ssm_inputs_from_model(model_spec)
+    bindings = {binding.parameter_id: binding for binding in compiled_bindings}
     subjects = {
         coordinate: ParameterRef(parameter_id=binding.parameter_id, element_id=element_id)
-        for binding in compiled.parameter_bindings
+        for binding in compiled_bindings
         for element_id, coordinate in binding.coordinates.items()
     }
-    auxiliary = set(compiled.auxiliary_coordinates)
+    auxiliary = set(auxiliary_coordinates)
 
     def attach(row, fields):
         result = dict(row)
@@ -48,7 +49,7 @@ def reference_posterior_findings(
                 )
             subject = subjects[coordinate]
             result[subject_field] = subject.model_dump(mode="json")
-            result[label_field] = parameters[subject.parameter_id].elements[subject.element_id]
+            result[label_field] = bindings[subject.parameter_id].elements[subject.element_id]
         return result
 
     scalar_fields = (("coordinate", "subject", "parameter"),)
@@ -71,15 +72,4 @@ def reference_posterior_findings(
         )
         is not None
     ]
-    mcmc_result = None
-    if mcmc is not None:
-        mcmc_result = dict(mcmc)
-        for field in ("per_parameter", "trace_data", "rank_histograms"):
-            if mcmc_result.get(field) is not None:
-                mcmc_result[field] = [
-                    value
-                    for row in mcmc_result[field]
-                    if (value := attach(row, scalar_fields)) is not None
-                ]
-        mcmc_result = MCMCDiagnostics.model_validate(mcmc_result).model_dump(mode="json")
-    return marginal_rows, pair_rows, mcmc_result
+    return marginal_rows, pair_rows

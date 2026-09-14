@@ -7,26 +7,28 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+import polars as pl
+
+from nof1_causal_lab.artifacts.raw_data import column_descriptions
 
 if TYPE_CHECKING:
-    import polars as pl
-
-    from .transitions.ingestion.flow import IngestionResult
+    import pyarrow as pa
 
 
-def format_schema_for_llm(df: pl.DataFrame, column_descriptions: dict[str, str]) -> str:
+def format_schema_for_llm(table: pa.Table) -> str:
     """Format a DataFrame schema and sample for LLM consumption.
 
     Used by measurement-structure so the LLM can see what columns are available
     when proposing the measurement structure.
     """
+    descriptions = column_descriptions(table)
+    df = pl.DataFrame(table)
     lines = ["## Dataset Schema\n"]
     lines.append("| Column | Type | Description |")
     lines.append("|--------|------|-------------|")
     for col in df.columns:
         dtype = str(df.schema[col])
-        desc = column_descriptions.get(col, "")
+        desc = descriptions[col]
         lines.append(f"| {col} | {dtype} | {desc} |")
 
     lines.append("\n## Sample Data (first 10 rows)\n")
@@ -43,16 +45,3 @@ def format_schema_for_llm(df: pl.DataFrame, column_descriptions: dict[str, str])
         lines.append(str(df.select(numeric_cols).describe()))
 
     return "\n".join(lines)
-
-
-def build_raw_data_payload(ingestion_result: IngestionResult) -> UncheckedJsonObject:
-    """Build the web-serializable stage 0 payload from an IngestionResult."""
-    return {
-        "column_descriptions": [
-            {
-                "name": col,
-                "description": desc,
-            }
-            for col, desc in ingestion_result.column_descriptions.items()
-        ],
-    }

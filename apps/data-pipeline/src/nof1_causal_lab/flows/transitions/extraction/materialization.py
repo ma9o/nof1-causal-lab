@@ -2,27 +2,26 @@
 
 from __future__ import annotations
 
-from typing import cast
+from typing import TYPE_CHECKING
 
 import polars as pl
 
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 
+if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.measurements import ObservationRecord
 
-def materialize_extraction_outputs(
-    extraction_result: UncheckedJsonObject,
+
+def materialize_panel(
+    observation_rows: list[ObservationRecord],
     measurement_structure: UncheckedJsonObject,
-) -> UncheckedJsonObject:
-    """Materialize the extraction observation table from a serialized extraction result."""
-    from nof1_causal_lab.artifacts.measurements import ObservationRecord  # noqa: TC001
+) -> pl.DataFrame:
+    """Encode observation rows into the canonical panel, including a typed empty table."""
     from nof1_causal_lab.utils.aggregations import _encode_non_continuous
     from nof1_causal_lab.utils.data import observation_row_schema
 
-    observation_dicts = cast(
-        "list[ObservationRecord]", extraction_result.get("observation_rows", [])
-    )
-    if observation_dicts:
-        data_for_model = pl.DataFrame(observation_dicts)
+    if observation_rows:
+        data_for_model = pl.DataFrame(observation_rows)
     else:
         data_for_model = pl.DataFrame(schema=observation_row_schema())
 
@@ -58,7 +57,4 @@ def materialize_extraction_outputs(
         ).drop_nulls(subset=["anchor_time"])
         data_for_model = data_for_model.sort("indicator_id", "anchor_time")
 
-    return {
-        "data_for_model": data_for_model,
-        "worker_statuses": extraction_result.get("worker_statuses", []),
-    }
+    return data_for_model

@@ -20,7 +20,6 @@ from nof1_causal_lab.artifacts.identity import ArtifactId
 from nof1_causal_lab.machine.artifacts import ArtifactVersionInfo, EpisodeState, Provenance
 from nof1_causal_lab.machine.errors import (
     ArtifactWriteRejected,
-    ModelCompileError,
     ModelFitError,
     TransitionExecutionError,
 )
@@ -44,7 +43,7 @@ from nof1_causal_lab.machine.hierarchy import (
 from nof1_causal_lab.machine.moves import (
     Move,
     RetractedArtifact,
-    RunArtifact,
+    RunOperation,
     WriteArtifact,
     apply_transition,
     freshness_report,
@@ -65,14 +64,13 @@ __all__ = [
     "DERIVATIONS",
     "Derivation",
     "EpisodeState",
-    "ModelCompileError",
     "ModelFitError",
     "Move",
     "Provenance",
     "ROOTS",
     "Root",
     "RetractedArtifact",
-    "RunArtifact",
+    "RunOperation",
     "Transition",
     "TransitionExecutionError",
     "WRITABLE_ARTIFACTS",

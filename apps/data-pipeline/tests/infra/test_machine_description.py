@@ -14,18 +14,18 @@ def test_machine_description_serves_graph_and_classes():
     description = machine_description()
 
     transitions = {entry["transition_id"]: entry for entry in description["transitions"]}
-    assert set(transitions) == {spec.transition_id for spec in ARTIFACT_GRAPH}
+    assert set(transitions) == {spec.operation_id for spec in ARTIFACT_GRAPH}
     for spec in ARTIFACT_GRAPH:
-        entry = transitions[spec.transition_id]
+        entry = transitions[spec.operation_id]
         assert entry["consumes"] == list(spec.consumes)
-        assert entry["produces"] == [spec.produces]
+        assert entry["produces"] == list(spec.produces)
         assert entry["produces_optional"] == list(spec.produces_optional)
         assert entry["creation_class"] == spec.creation_class
         assert entry["writable"] == spec.writable
     derivations = {entry["produces"]: entry for entry in description["derivations"]}
     assert set(derivations) == {spec.produces for spec in DERIVATIONS}
     assert "validation_report" in description["topological_artifact_order"]
-    assert description["topological_artifact_order"].index("measurements") < description[
+    assert description["topological_artifact_order"].index("panel") < description[
         "topological_artifact_order"
     ].index("validation_report")
     assert description["topological_transition_order"][0] == "raw_data"

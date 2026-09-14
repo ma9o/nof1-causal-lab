@@ -38,6 +38,8 @@ class ArtifactVersionInfo(BaseModel):
     version: int
     provenance: Provenance
     derived_from: dict[ArtifactId, int] = Field(default_factory=dict)
+    model_inputs: dict[str, str] = Field(default_factory=dict)
+    consumed_model_inputs: dict[str, str] = Field(default_factory=dict)
     produced_by: str | None = None
     created_at: str = ""
 
@@ -66,7 +68,17 @@ class EpisodeState(BaseModel):
         info = self.get(output)
         return info is not None and all(
             (selected := self.get(artifact_id)) is not None
-            and info.derived_from.get(artifact_id) == selected.version
+            and (
+                info.derived_from.get(artifact_id) == selected.version
+                or (
+                    artifact_id == "model"
+                    and bool(info.consumed_model_inputs)
+                    and all(
+                        selected.model_inputs.get(key) == value
+                        for key, value in info.consumed_model_inputs.items()
+                    )
+                )
+            )
             for artifact_id in inputs
         )
 

@@ -6,23 +6,24 @@ from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 
-from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily
+from nof1_causal_lab.artifacts.likelihood import DistributionFamily
+from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.execution.observation_families import (
     any_family_needs_level_metadata,
 )
 
 if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.models.ssm.execution.contracts import LikelihoodExtraParams
-    from nof1_causal_lab.models.ssm.model import SSMSpec
 
 
 def assemble_sampled_extra_params(
-    spec: SSMSpec,
+    spec: ModelSpec,
     sampled_values: dict[str, jnp.ndarray],
 ) -> LikelihoodExtraParams:
     """Assemble likelihood hyperparameters and derived observation metadata."""
     extra_params: LikelihoodExtraParams = {}
-    manifest_dist_set = set(spec.manifest_dists)
+    manifest_dist_set = set(numeric.observation_families(spec))
 
     scalar_keys = (
         "obs_df",
@@ -35,10 +36,10 @@ def assemble_sampled_extra_params(
         if key in sampled_values:
             extra_params[key] = sampled_values[key]
 
-    if spec.manifest_level_counts is None:
+    if numeric.observation_level_counts(spec) is None:
         return extra_params
 
-    level_counts_list = list(spec.manifest_level_counts)
+    level_counts_list = list(numeric.observation_level_counts(spec))
     level_counts = jnp.asarray(level_counts_list, dtype=jnp.int32)
     extra_params["obs_level_counts"] = level_counts
 
@@ -55,7 +56,7 @@ def assemble_sampled_extra_params(
         if max_cutpoints > 1:
             ordered_gaps = sampled_values["obs_ordered_gaps"]
         else:
-            ordered_gaps = jnp.zeros((spec.n_manifest, 0), dtype=ordered_base.dtype)
+            ordered_gaps = jnp.zeros((numeric.n_observations(spec), 0), dtype=ordered_base.dtype)
 
         # Cutpoints are NOT centered: the threshold base is the channel-side
         # location parameter, identified against the construct's latent-side
@@ -83,11 +84,11 @@ def assemble_sampled_extra_params(
             0.0,
         )
         cat_slopes = jnp.where(cat_mask, sampled_values["obs_cat_slopes"], 0.0)
-        if spec.manifest_cat_anchor is not None and any(spec.manifest_cat_anchor):
+        if numeric.categorical_anchors(spec) is not None and any(numeric.categorical_anchors(spec)):
             # Scale/sign anchor for all-categorical constructs: the anchor
             # channel's first non-baseline slope is pinned to +1 (see
             # docs/reference/statistical-model-spec/identification.md).
-            anchor_rows = jnp.asarray(spec.manifest_cat_anchor, dtype=bool)
+            anchor_rows = jnp.asarray(numeric.categorical_anchors(spec), dtype=bool)
             anchor_entries = anchor_rows[:, None] & (jnp.arange(max_cutpoints)[None, :] == 0)
             cat_slopes = jnp.where(anchor_entries, 1.0, cat_slopes)
         extra_params["obs_cat_slopes"] = cat_slopes

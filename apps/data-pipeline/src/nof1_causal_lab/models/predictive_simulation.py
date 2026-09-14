@@ -5,19 +5,21 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as random
 import numpy as np
 from jax import vmap
 
-from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily, LinkFunction
+from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
+from nof1_causal_lab.models.ssm.execution.contracts import MeasurementParams
+from nof1_causal_lab.models.ssm.execution.dynamical_model import HeterogeneousObservation
 from nof1_causal_lab.models.ssm.execution.observation_families import (
     any_family_needs_level_metadata,
     resolve_manifest_families_and_links,
 )
 from nof1_causal_lab.models.ssm.execution.observation_model import (
-    CompiledObservationModel,
     compile_observation_model,
 )
 from nof1_causal_lab.models.ssm.execution.observation_operator import (
@@ -177,17 +179,20 @@ def _sample_observations_for_draw(
     linear_predictors: jnp.ndarray,
     rng_key: jax.Array,
     *,
-    observation_model: CompiledObservationModel,
+    observation_model: HeterogeneousObservation,
+    observation_operator,
     observation_mask: jnp.ndarray | None,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Sample one observation trajectory from precomputed linear predictors."""
     _key_latent, key_point, key_interval_summary = random.split(rng_key, 3)
-    point_samples = observation_model.point_sampler.sample_point_trajectory(
-        key_point,
-        linear_predictors,
+
+    def emit(key, predictor):
+        law = observation_model.at_predictor(predictor)
+        return law.sample(key), law.mean
+
+    point_samples, responses = jax.vmap(emit)(
+        random.split(key_point, linear_predictors.shape[0]), linear_predictors
     )
-    responses = jax.vmap(observation_model.kernel.response_fn)(linear_predictors)
-    observation_operator = observation_model.observation_operator
 
     if not observation_operator.requires_interval_summary_handling:
         effective_mask = _resolve_effective_observation_mask(
@@ -205,8 +210,15 @@ def _sample_observations_for_draw(
 
     interval_summary_indices = list(observation_operator.interval_summary_indices)
     interval_summary_idx = jnp.asarray(interval_summary_indices, dtype=jnp.int32)
-    assert observation_model.interval_summary_sampler is not None
-    sampled_interval_summary = observation_model.interval_summary_sampler.sample_mean_trajectory(
+    interval_model = compile_observation_model(
+        observation_model.families,
+        manifest_cov=observation_model.measurement.manifest_cov,
+        manifest_links=observation_model.links,
+        extra_params=observation_model.extra_params,
+        observation_support=observation_operator.observation_support,
+    )
+    assert interval_model.interval_summary_sampler is not None
+    sampled_interval_summary = interval_model.interval_summary_sampler.sample_mean_trajectory(
         key_interval_summary,
         expected_means[:, interval_summary_idx],
     )
@@ -256,7 +268,6 @@ def sample_predictive_observations_from_linear_predictors(
     linear_predictors_sub = linear_predictors[indices]
     manifest_cov_sub = _broadcast_draw_param(samples["manifest_cov"], n_use, indices)
 
-    n_timepoints = int(times.shape[0])
     n_manifest = linear_predictors_sub.shape[2]
     resolved_manifest_names = manifest_names or [f"var_{idx}" for idx in range(n_manifest)]
     if len(resolved_manifest_names) != n_manifest:
@@ -318,28 +329,14 @@ def sample_predictive_observations_from_linear_predictors(
         resolved_manifest_dists,
         manifest_links=resolved_manifest_links,
     )
-    observation_operator = compile_observation_operator(observation_support)
-
     if level_counts is None and any_family_needs_level_metadata(resolved_dists):
         raise ValueError(
             "manifest_level_counts is required for ordered_logistic/categorical PPC simulation"
         )
 
-    observation_mask_array = None
-    if observation_mask is not None:
-        observation_mask_array = jnp.asarray(observation_mask, dtype=bool)
-        if observation_mask_array.shape != (n_timepoints, n_manifest):
-            raise ValueError(
-                "observation_mask must have shape (T, n_manifest) matching the predictive grid"
-            )
-
-    if observation_operator.requires_interval_summary_handling:
-        support = observation_operator.observation_support
-        assert support is not None
-        if support.anchor_times.shape != times.shape or not bool(
-            jnp.allclose(jnp.asarray(support.anchor_times), times)
-        ):
-            raise ValueError("observation_support is not aligned to the predictive time grid")
+    observation_mask_array, observation_operator = _predictive_observation_grid(
+        times, n_manifest, observation_support, observation_mask
+    )
 
     _raise_if_log_link_mean_overflow(
         linear_predictors_sub,
@@ -370,19 +367,71 @@ def sample_predictive_observations_from_linear_predictors(
 
     def sim_one(i):
         extra_params = _draw_extra_params(i)
-        observation_model = compile_observation_model(
-            resolved_manifest_dists,
-            manifest_cov=manifest_cov_sub[i],
-            manifest_links=resolved_manifest_links,
-            extra_params=extra_params,
-            observation_support=observation_support,
+        observation_model = HeterogeneousObservation(
+            MeasurementParams(jnp.eye(n_manifest), jnp.zeros(n_manifest), manifest_cov_sub[i]),
+            tuple(resolved_dists),
+            tuple(_resolved_links),
+            extra_params,
         )
         return _sample_observations_for_draw(
             linear_predictors=linear_predictors_sub[i],
             rng_key=draw_keys[i],
             observation_model=observation_model,
+            observation_operator=observation_operator,
             observation_mask=observation_mask_array,
         )
 
     y_sim, y_mask, expected = vmap(sim_one)(jnp.arange(n_use))
     return y_sim, y_mask, expected
+
+
+def _predictive_observation_grid(times, n_manifest, observation_support, observation_mask):
+    observation_operator = compile_observation_operator(observation_support)
+    mask = None if observation_mask is None else jnp.asarray(observation_mask, dtype=bool)
+    if mask is not None and mask.shape != (times.shape[0], n_manifest):
+        raise ValueError(
+            "observation_mask must have shape (T, n_manifest) matching the predictive grid"
+        )
+    if observation_operator.requires_interval_summary_handling:
+        support = observation_operator.observation_support
+        assert support is not None
+        if support.anchor_times.shape != times.shape or not bool(
+            jnp.allclose(support.anchor_times, times)
+        ):
+            raise ValueError("observation_support is not aligned to the predictive time grid")
+    return mask, observation_operator
+
+
+def sample_model_observations(
+    models,
+    linear_predictors,
+    times,
+    *,
+    rng_key,
+    observation_support,
+    observation_mask,
+    manifest_names,
+):
+    """Draw point observations from the fitted model's law, then project interval summaries."""
+    observation = models.observation_model
+    mask, operator = _predictive_observation_grid(
+        times, linear_predictors.shape[-1], observation_support, observation_mask
+    )
+    _raise_if_log_link_mean_overflow(
+        linear_predictors,
+        manifest_dists=observation.families,
+        manifest_links=observation.links,
+        manifest_names=manifest_names,
+    )
+    keys = random.split(rng_key, linear_predictors.shape[0])
+
+    def emit(model, predictors, key):
+        return _sample_observations_for_draw(
+            predictors,
+            key,
+            observation_model=model.observation_model,
+            observation_operator=operator,
+            observation_mask=mask,
+        )
+
+    return eqx.filter_vmap(emit)(models, linear_predictors, keys)

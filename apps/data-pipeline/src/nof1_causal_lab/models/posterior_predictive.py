@@ -15,12 +15,13 @@ from nof1_causal_lab.artifacts.posterior_diagnostics import (
     PPCTestStat,
     PPCWarning,
 )
+from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.utils.histograms import histogram_draws
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from nof1_causal_lab.models.ssm.model import SSMSpec
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
 import jax.numpy as jnp
@@ -355,7 +356,7 @@ def run_posterior_predictive_checks(
     observations: jnp.ndarray,
     times: jnp.ndarray,
     indicator_ids: list[str],
-    spec: SSMSpec,
+    spec: ModelSpec,
     *,
     observation_support: ObservationSupportRuntime | None = None,
     observation_mask: jnp.ndarray | None = None,
@@ -388,7 +389,9 @@ def run_posterior_predictive_checks(
         simulate_posterior_predictive_observations,
     )
 
-    if len(indicator_ids) != spec.n_manifest or len(set(indicator_ids)) != spec.n_manifest:
+    if len(indicator_ids) != numeric.n_observations(spec) or len(
+        set(indicator_ids)
+    ) != numeric.n_observations(spec):
         raise ValueError("PPC requires one distinct indicator ID per observation column")
 
     y_sim, _y_mask = simulate_posterior_predictive_observations(

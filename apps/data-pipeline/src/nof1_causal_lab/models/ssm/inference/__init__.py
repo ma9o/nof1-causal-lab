@@ -18,9 +18,6 @@ from nof1_causal_lab.models.ssm.inference.shared import (
     select_default_method as select_default_method,
 )
 from nof1_causal_lab.models.ssm.inference.types import (
-    FittedArtifact as FittedArtifact,
-)
-from nof1_causal_lab.models.ssm.inference.types import (
     InferenceMethod,  # noqa: TC001 - public runtime re-export
 )
 from nof1_causal_lab.models.ssm.inference.types import (

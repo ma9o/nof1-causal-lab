@@ -17,7 +17,7 @@ from nof1_causal_lab.machine.temporal.messages import (
     StatisticalModelSpecAttemptFinalizeInput,
     ToolCallSummary,
 )
-from tests.helpers import run_async
+from tests.helpers import make_model, run_async
 
 
 class _FailingConstructState:
@@ -128,10 +128,9 @@ def test_submit_construct_adapter_persists_tool_feedback(
     )
     monkeypatch.setattr(checkpoints, "existing_accepted_checkpoint_ref", lambda *_args: None)
     args = {
-        "construct": "early_life_adversity",
-        "mechanisms": [],
-        "indicators": [],
-        "priors": {},
+        "construct": make_model(["early_life_adversity"]).constructs[0].model_dump(mode="json"),
+        "edges": [],
+        "parameters": [],
     }
 
     if raises:
@@ -163,7 +162,11 @@ def test_model_spec_submission_runs_off_the_async_worker_loop(monkeypatch):
         llm_tool_adapters.execute_subroutine_tool(
             input=cast("Any", SimpleNamespace(context_ref="context.json")),
             tool=cast("Any", SimpleNamespace(executor="model_spec_submit_construct")),
-            args={"construct": "X", "indicators": [], "priors": {}},
+            args={
+                "construct": make_model(["X"]).constructs[0].model_dump(mode="json"),
+                "edges": [],
+                "parameters": [],
+            },
             result_ref="result.json",
             request_id="submission-1",
         )
@@ -187,7 +190,7 @@ def test_admitted_submission_persists_and_returns_the_new_checkpoint(monkeypatch
             self.seed = 0
 
         def submit_construct(self, *, construct, **_kwargs):
-            assert construct == "sleep"
+            assert construct["name"] == "sleep"
             self.current_construct = None
             self.last_report = SimpleNamespace(
                 name="sleep",
@@ -236,7 +239,11 @@ def test_admitted_submission_persists_and_returns_the_new_checkpoint(monkeypatch
 
     output = llm_tool_adapters._execute_model_spec_submit_construct(
         "context.json",
-        {"construct": "sleep", "indicators": [], "mechanisms": [], "priors": {}},
+        {
+            "construct": make_model(["sleep"]).constructs[0].model_dump(mode="json"),
+            "edges": [],
+            "parameters": [],
+        },
         "submission-1",
     )
 
@@ -258,10 +265,10 @@ def test_semantically_identical_submissions_reuse_admission_evaluation(monkeypat
             self.seed = 0
 
         def submit_construct(self, *, construct, **_kwargs):
-            submit_calls.append(construct)
+            submit_calls.append(construct["name"])
             self.current_construct = None
             self.last_report = SimpleNamespace(
-                name=construct,
+                name=construct["name"],
                 admitted=True,
                 annotations=(),
                 outcome="ADMITTED",
@@ -307,7 +314,11 @@ def test_semantically_identical_submissions_reuse_admission_evaluation(monkeypat
         return f"checkpoint:{submission_id}"
 
     monkeypatch.setattr(checkpoints, "write_accepted_model_spec_checkpoint", _write_checkpoint)
-    args = {"construct": "sleep", "indicators": [], "mechanisms": [], "priors": {}}
+    args = {
+        "construct": make_model(["sleep"]).constructs[0].model_dump(mode="json"),
+        "edges": [],
+        "parameters": [],
+    }
 
     first = llm_tool_adapters._execute_model_spec_submit_construct(
         "context.json", args, "submission-1"

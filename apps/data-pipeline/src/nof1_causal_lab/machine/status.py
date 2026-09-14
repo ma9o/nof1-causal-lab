@@ -2,6 +2,7 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from nof1_causal_lab.artifacts.identity import OperationId
 from nof1_causal_lab.json_types import JsonObject
 
 from .artifacts import ArtifactVersionInfo, EpisodeState
@@ -34,5 +35,6 @@ class EpisodeStatus(BaseModel):
     seq: int
     state: EpisodeState
     artifacts: list[ArtifactFreshness]
+    next_operation: OperationId | None = None
     legal: list[Move]
     auto_running: bool = False

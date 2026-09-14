@@ -16,7 +16,7 @@ import modal
 from pydantic import TypeAdapter
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.identity import ArtifactId
+    from nof1_causal_lab.artifacts.identity import ArtifactId, OperationId
     from nof1_causal_lab.json_types import JsonObject
     from nof1_causal_lab.machine.artifacts import EpisodeState
     from nof1_causal_lab.machine.moves import ExecOptions, TransitionEffects
@@ -67,12 +67,12 @@ async def _run_transition_remote(
     state: JsonObject,
     options: JsonObject,
 ) -> JsonObject:
-    from nof1_causal_lab.artifacts.identity import ArtifactId
+    from nof1_causal_lab.artifacts.identity import ArtifactId, OperationId
     from nof1_causal_lab.machine.artifacts import EpisodeState
     from nof1_causal_lab.machine.moves import ExecOptions
     from nof1_causal_lab.machine.runners import execute_transition_locally
 
-    validated_artifact_id = TypeAdapter(ArtifactId).validate_python(artifact_id)
+    validated_artifact_id = TypeAdapter(OperationId).validate_python(artifact_id)
     validated_pins = TypeAdapter(dict[ArtifactId, int]).validate_python(pins)
     result = await execute_transition_locally(
         workspace_id,
@@ -148,7 +148,7 @@ _GPU_TRANSITIONS = frozenset({"posterior"})
 
 async def run_transition_on_modal(
     workspace_id: str,
-    artifact_id: ArtifactId,
+    artifact_id: OperationId,
     pins: dict[ArtifactId, int],
     state: EpisodeState,
     options: ExecOptions,

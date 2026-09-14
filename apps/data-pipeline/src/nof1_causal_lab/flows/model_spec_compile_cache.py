@@ -17,7 +17,7 @@ from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.compiled_ssm import CompiledSSMArtifact
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +42,9 @@ def load_model_spec_compile_cache_metadata(workspace_id: str) -> UncheckedJsonOb
     return payload if isinstance(payload, dict) else None
 
 
-def compiled_ssm_topology_fingerprint(compiled_ssm: CompiledSSMArtifact) -> str:
+def model_spec_fingerprint(model_spec: ModelSpec) -> str:
     """Hash the topology-defining portion of a compiled SSM artifact."""
-    spec_payload = compiled_ssm.spec.model_dump(mode="json")
+    spec_payload = model_spec.model_dump(mode="json")
     return hashlib.sha256(
         json.dumps(spec_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
@@ -105,15 +105,15 @@ def _wait_for_pending_compile_cache(metadata: UncheckedJsonObject) -> bool:
 
 def restore_model_spec_compile_cache(
     workspace_id: str | None,
-    compiled_ssm: CompiledSSMArtifact | None,
+    model_spec: ModelSpec | None,
     *,
     wait_for_pending: bool,
 ) -> bool:
     """Restore a topology-matched compile cache sidecar into the local JAX cache dir."""
-    if workspace_id is None or compiled_ssm is None:
+    if workspace_id is None or model_spec is None:
         return False
 
-    topology_fingerprint = compiled_ssm_topology_fingerprint(compiled_ssm)
+    topology_fingerprint = model_spec_fingerprint(model_spec)
     metadata = load_model_spec_compile_cache_metadata(workspace_id)
     if not _metadata_matches(metadata, topology_fingerprint):
         return False

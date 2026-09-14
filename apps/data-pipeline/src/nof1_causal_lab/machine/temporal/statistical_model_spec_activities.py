@@ -9,13 +9,11 @@ from typing import TYPE_CHECKING, Any
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
-from nof1_causal_lab.machine.derivations import complete_computed_transition
-from nof1_causal_lab.machine.errors import ModelCompileError
+from nof1_causal_lab.machine.derivations import complete_computed_transition, read_model
 from nof1_causal_lab.machine.graph import transition_spec
-from nof1_causal_lab.machine.model_contracts import filter_model_fields, project_model_fields
+from nof1_causal_lab.machine.model_contracts import project_model_fields
 from nof1_causal_lab.machine.moves import TransitionEffects, input_pins
 from nof1_causal_lab.machine.store import ArtifactStore
 from nof1_causal_lab.machine.temporal.activity_errors import (
@@ -53,6 +51,7 @@ from nof1_causal_lab.utils import storage
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.identity import ArtifactId
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 
 def _model_spec_root(workspace_id: str, run_id: str) -> str:
@@ -101,20 +100,14 @@ def _barrier_reopen_constructs(units: list[Any], failed_constructs: list[str]) -
 def _load_model_spec_inputs(
     workspace_id: str,
     pins: dict[ArtifactId, int],
-) -> tuple[str, StructuralPlan, Any, UncheckedJsonObject]:
+) -> tuple[str, ModelSpec, Any, UncheckedJsonObject]:
     store = ArtifactStore(workspace_id)
     question = store.read_json_file(
         "question",
         pins["question"],
         json_filename("question", "question"),
     )["text"]
-    structural_plan = StructuralPlan.model_validate(
-        store.read_json_file(
-            "structural_plan",
-            pins["structural_plan"],
-            json_filename("structural_plan", "structural_plan"),
-        )["structural_plan"]
-    )
+    model = read_model(store, pins["model"])
     data_for_model = store.read_parquet_file(
         "panel",
         pins["panel"],
@@ -125,7 +118,7 @@ def _load_model_spec_inputs(
         pins["validation_report"],
         json_filename("validation_report", "validation_report"),
     )
-    return question, structural_plan, data_for_model, validation_report
+    return question, model, data_for_model, validation_report
 
 
 @activity.defn
@@ -148,7 +141,7 @@ async def plan_statistical_model_spec_activity(
     pins = input_pins(input.state, spec)
     run_id = f"seq-{input.seq:06d}"
     root = _model_spec_root(input.workspace_id, run_id)
-    question, structural_plan, data_for_model, validation_report = _load_model_spec_inputs(
+    question, model, data_for_model, validation_report = _load_model_spec_inputs(
         input.workspace_id,
         pins,
     )
@@ -160,14 +153,14 @@ async def plan_statistical_model_spec_activity(
         else config.prior_elicitation.literature_search.enabled
     )
     enable_literature = bool(requested_literature and get_secret("EXA_API_KEY"))
-    order = build_construct_order(structural_plan)
-    units = build_construct_units(structural_plan)
+    order = build_construct_order(model)
+    units = build_construct_units(model)
     source_ref = latest_failed_model_spec_checkpoint_ref(input.workspace_id)
     source = read_model_spec_checkpoint(input.workspace_id, source_ref) if source_ref else None
     rebase: ModelSpecRebaseSummary | None = None
     if source is None:
         state = ConstructBuildState(
-            structural_plan=structural_plan,
+            model=model,
             data_for_model=data_for_model,
             order=order,
             workspace_id=None,
@@ -180,7 +173,7 @@ async def plan_statistical_model_spec_activity(
         assert source_ref is not None
         state = restore_construct_state(
             source,
-            structural_plan=structural_plan,
+            model=model,
             data_for_model=data_for_model,
             workspace_id=None,
         )
@@ -197,7 +190,7 @@ async def plan_statistical_model_spec_activity(
         assert source_ref is not None
         state, accepted_constructs, reopened, reason = rebase_accepted_constructs(
             source,
-            structural_plan=structural_plan,
+            model=model,
             data_for_model=data_for_model,
         )
         search_queries = dict(state.search_queries)
@@ -225,7 +218,7 @@ async def plan_statistical_model_spec_activity(
     emit_model_spec_admission_event(
         input.workspace_id,
         "plan",
-        _admission_plan_payload(structural_plan, order),
+        _admission_plan_payload(model, order),
     )
     if rebase is not None:
         emit_model_spec_admission_event(
@@ -238,7 +231,7 @@ async def plan_statistical_model_spec_activity(
         context_ref,
         {
             "question": question,
-            "structural_plan": structural_plan.model_dump(mode="json"),
+            "model": model.model_dump(mode="json"),
             "indicator_audits": validation_report.get("indicators", {}),
             "enable_literature": enable_literature,
         },
@@ -279,13 +272,13 @@ async def plan_statistical_model_spec_attempt_activity(
     )
 
     checkpoint = read_model_spec_checkpoint(input.workspace_id, input.checkpoint_ref)
-    _question, structural_plan, data_for_model, validation_report = _load_model_spec_inputs(
+    _question, model, data_for_model, validation_report = _load_model_spec_inputs(
         input.workspace_id,
         checkpoint.input_pins,
     )
     state = restore_construct_state(
         checkpoint,
-        structural_plan=structural_plan,
+        model=model,
         data_for_model=data_for_model,
         workspace_id=None,
         target_construct=input.construct_name,
@@ -309,7 +302,7 @@ async def plan_statistical_model_spec_attempt_activity(
         state=state,
         construct=construct,
         question=metadata["question"],
-        structural_plan=structural_plan,
+        model=model,
         validation_report=validation_report,
     )
     subroutine_id = f"model-spec-{_slug(construct)}-attempt-{input.attempt:03d}"
@@ -479,13 +472,13 @@ async def validate_statistical_model_spec_barrier_activity(
     )
 
     checkpoint = read_model_spec_checkpoint(input.workspace_id, input.checkpoint_ref)
-    _question, structural_plan, data_for_model, _validation_report = _load_model_spec_inputs(
+    _question, model, data_for_model, _validation_report = _load_model_spec_inputs(
         input.workspace_id,
         checkpoint.input_pins,
     )
     state = restore_construct_state(
         checkpoint,
-        structural_plan=structural_plan,
+        model=model,
         data_for_model=data_for_model,
         workspace_id=None,
     )
@@ -498,14 +491,11 @@ async def validate_statistical_model_spec_barrier_activity(
 
     try:
         targets = tuple(
-            _closed_loop_target(
-                state.admitted_contributions[name], structural_plan, state.admission.mechanisms
-            )
+            _closed_loop_target(state.admitted_contributions[name], state.admission.model.edges)
             for name in input.construct_order
         )
         design = _design_for_state(
             state.admission,
-            structural_plan,
             data_for_model,
             n_draws=state.n_draws,
             seed=state.seed,
@@ -513,7 +503,6 @@ async def validate_statistical_model_spec_barrier_activity(
         validation = validate_full_admission_state(
             state.admission,
             targets,
-            structural_plan,
             design,
             accepted={
                 name: _acceptance_map(accepted_by_name[name].accept)
@@ -527,9 +516,9 @@ async def validate_statistical_model_spec_barrier_activity(
                 "transition_id": "statistical_model_spec",
                 "checkpoint_ref": input.checkpoint_ref,
                 "report": {
-                    "statistical_model_spec": state.admission.statistical_model_spec(
-                        state.structural_plan
-                    ).model_dump(mode="json"),
+                    "statistical_model_spec": state.admission.completed_model().model_dump(
+                        mode="json"
+                    ),
                 },
             },
             type="ModelCompileError",
@@ -537,7 +526,7 @@ async def validate_statistical_model_spec_barrier_activity(
         ) from exc
     reports_by_name = {report.name: report for report in validation.reports}
     failed = [report for report in validation.reports if not report.admitted]
-    units = build_construct_units(structural_plan)
+    units = build_construct_units(model)
     reopen = _barrier_reopen_constructs(units, [report.name for report in failed])
     emit_model_spec_admission_event(
         input.workspace_id,
@@ -624,7 +613,7 @@ async def finalize_statistical_model_spec_attempt_activity(
 async def finalize_statistical_model_spec_activity(
     input: StatisticalModelSpecFinalizeInput,
 ) -> TransitionEffects:
-    from nof1_causal_lab.artifacts.statistical_model_spec import StatisticalModelSpecArtifact
+    from nof1_causal_lab.artifacts.admission import AdmissionReport
     from nof1_causal_lab.flows.runtime_events import emit_model_spec_admission_event
     from nof1_causal_lab.flows.transitions.model_spec.assembly import (
         materialize_model_spec_result,
@@ -632,20 +621,20 @@ async def finalize_statistical_model_spec_activity(
 
     try:
         checkpoint = read_model_spec_checkpoint(input.workspace_id, input.checkpoint_ref)
-        _question, structural_plan, data_for_model, _validation_report = _load_model_spec_inputs(
+        _question, model, data_for_model, _validation_report = _load_model_spec_inputs(
             input.workspace_id,
             checkpoint.input_pins,
         )
         state = restore_construct_state(
             checkpoint,
-            structural_plan=structural_plan,
+            model=model,
             data_for_model=data_for_model,
             workspace_id=None,
         )
         from nof1_causal_lab.models.ssm.construct_admission import build_construct_order
 
         missing = sorted(
-            set(build_construct_order(structural_plan))
+            set(build_construct_order(model))
             - {item.construct_name for item in checkpoint.accepted_constructs}
         )
         if missing:
@@ -655,21 +644,15 @@ async def finalize_statistical_model_spec_activity(
         emit_model_spec_admission_event(input.workspace_id, "done", {})
 
         metadata = _read_model_spec_json(input.context_ref)
-        statistical_model_spec = state.admission.statistical_model_spec(
-            state.structural_plan
-        ).model_dump(mode="json")
+        statistical_model_spec = state.admission.completed_model().model_dump(mode="json")
         materialized = materialize_model_spec_result(
-            statistical_model_spec=statistical_model_spec,
+            model=statistical_model_spec,
             data_for_model=state.data_for_model,
             indicator_audits=metadata["indicator_audits"],
-            structural_plan=state.structural_plan,
             validation=None,
             search_queries=dict(state.search_queries),
-            skip_ppc=True,
         )
-        construct_ids = {
-            item.name: item.id for item in state.structural_plan.semantics.constructs.values()
-        }
+        construct_ids = {item.name: item.id for item in state.model._constructs.values()}
         materialized["prior_predictive_diagnostics"] = [
             {
                 **{key: value for key, value in result.items() if key != "target"},
@@ -679,28 +662,37 @@ async def finalize_statistical_model_spec_activity(
             for result in accepted_construct.results
         ]
 
-        compiled_ssm = materialized.pop("_compiled_ssm", None)
-        if compiled_ssm is None:
-            report = filter_model_fields(StatisticalModelSpecArtifact, materialized)
-            raise ModelCompileError(
-                "statistical_model_spec produced no compilable SSM from the proposed spec",
-                transition_id="statistical_model_spec",
-                diagnostics={"report": report},
-            )
-        report = project_model_fields(StatisticalModelSpecArtifact, materialized)
+        report = project_model_fields(AdmissionReport, materialized)
 
         store = ArtifactStore(input.workspace_id)
-        produced = [
-            store.write_version(
-                "statistical_model_spec",
-                provenance="computed",
-                derived_from=input.pins,
-                produced_by="run:statistical_model_spec",
-                json_files={
-                    json_filename("statistical_model_spec", "statistical_model_spec"): report
-                },
+        from nof1_causal_lab.machine.writes import write_model_revision
+
+        model_info = write_model_revision(
+            store,
+            input.state,
+            materialized["model"],
+            provenance="computed",
+            expected_model_version=input.pins["model"],
+            derived_from=input.pins,
+            produced_by="run:statistical_model_spec",
+        )
+        report_pins = dict(input.pins)
+        report_pins["model"] = model_info.version
+        produced = [model_info]
+        try:
+            produced.append(
+                store.write_version(
+                    "admission_report",
+                    provenance="computed",
+                    derived_from=report_pins,
+                    produced_by="run:statistical_model_spec",
+                    json_files={json_filename("admission_report", "admission_report"): report},
+                )
             )
-        ]
+        except Exception:
+            for info in reversed(produced):
+                store.delete_version(info.artifact_id, info.version)
+            raise
         return complete_computed_transition(
             store,
             input.state,

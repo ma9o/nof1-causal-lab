@@ -8,7 +8,7 @@ from typing import Any
 
 from temporalio import activity
 
-from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
+from nof1_causal_lab.machine.artifact_files import parquet_filename
 from nof1_causal_lab.machine.derivations import complete_computed_transition
 from nof1_causal_lab.machine.graph import transition_spec
 from nof1_causal_lab.machine.moves import TransitionEffects, input_pins
@@ -36,13 +36,6 @@ def _write_raw_data_json(path: str, value: Any) -> None:
 
 def _read_raw_data_json(path: str) -> Any:
     return storage.read_json(path)
-
-
-def _read_raw_data_artifact_frame(path: str):
-    import polars as pl
-
-    with storage.open_file(path, "rb") as file:
-        return pl.read_ipc(file)
 
 
 @activity.defn
@@ -98,19 +91,14 @@ async def plan_raw_data_activity(
 
 @activity.defn
 async def finalize_raw_data_activity(input: SingleLLMTransitionFinalizeInput) -> TransitionEffects:
-    from nof1_causal_lab.flows.pipeline_helpers import build_raw_data_payload
-    from nof1_causal_lab.flows.transitions.ingestion.flow import IngestionResult
+    import pyarrow as pa
 
     try:
         if input.result_ref is None:
             raise RuntimeError("raw-data subroutine completed without a result ref")
         result = _read_raw_data_json(input.result_ref)
-        dataframe = _read_raw_data_artifact_frame(result["dataframe_ref"])
-        ingestion_result = IngestionResult(
-            dataframe=dataframe,
-            column_descriptions=dict(result["column_descriptions"]),
-        )
-        payload = build_raw_data_payload(ingestion_result)
+        with storage.open_file(result["table_ref"], "rb") as file:
+            table = pa.ipc.open_file(file).read_all()
 
         store = ArtifactStore(input.workspace_id)
         produced = [
@@ -119,8 +107,7 @@ async def finalize_raw_data_activity(input: SingleLLMTransitionFinalizeInput) ->
                 provenance="computed",
                 derived_from=input.pins,
                 produced_by="run:raw_data",
-                json_files={json_filename("raw_data", "profile"): payload},
-                parquet_files={parquet_filename("raw_data", "raw"): dataframe},
+                parquet_files={parquet_filename("raw_data", "raw"): table},
             )
         ]
         return complete_computed_transition(store, input.state, "raw_data", produced)

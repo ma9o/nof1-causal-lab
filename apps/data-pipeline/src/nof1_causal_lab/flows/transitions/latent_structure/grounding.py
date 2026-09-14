@@ -1,16 +1,8 @@
-"""latent-structure grounding."""
+"""Validate a whole-model candidate for the latent structure operation."""
 
+from nof1_causal_lab.flows.model_authoring import validate_model_submission
 from nof1_causal_lab.json_types import UncheckedJsonObject
 
 
-def latent_structure_grounding(
-    data: UncheckedJsonObject,
-) -> tuple[UncheckedJsonObject | None, str]:
-    """Validate latent structure."""
-    from nof1_causal_lab.artifacts.latent_structure import validate_latent_structure
-
-    _result, errors = validate_latent_structure(data)
-    if errors:
-        return None, "VALIDATION ERRORS:\n" + "\n".join(f"- {e}" for e in errors)
-
-    return {"latent_structure": data}, "VALID"
+def latent_structure_grounding(data: UncheckedJsonObject) -> tuple[UncheckedJsonObject | None, str]:
+    return validate_model_submission(data, measurements=False)

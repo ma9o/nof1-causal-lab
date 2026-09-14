@@ -1,4 +1,4 @@
-"""Reported inference diagnostics and posterior plot data."""
+"""Predictive assessments and scientific posterior summaries."""
 
 from typing import Literal
 
@@ -6,101 +6,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .effects import HistogramBin
 from .identity import IndicatorId, ParameterRef
-
-
-class MCMCParamDiagnostic(BaseModel):
-    """These diagnostics assess convergence and sampling precision for one model parameter."""
-
-    parameter: str
-    subject: ParameterRef
-    r_hat: float | None
-    ess_bulk: float | None
-    ess_tail: float | None = None
-    mcse_mean: float | None = None
-
-
-class TraceChain(BaseModel):
-    """A trace chain stores a thinned sequence of parameter draws from one sampling chain."""
-
-    chain: int
-    values: list[float]
-
-
-class TraceData(BaseModel):
-    """Trace data groups a parameter's sampled paths across chains for visual inspection."""
-
-    parameter: str
-    subject: ParameterRef
-    chains: list[TraceChain]
-
-
-class RankHistogramChain(BaseModel):
-    """This histogram stores one chain's rank counts for a parameter mixing plot."""
-
-    chain: int
-    counts: list[int]
-
-
-class RankHistogram(BaseModel):
-    """A rank histogram compares parameter ranks across chains to assess mixing."""
-
-    parameter: str
-    subject: ParameterRef
-    n_bins: int
-    expected_per_bin: float
-    chains: list[RankHistogramChain]
-
-
-class EnergyHistogram(BaseModel):
-    """An energy histogram supplies bin centers and densities for a sampler energy plot."""
-
-    bin_centers: list[float]
-    density: list[float]
-
-
-class EnergyDiagnostics(BaseModel):
-    """Energy diagnostics assess Hamiltonian sampling through energy distributions and mixing
-    measures.
-    """
-
-    energy_hist: EnergyHistogram
-    energy_transition_hist: EnergyHistogram
-    bfmi: list[float]
-
-
-class MCMCSummary(BaseModel):
-    """MCMC summary records aggregate sampling behavior for one fitted model."""
-
-    num_divergences: int = 0
-    divergence_rate: float = 0.0
-    tree_depth_mean: float = 0.0
-    tree_depth_max: int = 0
-    accept_prob_mean: float = 0.0
-    latent_accept_prob_mean: float | None = None
-    parameter_accept_prob_mean: float | None = None
-    num_chains: int | None = None
-    num_samples: int | None = None
-
-
-class MCMCDiagnostics(MCMCSummary):
-    """MCMC diagnostics add parameter-owned convergence checks and plots to the sampler summary."""
-
-    per_parameter: list[MCMCParamDiagnostic]
-    trace_data: list[TraceData] | None = None
-    rank_histograms: list[RankHistogram] | None = None
-    energy: EnergyDiagnostics | None = None
-
-
-class SMCDiagnostics(BaseModel):
-    """SMC diagnostics track particle sampling through its tempering schedule, effective sample
-    sizes, and acceptance rates.
-    """
-
-    beta_schedule: list[float]
-    ess_history: list[float]
-    accept_rates: list[float]
-    n_levels: int
-    n_particles: int
 
 
 class LOODiagnostics(BaseModel):

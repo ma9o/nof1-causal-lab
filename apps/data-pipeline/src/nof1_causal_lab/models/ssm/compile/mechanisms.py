@@ -1,152 +1,121 @@
-"""Lower scientific mechanisms to native components using persistent graph IDs."""
+"""Bind scientific expression references to numerical state and parameter coordinates."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from nof1_causal_lab.artifacts.mechanism import (
-    ConstantDriftMechanism,
-    EstimatedCoefficient,
-    FixedCoefficient,
-    HillEdgeMechanism,
-    LinearEdgeMechanism,
-    NodePotentialMechanism,
-    mechanism_coefficients,
+from nof1_causal_lab.artifacts.coefficient import FixedCoefficient, ParameterCoefficient
+from nof1_causal_lab.artifacts.construct import CausalEdge, KnownInput
+from nof1_causal_lab.artifacts.expressions import (
+    CoefficientExpression,
+    expression_states,
+    linear_coefficient,
+    map_expression,
 )
-from nof1_causal_lab.artifacts.parameter import SiteKind
-from nof1_causal_lab.models.ssm.dynamics.spec import (
-    DynamicsSpec,
-    HillEdgeSpec,
-    LinearEdgeSpec,
-    NodePotentialSpec,
-    StateInterceptSpec,
-)
-from nof1_causal_lab.models.ssm.structure.parameters import Fixed, Free
+from nof1_causal_lab.compilation_errors import IncompleteModelError
+from nof1_causal_lab.models.ssm.dynamics.expression import ExpressionComponentSpec
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.mechanism import DynamicsMechanism, MechanismCoefficient
-    from nof1_causal_lab.artifacts.statistical_model_spec import StatisticalModelSpec
-    from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
-    from nof1_causal_lab.models.ssm.dynamics.spec import ComponentSpec
-    from nof1_causal_lab.models.ssm.structure.parameters import ParameterSlot
+    from collections.abc import Collection, Iterator, Sequence
+
+    from nof1_causal_lab.artifacts.construct import Construct
+    from nof1_causal_lab.artifacts.mechanism import DynamicsMechanism
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 
-def native_coefficient(coefficient: MechanismCoefficient) -> ParameterSlot:
-    return Fixed(coefficient.value) if isinstance(coefficient, FixedCoefficient) else Free()
+def _is_projected_loading(
+    owner: Construct | CausalEdge,
+    mechanism: DynamicsMechanism,
+    retained_states: Collection[str],
+) -> bool:
+    if (
+        not isinstance(owner, CausalEdge)
+        or owner.cause.id in retained_states
+        or isinstance(owner.cause.usage, KnownInput)
+    ):
+        return False
+    weight = linear_coefficient(mechanism.expression, owner.cause.id)
+    if not isinstance(weight, FixedCoefficient):
+        raise ValueError("Marginalized confounders support fixed linear loadings")
+    return True
 
 
-def coefficient_quantities(
-    mechanism: DynamicsMechanism, plan: StructuralPlan
-) -> dict[str, SiteKind]:
-    match mechanism:
-        case NodePotentialMechanism():
-            return {
-                "center": SiteKind.DYNAMICS_POTENTIAL_CENTER,
-                "stiffness": SiteKind.DYNAMICS_DECAY,
-                "quartic": SiteKind.DYNAMICS_POTENTIAL_QUARTIC,
-            }
-        case ConstantDriftMechanism():
-            return {"intercept": SiteKind.DYNAMICS_CINT}
-        case LinearEdgeMechanism():
-            edge = plan.semantics.edges[mechanism.edge_id]
-            known_input = edge.cause_id in {item.construct_id for item in plan.known_inputs}
-            return {"weight": SiteKind.INPUT_EFFECT if known_input else SiteKind.DYNAMICS_WEIGHT}
-        case HillEdgeMechanism():
-            return {"emax": SiteKind.HILL_EMAX, "ec50": SiteKind.HILL_EC50, "n": SiteKind.HILL_N}
-
-
-def lower_mechanisms(model: StatisticalModelSpec, plan: StructuralPlan) -> DynamicsSpec:
-    """Resolve graph IDs once; the native engine receives only indices and fixed/free slots.
-
-    Bindings are keyed by scientific parameter ID. Component aliases remain
-    runtime descriptions and never select a mechanism or its scientific owner.
-    """
-    state_index = {key: index for index, key in enumerate(plan.state_order)}
-    retained_edges = {edge.source_id: edge for edge in plan.edges}
-    definitions = {parameter.id: parameter for parameter in model.parameters}
-    components: list[ComponentSpec] = []
-    bound_parameters: set[str] = set()
+def lower_mechanisms(model: ModelSpec) -> tuple[ExpressionComponentSpec, ...]:
+    """Require executable coverage, then bind every scalar expression without kind dispatch."""
+    states = set(model.state_order)
+    retained_edges = {edge.id for edge in model.execution_edges}
     modeled_edges: set[str] = set()
     modeled_nodes: set[str] = set()
-
-    for mechanism in model.mechanisms:
-        if isinstance(mechanism, (NodePotentialMechanism, ConstantDriftMechanism)):
-            owners = {mechanism.target_id}
+    for owner, mechanism in model.iter_mechanisms():
+        if _is_projected_loading(owner, mechanism, states):
+            continue
+        if isinstance(owner, CausalEdge):
+            if owner.id not in retained_edges:
+                raise ValueError(f"Mechanism references unknown retained edge {owner.id!r}")
+            dependencies = expression_states(mechanism.expression)
+            modeled_edges.update(
+                edge.id
+                for edge in model.edges
+                if edge.effect.id == owner.effect.id and edge.cause.id in dependencies
+            )
         else:
-            if mechanism.edge_id not in retained_edges:
-                raise ValueError(
-                    f"Mechanism references unknown retained edge {mechanism.edge_id!r}"
-                )
-            edge = retained_edges[mechanism.edge_id]
-            owners = {edge.source_id, edge.cause_id, edge.effect_id}
-        quantities = coefficient_quantities(mechanism, plan)
-        for slot, coefficient in mechanism_coefficients(mechanism).items():
-            if not isinstance(coefficient, EstimatedCoefficient):
-                continue
-            definition = definitions[coefficient.parameter_id]
-            quantity = quantities[slot]
-            if definition.quantity != quantity:
-                raise ValueError(
-                    f"Mechanism coefficient {slot!r} requires {quantity.value}, "
-                    f"but {definition.name!r} declares {definition.quantity.value}"
-                )
-            if not owners <= {owner.id for owner in definition.owners}:
-                raise ValueError(
-                    f"Parameter {definition.name!r} owners disagree with its mechanism"
-                )
-            if definition.id in bound_parameters:
-                raise ValueError("One parameter cannot own multiple independent runtime sites")
-            bound_parameters.add(definition.id)
-
-        if isinstance(mechanism, (NodePotentialMechanism, ConstantDriftMechanism)):
-            if mechanism.target_id not in state_index:
-                raise ValueError(
-                    f"Mechanism references unknown retained state {mechanism.target_id!r}"
-                )
-            target = state_index[mechanism.target_id]
-            modeled_nodes.add(mechanism.target_id)
-            if plan.semantics.constructs[mechanism.target_id].temporal_status == "time_invariant":
+            if owner.id not in states:
+                raise ValueError(f"Mechanism references unknown retained state {owner.id!r}")
+            if owner.temporal_status == "time_invariant":
                 raise ValueError("Time-invariant states cannot have drift mechanisms")
-            if isinstance(mechanism, NodePotentialMechanism):
-                component = NodePotentialSpec(
-                    target=target,
-                    center=native_coefficient(mechanism.center),
-                    stiffness=native_coefficient(mechanism.stiffness),
-                    quartic=native_coefficient(mechanism.quartic),
-                )
-            else:
-                component = StateInterceptSpec(target=target)
-        else:
-            edge = retained_edges[mechanism.edge_id]
-            modeled_edges.add(mechanism.edge_id)
-            if edge.cause_id not in state_index:
-                if not isinstance(mechanism, LinearEdgeMechanism):
-                    raise ValueError("Known inputs currently support linear mechanisms")
-                # Known-input effects lower to the existing input matrix block.
-                continue
-            source, target = state_index[edge.cause_id], state_index[edge.effect_id]
-            if isinstance(mechanism, LinearEdgeMechanism):
-                component = LinearEdgeSpec(source=source, target=target)
-            else:
-                component = HillEdgeSpec(
-                    source=source,
-                    target=target,
-                    emax=native_coefficient(mechanism.emax),
-                    ec50=native_coefficient(mechanism.ec50),
-                    n=native_coefficient(mechanism.n),
-                )
-
-        components.append(component)
-
+            modeled_nodes.add(owner.id)
     expected_nodes = {
-        key
-        for key in plan.state_order
-        if plan.semantics.constructs[key].temporal_status != "time_invariant"
+        key for key in states if model.get_construct(key).temporal_status != "time_invariant"
     }
-    if modeled_nodes != expected_nodes or modeled_edges != set(retained_edges):
-        raise ValueError(
+    if modeled_nodes != expected_nodes or modeled_edges != retained_edges:
+        raise IncompleteModelError(
             "Mechanisms must cover the retained dynamic states and edges: "
             f"missing states={sorted(expected_nodes - modeled_nodes)}, "
-            f"missing edges={sorted(set(retained_edges) - modeled_edges)}"
+            f"missing edges={sorted(retained_edges - modeled_edges)}"
         )
-    return DynamicsSpec(n_latent=len(state_index), components=tuple(components))
+    return tuple(component for _, component in iter_mechanism_components(model, model.state_order))
+
+
+def iter_mechanism_components(
+    model: ModelSpec, state_order: Sequence[str]
+) -> Iterator[tuple[DynamicsMechanism, ExpressionComponentSpec]]:
+    """Emit a bound expression alongside the exact scientific term that produced it."""
+    state_index = {key: index for index, key in enumerate(state_order)}
+    input_edges: set[str] = set()
+
+    def resolve_constant(node):
+        if isinstance(node, CoefficientExpression) and isinstance(
+            node.coefficient, ParameterCoefficient
+        ):
+            value = model.parameter(node.coefficient.parameter_id).value
+            if value is not None:
+                return CoefficientExpression(
+                    role=node.role, coefficient=FixedCoefficient(value=value)
+                )
+        return node
+
+    for owner, mechanism in model.iter_mechanisms():
+        if _is_projected_loading(owner, mechanism, state_index):
+            continue
+        if isinstance(owner, CausalEdge):
+            if isinstance(owner.cause.usage, KnownInput):
+                linear_coefficient(mechanism.expression, owner.cause.id)
+                if owner.id in input_edges:
+                    raise ValueError(
+                        "Known-input edges support one linear expression per input matrix cell"
+                    )
+                input_edges.add(owner.id)
+                continue
+            target = state_index[owner.effect.id]
+        else:
+            target = state_index[owner.id]
+        yield (
+            mechanism,
+            ExpressionComponentSpec(
+                expression=map_expression(mechanism.expression, resolve_constant),
+                target=target,
+                state_ids=tuple(state_order),
+                source=state_index[owner.cause.id] if isinstance(owner, CausalEdge) else None,
+                kind=mechanism.kind,
+            ),
+        )

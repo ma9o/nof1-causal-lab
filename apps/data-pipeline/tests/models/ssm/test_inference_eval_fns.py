@@ -52,7 +52,7 @@ def _build_test_evaluators(monkeypatch, *, runtime: bool, backend: _RecordingBac
         assembled_samples.append(samples)
         return "dynamics", "measurement", "initial", {"obs_df": 5.0}
 
-    monkeypatch.setattr(inference_utils, "_assemble_likelihood_inputs", assemble)
+    monkeypatch.setattr(inference_utils, "assemble_likelihood_inputs", assemble)
     parameters = Parameterization(
         initial_position=jnp.asarray(0.0),
         unravel=lambda z: {"theta": z},

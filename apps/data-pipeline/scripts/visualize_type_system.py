@@ -4,7 +4,8 @@ Run from the repository root with ``bun run types:graph`` for the compact map.
 Use ``--view semantic``, ``--view artifacts``, or ``--view machine`` to focus on
 one interface. ``--detail full`` keeps every type and its opening role sentence;
 ``--root TypeName`` follows any individual type's dependencies.
-Sections group types by concern; colors describe their conceptual role.
+The scientific model groups data, model choices, checks, inference, and analysis.
+Colors describe conceptual roles. Cross-group references do not set layout ranks.
 Red borders and titles highlight central domain objects; hover for their role.
 Edges mean "has a field referencing this type", not causal relationships.
 Requires the Graphviz ``dot`` executable.
@@ -23,7 +24,12 @@ from typing import TYPE_CHECKING
 
 import networkx as nx
 
-from scripts.type_system_catalog import CONCERNS, CORE_DOMAIN_OBJECTS, LAYERS
+from scripts.type_system_catalog import (
+    CONCERNS,
+    CORE_DOMAIN_OBJECTS,
+    LAYERS,
+    SCIENTIFIC_MODEL_GROUPS,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -288,10 +294,12 @@ def graph_dot(graph: nx.DiGraph, title: str) -> str:
     def quote(value: object) -> str:
         return json.dumps(value, ensure_ascii=False)
 
-    # Global ranking lets references enter any level of another concern's cluster.
+    # Rank dependencies within each group; references to other subjects must not
+    # pull otherwise independent groups across the full width of the diagram.
+    layout_groups = {name: data["concern"] for name, data in graph.nodes(data=True)}
     lines = [
         "digraph BackendTypes {",
-        f'  graph [rankdir=LR, newrank=true, bgcolor="#f8fafc", pad=0.4, nodesep=0.25, ranksep=1.1, label={quote(title)}, labelloc=t, fontname=Helvetica, fontsize=24];',
+        f'  graph [rankdir=LR, newrank=true, bgcolor="#f8fafc", pad=0.4, nodesep=0.25, ranksep=0.55, label={quote(title)}, labelloc=t, fontname=Helvetica, fontsize=24];',
         '  node [shape=box, style="rounded,filled", fillcolor="#ffffff", color="#cbd5e1", fontname=Helvetica, fontsize=12, margin="0.16,0.10"];',
         '  edge [color="#94a3b8", fontcolor="#475569", fontname=Helvetica, fontsize=9, arrowsize=0.65];',
     ]
@@ -326,7 +334,27 @@ def graph_dot(graph: nx.DiGraph, title: str) -> str:
         lines.append(
             f'    graph [label={quote(f"{label} · {count}")}, labeljust=l, fontsize=20, fontcolor="#0f172a", color="#94a3b8", style="rounded,filled", fillcolor="#ffffff", margin=24];'
         )
-        lines.extend(f"    {quote(name)};" for name in members)
+        grouped: set[str] = set()
+        if concern == "scientific_model":
+            for group, (group_label, modules) in SCIENTIFIC_MODEL_GROUPS.items():
+                owners = {f"nof1_causal_lab.{module}" for module in modules}
+                group_members = [
+                    name
+                    for name in members
+                    if graph.nodes[name]["schema"].get("x-python-module") in owners
+                ]
+                if not group_members:
+                    continue
+                grouped.update(group_members)
+                layout_groups.update(dict.fromkeys(group_members, f"{concern}/{group}"))
+                lines.append(f"    subgraph cluster_{concern}_{group} {{")
+                lines.append(
+                    f"      graph [label={quote(group_label)}, fontsize=16, "
+                    'color="#e2e8f0", fillcolor="#f8fafc", margin=16];'
+                )
+                lines.extend(f"      {quote(name)};" for name in group_members)
+                lines.append("    }")
+        lines.extend(f"    {quote(name)};" for name in members if name not in grouped)
         lines.append("  }")
     for name in sorted(graph):
         color = LAYERS[graph.nodes[name]["layer"]][1]
@@ -359,8 +387,17 @@ def graph_dot(graph: nx.DiGraph, title: str) -> str:
             ("sourced_fields", ', style=dashed, color="#7c3aed", fontcolor="#6d28d9"'),
         ):
             if data.get(field_kind):
-                label = ", ".join(sorted(data[field_kind]))
-                lines.append(f"  {quote(source)} -> {quote(target)} [label={quote(label)}{style}];")
+                label = "\n".join(
+                    wrap(", ".join(sorted(data[field_kind])), width=36, break_long_words=False)
+                )
+                label_attribute = "label"
+                if layout_groups[source] != layout_groups[target]:
+                    style += ", constraint=false"
+                    # Place these labels after layout, without introducing rank nodes.
+                    label_attribute = "xlabel"
+                lines.append(
+                    f"  {quote(source)} -> {quote(target)} [{label_attribute}={quote(label)}{style}];"
+                )
     lines.append("}")
     return "\n".join(lines) + "\n"
 

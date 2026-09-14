@@ -10,13 +10,13 @@ production while persisting:
 
 Example:
     uv run modal run scripts/cached_fit.py \
-        --compiled-ssm ../../scratchpad/fit-input/compiled_ssm.json \
+        --model-spec ../../scratchpad/fit-input/model.json \
         --panel ../../scratchpad/fit-input/panel.bin \
         --label nine-construct
 
 Sampler overrides are a JSON object:
     uv run modal run scripts/cached_fit.py \
-        --compiled-ssm ../../scratchpad/fit-input/compiled_ssm.json \
+        --model-spec ../../scratchpad/fit-input/model.json \
         --panel ../../scratchpad/fit-input/panel.bin \
         --sampler-overrides ../../scratchpad/fit-input/sampler_overrides.json
 """
@@ -127,7 +127,7 @@ def source_environment_fingerprint(pipeline_root: Path) -> str:
 
 
 def fit_input_fingerprint(
-    compiled_payload: JsonDict,
+    model_payload: JsonDict,
     panel_payload: bytes,
     *,
     panel_format: PanelFormat,
@@ -135,7 +135,7 @@ def fit_input_fingerprint(
     """Hash the complete compiled artifact and exact observation payload."""
     digest = hashlib.sha256()
     _update_digest(digest, "schema_version", str(CACHE_SCHEMA_VERSION).encode())
-    _update_digest(digest, "compiled_ssm", _canonical_json_bytes(compiled_payload))
+    _update_digest(digest, "model_spec", _canonical_json_bytes(model_payload))
     _update_digest(digest, f"panel:{panel_format}", panel_payload)
     return digest.hexdigest()
 
@@ -618,21 +618,21 @@ def _persist_inference(
     *,
     result_dir: Path,
     fitted: JsonDict,
-    compiled_payload: JsonDict,
+    model_payload: JsonDict,
     panel_payload: bytes,
     panel_format: PanelFormat,
     sampler_config: JsonDict,
     cache_summary: JsonDict,
 ) -> None:
-    import pickle
+    from functools import cache, partial
 
-    from nof1_causal_lab.models.ssm.inference.types import (
-        _serialize_fitted_result,
-    )
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.models.ssm.inference.persistence import condition_model
+    from nof1_causal_lab.utils.arrays import read_array, write_array
 
     result = fitted["result"]
     samples = result.get_samples()
-    latent_paths = result.get_latent_paths()
+    latent_paths = result.draws.latent_paths
     _savez_compressed(
         result_dir / "posterior_samples.npz",
         {name: np.asarray(value) for name, value in samples.items()},
@@ -661,9 +661,15 @@ def _persist_inference(
             result_dir / "diagnostic_arrays.npz",
             diagnostic_arrays,
         )
-    with (result_dir / "posterior.pkl").open("wb") as file:
-        pickle.dump(_serialize_fitted_result(result), file)
-    (result_dir / "compiled_ssm.json").write_bytes(_canonical_json_bytes(compiled_payload))
+    conditioned = condition_model(
+        ModelSpec.model_validate(model_payload),
+        result,
+        times=fitted["times"],
+        array_writer=partial(write_array, str(result_dir / "arrays")),
+        array_loader=cache(partial(read_array, str(result_dir / "arrays"))),
+    )
+    (result_dir / "input-model.json").write_bytes(_canonical_json_bytes(model_payload))
+    (result_dir / "model.json").write_text(conditioned.model_dump_json())
     panel_suffix = "bin" if panel_format == "binary" else "parquet"
     (result_dir / f"panel.{panel_suffix}").write_bytes(panel_payload)
     (result_dir / "sampler_config.json").write_text(
@@ -688,7 +694,7 @@ def _persist_inference(
     },
 )
 def run_cached_fit(
-    compiled_payload: JsonDict,
+    model_payload: JsonDict,
     panel_payload: bytes,
     panel_format: PanelFormat,
     sampler_overrides: JsonDict,
@@ -700,7 +706,7 @@ def run_cached_fit(
     """Run one production fit and persist all reusable development artifacts."""
     import logging
 
-    from nof1_causal_lab.artifacts.compiled_ssm import CompiledSSMArtifact
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.flows.transitions.inference.fit import fit_model, run_ppc
     from nof1_causal_lab.models.ssm.runtime import prepare_model_runtime
 
@@ -710,11 +716,11 @@ def run_cached_fit(
     )
     started = time.monotonic()
     label = _validate_label(label)
-    compiled = CompiledSSMArtifact.model_validate(compiled_payload)
+    model_spec = ModelSpec.model_validate(model_payload)
     panel = _deserialize_panel(panel_payload, panel_format)
     sampler_config = _resolved_sampler_config(sampler_overrides)
     input_fingerprint = fit_input_fingerprint(
-        compiled_payload,
+        model_payload,
         panel_payload,
         panel_format=panel_format,
     )
@@ -734,7 +740,7 @@ def run_cached_fit(
             warmup_t0 = time.monotonic()
             runtime = prepare_model_runtime(
                 data_for_model=panel,
-                compiled_ssm=compiled,
+                model_spec=model_spec,
                 sampler_config=cast("Any", sampler_config),
             )
             warmup = _prepare_pathfinder_warmup(runtime, sampler_config)
@@ -760,7 +766,7 @@ def run_cached_fit(
 
     try:
         fitted = fit_model(
-            compiled,
+            model_spec,
             panel,
             sampler_config=cast("Any", fit_sampler_config),
             workspace_id=None,
@@ -778,14 +784,15 @@ def run_cached_fit(
         _persist_inference(
             result_dir=result_dir,
             fitted=fitted,
-            compiled_payload=compiled_payload,
+            model_payload=model_payload,
             panel_payload=panel_payload,
             panel_format=panel_format,
             sampler_config=sampler_config,
             cache_summary=cache_summary,
         )
 
-        mcmc_diagnostics = fitted.get("mcmc_diagnostics")
+        inference_diagnostics = fitted["inference_diagnostics"]
+        mcmc_diagnostics = inference_diagnostics.get("mcmc")
         pre_ppc_summary = {
             "completed": False,
             "status": "inference_complete",
@@ -800,8 +807,8 @@ def run_cached_fit(
         (result_dir / "summary.json").write_text(
             json.dumps(_jsonable(pre_ppc_summary), indent=2, allow_nan=False)
         )
-        (result_dir / "mcmc_diagnostics.json").write_text(
-            json.dumps(_jsonable(mcmc_diagnostics), indent=2, allow_nan=False)
+        (result_dir / "inference_diagnostics.json").write_text(
+            json.dumps(_jsonable(inference_diagnostics), indent=2, allow_nan=False)
         )
         results_volume.commit()
 
@@ -815,7 +822,7 @@ def run_cached_fit(
         )
         (result_dir / "ppc.json").write_text(json.dumps(_jsonable(ppc), indent=2, allow_nan=False))
         samples = result.get_samples()
-        latent_paths = result.get_latent_paths()
+        latent_paths = result.draws.latent_paths
         summary = {
             **pre_ppc_summary,
             "completed": True,
@@ -857,7 +864,7 @@ def _load_json_object(path: Path) -> JsonDict:
 
 @app.local_entrypoint()
 def main(
-    compiled_ssm: str,
+    model_spec: str,
     panel: str,
     label: str = "fit",
     sampler_overrides: str = "",
@@ -866,10 +873,10 @@ def main(
     run_ppc_checks: bool = True,
 ) -> None:
     """Load local fit inputs and dispatch the canonical cached Modal runner."""
-    compiled_path = Path(compiled_ssm).expanduser().resolve()
+    model_path = Path(model_spec).expanduser().resolve()
     panel_path = Path(panel).expanduser().resolve()
-    if not compiled_path.is_file():
-        raise ValueError(f"Compiled SSM file does not exist: {compiled_path}")
+    if not model_path.is_file():
+        raise ValueError(f"ModelSpec file does not exist: {model_path}")
     if not panel_path.is_file():
         raise ValueError(f"Panel file does not exist: {panel_path}")
     resolved_panel_format = _infer_panel_format(panel_path, panel_format)
@@ -879,7 +886,7 @@ def main(
         else {}
     )
     summary = run_cached_fit.remote(
-        _load_json_object(compiled_path),
+        _load_json_object(model_path),
         panel_path.read_bytes(),
         resolved_panel_format,
         overrides,

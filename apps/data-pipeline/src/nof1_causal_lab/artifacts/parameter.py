@@ -50,7 +50,6 @@ class PriorAuthoringTransform(StrEnum):
     """How an authored semantic prior is transformed before site attachment."""
 
     IDENTITY = "identity"
-    POSITIVE_IDENTITY = "positive_identity"
     DT_PERSISTENCE_TO_CT_DECAY = "dt_persistence_to_ct_decay"
     DT_EFFECT_TO_CT_RATE = "dt_effect_to_ct_rate"
     INITIAL_STATE_CORRELATION = "initial_state_correlation"

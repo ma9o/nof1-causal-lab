@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, TypedDict, override
+from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
 import jax.numpy as jnp
 
@@ -28,11 +28,8 @@ from nof1_causal_lab.models.ssm.inference.shared import _filter_public_samples
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
-    from nof1_causal_lab.artifacts.posterior import PosteriorProvenance
     from nof1_causal_lab.json_types import JsonObject
     from nof1_causal_lab.models.ssm.inference.mcmc_state import TrajectoryMCMCResult
-    from nof1_causal_lab.models.ssm.model import SSMSpec
-    from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +136,7 @@ class JointPosteriorDraws:
 
     parameters: dict[str, jnp.ndarray]
     latent_paths: jnp.ndarray | None = None
+    state_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         counts = set()
@@ -150,6 +148,11 @@ class JointPosteriorDraws:
             if self.latent_paths.ndim != 3:
                 raise ValueError("Posterior latent paths require draw, time, and state axes")
             counts.add(self.latent_paths.shape[0])
+            if self.state_ids and (
+                len(self.state_ids) != self.latent_paths.shape[2]
+                or len(set(self.state_ids)) != len(self.state_ids)
+            ):
+                raise ValueError("Latent state IDs must label the state axis exactly")
         if len(counts) > 1:
             raise ValueError("Posterior parameters and latent paths must share the draw axis")
 
@@ -161,6 +164,7 @@ class JointPosteriorDraws:
             raise ValueError("Posterior contains no draws")
         return PosteriorDrawsInfo(
             n_draws=counts[0],
+            state_ids=self.state_ids,
             parameter_shapes={
                 name: list(values.shape[1:]) for name, values in self.parameters.items()
             },
@@ -184,6 +188,19 @@ class ParticleMCMCPosterior:
     def get_samples(self) -> dict[str, jnp.ndarray]:
         """Return parameter draws aligned with the retained latent trajectories."""
         return self.draws.parameters
+
+    def get_inference_diagnostics(self) -> JsonObject:
+        """Report engine telemetry without a public sampler-specific schema."""
+        result: JsonObject = {}
+        mcmc = self.get_mcmc_diagnostics()
+        if mcmc is not None:
+            result["mcmc"] = mcmc
+        smc = self.get_smc_diagnostics()
+        if smc is not None:
+            result["smc"] = smc
+        if "marginal_particle_gibbs" in self.diagnostics:
+            result["marginal_particle_gibbs"] = self.diagnostics["marginal_particle_gibbs"]
+        return result
 
     def get_mcmc_diagnostics(self) -> JsonObject | None:
         """Extract JSON-serializable MCMC diagnostics."""
@@ -339,47 +356,3 @@ class ParticleMCMCPosterior:
             max_params,
             max_samples,
         )
-
-
-def _serialize_fitted_result(result: ParticleMCMCPosterior) -> ParticleMCMCPosterior:
-    """Persist the joint posterior and engine evidence; discard live sampler diagnostics."""
-    return ParticleMCMCPosterior(draws=result.draws, evidence=result.evidence)
-
-
-@dataclass(frozen=True)
-class FittedArtifact:
-    """Canonical persisted output of inference."""
-
-    result: ParticleMCMCPosterior
-    spec: SSMSpec
-    times: jnp.ndarray
-    provenance: PosteriorProvenance
-    observation_support: ObservationSupportRuntime | None = None
-
-    @override
-    def __getstate__(self) -> FittedArtifactState:
-        """Persist only the analysis inputs, never live inference caches/backends."""
-        return {
-            "result": _serialize_fitted_result(self.result),
-            "spec": self.spec,
-            "times": self.times,
-            "provenance": self.provenance,
-            "observation_support": self.observation_support,
-        }
-
-    def __setstate__(self, state: FittedArtifactState) -> None:
-        object.__setattr__(self, "result", state["result"])
-        object.__setattr__(self, "spec", state["spec"])
-        object.__setattr__(self, "times", state["times"])
-        object.__setattr__(self, "provenance", state["provenance"])
-        object.__setattr__(self, "observation_support", state["observation_support"])
-
-
-class FittedArtifactState(TypedDict):
-    """Pickled analysis-only state for a fitted artifact."""
-
-    result: ParticleMCMCPosterior
-    spec: SSMSpec
-    times: jnp.ndarray
-    provenance: PosteriorProvenance
-    observation_support: ObservationSupportRuntime | None

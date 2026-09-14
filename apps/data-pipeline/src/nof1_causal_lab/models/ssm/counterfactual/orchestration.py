@@ -13,6 +13,7 @@ from nof1_causal_lab.artifacts.effects import validate_effect_horizons
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.models.ssm.dynamics import (
     Intervention,
+    SimulationConfig,
     VariableOverride,
     VectorField,
     compute_steady_state,
@@ -92,7 +93,7 @@ def compute_interventions(
     treatments: list[str],
     outcome: str,
     latent_names: list[str],
-    causal_design: UncheckedJsonObject | None = None,
+    measurement_clock: str | None = None,
     manifest_names: list[str] | None = None,
     times: jnp.ndarray | None = None,
     shift_size: float = 1.0,
@@ -115,7 +116,7 @@ def compute_interventions(
         logger.warning("No posterior parameter samples for vector-field intervention")
         return [_skeleton(t) for t in treatments]
 
-    time_grid = _build_horizon_grid(causal_design, times, horizon_days=max(horizons_days))
+    time_grid = _build_horizon_grid(measurement_clock, times, horizon_days=max(horizons_days))
 
     results: list[UncheckedJsonObject] = []
     for treatment_name in treatments:
@@ -183,7 +184,7 @@ def compute_interventions(
 
 
 def _build_horizon_grid(
-    causal_design: UncheckedJsonObject | None,
+    measurement_clock: str | None,
     times: jnp.ndarray | None,
     horizon_days: float = 30.0,
 ) -> Array | None:
@@ -191,11 +192,10 @@ def _build_horizon_grid(
     median observation spacing. Returns ``None`` when no usable step size
     is available."""
     dt_days: float | None = None
-    model_clock_str = (causal_design or {}).get("measurement", {}).get("model_clock")
-    if model_clock_str:
+    if measurement_clock:
         from nof1_causal_lab.artifacts.duration import parse_duration_to_hours
 
-        dt_days = parse_duration_to_hours(model_clock_str) / 24.0
+        dt_days = parse_duration_to_hours(measurement_clock) / 24.0
     elif times is not None and len(times) > 1:
         diffs = jnp.diff(times)
         dt_days = float(jnp.median(diffs))
@@ -305,6 +305,7 @@ def vmap_simulate_clamps_from_state(
     clamps: list[ClampSpec],
     *,
     time_grid: Array,
+    config: SimulationConfig | None = None,
 ) -> tuple[Array, Array, Array]:
     """Vmapped baseline / clamped / effect trajectories under a composed clamp list.
 
@@ -340,7 +341,7 @@ def vmap_simulate_clamps_from_state(
             intervention = Intervention(
                 overrides=_segment_overrides(clamps, y0, grid_start, grid_end, seg_start_day)
             )
-            seg_ys = simulate(vector_field, params, intervention, state, seg_grid)
+            seg_ys = simulate(vector_field, params, intervention, state, seg_grid, config)
             # Carry the integrated boundary state forward, but emit the *next* segment's
             # pinned boundary point so a window opening mid-rollout shows its jump exactly.
             segment_paths.append(seg_ys[:-1] if seg_idx < n_segments - 1 else seg_ys)
@@ -348,7 +349,7 @@ def vmap_simulate_clamps_from_state(
         return jnp.concatenate(segment_paths, axis=0)
 
     def per_draw(params: tuple[dict[str, Array], ...], y0: Array) -> tuple[Array, Array, Array]:
-        baseline_path = simulate(vector_field, params, Intervention.none(), y0, time_grid)
+        baseline_path = simulate(vector_field, params, Intervention.none(), y0, time_grid, config)
         action_path = clamped_path(params, y0)
         return baseline_path, action_path, action_path - baseline_path
 

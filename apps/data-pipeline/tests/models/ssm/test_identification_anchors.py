@@ -11,33 +11,24 @@ from typing import Any
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from pydantic import ValidationError
 
+from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.identity import ConstructRef, IndicatorRef
+from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LikelihoodSpec, LinkFunction
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
-from nof1_causal_lab.artifacts.statistical_model_spec import (
-    DistributionFamily,
-    LikelihoodSpec,
-    LinkFunction,
-    ParameterConstraint,
-    ParameterRole,
+from nof1_causal_lab.artifacts.parameter_spec import (
     ParameterSpec,
-    StatisticalModelSpec,
 )
-from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
-from nof1_causal_lab.flows.transitions.model_spec.agentic.parameter_surfaces import (
-    parameter_is_active_for_statistical_model_spec,
-)
-from nof1_causal_lab.models.ssm.compile.spec_translation import (
-    SpecTranslationError,
-    translate_spec,
-)
+from nof1_causal_lab.models.likelihoods import observation_law
+from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.compile.structural import StructuralClosureError
+from nof1_causal_lab.models.ssm.compile.support import NumericalSupportError
 from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
 from nof1_causal_lab.models.ssm.likelihood_extra_params import assemble_sampled_extra_params
-from nof1_causal_lab.utils.causal_design import build_reference_indicator_lookup
-from tests.helpers import declare_test_dynamics, fixture_entity_id, make_structural_plan
-from tests.ssm_spec_fixtures import block_ssm_spec
+from tests.helpers import declare_test_dynamics, fixture_entity_id, make_model
+from tests.model_fixtures import model_fixture
+from tests.slot_fixtures import fixture_parameter_id, with_likelihood_coefficients
 
 # ═══════════════════════════════════════════════════════════════════════
 # Fixture builders
@@ -67,55 +58,37 @@ def _indicator(
     return indicator
 
 
-def _structural_plan(
+def _structure(
     construct_names: list[str],
     indicators: list[dict[str, Any]],
     *,
     time_invariant: set[str] | None = None,
-) -> StructuralPlan:
-    time_invariant = time_invariant or set()
-    plan = make_structural_plan(construct_names, [])
-    for construct in plan["semantics"]["constructs"].values():
-        construct["temporal_status"] = (
-            "time_invariant" if construct["name"] in time_invariant else "time_varying"
-        )
+) -> ModelSpec:
+    from nof1_causal_lab.artifacts.indicator import Indicator
 
-    construct_ids = {
-        fixture_entity_id("construct", construct["name"]): source_id
-        for source_id, construct in plan["semantics"]["constructs"].items()
-    }
-    indicator_items = {
-        indicator["id"]: {
-            **indicator,
-            "construct_id": construct_ids[indicator["construct_id"]],
-        }
-        for indicator in indicators
-    }
-    plan["semantics"]["indicators"] = indicator_items
-    plan["manifest_indicator_order"] = list(indicator_items)
-    reference_names = build_reference_indicator_lookup(list(indicator_items.values()))
-    indicator_ids = {
-        indicator["name"]: source_id for source_id, indicator in indicator_items.items()
-    }
-    plan["reference_indicator_ids"] = {
-        construct_id: indicator_ids[indicator_name]
-        for construct_id, indicator_name in reference_names.items()
-    }
-    plan["dispositions"] = [
-        disposition
-        for disposition in plan["dispositions"]
-        if disposition["source_kind"] != "indicator"
-    ]
-    plan["dispositions"].extend(
-        {
-            "source_id": source_id,
-            "source_kind": "indicator",
-            "disposition": "manifest",
-            "reason": "test manifest",
-        }
-        for source_id in indicator_items
+    model = make_model(construct_names)
+    return model.revised(
+        edges=replace_constructs(
+            model.edges,
+            tuple(
+                construct.model_copy(
+                    update={
+                        "temporal_status": "time_invariant"
+                        if construct.name in (time_invariant or set())
+                        else "time_varying",
+                        "indicators": tuple(
+                            Indicator.model_validate(
+                                {key: value for key, value in row.items() if key != "construct_id"}
+                            )
+                            for row in indicators
+                            if row["construct_id"] == construct.id
+                        ),
+                    }
+                )
+                for construct in model.constructs
+            ),
+        )
     )
-    return StructuralPlan.model_validate(plan)
 
 
 _LIKELIHOOD_BY_DTYPE = {
@@ -126,38 +99,113 @@ _LIKELIHOOD_BY_DTYPE = {
 }
 
 
-def _likelihood(variable: str, dtype: str) -> LikelihoodSpec:
-    distribution, link = _LIKELIHOOD_BY_DTYPE[dtype]
-    return LikelihoodSpec(
-        indicator_id=fixture_entity_id("indicator", variable),
-        distribution=distribution,
-        link=link,
-        reasoning="test",
-    )
+def _likelihood(variable: str, dtype: str):
+    return fixture_entity_id("indicator", variable), _LIKELIHOOD_BY_DTYPE[dtype]
 
 
-def _model_spec(
-    likelihoods: list[LikelihoodSpec],
+def _with_likelihoods(
+    likelihoods: list[tuple[str, tuple[DistributionFamily, LinkFunction]]],
     parameters: list[ParameterSpec] | None = None,
     *,
-    plan: StructuralPlan,
+    plan: ModelSpec,
     centered_states: tuple[str, ...] = (),
-) -> StatisticalModelSpec:
-    model = StatisticalModelSpec(
-        mechanisms=[], likelihoods=likelihoods, parameters=parameters or []
+) -> ModelSpec:
+    from nof1_causal_lab.models.model_semantics import should_auto_standardize_indicator
+    from nof1_causal_lab.utils.observation_semantics import get_observation_semantics
+
+    selected = {
+        identity: LikelihoodSpec(
+            law=observation_law(plan.indicator_owner(identity).id, family, link), reasoning="test"
+        )
+        for identity, (family, link) in likelihoods
+    }
+    model = plan.revised(
+        edges=replace_constructs(
+            plan.edges,
+            tuple(
+                construct.model_copy(
+                    update={
+                        "indicators": tuple(
+                            indicator.model_copy(
+                                update={
+                                    "likelihood": selected[indicator.id].model_copy(
+                                        update={
+                                            "standardized": should_auto_standardize_indicator(
+                                                selected[indicator.id].law.family,
+                                                selected[indicator.id].terms.link,
+                                                get_observation_semantics(
+                                                    indicator.model_dump(mode="json")
+                                                ).support_kind,
+                                                get_observation_semantics(
+                                                    indicator.model_dump(mode="json")
+                                                ).summary_operator,
+                                            )
+                                        }
+                                    )
+                                }
+                            )
+                            for indicator in construct.indicators
+                        ),
+                    }
+                )
+                for construct in plan.constructs
+            ),
+        )
     )
-    return declare_test_dynamics(model, plan, centered_states=centered_states)
+    from nof1_causal_lab.artifacts.coefficient import ParameterCoefficient
+    from nof1_causal_lab.models.parameter_planning import complete_component_slots
+
+    declared = declare_test_dynamics(model, centered_states=centered_states)
+    replacements = {p.name: p for p in parameters or ()}
+    updated = {p.id: p for p in declared.parameters}
+    constructs = []
+    for construct in declared.constructs:
+        indicators = []
+        for indicator in construct.indicators:
+            parameter = replacements.get(f"manifest_mean_{indicator.name}")
+            if parameter is not None:
+                updated[parameter.id] = parameter
+                indicator = indicator.model_copy(
+                    update={
+                        "likelihood": with_likelihood_coefficients(
+                            indicator.likelihood,
+                            {
+                                "observation_intercept": ParameterCoefficient(
+                                    parameter_id=parameter.id
+                                )
+                            },
+                        )
+                    }
+                )
+            indicators.append(indicator)
+        constructs.append(construct.model_copy(update={"indicators": tuple(indicators)}))
+    declared = declared.revised(
+        edges=replace_constructs(declared.edges, tuple(constructs)),
+        parameters=tuple(updated.values()),
+    )
+    return complete_component_slots(declared)
 
 
-def _manifest_mean(variable: str) -> ParameterSpec:
+def _manifest_mean(variable: str, *, plan: ModelSpec) -> ParameterSpec:
+    iid = fixture_entity_id("indicator", variable)
+    owners = (ConstructRef(id=plan.indicator_owner(iid).id), IndicatorRef(id=iid))
     return ParameterSpec(
-        id="parameter:" + "0" * 64,
-        owners=[IndicatorRef(id=fixture_entity_id("indicator", variable))],
-        quantity=SiteKind.MANIFEST_MEANS,
+        id=fixture_parameter_id(SiteKind.MANIFEST_MEANS, owners),
         name=f"manifest_mean_{variable}",
-        role=ParameterRole.OBSERVATION_INTERCEPT,
-        constraint=ParameterConstraint.NONE,
         description=f"Observation intercept for {variable}",
+    )
+
+
+def _center(plan: ModelSpec) -> ParameterSpec:
+    from nof1_causal_lab.artifacts.identity import MechanismRef
+    from nof1_causal_lab.models.model_mechanisms import default_mechanism_id
+
+    cid = plan.state_order[0]
+    owners = (ConstructRef(id=cid), MechanismRef(id=default_mechanism_id(cid, "node_potential")))
+    return ParameterSpec(
+        id=fixture_parameter_id(SiteKind.DYNAMICS_POTENTIAL_CENTER, owners),
+        name="cint_mood",
+        description="equilibrium center",
     )
 
 
@@ -169,7 +217,7 @@ def _manifest_mean(variable: str) -> ParameterSpec:
 class TestOrderedThresholds:
     def test_cutpoints_keep_free_base(self):
         """The threshold base shifts the cutpoints instead of cancelling out."""
-        spec = block_ssm_spec(
+        spec = model_fixture(
             n_latent=1,
             n_manifest=1,
             dynamics_spec=DynamicsSpec(n_latent=1, components=()),
@@ -189,26 +237,27 @@ class TestOrderedThresholds:
 
     def test_ordinal_only_construct_compiles(self):
         """Well-at-zero anchors location; the fixed logistic link anchors scale."""
-        structural_plan = _structural_plan(["mood"], [_indicator("mood_level", "mood", "ordinal")])
-        spec, _ = translate_spec(
-            _model_spec([_likelihood("mood_level", "ordinal")], plan=structural_plan),
-            structural_plan=structural_plan,
+        model = _structure(["mood"], [_indicator("mood_level", "mood", "ordinal")])
+        spec, _ = (
+            _with_likelihoods([_likelihood("mood_level", "ordinal")], plan=model),
+            numeric.edge_lag_days(
+                _with_likelihoods([_likelihood("mood_level", "ordinal")], plan=model)
+            ),
         )
-        assert spec.manifest_cat_anchor is not None
-        assert not any(spec.manifest_cat_anchor)
-        assert float(spec.lambda_block.template[0, 0]) == 1.0
-        assert not spec.lambda_block.free_support[0, 0]
+        assert numeric.categorical_anchors(spec) is not None
+        assert not any(numeric.categorical_anchors(spec))
+        assert float(numeric.loading_block(spec).template[0, 0]) == 1.0
+        assert not numeric.loading_block(spec).free_support[0, 0]
 
     def test_manifest_intercept_is_rejected_for_threshold_channel(self):
-        structural_plan = _structural_plan(["mood"], [_indicator("mood_level", "mood", "ordinal")])
-        with pytest.raises(SpecTranslationError, match=r"Observation intercept.*is inactive"):
-            translate_spec(
-                _model_spec(
+        model = _structure(["mood"], [_indicator("mood_level", "mood", "ordinal")])
+        with pytest.raises(NumericalSupportError, match=r"Observation intercept.*is inactive"):
+            numeric.validate_execution(
+                _with_likelihoods(
                     [_likelihood("mood_level", "ordinal")],
-                    [_manifest_mean("mood_level")],
-                    plan=structural_plan,
-                ),
-                structural_plan=structural_plan,
+                    [_manifest_mean("mood_level", plan=model)],
+                    plan=model,
+                )
             )
 
 
@@ -219,103 +268,102 @@ class TestOrderedThresholds:
 
 class TestLocationAnchors:
     def test_manifest_intercept_is_rejected_for_standardized_channel(self):
-        structural_plan = _structural_plan(
-            ["mood"], [_indicator("mood_rating", "mood", "continuous")]
-        )
-        with pytest.raises(SpecTranslationError, match=r"Observation intercept.*is inactive"):
-            translate_spec(
-                _model_spec(
+        model = _structure(["mood"], [_indicator("mood_rating", "mood", "continuous")])
+        with pytest.raises(NumericalSupportError, match=r"Observation intercept.*is inactive"):
+            numeric.validate_execution(
+                _with_likelihoods(
                     [_likelihood("mood_rating", "continuous")],
-                    [_manifest_mean("mood_rating")],
-                    plan=structural_plan,
-                ),
-                structural_plan=structural_plan,
+                    [_manifest_mean("mood_rating", plan=model)],
+                    plan=model,
+                )
             )
 
     def test_manifest_intercept_remains_free_for_raw_gaussian_sum_channel(self):
         indicator = _indicator("fill_quantity", "dose", "continuous")
         indicator["aggregation"] = "sum"
-        structural_plan = _structural_plan(["dose"], [indicator])
-        spec, _ = translate_spec(
-            _model_spec(
+        model = _structure(["dose"], [indicator])
+        spec, _ = (
+            _with_likelihoods(
                 [_likelihood("fill_quantity", "continuous")],
-                [_manifest_mean("fill_quantity")],
-                plan=structural_plan,
+                [_manifest_mean("fill_quantity", plan=model)],
+                plan=model,
             ),
-            structural_plan=structural_plan,
+            numeric.edge_lag_days(
+                _with_likelihoods(
+                    [_likelihood("fill_quantity", "continuous")],
+                    [_manifest_mean("fill_quantity", plan=model)],
+                    plan=model,
+                )
+            ),
         )
 
-        assert spec.manifest_standardized == [False]
-        assert spec.manifest_means_block.free_support.tolist() == [True]
+        assert numeric.observation_standardized(spec) == [False]
+        assert numeric.observation_mean_block(spec).free_support.tolist() == [True]
 
     def test_manifest_intercept_remains_free_for_binary_channel(self):
-        structural_plan = _structural_plan(["mood"], [_indicator("mood_flag", "mood", "binary")])
-        spec, _ = translate_spec(
-            _model_spec(
+        model = _structure(["mood"], [_indicator("mood_flag", "mood", "binary")])
+        spec, _ = (
+            _with_likelihoods(
                 [_likelihood("mood_flag", "binary")],
-                [_manifest_mean("mood_flag")],
-                plan=structural_plan,
+                [_manifest_mean("mood_flag", plan=model)],
+                plan=model,
             ),
-            structural_plan=structural_plan,
+            numeric.edge_lag_days(
+                _with_likelihoods(
+                    [_likelihood("mood_flag", "binary")],
+                    [_manifest_mean("mood_flag", plan=model)],
+                    plan=model,
+                )
+            ),
         )
-        assert spec.manifest_means_block.free_support.tolist() == [True]
+        assert numeric.observation_mean_block(spec).free_support.tolist() == [True]
 
     def test_free_center_without_standardized_channel_fails(self):
-        structural_plan = _structural_plan(["mood"], [_indicator("mood_flag", "mood", "binary")])
-        spec = _model_spec(
+        model = _structure(["mood"], [_indicator("mood_flag", "mood", "binary")])
+        spec = _with_likelihoods(
             [_likelihood("mood_flag", "binary")],
-            [
-                ParameterSpec(
-                    id="parameter:cfce07a13aa9f9343382f0cbb7c2f3d3e21a8d5890c53473f4382a8d832e91f8",
-                    owners=[ConstructRef(id=structural_plan.state_order[0])],
-                    quantity=SiteKind.DYNAMICS_POTENTIAL_CENTER,
-                    name="cint_mood",
-                    role=ParameterRole.STATE_INTERCEPT,
-                    constraint=ParameterConstraint.NONE,
-                    description="equilibrium center",
-                )
-            ],
-            centered_states=(structural_plan.state_order[0],),
-            plan=structural_plan,
+            [_center(model)],
+            centered_states=(model.state_order[0],),
+            plan=model,
         )
         with pytest.raises(StructuralClosureError, match="no location anchor"):
-            translate_spec(spec, structural_plan=structural_plan)
+            numeric.validate_execution(spec)
 
     def test_free_center_with_standardized_channel_compiles(self):
-        structural_plan = _structural_plan(
+        model = _structure(
             ["mood"],
             [
                 _indicator("mood_rating", "mood", "continuous"),
                 _indicator("mood_flag", "mood", "binary"),
             ],
         )
-        spec, _ = translate_spec(
-            _model_spec(
+        spec, _ = (
+            _with_likelihoods(
                 [
                     _likelihood("mood_rating", "continuous"),
                     _likelihood("mood_flag", "binary"),
                 ],
-                [
-                    ParameterSpec(
-                        id="parameter:cfce07a13aa9f9343382f0cbb7c2f3d3e21a8d5890c53473f4382a8d832e91f8",
-                        owners=[ConstructRef(id=structural_plan.state_order[0])],
-                        quantity=SiteKind.DYNAMICS_POTENTIAL_CENTER,
-                        name="cint_mood",
-                        role=ParameterRole.STATE_INTERCEPT,
-                        constraint=ParameterConstraint.NONE,
-                        description="equilibrium center",
-                    )
-                ],
-                centered_states=(structural_plan.state_order[0],),
-                plan=structural_plan,
+                [_center(model)],
+                centered_states=(model.state_order[0],),
+                plan=model,
             ),
-            structural_plan=structural_plan,
+            numeric.edge_lag_days(
+                _with_likelihoods(
+                    [
+                        _likelihood("mood_rating", "continuous"),
+                        _likelihood("mood_flag", "binary"),
+                    ],
+                    [_center(model)],
+                    centered_states=(model.state_order[0],),
+                    plan=model,
+                )
+            ),
         )
-        assert spec.manifest_standardized is not None
-        assert spec.manifest_standardized[0]
+        assert numeric.observation_standardized(spec) is not None
+        assert numeric.observation_standardized(spec)[0]
 
     def test_static_t0_mean_gated_without_standardized_channel(self):
-        structural_plan = _structural_plan(
+        model = _structure(
             ["mood", "trait"],
             [
                 _indicator("mood_rating", "mood", "continuous"),
@@ -323,22 +371,30 @@ class TestLocationAnchors:
             ],
             time_invariant={"trait"},
         )
-        spec, _ = translate_spec(
-            _model_spec(
+        spec, _ = (
+            _with_likelihoods(
                 [
                     _likelihood("mood_rating", "continuous"),
                     _likelihood("trait_flag", "binary"),
                 ],
-                plan=structural_plan,
+                plan=model,
             ),
-            structural_plan=structural_plan,
+            numeric.edge_lag_days(
+                _with_likelihoods(
+                    [
+                        _likelihood("mood_rating", "continuous"),
+                        _likelihood("trait_flag", "binary"),
+                    ],
+                    plan=model,
+                )
+            ),
         )
-        assert spec.latent_names is not None
-        trait_index = spec.latent_names.index("trait")
-        assert not spec.t0_means_block.free_support[trait_index]
+        assert numeric.state_names(spec) is not None
+        trait_index = numeric.state_names(spec).index("trait")
+        assert not numeric.initial_mean_block(spec).free_support[trait_index]
 
     def test_static_t0_mean_free_with_standardized_channel(self):
-        structural_plan = _structural_plan(
+        model = _structure(
             ["mood", "trait"],
             [
                 _indicator("mood_rating", "mood", "continuous"),
@@ -346,29 +402,32 @@ class TestLocationAnchors:
             ],
             time_invariant={"trait"},
         )
-        spec, _ = translate_spec(
-            _model_spec(
+        spec, _ = (
+            _with_likelihoods(
                 [
                     _likelihood("mood_rating", "continuous"),
                     _likelihood("trait_score", "continuous"),
                 ],
-                plan=structural_plan,
+                plan=model,
             ),
-            structural_plan=structural_plan,
+            numeric.edge_lag_days(
+                _with_likelihoods(
+                    [
+                        _likelihood("mood_rating", "continuous"),
+                        _likelihood("trait_score", "continuous"),
+                    ],
+                    plan=model,
+                )
+            ),
         )
-        assert spec.latent_names is not None
-        trait_index = spec.latent_names.index("trait")
-        assert spec.t0_means_block.free_support[trait_index]
+        assert numeric.state_names(spec) is not None
+        trait_index = numeric.state_names(spec).index("trait")
+        assert numeric.initial_mean_block(spec).free_support[trait_index]
 
-    def test_construct_without_indicators_fails(self):
-        with pytest.raises(
-            ValidationError,
-            match="retained states lack manifest indicators",
-        ):
-            _structural_plan(
-                ["mood", "ghost"],
-                [_indicator("mood_rating", "mood", "continuous")],
-            )
+    def test_unmeasured_construct_stays_scientific_without_an_unidentified_state(self):
+        plan = _structure(["mood", "ghost"], [_indicator("mood_rating", "mood", "continuous")])
+        assert plan.get_construct(fixture_entity_id("construct", "ghost")).indicators == ()
+        assert fixture_entity_id("construct", "ghost") not in plan.state_order
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -378,40 +437,48 @@ class TestLocationAnchors:
 
 class TestCategoricalAnchors:
     def test_categorical_loading_pinned_in_mixed_construct(self):
-        structural_plan = _structural_plan(
+        model = _structure(
             ["mood"],
             [
                 _indicator("mood_rating", "mood", "continuous"),
                 _indicator("mood_kind", "mood", "categorical"),
             ],
         )
-        spec, _ = translate_spec(
-            _model_spec(
+        spec, _ = (
+            _with_likelihoods(
                 [
                     _likelihood("mood_rating", "continuous"),
                     _likelihood("mood_kind", "categorical"),
                 ],
-                plan=structural_plan,
+                plan=model,
             ),
-            structural_plan=structural_plan,
+            numeric.edge_lag_days(
+                _with_likelihoods(
+                    [
+                        _likelihood("mood_rating", "continuous"),
+                        _likelihood("mood_kind", "categorical"),
+                    ],
+                    plan=model,
+                )
+            ),
         )
-        assert spec.manifest_names is not None
-        assert spec.manifest_cat_anchor is not None
-        cat_row = spec.manifest_names.index("mood_kind")
-        assert float(spec.lambda_block.template[cat_row, 0]) == 1.0
-        assert not spec.lambda_block.free_support[cat_row, 0]
-        assert not spec.manifest_cat_anchor[cat_row]
+        assert numeric.observation_names(spec) is not None
+        assert numeric.categorical_anchors(spec) is not None
+        cat_row = numeric.observation_names(spec).index("mood_kind")
+        assert float(numeric.loading_block(spec).template[cat_row, 0]) == 1.0
+        assert not numeric.loading_block(spec).free_support[cat_row, 0]
+        assert not numeric.categorical_anchors(spec)[cat_row]
 
     def test_all_categorical_construct_gets_anchor_slope(self):
-        structural_plan = _structural_plan(
-            ["mood"], [_indicator("mood_kind", "mood", "categorical")]
+        model = _structure(["mood"], [_indicator("mood_kind", "mood", "categorical")])
+        spec, _ = (
+            _with_likelihoods([_likelihood("mood_kind", "categorical")], plan=model),
+            numeric.edge_lag_days(
+                _with_likelihoods([_likelihood("mood_kind", "categorical")], plan=model)
+            ),
         )
-        spec, _ = translate_spec(
-            _model_spec([_likelihood("mood_kind", "categorical")], plan=structural_plan),
-            structural_plan=structural_plan,
-        )
-        assert spec.manifest_cat_anchor == [True]
-        assert spec.manifest_level_counts == [3]
+        assert numeric.categorical_anchors(spec) == [True]
+        assert numeric.observation_level_counts(spec) == [3]
 
         extra = assemble_sampled_extra_params(
             spec,
@@ -423,17 +490,14 @@ class TestCategoricalAnchors:
         np.testing.assert_allclose(np.asarray(extra["obs_cat_slopes"]), np.array([[1.0, 2.0]]))
 
     def test_manifest_intercept_is_rejected_for_categorical_channel(self):
-        structural_plan = _structural_plan(
-            ["mood"], [_indicator("mood_kind", "mood", "categorical")]
-        )
-        with pytest.raises(SpecTranslationError, match=r"Observation intercept.*is inactive"):
-            translate_spec(
-                _model_spec(
+        model = _structure(["mood"], [_indicator("mood_kind", "mood", "categorical")])
+        with pytest.raises(NumericalSupportError, match=r"Observation intercept.*is inactive"):
+            numeric.validate_execution(
+                _with_likelihoods(
                     [_likelihood("mood_kind", "categorical")],
-                    [_manifest_mean("mood_kind")],
-                    plan=structural_plan,
-                ),
-                structural_plan=structural_plan,
+                    [_manifest_mean("mood_kind", plan=model)],
+                    plan=model,
+                )
             )
 
 
@@ -444,119 +508,59 @@ class TestCategoricalAnchors:
 
 class TestAnchorSurfaces:
     def test_reference_prefers_continuous_over_ordinal(self):
-        structural_plan = _structural_plan(
+        model = _structure(
             ["mood"],
             [
                 _indicator("mood_level", "mood", "ordinal"),
                 _indicator("mood_rating", "mood", "continuous"),
             ],
         )
-        spec, _ = translate_spec(
-            _model_spec(
+        spec, _ = (
+            _with_likelihoods(
                 [
                     _likelihood("mood_level", "ordinal"),
                     _likelihood("mood_rating", "continuous"),
                 ],
-                plan=structural_plan,
+                plan=model,
             ),
-            structural_plan=structural_plan,
+            numeric.edge_lag_days(
+                _with_likelihoods(
+                    [
+                        _likelihood("mood_level", "ordinal"),
+                        _likelihood("mood_rating", "continuous"),
+                    ],
+                    plan=model,
+                )
+            ),
         )
-        assert spec.manifest_names is not None
-        continuous_row = spec.manifest_names.index("mood_rating")
-        ordinal_row = spec.manifest_names.index("mood_level")
-        assert float(spec.lambda_block.template[continuous_row, 0]) == 1.0
-        assert spec.lambda_block.free_support[ordinal_row, 0]
+        assert numeric.observation_names(spec) is not None
+        continuous_row = numeric.observation_names(spec).index("mood_rating")
+        ordinal_row = numeric.observation_names(spec).index("mood_level")
+        assert float(numeric.loading_block(spec).template[continuous_row, 0]) == 1.0
+        assert numeric.loading_block(spec).free_support[ordinal_row, 0]
 
-    def test_loading_surface_inactive_for_categorical_choice(self):
-        parameter = {"name": "lambda_mood_kind_mood", "role": "loading", "indicator": "mood_kind"}
-        chosen = {
-            "mood_kind": {
-                "indicator_id": "indicator:f61e2793334052e6699f",
-                "distribution": "categorical",
-                "link": "softmax",
-                "construct_name": "mood",
-            }
-        }
-        assert not parameter_is_active_for_statistical_model_spec(
-            parameter,
-            chosen,
-            initialization_policy="stationary",
-            observation_intercept_policy="free",
-            equilibrium_forcing=False,
-        )
-        chosen["mood_kind"]["distribution"] = "ordered_logistic"
-        chosen["mood_kind"]["link"] = "cumulative_logit"
-        assert parameter_is_active_for_statistical_model_spec(
-            parameter,
-            chosen,
-            initialization_policy="stationary",
-            observation_intercept_policy="free",
-            equilibrium_forcing=False,
-        )
+    def test_raw_gaussian_sum_authors_an_intercept_slot(self):
+        from nof1_causal_lab.artifacts.coefficient import ParameterCoefficient
+        from nof1_causal_lab.models.parameter_planning import complete_component_slots
 
-    def test_raw_gaussian_sum_surface_activates_manifest_intercept(self):
-        parameter = {
-            "name": "manifest_mean_fill_quantity",
-            "role": "observation_intercept",
-            "indicator": "fill_quantity",
-        }
-        chosen = {
-            "fill_quantity": {
-                "indicator_id": "indicator:06ac50310de3251cd28e",
-                "distribution": "gaussian",
-                "link": "identity",
-                "construct_name": "dose",
-                "support_kind": "interval",
-                "summary_operator": "sum",
-                "standardized": False,
+        plan = _structure(["dose"], [_indicator("fill_quantity", "dose", "continuous")])
+        owner = plan.constructs[0]
+        indicator = owner.indicators[0].model_copy(
+            update={
+                "aggregation": "sum",
+                "likelihood": LikelihoodSpec(
+                    law=observation_law(owner.id, "gaussian", "identity"),
+                    standardized=False,
+                    reasoning="Total quantity",
+                ),
             }
-        }
-
-        assert parameter_is_active_for_statistical_model_spec(
-            parameter,
-            chosen,
-            initialization_policy="stationary",
-            observation_intercept_policy="free",
-            equilibrium_forcing=False,
         )
-
-    def test_static_t0_mean_surface_requires_standardized_channel(self):
-        parameter = {
-            "id": "construct:91a153aaf3e693bc5f38",
-            "name": "t0_mean_trait",
-            "role": "initial_state_mean",
-            "construct": "trait",
-            "temporal_status": "time_invariant",
-        }
-        unanchored = {
-            "trait_flag": {
-                "indicator_id": "indicator:2af50d06b16a559dee9e",
-                "distribution": "bernoulli",
-                "link": "logit",
-                "construct_name": "trait",
-                "standardized": False,
-            }
-        }
-        assert not parameter_is_active_for_statistical_model_spec(
-            parameter,
-            unanchored,
-            initialization_policy="free",
-            observation_intercept_policy="free",
-            equilibrium_forcing=False,
+        model = plan.revised(
+            edges=replace_constructs(
+                plan.edges, (owner.model_copy(update={"indicators": (indicator,)}),)
+            )
         )
-        anchored = {
-            "trait_score": {
-                "indicator_id": "indicator:8ec5286981f118125250",
-                "distribution": "gaussian",
-                "link": "identity",
-                "construct_name": "trait",
-                "standardized": True,
-            }
-        }
-        assert parameter_is_active_for_statistical_model_spec(
-            parameter,
-            anchored,
-            initialization_policy="free",
-            observation_intercept_policy="free",
-            equilibrium_forcing=False,
-        )
+        completed = complete_component_slots(model)
+        likelihood = completed.indicators[0].likelihood
+        assert likelihood is not None
+        assert isinstance(likelihood.terms.intercept.coefficient, ParameterCoefficient)

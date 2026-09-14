@@ -2,7 +2,7 @@
 
 Each ``*BlockSpec`` is the canonical declarative representation of one
 SSM concern (process-noise Cholesky, manifest mean, initial-state
-covariance, …). ``SSMSpec`` stores these blocks as its only
+covariance, …). ``ModelSpec`` stores these blocks as its only
 param-bearing fields: there are no flat-field duplicates.
 
 Each block is a frozen dataclass with:

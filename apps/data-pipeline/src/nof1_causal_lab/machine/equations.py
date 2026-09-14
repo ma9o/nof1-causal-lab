@@ -5,20 +5,23 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
-from nof1_causal_lab.artifacts.mechanism import (
-    ConstantDriftMechanism,
-    FixedCoefficient,
-    HillEdgeMechanism,
-    LinearEdgeMechanism,
-    NodePotentialMechanism,
-)
+from nof1_causal_lab.artifacts.coefficient import FixedCoefficient
+from nof1_causal_lab.artifacts.construct import CausalEdge
+from nof1_causal_lab.artifacts.expressions import fold_expression
 from nof1_causal_lab.artifacts.parameter import PriorAuthoringTransform
+from nof1_causal_lab.machine.expression_latex import (
+    LatexValue,
+    binary_latex,
+    call_latex,
+    literal_latex,
+)
 from nof1_causal_lab.machine.view_models import StateEquation
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.mechanism import MechanismCoefficient
-    from nof1_causal_lab.artifacts.statistical_model_spec import StatisticalModelSpec
-    from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
+    from nof1_causal_lab.artifacts.coefficient import Coefficient
+    from nof1_causal_lab.artifacts.expressions import Expression
+    from nof1_causal_lab.artifacts.identity import IndicatorId
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 
 def _text(label: str) -> str:
@@ -37,26 +40,23 @@ def _text(label: str) -> str:
     return r"\text{" + "".join(escapes.get(character, character) for character in label) + "}"
 
 
-def state_equations(model: StatisticalModelSpec, plan: StructuralPlan) -> list[StateEquation]:
-    """Render actual continuous-time drift, including fixed and nonlinear coefficients.
+def _state_latex(model: ModelSpec, key: str) -> str:
+    symbol = "u" if key in model.known_inputs else r"\eta"
+    return symbol + "_{" + _text(model.get_construct(key).name) + "}(t)"
 
-    Symbols are parameter labels, so the authored-prior table remains the
-    legend. A prior authored as persistence or interval effect is explicitly
-    converted in the displayed drift, just as it is during compilation.
-    """
+
+def _expression_latex(model: ModelSpec, expression: Expression) -> str:
+    """Interpret the scientific tree, using authored parameter labels as its legend."""
     parameters = {parameter.id: parameter for parameter in model.parameters}
-    terms: dict[str, list[str]] = defaultdict(list)
 
-    def state(key: str, *, known_input: bool = False) -> str:
-        symbol = "u" if known_input else r"\eta"
-        return symbol + "_{" + _text(plan.semantics.constructs[key].name) + "}(t)"
-
-    def coefficient(value: MechanismCoefficient) -> str:
+    def coefficient(value: Coefficient) -> str:
         if isinstance(value, FixedCoefficient):
             return f"{value.value:g}"
         parameter = parameters[value.parameter_id]
+        if parameter.value is not None:
+            return f"{parameter.value:g}"
         symbol = r"\theta_{" + _text(parameter.name) + "}"
-        match parameter.prior_transform:
+        match parameter.distribution_transform:
             case PriorAuthoringTransform.DT_PERSISTENCE_TO_CT_DECAY:
                 return r"\frac{-\log(" + symbol + r")}{\Delta_{" + _text(parameter.name) + "}}"
             case PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE:
@@ -64,59 +64,93 @@ def state_equations(model: StatisticalModelSpec, plan: StructuralPlan) -> list[S
             case _:
                 return symbol
 
-    def zero(value: MechanismCoefficient) -> bool:
-        return isinstance(value, FixedCoefficient) and value.value == 0
+    def rendered_coefficient(operand):
+        reference = operand.coefficient
+        if reference is None:
+            return LatexValue(r"\underbrace{?}_{\text{" + operand.role.replace("_", " ") + "}}")
+        if isinstance(reference, FixedCoefficient):
+            return literal_latex(reference.value)
+        value = parameters[reference.parameter_id].value
+        return literal_latex(value) if value is not None else LatexValue(coefficient(reference))
 
-    inputs = {item.construct_id for item in plan.known_inputs}
-    for mechanism in model.mechanisms:
-        match mechanism:
-            case NodePotentialMechanism():
-                target = mechanism.target_id
-                delta = (
-                    state(target)
-                    if zero(mechanism.center)
-                    else (
-                        r"\left("
-                        + state(target)
-                        + " - "
-                        + coefficient(mechanism.center)
-                        + r"\right)"
-                    )
-                )
-                terms[target].append("-" + coefficient(mechanism.stiffness) + r"\," + delta)
-                if not zero(mechanism.quartic):
-                    terms[target].append(
-                        "-" + coefficient(mechanism.quartic) + r"\," + delta + "^{3}"
-                    )
-            case ConstantDriftMechanism():
-                terms[mechanism.target_id].append(coefficient(mechanism.intercept))
-            case LinearEdgeMechanism() | HillEdgeMechanism():
-                edge = plan.semantics.edges[mechanism.edge_id]
-                source = state(edge.cause_id, known_input=edge.cause_id in inputs)
-                if isinstance(mechanism, LinearEdgeMechanism):
-                    term = coefficient(mechanism.weight) + r"\," + source
-                else:
-                    power = coefficient(mechanism.n)
-                    dose = r"\max\!\left(" + source + r",0\right)^{" + power + "}"
-                    term = (
-                        coefficient(mechanism.emax)
-                        + r"\,\frac{"
-                        + dose
-                        + "}{"
-                        + (coefficient(mechanism.ec50) + "^{" + power + "} + " + dose + "}")
-                    )
-                terms[edge.effect_id].append(term)
+    return fold_expression(
+        expression,
+        literal=literal_latex,
+        state_value=lambda key: LatexValue(_state_latex(model, key)),
+        coefficient_value=rendered_coefficient,
+        binary=binary_latex,
+        call=call_latex,
+    ).text
+
+
+def observation_equations(model: ModelSpec) -> dict[IndicatorId, str]:
+    """Render each declared native conditional law, including incomplete operands."""
+    return {
+        indicator.id: "y_{"
+        + _text(indicator.name)
+        + r"}(t) \sim \operatorname{"
+        + likelihood.law.distribution
+        + r"}\left("
+        + r",\; ".join(
+            r"\mathrm{" + name + "}=" + _expression_latex(model, argument)
+            for name, argument in likelihood.law.arguments.items()
+        )
+        + r"\right)"
+        for indicator, likelihood in model.iter_likelihoods()
+    }
+
+
+def state_equations(model: ModelSpec) -> list[StateEquation]:
+    """Render actual drift, explicitly converting interval-authored parameters to rates."""
+    terms: dict[str, list[str]] = defaultdict(list)
+    for owner, mechanism in model.iter_mechanisms():
+        target = owner.effect.id if isinstance(owner, CausalEdge) else owner.id
+        expression = _expression_latex(model, mechanism.expression)
+        if mechanism.kind == "potential":
+            expression = (
+                r"-\frac{\partial}{\partial "
+                + _state_latex(model, target)
+                + "}"
+                + (r"\left[" + expression + r"\right]")
+            )
+        terms[target].append(expression)
 
     rows = []
-    for key in plan.state_order:
-        construct = plan.semantics.constructs[key]
+    for key in model.state_order:
+        construct = model._constructs[key]
         if construct.temporal_status == "time_invariant":
-            equation = r"\mathrm{d}" + state(key) + " = 0"
+            equation = r"\mathrm{d}" + _state_latex(model, key) + " = 0"
         else:
             drift = " + ".join(terms[key]).replace(" + -", " - ")
             noise = r"\sum_j L_{" + _text(construct.name) + r",j}\,\mathrm{d}W_j(t)"
             equation = (
-                r"\mathrm{d}" + state(key) + r" = \left[" + drift + r"\right]\mathrm{d}t + " + noise
+                r"\mathrm{d}"
+                + _state_latex(model, key)
+                + r" = \left["
+                + drift
+                + r"\right]\mathrm{d}t + "
+                + noise
             )
         rows.append(StateEquation(construct_id=key, label=construct.name, latex=equation))
     return rows
+
+
+def confounder_equations(model: ModelSpec) -> list[StateEquation]:
+    """Label the shared-noise dependencies derived from the scientific DAG."""
+    groups: dict[str, set[str]] = defaultdict(set)
+    for (first, second, kind), sources in model.induced_dependencies.items():
+        if kind == "innovation_correlation":
+            for owner in sources:
+                groups[owner].update((first, second))
+    return [
+        StateEquation(
+            construct_id=owner,
+            label=model.get_construct(owner).name,
+            latex="U_{"
+            + _text(model.get_construct(owner).name)
+            + r"}\to\{"
+            + ",\\,".join(_text(model.get_construct(key).name) for key in sorted(states))
+            + r"\}",
+        )
+        for owner, states in sorted(groups.items())
+    ]

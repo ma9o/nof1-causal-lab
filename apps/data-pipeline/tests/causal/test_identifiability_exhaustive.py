@@ -260,7 +260,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "observed": ["Z1", "Z2", "X", "Y"],
         "checks": [("identifiable", "X")],
     },
-    # Z1 -> X, U -> X, U -> Y; Z1 is exogenous and serves as IV.
+    # Z1 is an IV candidate; it cannot identify X without extra assumptions.
     {
         "default_outcome": {"kind": "construct", "id": "construct:Y"},
         "id": "backdoor_unobserved_but_iv_available",
@@ -277,7 +277,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
             {"cause": "X", "effect": "Y"},
         ],
         "observed": ["Z1", "X", "Y"],
-        "checks": [("identifiable", "X"), ("estimand_contains", "X", "IV(Z1)")],
+        "checks": [("not_identifiable", "X"), ("identifiable", "Z1")],
     },
     # Z -> W, W -> {X, Y}; adjusting for W blocks the backdoor.
     {
@@ -378,9 +378,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         ],
         "observed": ["Z", "X", "Y"],
         "checks": [
-            ("identifiable", "X"),
-            ("estimand_contains", "X", "IV(Z)"),
-            ("estimand_contains_ci", "X", "linearity"),
+            ("not_identifiable", "X"),
             ("identifiable", "Z"),
         ],
     },
@@ -666,7 +664,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "observed": ["A", "B", "X", "Y"],
         "checks": [("identifiable", "X")],
     },
-    # M-bias with U3 confounding X-Y, but A is a valid IV.
+    # M-bias with U3 confounding X-Y; an IV candidate does not remove that obstruction.
     {
         "default_outcome": {"kind": "construct", "id": "construct:Y"},
         "id": "complex_m_bias_with_iv_available",
@@ -689,7 +687,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
             {"cause": "X", "effect": "Y"},
         ],
         "observed": ["A", "B", "X", "Y"],
-        "checks": [("identifiable", "X"), ("estimand_contains", "X", "IV(A)")],
+        "checks": [("not_identifiable", "X"), ("identifiable", "A")],
     },
     # Two independent unobserved confounders.
     {
@@ -1038,9 +1036,9 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
             {"cause": "U", "effect": "Y"},
         ],
         "observed": ["Z1", "Z2", "X", "Y"],
-        "checks": [("identifiable", "X"), ("estimand_contains", "X", "IV")],
+        "checks": [("not_identifiable", "X")],
     },
-    # W is the "real" IV here (Z->W is upstream, U2 confounds X-Y but not W-Y).
+    # W is an IV candidate, but U2 still prevents nonparametric identification of X.
     {
         "default_outcome": {"kind": "construct", "id": "construct:Y"},
         "id": "iv_weak_instrument_chain",
@@ -1062,7 +1060,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
             {"cause": "U2", "effect": "Y"},
         ],
         "observed": ["Z", "W", "X", "Y"],
-        "checks": [("identifiable", "X"), ("estimand_contains", "X", "IV(W)")],
+        "checks": [("not_identifiable", "X"), ("not_identifiable", "W")],
     },
     # ---- 16. Temporal Complexity (panel data) -----------------------------
     {
@@ -1157,7 +1155,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
             {"cause": "U", "effect": "Y", "lagged": False},
         ],
         "observed": ["Z", "X", "Y"],
-        "checks": [("identifiable", "X")],
+        "checks": [("not_identifiable", "X")],
     },
     # ---- 17. Overlapping Confounders --------------------------------------
     # U1 -> {X, M}, U2 -> {M, Y}, X -> M -> Y.
@@ -1292,7 +1290,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
             {"cause": "M", "effect": "Y"},
         ],
         "observed": ["A", "M", "Y"],
-        "checks": [("identifiable", "A"), ("identifiable", "M")],
+        "checks": [("identifiable", "A"), ("not_identifiable", "M")],
     },
     # ---- 19. Nested / Hierarchical ----------------------------------------
     # Nested overlapping confounders along X -> M1 -> M2 -> Y.
@@ -1455,6 +1453,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "checks": [("identifiable", "X")],
     },
     # ---- 21. Special IV Structures ----------------------------------------
+    # These DAGs alone do not declare the extra assumptions needed by IV designs.
     {
         "default_outcome": {"kind": "construct", "id": "construct:Y"},
         "id": "special_iv_regression_discontinuity_like",
@@ -1471,7 +1470,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
             {"cause": "U", "effect": "Y"},
         ],
         "observed": ["R", "D", "Y"],
-        "checks": [("identifiable", "D"), ("estimand_contains", "D", "IV(R)")],
+        "checks": [("not_identifiable", "D"), ("identifiable", "R")],
     },
     {
         "default_outcome": {"kind": "construct", "id": "construct:Y"},
@@ -1489,7 +1488,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
             {"cause": "U", "effect": "Y"},
         ],
         "observed": ["G", "X", "Y"],
-        "checks": [("identifiable", "X"), ("estimand_contains", "X", "IV(G)")],
+        "checks": [("not_identifiable", "X"), ("identifiable", "G")],
     },
     # ---- 22. Temporal Unrolling Edge Cases --------------------------------
     {
@@ -1536,8 +1535,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         ],
         "observed": ["Trait", "X", "Y"],
         "checks": [
-            ("identifiable", "X"),
-            ("estimand_contains", "X", "IV(Trait)"),
+            ("not_identifiable", "X"),
             ("identifiable", "Trait"),
         ],
     },

@@ -1,5 +1,9 @@
 """Persistent authored entity IDs, independent of names and model revisions."""
 
+from __future__ import annotations
+
+import hashlib
+import json
 from typing import Annotated, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -23,6 +27,24 @@ type IndicatorId = Annotated[
     ),
 ]
 
+type MechanismId = Annotated[
+    str,
+    Field(
+        pattern=r"^mechanism:[A-Za-z0-9_.-]+$",
+        json_schema_extra={"tsType": "`mechanism:${string}`"},
+    ),
+]
+
+type DistributionId = Annotated[
+    str,
+    Field(
+        pattern=r"^distribution:[A-Za-z0-9_.-]+$",
+        description="A shared native law whose membership is defined by the model's scientific quantities.",
+        json_schema_extra={"tsType": "`distribution:${string}`"},
+    ),
+]
+
+
 type ParameterId = Annotated[
     str,
     Field(
@@ -36,39 +58,26 @@ type ParameterElementId = Annotated[
 ]
 
 
-type ScenarioQueryId = Annotated[
-    str,
-    Field(
-        pattern=r"^query:[0-9a-f]{64}$",
-        json_schema_extra={"tsType": "`query:${string}`"},
-    ),
-]
-
-
-type ScenarioEvaluationId = Annotated[
-    str,
-    Field(
-        pattern=r"^evaluation:[0-9a-f]{64}$",
-        json_schema_extra={"tsType": "`evaluation:${string}`"},
-    ),
-]
-
 type ArtifactId = Literal[
     "question",
     "raw_data",
-    "latent_structure",
-    "measurement_structure",
-    "causal_design",
-    "structural_plan",
+    "model",
     "identification_report",
-    "measurements",
     "panel",
     "validation_report",
+    "admission_report",
+    "baseline_report",
+]
+
+# Operations name work; several operations can enrich the same model artifact.
+type OperationId = Literal[
+    "raw_data",
+    "latent_structure",
+    "measurement_structure",
+    "measurements",
     "statistical_model_spec",
-    "compiled_ssm",
     "posterior",
     "baseline_report",
-    "saved_scenarios",
 ]
 
 ARTIFACT_IDS: tuple[ArtifactId, ...] = get_args(ArtifactId.__value__)
@@ -80,7 +89,7 @@ class IdentityRef(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
-class CausalDesignRef(IdentityRef):
+class ModelRevision(IdentityRef):
     """The workspace and version of the scientific design supporting an inference."""
 
     workspace_id: str = Field(min_length=1)
@@ -121,6 +130,13 @@ class IndicatorRef(IdentityRef):
     id: IndicatorId
 
 
+class MechanismRef(IdentityRef):
+    """A particular additive term, independently of its position or coefficient values."""
+
+    kind: Literal["mechanism"] = "mechanism"
+    id: MechanismId
+
+
 class ArtifactRef(IdentityRef):
     """An artifact reference identifies the exact stored version that supports a model fact."""
 
@@ -135,4 +151,17 @@ class ParameterRef(IdentityRef):
     element_id: ParameterElementId
 
 
-type EntityRef = Annotated[ConstructRef | EdgeRef | IndicatorRef, Field(discriminator="kind")]
+type EntityRef = Annotated[
+    ConstructRef | EdgeRef | IndicatorRef | MechanismRef, Field(discriminator="kind")
+]
+
+
+def scientific_id(prefix: str, payload: object) -> str:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return f"{prefix}:{hashlib.sha256(encoded.encode()).hexdigest()}"
+
+
+class TransitionRef(IdentityRef):
+    """An immutable entry in the workspace transition journal."""
+
+    seq: int = Field(ge=1)

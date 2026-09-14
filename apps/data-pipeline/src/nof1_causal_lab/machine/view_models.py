@@ -4,17 +4,13 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
+from nof1_causal_lab.artifacts.admission import AdmissionReport
 from nof1_causal_lab.artifacts.baseline_report import BaselineReportArtifact
-from nof1_causal_lab.artifacts.causal_design import CausalDesign  # noqa: TC001
 from nof1_causal_lab.artifacts.effects import HistogramBin  # noqa: TC001
-from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId  # noqa: TC001
-from nof1_causal_lab.artifacts.latent_structure import LatentStructureArtifact
-from nof1_causal_lab.artifacts.measurements import ObservationRecord, WorkerStatus  # noqa: TC001
-from nof1_causal_lab.artifacts.posterior import PosteriorArtifact
-from nof1_causal_lab.artifacts.statistical_model_spec import (
-    StatisticalModelSpecArtifact,
-)
-from nof1_causal_lab.artifacts.structural_plan import StructuralPlan  # noqa: TC001
+from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId, ParameterId  # noqa: TC001
+from nof1_causal_lab.artifacts.measurements import ObservationRecord  # noqa: TC001
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.posterior import InferenceReport
 from nof1_causal_lab.artifacts.validation_report import (
     IndicatorEmpiricalProfile,
     ValidationReportArtifact,
@@ -51,14 +47,14 @@ class RawDataData(ViewValue):
 
 
 class MeasurementsData(ViewValue):
-    """Worker outcomes and panel counts derived from the same extraction revision."""
+    """Counts and representative observations read directly from one panel version."""
 
-    workers: list[WorkerStatus]
+    n_observations: int
     per_indicator_counts: dict[IndicatorId, int]
     combined_extractions_sample: list[ObservationRecord]
 
 
-class ModelSpecLikelihoodDiagnostics(ViewValue):
+class LikelihoodDiagnostics(ViewValue):
     """Observed values and validation profile for one likelihood's pinned panel."""
 
     indicator_id: IndicatorId
@@ -76,45 +72,45 @@ class StateEquation(ViewValue):
     latex: str
 
 
-class StatisticalModelSpecData(StatisticalModelSpecArtifact):
-    """A specification with observed likelihood diagnostics from its pinned inputs."""
+class DensityPoint(ViewValue):
+    """A plotting coordinate evaluated from the native prior's log density."""
 
-    structural_plan: StructuralPlan | None = None
+    x: float
+    y: float = Field(ge=0)
+
+
+class ModelDiagnostics(ViewValue):
+    """Server-derived equations and comparisons with pinned observations."""
+
+    confounder_equations: list[StateEquation] = Field(default_factory=list)
     state_equations: list[StateEquation] = Field(default_factory=list)
-    likelihood_diagnostics: dict[IndicatorId, ModelSpecLikelihoodDiagnostics] = Field(
-        default_factory=dict
-    )
-
-
-class MeasurementStructureViewData(ViewValue):
-    """Measurement definitions with their corresponding causal design and structural plan."""
-
-    causal_design: CausalDesign
-    structural_plan: StructuralPlan
+    observation_equations: dict[IndicatorId, str] = Field(default_factory=dict)
+    likelihood_diagnostics: dict[IndicatorId, LikelihoodDiagnostics] = Field(default_factory=dict)
+    prior_densities: dict[ParameterId, tuple[DensityPoint, ...]] = Field(default_factory=dict)
 
 
 class ArtifactViews(ViewValue):
     """Available artifact projections read from one committed model state."""
 
     raw_data: RawDataData | None = None
-    latent_structure: LatentStructureArtifact | None = None
-    measurement_structure: MeasurementStructureViewData | None = None
+    model: ModelSpec | None = None
     measurements: MeasurementsData | None = None
     validation_report: ValidationReportArtifact | None = None
-    statistical_model_spec: StatisticalModelSpecData | None = None
-    posterior: PosteriorArtifact | None = None
+    admission_report: AdmissionReport | None = None
+    model_diagnostics: ModelDiagnostics | None = None
+    inference_report: InferenceReport | None = None
     baseline_report: BaselineReportArtifact | None = None
 
 
 class ArtifactViewResponse(
     RootModel[
         RawDataData
-        | LatentStructureArtifact
-        | MeasurementStructureViewData
+        | ModelSpec
         | MeasurementsData
         | ValidationReportArtifact
-        | StatisticalModelSpecData
-        | PosteriorArtifact
+        | AdmissionReport
+        | ModelDiagnostics
+        | InferenceReport
         | BaselineReportArtifact
     ]
 ):

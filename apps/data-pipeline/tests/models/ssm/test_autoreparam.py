@@ -17,25 +17,20 @@ from numpy.testing import assert_allclose
 from numpyro import handlers
 from numpyro.infer.reparam import LocScaleReparam, ProjectedNormalReparam
 
-from nof1_causal_lab.models.ssm import SSMSpec
 from nof1_causal_lab.models.ssm.autoreparam import (
     AutoReparam,
     _is_unconstrained,
     _loc_scale_reparam,
     _minimal_reparam,
 )
-from nof1_causal_lab.models.ssm.dynamics.spec import (
-    DiagonalDecaySpec,
-    DynamicsSpec,
-    HillEdgeSpec,
-)
+from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
 from nof1_causal_lab.models.ssm.inference.backend_factory import get_laplace_backend
 from nof1_causal_lab.models.ssm.inference.problem import build_particle_problem
 from nof1_causal_lab.models.ssm.priors import PriorDistributionFamily
 from nof1_causal_lab.models.ssm.transition_kinds import LATENT_TRANSITION_EULER_MARUYAMA
 from nof1_causal_lab.prior_distributions import distribution_from_params
-from tests.models.ssm._support import simple_normal_model
-from tests.ssm_spec_fixtures import (
+from tests.dynamics_fixtures import decay_term, hill_term
+from tests.model_fixtures import (
     MinimalReparam,
     default_diffusion_block,
     default_input_effect_block,
@@ -46,7 +41,9 @@ from tests.ssm_spec_fixtures import (
     default_t0_chol_block,
     default_t0_means_block,
     full_dense_matrix_dynamics_spec,
+    model_fixture,
 )
+from tests.models.ssm._support import simple_normal_model
 
 # ---------------------------------------------------------------------------
 # Helpers (ported from NumPyro's test_reparam.py)
@@ -482,7 +479,7 @@ class TestAutoReparamSSM:
     def _make_simple_ssm(self):
         from nof1_causal_lab.models.ssm.model import SSMModel
 
-        spec = SSMSpec(
+        spec = model_fixture(
             n_latent=2,
             n_manifest=2,
             dynamics_spec=full_dense_matrix_dynamics_spec(2),
@@ -559,14 +556,14 @@ class TestAutoReparamSSM:
         """Nested TransformReparam + LocScaleReparam restores the public Hill site."""
         from nof1_causal_lab.models.ssm.model import SSMModel
 
-        spec = SSMSpec(
+        spec = model_fixture(
             n_latent=2,
             n_manifest=2,
             dynamics_spec=DynamicsSpec(
                 n_latent=2,
                 components=(
-                    DiagonalDecaySpec(),
-                    HillEdgeSpec(source=0, target=1),
+                    *(decay_term(target=i) for i in range(2)),
+                    hill_term(source=0, target=1),
                 ),
             ),
             diffusion_block=default_diffusion_block(2),

@@ -19,21 +19,20 @@ import jax.numpy as jnp
 import jax.random as random
 import numpy as np
 
-from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily
+from nof1_causal_lab.artifacts.coefficient import FixedCoefficient
+from nof1_causal_lab.artifacts.expressions import expression_coefficients
+from nof1_causal_lab.artifacts.likelihood import DistributionFamily
+from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.models.predictive_simulation import (
-    sample_predictive_observations_from_linear_predictors,
+    sample_model_observations,
 )
-from nof1_causal_lab.models.ssm.covariance_utils import (
-    INITIAL_STATE_COV_MIN_EIGENVALUE,
-    stable_cholesky,
-)
-from nof1_causal_lab.models.ssm.dynamics.intervention import Intervention
+from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.dynamics.serialization import dynamics_spec_to_dict
-from nof1_causal_lab.models.ssm.dynamics.simulator import SimulationConfig, simulate
+from nof1_causal_lab.models.ssm.dynamics.simulator import SimulationConfig, simulate_model_path
 from nof1_causal_lab.models.ssm.dynamics.spec import (
     compile_dynamics,
-    pack_component_params_from_samples,
 )
+from nof1_causal_lab.models.ssm.execution.dynamical_model import build_dynamical_model
 from nof1_causal_lab.models.ssm.execution.observation_families import (
     any_family_needs_level_metadata,
 )
@@ -46,7 +45,10 @@ from nof1_causal_lab.models.ssm.parameterization import (
 )
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.model import SSMSpec
+    import dynestyx as dsx
+
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.models.ssm.dynamics.spec import CompiledDynamics, DynamicsSpec
 
 logger = logging.getLogger(__name__)
 
@@ -65,10 +67,10 @@ def predictive_keys(seed: int) -> PredictiveKeys:
     return PredictiveKeys(parameter_key, latent_key, observation_key)
 
 
-def _ensure_discrete_metadata(spec: SSMSpec) -> None:
+def _ensure_discrete_metadata(spec: ModelSpec) -> None:
     """Require hydrated level counts before sampling discrete emissions."""
-    needs_levels = any_family_needs_level_metadata(spec.manifest_dists)
-    if needs_levels and spec.manifest_level_counts is None:
+    needs_levels = any_family_needs_level_metadata(numeric.observation_families(spec))
+    if needs_levels and numeric.observation_level_counts(spec) is None:
         raise ValueError(
             "Prior predictive for ordered/categorical emissions requires hydrated "
             "manifest_level_counts."
@@ -76,7 +78,7 @@ def _ensure_discrete_metadata(spec: SSMSpec) -> None:
 
 
 def _assemble_extra_params_batched(
-    spec: SSMSpec,
+    spec: ModelSpec,
     constrained_samples: dict[str, jnp.ndarray],
     registry,
     *,
@@ -95,10 +97,10 @@ def _assemble_extra_params_batched(
     return jax.vmap(_assemble_one)(jnp.arange(n_draws, dtype=jnp.int32))
 
 
-def _ensure_gaussian_process_diffusion(spec: SSMSpec) -> None:
+def _ensure_gaussian_process_diffusion(spec: ModelSpec) -> None:
     non_gaussian = [
         str(dist.value if isinstance(dist, DistributionFamily) else dist)
-        for dist in spec.diffusion_dists
+        for dist in numeric.diffusion_families(spec)
         if DistributionFamily(dist) != DistributionFamily.GAUSSIAN
     ]
     if non_gaussian:
@@ -108,31 +110,25 @@ def _ensure_gaussian_process_diffusion(spec: SSMSpec) -> None:
         )
 
 
-def _linear_predictors_from_latents(
-    latent_trajectory: jnp.ndarray,
-    lambda_mat: jnp.ndarray,
-    manifest_means: jnp.ndarray,
-) -> jnp.ndarray:
-    return jax.vmap(lambda eta_t: lambda_mat @ eta_t + manifest_means)(latent_trajectory)
+def _predictive_models(
+    spec: ModelSpec, samples, times, *, dynamics: DynamicsSpec | None = None
+) -> dsx.DynamicalModel:
+    """Batch the same model constructor used by the particle target."""
+    return eqx.filter_vmap(
+        lambda draw: build_dynamical_model(spec, draw, t0=times[0], dynamics=dynamics)
+    )(samples)
 
 
-# Explicit (Heun) SDE integration of a linear relaxation ``dy = -a·y dt + …`` is
-# stable only for ``a·Δt ≲ 2``; past that the step map amplifies and the path
-# diverges. The default step ``span/200`` is far too coarse for a fast construct
-# over a long record (e.g. a τ ≈ 0.15 d node across 60 d ⇒ ``a·Δt ≈ 2``), and a
-# tail draw with even faster decay blows the trajectory up to ``inf`` — which then
-# trips the log-link overflow guard and aborts the whole prior predictive. The DAG
-# drift is triangular, so its Jacobian's spectral radius is bounded by the largest
-# diagonal relaxation rate (the sampled ``*_decay`` sites; NodePotential reuses the
-# decay site for its stiffness). Cap the SDE step at a CFL-safe fraction of the
-# fastest relaxation time per draw. This only ever *refines* the step (finer ⇒
-# smaller discretization error, the exact-engine's one controllable error term),
-# never coarsens it.
+# Refine the SDE step using declared relaxation rates, including fixed rates.
+# This controls the linear restoring contribution; it is not a global stability
+# certificate for a composed nonlinear drift. Diffrax evaluates the full
+# expression at every step. Scientific coefficient metadata identifies rates;
+# numerical sample-site names carry no meaning.
 _SDE_CFL_SAFETY = 0.25
 _SDE_MAX_STEPS = 16384
 _PREDICTIVE_MICROBATCH_SIZE = 32
 _LATENT_CACHE_MAX_ENTRIES = 2
-_LATENT_CACHE_ENGINE_VERSION = 1
+_LATENT_CACHE_ENGINE_VERSION = 3
 _latent_cache: OrderedDict[str, jax.Array] = OrderedDict()
 _latent_cache_lock = threading.Lock()
 
@@ -146,7 +142,7 @@ def _update_array_digest(digest: Any, label: str, value: Any) -> None:
 
 
 def _prior_predictive_latent_cache_key(
-    spec: SSMSpec,
+    dynamics: DynamicsSpec,
     vf_params: Any,
     samples: dict[str, jnp.ndarray],
     times: jnp.ndarray,
@@ -158,7 +154,7 @@ def _prior_predictive_latent_cache_key(
     digest.update(f"latent-cache-v{_LATENT_CACHE_ENGINE_VERSION}".encode())
     digest.update(
         json.dumps(
-            dynamics_spec_to_dict(spec.dynamics_spec),
+            dynamics_spec_to_dict(dynamics),
             sort_keys=True,
             separators=(",", ":"),
         ).encode()
@@ -167,8 +163,6 @@ def _prior_predictive_latent_cache_key(
     for leaf_index, leaf in enumerate(jax.tree.leaves(vf_params)):
         _update_array_digest(digest, f"vf:{leaf_index}", leaf)
     for name in ("t0_cov", "t0_means", "diffusion", "input_effect"):
-        _update_array_digest(digest, name, samples[name])
-    for name in sorted(name for name in samples if name.endswith("_decay")):
         _update_array_digest(digest, name, samples[name])
     _update_array_digest(digest, "times", times)
     if transition_inputs is None:
@@ -195,160 +189,129 @@ def _cache_latents(key: str, latents: jax.Array) -> None:
             _latent_cache.popitem(last=False)
 
 
-def _predictive_sde_config(draw: dict[str, jnp.ndarray], span: float) -> SimulationConfig:
-    base_dt = span / 200.0 if span > 0.0 else None
-    if base_dt is None:
-        return SimulationConfig()
+def _predictive_max_rates(
+    compiled: CompiledDynamics, samples: dict[str, jnp.ndarray]
+) -> jnp.ndarray:
+    """Read the fastest declared relaxation rate per draw from coefficient metadata."""
+    n_draws = int(next(iter(samples.values())).shape[0])
+    rates = [
+        jnp.max(jnp.abs(samples[site.name]).reshape(n_draws, -1), axis=1)
+        for site in compiled.site_registry
+        if site.site_kind == SiteKind.DYNAMICS_DECAY
+    ]
+    for component in compiled.spec.components:
+        rates.extend(
+            jnp.full(n_draws, operand.coefficient.value)
+            for operand in expression_coefficients(component.expression)
+            if operand.meaning.quantity == SiteKind.DYNAMICS_DECAY
+            and isinstance(operand.coefficient, FixedCoefficient)
+        )
+    return jnp.max(jnp.stack(rates), axis=0) if rates else jnp.zeros(n_draws)
+
+
+def _predictive_sde_step(max_rate: jnp.ndarray, span: float) -> jnp.ndarray:
     # Traced (not host) arithmetic: the per-draw step size stays a jnp scalar
     # so every draw reuses ONE compiled program — a host float here bakes into
     # the XLA graph as a constant and forces a retrace + recompile per draw.
-    decay_maxes = [
-        jnp.max(jnp.abs(value)) for name, value in draw.items() if name.endswith("_decay")
-    ]
-    if decay_maxes:
-        max_rate = jnp.stack(decay_maxes).max()
-        capped = jnp.minimum(base_dt, _SDE_CFL_SAFETY / jnp.maximum(max_rate, 1e-30))
-        sde_dt = jnp.where(max_rate > 0.0, capped, base_dt)
-    else:
-        sde_dt = jnp.asarray(base_dt)
+    sde_dt = jnp.minimum(span / 200.0, _SDE_CFL_SAFETY / jnp.maximum(max_rate, 1e-30))
     # Keep the step count within the solver budget for pathologically fast draws.
-    sde_dt = jnp.maximum(sde_dt, span / _SDE_MAX_STEPS)
+    return jnp.maximum(sde_dt, span / _SDE_MAX_STEPS)
+
+
+def _predictive_sde_config(max_rate: jnp.ndarray, span: float) -> SimulationConfig:
+    if span <= 0.0:
+        return SimulationConfig()
     return SimulationConfig(
-        sde_dt=sde_dt,
+        sde_dt=_predictive_sde_step(max_rate, span),
         max_steps=_SDE_MAX_STEPS + 16,
         use_indexed_brownian_path=True,
     )
 
 
-def _predictive_draw_order(
-    samples: dict[str, jnp.ndarray], span: float
-) -> tuple[jnp.ndarray, jnp.ndarray]:
+def _predictive_draw_order(max_rates: jnp.ndarray, span: float) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Order draws by expected solver work and return the inverse permutation."""
-    n_draws = int(next(iter(samples.values())).shape[0])
+    n_draws = int(max_rates.shape[0])
     if span <= 0.0:
         identity = jnp.arange(n_draws)
         return identity, identity
 
-    decay_maxes = []
-    for name, values in samples.items():
-        if not name.endswith("_decay"):
-            continue
-        draw_axes = tuple(range(1, values.ndim))
-        decay_maxes.append(
-            jnp.max(jnp.abs(values), axis=draw_axes) if draw_axes else jnp.abs(values)
-        )
-
-    if decay_maxes:
-        max_rate = jnp.stack(decay_maxes).max(axis=0)
-        base_dt = span / 200.0
-        sde_dt = jnp.minimum(base_dt, _SDE_CFL_SAFETY / jnp.maximum(max_rate, 1e-30))
-        sde_dt = jnp.maximum(sde_dt, span / _SDE_MAX_STEPS)
-        step_counts = jnp.ceil(span / sde_dt)
-    else:
-        step_counts = jnp.full(n_draws, 200.0)
+    sde_dt = _predictive_sde_step(max_rates, span)
+    step_counts = jnp.ceil(span / sde_dt)
 
     order = jnp.argsort(step_counts, stable=True)
     return order, jnp.argsort(order)
 
 
-def _simulate_vector_field_predictive_latent_draw(
-    n_latent: int,
-    base_vector_field,
-    vf_params,
-    draw: dict[str, jnp.ndarray],
+def _simulate_model_predictive_latent_draw(
+    model: dsx.DynamicalModel,
     times: jnp.ndarray,
     transition_inputs: jnp.ndarray | None,
     key: jnp.ndarray,
     span: float,
+    max_rate: jnp.ndarray,
 ) -> jnp.ndarray:
-    """Simulate one exact latent path without binding it to an emission model."""
+    """Draw the native initial law and execute the model's exact state evolution."""
     key_init, key_latent = random.split(key)
-    t0_chol = stable_cholesky(
-        draw["t0_cov"],
-        min_eigenvalue=INITIAL_STATE_COV_MIN_EIGENVALUE,
+    return simulate_model_path(
+        model,
+        model.initial_condition.sample(key_init),
+        times,
+        config=_predictive_sde_config(max_rate, span),
+        key=key_latent,
+        transition_inputs=transition_inputs,
     )
-    eta0 = draw["t0_means"] + t0_chol @ random.normal(key_init, (n_latent,))
-    diffusion_chol = draw["diffusion"]
-    input_effect = draw.get("input_effect", jnp.zeros((n_latent, 0), dtype=eta0.dtype))
-    if int(times.shape[0]) == 1:
-        latent_trajectory = eta0[None, :]
-    else:
-        latent_trajectory = simulate(
-            base_vector_field,
-            vf_params,
-            Intervention.none(),
-            eta0,
-            times,
-            config=_predictive_sde_config(draw, span),
-            key=key_latent,
-            diffusion_cov=diffusion_chol @ diffusion_chol.T,
-            input_effect=input_effect,
-            transition_inputs=transition_inputs,
-        )
-    return latent_trajectory
 
 
-# Compile the draw loop once, executing similarly expensive draws in bounded
-# vmapped chunks. A full vmap makes every draw pay for the slowest draw's Diffrax
-# loop; CFL sorting plus microbatching retains vectorized execution without
-# coupling all 200 draws to one pathological tail timestep.
-def _simulate_vector_field_predictive_draws_microbatched(
-    n_latent: int,
-    base_vector_field,
-    vf_params,
-    draws: dict[str, jnp.ndarray],
+def _simulate_model_predictive_draws_microbatched(
+    models: dsx.DynamicalModel,
     times: jnp.ndarray,
     transition_inputs: jnp.ndarray | None,
     keys: jnp.ndarray,
     span: float,
+    max_rates: jnp.ndarray,
 ) -> jnp.ndarray:
-    def _simulate_one(args):
-        draw_params, draw, key = args
-        return _simulate_vector_field_predictive_latent_draw(
-            n_latent,
-            base_vector_field,
-            draw_params,
-            draw,
+    arrays, structure = eqx.partition(models, eqx.is_array)
+
+    def simulate_one(args):
+        model_arrays, key, max_rate = args
+        return _simulate_model_predictive_latent_draw(
+            eqx.combine(model_arrays, structure),
             times,
             transition_inputs,
             key,
             span,
+            max_rate,
         )
 
     return jax.lax.map(
-        _simulate_one,
-        (vf_params, draws, keys),
+        simulate_one,
+        (arrays, keys, max_rates),
         batch_size=_PREDICTIVE_MICROBATCH_SIZE,
     )
 
 
-_simulate_vector_field_predictive_draws = eqx.filter_jit(
-    _simulate_vector_field_predictive_draws_microbatched
-)
+_simulate_model_predictive_draws = eqx.filter_jit(_simulate_model_predictive_draws_microbatched)
 
 
 def _simulate_vector_field_predictive_latents(
-    spec: SSMSpec,
+    spec: ModelSpec,
     samples: dict[str, jnp.ndarray],
     times: jnp.ndarray,
     *,
     transition_inputs: jnp.ndarray | None,
     rng_key: jax.Array,
+    dynamics: DynamicsSpec | None = None,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     _ensure_gaussian_process_diffusion(spec)
-    compiled = compile_dynamics(spec.dynamics_spec)
+    dynamics = numeric.dynamics_components(spec) if dynamics is None else dynamics
+    compiled = compile_dynamics(dynamics)
     n_draws = int(next(iter(samples.values())).shape[0])
     draw_keys = random.split(rng_key, n_draws)
-    # Pack component parameters before entering the compiled simulation. Closing
-    # over ``spec`` keeps its structural dataclasses out of JIT's static-argument
-    # cache, while vmap broadcasts any component-fixed scalar across draws.
-    vf_params = jax.vmap(lambda draw: pack_component_params_from_samples(spec.dynamics_spec, draw))(
-        samples
-    )
+    models = _predictive_models(spec, samples, times, dynamics=dynamics)
     span = float(times[-1] - times[0]) if int(times.shape[0]) > 1 else 0.0
     cache_key = _prior_predictive_latent_cache_key(
-        spec,
-        vf_params,
+        dynamics,
+        models.state_evolution,
         samples,
         times,
         transition_inputs,
@@ -356,32 +319,32 @@ def _simulate_vector_field_predictive_latents(
     )
     latents = _cached_latents(cache_key)
     if latents is None:
-        order, inverse_order = _predictive_draw_order(samples, span)
-        sorted_latents = _simulate_vector_field_predictive_draws(
-            spec.n_latent,
-            compiled.vector_field,
-            jax.tree.map(lambda value: value[order], vf_params),
-            jax.tree.map(lambda value: value[order], samples),
+        max_rates = _predictive_max_rates(compiled, samples)
+        order, inverse_order = _predictive_draw_order(max_rates, span)
+        sorted_models = jax.tree.map(
+            lambda leaf: leaf[order] if eqx.is_array(leaf) else leaf, models
+        )
+        sorted_latents = _simulate_model_predictive_draws(
+            sorted_models,
             times,
             transition_inputs,
             draw_keys[order],
             span,
+            max_rates[order],
         )
         latents = sorted_latents[inverse_order]
         _cache_latents(cache_key, latents)
         logger.info("Prior-predictive latent cache miss %s", cache_key[:12])
     else:
         logger.info("Prior-predictive latent cache hit %s", cache_key[:12])
-    linear_predictors = jax.vmap(_linear_predictors_from_latents)(
-        latents,
-        samples["lambda"],
-        samples["manifest_means"],
-    )
+    linear_predictors = eqx.filter_vmap(
+        lambda model, path: jax.vmap(model.observation_model.linear_predictor)(path)
+    )(models, latents)
     return latents, linear_predictors
 
 
 def sample_prior_parameters_from_runtime(
-    spec: SSMSpec,
+    spec: ModelSpec,
     runtime: PriorRuntimeBundle,
     *,
     num_samples: int,
@@ -413,7 +376,7 @@ def sample_prior_parameters_from_runtime(
 
 
 def simulate_prior_predictive_latents(
-    spec: SSMSpec,
+    spec: ModelSpec,
     samples: dict[str, jnp.ndarray],
     times: jnp.ndarray,
     *,
@@ -431,7 +394,7 @@ def simulate_prior_predictive_latents(
 
 
 def sample_prior_predictive_emissions(
-    spec: SSMSpec,
+    spec: ModelSpec,
     samples: dict[str, jnp.ndarray],
     linear_predictors: jnp.ndarray,
     times: jnp.ndarray,
@@ -442,23 +405,24 @@ def sample_prior_predictive_emissions(
     rng_key: jax.Array,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Sample the observation layer conditional on cached latent predictors."""
-    return sample_predictive_observations_from_linear_predictors(
-        linear_predictors,
-        samples,
+    indices = jnp.linspace(
+        0, linear_predictors.shape[0] - 1, min(num_samples, linear_predictors.shape[0])
+    ).astype(int)
+    return sample_model_observations(
+        _predictive_models(
+            spec, {name: values[indices] for name, values in samples.items()}, times
+        ),
+        linear_predictors[indices],
         times,
-        manifest_dists=spec.manifest_dists,
-        manifest_links=spec.manifest_links,
-        manifest_level_counts=spec.manifest_level_counts,
+        rng_key=rng_key,
         observation_support=observation_support,
         observation_mask=observation_mask,
-        n_subsample=num_samples,
-        rng_key=rng_key,
-        manifest_names=list(spec.manifest_names) if spec.manifest_names is not None else None,
+        manifest_names=list(numeric.observation_names(spec)),
     )
 
 
 def sample_prior_predictive_from_runtime(
-    spec: SSMSpec,
+    spec: ModelSpec,
     runtime: PriorRuntimeBundle,
     times: jnp.ndarray,
     *,
@@ -505,7 +469,7 @@ def sample_prior_predictive_from_runtime(
 
 
 def simulate_posterior_predictive_observations(
-    spec: SSMSpec,
+    spec: ModelSpec,
     samples: dict[str, jnp.ndarray],
     times: jnp.ndarray,
     *,
@@ -543,17 +507,13 @@ def simulate_posterior_predictive_observations(
         transition_inputs=transition_inputs,
         rng_key=keys.latents,
     )
-    observations, effective_mask, _expected = sample_predictive_observations_from_linear_predictors(
+    observations, effective_mask, _expected = sample_model_observations(
+        _predictive_models(spec, sub, times),
         linear_predictors,
-        sub,
         times,
-        manifest_dists=spec.manifest_dists,
-        manifest_links=spec.manifest_links,
-        manifest_level_counts=spec.manifest_level_counts,
+        rng_key=keys.observations,
         observation_support=observation_support,
         observation_mask=observation_mask,
-        n_subsample=n_use,
-        rng_key=keys.observations,
-        manifest_names=list(spec.manifest_names) if spec.manifest_names is not None else None,
+        manifest_names=list(numeric.observation_names(spec)),
     )
     return observations, effective_mask

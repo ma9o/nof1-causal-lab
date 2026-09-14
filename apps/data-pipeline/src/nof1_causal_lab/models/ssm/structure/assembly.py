@@ -74,7 +74,7 @@ def assemble_diffusion_chol(
     lower_free: jnp.ndarray | None,
     time_invariant_mask: np.ndarray | jnp.ndarray | None,
 ) -> jnp.ndarray:
-    """Process-noise Cholesky assembler shared by ``DiffusionBlockSpec`` and ``SSMSpec``."""
+    """Process-noise Cholesky assembler shared by ``DiffusionBlockSpec`` and ``ModelSpec``."""
     diffusion = jnp.asarray(diffusion_chol_template)
     if diag_free is not None:
         diag_free = jnp.asarray(diag_free, dtype=diffusion.dtype)

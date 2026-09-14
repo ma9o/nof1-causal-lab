@@ -12,13 +12,10 @@ import jax
 import jax.numpy as jnp
 import jax.scipy.special
 import jax.scipy.stats as jstats
+from dynestyx.observation_missingness import masked_observation_log_prob
 
-from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily
-from nof1_causal_lab.models.ssm.covariance_utils import (
-    inflate_missing_variance,
-)
+from nof1_causal_lab.artifacts.likelihood import DistributionFamily
 from nof1_causal_lab.models.ssm.execution.contracts import (
-    MISSING_DATA_LARGE_VAR,
     NUMERICAL_EPSILON,
     PROB_CLIP_MIN,
     LikelihoodExtraParams,
@@ -204,14 +201,25 @@ def get_categorical_extra_params(
     return level_counts, intercepts, slopes
 
 
+def emission_log_prob_delta(y_t, eta, R, obs_mask_t) -> FloatScalar:
+    """Exact equality at each observed channel; missing channels impose no constraint."""
+    return _mean_log_prob(DistributionFamily.DELTA, y_t, eta, R, obs_mask_t, {})
+
+
 def emission_log_prob_gaussian(y_t, eta, R, obs_mask_t) -> FloatScalar:
-    """Native multivariate Gaussian with the existing missing-channel marginalization."""
-    residual = jnp.where(obs_mask_t > 0.5, y_t - eta, 0.0)
-    n_obs = jnp.sum(obs_mask_t)
-    law = gaussian_distribution(jnp.zeros_like(eta), inflate_missing_variance(R, obs_mask_t))
-    n_missing = y_t.shape[0] - n_obs
-    correction = 0.5 * n_missing * jnp.log(2.0 * jnp.pi * MISSING_DATA_LARGE_VAR)
-    return jnp.where(n_obs > 0, law.log_prob(residual) + correction, 0.0)
+    """Score the exact observed Gaussian marginal with Dynestyx's fixed-shape mask."""
+    mask = obs_mask_t > 0.5
+    law = gaussian_distribution(eta, R)
+    return masked_observation_log_prob(
+        law,
+        y=jnp.where(mask, y_t, eta),
+        obs_mask=mask,
+        row_has_any_observed=jnp.any(mask),
+        observation_dim=y_t.shape[0],
+        has_partial_missing=True,
+        expected_mode="multivariate_normal",
+        expected_event_shape=law.event_shape,
+    )
 
 
 def emission_log_prob_poisson(y_t, eta, R, obs_mask_t) -> FloatScalar:
@@ -545,7 +553,7 @@ def build_heterogeneous_mean_log_prob_fn(
     extra_params: LikelihoodExtraParams | None = None,
 ) -> MeanLogProbFn:
     """Build an observation-space log-prob for heterogeneous manifest families."""
-    from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily
+    from nof1_causal_lab.artifacts.likelihood import DistributionFamily
 
     dists = [DistributionFamily(dist) for dist in manifest_dists]
     if len(set(dists)) == 1:
@@ -592,7 +600,7 @@ def build_heterogeneous_mean_sample_fn(
     extra_params: LikelihoodExtraParams | None = None,
 ) -> MeanSampleFn:
     """Build an observation-space sampler for heterogeneous manifest families."""
-    from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily
+    from nof1_causal_lab.artifacts.likelihood import DistributionFamily
 
     dists = [DistributionFamily(dist) for dist in manifest_dists]
     if len(set(dists)) == 1:

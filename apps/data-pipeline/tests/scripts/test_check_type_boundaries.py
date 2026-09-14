@@ -94,7 +94,7 @@ def test_rules_can_be_selected_independently() -> None:
 from typing import Any
 
 def compile_plan(
-    plan: StructuralPlan | dict[str, Any],
+    plan: ModelSpec | dict[str, Any],
     fallback: Any | None,
 ) -> None:
     ...
@@ -118,7 +118,7 @@ class Indicator(BaseModel):
     name: str
 
 def compile_plan(
-    plan: StructuralPlan | dict[str, Any] | None,
+    plan: ModelSpec | dict[str, Any] | None,
     indicator: Indicator | dict[str, Any],
     legacy: Union[Indicator, dict[str, Any]],
     metadata: dict[str, Any] | None,
@@ -232,7 +232,7 @@ def test_reject_only_optional_parameter_is_checked() -> None:
         '''
 from typing import Optional as Maybe
 
-def compile_plan(plan: Maybe[StructuralPlan]) -> None:
+def compile_plan(plan: Maybe[ModelSpec]) -> None:
     """Compile an already validated plan."""
     if plan is None:
         raise ValueError("plan is required")
@@ -241,7 +241,7 @@ def compile_spec(spec: StatisticalModelSpec | None = None) -> None:
     if None is spec:
         raise ValueError("spec is required")
 
-def compile_after_audit(plan: StructuralPlan | None) -> None:
+def compile_after_audit(plan: ModelSpec | None) -> None:
     audit_request()
     audit_complete = True
     if plan is None:
@@ -266,7 +266,7 @@ def test_conditional_or_non_rejecting_optional_parameter_is_allowed() -> None:
     violations = checker.scan_text(
         """
 def conditionally_require_plan(
-    plan: StructuralPlan | None,
+    plan: ModelSpec | None,
     *,
     enabled: bool,
 ) -> None:
@@ -274,17 +274,17 @@ def conditionally_require_plan(
         if plan is None:
             raise ValueError("enabled compilation requires a plan")
 
-def default_plan(plan: StructuralPlan | None = None) -> None:
+def default_plan(plan: ModelSpec | None = None) -> None:
     if plan is None:
         return
 
-def return_before_rejection(plan: StructuralPlan | None, enabled: bool) -> None:
+def return_before_rejection(plan: ModelSpec | None, enabled: bool) -> None:
     if not enabled:
         return
     if plan is None:
         raise ValueError("plan is required")
 
-def replace_before_rejection(plan: StructuralPlan | None) -> None:
+def replace_before_rejection(plan: ModelSpec | None) -> None:
     if plan is None:
         plan = default_plan()
     if plan is None:
@@ -300,7 +300,7 @@ def replace_before_rejection(plan: StructuralPlan | None) -> None:
 def test_baseline_must_match_exact_violation_identity() -> None:
     checker = _load_checker()
     violations = checker.scan_text(
-        "def compile_plan(plan: StructuralPlan | dict) -> None: ...",
+        "def compile_plan(plan: ModelSpec | dict) -> None: ...",
         path="src/example.py",
     )
     identity = violations[0].identity

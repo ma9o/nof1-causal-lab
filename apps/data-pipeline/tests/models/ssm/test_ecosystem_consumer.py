@@ -1,5 +1,6 @@
 """Numerical acceptance of Dynestyx model interpretation with local inference."""
 
+from nof1_causal_lab.artifacts.coefficient import FixedCoefficient
 from dataclasses import replace
 
 import jax
@@ -8,32 +9,33 @@ import numpy as np
 import numpyro.distributions as dist
 import pytest
 
-from nof1_causal_lab.artifacts.statistical_model_spec import LinkFunction
+from nof1_causal_lab.artifacts.likelihood import LinkFunction
 from nof1_causal_lab.distributions import DistributionFamily
-from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec, NodePotentialSpec
+from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
 from nof1_causal_lab.models.ssm.inference import fit
 from nof1_causal_lab.models.ssm.inference.problem import build_particle_problem
 from nof1_causal_lab.models.ssm.model import SSMModel
-from nof1_causal_lab.models.ssm.structure.parameters import Fixed, Free
-from tests.ssm_spec_fixtures import block_ssm_spec, default_lambda_block
+
+from tests.dynamics_fixtures import potential_term
+from tests.model_fixtures import default_lambda_block, model_fixture
 
 pytestmark = pytest.mark.cpu_expensive
 
 
 def nonlinear_model():
     loading = replace(default_lambda_block(2, 1), template=jnp.ones((2, 1)))
-    spec = block_ssm_spec(
+    spec = model_fixture(
         n_latent=1,
         n_manifest=2,
         lambda_block=loading,
         dynamics_spec=DynamicsSpec(
             1,
             (
-                NodePotentialSpec(
+                potential_term(
                     target=0,
-                    center=Free(),
-                    stiffness=Fixed(0.4),
-                    quartic=Fixed(0.2),
+                    center=None,
+                    stiffness=FixedCoefficient(value=0.4),
+                    quartic=FixedCoefficient(value=0.2),
                 ),
             ),
         ),

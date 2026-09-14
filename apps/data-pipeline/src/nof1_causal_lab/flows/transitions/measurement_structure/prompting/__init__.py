@@ -8,13 +8,13 @@ from nof1_causal_lab.json_types import UncheckedJsonObject
 
 def build_measurement_structure_user_prompt(
     question: str,
-    latent_structure: UncheckedJsonObject,
+    model: UncheckedJsonObject,
     chunks: list[str],
     dataset_summary: str,
 ) -> str:
     return templates.USER.format(
         question=question,
-        latent_structure_json=json.dumps(latent_structure, indent=2),
+        model_json=json.dumps(model, indent=2),
         dataset_summary=dataset_summary or "Not provided",
         chunks="\n".join(chunks),
     )

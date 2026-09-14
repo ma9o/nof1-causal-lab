@@ -19,7 +19,8 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import TypeAdapter
 
-from nof1_causal_lab.artifacts.mechanism import DynamicsMechanism
+from nof1_causal_lab.artifacts.construct import CausalEdge, Construct
+from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.temporal.llm_subroutine_storage import (
     read_subroutine_json,
@@ -98,8 +99,7 @@ def _validate_tool_payload(
             measurement_structure_grounding,
         )
 
-        context = read_subroutine_json(context_ref)
-        return measurement_structure_grounding(data, context["latent_structure"])
+        return measurement_structure_grounding(data)
 
     raise ValueError(f"unknown LLM subroutine context kind {context_kind!r}")
 
@@ -289,6 +289,9 @@ def _execute_raw_data_submit_table(
     args: UncheckedJsonObject,
 ) -> tuple[str, str | None]:
     import polars as pl
+    import pyarrow as pa
+
+    from nof1_causal_lab.artifacts.raw_data import with_column_descriptions
 
     context = _raw_data_context(context_ref)
     dataframe_ref = context["dataframe_ref"]
@@ -326,21 +329,15 @@ def _execute_raw_data_submit_table(
             None,
         )
 
-    missing = [column for column in df.columns if column not in col_descs]
-    if missing:
-        return f"Missing descriptions for columns: {missing}", None
+    try:
+        table = with_column_descriptions(df.to_arrow(), col_descs)
+    except ValueError as exc:
+        return str(exc), None
 
-    extra = [column for column in col_descs if column not in df.columns]
-    if extra:
-        return f"Descriptions for non-existent columns: {extra}", None
-
-    write_subroutine_json(
-        result_ref,
-        {
-            "dataframe_ref": dataframe_ref,
-            "column_descriptions": col_descs,
-        },
-    )
+    table_ref = result_ref.removesuffix(".json") + ".arrow"
+    with storage.open_file(table_ref, "wb") as file, pa.ipc.new_file(file, table.schema) as writer:
+        writer.write_table(table)
+    write_subroutine_json(result_ref, {"table_ref": table_ref})
     return "VALID", result_ref
 
 
@@ -408,7 +405,8 @@ def _execute_model_spec_submit_construct(
             ModelSpecSubmissionResult.model_validate(read_subroutine_json(submission_result_ref))
         )
 
-    construct = str(args["construct"])
+    entity = Construct.model_validate(args["construct"])
+    construct = entity.name
     parent, state = load_checkpoint_construct_state(
         workspace_id,
         checkpoint_ref,
@@ -430,9 +428,8 @@ def _execute_model_spec_submit_construct(
         write_subroutine_json(submission_result_ref, result.model_dump(mode="json"))
         return _return_saved(result)
 
-    indicators = list(args["indicators"])
-    priors = dict(args["priors"])
-    mechanisms = TypeAdapter(list[DynamicsMechanism]).validate_python(args["mechanisms"])
+    edges = TypeAdapter(tuple[CausalEdge, ...]).validate_python(args["edges"])
+    parameters = TypeAdapter(tuple[ParameterSpec, ...]).validate_python(args["parameters"])
     accept = list(args.get("accept") or [])
     state.attempt = int(context["attempt"])
     state.search_queries = dict(search_state["search_queries"])
@@ -442,9 +439,9 @@ def _execute_model_spec_submit_construct(
         accepted_constructs=parent.accepted_constructs,
         ancestor_constructs=set(state.admitted_contributions),
         construct_name=construct,
-        indicators=indicators,
-        priors=priors,
-        mechanisms=mechanisms,
+        construct=entity,
+        edges=edges,
+        parameters=parameters,
         accept=accept,
         n_draws=state.n_draws,
         seed=state.seed,
@@ -458,10 +455,9 @@ def _execute_model_spec_submit_construct(
         if evaluation.admitted:
             accepted = AcceptedConstructCheckpoint(
                 submission_id=submission_id,
-                construct_name=construct,
-                indicators=indicators,
-                priors=priors,
-                mechanisms=mechanisms,
+                entity=entity,
+                edges=edges,
+                parameters=parameters,
                 accept=accept,
                 annotations=evaluation.annotations,
                 results=evaluation.results,
@@ -505,10 +501,9 @@ def _execute_model_spec_submit_construct(
     )
     try:
         feedback = state.submit_construct(
-            construct=construct,
-            indicators=indicators,
-            priors=priors,
-            mechanisms=[mechanism.model_dump(mode="json") for mechanism in mechanisms],
+            construct=entity.model_dump(mode="json"),
+            edges=[edge.model_dump(mode="json") for edge in edges],
+            parameters=[parameter.model_dump(mode="json") for parameter in parameters],
             accept=accept,
         )
     except _MODEL_SPEC_SUBMISSION_ERRORS as exc:

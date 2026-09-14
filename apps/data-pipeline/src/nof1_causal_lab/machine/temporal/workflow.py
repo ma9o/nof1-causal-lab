@@ -35,7 +35,7 @@ with workflow.unsafe.imports_passed_through():
     from nof1_causal_lab.machine.moves import (
         Move,
         RetractedArtifact,
-        RunArtifact,
+        RunOperation,
         TransitionEffects,
         WriteArtifact,
         apply_transition,
@@ -51,7 +51,7 @@ with workflow.unsafe.imports_passed_through():
         JournalStatus,
         MeasurementsWorkflowInput,
         MoveRequest,
-        RunArtifactInput,
+        RunOperationInput,
         SingleLLMTransitionId,
         SingleLLMTransitionWorkflowInput,
         StatisticalModelSpecWorkflowInput,
@@ -140,32 +140,34 @@ class EpisodeWorkflow:
                 return self._outcome(seq, status="rejected", reason=reason)
 
             try:
-                if isinstance(move, RunArtifact) and _is_single_llm_transition(move.artifact_id):
+                if isinstance(move, RunOperation) and _is_single_llm_transition(move.operation_id):
                     effects = await workflow.execute_child_workflow(
                         "SingleLLMTransitionWorkflow",
                         SingleLLMTransitionWorkflowInput(
                             workspace_id=self._workspace_id,
                             seq=seq,
-                            transition_id=move.artifact_id,
+                            transition_id=move.operation_id,
                             state=self._state,
                             options=request.options,
                         ),
-                        id=(f"{move.artifact_id.replace('_', '-')}-{self._workspace_id}-{seq:06d}"),
+                        id=(
+                            f"{move.operation_id.replace('_', '-')}-{self._workspace_id}-{seq:06d}"
+                        ),
                         result_type=TransitionEffects,
                         execution_timeout=_RUN_TRANSITION_TIMEOUT,
-                        static_summary=f"Run {move.artifact_id}",
+                        static_summary=f"Run {move.operation_id}",
                         static_details=(
                             f"workspace={self._workspace_id}; seq={seq}; "
-                            f"artifact={move.artifact_id}; workflow=single_llm_transition"
+                            f"artifact={move.operation_id}; workflow=single_llm_transition"
                         ),
                         memo={
                             "workspace_id": self._workspace_id,
                             "seq": seq,
-                            "artifact_id": move.artifact_id,
+                            "artifact_id": move.operation_id,
                             "workflow_kind": "single_llm_transition",
                         },
                     )
-                elif isinstance(move, RunArtifact) and move.artifact_id == "measurements":
+                elif isinstance(move, RunOperation) and move.operation_id == "measurements":
                     effects = await workflow.execute_child_workflow(
                         "MeasurementsWorkflow",
                         MeasurementsWorkflowInput(
@@ -185,11 +187,13 @@ class EpisodeWorkflow:
                         memo={
                             "workspace_id": self._workspace_id,
                             "seq": seq,
-                            "artifact_id": "measurements",
+                            "operation_id": "measurements",
                             "workflow_kind": "batch_llm_transition",
                         },
                     )
-                elif isinstance(move, RunArtifact) and move.artifact_id == "statistical_model_spec":
+                elif (
+                    isinstance(move, RunOperation) and move.operation_id == "statistical_model_spec"
+                ):
                     effects = await workflow.execute_child_workflow(
                         "StatisticalModelSpecWorkflow",
                         StatisticalModelSpecWorkflowInput(
@@ -204,21 +208,21 @@ class EpisodeWorkflow:
                         static_summary="Run statistical model spec",
                         static_details=(
                             f"workspace={self._workspace_id}; seq={seq}; "
-                            "artifact=statistical_model_spec; workflow=construct_admission"
+                            "operation=statistical_model_spec; workflow=construct_admission"
                         ),
                         memo={
                             "workspace_id": self._workspace_id,
                             "seq": seq,
-                            "artifact_id": "statistical_model_spec",
+                            "operation_id": "statistical_model_spec",
                             "workflow_kind": "construct_admission",
                         },
                     )
-                elif isinstance(move, RunArtifact):
+                elif isinstance(move, RunOperation):
                     effects = await workflow.execute_activity(
                         "run_transition_activity",
-                        RunArtifactInput(
+                        RunOperationInput(
                             workspace_id=self._workspace_id,
-                            artifact_id=move.artifact_id,
+                            operation_id=move.operation_id,
                             state=self._state,
                             options=request.options,
                         ),
@@ -234,6 +238,7 @@ class EpisodeWorkflow:
                             artifact_id=move.artifact_id,
                             payload=request.payload or {},
                             provenance=move.provenance,
+                            expected_model_version=move.expected_model_version,
                             state=self._state,
                         ),
                         result_type=TransitionEffects,
@@ -265,11 +270,18 @@ class EpisodeWorkflow:
                 seq,
                 move,
                 status="applied",
+                diagnostics=effects.diagnostics,
                 produced=produced,
                 retracted=retracted,
             )
             self._state = apply_transition(self._state, produced, retracted)
-            return self._outcome(seq, status="applied", produced=produced, retracted=retracted)
+            return self._outcome(
+                seq,
+                status="applied",
+                produced=produced,
+                retracted=retracted,
+                diagnostics=effects.diagnostics,
+            )
 
     @workflow.signal
     def close(self) -> None:

@@ -1,38 +1,33 @@
-"""Helpers for reading likelihood and diffusion metadata from ``SSMSpec``."""
+"""Helpers for reading likelihood and diffusion metadata from ``ModelSpec``."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from nof1_causal_lab.models.ssm import numerics as numeric
+
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily, LinkFunction
-    from nof1_causal_lab.models.ssm.model import SSMSpec
+    from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 
-def get_per_variable_diffusion(spec: SSMSpec) -> list[DistributionFamily]:
+def get_per_variable_diffusion(spec: ModelSpec) -> list[DistributionFamily]:
     """Return the canonical per-variable diffusion noise families."""
-    return list(spec.diffusion_dists)
+    return list(numeric.diffusion_families(spec))
 
 
-def has_student_t_diffusion(spec: SSMSpec) -> bool:
+def has_student_t_diffusion(spec: ModelSpec) -> bool:
     """Return whether any latent process uses Student-t diffusion noise."""
-    from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily
+    from nof1_causal_lab.artifacts.likelihood import DistributionFamily
 
     return DistributionFamily.STUDENT_T in set(get_per_variable_diffusion(spec))
 
 
-def get_per_channel_manifest(spec: SSMSpec) -> list[DistributionFamily]:
+def get_per_channel_manifest(spec: ModelSpec) -> list[DistributionFamily]:
     """Return the canonical per-channel observation noise families."""
-    return list(spec.manifest_dists)
+    return list(numeric.observation_families(spec))
 
 
-def get_per_channel_links(spec: SSMSpec) -> list[LinkFunction]:
+def get_per_channel_links(spec: ModelSpec) -> list[LinkFunction]:
     """Resolve per-channel link functions."""
-    from nof1_causal_lab.models.ssm.execution.observation_families import (
-        resolve_manifest_families_and_links,
-    )
-
-    if spec.manifest_links is not None:
-        return list(spec.manifest_links)
-    _, links = resolve_manifest_families_and_links(get_per_channel_manifest(spec))
-    return links
+    return numeric.observation_links(spec)

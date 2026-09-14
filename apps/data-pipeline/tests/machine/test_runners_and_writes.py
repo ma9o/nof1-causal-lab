@@ -1,23 +1,23 @@
-"""Runner/write executors: optional outputs and derivation cascade."""
+"""Authoring commits, optional extraction outputs, and atomic derivation cascades."""
 
+import asyncio
 import json
-from typing import Any
 
 import polars as pl
 import pytest
 
-from nof1_causal_lab.artifacts.causal_design import CausalDesign
-from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
-from nof1_causal_lab.flows.transitions.measurement_structure.identification import (
-    derive_identification_report,
-)
+from nof1_causal_lab.artifacts.construct import KnownInput, replace_constructs
+from nof1_causal_lab.artifacts.identity import ConstructRef
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.machine.artifacts import EpisodeState
 from nof1_causal_lab.machine.errors import ArtifactWriteRejected
 from nof1_causal_lab.machine.graph import transition_spec
-from nof1_causal_lab.machine.moves import apply_transition, input_pins
+from nof1_causal_lab.machine.moves import RunOperation, apply_transition, input_pins
 from nof1_causal_lab.machine.store import ArtifactStore
 from nof1_causal_lab.machine.writes import execute_write
-from tests.helpers import fixture_entity_id
+from nof1_causal_lab.models.identification import identify_model
+from nof1_causal_lab.models.model_inputs import observation_input
+from tests.helpers import make_model
 
 
 @pytest.fixture
@@ -28,654 +28,370 @@ def workspace(monkeypatch, tmp_path):
     return "test_workspace"
 
 
-def _valid_causal_design(
-    *,
-    include_identifiability=True,
-    non_identifiable=None,
-) -> dict[str, Any]:
-    spec = {
-        "latent": _latent_structure(),
-        "measurement": _measurement_structure(),
-        "estimation": {
-            "state_order": ["Stress", "Perf"],
-            "edges": [
-                {
-                    "cause_id": "construct:98df502ac4daf088ca29",
-                    "effect_id": "construct:dc6723ce621183cd1182",
-                    "id": "edge:399745ac3ae059a06462",
-                    "description": "Stress reduces performance",
-                    "lagged": True,
-                }
-            ],
-            "known_inputs": [],
-            "scientific_only_constructs": [],
-        },
-    }
-    if include_identifiability:
-        identifiable = (
-            {}
-            if non_identifiable
-            else {
-                "construct:98df502ac4daf088ca29": {
-                    "method": "do_calculus",
-                    "estimand": "P(Perf | do(Stress))",
-                    "marginalized_confounders": [],
-                    "instruments": [],
-                }
-            }
-        )
-        spec["identifiability"] = {
-            "identifiable_treatments": identifiable,
-            "non_identifiable_treatments": non_identifiable or {},
-        }
-    return spec
+def _model():
+    model = make_model(["Stress", "Perf"], [("Stress", "Perf")])
+    return model.revised(default_outcome=ConstructRef(id=model.constructs[1].id))
 
 
-def _latent_structure() -> dict[str, Any]:
-    return {
-        "default_outcome": {"kind": "construct", "id": "construct:dc6723ce621183cd1182"},
-        "constructs": [
-            {
-                "id": "construct:dc6723ce621183cd1182",
-                "name": "Perf",
-                "description": "Performance",
-                "role": "endogenous",
-                "temporal_status": "time_varying",
-            },
-            {
-                "id": "construct:98df502ac4daf088ca29",
-                "name": "Stress",
-                "description": "Stress level",
-                "role": "endogenous",
-                "temporal_status": "time_varying",
-            },
-        ],
-        "edges": [
-            {
-                "cause_id": "construct:98df502ac4daf088ca29",
-                "effect_id": "construct:dc6723ce621183cd1182",
-                "id": "edge:399745ac3ae059a06462",
-                "description": "Stress reduces performance",
-                "lagged": True,
-            }
-        ],
-    }
-
-
-def _measurement_structure() -> dict[str, Any]:
-    return {
-        "model_clock": "1d",
-        "indicators": [
-            {
-                "id": "indicator:3696aef3ff6f446744e5",
-                "construct_id": "construct:98df502ac4daf088ca29",
-                "name": "stress_score",
-                "construct_polarity": "positive",
-                "how_to_measure": "Self-reported stress",
-                "measurement_dtype": "continuous",
-                "aggregation": "mean",
-            },
-            {
-                "id": "indicator:36fc62c6c29760766dd6",
-                "construct_id": "construct:dc6723ce621183cd1182",
-                "name": "perf_score",
-                "construct_polarity": "positive",
-                "how_to_measure": "Self-reported performance",
-                "measurement_dtype": "continuous",
-                "aggregation": "mean",
-            },
-        ],
-    }
-
-
-class TestIdentificationReportDerivation:
-    def test_explicit_identifiable_treatments_produce_identification_report(self):
-        report = derive_identification_report(CausalDesign.model_validate(_valid_causal_design()))
-        assert report is not None
-        assert report.estimable_treatments == ["construct:98df502ac4daf088ca29"]
-        assert report.outcome_id == "construct:dc6723ce621183cd1182"
-
-    def test_missing_identifiability_withholds_identification_report(self):
-        report = derive_identification_report(
-            CausalDesign.model_validate(_valid_causal_design(include_identifiability=False))
-        )
-        assert report is None
-
-    def test_all_non_identifiable_withholds_identification_report(self):
-        report = derive_identification_report(
-            CausalDesign.model_validate(
-                _valid_causal_design(
-                    non_identifiable={
-                        "construct:98df502ac4daf088ca29": {
-                            "confounders": [],
-                            "notes": "No identifying strategy",
-                        }
+def _known_input(model):
+    owner = model.constructs[0]
+    return model.revised(
+        edges=replace_constructs(
+            model.edges,
+            (
+                owner.model_copy(
+                    update={
+                        "usage": KnownInput(
+                            source_indicator_id=owner.indicators[0].id,
+                            scale=2.0,
+                            missing_policy="forward_fill",
+                        )
                     }
-                )
-            )
-        )
-        assert report is None
-
-
-class TestStage2Gate:
-    async def _finalize_measurements(self, workspace, observation_rows):
-        from nof1_causal_lab.machine.temporal.measurement_activities import (
-            finalize_measurements_activity,
-        )
-        from nof1_causal_lab.machine.temporal.messages import MeasurementsFinalizeInput
-        from nof1_causal_lab.utils import data as data_module
-        from nof1_causal_lab.utils import storage
-
-        store = ArtifactStore(workspace)
-        state = EpisodeState().with_versions(
-            [
-                store.write_version(
-                    "question",
-                    provenance="human",
-                    derived_from={},
-                    produced_by=None,
-                    json_files={"question.json": {"text": "does stress hurt performance?"}},
                 ),
-                store.write_version(
-                    "raw_data",
-                    provenance="computed",
-                    derived_from={},
-                    produced_by="run:raw_data",
-                    json_files={"profile.json": {"column_descriptions": []}},
-                    parquet_files={"raw.parquet": pl.DataFrame({"timestamp": ["2026-01-01"]})},
-                ),
-                store.write_version(
-                    "measurement_structure",
-                    provenance="computed",
-                    derived_from={},
-                    produced_by="run:measurement_structure",
-                    json_files={
-                        "measurement_structure.json": {
-                            "measurement_structure": _measurement_structure(),
-                            "known_inputs": [],
-                            "scientific_only_constructs": [],
-                        }
-                    },
-                ),
-            ]
-        )
-
-        spec = transition_spec("measurements")
-        pins = input_pins(state, spec)
-        run_id = "run-1"
-        plan_ref = storage.join(
-            data_module.scratch_run_dir(workspace, run_id),
-            "extraction",
-            "plan.json",
-        )
-        storage.write_text(
-            plan_ref,
-            json.dumps(
-                {
-                    "measurement_structure": _measurement_structure(),
-                    "computed_dicts": observation_rows,
-                    "chunks": [],
-                }
+                *model.constructs[1:],
             ),
         )
+    )
 
-        return await finalize_measurements_activity(
+
+def _write(store, artifact_id, payload, pins=None):
+    from nof1_causal_lab.machine.artifact_files import artifact_file_spec
+
+    return store.write_version(
+        artifact_id,
+        provenance="human",
+        derived_from=pins or {},
+        produced_by=None,
+        json_files={next(iter(artifact_file_spec(artifact_id).json.values())): payload},
+    )
+
+
+def test_identification_records_positive_and_absent_queries():
+    report = identify_model(_model())
+    assert report.estimable_treatments == [_model().constructs[0].id]
+    assert report.outcome == _model().constructs[1].id
+    absent = identify_model(_model().revised(default_outcome=None))
+    assert absent.outcome is None
+    assert absent.estimable_treatments == []
+
+
+def test_identification_preserves_negative_findings(monkeypatch):
+    from nof1_causal_lab.models import identification
+
+    monkeypatch.setattr(
+        identification,
+        "check_identifiability",
+        lambda *_, **__: {
+            "identifiable_treatments": {},
+            "non_identifiable_treatments": {"Stress": {"confounders": [], "notes": "Unidentified"}},
+        },
+    )
+    report = identify_model(_model())
+    assert not report.estimable_treatments
+    assert report.non_identifiable[_model().constructs[0].id].notes == "Unidentified"
+
+
+@pytest.mark.parametrize("nonempty", [False, True])
+def test_extraction_optional_panel(workspace, tmp_path, nonempty):
+    from nof1_causal_lab.machine.temporal.measurement_activities import (
+        finalize_measurements_activity,
+    )
+    from nof1_causal_lab.machine.temporal.messages import (
+        ExtractionChunkResult,
+        MeasurementsFinalizeInput,
+    )
+
+    store = ArtifactStore(workspace)
+    model = _model()
+    state = EpisodeState().with_versions(
+        [
+            _write(store, "question", {"text": "does stress hurt performance?"}),
+            store.write_version(
+                "raw_data", provenance="computed", derived_from={}, produced_by="run:raw_data"
+            ),
+            _write(store, "model", model.model_dump(mode="json")),
+        ]
+    )
+    pins = input_pins(state, transition_spec("measurements"))
+    path = tmp_path / "plan.json"
+    path.write_text(
+        json.dumps(
+            {
+                "measurement_structure": observation_input(model),
+                "computed_dicts": [
+                    {
+                        "indicator_id": model.indicators[0].id,
+                        "value": 3.0,
+                        "timestamp": "2026-01-01",
+                    }
+                ]
+                if nonempty
+                else [],
+                "chunks": [{"worker_id": 7}],
+            }
+        )
+    )
+    effects = asyncio.run(
+        finalize_measurements_activity(
             MeasurementsFinalizeInput(
                 workspace_id=workspace,
                 state=state,
-                run_id=run_id,
-                plan_ref=plan_ref,
+                run_id="run-1",
+                plan_ref=str(path),
                 pins=pins,
-            )
-        )
-
-    def test_empty_extraction_withholds_panel(self, workspace):
-        import asyncio
-
-        effects = asyncio.run(self._finalize_measurements(workspace, []))
-        produced = {info.artifact_id for info in effects.produced}
-        assert produced == {"measurements"}
-
-    def test_nonempty_extraction_produces_panel(self, workspace):
-        import asyncio
-
-        rows = [
-            {
-                "indicator_id": "indicator:3696aef3ff6f446744e5",
-                "value": 3.0,
-                "timestamp": "2026-01-01",
-            }
-        ]
-        effects = asyncio.run(self._finalize_measurements(workspace, rows))
-        produced = {info.artifact_id for info in effects.produced}
-        assert produced == {"measurements", "panel"}
-        panel = next(info for info in effects.produced if info.artifact_id == "panel")
-        assert set(panel.derived_from) == {"question", "raw_data", "measurement_structure"}
-
-
-class TestMeasurementStructureArtifactWrite:
-    def _state_with_latent(self, store: ArtifactStore):
-        latent_info = store.write_version(
-            "latent_structure",
-            provenance="llm",
-            derived_from={},
-            produced_by=None,
-            json_files={"latent-structure.json": {"latent_structure": _latent_structure()}},
-        )
-        return EpisodeState().with_versions([latent_info])
-
-    def test_write_cascades_causal_design_and_identification_report(self, workspace):
-        store = ArtifactStore(workspace)
-        state = self._state_with_latent(store)
-
-        effects = execute_write(
-            workspace,
-            "measurement_structure",
-            {
-                "measurement_structure": _measurement_structure(),
-                "known_inputs": [],
-                "scientific_only_constructs": [],
-            },
-            "human",
-            state,
-        )
-
-        produced = {info.artifact_id for info in effects.produced}
-        assert produced == {
-            "measurement_structure",
-            "causal_design",
-            "structural_plan",
-            "identification_report",
-        }
-        assert effects.retracted == []
-        derived = {
-            info.artifact_id: info.derived_from
-            for info in effects.produced
-            if info.artifact_id != "measurement_structure"
-        }
-        measurement_version = next(
-            info.version for info in effects.produced if info.artifact_id == "measurement_structure"
-        )
-        assert derived["causal_design"] == {
-            "latent_structure": 1,
-            "measurement_structure": measurement_version,
-        }
-        assert derived["identification_report"] == {"causal_design": 1}
-
-    def test_write_routes_known_input_into_derived_causal_design(self, workspace):
-        from nof1_causal_lab.models.ssm.compile.spec_translation import (
-            get_structural_input_layout,
-        )
-        from nof1_causal_lab.utils.structural_plan import get_edges, get_state_names
-
-        store = ArtifactStore(workspace)
-        state = self._state_with_latent(store)
-
-        effects = execute_write(
-            workspace,
-            "measurement_structure",
-            {
-                "measurement_structure": _measurement_structure(),
-                "known_inputs": [
-                    {
-                        "construct_id": "construct:98df502ac4daf088ca29",
-                        "source_indicator_id": "indicator:3696aef3ff6f446744e5",
-                        "scale": 2.0,
-                        "missing_policy": "forward_fill",
-                    }
+                chunk_results=[
+                    ExtractionChunkResult(
+                        worker_id=7,
+                        status="failed",
+                        n_extractions=0,
+                        n_windows=1,
+                        error="No usable extraction",
+                    )
                 ],
-                "scientific_only_constructs": [],
-            },
-            "human",
-            state,
-        )
-
-        causal_design_info = next(
-            info for info in effects.produced if info.artifact_id == "causal_design"
-        )
-        causal_design = store.read_json_file(
-            "causal_design",
-            causal_design_info.version,
-            "causal_design.json",
-        )["causal_design"]
-        assert causal_design["known_inputs"] == [
-            {
-                "construct_id": "construct:98df502ac4daf088ca29",
-                "source_indicator_id": "indicator:3696aef3ff6f446744e5",
-                "scale": 2.0,
-                "missing_policy": "forward_fill",
-            }
-        ]
-        structural_plan_info = next(
-            info for info in effects.produced if info.artifact_id == "structural_plan"
-        )
-        structural_plan = StructuralPlan.model_validate(
-            store.read_json_file(
-                "structural_plan",
-                structural_plan_info.version,
-                "structural-plan.json",
-            )["structural_plan"]
-        )
-        assert get_state_names(structural_plan) == ["Perf"]
-        assert [(edge["cause"], edge["effect"]) for edge in get_edges(structural_plan)] == [
-            ("Stress", "Perf")
-        ]
-        assert get_structural_input_layout(structural_plan) == (
-            ["Stress"],
-            ["stress_score"],
-            [2.0],
-            ["forward_fill"],
-            [True],
-        )
-
-    def test_embedded_authoring_finalizer_persists_known_inputs(self, workspace, tmp_path):
-        import asyncio
-
-        from nof1_causal_lab.machine.temporal.measurement_structure_activities import (
-            finalize_measurement_structure_activity,
-        )
-        from nof1_causal_lab.machine.temporal.messages import SingleLLMTransitionFinalizeInput
-        from nof1_causal_lab.utils import storage
-
-        store = ArtifactStore(workspace)
-        question = store.write_version(
-            "question",
-            provenance="human",
-            derived_from={},
-            produced_by=None,
-            json_files={"question.json": {"text": "does stress hurt performance?"}},
-        )
-        raw_data = store.write_version(
-            "raw_data",
-            provenance="computed",
-            derived_from={},
-            produced_by="run:raw_data",
-            json_files={"profile.json": {"column_descriptions": []}},
-        )
-        latent_structure = store.write_version(
-            "latent_structure",
-            provenance="computed",
-            derived_from={"question": question.version},
-            produced_by="run:latent_structure",
-            json_files={"latent-structure.json": {"latent_structure": _latent_structure()}},
-        )
-        state = EpisodeState().with_versions([question, raw_data, latent_structure])
-        result_ref = str(tmp_path / "measurement-result.json")
-        storage.write_text(
-            result_ref,
-            json.dumps(
-                {
-                    "measurement_structure": _measurement_structure(),
-                    "known_inputs": [
-                        {
-                            "construct_id": "construct:98df502ac4daf088ca29",
-                            "source_indicator_id": "indicator:3696aef3ff6f446744e5",
-                            "scale": 2.0,
-                            "missing_policy": "forward_fill",
-                        }
-                    ],
-                    "scientific_only_constructs": [],
-                }
-            ),
-        )
-
-        effects = asyncio.run(
-            finalize_measurement_structure_activity(
-                SingleLLMTransitionFinalizeInput(
-                    workspace_id=workspace,
-                    transition_id="measurement_structure",
-                    state=state,
-                    pins={
-                        "question": question.version,
-                        "raw_data": raw_data.version,
-                        "latent_structure": latent_structure.version,
-                    },
-                    context_ref="unused-context.json",
-                    result_ref=result_ref,
-                    trace_ref="trace://measurement",
-                )
             )
         )
+    )
+    assert ("panel" in {info.artifact_id for info in effects.produced}) == nonempty
+    assert "measurements" not in {info.artifact_id for info in effects.produced}
+    assert effects.diagnostics["workers"] == [
+        {
+            "worker_id": 7,
+            "status": "failed",
+            "n_extractions": 0,
+            "n_windows": 1,
+            "error": "No usable extraction",
+            "n_llm_calls": 0,
+        }
+    ]
+    assert effects.diagnostics["n_observations"] == int(nonempty)
+    from nof1_causal_lab.episode_api import _needs_run, _next_auto_move
+    from nof1_causal_lab.machine.store import EpisodeJournal, TransitionRecord
 
-        measurement_info = next(
-            info for info in effects.produced if info.artifact_id == "measurement_structure"
+    journal = EpisodeJournal(workspace)
+    record = TransitionRecord(
+        seq=1,
+        ts="2026-01-01T00:00:00Z",
+        trace_ids=[],
+        resume=None,
+        move=RunOperation(operation_id="measurements"),
+        status="applied",
+        produced=effects.produced,
+        retracted=effects.retracted,
+        diagnostics=effects.diagnostics,
+    )
+    journal.append(record)
+    assert journal.read_all()[0].diagnostics == effects.diagnostics
+    current = apply_transition(state, effects.produced, effects.retracted)
+    next_move = _next_auto_move(workspace, current)
+    assert next_move is None or next_move.operation_id != "measurements"
+    if not nonempty:
+        assert not current.has("panel")
+        assert not current.has("validation_report")
+        assert next_move is None
+        enriched = current.current["model"].model_copy(update={"version": 2})
+        assert not _needs_run(
+            current.with_versions([enriched]), transition_spec("measurements"), model, record
         )
-        measurement_payload = store.read_json_file(
-            "measurement_structure",
-            measurement_info.version,
-            "measurement_structure.json",
+        changed_extraction = enriched.model_copy(update={"model_inputs": {"extraction": "changed"}})
+        assert _needs_run(
+            current.with_versions([changed_extraction]),
+            transition_spec("measurements"),
+            model,
+            record,
         )
-        assert measurement_payload["known_inputs"][0]["construct_id"] == fixture_entity_id(
-            "construct", "Stress"
+        changed = current.with_versions(
+            [current.current["raw_data"].model_copy(update={"version": 2})]
         )
-        assert "llm_trace_ref" not in measurement_payload
+        assert _next_auto_move(workspace, changed) == RunOperation(operation_id="measurements")
+    if nonempty:
+        panel = next(info for info in effects.produced if info.artifact_id == "panel")
+        assert panel.derived_from == {"question": 1, "raw_data": 1, "model": 1}
 
-        causal_design_info = next(
-            info for info in effects.produced if info.artifact_id == "causal_design"
-        )
-        causal_design = store.read_json_file(
-            "causal_design",
-            causal_design_info.version,
-            "causal_design.json",
-        )["causal_design"]
-        assert causal_design["known_inputs"] == measurement_payload["known_inputs"]
 
-    def test_write_retracts_derivations_with_stale_non_cascading_parents(self, workspace):
-        store = ArtifactStore(workspace)
-        question = store.write_version(
-            "question",
-            provenance="human",
-            derived_from={},
-            produced_by=None,
-            json_files={"question.json": {"text": "does stress hurt performance?"}},
-        )
-        raw_data = store.write_version(
-            "raw_data",
-            provenance="computed",
-            derived_from={},
-            produced_by="run:raw_data",
-            json_files={"profile.json": {"column_descriptions": []}},
-            parquet_files={"raw.parquet": pl.DataFrame({"timestamp": ["2026-01-01"]})},
-        )
-        latent_structure = store.write_version(
-            "latent_structure",
-            provenance="computed",
-            derived_from={"question": question.version},
-            produced_by="run:latent_structure",
-            json_files={"latent-structure.json": {"latent_structure": _latent_structure()}},
-        )
-        old_measurement = store.write_version(
-            "measurement_structure",
-            provenance="computed",
-            derived_from={
-                "question": question.version,
-                "raw_data": raw_data.version,
-                "latent_structure": latent_structure.version,
-            },
-            produced_by="run:measurement_structure",
-            json_files={
-                "measurement_structure.json": {
-                    "measurement_structure": _measurement_structure(),
-                    "known_inputs": [],
-                    "scientific_only_constructs": [],
-                }
-            },
-        )
-        old_causal_design = store.write_version(
-            "causal_design",
-            provenance="computed",
-            derived_from={
-                "latent_structure": latent_structure.version,
-                "measurement_structure": old_measurement.version,
-            },
-            produced_by="derive:causal_design",
-            json_files={"causal_design.json": {"causal_design": _valid_causal_design()}},
-        )
-        old_identification = store.write_version(
-            "identification_report",
-            provenance="computed",
-            derived_from={"causal_design": old_causal_design.version},
-            produced_by="derive:identification_report",
-            json_files={
-                "identification_report.json": {
-                    "outcome_id": "construct:dc6723ce621183cd1182",
-                    "estimable_treatments": ["construct:98df502ac4daf088ca29"],
-                    "non_identifiable_treatments": {},
-                }
-            },
-        )
-        panel = store.write_version(
-            "panel",
-            provenance="computed",
-            derived_from={
-                "question": question.version,
-                "raw_data": raw_data.version,
-                "measurement_structure": old_measurement.version,
-            },
-            produced_by="run:measurements",
-            parquet_files={
-                "panel.parquet": pl.DataFrame(
-                    {
-                        "indicator": ["stress_score"],
-                        "value": [3.0],
-                        "anchor_time": ["2026-01-01"],
-                    }
-                )
-            },
-        )
-        validation = store.write_version(
-            "validation_report",
-            provenance="computed",
-            derived_from={"panel": panel.version, "causal_design": old_causal_design.version},
-            produced_by="derive:validation_report",
-            json_files={
-                "validation_report.json": {
-                    "is_valid": True,
-                    "indicators": {},
-                    "dataset_issues": [],
-                }
-            },
-        )
-        statistical_model_spec = store.write_version(
-            "statistical_model_spec",
-            provenance="computed",
-            derived_from={
-                "question": question.version,
-                "causal_design": old_causal_design.version,
-                "identification_report": old_identification.version,
-                "panel": panel.version,
-                "validation_report": validation.version,
-            },
-            produced_by="run:statistical_model_spec",
-            json_files={
-                "statistical_model_spec.json": {
-                    "statistical_model_spec": {
-                        "mechanisms": [],
-                        "likelihoods": [],
-                        "parameters": [],
-                    },
-                    "prior_predictive_samples": {},
-                }
-            },
-        )
-        compiled = store.write_version(
-            "compiled_ssm",
-            provenance="computed",
-            derived_from={
-                "statistical_model_spec": statistical_model_spec.version,
-                "causal_design": old_causal_design.version,
-            },
-            produced_by="derive:compiled_ssm",
-            json_files={"compiled-ssm.json": {"spec": {}}, "report.json": {}},
-        )
-        state = EpisodeState().with_versions(
+def test_model_write_cascades_without_parallel_scientific_catalogs(workspace):
+    effects = execute_write(
+        workspace,
+        "model",
+        _model().model_dump(mode="json"),
+        "human",
+        EpisodeState(),
+        expected_model_version=0,
+    )
+    assert {info.artifact_id for info in effects.produced} == {
+        "model",
+        "identification_report",
+    }
+    assert not effects.retracted
+    assert all(
+        info.derived_from == {"model": 1}
+        for info in effects.produced
+        if info.artifact_id != "model"
+    )
+    assert next(info for info in effects.produced if info.artifact_id == "model").derived_from == {}
+
+
+def test_owned_known_input_controls_execution_layout(workspace):
+    from nof1_causal_lab.models.ssm.compile.support import get_structural_input_layout
+    from nof1_causal_lab.utils.model_structure import get_state_names
+
+    model = _known_input(_model())
+    effects = execute_write(
+        workspace,
+        "model",
+        model.model_dump(mode="json"),
+        "human",
+        EpisodeState(),
+        expected_model_version=0,
+    )
+    store = ArtifactStore(workspace)
+    info = next(info for info in effects.produced if info.artifact_id == "model")
+    payload = store.read_json_file("model", info.version, "model.json")
+    plan = ModelSpec.model_validate(payload)
+    assert get_state_names(plan) == ["Perf"]
+    assert get_structural_input_layout(plan) == (
+        ["Stress"],
+        ["Stress_obs"],
+        [2.0],
+        ["forward_fill"],
+        [True],
+    )
+
+
+@pytest.mark.parametrize("operation", ["latent_structure", "measurement_structure"])
+def test_authoring_finalizer_commits_canonical_revision(workspace, tmp_path, operation):
+    from nof1_causal_lab.machine.temporal.messages import SingleLLMTransitionFinalizeInput
+    from nof1_causal_lab.machine.temporal.model_authoring import finalize_model_revision
+
+    store = ArtifactStore(workspace)
+    initial = _model()
+    infos = [_write(store, "question", {"text": "does stress hurt performance?"})]
+    if operation == "measurement_structure":
+        infos.extend(
             [
-                question,
-                raw_data,
-                latent_structure,
-                old_measurement,
-                old_causal_design,
-                old_identification,
-                panel,
-                validation,
-                statistical_model_spec,
-                compiled,
+                store.write_version(
+                    "raw_data", provenance="computed", derived_from={}, produced_by="run:raw_data"
+                ),
+                _write(store, "model", initial.model_dump(mode="json")),
             ]
         )
+    state = EpisodeState().with_versions(infos)
+    candidate = _known_input(initial)
+    path = tmp_path / "model-result.json"
+    path.write_text(candidate.model_dump_json())
+    pins = input_pins(state, transition_spec(operation))
+    effects = finalize_model_revision(
+        SingleLLMTransitionFinalizeInput(
+            workspace_id=workspace,
+            transition_id=operation,
+            state=state,
+            pins=pins,
+            context_ref="unused-context.json",
+            result_ref=str(path),
+            trace_ref="trace://authoring",
+        ),
+        operation,
+    )
+    info = next(info for info in effects.produced if info.artifact_id == "model")
+    assert info.provenance == "computed"
+    assert info.derived_from == pins
+    persisted = ModelSpec.model_validate(store.read_json_file("model", info.version, "model.json"))
+    assert persisted == candidate
+    assert "llm_trace_ref" not in persisted.model_dump()
 
-        effects = execute_write(
+
+def test_model_edit_retracts_validation_of_stale_extraction(workspace):
+    store = ArtifactStore(workspace)
+    model = _model()
+    effects = execute_write(
+        workspace,
+        "model",
+        model.model_dump(mode="json"),
+        "human",
+        EpisodeState(),
+        expected_model_version=0,
+    )
+    state = apply_transition(EpisodeState(), effects.produced)
+    panel = store.write_version(
+        "panel",
+        provenance="computed",
+        derived_from={"model": 1},
+        produced_by="run:measurements",
+        parquet_files={"panel.parquet": pl.DataFrame()},
+    )
+    validation = _write(
+        store,
+        "validation_report",
+        {"is_valid": True, "indicators": {}, "dataset_issues": []},
+        {"panel": 1, "model": 1},
+    )
+    state = state.with_versions([panel, validation])
+    changed = model.revised(measurement_clock="2d")
+    effects = execute_write(
+        workspace,
+        "model",
+        changed.model_dump(mode="json"),
+        "human",
+        state,
+        expected_model_version=1,
+    )
+    assert "validation_report" in {item.artifact_id for item in effects.retracted}
+    assert "panel" not in {item.artifact_id for item in effects.produced}
+
+
+def test_failed_cascade_removes_all_new_versions(workspace, monkeypatch):
+    from nof1_causal_lab.models import identification
+
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("identification failed")
+
+    monkeypatch.setattr(identification, "check_identifiability", fail)
+    with pytest.raises(RuntimeError, match="identification failed"):
+        execute_write(
             workspace,
-            "measurement_structure",
-            {
-                "measurement_structure": _measurement_structure(),
-                "known_inputs": [],
-                "scientific_only_constructs": [],
-            },
+            "model",
+            _model().model_dump(mode="json"),
             "human",
-            state,
+            EpisodeState(),
+            expected_model_version=0,
         )
+    store = ArtifactStore(workspace)
+    assert store.list_versions("model") == []
 
-        produced = {info.artifact_id for info in effects.produced}
-        retracted = {item.artifact_id: item.reason_ref for item in effects.retracted}
-        assert produced == {
-            "measurement_structure",
-            "causal_design",
-            "structural_plan",
-            "identification_report",
-        }
-        assert retracted == {
-            "validation_report": "validation_report.parents_stale.panel",
-            "compiled_ssm": "compiled_ssm.parents_stale.statistical_model_spec",
-        }
-        next_state = apply_transition(state, effects.produced, effects.retracted)
-        assert not next_state.has("validation_report")
-        assert not next_state.has("compiled_ssm")
 
-    def test_failed_cascade_removes_written_versions(self, workspace, monkeypatch):
-        from nof1_causal_lab.utils import identifiability
+def test_invalid_model_rejected_before_any_write(workspace):
+    with pytest.raises(ArtifactWriteRejected):
+        execute_write(
+            workspace,
+            "model",
+            {"constructs": [{"id": "construct:invalid"}]},
+            "human",
+            EpisodeState(),
+            expected_model_version=0,
+        )
+    assert ArtifactStore(workspace).list_versions("model") == []
 
-        store = ArtifactStore(workspace)
-        state = self._state_with_latent(store)
 
-        def fail_identifiability(*_args, **_kwargs):
-            raise RuntimeError("identification failed")
+def test_partial_version_files_removed_on_write_failure(workspace, monkeypatch):
+    from nof1_causal_lab.utils import storage
 
-        monkeypatch.setattr(identifiability, "check_identifiability", fail_identifiability)
+    original = storage.write_text
 
-        with pytest.raises(RuntimeError, match="identification failed"):
-            execute_write(
-                workspace,
-                "measurement_structure",
-                {
-                    "measurement_structure": _measurement_structure(),
-                    "known_inputs": [],
-                    "scientific_only_constructs": [],
-                },
-                "human",
-                state,
-            )
+    def fail_meta(path, value):
+        if path.endswith("meta.json"):
+            raise OSError("cannot write metadata")
+        return original(path, value)
 
-        assert store.list_versions("measurement_structure") == []
-        assert store.list_versions("causal_design") == []
+    monkeypatch.setattr(storage, "write_text", fail_meta)
+    with pytest.raises(OSError, match="metadata"):
+        _write(ArtifactStore(workspace), "model", _model().model_dump(mode="json"))
+    assert ArtifactStore(workspace).list_versions("model") == []
 
-    def test_invalid_measurement_payload_rejected(self, workspace):
-        with pytest.raises(ArtifactWriteRejected):
-            execute_write(
-                workspace,
-                "measurement_structure",
-                {
-                    "measurement_structure": {"nope": True},
-                    "known_inputs": [],
-                    "scientific_only_constructs": [],
-                },
-                "human",
-                EpisodeState(),
-            )
 
-    def test_question_write_requires_text(self, workspace):
-        with pytest.raises(ArtifactWriteRejected):
-            execute_write(workspace, "question", {"text": "   "}, "human", EpisodeState())
+def test_question_write_requires_text(workspace):
+    with pytest.raises(ArtifactWriteRejected):
+        execute_write(workspace, "question", {"text": "   "}, "human", EpisodeState())
 
-    def test_binary_artifacts_not_directly_writable(self, workspace):
-        with pytest.raises(ArtifactWriteRejected, match="no write executor"):
-            execute_write(workspace, "posterior", {"anything": 1}, "human", EpisodeState())
+
+def test_binary_artifacts_not_directly_writable(workspace):
+    with pytest.raises(ArtifactWriteRejected, match="no write executor"):
+        execute_write(workspace, "identification_report", {"anything": 1}, "human", EpisodeState())

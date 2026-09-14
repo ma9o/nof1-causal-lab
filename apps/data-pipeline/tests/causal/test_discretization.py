@@ -1,5 +1,7 @@
 """Scientific drift derivatives and Dynestyx views used to initialize particles."""
 
+from nof1_causal_lab.artifacts.identity import scientific_id
+from tests.dynamics_fixtures import hill_term, interaction_term
 from __future__ import annotations
 
 import jax
@@ -7,21 +9,11 @@ import jax.numpy as jnp
 import jax.scipy.linalg as jla
 import pytest
 
-from nof1_causal_lab.models.ssm.dynamics import (
-    DiagonalDecay,
-    HillEdge,
-    Intercept,
-    Intervention,
-    LinearEdge,
-    MultiplicativeEdge,
-    VectorField,
-    VectorFieldArgs,
-    simulate,
-)
+from nof1_causal_lab.models.ssm.dynamics import DiagonalDecay, Intercept, Intervention, LinearEdge, VectorField, VectorFieldArgs, simulate
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
 from nof1_causal_lab.models.ssm.execution.dynamical_model import continuous_state_evolution
 from nof1_causal_lab.models.ssm.inference.targets.transitions import build_discrete_transitions
-from tests.ssm_spec_fixtures import affine_test_evolution
+from tests.model_fixtures import affine_test_evolution
 
 
 def _drift_derivatives(field, state, args):
@@ -68,13 +60,13 @@ class TestLinearizePrimitives:
         Emax, EC50, n = 2.0, 1.0, 2.0
         vf = VectorField(
             n_latent=2,
-            components=(HillEdge(source=0, target=1),),
+            components=(hill_term(source=0, target=1).build(),),
         )
         params = (
             {
-                "Emax": jnp.asarray(Emax),
-                "EC50": jnp.asarray(EC50),
-                "n": jnp.asarray(n),
+                scientific_id("parameter", "emax"): jnp.asarray(Emax),
+                scientific_id("parameter", "ec50"): jnp.asarray(EC50),
+                scientific_id("parameter", "exponent"): jnp.asarray(n),
             },
         )
         args = VectorFieldArgs(params=params, intervention=Intervention.none())
@@ -94,9 +86,9 @@ class TestLinearizePrimitives:
         a0, b0 = 3.0, 4.0
         vf = VectorField(
             n_latent=3,
-            components=(MultiplicativeEdge(source_a=0, source_b=1, target=2),),
+            components=(interaction_term(source_a=0, source_b=1, target=2).build(),),
         )
-        params = ({"weight": jnp.asarray(w)},)
+        params = ({scientific_id("parameter", "weight"): jnp.asarray(w)},)
         args = VectorFieldArgs(params=params, intervention=Intervention.none())
         x_lin = jnp.array([a0, b0, 0.0])
         A_loc, b_loc = _drift_derivatives(vf, x_lin, args)
@@ -186,20 +178,20 @@ class TestSSRIChainLinearization:
             components=(
                 DiagonalDecay(),
                 Intercept(),
-                MultiplicativeEdge(source_a=self.DOSE, source_b=self.ADHERENCE, target=self.C_P),
+                interaction_term(source_a=self.DOSE, source_b=self.ADHERENCE, target=self.C_P).build(),
                 LinearEdge(source=self.C_P, target=self.C_E),
-                HillEdge(source=self.C_E, target=self.AFFECTIVE),
+                hill_term(source=self.C_E, target=self.AFFECTIVE).build(),
             ),
         )
         params = (
             {"decay": jnp.array([1.0, 1.0, self.K_P, self.K_E0, self.DECAY_AFF])},
             {"cint": jnp.array([1.0, 1.0, 0.0, 0.0, 0.0])},
-            {"weight": jnp.asarray(self.K_P)},
+            {scientific_id("parameter", "weight"): jnp.asarray(self.K_P)},
             {"weight": jnp.asarray(self.K_E0)},
             {
-                "Emax": jnp.asarray(self.EMAX),
-                "EC50": jnp.asarray(self.EC50_VAL),
-                "n": jnp.asarray(self.N_HILL),
+                scientific_id("parameter", "emax"): jnp.asarray(self.EMAX),
+                scientific_id("parameter", "ec50"): jnp.asarray(self.EC50_VAL),
+                scientific_id("parameter", "exponent"): jnp.asarray(self.N_HILL),
             },
         )
         return vf, params

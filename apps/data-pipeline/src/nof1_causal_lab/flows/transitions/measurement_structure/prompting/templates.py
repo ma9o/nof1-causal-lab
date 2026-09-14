@@ -41,19 +41,19 @@ Each indicator needs:
 | Field | Description |
 |-------|-------------|
 | **name** | Semantic name for this indicator (does NOT need to match a column name) |
-| **construct_id** | Which construct this measures (must match a construct name) |
+| **Owner** | Place the indicator inside its construct's `indicators` collection. |
 | **how_to_measure** | Precise instructions for how to derive this value from the raw data columns. Workers will follow these instructions. Reference specific column names. |
 | **construct_polarity** | `"positive"` if higher indicator values mean more of the construct, `"negative"` if they mean less of the construct. |
 | **measurement_dtype** | 'continuous', 'binary', 'count', 'ordinal', 'categorical' |
 | **aggregation** | How to collapse within aggregation window |
-| **observation_window** | Optional support window summarized by this indicator when it differs from `model_clock` (for example `"1mo"` for a monthly summary on a daily model clock). |
+| **observation_window** | Optional support window summarized by this indicator when it differs from `measurement_clock` (for example `"1mo"` for a monthly summary on a daily model clock). |
 | **source_columns** | List of raw data column names referenced by how_to_measure (e.g. `["systolic_bp", "diastolic_bp"]`). Must be actual column names from the dataset. If a time/date column is needed for temporal context, include it here for at least one indicator. |
 | **computed_rule** | Optional deterministic support-window expression used only when `extraction_mode="computed"` and direct single-column aggregation is not enough. |
 | **extraction_mode** | `"computed"` or `"semantic"` (default). See extraction_mode guidelines below. |
 
 ## Known Transition Inputs
 
-Some measured constructs should enter the state dynamics as observed trajectories rather than as latent states. Declare these in `known_inputs`.
+Some measured constructs should enter the state dynamics as observed trajectories rather than as latent states. Declare `construct.usage = {"kind": "known_input", ...}` on each such construct.
 
 Use a known input only when one indicator supplies the realized construct trajectory that should be conditioned on directly. Declaring a known input removes that construct from the latent state vector, removes its source indicator from the measurement likelihood, and compiles its outgoing edges as transition-input effects.
 
@@ -61,26 +61,26 @@ Each known input needs:
 
 | Field | Description |
 |-------|-------------|
-| **construct_id** | Construct whose observed trajectory is treated as given. Must match a latent-structure construct. |
+| **Owner** | The containing construct supplies identity. |
 | **source_indicator_id** | Indicator supplying the trajectory. It must measure the same construct. |
 | **scale** | Positive divisor applied before inference. Use `1.0` unless a deliberate unit conversion is required. |
 | **missing_policy** | `"zero"` when missing means no input during that window, or `"forward_fill"` when the last observed value remains in force. |
 
-Do not declare a construct as a known input when its measurement uncertainty should be modeled as a latent state. Every submission must include `known_inputs`; use an empty list when no construct qualifies.
+Do not declare a construct as a known input when its measurement uncertainty should be modeled as a latent state. Omit `usage` for ordinary latent constructs.
 
 The executable N-of-1 SSM has no baseline structural-equation block for edges
 whose target is time-invariant. When a measured time-invariant construct is a
 realized subject attribute (for example genotype, age, or baseline history),
 declare it as a known input. Otherwise list it under
-`scientific_only_constructs`, leave it unmeasured, or revise the latent structure;
+`construct.usage = {"kind": "scientific_only", "reason": "..."}`, leave it unmeasured, or revise the latent structure;
 the structural compiler rejects an
 unresolved retained static-target edge instead of dropping it.
 
-Use `scientific_only_constructs` for measured constructs whose evidence should
+Use `construct.usage = {"kind": "scientific_only", "reason": "..."}` for measured constructs whose evidence should
 remain available for scientific interpretation or identification but which
 must not create a latent state or transition input. Each entry requires the
 construct name and a substantive reason. A construct cannot appear in both
-`known_inputs` and `scientific_only_constructs`.
+`construct.usage` and `construct.usage = {"kind": "scientific_only", "reason": "..."}`.
 
 ### measurement_dtype
 
@@ -125,9 +125,9 @@ The aggregated value should reflect the construct's state at that granularity. A
 
 ### observation_window
 
-`model_clock` is the latent-structure discretization and the default support window for indicators. Most indicators should omit `observation_window`, which means they summarize one `model_clock` bucket at a time.
+`measurement_clock` is the latent-structure discretization and the default support window for indicators. Most indicators should omit `observation_window`, which means they summarize one `measurement_clock` bucket at a time.
 
-Set `observation_window` only when an indicator intentionally summarizes a wider interval than `model_clock`.
+Set `observation_window` only when an indicator intentionally summarizes a wider interval than `measurement_clock`.
 
 Examples:
 - Daily event-derived signal: `anxious_searches_count_day` on a daily model clock should usually omit `observation_window`; workers inspect all relevant searches within each day and aggregate them.
@@ -173,7 +173,7 @@ Use `"semantic"` (default) when ANY of these hold:
 - Prefer the narrowest faithful operationalization of each construct. If a raw column already directly measures the construct, use that signal rather than creating a more interpretive semantic indicator.
 - Prefer reusing an existing computed signal over introducing a new semantic indicator that restates the same phenomenon less directly.
 - Keep indicator names concrete and close to the observed quantity. Avoid gratuitous renaming or abstract aliases for direct measurements.
-- Do not widen `observation_window` unless the source evidence itself is only available as a wider summary or the construct truly requires interval summarization. On a daily `model_clock`, do not introduce weekly or monthly indicators when the signal can be operationalized per day.
+- Do not widen `observation_window` unless the source evidence itself is only available as a wider summary or the construct truly requires interval summarization. On a daily `measurement_clock`, do not introduce weekly or monthly indicators when the signal can be operationalized per day.
 - For time-invariant constructs, add proxy indicators only when the dataset contains stable, explicit evidence for them. Do not invent weak semantic proxies from incidental mentions just to improve coverage or identifiability.
 
 ## how_to_measure Guidelines
@@ -212,7 +212,7 @@ Implication: Do NOT propose indicators with their own temporal momentum independ
 ## Constraints
 
 1. Every **time-varying** construct MUST have at least one indicator-constructs without indicators are unobserved, and causal effects through them may not be identifiable
-2. Indicators can only reference constructs from the latent structure. Copy the owner ID into `construct_id`. Give each new indicator a unique `indicator:` ID and preserve it when revising or renaming.
+2. Indicators can only reference constructs from the latent structure. Containment supplies the owner; do not repeat a `construct_id`. Give each new indicator a unique `indicator:` ID and preserve it when revising or renaming.
 3. You CANNOT add new causal edges-only operationalize existing constructs
 4. No direct causal edges between indicators (pure indicators assumption)
 5. Every known input must reference an indicator for the same construct
@@ -228,7 +228,7 @@ When revising an existing measurement structure after validation or downstream e
 
 ## Model Clock
 
-The `model_clock` defines the latent-state discretization and the default extraction/support window. Indicators normally emit one value per `model_clock` bucket unless they explicitly declare a wider `observation_window`.
+The `measurement_clock` defines the latent-state discretization and the default extraction/support window. Indicators normally emit one value per `measurement_clock` bucket unless they explicitly declare a wider `observation_window`.
 
 Choose a duration string (e.g. `"1h"`, `"4h"`, `"1d"`, `"1w"`) based on:
 - **Data density**: each support window should contain ~5-200 events on average. Too sparse -> noisy; too dense -> expensive.
@@ -239,47 +239,41 @@ Supported units: `s` (seconds), `m` (minutes), `h` (hours), `d` (days), `w` (wee
 
 ## Output Schema
 
+Submit the FULL candidate Model using the tool's `model_json` argument. Keep all existing IDs and retained scientific details. Attach each indicator to its construct's `indicators` array. Set the root `measurement_clock`. A construct's optional `usage` is either a known-input declaration or a scientific-only declaration, never both. Do not add parallel measurement catalogs or repeated owner IDs.
+
+Example of an enriched construct at a `Model.edges` endpoint (`cause` or `effect`). Define it once; other endpoints with the same ID remain construct references:
 ```json
 {
-  "model_clock": "1d",
-  "indicators": [
-    {
-      "id": "indicator:i1",
-      "construct_id": "construct:c1",
-      "name": "indicator_name",
-      "how_to_measure": "worker instructions for extraction",
-      "construct_polarity": "positive" | "negative",
-      "measurement_dtype": "continuous" | "binary" | "count" | "ordinal" | "categorical",
-      "aggregation": "<aggregation_function>",
-      "observation_window": "1mo",
-      "ordinal_levels": ["low", "medium", "high"],
-      "source_columns": ["col_a", "col_b"],
-      "computed_rule": "1 if any(spo2_pct < 92) else (0 if count_non_null(spo2_pct) > 0 else None)",
-      "extraction_mode": "computed" | "semantic"
-    }
-  ],
-  "known_inputs": [
-    {
-      "construct_id": "construct:c1",
-      "source_indicator_id": "indicator:i1",
-      "scale": 1.0,
-      "missing_policy": "zero" | "forward_fill"
-    }
-  ],
-  "scientific_only_constructs": [
-    {
-      "construct_id": "construct:c2",
-      "reason": "Measured baseline context retained for identification, not an estimable N-of-1 state."
-    }
-  ]
+  "id": "construct:c1",
+  "name": "activity",
+  "description": "Daily physical activity",
+  "role": "exogenous",
+  "temporal_status": "time_varying",
+  "indicators": [{
+    "id": "indicator:i1",
+    "name": "steps",
+    "how_to_measure": "Sum the observed step counts within the support window",
+    "construct_polarity": "positive",
+    "measurement_dtype": "count",
+    "aggregation": "sum",
+    "source_columns": ["steps"],
+    "extraction_mode": "computed"
+  }],
+  "usage": {
+    "kind": "known_input",
+    "source_indicator_id": "indicator:i1",
+    "scale": 1.0,
+    "missing_policy": "zero"
+  }
 }
 ```
+The full Model also retains `edges`, `parameters`, `default_outcome`, and `policies`. A correction or deletion must repair every affected reference in the same candidate. Do not add likelihoods or dynamics solely to satisfy missing fields: they can remain undeclared until the corresponding scientific decisions are made.
 
 ## Validation Tool
 
 You have access to `validate_measurement_structure` tool. It checks:
 1. Schema and compiler-level measurement constraints
-2. Known-input/scientific-only references and the resulting structural plan
+2. Known-input/scientific-only references and the resulting execution structure
 
 Keep validating until you get "VALID".
 
@@ -291,7 +285,7 @@ Question: {question}
 
 ## Latent Structure (from latent-structure)
 
-{latent_structure_json}
+{model_json}
 
 ## Dataset Overview
 
@@ -304,7 +298,7 @@ Question: {question}
 ---
 
 Operationalize constructs as indicators using the available data columns. Remember:
-- Choose a `model_clock` duration appropriate for the data density and causal timescale
+- Choose a `measurement_clock` duration appropriate for the data density and causal timescale
 - Every time-varying construct needs at least one indicator
 - Indicator `name` is a semantic label (does NOT need to match a column name)
 - `how_to_measure` must reference specific column names and describe how to derive the value
@@ -312,8 +306,8 @@ Operationalize constructs as indicators using the available data columns. Rememb
 - If an indicator can be derived deterministically, use `"computed"` instead of `"semantic"` and add `computed_rule` when direct aggregation is not enough
 - Prefer deterministic direct operationalizations over broader semantic proxies for the same construct
 - Keep indicator names concrete and close to the observed signal; avoid gratuitous renaming
-- Add `observation_window` only when an indicator summarizes a wider interval than `model_clock`
-- Avoid wider `observation_window` values when the signal can already be operationalized at `model_clock`
+- Add `observation_window` only when an indicator summarizes a wider interval than `measurement_clock`
+- Avoid wider `observation_window` values when the signal can already be operationalized at `measurement_clock`
 - When relevant, make clear whether workers should aggregate event-level evidence across the window or extract a one-off summary mention within the window
 - For `"semantic"` indicators, make `0` versus `null` explicit in `how_to_measure`
 - For time-invariant constructs, only add indicators when there is explicit stable proxy evidence in the data
@@ -321,8 +315,7 @@ Operationalize constructs as indicators using the available data columns. Rememb
 - Multiple indicators per construct improve reliability
 - Choose appropriate dtypes and aggregation functions for each indicator
 - If cleanup leaves a construct with zero viable indicators, remove the construct instead of keeping an unmeasured latent
-- Include `known_inputs` explicitly, using `[]` when every measured construct should remain latent
-- Include `scientific_only_constructs` explicitly, using `[]` when none are excluded
+- Declare `usage` only on constructs requiring a known-input or scientific-only choice
 
 Think very hard.
 """
@@ -332,11 +325,11 @@ Review your proposed measurement structure for operationalization coherence.
 
 ## Check for:
 
-1. **Model clock**: Is the chosen `model_clock` appropriate for the data density and causal timescale?
+1. **Model clock**: Is the chosen `measurement_clock` appropriate for the data density and causal timescale?
 2. **Coverage**: Does every time-varying construct have at least one indicator?
    - If not, either add a genuinely supported indicator or drop the construct and its incident edges
 3. **how_to_measure clarity**: Are instructions specific enough for workers?
-4. **Support-window semantics**: If an indicator summarizes a wider period than `model_clock`, does it declare `observation_window`, and does `how_to_measure` clearly say whether to aggregate event-level evidence or extract an explicit summary mention?
+4. **Support-window semantics**: If an indicator summarizes a wider period than `measurement_clock`, does it declare `observation_window`, and does `how_to_measure` clearly say whether to aggregate event-level evidence or extract an explicit summary mention?
 5. **dtype/aggregation consistency**:
    - `first`, `last` -> point-state measurements
    - `sum` -> continuous or count
@@ -357,5 +350,5 @@ Review your proposed measurement structure for operationalization coherence.
 - how_to_measure describes computed metrics -> move to aggregation
 - how_to_measure requires cross-chunk data -> not possible
 - monthly/weekly summary indicator lacks `observation_window` or fails to say whether to extract an explicit summary mention versus aggregate raw events
-- weekly/monthly indicator introduced even though the signal can be operationalized at `model_clock`
+- weekly/monthly indicator introduced even though the signal can be operationalized at `measurement_clock`
 """

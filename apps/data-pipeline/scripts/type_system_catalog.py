@@ -18,35 +18,55 @@ LAYERS = {
     "transport": ("Transport", "#e2e8f0"),
 }
 
-# Sections group types by subject; layer colors continue to describe their role.
-CONCERNS = {
-    "data_measurement": (
-        "Data & measurement",
+# Data, model choices, checks, and inference all belong to one scientific model.
+# These smaller groups also define its module membership, keeping placement in sync.
+SCIENTIFIC_MODEL_GROUPS = {
+    "structure": (
+        "Question & causal structure",
         (
-            "artifacts.raw_data",
-            "artifacts.measurement_structure",
-            "artifacts.measurements",
-            "artifacts.validation_report",
+            "artifacts.question",
+            "artifacts.model_spec",
+            "artifacts.construct",
+            "artifacts.evidence",
+        ),
+    ),
+    "components": (
+        "Dynamics & observations",
+        (
+            "artifacts.indicator",
+            "artifacts.state_distribution",
+            "artifacts.likelihood",
+            "artifacts.mechanism",
             "measurement_types",
             "utils.observation_semantics",
         ),
     ),
-    "model_specification": (
-        "Causal & statistical specification",
+    "parameters": (
+        "Parameters & expressions",
         (
-            "artifacts.question",
-            "artifacts.latent_structure",
-            "artifacts.causal_design",
-            "artifacts.structural_plan",
-            "artifacts.statistical_model_spec",
-            "artifacts.mechanism",
+            "artifacts.parameter_spec",
+            "artifacts.coefficient",
+            "artifacts.expressions",
             "artifacts.parameter",
-            "artifacts.prior",
-            "artifacts.compiled_ssm",
-            "artifacts.distribution",
-            "artifacts.evidence",
             "distributions",
             "numpyro_json",
+        ),
+    ),
+    "observed_data": (
+        "Observed data",
+        (
+            "artifacts.raw_data",
+            "artifacts.measurements",
+            "artifacts.validation_report",
+        ),
+    ),
+    "model_checks": (
+        "Model evidence",
+        (
+            "artifacts.identification",
+            "artifacts.admission",
+            "artifacts.prior",
+            "artifacts.execution",
         ),
     ),
     "inference_analysis": (
@@ -58,6 +78,14 @@ CONCERNS = {
             "artifacts.scenarios",
             "artifacts.baseline_report",
         ),
+    ),
+}
+
+# Sections group types by subject; layer colors continue to describe their role.
+CONCERNS = {
+    "scientific_model": (
+        "Scientific model",
+        tuple(module for _, modules in SCIENTIFIC_MODEL_GROUPS.values() for module in modules),
     ),
     "execution_provenance": (
         "Execution & provenance",
@@ -86,29 +114,22 @@ CONCERNS = {
 # Diagram emphasis is curated by scientific meaning, independent of graph degree
 # or contract layer. UI projections of the same central objects share the emphasis.
 CORE_DOMAIN_OBJECTS = {
+    "ModelSpec": "The canonical scientific definition, enriched through stable entities.",
     "QuestionArtifact": "The causal question that gives the model its purpose.",
-    "RawDataArtifact": "The source dataset interpreted by the measurement model.",
     "ObservationRecord": "An observed measurement supplying evidence to the model.",
     "Construct": "A scientific variable whose causal relationships are modeled.",
     "CausalEdge": "A directed causal assumption between constructs.",
-    "LatentStructure": "The scientific causal graph, including explicit latent confounders.",
     "Indicator": "The measurement definition connecting a construct to observed data.",
-    "MeasurementStructure": "The measurement model and its common observation clock.",
     "KnownInput": "A measured driver distinguished from an inferred latent state.",
-    "CausalDesign": "The scientific design connecting causal and measurement assumptions.",
     "IdentificationReport": "The identification evidence required for causal reporting.",
-    "TreatmentIdentification": "Whether and how a treatment's causal effect is identified.",
-    "StructuralPlan": "The executable topology chosen from the scientific design.",
-    "StatisticalModelSpec": "The statistical model that defines the estimation problem.",
     "LikelihoodSpec": "The observation distribution linking model states to measurements.",
+    "InnovationSpec": "The driving noise and conditional dependencies owned by a construct.",
+    "InitialStateSpec": "The initial location, scale, and dependencies owned by a construct.",
     "DynamicsMechanism": "The explicit scientific contribution to continuous-time drift.",
-    "ParameterSpec": "A model quantity to estimate, with its scientific role and constraints.",
-    "CompiledSSMArtifact": "The executable continuous-time state-space model.",
-    "PosteriorArtifact": "The fitted joint posterior supported by exact model and data versions.",
-    "ScenarioQuery": "The scientific intervention question, reusable across fits.",
+    "ParameterSpec": "A referenced scientific parameter with a native prior law or fixed value.",
+    "InferenceReport": "Inference telemetry and predictive findings recorded in the transition log.",
+    "SimulationProvenance": "The immutable fitted revision and solver settings supporting a simulation response.",
     "ScenarioClamp": "The intervention applied to a specific construct over time.",
-    "ScenarioEvaluation": "A scientific query evaluated against one model and posterior.",
-    "ScenarioResult": "The computed answer to a particular query evaluation.",
     "TreatmentEffect": "A reported causal effect with posterior uncertainty.",
     "ModelSnapshot": "Independently sourced canonical aggregates read at one committed revision.",
     "FitSummary": "The canonical posterior together with server-composed display findings.",
@@ -117,9 +138,14 @@ CORE_DOMAIN_OBJECTS = {
 # Aliases and dataclasses need explicit role sentences: JSON Schema does not carry
 # their Python docstrings. These describe concepts, never infer prose from field names.
 ROLE_SENTENCES = {
+    "CoefficientRole": "A coefficient role identifies an expression operand’s scientific quantity and support.",
+    "BinaryOperator": "A binary operator combines two scalar expression operands.",
+    "ExpressionFunction": "An expression function transforms scalar operands or constructs structured observation arguments.",
+    "Expression": "A scalar expression composes supported arithmetic with scientific state and coefficient references.",
+    "ConstructUsage": "A construct usage declares a measured driver or a scientific-only variable excluded from executable states.",
     "NumPyroDistribution": "A native NumPyro probability distribution serialized by its constructor tree.",
     "DynamicsMechanism": "A dynamics mechanism declares one contribution to continuous-time drift.",
-    "MechanismCoefficient": "A mechanism coefficient is either fixed or bound to an estimated scientific parameter.",
+    "Coefficient": "A component coefficient is a fixed value or a reference to a scientific parameter.",
     "ActionSpec": "An action declares a machine operation and its interaction context.",
     "AggregationFunction": "An aggregation function summarizes observations within a measurement window.",
     "ArtifactFileSpec": "An artifact file specification declares its JSON payloads, tables, and executable binaries.",
@@ -130,33 +156,30 @@ ROLE_SENTENCES = {
     "ContextSpec": "An interaction context declares the tools and machine actions available to an agent.",
     "EdgeId": "A persistent edge identity identifies one authored causal relationship.",
     "EffectTrajectoryPoint": "An effect trajectory point records a causal delta at one rollout time.",
-    "EntityRef": "An entity reference identifies a construct, edge, or indicator by its persistent identity.",
+    "EntityRef": "An entity reference identifies a construct, edge, indicator, or mechanism by its persistent identity.",
     "IndicatorId": "A persistent indicator identity survives changes to its measurement label.",
-    "ParameterId": "A scientific parameter identity binds a quantity to its explicit owners.",
+    "MechanismId": "A persistent mechanism identity distinguishes additive terms through reordering and revision.",
+    "ParameterId": "A scientific parameter identity connects component coefficients to one parameter definition.",
     "ParameterElementId": "A parameter element identity identifies a logical scalar component across model revisions.",
     "JournalStatus": "A journal status distinguishes applied revisions from rejected or failed attempts.",
     "JsonArray": "A JSON array transports an ordered collection of recursively typed values.",
     "JsonObject": "A JSON object transports string-keyed recursively typed values.",
     "JsonScalar": "A JSON scalar transports a string, number, boolean, or null.",
     "JsonValue": "A JSON value transports a scalar or a recursive array or object.",
-    "MachineMoveSpec": "A move specification declares an operation on an artifact and its provenance.",
     "MeasurementDtype": "A measurement dtype defines the observed value domain of an indicator.",
     "Move": "A machine move requests computation or an authored artifact write.",
     "Provenance": "Artifact provenance records whether its content was computed, authored by a human, or proposed by an LLM.",
     "Derivation": "A derivation declares an artifact maintained atomically with its input versions.",
     "Root": "A root declares an independently writable artifact and any contextual input pins.",
-    "RunArtifact": "A run move requests the transition that produces an artifact.",
+    "RunOperation": "A run move invokes an authoring or computation operation.",
+    "OperationId": "An operation identity selects an action independently of its output artifacts.",
     "RuntimeEvent": "A runtime event records transition progress, agent activity, or extraction telemetry.",
-    "ScenarioQueryId": "A scientific query identity survives model revisions and posterior refits.",
-    "ScenarioEvaluationId": "An evaluation identity binds one scientific query to its exact model and posterior.",
     "ScenarioQueryInput": "A scenario readout requests an estimand, forward horizon, and output scale.",
-    "ScenarioStartResult": "A resolved scenario start records the initial-state source and evidence time.",
-    "SimulateScenarioInput": "A simulation request declares the initial state, timed clamps, and requested outcome readout.",
+    "ScenarioRequest": "A simulation request declares the initial state, timed clamps, and requested outcome readout.",
     "SimulateScenarioToolResult": "A simulation tool response carries either a resolved scenario result or a reported tool error.",
     "Sourced": "A sourced value pairs one model finding with its supporting artifact version.",
     "ToolError": "A tool error reports why a requested operation could not produce a result.",
     "ToolQuerySpec": "A tool query specification declares a context's callable query.",
-    "TreatmentIdentification": "A treatment identification finding records an identification strategy or the constructs blocking it.",
     "WriteArtifact": "A write move requests a validated authored artifact revision.",
 }
 
@@ -189,17 +212,13 @@ def _layer_for(name: str, module: str) -> str:
         return "machine"
     if module.endswith(("episode_api", "json_types", "utils.llm", "numpyro_json")):
         return "transport"
-    if name == "SimulateScenarioResult":
-        return "transport"
     if module.endswith("artifacts.scenarios"):
         return (
             "findings"
-            if name == "ScenarioEvaluation" or name.endswith(("Result", "Visualization", "Point"))
+            if name == "SimulationProvenance" or name.endswith(("Result", "Visualization", "Point"))
             else "authored"
         )
-    if name.endswith("Artifact") or module.endswith(
-        ("artifacts.compiled_ssm", "artifacts.distribution")
-    ):
+    if name.endswith("Artifact"):
         return "artifacts"
     if module.endswith(
         (
@@ -208,6 +227,8 @@ def _layer_for(name: str, module: str) -> str:
             "artifacts.effects",
             "artifacts.validation_report",
             "artifacts.prior",
+            "artifacts.admission",
+            "artifacts.identification",
         )
     ) or name in {
         "IdentificationReport",
@@ -217,7 +238,6 @@ def _layer_for(name: str, module: str) -> str:
         "TreatmentIdentification",
         "PriorPredictiveDiagnostic",
         "InferenceMetadata",
-        "WorkerStatus",
         "ObservationRecord",
     }:
         return "findings"

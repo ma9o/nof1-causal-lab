@@ -8,29 +8,25 @@ def stage1b_simple_latent():
     """Simple chain: Treatment -> Outcome (all observable)."""
     return {
         "default_outcome": {"kind": "construct", "id": "construct:170504d1ef8631dda85d"},
-        "constructs": [
-            {
-                "id": "construct:2219a835484dea8b586a",
-                "name": "Treatment",
-                "role": "exogenous",
-                "description": "The intervention",
-                "temporal_status": "time_invariant",
-            },
-            {
-                "id": "construct:170504d1ef8631dda85d",
-                "name": "Outcome",
-                "role": "endogenous",
-                "description": "The result",
-                "temporal_status": "time_varying",
-            },
-        ],
         "edges": [
             {
-                "cause_id": "construct:2219a835484dea8b586a",
-                "effect_id": "construct:170504d1ef8631dda85d",
+                "cause": {
+                    "id": "construct:2219a835484dea8b586a",
+                    "name": "Treatment",
+                    "role": "exogenous",
+                    "description": "The intervention",
+                    "temporal_status": "time_invariant",
+                },
+                "effect": {
+                    "id": "construct:170504d1ef8631dda85d",
+                    "name": "Outcome",
+                    "role": "endogenous",
+                    "description": "The result",
+                    "temporal_status": "time_varying",
+                },
                 "id": "edge:1534f2f5ac96c22d9d9d",
                 "description": "Treatment causes Outcome",
-            },
+            }
         ],
     }
 
@@ -40,45 +36,40 @@ def stage1b_confounded_latent():
     """Confounded: Treatment -> Outcome, Confounder -> Treatment, Confounder -> Outcome."""
     return {
         "default_outcome": {"kind": "construct", "id": "construct:170504d1ef8631dda85d"},
-        "constructs": [
-            {
-                "id": "construct:2219a835484dea8b586a",
-                "name": "Treatment",
-                "role": "endogenous",
-                "description": "The intervention",
-                "temporal_status": "time_varying",
-            },
-            {
-                "id": "construct:170504d1ef8631dda85d",
-                "name": "Outcome",
-                "role": "endogenous",
-                "description": "The result",
-                "temporal_status": "time_varying",
-            },
-            {
-                "id": "construct:c1b2cfd25e61e303586c",
-                "name": "Confounder",
-                "role": "exogenous",
-                "description": "Unmeasured common cause",
-                "temporal_status": "time_invariant",
-            },
-        ],
         "edges": [
             {
-                "cause_id": "construct:2219a835484dea8b586a",
-                "effect_id": "construct:170504d1ef8631dda85d",
+                "cause": {
+                    "id": "construct:2219a835484dea8b586a",
+                    "name": "Treatment",
+                    "role": "endogenous",
+                    "description": "The intervention",
+                    "temporal_status": "time_varying",
+                },
+                "effect": {
+                    "id": "construct:170504d1ef8631dda85d",
+                    "name": "Outcome",
+                    "role": "endogenous",
+                    "description": "The result",
+                    "temporal_status": "time_varying",
+                },
                 "id": "edge:1534f2f5ac96c22d9d9d",
                 "description": "Treatment causes Outcome",
             },
             {
-                "cause_id": "construct:c1b2cfd25e61e303586c",
-                "effect_id": "construct:2219a835484dea8b586a",
+                "cause": {
+                    "id": "construct:c1b2cfd25e61e303586c",
+                    "name": "Confounder",
+                    "role": "exogenous",
+                    "description": "Unmeasured common cause",
+                    "temporal_status": "time_invariant",
+                },
+                "effect": {"kind": "construct", "id": "construct:2219a835484dea8b586a"},
                 "id": "edge:5157b8165624d0d8e1c7",
                 "description": "Confounder affects Treatment",
             },
             {
-                "cause_id": "construct:c1b2cfd25e61e303586c",
-                "effect_id": "construct:170504d1ef8631dda85d",
+                "cause": {"kind": "construct", "id": "construct:c1b2cfd25e61e303586c"},
+                "effect": {"kind": "construct", "id": "construct:170504d1ef8631dda85d"},
                 "id": "edge:0f365ad0e4745822404f",
                 "description": "Confounder affects Outcome",
             },

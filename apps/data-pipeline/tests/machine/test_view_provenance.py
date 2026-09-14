@@ -1,4 +1,4 @@
-"""Posterior joins require the selected compiler version, not coincident parameter labels."""
+"""Read findings follow their scientific revision and observational inputs."""
 
 import json
 from pathlib import Path
@@ -7,12 +7,17 @@ from typing import TYPE_CHECKING
 import polars as pl
 import pytest
 
+from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.machine.artifact_files import artifact_file_spec
 from nof1_causal_lab.machine.artifacts import EpisodeState
-from nof1_causal_lab.machine.moves import RunArtifact
-from nof1_causal_lab.machine.snapshots import read_model_snapshot
+from nof1_causal_lab.machine.moves import RunOperation
+from nof1_causal_lab.machine.snapshots import ModelReader
 from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal, TransitionRecord
 from nof1_causal_lab.machine.views import read_artifact_views
+from nof1_causal_lab.models.likelihoods import observation_law
+from tests.helpers import make_model
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.identity import ArtifactId
@@ -20,56 +25,108 @@ if TYPE_CHECKING:
 FIXTURE = Path(__file__).resolve().parents[4] / "data/DEMO/fixture/artifacts"
 
 
-def test_posterior_coordinates_never_join_across_compiler_versions(monkeypatch, tmp_path):
+def test_inference_log_keeps_findings_across_admission_republication_and_tracks_changed_data(
+    monkeypatch, tmp_path
+):
     from nof1_causal_lab.utils import data as data_module
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path))
-    store = ArtifactStore("BINDINGS")
-    journal = EpisodeJournal("BINDINGS")
-    revisions: tuple[tuple[int, ArtifactId, dict[ArtifactId, int]], ...] = (
-        (1, "compiled_ssm", {}),
-        (2, "posterior", {"compiled_ssm": 1}),
-        (3, "compiled_ssm", {}),
+    store, journal = ArtifactStore("BINDINGS"), EpisodeJournal("BINDINGS")
+    log = json.loads((FIXTURE.parent / "inference.json").read_text())
+    log["input_pins"]["model"] = 1
+    log["report"]["inference_diagnostics"]["experimental_kernel"] = {"new_metric": [None, 0.5]}
+    artifacts: tuple[tuple[int, ArtifactId, dict[ArtifactId, int]], ...] = (
+        (1, "model", {}),
+        (4, "panel", {"model": 1}),
     )
-    for seq, aid, pins in revisions:
-        payload = json.loads((FIXTURE / f"{aid}.json").read_text())
+    for seq, aid, pins in artifacts:
+        files = (
+            {}
+            if aid == "panel"
+            else {
+                next(iter(artifact_file_spec(aid).json.values())): json.loads(
+                    (FIXTURE / f"{aid}.json").read_text()
+                )
+            }
+        )
         info = store.write_version(
             aid,
             provenance="computed",
             derived_from=pins,
             produced_by=f"run:{aid}",
-            json_files={next(iter(artifact_file_spec(aid).json.values())): payload},
+            json_files=files,
         )
         journal.append(
             TransitionRecord(
                 seq=seq,
                 ts="2026-07-08T12:00:00Z",
-                move=RunArtifact(artifact_id=aid),
+                move=RunOperation(operation_id="statistical_model_spec"),
                 status="applied",
                 produced=[info],
                 trace_ids=[],
                 resume=None,
             )
         )
-    historical = read_model_snapshot("BINDINGS", at_seq=2)
-    current = read_model_snapshot("BINDINGS")
-    assert historical.fit is not None
-    assert current.fit is not None
-    assert current.fit.value.posterior.assessment.mcmc_diagnostics is not None
-    assert historical.fit.value.posterior.posterior_marginals
-    assert historical.fit.source is not None
-    assert historical.fit.source.artifact.version == 1
-    assert not current.fit.value.posterior.posterior_marginals
-    assert not current.fit.value.posterior.assessment.mcmc_diagnostics.per_parameter
-    assert not current.fit.value.edge_estimates
-    assert not current.fit.value.decay_estimates
-    assert current.fit.source.validity == "stale"
-    assert current.fit.value.posterior.draws == historical.fit.value.posterior.draws
-    assert (
-        current.fit.value.posterior.assessment.ppc == historical.fit.value.posterior.assessment.ppc
+    record = TransitionRecord(
+        seq=5,
+        ts="2026-07-08T12:00:00Z",
+        move=RunOperation(operation_id="posterior"),
+        status="applied",
+        produced=[],
+        diagnostics=log,
+        trace_ids=[],
+        resume=None,
     )
-    assert next(status for status in current.artifacts if status.artifact_id == "posterior").stale
-    assert read_model_snapshot("BINDINGS", at_seq=2) == historical
+    journal.append(record)
+    # This log intentionally retains only display findings, never invented joint samples.
+    historical = ModelReader("BINDINGS", at_seq=5).fit()
+    assert historical is not None
+    assert historical.value.report.posterior_marginals
+    assert historical.source.ref.model_dump() == {"seq": 5}
+    assert historical.source.validity == "fresh"
+    admission = store.write_version(
+        "admission_report",
+        provenance="computed",
+        derived_from={"model": 1},
+        produced_by="run:statistical_model_spec",
+        json_files={"admission_report.json": {}},
+    )
+    journal.append(
+        record.model_copy(
+            update={
+                "seq": 6,
+                "produced": [admission],
+                "diagnostics": {},
+                "move": RunOperation(operation_id="statistical_model_spec"),
+            }
+        )
+    )
+    republished = ModelReader("BINDINGS").fit()
+    assert republished is not None
+    assert republished.value.report == historical.value.report
+    panel = store.write_version(
+        "panel", provenance="computed", derived_from={"model": 1}, produced_by="run:measurements"
+    )
+    journal.append(
+        record.model_copy(
+            update={
+                "seq": 7,
+                "produced": [panel],
+                "diagnostics": {},
+                "move": RunOperation(operation_id="measurements"),
+            }
+        )
+    )
+    current = ModelReader("BINDINGS").fit()
+    assert current is not None
+    assert current.source.validity == "stale"
+    assert not current.value.report.posterior_marginals
+    assert not current.value.edge_estimates
+    assert (
+        current.value.report.inference_diagnostics == historical.value.report.inference_diagnostics
+    )
+    assert current.value.report.assessment == historical.value.report.assessment
+    assert ModelReader("BINDINGS", at_seq=5).fit() == historical
 
 
 @pytest.mark.parametrize(
@@ -93,7 +150,17 @@ def test_likelihood_plot_preserves_prior_mass_and_requires_its_pinned_panel(
         produced_by="run:measurements",
         parquet_files={
             "panel.parquet": pl.DataFrame(
-                {"indicator_id": "indicator:8ab0e6245f029d222a9a", "value": observed}
+                {
+                    "indicator_id": "indicator:8ab0e6245f029d222a9a",
+                    "value": observed,
+                    "anchor_time": None,
+                    "support_start": None,
+                    "support_end": None,
+                    "support_kind": "point",
+                    "summary_operator": "last",
+                    "anchor_policy": "support_start",
+                    "observation_window": "1d",
+                }
             )
         },
     )
@@ -106,31 +173,48 @@ def test_likelihood_plot_preserves_prior_mass_and_requires_its_pinned_panel(
             "validation_report.json": {"is_valid": True, "indicators": {}, "dataset_issues": []}
         },
     )
-    spec = store.write_version(
-        "statistical_model_spec",
+    candidate = make_model(["Y"])
+    owner = candidate.constructs[0]
+    indicator = owner.indicators[0].model_copy(
+        update={
+            "id": "indicator:8ab0e6245f029d222a9a",
+            "measurement_dtype": "binary" if family == "bernoulli" else "continuous",
+            "aggregation": "last" if family == "bernoulli" else "mean",
+            "likelihood": LikelihoodSpec(
+                law=observation_law(owner.id, family, link), reasoning="Test"
+            ),
+        }
+    )
+    candidate = candidate.revised(
+        edges=replace_constructs(
+            candidate.edges, (owner.model_copy(update={"indicators": (indicator,)}),)
+        )
+    )
+    model = store.write_version(
+        "model",
+        provenance="human",
+        derived_from={},
+        produced_by=None,
+        json_files={"model.json": candidate.model_dump(mode="json")},
+    )
+    validation = store.write_version(
+        "validation_report",
         provenance="computed",
-        derived_from={"panel": 1, "validation_report": 1},
-        produced_by="run:statistical_model_spec",
+        derived_from={"model": 1, "panel": 1},
+        produced_by="derive:validation_report",
         json_files={
-            "statistical_model_spec.json": {
-                "statistical_model_spec": {
-                    "mechanisms": [],
-                    "likelihoods": [
-                        {
-                            "indicator_id": "indicator:8ab0e6245f029d222a9a",
-                            "distribution": family,
-                            "link": link,
-                            "reasoning": "Test",
-                        }
-                    ],
-                    "parameters": [],
-                },
-                "prior_predictive_samples": {"indicator:8ab0e6245f029d222a9a": prior},
-            }
+            "validation_report.json": {"is_valid": True, "indicators": {}, "dataset_issues": []}
         },
     )
-    state = EpisodeState().with_versions([panel, validation, spec])
-    view = read_artifact_views(store, state, {}).statistical_model_spec
+    report = store.write_version(
+        "admission_report",
+        provenance="computed",
+        derived_from={"model": 1, "panel": 1},
+        produced_by="run:statistical_model_spec",
+        json_files={"admission_report.json": {"prior_predictive_samples": {indicator.id: prior}}},
+    )
+    state = EpisodeState().with_versions([panel, validation, model, report])
+    view = read_artifact_views(store, state).model_diagnostics
     assert view is not None
     diagnostic = view.likelihood_diagnostics["indicator:8ab0e6245f029d222a9a"]
     assert sum(bin.count for bin in diagnostic.histogram) == len(observed)
@@ -143,66 +227,53 @@ def test_likelihood_plot_preserves_prior_mass_and_requires_its_pinned_panel(
         produced_by="run:measurements",
         parquet_files={
             "panel.parquet": pl.DataFrame(
-                {"indicator_id": "indicator:8ab0e6245f029d222a9a", "value": [100.0]}
+                {
+                    "indicator_id": "indicator:8ab0e6245f029d222a9a",
+                    "value": [100.0],
+                    "anchor_time": None,
+                    "support_start": None,
+                    "support_end": None,
+                    "support_kind": "point",
+                    "summary_operator": "last",
+                    "anchor_policy": "support_start",
+                    "observation_window": "1d",
+                }
             )
         },
     )
-    revised = read_artifact_views(
-        store, state.with_versions([current_panel]), {}
-    ).statistical_model_spec
+    revised = read_artifact_views(store, state.with_versions([current_panel])).model_diagnostics
     assert revised is not None
     assert revised.likelihood_diagnostics == {}
 
 
-@pytest.mark.parametrize("changed_artifact", ["measurement_structure", "causal_design"])
-def test_measurement_view_reads_one_design_and_requires_compatible_versions(
-    monkeypatch, tmp_path, changed_artifact
-):
+def test_model_view_reads_canonical_science_without_a_compiled_plan(monkeypatch, tmp_path):
     from nof1_causal_lab.utils import data as data_module
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path))
-    store = ArtifactStore("MEASUREMENT")
-    dependencies: dict[ArtifactId, dict[ArtifactId, int]] = {
-        "measurement_structure": {},
-        "causal_design": {"measurement_structure": 1},
-        "structural_plan": {"causal_design": 1},
-    }
-    versions = []
-    for aid, pins in dependencies.items():
-        versions.append(
-            store.write_version(
-                aid,
-                provenance="computed",
-                derived_from=pins,
-                produced_by=f"run:{aid}",
-                json_files={
-                    next(iter(artifact_file_spec(aid).json.values())): json.loads(
-                        (FIXTURE / f"{aid}.json").read_text()
-                    )
-                },
-            )
-        )
-    state = EpisodeState().with_versions(versions)
-    view = read_artifact_views(store, state, {}).measurement_structure
-    assert view is not None
-    assert set(view.model_dump()) == {"causal_design", "structural_plan"}
-    measurement = json.loads((FIXTURE / "measurement_structure.json").read_text())
-    assert (
-        view.causal_design.measurement.model_dump(mode="json")
-        == measurement["measurement_structure"]
+    store = ArtifactStore("DEFINITION")
+    model = ModelSpec.model_validate_json((FIXTURE / "model.json").read_text())
+    info = store.write_version(
+        "model",
+        provenance="human",
+        derived_from={},
+        produced_by=None,
+        json_files={"model.json": model.model_dump(mode="json")},
     )
-
-    changed = store.write_version(
-        changed_artifact,
-        provenance="computed",
-        derived_from=dependencies[changed_artifact],
-        produced_by=f"run:{changed_artifact}",
-        json_files={
-            next(iter(artifact_file_spec(changed_artifact).json.values())): json.loads(
-                (FIXTURE / f"{changed_artifact}.json").read_text()
-            )
-        },
+    state = EpisodeState().with_versions([info])
+    views = read_artifact_views(store, state)
+    assert views.model == model
+    assert views.model_diagnostics is not None
+    assert any(views.model_diagnostics.prior_densities.values())
+    assert all(
+        "prior_density_points" not in parameter.model_dump() for parameter in model.parameters
     )
-    assert (
-        read_artifact_views(store, state.with_versions([changed]), {}).measurement_structure is None
+    changed = model.revised(measurement_clock="2d")
+    revision = store.write_version(
+        "model",
+        provenance="human",
+        derived_from={"model": 1},
+        produced_by=None,
+        json_files={"model.json": changed.model_dump(mode="json")},
     )
+    assert read_artifact_views(store, state.with_versions([revision])).model == changed
+    assert read_artifact_views(store, state).model == model

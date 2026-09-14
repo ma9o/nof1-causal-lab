@@ -1,99 +1,51 @@
-"""Scientific dynamics declarations, independent of labels and execution axes."""
+"""Persistent additive contributions to continuous-time dynamics."""
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, FiniteFloat
+from pydantic import BaseModel, ConfigDict, model_validator
 
-from .identity import ConstructId, EdgeId, ParameterId  # noqa: TC001
-
-
-class FixedCoefficient(BaseModel):
-    """A coefficient held at a specified value on the continuous-time model scale."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    kind: Literal["fixed"] = "fixed"
-    value: FiniteFloat
+from .expressions import (
+    CallExpression,
+    CoefficientExpression,
+    Expression,
+    walk_expression,
+)
+from .identity import MechanismId  # noqa: TC001
 
 
-class EstimatedCoefficient(BaseModel):
-    """A free coefficient referencing its scientific parameter definition."""
+class DynamicsMechanism(BaseModel):
+    """An additive drift term or node potential whose negative gradient enters the drift."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
 
-    kind: Literal["estimated"] = "estimated"
-    parameter_id: ParameterId
+    id: MechanismId
+    kind: Literal["drift", "potential"] = "drift"
+    expression: Expression
 
-
-type MechanismCoefficient = Annotated[
-    FixedCoefficient | EstimatedCoefficient, Field(discriminator="kind")
-]
-
-
-class NodePotentialMechanism(BaseModel):
-    """Restoring drift -stiffness * (x - center) - quartic * (x - center)^3."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    kind: Literal["node_potential"] = "node_potential"
-    target_id: ConstructId
-    center: MechanismCoefficient
-    stiffness: MechanismCoefficient
-    quartic: MechanismCoefficient
-
-
-class ConstantDriftMechanism(BaseModel):
-    """An additive continuous-time forcing of a state."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    kind: Literal["constant_drift"] = "constant_drift"
-    target_id: ConstructId
-    intercept: EstimatedCoefficient
-
-
-class LinearEdgeMechanism(BaseModel):
-    """A directed effect proportional to the source state or known input."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    kind: Literal["linear"] = "linear"
-    edge_id: EdgeId
-    weight: EstimatedCoefficient
-
-
-class HillEdgeMechanism(BaseModel):
-    """A directed saturating effect of a state through the native Hill response."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    kind: Literal["hill"] = "hill"
-    edge_id: EdgeId
-    emax: MechanismCoefficient
-    ec50: MechanismCoefficient
-    n: MechanismCoefficient
-
-
-type DynamicsMechanism = Annotated[
-    NodePotentialMechanism | ConstantDriftMechanism | LinearEdgeMechanism | HillEdgeMechanism,
-    Field(discriminator="kind"),
-]
-
-
-def mechanism_coefficients(mechanism: DynamicsMechanism) -> dict[str, MechanismCoefficient]:
-    """The named coefficient slots declared by a mechanism."""
-    match mechanism:
-        case NodePotentialMechanism():
-            return {
-                "center": mechanism.center,
-                "stiffness": mechanism.stiffness,
-                "quartic": mechanism.quartic,
-            }
-        case ConstantDriftMechanism():
-            return {"intercept": mechanism.intercept}
-        case LinearEdgeMechanism():
-            return {"weight": mechanism.weight}
-        case HillEdgeMechanism():
-            return {"emax": mechanism.emax, "ec50": mechanism.ec50, "n": mechanism.n}
+    @model_validator(mode="after")
+    def validate_drift_operands(self) -> DynamicsMechanism:
+        for node in walk_expression(self.expression):
+            if isinstance(node, CoefficientExpression):
+                if node.role not in {
+                    "center",
+                    "decay",
+                    "quartic",
+                    "intercept",
+                    "weight",
+                    "emax",
+                    "ec50",
+                    "exponent",
+                }:
+                    raise ValueError(
+                        f"{node.role} is an observation coefficient, not a drift operand"
+                    )
+                if node.coefficient is None:
+                    raise ValueError("A declared drift contribution requires assigned coefficients")
+            if isinstance(node, CallExpression) and node.function in {
+                "ordered_cutpoints",
+                "category_logits",
+            }:
+                raise ValueError(f"{node.function} requires an observation category context")
+        return self

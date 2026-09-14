@@ -1,4 +1,4 @@
-"""Semantic helpers for scientific CausalDesign and measurement artifacts."""
+"""Graph and observation helpers for canonical operation input projections."""
 
 import networkx as nx
 
@@ -6,16 +6,6 @@ from nof1_causal_lab.json_types import UncheckedJsonObject
 from nof1_causal_lab.utils.observation_semantics import (
     get_observation_semantics,
 )
-
-
-def get_constructs(causal_design: UncheckedJsonObject) -> list[UncheckedJsonObject]:
-    """Get latent constructs from a CausalDesign dict."""
-    return causal_design.get("latent", {}).get("constructs", [])
-
-
-def get_indicators(causal_design: UncheckedJsonObject) -> list[UncheckedJsonObject]:
-    """Get indicators from a CausalDesign dict."""
-    return causal_design.get("measurement", {}).get("indicators", [])
 
 
 def get_indicator_polarity(indicator: UncheckedJsonObject) -> str:
@@ -62,22 +52,6 @@ def choose_reference_indicator(
         return (tier, polarity_rank, declaration_index)
 
     return min(enumerate(indicators), key=_rank)[1]
-
-
-def build_reference_indicator_lookup(indicators: list[UncheckedJsonObject]) -> dict[str, str]:
-    """Return construct ID -> chosen reference indicator name."""
-    grouped: dict[str, list[UncheckedJsonObject]] = {}
-    for indicator in indicators:
-        construct_id = indicator.get("construct_id")
-        if isinstance(construct_id, str):
-            grouped.setdefault(construct_id, []).append(indicator)
-
-    lookup: dict[str, str] = {}
-    for construct_id, construct_indicators in grouped.items():
-        reference = choose_reference_indicator(construct_indicators)
-        if reference is not None:
-            lookup[construct_id] = str(reference["name"])
-    return lookup
 
 
 def get_effective_observation_window(
@@ -154,34 +128,19 @@ def make_measurement_extraction_context(
 
 
 def get_outcome_construct(
-    causal_design_or_latent: UncheckedJsonObject,
+    graph_input: UncheckedJsonObject,
 ) -> UncheckedJsonObject | None:
-    """Get the outcome construct dict from a CausalDesign or latent structure dict.
-
-    Handles both full CausalDesign dicts and bare latent structure dicts.
-
-    Returns:
-        The outcome construct dict, or None if not found
-    """
-    latent = causal_design_or_latent.get("latent", causal_design_or_latent)
+    """Resolve the outcome in a canonical graph input projection."""
+    latent = graph_input
     target = latent.get("default_outcome")
     if target is None:
         return None
     return next((item for item in latent["constructs"] if item["id"] == target["id"]), None)
 
 
-def get_outcome_name(causal_design_or_latent: UncheckedJsonObject) -> str | None:
-    """Get the outcome construct name from a CausalDesign or latent structure dict.
-
-    Convenience wrapper around get_outcome_construct() that returns just the name.
-
-    Args:
-        causal_design_or_latent: Either a full CausalDesign dict or a bare latent structure dict.
-
-    Returns:
-        Name of the outcome construct, or None if not found.
-    """
-    outcome = get_outcome_construct(causal_design_or_latent)
+def get_outcome_name(graph_input: UncheckedJsonObject) -> str | None:
+    """Resolve the selected outcome display name from the graph input."""
+    outcome = get_outcome_construct(graph_input)
     return outcome["name"] if outcome else None
 
 

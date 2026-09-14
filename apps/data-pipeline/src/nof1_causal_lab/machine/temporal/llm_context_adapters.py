@@ -49,7 +49,7 @@ def subroutine_context_messages(
                 LLMToolSpec(
                     name="validate_latent_structure",
                     description="Validate latent structure JSON.",
-                    param_name="structure_json",
+                    param_name="model_json",
                     param_description="The JSON string containing the latent structure.",
                 )
             ],
@@ -67,7 +67,7 @@ def subroutine_context_messages(
                         "Validate measurement structure, known-input declarations, "
                         "and compiler constraints."
                     ),
-                    param_name="measurement_json",
+                    param_name="model_json",
                     param_description=(
                         "The JSON string containing the measurement structure and "
                         "known-input declarations."

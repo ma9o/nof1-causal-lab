@@ -9,38 +9,26 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 import polars as pl
 
+from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.execution.planning import (
     InferenceStructurePlan,
     plan_inference_structure,
 )
-from nof1_causal_lab.models.ssm.model import SSMModel, SSMSpec
+from nof1_causal_lab.models.ssm.model import SSMModel
 from nof1_causal_lab.models.ssm.observation_support import (
     ObservationSupportRuntime,
     augment_wide_data_with_support_boundaries,
     compile_observation_support_runtime,
-    default_manifest_columns,
-    hydrate_discrete_manifest_metadata,
+    validate_discrete_manifest_metadata,
     validate_observation_support,
 )
 from nof1_causal_lab.models.ssm.parameterization import (
-    PriorRuntimeBundle,
-    build_site_registry,
-    load_prior_runtime_bundle,
+    build_prior_runtime_bundle,
 )
-from nof1_causal_lab.models.ssm.priors import (
-    resolve_site_priors,
-)
-from nof1_causal_lab.models.ssm.serialization import deserialize_ssm_spec
 from nof1_causal_lab.utils.data import pivot_to_wide
 
 if TYPE_CHECKING:
-    import numpyro.distributions as dist
-
-    from nof1_causal_lab.artifacts.compiled_ssm import (
-        CompiledParameterBinding,
-        CompiledPriorSemantics,
-        CompiledSSMArtifact,
-    )
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
     from nof1_causal_lab.sampler_config import (
         SamplerConfig,
@@ -88,8 +76,6 @@ class PreparedModelRuntime:
     """Canonical prepared runtime context shared by validation and inference."""
 
     model: SSMModel
-    spec: SSMSpec
-    parameter_layout: SSMParameterLayout
     sampler_config: SamplerConfigInput
     wide_data: pl.DataFrame
     observation_data: pl.DataFrame | None
@@ -98,8 +84,14 @@ class PreparedModelRuntime:
     observations: jnp.ndarray
     times: jnp.ndarray
     transition_inputs: jnp.ndarray | None
-    manifest_names: list[str]
-    manifest_ids: list[str] | None
+
+    @property
+    def spec(self) -> ModelSpec:
+        return self.model.spec
+
+    @property
+    def parameter_layout(self) -> SSMParameterLayout:
+        return self.model.parameter_layout
 
 
 def get_default_sampler_config() -> SamplerConfig:
@@ -109,63 +101,30 @@ def get_default_sampler_config() -> SamplerConfig:
     return get_config().inference.to_sampler_config()
 
 
-def build_ssm_model(
-    wide_data: pl.DataFrame,
-    *,
-    ssm_spec: SSMSpec,
-    prior_registry: dict[str, dist.Distribution] | None = None,
-    compiled_prior_semantics: CompiledPriorSemantics | None = None,
-    prior_runtime_bundle: PriorRuntimeBundle | None = None,
-    parameter_bindings: list[CompiledParameterBinding] | None = None,
-) -> SSMModel:
-    """Build a live model from an already compiled SSMSpec."""
+def build_ssm_model(wide_data: pl.DataFrame, *, model_spec: ModelSpec) -> SSMModel:
+    """Derive execution inputs directly from the scientific ModelSpec."""
+    from nof1_causal_lab.models.ssm.compile.inputs import compile_ssm_inputs_from_model
+
     if wide_data.is_empty():
         raise ValueError("Cannot build SSM model from empty data")
-
-    spec = hydrate_discrete_manifest_metadata(ssm_spec, wide_data)
-    resolved_priors = resolve_site_priors(build_site_registry(spec), prior_registry)
-    validate_observation_support(spec, wide_data)
-
-    runtime_bundle = prior_runtime_bundle
-    if runtime_bundle is None and compiled_prior_semantics is not None:
-        runtime_bundle = load_prior_runtime_bundle(compiled_prior_semantics)
-
-    model = SSMModel(
-        spec,
-        resolved_priors,
-        prior_runtime_bundle=runtime_bundle,
-    )
-    model.parameter_bindings = list(parameter_bindings or [])
-    return model
-
-
-def hydrate_compiled_model(
-    compiled_ssm: CompiledSSMArtifact,
-    wide_data: pl.DataFrame,
-) -> SSMModel:
-    """Hydrate a compiled artifact into a live model without invoking compilation."""
-    spec = deserialize_ssm_spec(compiled_ssm.spec)
-    semantics = compiled_ssm.compiled_prior_semantics
-    prior_runtime_bundle = load_prior_runtime_bundle(semantics)
-    return build_ssm_model(
-        wide_data,
-        ssm_spec=spec,
-        compiled_prior_semantics=semantics,
-        prior_runtime_bundle=prior_runtime_bundle,
-        parameter_bindings=compiled_ssm.parameter_bindings,
+    validate_discrete_manifest_metadata(model_spec, wide_data)
+    validate_observation_support(model_spec, wide_data)
+    priors, _, _, _, _ = compile_ssm_inputs_from_model(model_spec)
+    return SSMModel(
+        model_spec, priors, prior_runtime_bundle=build_prior_runtime_bundle(model_spec, priors)
     )
 
 
 def prepare_fit_inputs(
-    spec: SSMSpec,
+    spec: ModelSpec,
     wide_data: pl.DataFrame,
 ) -> tuple[jnp.ndarray, jnp.ndarray, list[str], pl.DataFrame]:
     """Extract observations, times, manifest order, and standardized wide data."""
-    manifest_cols = (
-        list(spec.manifest_names) if spec.manifest_names else default_manifest_columns(wide_data)
-    )
+    manifest_cols = numeric.observation_names(spec)
     manifest_standardized = (
-        list(spec.manifest_standardized) if spec.manifest_standardized is not None else None
+        list(numeric.observation_standardized(spec))
+        if numeric.observation_standardized(spec) is not None
+        else None
     )
     standardized_data = _standardize_manifest_columns(
         wide_data, manifest_cols, manifest_standardized
@@ -178,16 +137,16 @@ def prepare_fit_inputs(
     return observations, times, manifest_cols, standardized_data
 
 
-def prepare_transition_inputs(spec: SSMSpec, wide_data: pl.DataFrame) -> jnp.ndarray | None:
+def prepare_transition_inputs(spec: ModelSpec, wide_data: pl.DataFrame) -> jnp.ndarray | None:
     """Extract known inputs in compiled input order and align them to transitions."""
-    input_names = list(spec.input_names or [])
+    input_names = list(numeric.input_names(spec) or [])
     if not input_names:
         return None
 
-    source_indicators = list(spec.input_source_indicators or [])
-    scales = [float(scale) for scale in (spec.input_scales or [])]
-    policies = list(spec.input_missing_policies or [])
-    lagged_flags = list(spec.input_lagged)
+    source_indicators = list(numeric.input_sources(spec) or [])
+    scales = [float(scale) for scale in (numeric.input_scales(spec) or [])]
+    policies = list(numeric.input_missing_policies(spec) or [])
+    lagged_flags = list(numeric.input_lagged(spec))
     missing_sources = [name for name in source_indicators if name not in wide_data.columns]
     if missing_sources:
         raise ValueError(
@@ -222,7 +181,7 @@ def prepare_transition_inputs(spec: SSMSpec, wide_data: pl.DataFrame) -> jnp.nda
 def prepare_wide_model_runtime(
     wide_data: pl.DataFrame,
     *,
-    compiled_ssm: CompiledSSMArtifact | None = None,
+    model_spec: ModelSpec,
     sampler_config: SamplerConfigInput | None = None,
     model: SSMModel | None = None,
     observation_data: pl.DataFrame | None = None,
@@ -230,14 +189,10 @@ def prepare_wide_model_runtime(
     """Build or reuse an ``SSMModel`` and extract fit-ready arrays."""
     resolved_sampler_config = sampler_config or get_default_sampler_config()
     if model is None:
-        if compiled_ssm is None:
-            raise ValueError("Either model or compiled_ssm must be provided")
-        model = hydrate_compiled_model(compiled_ssm, wide_data)
+        model = build_ssm_model(wide_data, model_spec=model_spec)
 
     spec = model.spec
-    manifest_names = (
-        list(spec.manifest_names) if spec.manifest_names else default_manifest_columns(wide_data)
-    )
+    manifest_names = numeric.observation_names(spec)
     wide_data = augment_wide_data_with_support_boundaries(
         observation_data,
         wide_data,
@@ -275,8 +230,6 @@ def prepare_wide_model_runtime(
         )
     return PreparedModelRuntime(
         model=model,
-        spec=spec,
-        parameter_layout=model.parameter_layout,
         sampler_config=resolved_sampler_config,
         wide_data=wide_data,
         observation_data=observation_data,
@@ -285,47 +238,30 @@ def prepare_wide_model_runtime(
         observations=observations,
         times=times,
         transition_inputs=transition_inputs,
-        manifest_names=manifest_names,
-        manifest_ids=(
-            [
-                {name: iid for iid, name in compiled_ssm.observation_bindings.items()}[name]
-                for name in manifest_names
-            ]
-            if compiled_ssm is not None
-            else None
-        ),
     )
 
 
 def prepare_model_runtime(
     data_for_model: pl.DataFrame,
     *,
-    compiled_ssm: CompiledSSMArtifact,
+    model_spec: ModelSpec,
     sampler_config: SamplerConfigInput | None = None,
     model: SSMModel | None = None,
 ) -> PreparedModelRuntime:
     """Canonical entry point for preparing stage data for model work."""
     wide_data = pivot_to_wide(data_for_model)
     runtime_rows = data_for_model.rename({"indicator_id": "indicator"})
-    if compiled_ssm is not None:
-        unknown = (
-            set(data_for_model["indicator_id"].unique()) - compiled_ssm.observation_bindings.keys()
-        )
-        if unknown:
-            raise ValueError(f"Observations reference unknown indicators: {sorted(unknown)}")
-        wide_data = wide_data.rename(
-            {
-                iid: name
-                for iid, name in compiled_ssm.observation_bindings.items()
-                if iid in wide_data.columns
-            }
-        )
-        runtime_rows = runtime_rows.with_columns(
-            pl.col("indicator").replace_strict(compiled_ssm.observation_bindings)
-        )
+    labels = {indicator.id: indicator.name for indicator in model_spec.indicators}
+    unknown = set(data_for_model["indicator_id"].unique()) - labels.keys()
+    if unknown:
+        raise ValueError(f"Observations reference unknown indicators: {sorted(unknown)}")
+    wide_data = wide_data.rename(
+        {iid: name for iid, name in labels.items() if iid in wide_data.columns}
+    )
+    runtime_rows = runtime_rows.with_columns(pl.col("indicator").replace_strict(labels))
     return prepare_wide_model_runtime(
         wide_data,
-        compiled_ssm=compiled_ssm,
+        model_spec=model_spec,
         sampler_config=sampler_config,
         model=model,
         observation_data=runtime_rows,
@@ -350,7 +286,10 @@ def sample_prior_predictive(
     )
 
     spec = model.spec
-    if any_family_needs_level_metadata(spec.manifest_dists) and spec.manifest_level_counts is None:
+    if (
+        any_family_needs_level_metadata(numeric.observation_families(spec))
+        and numeric.observation_level_counts(spec) is None
+    ):
         raise ValueError(
             "Prior predictive for ordered/categorical emissions requires hydrated "
             "manifest_level_counts. Build the model with data first."

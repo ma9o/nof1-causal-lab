@@ -1,7 +1,7 @@
 """Parameter layout for block-based SSM specs.
 
 ``SSMParameterLayout`` is an index over the block-owned sample-site
-descriptors produced by ``SSMSpec.iter_sample_sites()``. It does not
+descriptors produced by ``numerics.iter_sample_sites(model)``. It does not
 recompute positions from supports (the blocks already do that). It does
 not own templates and it does not assemble matrices. Assembly belongs
 to the block that owns the parameter.
@@ -17,10 +17,11 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
 
 from nof1_causal_lab.artifacts.parameter import SiteKind
+from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.structure.sites import SitePosition  # noqa: TC001
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.model import SSMSpec
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
 
 
@@ -28,20 +29,18 @@ if TYPE_CHECKING:
 class SSMParameterLayout:
     """Cached index over a spec's sample-site descriptors."""
 
-    spec: SSMSpec
     sites: tuple[SiteDescriptor, ...]
     by_name: dict[str, SiteDescriptor]
     static_factor_name_index: dict[str, int] = field(default_factory=dict)
 
     @classmethod
-    def from_spec(cls, spec: SSMSpec) -> SSMParameterLayout:
-        sites = tuple(spec.iter_sample_sites())
+    def from_spec(cls, spec: ModelSpec) -> SSMParameterLayout:
+        sites = tuple(numeric.iter_sample_sites(spec))
         return cls(
-            spec=spec,
             sites=sites,
             by_name={s.name: s for s in sites},
             static_factor_name_index={
-                name: idx for idx, name in enumerate(spec.static_factor_names or [])
+                name: idx for idx, name in enumerate(numeric.static_factor_names(spec) or [])
             },
         )
 

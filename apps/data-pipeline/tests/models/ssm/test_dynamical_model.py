@@ -1,5 +1,7 @@
 """Small model-boundary checks; no fitting or trajectory simulation."""
 
+from nof1_causal_lab.artifacts.coefficient import FixedCoefficient
+from dataclasses import replace
 from importlib import import_module
 from types import SimpleNamespace
 
@@ -7,19 +9,15 @@ import dynestyx as dsx
 import jax
 import jax.numpy as jnp
 import numpy as np
-import numpyro.distributions as dist
 import pytest
 from dynestyx.inference.particle_runtime import Parameterization
 
-from nof1_causal_lab.artifacts.statistical_model_spec import LinkFunction
+from nof1_causal_lab.artifacts.likelihood import LinkFunction
 from nof1_causal_lab.distributions import DistributionFamily
-from nof1_causal_lab.models.ssm.dynamics.edges import NodePotential
 from nof1_causal_lab.models.ssm.dynamics.intervention import Intervention
-from nof1_causal_lab.models.ssm.dynamics.vector_field import VectorField
-from nof1_causal_lab.models.ssm.execution.contracts import MeasurementParams
-from nof1_causal_lab.models.ssm.execution.dynamical_model import continuous_state_evolution
 from nof1_causal_lab.models.ssm.inference import problem as problem_module
 from nof1_causal_lab.models.ssm.inference.targets.laplace.shared import _prepare_linearized_path
+from tests.dynamics_fixtures import potential_term
 
 
 @pytest.fixture
@@ -27,49 +25,81 @@ def runtime(monkeypatch):
     # Only parameter discovery is stubbed. The declared drift, observation model,
     # model partition, discretizer, and particle target are the actual code paths.
     times = jnp.array([2.0, 2.1, 2.35])
-    spec = SimpleNamespace(
+    from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
+    from nof1_causal_lab.models.ssm.execution.parameters import assemble_model_matrices
+    from nof1_causal_lab.models.ssm.structure import DiffusionBlockSpec
+    from tests.model_fixtures import (
+        default_input_effect_block,
+        default_lambda_block,
+        default_manifest_chol_block,
+        default_t0_chol_block,
+        default_t0_means_block,
+        model_fixture,
+    )
+
+    spec = model_fixture(
+        n_latent=1,
         n_manifest=2,
+        dynamics_spec=DynamicsSpec(
+            1,
+            (
+                potential_term(
+                    target=0,
+                    center=None,
+                    stiffness=FixedCoefficient(value=0.4),
+                    quartic=FixedCoefficient(value=0.2),
+                ),
+            ),
+        ),
         input_names=["forcing"],
-        diffusion_dists=[DistributionFamily.GAUSSIAN],
         manifest_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.POISSON],
         manifest_links=[LinkFunction.IDENTITY, LinkFunction.LOG],
+        diffusion_block=DiffusionBlockSpec(
+            1, np.zeros((1, 1), dtype=bool), jnp.sqrt(jnp.array([[0.3]]))
+        ),
+        lambda_block=replace(default_lambda_block(2, 1), template=jnp.ones((2, 1))),
+        manifest_chol_block=replace(
+            default_manifest_chol_block(2),
+            diag_support=np.zeros(2, dtype=bool),
+            template=jnp.eye(2),
+        ),
+        t0_means_block=replace(
+            default_t0_means_block(1),
+            free_support=np.zeros(1, dtype=bool),
+            template=jnp.array([0.7]),
+        ),
+        t0_chol_block=replace(
+            default_t0_chol_block(1),
+            diag_support=np.zeros(1, dtype=bool),
+            template=jnp.sqrt(jnp.array([[0.8]])),
+        ),
+        input_effect_block=replace(
+            default_input_effect_block(1),
+            n_cols=1,
+            free_support=np.zeros((1, 1), dtype=bool),
+            template=jnp.array([[0.5]]),
+        ),
     )
     model = SimpleNamespace(
         spec=spec,
         observation_support=None,
         transition_inputs=jnp.array([[99.0], [2.0], [-1.0]]),
     )
+
+    def constrain(z):
+        samples = {"vf_0_p0": z[0]}
+        matrices, _ = assemble_model_matrices(spec, samples)
+        return {**samples, **matrices}
+
     parameters = Parameterization(
         initial_position=jnp.array([0.2]),
-        unravel=lambda z: {"center": z[0]},
-        constrain=lambda z: {"center": z[0]},
+        unravel=lambda z: {"vf_0_p0": z[0]},
+        constrain=constrain,
         log_prior=lambda z: -jnp.sum(z**2),
     )
     monkeypatch.setattr(
-        problem_module, "prepare_model_parameters", lambda *_: (parameters, {}, {"center"})
+        problem_module, "prepare_model_parameters", lambda *_: (parameters, {}, {"vf_0_p0"})
     )
-    monkeypatch.setattr(problem_module, "build_site_registry", lambda _: None)
-    field = VectorField(n_latent=1, components=(NodePotential(target=0),))
-
-    def assemble(samples, _spec, *, registry):
-        del registry
-        evolution = continuous_state_evolution(
-            field,
-            (
-                {
-                    "center": samples["center"],
-                    "stiffness": jnp.array(0.4),
-                    "quartic": jnp.array(0.2),
-                },
-            ),
-            jnp.array([[0.3]]),
-            jnp.array([[0.5]]),
-        )
-        measurement = MeasurementParams(jnp.ones((2, 1)), jnp.zeros(2), jnp.eye(2))
-        initial = dist.MultivariateNormal(jnp.array([0.7]), covariance_matrix=jnp.array([[0.8]]))
-        return evolution, measurement, initial, None
-
-    monkeypatch.setattr(problem_module, "_assemble_likelihood_inputs", assemble)
     return problem_module.build_particle_problem(
         model,
         jnp.array([[0.2, 1.0], [jnp.nan, 2.0], [jnp.nan, jnp.nan]]),
@@ -135,7 +165,7 @@ def test_model_keeps_nonlinear_drift_and_destination_indexed_controls(runtime):
     np.testing.assert_allclose(law.mean, state + dt * expected_drift, atol=1e-6)
     np.testing.assert_allclose(law.covariance_matrix, [[dt * 0.3 + 1e-8]], atol=1e-7)
     np.testing.assert_allclose(declared.initial_condition.mean, [0.7])
-    np.testing.assert_allclose(declared.initial_condition.covariance_matrix, [[0.8]])
+    np.testing.assert_allclose(declared.initial_condition.covariance_matrix, [[0.8]], atol=2e-6)
 
 
 def test_exact_target_and_parameter_gradient_trace_through_the_model(runtime):
@@ -185,10 +215,42 @@ def test_observation_model_keeps_partial_and_complete_missingness(runtime):
     assert float(absent) == 0.0
 
 
+def test_native_discrete_law_samples_categories_from_predictors():
+    from nof1_causal_lab.models.ssm.execution.contracts import MeasurementParams
+    from nof1_causal_lab.models.ssm.execution.dynamical_model import HeterogeneousObservation
+
+    observation = HeterogeneousObservation(
+        MeasurementParams(jnp.eye(2), jnp.zeros(2), jnp.eye(2)),
+        (DistributionFamily.ORDERED_LOGISTIC, DistributionFamily.CATEGORICAL),
+        (LinkFunction.CUMULATIVE_LOGIT, LinkFunction.SOFTMAX),
+        {
+            "obs_level_counts": jnp.array([3, 3]),
+            "obs_ordered_cutpoints": jnp.array([[-1.0, 1.0], [-1.0, 1.0]]),
+            "obs_cat_intercepts": jnp.zeros((2, 2)),
+            "obs_cat_slopes": jnp.array([[0.0, 0.0], [-1.0, 1.0]]),
+        },
+    )
+    # At this predictor both declared laws concentrate on their final category.
+    # Reconstructing a law from the response mean would lose that information.
+    law = observation(jnp.array([100.0, 100.0]), None, jnp.array(0.0))
+    for key in (jax.random.key(2), jax.random.PRNGKey(2)):
+        draws = law.sample(key, sample_shape=(2, 3))
+        np.testing.assert_array_equal(draws, np.full((2, 3, 2), 2))
+    np.testing.assert_allclose(law.mean, [2.0, 2.0], atol=1e-6)
+    assert np.isfinite(law.log_prob(jnp.array([2.0, 2.0])))
+
+
 def test_forward_simulation_passes_the_declared_model_to_the_ode_solver(monkeypatch):
     simulator = import_module("nof1_causal_lab.models.ssm.dynamics.simulator")
-    field = VectorField(n_latent=1, components=(NodePotential(target=0),))
-    params = ({"center": jnp.array(0.0), "stiffness": jnp.array(0.4), "quartic": jnp.array(0.2)},)
+    from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec, compile_dynamics
+    
+
+    field = compile_dynamics(
+        DynamicsSpec(
+            1, (potential_term(0, center=FixedCoefficient(value=0), stiffness=FixedCoefficient(value=0.4), quartic=FixedCoefficient(value=0.2)),)
+        )
+    ).vector_field
+    params = ({},)
     grid = jnp.array([2.0, 2.2, 2.5])
     initial = jnp.array([0.8])
     paths = jnp.zeros((3, 1))
@@ -217,8 +279,15 @@ def test_forward_simulation_passes_the_declared_model_to_the_ode_solver(monkeypa
 
 def test_indexed_sde_keeps_its_brownian_path_and_uses_dynestyx_evolution(monkeypatch):
     simulator = import_module("nof1_causal_lab.models.ssm.dynamics.simulator")
-    field = VectorField(n_latent=1, components=(NodePotential(target=0),))
-    params = ({"center": jnp.array(0.0), "stiffness": jnp.array(0.4), "quartic": jnp.array(0.2)},)
+    from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec, compile_dynamics
+    
+
+    field = compile_dynamics(
+        DynamicsSpec(
+            1, (potential_term(0, center=FixedCoefficient(value=0), stiffness=FixedCoefficient(value=0.4), quartic=FixedCoefficient(value=0.2)),)
+        )
+    ).vector_field
+    params = ({},)
     grid = jnp.array([2.0, 2.2, 2.5])
     initial = jnp.array([0.8])
     covariance = jnp.array([[0.3]])
@@ -233,7 +302,7 @@ def test_indexed_sde_keeps_its_brownian_path_and_uses_dynestyx_evolution(monkeyp
         np.testing.assert_array_equal(jax.random.key_data(brownian.key), jax.random.key_data(key))
         np.testing.assert_allclose(
             evolution.diffusion.gram_matrix(x=initial, u=None, t=grid[0], state_dim=1),
-            covariance + 1e-8,
+            covariance,
             atol=1e-7,
         )
         base_drift = -0.4 * initial - 0.2 * initial**3

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS, ArtifactId
+from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS, ArtifactId, OperationId
 from nof1_causal_lab.machine.graph import (
     ARTIFACT_GRAPH,
     DERIVATIONS,
@@ -13,11 +13,11 @@ from nof1_causal_lab.machine.graph import (
     WRITABLE_ARTIFACTS,
     transition_spec,
 )
+from nof1_causal_lab.machine.moves import Move, RunOperation, WriteArtifact
 
 ContextLayer = Literal["navigator", "registry", "machine", "delegated", "tool"]
 ActionKind = Literal["read", "produce", "check", "query", "driver", "external"]
 ActionMode = Literal["direct", "delegated", "async", "read"]
-MoveKind = Literal["run", "write"]
 
 
 @dataclass(frozen=True)
@@ -29,12 +29,6 @@ class ContextSpec:
     owns: tuple[ArtifactId, ...] = ()
     allowed_tools: tuple[str, ...] = ()
     runtime_state: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True)
-class MachineMoveSpec:
-    kind: MoveKind
-    artifact_id: ArtifactId
 
 
 @dataclass(frozen=True)
@@ -56,7 +50,7 @@ class ActionSpec:
     produces: tuple[ArtifactId, ...] = ()
     produces_optional: tuple[ArtifactId, ...] = ()
     derives: tuple[ArtifactId, ...] = ()
-    move: MachineMoveSpec | None = None
+    move: Move | None = None
     query: ToolQuerySpec | None = None
     lower_context_id: str | None = None
 
@@ -93,7 +87,7 @@ CONTEXTS: tuple[ContextSpec, ...] = (
         layer="delegated",
         label="Latent structure proposal loop",
         parent_id="episode-machine",
-        owns=("latent_structure",),
+        owns=("model",),
         allowed_tools=("validate_latent_structure",),
         runtime_state=("question", "latent_structure_draft"),
     ),
@@ -102,7 +96,7 @@ CONTEXTS: tuple[ContextSpec, ...] = (
         layer="delegated",
         label="Measurement structure proposal loop",
         parent_id="episode-machine",
-        owns=("measurement_structure",),
+        owns=("model",),
         allowed_tools=("validate_measurement_structure",),
         runtime_state=("latent_structure", "dataset_schema", "measurement_structure_draft"),
     ),
@@ -111,7 +105,7 @@ CONTEXTS: tuple[ContextSpec, ...] = (
         layer="delegated",
         label="Indicator extraction worker fan-out",
         parent_id="episode-machine",
-        owns=("measurements", "panel"),
+        owns=("panel",),
         allowed_tools=("validate_extractions",),
         runtime_state=("indicator_plan", "worker_statuses", "extracted_values"),
     ),
@@ -120,7 +114,7 @@ CONTEXTS: tuple[ContextSpec, ...] = (
         layer="delegated",
         label="Model/prior reducer",
         parent_id="episode-machine",
-        owns=("statistical_model_spec",),
+        owns=("model", "admission_report"),
         allowed_tools=("search_literature", "submit_construct"),
         runtime_state=(
             "deterministic_skeleton",
@@ -137,8 +131,8 @@ CONTEXTS: tuple[ContextSpec, ...] = (
         layer="delegated",
         label="Exact nonlinear SSM inference job",
         parent_id="episode-machine",
-        owns=("posterior",),
-        runtime_state=("sampler_config", "diagnostics", "fitted_artifact"),
+        owns=("model",),
+        runtime_state=("sampler_config", "diagnostics", "conditioned_model"),
     ),
     ContextSpec(
         context_id="ranking",
@@ -169,12 +163,12 @@ def _run_action(
     action_id: str,
     namespace: str,
     name: str,
-    artifact_id: ArtifactId,
+    operation_id: OperationId,
     *,
     mode: ActionMode,
     lower_context_id: str,
 ) -> ActionSpec:
-    spec = transition_spec(artifact_id)
+    spec = transition_spec(operation_id)
     return ActionSpec(
         action_id=action_id,
         namespace=namespace,
@@ -183,10 +177,16 @@ def _run_action(
         mode=mode,
         context_id="navigator",
         consumes=spec.consumes,
-        produces=(spec.produces,),
+        produces=spec.produces,
         produces_optional=spec.produces_optional,
-        derives=_reachable_derivations(spec.transition_id),
-        move=MachineMoveSpec(kind="run", artifact_id=artifact_id),
+        derives=tuple(
+            dict.fromkeys(
+                derived
+                for output in spec.all_produces
+                for derived in _reachable_derivations(output)
+            )
+        ),
+        move=RunOperation(operation_id=operation_id),
         lower_context_id=lower_context_id,
     )
 
@@ -248,7 +248,7 @@ ACTIONS: tuple[ActionSpec, ...] = (
         mode="direct",
         context_id="navigator",
         produces=("question",),
-        move=MachineMoveSpec(kind="write", artifact_id="question"),
+        move=WriteArtifact(artifact_id="question"),
     ),
     ActionSpec(
         action_id="episode.attach_data",
@@ -297,10 +297,10 @@ ACTIONS: tuple[ActionSpec, ...] = (
         kind="produce",
         mode="direct",
         context_id="navigator",
-        consumes=("measurement_structure",),
-        produces=("measurement_structure",),
-        derives=_reachable_derivations("measurement_structure"),
-        move=MachineMoveSpec(kind="write", artifact_id="measurement_structure"),
+        consumes=("model",),
+        produces=("model",),
+        derives=_reachable_derivations("model"),
+        move=WriteArtifact(artifact_id="model"),
     ),
     ActionSpec(
         action_id="specify.identify",
@@ -309,7 +309,7 @@ ACTIONS: tuple[ActionSpec, ...] = (
         kind="check",
         mode="direct",
         context_id="navigator",
-        consumes=("causal_design",),
+        consumes=("model",),
         derives=("identification_report",),
     ),
     _run_action(
@@ -343,7 +343,7 @@ ACTIONS: tuple[ActionSpec, ...] = (
         kind="check",
         mode="direct",
         context_id="navigator",
-        consumes=("compiled_ssm",),
+        consumes=("model",),
     ),
     _run_action(
         "analyze.rank",
@@ -360,7 +360,7 @@ ACTIONS: tuple[ActionSpec, ...] = (
         kind="query",
         mode="direct",
         context_id="navigator",
-        consumes=("posterior", "causal_design", "identification_report"),
+        consumes=("model", "panel", "identification_report"),
         query=ToolQuerySpec(context_id="ranking", tool_name="simulate"),
     ),
     ActionSpec(
@@ -370,7 +370,7 @@ ACTIONS: tuple[ActionSpec, ...] = (
         kind="query",
         mode="direct",
         context_id="navigator",
-        consumes=("posterior", "causal_design", "identification_report"),
+        consumes=("model", "panel", "identification_report"),
         query=ToolQuerySpec(context_id="ranking", tool_name="simulate"),
     ),
     ActionSpec(
@@ -380,18 +380,7 @@ ACTIONS: tuple[ActionSpec, ...] = (
         kind="check",
         mode="direct",
         context_id="navigator",
-        consumes=("posterior", "panel"),
-    ),
-    ActionSpec(
-        action_id="analyze.save",
-        namespace="analyze",
-        name="save",
-        kind="produce",
-        mode="direct",
-        context_id="navigator",
-        consumes=("posterior",),
-        produces=("saved_scenarios",),
-        move=MachineMoveSpec(kind="write", artifact_id="saved_scenarios"),
+        consumes=("model", "panel"),
     ),
 )
 
@@ -400,25 +389,25 @@ CONTEXTS_BY_ID: dict[str, ContextSpec] = {context.context_id: context for contex
 ACTIONS_BY_ID: dict[str, ActionSpec] = {action.action_id: action for action in ACTIONS}
 
 
-def primary_transition_action(artifact_id: ArtifactId) -> ActionSpec:
+def primary_transition_action(operation_id: OperationId) -> ActionSpec:
     matches = [
         action
         for action in ACTIONS
         if action.move is not None
         and action.move.kind == "run"
-        and action.move.artifact_id == artifact_id
+        and action.move.operation_id == operation_id
     ]
     if len(matches) != 1:
         raise KeyError(
-            f"Expected exactly one primary action for {artifact_id}, found {len(matches)}"
+            f"Expected exactly one primary action for {operation_id}, found {len(matches)}"
         )
     return matches[0]
 
 
-def _move_dict(move: MachineMoveSpec | None) -> dict[str, str] | None:
+def _move_dict(move: Move | None) -> dict[str, object] | None:
     if move is None:
         return None
-    return {"kind": move.kind, "artifact_id": move.artifact_id}
+    return move.model_dump(mode="json")
 
 
 def _query_dict(query: ToolQuerySpec | None) -> dict[str, str | bool] | None:
@@ -468,7 +457,7 @@ def describe_actions() -> list[dict[str, object]]:
 
 
 def _assert_hierarchy_consistent() -> None:
-    transition_ids = {spec.transition_id for spec in ARTIFACT_GRAPH}
+    transition_ids = {spec.operation_id for spec in ARTIFACT_GRAPH}
     artifact_ids = set(ARTIFACT_IDS)
 
     if len(CONTEXTS_BY_ID) != len(CONTEXTS):
@@ -496,7 +485,7 @@ def _assert_hierarchy_consistent() -> None:
         if action.move is not None and action.query is not None:
             raise AssertionError(f"{action.action_id} cannot have both move and query specs")
         if action.move is not None:
-            if action.move.kind == "run" and action.move.artifact_id not in transition_ids:
+            if action.move.kind == "run" and action.move.operation_id not in transition_ids:
                 raise AssertionError(f"{action.action_id} runs unknown transition")
             if action.move.kind == "write" and action.move.artifact_id not in WRITABLE_ARTIFACTS:
                 raise AssertionError(f"{action.action_id} writes non-writable artifact")
@@ -511,7 +500,9 @@ def _assert_hierarchy_consistent() -> None:
         if set(referenced) - artifact_ids:
             raise AssertionError(f"{action.action_id} references unknown artifacts")
 
-    writable_produced = {spec.transition_id for spec in ARTIFACT_GRAPH if spec.writable}
+    writable_produced = {
+        output for spec in ARTIFACT_GRAPH if spec.writable for output in spec.produces
+    }
     if set(WRITABLE_ARTIFACTS) != set(ROOT_ARTIFACTS) | writable_produced:
         raise AssertionError("Writable surface must be roots plus writable transitions")
 

@@ -16,82 +16,74 @@ from typing import Any
 
 import pytest
 
-from nof1_causal_lab.machine import runners as runners_module
-from nof1_causal_lab.machine.graph import transition_spec
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.machine.moves import (
-    RunArtifact,
-    TransitionEffects,
+    RunOperation,
     WriteArtifact,
-    run_retractions,
 )
 from nof1_causal_lab.machine.status import MoveOutcome
 from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal
-from nof1_causal_lab.machine.temporal import (
-    latent_structure_activities,
-    measurement_activities,
-    measurement_structure_activities,
-)
 from nof1_causal_lab.machine.temporal.messages import EpisodeInit, MoveRequest
 from nof1_causal_lab.machine.temporal.model_spec_checkpoints import (
     latest_failed_model_spec_checkpoint_ref,
     read_model_spec_checkpoint,
 )
 from nof1_causal_lab.machine.temporal.workflow import EpisodeWorkflow
-from tests.helpers import make_structural_plan
+from tests.helpers import complete_test_model, graph_constructs
 
-pytestmark = pytest.mark.timeout(240)
+pytestmark = [pytest.mark.slow, pytest.mark.timeout(240)]
 
 
-def _valid_latent_structure() -> dict[str, Any]:
+def _proposed_model() -> dict[str, Any]:
     return {
-        "default_outcome": {"kind": "construct", "id": "construct:cdc0b2958a9512b2abad"},
-        "constructs": [
-            {
-                "id": "construct:c665e6cdc48fc83e0915",
-                "name": "exercise",
-                "description": "exercise level",
-                "role": "exogenous",
-                "temporal_status": "time_varying",
-            },
-            {
-                "id": "construct:cdc0b2958a9512b2abad",
-                "name": "sleep",
-                "description": "sleep quality",
-                "role": "endogenous",
-                "temporal_status": "time_varying",
-            },
-        ],
+        "default_outcome": {"kind": "construct", "id": "construct:sleep"},
         "edges": [
             {
-                "cause_id": "construct:c665e6cdc48fc83e0915",
-                "effect_id": "construct:cdc0b2958a9512b2abad",
-                "id": "edge:ee04dac06187e4b97ab3",
-                "description": "exercise can affect sleep",
-                "lagged": True,
-                "sources": [],
+                "id": "edge:test-outcome-0",
+                "cause": {
+                    "id": "construct:sleep",
+                    "name": "sleep",
+                    "description": "sleep quality",
+                    "role": "endogenous",
+                    "temporal_status": "time_varying",
+                },
+                "effect": {
+                    "id": "construct:unmeasured_outcome",
+                    "name": "unmeasured_outcome",
+                    "description": "Downstream response outside the measured test states.",
+                    "role": "endogenous",
+                    "temporal_status": "time_varying",
+                },
+                "description": "Test state affects an unmeasured downstream response",
             }
         ],
     }
 
 
-def _valid_measurement_structure() -> dict[str, Any]:
+def _measured_model() -> dict[str, Any]:
+    model = _proposed_model()
+    model["measurement_clock"] = "1d"
+    graph_constructs(model)[0]["indicators"] = [
+        {
+            "id": "indicator:sleep",
+            "name": "sleep_steps_proxy",
+            "how_to_measure": "Use the steps column as a placeholder sleep proxy.",
+            "construct_polarity": "positive",
+            "measurement_dtype": "continuous",
+            "aggregation": "mean",
+            "source_columns": ["steps"],
+            "extraction_mode": "computed",
+        }
+    ]
+    return model
+
+
+def _statistical_submission() -> dict[str, Any]:
+    model = complete_test_model(ModelSpec.model_validate(_measured_model())).model_dump(mode="json")
     return {
-        "model_clock": "1d",
-        "known_inputs": [],
-        "scientific_only_constructs": [],
-        "indicators": [
-            {
-                "id": "indicator:7eb6c455695dab1b3470",
-                "construct_id": "construct:cdc0b2958a9512b2abad",
-                "name": "sleep_steps_proxy",
-                "how_to_measure": "Use the `steps` column directly as a placeholder sleep proxy.",
-                "construct_polarity": "positive",
-                "measurement_dtype": "continuous",
-                "aggregation": "mean",
-                "source_columns": ["steps"],
-                "extraction_mode": "computed",
-            }
-        ],
+        "construct": graph_constructs(model)[0],
+        "edges": model["edges"],
+        "parameters": model["parameters"],
     }
 
 
@@ -135,10 +127,7 @@ def machine_env(monkeypatch, tmp_path):
     )
 
     def fake_materialize_model_spec_result(**kwargs):
-        del kwargs
-        return {
-            "statistical_model_spec": {"mechanisms": [], "likelihoods": [], "parameters": []},
-        }
+        return {"model": kwargs["model"]}
 
     monkeypatch.setattr(
         model_spec_assembly,
@@ -147,13 +136,8 @@ def machine_env(monkeypatch, tmp_path):
     )
 
     def fake_admit_construct(state, contribution, *_args, **_kwargs):
-        admitted = construct_admission.AdmissionState(
-            names=(*state.names, contribution.name),
-            likelihoods=(*state.likelihoods, *contribution.likelihoods),
-            parameters=(*state.parameters, *contribution.parameters),
-            annotations=state.annotations,
-        )
-        report = construct_admission.AdmissionReport(
+        admitted = construct_admission.trial_admission_state(state, contribution)
+        report = construct_admission.ConstructAdmissionReport(
             name=contribution.name,
             results=(),
             timings=(),
@@ -167,7 +151,7 @@ def machine_env(monkeypatch, tmp_path):
         del state
         return construct_admission.FullAdmissionValidation(
             reports=tuple(
-                construct_admission.AdmissionReport(
+                construct_admission.ConstructAdmissionReport(
                     name=target.name,
                     results=(),
                     timings=(),
@@ -185,93 +169,6 @@ def machine_env(monkeypatch, tmp_path):
         construct_admission,
         "validate_full_admission_state",
         fake_validate_full_admission_state,
-    )
-
-    def complete_without_derivations(store, state, transition_id, produced):
-        retracted = run_retractions(state, transition_spec(transition_id), produced)
-        extra = []
-        measurement_structure = next(
-            (info for info in produced if info.artifact_id == "measurement_structure"),
-            None,
-        )
-        if measurement_structure is not None:
-            structural_plan = make_structural_plan(["sleep"], [])
-            structural_plan["semantics"]["indicators"]["indicator:0000"]["name"] = (
-                "sleep_steps_proxy"
-            )
-            structural_plan = json.loads(
-                json.dumps(structural_plan)
-                .replace("indicator:0000", "indicator:7eb6c455695dab1b3470")
-                .replace("construct:0000", "construct:cdc0b2958a9512b2abad")
-            )
-            extra.extend(
-                [
-                    store.write_version(
-                        "causal_design",
-                        provenance="computed",
-                        derived_from={"measurement_structure": measurement_structure.version},
-                        produced_by="derive:causal_design",
-                        json_files={
-                            "causal_design.json": {
-                                "causal_design": {
-                                    "latent": {"constructs": []},
-                                    "measurement": {"indicators": []},
-                                    "estimation": {"state_order": [], "edges": []},
-                                }
-                            }
-                        },
-                    ),
-                    store.write_version(
-                        "identification_report",
-                        provenance="computed",
-                        derived_from={"causal_design": 1},
-                        produced_by="derive:identification_report",
-                        json_files={
-                            "identification_report.json": {
-                                "estimable_treatments": ["sleep_steps_proxy"]
-                            }
-                        },
-                    ),
-                    store.write_version(
-                        "structural_plan",
-                        provenance="computed",
-                        derived_from={"causal_design": 1},
-                        produced_by="derive:structural_plan",
-                        json_files={"structural-plan.json": {"structural_plan": structural_plan}},
-                    ),
-                ]
-            )
-        if any(info.artifact_id == "measurements" for info in produced):
-            extra.append(
-                store.write_version(
-                    "validation_report",
-                    provenance="computed",
-                    derived_from={},
-                    produced_by="derive:validation_report",
-                    json_files={"validation_report.json": {"indicators": {}}},
-                )
-            )
-        return TransitionEffects(produced=[*produced, *extra], retracted=retracted)
-
-    monkeypatch.setattr(
-        runners_module,
-        "complete_computed_transition",
-        complete_without_derivations,
-    )
-    monkeypatch.setattr(
-        measurement_activities,
-        "complete_computed_transition",
-        complete_without_derivations,
-    )
-    monkeypatch.setattr(
-        latent_structure_activities,
-        "complete_computed_transition",
-        complete_without_derivations,
-    )
-    monkeypatch.setattr(
-        measurement_structure_activities,
-        "complete_computed_transition",
-        complete_without_derivations,
     )
 
     async def fake_call_model(model_name, messages, tools=None, config=None, log_label=None):
@@ -355,7 +252,7 @@ def machine_env(monkeypatch, tmp_path):
                             "function": {
                                 "name": "validate_measurement_structure",
                                 "arguments": json.dumps(
-                                    {"measurement_json": json.dumps(_valid_measurement_structure())}
+                                    {"model_json": json.dumps(_measured_model())}
                                 ),
                             },
                         }
@@ -378,46 +275,7 @@ def machine_env(monkeypatch, tmp_path):
                             "type": "function",
                             "function": {
                                 "name": "submit_construct",
-                                "arguments": json.dumps(
-                                    {
-                                        "construct": "sleep",
-                                        "mechanisms": [
-                                            {
-                                                "kind": "node_potential",
-                                                "target_id": "construct:cdc0b2958a9512b2abad",
-                                                "center": {"kind": "fixed", "value": 0},
-                                                "stiffness": {
-                                                    "kind": "estimated",
-                                                    "parameter_id": "parameter:41410ab5ed081fcb3b3436c8c4dd35daa8890d3ea0b2a597c2852bda40423ec1",
-                                                },
-                                                "quartic": {"kind": "fixed", "value": 0},
-                                            }
-                                        ],
-                                        "indicators": [
-                                            {
-                                                "indicator_id": "indicator:7eb6c455695dab1b3470",
-                                                "family": "gaussian",
-                                                "link": "identity",
-                                                "reasoning": "test fixture",
-                                            }
-                                        ],
-                                        "priors": {
-                                            "rho_sleep": {
-                                                "distribution": "Beta",
-                                                "params": {
-                                                    "alpha": 2.0,
-                                                    "beta": 2.0,
-                                                },
-                                                "reasoning": "test fixture",
-                                            },
-                                            "sigma_sleep": {
-                                                "distribution": "HalfNormal",
-                                                "params": {"sigma": 1.0},
-                                                "reasoning": "test fixture",
-                                            },
-                                        },
-                                    }
-                                ),
+                                "arguments": json.dumps(_statistical_submission()),
                             },
                         }
                     ],
@@ -438,9 +296,7 @@ def machine_env(monkeypatch, tmp_path):
                         "type": "function",
                         "function": {
                             "name": "validate_latent_structure",
-                            "arguments": json.dumps(
-                                {"structure_json": json.dumps(_valid_latent_structure())}
-                            ),
+                            "arguments": json.dumps({"model_json": json.dumps(_proposed_model())}),
                         },
                     }
                 ],
@@ -491,7 +347,7 @@ def test_episode_workflow_journey(machine_env):
                     )
 
                 # 1. Illegal move first: rejected AND journaled.
-                rejected = await propose(RunArtifact(artifact_id="measurement_structure"))
+                rejected = await propose(RunOperation(operation_id="measurement_structure"))
                 assert rejected.status == "rejected"
                 assert "question" in rejected.reason
 
@@ -510,12 +366,12 @@ def test_episode_workflow_journey(machine_env):
                     "measurement_structure",
                     "measurements",
                 ):
-                    outcome = await propose(RunArtifact(artifact_id=artifact_id))
+                    outcome = await propose(RunOperation(operation_id=artifact_id))
                     assert outcome.status == "applied", (artifact_id, outcome)
 
                 # 4. Typed stage failure: raised, state unchanged.
                 before = (await handle.query(EpisodeWorkflow.get_state)).current
-                raised = await propose(RunArtifact(artifact_id="statistical_model_spec"))
+                raised = await propose(RunOperation(operation_id="statistical_model_spec"))
                 assert raised.status == "raised"
                 assert raised.error_type == "ModelCompileError", raised.error_message
                 assert "report" in raised.diagnostics
@@ -532,8 +388,8 @@ def test_episode_workflow_journey(machine_env):
                 )
                 status = await handle.query(EpisodeWorkflow.get_status)
                 stale = {a.artifact_id for a in status.artifacts if a.stale}
-                assert "latent_structure" in stale
-                assert "measurement_structure" in stale
+                assert "model" in stale
+                assert "panel" in stale
                 assert "raw_data" not in stale  # not derived from question
 
                 # 6. Journal recorded every attempt, including the rejection

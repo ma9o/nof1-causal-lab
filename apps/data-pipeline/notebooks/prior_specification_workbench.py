@@ -20,24 +20,24 @@ def imports():
     import polars as pl
     import prior_specification_support as ps
 
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.models.ssm.construct_admission import build_construct_units
-    from nof1_causal_lab.models.structural import build_structural_plan
-    from nof1_causal_lab.utils.structural_plan import (
+    from nof1_causal_lab.utils.model_structure import (
+        get_constructs,
+        get_indicators,
         get_known_inputs,
         get_manifest_indicators,
-        get_plan_constructs,
-        get_plan_indicators,
     )
 
     return (
         Path,
+        ModelSpec,
         build_construct_units,
-        build_structural_plan,
         cs,
         get_known_inputs,
         get_manifest_indicators,
-        get_plan_constructs,
-        get_plan_indicators,
+        get_constructs,
+        get_indicators,
         json,
         pl,
         ps,
@@ -70,14 +70,9 @@ def intro(mo):
     reducer and content-addressed admission-evaluation cache, but does **not** call Temporal,
     `ArtifactStore`, telemetry, or the Pi harness.
 
-    The current DEMO artifact files are read directly only to snapshot the four Stage-4 inputs
-    into memory while storage is being refactored. The stored causal-design snapshot predates both
-    known-input authoring and the structural compiler. This trial re-derives it in memory, compiles
-    observed time-invariant constructs with direct dynamic effects (including CYP2C19 capacity) as
-    known inputs, marks the remaining measured baseline context scientific-only, and then runs the
-    production `CausalDesign -> StructuralPlan` compiler. That explicit reduction removes
-    unresolved static-target chains instead of relying on the old silent edge drop. The stored
-    artifacts are not mutated.
+    The DEMO measurement-stage ModelSpec, panel, question, and validation report are read
+    directly into memory. Each admission check derives a scoped ModelSpec and uses the
+    production compiler. The stored artifacts are not mutated.
     """)
     return
 
@@ -87,11 +82,11 @@ def input_paths(Path):
     WORKSPACE_STORE = Path(__file__).resolve().parents[3] / "data/DEMO/store"
     WORKSPACE_ID = WORKSPACE_STORE.parent.name
     QUESTION_PATH = WORKSPACE_STORE / "question/v1/question.json"
-    CAUSAL_DESIGN_PATH = WORKSPACE_STORE / "causal_design/v1/causal_design.json"
+    MODEL_PATH = WORKSPACE_STORE / "model/v2/model.json"
     PANEL_PATH = WORKSPACE_STORE / "panel/v1/panel.parquet"
     VALIDATION_REPORT_PATH = WORKSPACE_STORE / "validation_report/v1/validation_report.json"
     return (
-        CAUSAL_DESIGN_PATH,
+        MODEL_PATH,
         PANEL_PATH,
         QUESTION_PATH,
         VALIDATION_REPORT_PATH,
@@ -102,37 +97,36 @@ def input_paths(Path):
 
 @app.cell
 def load_input_snapshot(
-    CAUSAL_DESIGN_PATH,
+    ModelSpec,
+    MODEL_PATH,
     PANEL_PATH,
     QUESTION_PATH,
     VALIDATION_REPORT_PATH,
-    build_structural_plan,
     json,
     pl,
 ):
     question = json.loads(QUESTION_PATH.read_text())["text"]
-    _stored_causal_design = json.loads(CAUSAL_DESIGN_PATH.read_text())["causal_design"]
-    structural_plan = build_structural_plan(_stored_causal_design)
+    model = ModelSpec.model_validate_json(MODEL_PATH.read_text())
     data_for_model = pl.read_parquet(PANEL_PATH)
     validation_report = json.loads(VALIDATION_REPORT_PATH.read_text())
     indicator_audits = validation_report["indicators"]
-    return structural_plan, data_for_model, indicator_audits, question, validation_report
+    return model, data_for_model, indicator_audits, question, validation_report
 
 
 @app.cell(hide_code=True)
 def input_audit(
     build_construct_units,
-    structural_plan,
+    model,
     data_for_model,
     get_known_inputs,
-    get_plan_constructs,
-    get_plan_indicators,
+    get_constructs,
+    get_indicators,
     mo,
     validation_report,
 ):
-    _units = build_construct_units(structural_plan)
-    _construct_count = len(get_plan_constructs(structural_plan))
-    _indicator_count = len(get_plan_indicators(structural_plan))
+    _units = build_construct_units(model)
+    _construct_count = len(get_constructs(model))
+    _indicator_count = len(get_indicators(model))
     _feedback_units = [unit for unit in _units if len(unit.constructs) > 1]
     _errors = [
         issue
@@ -154,7 +148,7 @@ def input_audit(
         | indicators | {_indicator_count} |
         | admission units | {len(_units)} |
         | feedback components | {_feedback_summary} |
-        | known transition inputs | {len(get_known_inputs(structural_plan))} |
+        | known transition inputs | {len(get_known_inputs(model))} |
         | validation status | `{validation_report["is_valid"]}` |
         | indicator-level validation errors | {len(_errors)} |
 
@@ -2330,13 +2324,13 @@ def replay_proposals(
     PROPOSALS,
     SEED,
     WORKSPACE_ID,
-    structural_plan,
+    model,
     data_for_model,
     ps,
 ):
     workbench_run = ps.run_authored_proposals(
         cache_workspace_id=WORKSPACE_ID,
-        structural_plan=structural_plan,
+        model=model,
         data_for_model=data_for_model,
         proposals=PROPOSALS,
         n_draws=N_DRAWS,
@@ -2366,7 +2360,7 @@ def attempt_reports(cs, mo, workbench_run):
 
 @app.cell
 def next_authoring_prompt(
-    structural_plan,
+    model,
     mo,
     ps,
     question,
@@ -2376,7 +2370,7 @@ def next_authoring_prompt(
     _prompt = ps.next_construct_prompt(
         run=workbench_run,
         question=question,
-        structural_plan=structural_plan,
+        model=model,
         validation_report=validation_report,
     )
     if _prompt is None:
@@ -2397,7 +2391,7 @@ def next_authoring_prompt(
 
 @app.cell
 def next_indicator_audits(
-    structural_plan,
+    model,
     get_manifest_indicators,
     indicator_audits,
     json,
@@ -2407,7 +2401,7 @@ def next_indicator_audits(
     _construct = workbench_run.state.current_construct
     _names = [
         indicator["name"]
-        for indicator in get_manifest_indicators(structural_plan)
+        for indicator in get_manifest_indicators(model)
         if indicator.get("construct_name") == _construct
     ]
     _items = {
@@ -2503,11 +2497,11 @@ def new_trial_issue_ledger(mo):
 
 
 @app.cell
-def full_model_barrier(structural_plan, data_for_model, ps, workbench_run):
+def full_model_barrier(model, data_for_model, ps, workbench_run):
     barrier = (
         ps.validate_full_model(
             run=workbench_run,
-            structural_plan=structural_plan,
+            model=model,
             data_for_model=data_for_model,
         )
         if workbench_run.complete

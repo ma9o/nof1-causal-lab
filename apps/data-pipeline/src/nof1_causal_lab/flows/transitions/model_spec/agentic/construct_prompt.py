@@ -16,28 +16,27 @@ from typing import TYPE_CHECKING, Any
 
 import polars as pl
 
-from nof1_causal_lab.artifacts.mechanism import HillEdgeMechanism, LinearEdgeMechanism
-from nof1_causal_lab.artifacts.statistical_model_spec import ParameterSpec
+from nof1_causal_lab.artifacts.construct import serialize_edge_references
+from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 from nof1_causal_lab.distributions import constraint_domain
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
-from nof1_causal_lab.models.model_mechanisms import declare_dynamics_mechanisms
-from nof1_causal_lab.prior_distributions import serialize_distribution
+from nof1_causal_lab.models.model_mechanisms import default_model
+from nof1_causal_lab.models.model_structure import model_for_constructs
 from nof1_causal_lab.utils.causal_design import (
     choose_reference_indicator,
     get_effective_observation_window,
     get_indicator_polarity,
 )
-from nof1_causal_lab.utils.observation_semantics import get_observation_semantics
-from nof1_causal_lab.utils.structural_plan import (
+from nof1_causal_lab.utils.model_structure import (
+    get_constructs,
     get_edges,
+    get_indicators,
     get_known_inputs,
     get_manifest_indicators,
     get_model_clock,
-    get_plan_constructs,
-    get_plan_indicators,
     get_state_names,
-    restrict_structural_plan,
 )
+from nof1_causal_lab.utils.observation_semantics import get_observation_semantics
 
 from .construct_flow import (
     AdmissionTurnInventory,
@@ -51,16 +50,24 @@ from .prompts.shared_fragments import (
 )
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
     from .construct_flow import ConstructBuildState
 
 _SYSTEM_TASK = """You are specifying one construct of a continuous-time latent state-space model,
 one construct at a time along the causal graph. For the active construct you author:
 
-- its **emission** for each indicator (observation family + link),
-- its **mechanisms**, with explicit fixed or estimated coefficients, and
-- its **priors**, keyed by canonical parameter name.
+- its **conditional law** for each indicator (a native distribution with expression arguments),
+- its **dynamics** on the canonical construct and additive **mechanisms** on canonical edges, and
+- canonical **parameters** with their native NumPyro priors and supporting evidence.
+
+Each likelihood has a `law` containing `distribution` and `arguments`, for example
+Normal(loc=intercept + loading * state, scale=noise) or Bernoulli(logits=predictor).
+Use expression nodes with scientific state and coefficient references, as in the
+proposal. Response functions such as exp or normal_cdf belong inside the native
+arguments. Predictors are affine; ordinal thresholds and categorical contrasts
+use the explicit ordered_cutpoints and category_logits functions. Preserve the
+scientific coefficient roles and declare all referenced parameter IDs.
 
 The cumulative partial model is then compiled and simulated through the exact
 prior-predictive engine and gated by a reachability battery (confinement, latent
@@ -80,18 +87,18 @@ observation cadence and within the study span.
 
 You must finish by invoking the registered MCP tool `submit_construct`; writing
 or describing a `submit_construct(...)` call in text does not execute it and
-fails the attempt. Follow the tool schema exactly (`indicators`, not
+fails the attempt. Follow the tool schema exactly (`construct`, `edges`, and `parameters`, not
 `emissions`). Do not inspect the filesystem or use shell commands: this prompt
 and the registered tool schema contain everything required for the submission."""
 
 
 def _indicators_for(
-    structural_plan: StructuralPlan,
+    model: ModelSpec,
     construct: str,
 ) -> list[UncheckedJsonObject]:
     return [
         indicator
-        for indicator in get_manifest_indicators(structural_plan)
+        for indicator in get_manifest_indicators(model)
         if indicator.get("construct_name") == construct
     ]
 
@@ -100,31 +107,10 @@ def _canonical_parameter_names(
     state: ConstructBuildState,
     inventory: AdmissionTurnInventory,
 ) -> list[str]:
-    """The compiler-authoritative free parameters this construct may author priors for."""
+    """Unassigned priors on the proposed components for this construct."""
     return sorted(
-        inventory.prior_names({parameter.name for parameter in state.admission.parameters})
+        inventory.prior_names({parameter.name for parameter in state.admission.model.parameters})
     )
-
-
-def _parameter_activation_note(parameter: UncheckedJsonObject) -> str:
-    """Describe the submitted-likelihood condition for a conditional prior surface."""
-    if not parameter.get("conditional_prior_surface"):
-        return ""
-    role = str(parameter["role"])
-    if role == "observation_intercept":
-        return (
-            " — conditional: include only when the chosen channel needs an observation "
-            "intercept; omit for threshold/categorical and auto-standardized channels"
-        )
-    if role == "loading":
-        return " — conditional: omit when this indicator uses `categorical`"
-    if role == "initial_state_mean":
-        return " — conditional: include only when this time-invariant construct is standardized"
-    families = parameter.get("activation_distribution_families") or ()
-    if families:
-        rendered = ", ".join(f"`{family}`" for family in families)
-        return f" — conditional: include only when a relevant channel uses {rendered}"
-    return " — conditional on the locked model choices"
 
 
 def _format_number(value: Any) -> str:
@@ -164,12 +150,12 @@ def _validation_frame(validation_report: UncheckedJsonObject) -> list[str]:
     return lines
 
 
-def _active_construct_frame(structural_plan: StructuralPlan, construct: str) -> list[str]:
+def _active_construct_frame(model: ModelSpec, construct: str) -> list[str]:
     construct_meta = next(
-        (item for item in get_plan_constructs(structural_plan) if item.get("name") == construct),
+        (item for item in get_constructs(model) if item.get("name") == construct),
         {},
     )
-    model_clock = get_model_clock(structural_plan)
+    model_clock = get_model_clock(model)
     theoretical_role = construct_meta.get("role") or "unknown"
     temporal_status = construct_meta.get("temporal_status") or "unknown"
     description = str(construct_meta.get("description") or "").strip()
@@ -193,16 +179,16 @@ def _active_construct_frame(structural_plan: StructuralPlan, construct: str) -> 
 
 def _incoming_driver_context(
     state: ConstructBuildState,
-    structural_plan: StructuralPlan,
+    model: ModelSpec,
     construct: str,
     compiler_prior_names: set[str],
 ) -> list[str]:
     """Render executable incoming causes, separated by estimation role."""
-    edges = [edge for edge in get_edges(structural_plan) if edge.get("effect") == construct]
-    state_names = set(get_state_names(structural_plan))
+    edges = [edge for edge in get_edges(model) if edge.get("effect") == construct]
+    state_names = set(get_state_names(model))
     known_input_by_name = {
         str(item.get("construct") or item.get("construct_name")): item
-        for item in get_known_inputs(structural_plan)
+        for item in get_known_inputs(model)
         if item.get("construct") or item.get("construct_name")
     }
     lines = ["## Incoming drivers"]
@@ -226,7 +212,7 @@ def _incoming_driver_context(
             lines.extend(
                 _known_input_profile_lines(
                     state.data_for_model,
-                    structural_plan,
+                    model,
                     source_indicator=str(known_input["source_indicator"]),
                     scale=float(known_input.get("scale", 1.0)),
                 )
@@ -278,15 +264,13 @@ def _ordinal_occupancy(indicator: UncheckedJsonObject, values: list[float]) -> s
 
 def _known_input_profile_lines(
     data_for_model: pl.DataFrame,
-    structural_plan: StructuralPlan,
+    model: ModelSpec,
     *,
     source_indicator: str,
     scale: float,
 ) -> list[str]:
     """Render the empirical source scale needed to author a known-input effect."""
-    indicator = next(
-        item for item in get_plan_indicators(structural_plan) if item["name"] == source_indicator
-    )
+    indicator = next(item for item in get_indicators(model) if item["name"] == source_indicator)
     values = _observed_values(data_for_model, indicator["id"])
     if not values:
         return ["  - Source data: 0 observed numeric values."]
@@ -492,7 +476,7 @@ def build_construct_messages(
     state: ConstructBuildState,
     construct: str,
     question: str,
-    structural_plan: StructuralPlan,
+    model: ModelSpec,
     validation_report: UncheckedJsonObject,
 ) -> tuple[str, str]:
     """Return (system_prompt, user_prompt) for admitting ``construct``."""
@@ -506,17 +490,17 @@ def build_construct_messages(
         ]
     )
 
-    indicators = _indicators_for(structural_plan, construct)
+    indicators = _indicators_for(model, construct)
     reference = choose_reference_indicator(indicators)
     reference_var = reference["name"] if reference else None
     audits = dict(validation_report.get("indicators") or {})
     inventory = state.parameter_inventory_for(construct)
     param_names = _canonical_parameter_names(state, inventory)
     construct_meta = next(
-        (item for item in get_plan_constructs(structural_plan) if item.get("name") == construct),
+        (item for item in get_constructs(model) if item.get("name") == construct),
         {},
     )
-    model_clock = get_model_clock(structural_plan)
+    model_clock = get_model_clock(model)
     validation_frame = _validation_frame(validation_report)
 
     lines: list[str] = [
@@ -524,13 +508,13 @@ def build_construct_messages(
         "",
         *validation_frame,
         *([""] if validation_frame else []),
-        *_active_construct_frame(structural_plan, construct),
+        *_active_construct_frame(model, construct),
         "",
         "Already admitted: " + (", ".join(state.admission.names) or "(none yet)"),
         "",
         *_incoming_driver_context(
             state,
-            structural_plan,
+            model,
             construct,
             set(inventory.compiler_prior_names),
         ),
@@ -565,37 +549,19 @@ def build_construct_messages(
         "## Canonical parameters available for this construct",
         "",
         "Author a prior for each active parameter below, plus any optional structural "
-        "declaration you choose to enable (listed next). Parameters marked conditional "
-        "must be omitted when your submitted likelihood does not activate them; the tool "
-        "checks this against the locked family and link. Do NOT author a prior for any name "
-        "in neither list — it is not a free parameter of this construct and is rejected. "
+        "component you choose to add (listed next). If you change a likelihood or mechanism, "
+        "declare the coefficients required by that component and attach each prior to a referenced parameter. "
         "Each prior's support must lie within the stated domain. "
         "Use the exact value shape "
-        '`{"distribution": "Normal", "params": {"mu": 0, "sigma": 1}, '
-        '"reasoning": "..."}`. Do not use `dist` or place distribution parameters '
-        "at the top level.",
+        '`{"distribution": "Normal", "params": {"loc": 0, "scale": 1}}` '
+        "in the canonical parameter's distribution field. Record elicitation reasoning in the transition trace.",
         "",
     ]
     for n in param_names:
         role, constraint = catalog.role_for(n)
-        site_name = catalog.site_for(n)
-        pooled_families = {
-            serialize_distribution(parameter.prior)[0].distribution.value
-            for parameter in state.admission.parameters
-            if site_name is not None
-            and catalog.site_for(parameter.name) == site_name
-            and parameter.prior is not None
-        }
-        family_requirement = (
-            f" — pooled compiler site `{site_name}`: MUST use "
-            f"`{next(iter(pooled_families))}` to match admitted parameters"
-            if len(pooled_families) == 1
-            else ""
-        )
         lines.append(
             f"- `{n}` (ID `{catalog.metadata_for(n)['id']}`) — {role.value.replace('_', ' ')} — support ⊆ "
-            f"{constraint_domain(constraint.value)}{family_requirement}"
-            f"{_parameter_activation_note(dict(catalog.metadata_for(n)))}"
+            f"{constraint_domain(constraint.value)}"
         )
     if "obs_cat_slopes" in param_names:
         lines.append(
@@ -632,37 +598,50 @@ def build_construct_messages(
     for name in sorted(inventory.structural_prior_names):
         metadata = catalog.metadata_for(name)
         structural_lines.append(f"- `{name}`: parameter ID `{metadata['id']}`")
-    partial_plan = restrict_structural_plan(structural_plan, {*state.admission.names, construct})
-    defaults = declare_dynamics_mechanisms(
-        partial_plan, [ParameterSpec.model_validate(value) for value in catalog.metadata.values()]
-    )
-    admitted_edges = {
-        mechanism.edge_id
-        for mechanism in state.admission.mechanisms
-        if isinstance(mechanism, (LinearEdgeMechanism, HillEdgeMechanism))
-    }
-    defaults = [
-        mechanism
-        for mechanism in defaults
-        if (
-            mechanism.edge_id not in admitted_edges
-            if isinstance(mechanism, (LinearEdgeMechanism, HillEdgeMechanism))
-            else structural_plan.semantics.constructs[mechanism.target_id].name == construct
-        )
+    scoped_model = model_for_constructs(model, {*state.admission.names, construct})
+    defaults = default_model(scoped_model)
+    admitted_edges = {edge.id for edge in state.admission.model.edges if edge.mechanisms}
+    default_construct = next(item for item in defaults.constructs if item.name == construct)
+    default_edges = [
+        edge for edge in defaults.edges if edge.mechanisms and edge.id not in admitted_edges
     ]
     lines += [
         *structural_lines,
         "",
-        "## Explicit mechanisms for this submission",
-        "Start from these linear mechanisms. For a quartic well, replace quartic's fixed zero "
-        "with the estimated self-limitation parameter ID. For a Hill edge, keep edge_id and "
-        "set kind to hill with emax, ec50, and n coefficients. A fixed Hill coefficient is "
-        "expressed as {kind: fixed, value: ...} and has no prior. Fixed values are on the "
-        "continuous-time model scale. Include incoming and cycle-closing edges exactly once.",
+        "## Canonical entities for this submission",
+        'Edge cause and effect use references {"kind": "construct", "id": "construct:..."} to the existing graph. The submitted construct supplies its updated definition; other endpoint definitions come from the current model.',
+        "Enrich this construct: keep its identity and measurement recipes, attach each likelihood to its indicator, and put intrinsic terms in dynamics. Edges own additive mechanisms; linear and Hill terms can coexist. Preserve each mechanism's ID through revisions and reordering. Additional terms need distinct mechanism IDs. Their coefficient slots establish parameter meaning and ownership. Preserve each referenced parameter ID. Fixed coefficients use {kind: fixed, value: ...} on the continuous-time model scale and need no prior.",
         "```json",
-        json.dumps([mechanism.model_dump(mode="json") for mechanism in defaults], indent=2),
+        json.dumps(
+            {
+                "construct": default_construct.model_dump(mode="json"),
+                "edges": serialize_edge_references(default_edges),
+            },
+            indent=2,
+        ),
         "```",
-        f"Call submit_construct with construct=`{construct}`, indicators, mechanisms, and priors.",
+        "Include canonical ParameterSpec values for the active quantities you author. Put the native law on parameter.distribution, e.g. {distribution: Normal, params: {loc: 0.0, scale: 0.5}}. Record elicitation evidence in the transition trace. Set reference_interval_days when rescaling an interval effect. Use NumPyro constructor argument names.",
+        "Parameter definitions referenced by the default components (attach priors):",
+        "```json",
+        json.dumps(
+            [
+                ParameterSpec.model_validate(
+                    {
+                        key: value
+                        for key, value in catalog.metadata_for(name).items()
+                        if key in ParameterSpec.model_fields
+                    }
+                ).model_dump(mode="json")
+                for name in sorted(
+                    inventory.prior_names(
+                        {parameter.name for parameter in state.admission.model.parameters}
+                    )
+                )
+            ],
+            indent=2,
+        ),
+        "```",
+        "Call submit_construct with the canonical construct object, edges, and parameters. The complete candidate ModelSpec is validated before the admission check.",
         "",
     ]
 

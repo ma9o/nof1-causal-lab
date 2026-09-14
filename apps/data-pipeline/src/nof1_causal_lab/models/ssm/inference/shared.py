@@ -12,15 +12,15 @@ from nof1_causal_lab.models.ssm.constants import INTERNAL_DIAGNOSTIC_SITES
 if TYPE_CHECKING:
     import jax.numpy as jnp
 
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.models.ssm.inference.types import InferenceMethod
-    from nof1_causal_lab.models.ssm.model import SSMSpec
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
 logger = logging.getLogger(__name__)
 
 
 def select_default_method(
-    spec: SSMSpec,
+    spec: ModelSpec,
     observation_support: ObservationSupportRuntime | None = None,
     n_timepoints: int | None = None,
 ) -> InferenceMethod:

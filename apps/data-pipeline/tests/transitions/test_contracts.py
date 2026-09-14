@@ -10,99 +10,13 @@ from pydantic import ValidationError
 
 from nof1_causal_lab.flows.context_tools import CONTEXT_TOOLS
 from tests.artifact_contract_support import validate_artifact_payload
-
-
-def _saved_query():
-    from nof1_causal_lab.artifacts.scenarios import ScenarioDefinition, ScenarioQuery
-
-    return ScenarioQuery.from_definition(
-        ScenarioDefinition.model_validate(
-            {
-                "start": {"kind": "baseline"},
-                "clamps": [
-                    {
-                        "variable": "Stress",
-                        "target": {"kind": "construct", "id": "construct:stress"},
-                        "mode": "shift",
-                        "amount": -0.5,
-                    }
-                ],
-                "outcome": {"kind": "construct", "id": "construct:outcome"},
-                "readout": {},
-            }
-        )
-    ).model_dump(mode="json")
+from tests.helpers import graph_constructs, make_model
 
 
 @pytest.fixture
 def valid_artifact_payloads() -> dict[str, dict[str, Any]]:
     """Minimal valid payload for each persisted artifact id."""
     return {
-        "raw_data": {
-            "column_descriptions": [
-                {"name": "date", "description": "Date of observation"},
-                {"name": "value", "description": "Numeric value"},
-                {"name": "category", "description": "Category label"},
-            ],
-        },
-        "latent_structure": {
-            "latent_structure": {
-                "default_outcome": {"kind": "construct", "id": "construct:dc6723ce621183cd1182"},
-                "constructs": [
-                    {
-                        "id": "construct:dc6723ce621183cd1182",
-                        "name": "Perf",
-                        "description": "Performance",
-                        "role": "endogenous",
-                        "temporal_status": "time_varying",
-                    },
-                    {
-                        "id": "construct:98df502ac4daf088ca29",
-                        "name": "Stress",
-                        "description": "Stress level",
-                        "role": "endogenous",
-                        "temporal_status": "time_varying",
-                    },
-                ],
-                "edges": [
-                    {
-                        "cause_id": "construct:98df502ac4daf088ca29",
-                        "effect_id": "construct:dc6723ce621183cd1182",
-                        "id": "edge:399745ac3ae059a06462",
-                        "description": "Stress reduces performance",
-                        "lagged": True,
-                    }
-                ],
-            },
-        },
-        "measurement_structure": {
-            "measurement_structure": {
-                "model_clock": "1d",
-                "indicators": [
-                    {
-                        "id": "indicator:3696aef3ff6f446744e5",
-                        "construct_id": "construct:98df502ac4daf088ca29",
-                        "name": "stress_score",
-                        "construct_polarity": "positive",
-                        "how_to_measure": "Self-reported stress",
-                        "measurement_dtype": "continuous",
-                        "aggregation": "mean",
-                    }
-                ],
-            },
-            "known_inputs": [],
-            "scientific_only_constructs": [],
-        },
-        "measurements": {
-            "workers": [
-                {
-                    "worker_id": 0,
-                    "status": "completed",
-                    "n_extractions": 3,
-                    "n_windows": 7,
-                }
-            ],
-        },
         "validation_report": {
             "is_valid": True,
             "indicators": {
@@ -147,69 +61,6 @@ def valid_artifact_payloads() -> dict[str, dict[str, Any]]:
             },
             "dataset_issues": [],
         },
-        "statistical_model_spec": {
-            "statistical_model_spec": {
-                "mechanisms": [
-                    {
-                        "kind": "node_potential",
-                        "target_id": "construct:98df502ac4daf088ca29",
-                        "center": {"kind": "fixed", "value": 0},
-                        "stiffness": {
-                            "kind": "estimated",
-                            "parameter_id": "parameter:067ff49138696d741faffe7e2dc6684225435e905b47cba9dbd3b216d7bbe749",
-                        },
-                        "quartic": {"kind": "fixed", "value": 0},
-                    }
-                ],
-                "likelihoods": [
-                    {
-                        "indicator_id": "indicator:3696aef3ff6f446744e5",
-                        "distribution": "gaussian",
-                        "link": "identity",
-                        "reasoning": "continuous variable",
-                    }
-                ],
-                "parameters": [
-                    {
-                        "prior_transform": "dt_persistence_to_ct_decay",
-                        "id": "parameter:067ff49138696d741faffe7e2dc6684225435e905b47cba9dbd3b216d7bbe749",
-                        "owners": [{"kind": "construct", "id": "construct:98df502ac4daf088ca29"}],
-                        "quantity": "dynamics_decay",
-                        "name": "rho_Stress",
-                        "role": "ar_coefficient",
-                        "constraint": "unit_interval",
-                        "description": "AR coefficient",
-                        "prior": {
-                            "distribution": "Beta",
-                            "params": {"concentration1": 2.0, "concentration0": 3.0},
-                        },
-                        "prior_reasoning": "Weakly informative",
-                    }
-                ],
-            },
-            "prior_predictive_samples": {"indicator:3696aef3ff6f446744e5": [0.1, -0.2, 0.3]},
-        },
-        "posterior": {
-            "draws": {"n_draws": 1000, "parameter_shapes": {"theta": [1]}, "latent_shape": [3, 1]},
-            "provenance": {
-                "causal_design": {"workspace_id": "TEST", "version": 1},
-                "compiled_ssm_version": 1,
-                "panel_version": 1,
-            },
-            "inference_metadata": {
-                "method": "marginal_particle_gibbs",
-                "n_samples": 1000,
-                "duration_seconds": 1.2,
-            },
-            "assessment": {
-                "ppc": {
-                    "per_variable_warnings": [],
-                    "checked": True,
-                    "overlays": [],
-                    "test_stats": [],
-                },
-            },
-        },
         "baseline_report": {
             "intervention_results": [
                 {
@@ -225,14 +76,10 @@ def valid_artifact_payloads() -> dict[str, dict[str, Any]]:
                     },
                 }
             ],
-            "saved_scenarios": [
-                {
-                    "label": "Stress shift",
-                    "query": _saved_query(),
-                }
-            ],
+            "simulation_results": [],
             "final_summary": "Stress reduction remains the dominant actionable lever.",
         },
+        "model": make_model(["Stress", "Perf"], [("Stress", "Perf")]).model_dump(mode="json"),
     }
 
 
@@ -278,20 +125,17 @@ def test_validate_artifact_payload_rejects_missing_required_fields(
     valid_artifact_payloads: dict[str, dict[str, Any]],
 ):
     """Artifact contract validation should fail on contract violations."""
-    bad = deepcopy(valid_artifact_payloads["measurements"])
-    bad.pop("workers")
+    bad = deepcopy(valid_artifact_payloads["validation_report"])
+    bad.pop("indicators")
     with pytest.raises(ValidationError):
-        validate_artifact_payload("measurements", bad)
+        validate_artifact_payload("validation_report", bad)
 
 
-def test_measurement_structure_requires_known_input_decision(
-    valid_artifact_payloads: dict[str, dict[str, Any]],
-):
-    """The authored projection decision cannot disappear through a silent default."""
-    bad = deepcopy(valid_artifact_payloads["measurement_structure"])
-    bad.pop("known_inputs")
+def test_known_input_declaration_requires_an_owned_source_indicator(valid_artifact_payloads):
+    bad = deepcopy(valid_artifact_payloads["model"])
+    graph_constructs(bad)[0]["usage"] = {"kind": "known_input"}
     with pytest.raises(ValidationError):
-        validate_artifact_payload("measurement_structure", bad)
+        validate_artifact_payload("model", bad)
 
 
 def test_baseline_report_rejects_extra_fields(
@@ -304,27 +148,17 @@ def test_baseline_report_rejects_extra_fields(
         validate_artifact_payload("baseline_report", bad)
 
 
-def test_saved_scenarios_reject_extra_fields(
-    valid_artifact_payloads: dict[str, dict[str, Any]],
-):
-    """Saved scenario entries should remain schema-checked."""
-    bad = deepcopy(valid_artifact_payloads["baseline_report"])
-    bad["saved_scenarios"][0]["unknown_field"] = 42
-    with pytest.raises(ValidationError):
-        validate_artifact_payload("baseline_report", bad)
-
-
 def test_outcome_enum_no_longer_exists(
     valid_artifact_payloads: dict[str, dict[str, Any]],
 ):
     """Contracts are pure artifacts: execution failure is a typed exception on
     the transition, never an outcome flag on the payload (extra=forbid)."""
-    bad = deepcopy(valid_artifact_payloads["measurement_structure"])
+    bad = deepcopy(valid_artifact_payloads["model"])
     bad["outcome"] = "fail"
     with pytest.raises(ValidationError):
-        validate_artifact_payload("measurement_structure", bad)
+        validate_artifact_payload("model", bad)
 
-    stray = deepcopy(valid_artifact_payloads["raw_data"])
+    stray = deepcopy(valid_artifact_payloads["validation_report"])
     stray["fail_reason"] = "nope"
     with pytest.raises(ValidationError):
-        validate_artifact_payload("raw_data", stray)
+        validate_artifact_payload("validation_report", stray)

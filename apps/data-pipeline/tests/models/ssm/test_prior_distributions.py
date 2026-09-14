@@ -7,19 +7,19 @@ import jax.numpy as jnp
 import numpy as np
 import numpyro.distributions as dist
 import pytest
-from numpyro.distributions import constraints
+from numpyro.distributions import constraints, transforms
+from pydantic import TypeAdapter
 
-from nof1_causal_lab.artifacts.distribution import CompiledDistribution
+from nof1_causal_lab.numpyro_json import NumPyroDistribution
 from nof1_causal_lab.prior_distributions import (
     batch_prior_distributions,
-    deserialize_distribution,
     distribution_from_params,
     interval_effect_to_rate,
     persistence_to_decay,
     prior_reference_value,
-    serialize_distribution,
 )
-from tests.helpers import model_with_prior_payloads, named_prior_payloads
+
+_ADAPTER = TypeAdapter(NumPyroDistribution)
 
 
 def test_beta_persistence_has_exact_density_and_jacobian():
@@ -60,13 +60,7 @@ def test_interval_effect_preserves_uniform_family_and_bounds():
 def test_transformed_vector_prior_roundtrip_preserves_density_and_positive_support():
     coordinates = [persistence_to_decay(dist.Beta(2.0, 3.0), interval) for interval in [1.0, 7.0]]
     prior = batch_prior_distributions(coordinates, (2,), support=constraints.positive)
-    recipes = [
-        CompiledDistribution.model_validate_json(recipe.model_dump_json())
-        for recipe in serialize_distribution(prior)
-    ]
-    restored = batch_prior_distributions(
-        [deserialize_distribution(recipe) for recipe in recipes], (2,), support=constraints.positive
-    )
+    restored = _ADAPTER.validate_json(_ADAPTER.dump_json(prior))
     values = jnp.array([0.4, 0.1])
     np.testing.assert_allclose(prior.log_prob(values), restored.log_prob(values))
     assert np.all(np.asarray(restored.support(values)))
@@ -82,8 +76,8 @@ def test_different_coordinate_families_have_no_mixture_uncertainty():
     expected = jnp.array([coordinates[0].log_prob(values[0]), coordinates[1].log_prob(values[1])])
     np.testing.assert_allclose(prior.log_prob(values), expected)
     assert jnp.isneginf(prior.log_prob(jnp.array([0.2, 3.0]))[1])
-    recipes = serialize_distribution(prior)
-    assert [recipe.distribution.value for recipe in recipes] == ["Normal", "Uniform"]
+    restored = _ADAPTER.validate_json(_ADAPTER.dump_json(prior))
+    np.testing.assert_allclose(restored.log_prob(values), expected)
 
 
 def test_distribution_arguments_are_complete_and_native_validated():
@@ -117,11 +111,13 @@ def test_mixed_coordinate_gradients_and_roundtrip_ignore_inactive_laws(
     np.testing.assert_allclose(
         jax.grad(lambda x: prior.log_prob(x).sum())(values), expected, atol=2e-6
     )
-    recipes = serialize_distribution(prior)
-    restored = batch_prior_distributions(
-        [deserialize_distribution(recipe) for recipe in recipes], (2,), support=support
-    )
+    restored = _ADAPTER.validate_json(_ADAPTER.dump_json(prior))
     np.testing.assert_allclose(restored.log_prob(values), prior.log_prob(values), atol=2e-6)
+    np.testing.assert_allclose(
+        jax.grad(lambda x: restored.log_prob(x).sum())(values), expected, atol=2e-6
+    )
+    key = jax.random.PRNGKey(4)
+    np.testing.assert_array_equal(restored.sample(key, (3,)), prior.sample(key, (3,)))
     np.testing.assert_allclose(
         prior_reference_value(prior), [prior_reference_value(law) for law in coordinates]
     )
@@ -132,120 +128,120 @@ def test_expanded_transformed_reference_is_an_anchor_not_a_claimed_mean():
     np.testing.assert_allclose(prior_reference_value(law), jnp.full(3, math.log(2.0)))
 
 
-def test_compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law():
-    from dataclasses import replace
+@pytest.mark.parametrize(
+    "law_for",
+    [
+        lambda index: dist.StudentT(4.0 + index, index / 4, 0.7),
+        lambda index: dist.TruncatedNormal(index / 4, 0.7, low=-2.0, high=2.0),
+        lambda index: dist.TransformedDistribution(
+            dist.Normal(index / 4, 0.7), transforms.SigmoidTransform()
+        ),
+        lambda index: dist.MixtureGeneral(
+            dist.Categorical(probs=jnp.array([0.3, 0.7])),
+            [dist.Normal(index / 4, 0.7), dist.StudentT(4.0, 0.5, 0.8)],
+        ),
+    ],
+    ids=["student-t", "truncated", "native-transform", "native-mixture"],
+)
+def test_native_parameter_trees_batch_without_a_family_or_transform_registry(law_for):
+    coordinates = [law_for(index) for index in range(4)]
+    prior = batch_prior_distributions(coordinates, (2, 2), support=coordinates[0].support)
+    restored = _ADAPTER.validate_json(_ADAPTER.dump_json(prior))
+    assert type(restored) is type(coordinates[0])
+    assert restored.batch_shape == (2, 2)
+    values = jnp.array([[0.2, 0.3], [0.4, 0.5]])
+    expected = jnp.array(
+        [law.log_prob(value) for law, value in zip(coordinates, values.reshape(-1), strict=True)]
+    ).reshape((2, 2))
+    np.testing.assert_allclose(restored.log_prob(values), expected, atol=2e-6)
+    key = jax.random.PRNGKey(7)
+    assert restored.sample(key, (3,)).shape == (3, 2, 2)
+    np.testing.assert_array_equal(restored.sample(key, (3,)), prior.sample(key, (3,)))
 
+
+def test_native_batching_preserves_gradients_with_respect_to_constructor_parameters():
+    def log_prob(loc):
+        law = batch_prior_distributions(
+            [dist.Normal(loc, 1.0), dist.Normal(-loc, 2.0)], (2,), support=constraints.real
+        )
+        return law.log_prob(jnp.array([0.2, 0.3])).sum()
+
+    assert float(jax.grad(log_prob)(0.1)) == pytest.approx(0.0, abs=1e-6)
+
+
+def test_mixture_reference_uses_its_weights_instead_of_treating_components_as_coordinates():
+    law = dist.MixtureGeneral(
+        dist.Categorical(probs=jnp.array([0.25, 0.75])),
+        [dist.Normal(-1.0, 0.5), dist.StudentT(4.0, 3.0, 0.8)],
+    )
+    assert float(prior_reference_value(law)) == pytest.approx(2.0)
+
+
+def test_scientific_roundtrip_preserves_distinct_native_coordinate_laws():
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.parameter import SiteKind
+    from nof1_causal_lab.models.ssm.compile.prior_compilation import compile_priors
+    from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
+    from tests.model_fixtures import model_fixture
+
+    model = model_fixture(n_latent=2, dynamics_spec=DynamicsSpec(2, ()))
+    means = [
+        p for p in model.parameters if model.parameter_context(p.id).quantity == SiteKind.T0_MEANS
+    ]
+    laws = {means[0].id: dist.Normal(-1.0, 0.5), means[1].id: dist.StudentT(4.0, 0.3, 0.7)}
+    model = model.revised(
+        parameters=tuple(
+            p.model_copy(update={"distribution": laws[p.id]}) if p.id in laws else p
+            for p in model.parameters
+        )
+    )
+    restored = ModelSpec.model_validate_json(model.model_dump_json())
+    assert restored == model
+    before = compile_priors(model)[0]["t0_means_free"]
+    after = compile_priors(restored)[0]["t0_means_free"]
+    value = jnp.array([-1.2, 0.5])
+    np.testing.assert_allclose(after.log_prob(value), before.log_prob(value), atol=2e-6)
+    key = jax.random.PRNGKey(7)
+    np.testing.assert_array_equal(after.sample(key, (3,)), before.sample(key, (3,)))
+
+
+def test_compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law():
     from numpyro import handlers
 
-    from nof1_causal_lab.artifacts.compiled_ssm import CompiledSSMArtifact, CompiledStructure
-    from nof1_causal_lab.artifacts.identity import ConstructRef
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.parameter import SiteKind
-    from nof1_causal_lab.artifacts.statistical_model_spec import StatisticalModelSpec
-    from nof1_causal_lab.models.ssm.compile.artifact import (
-        serialize_ssm_spec,
-    )
-    from nof1_causal_lab.models.ssm.compile.parameter_identity import parameter_identity
-    from nof1_causal_lab.models.ssm.compile.prior_compilation import bind_parameters, compile_priors
-    from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec, NodePotentialSpec
+    from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
     from nof1_causal_lab.models.ssm.model import SSMModel
-    from nof1_causal_lab.models.ssm.parameterization import (
-        compile_prior_semantics,
-        load_prior_runtime_bundle,
-    )
-    from nof1_causal_lab.models.ssm.structure.parameters import Fixed
-    from tests.ssm_spec_fixtures import block_ssm_spec
+    from tests.helpers import complete_test_model, make_model
 
-    spec = block_ssm_spec(
-        n_latent=1,
-        latent_names=["mood"],
-        dynamics_spec=DynamicsSpec(
-            1, (NodePotentialSpec(target=0, center=Fixed(0.0), quartic=Fixed(0.2)),)
-        ),
+    definition = complete_test_model(make_model(["mood"]))
+    decay = next(
+        p
+        for p in definition.parameters
+        if definition.parameter_context(p.id).quantity == SiteKind.DYNAMICS_DECAY
     )
-    spec = replace(
-        spec,
-        diffusion_block=replace(
-            spec.diffusion_block, diffusion_chol_support=np.zeros((1, 1), dtype=bool)
-        ),
-        manifest_chol_block=replace(
-            spec.manifest_chol_block, diag_support=np.zeros(1, dtype=bool), template=jnp.eye(1)
-        ),
-        t0_means_block=replace(spec.t0_means_block, free_support=np.zeros(1, dtype=bool)),
-        t0_chol_block=replace(spec.t0_chol_block, diag_support=np.zeros(1, dtype=bool)),
+    definition = definition.revised(
+        parameters=tuple(
+            p.model_copy(
+                update={"distribution": dist.Beta(2.0, 3.0), "reference_interval_days": 7.0}
+            )
+            if p.id == decay.id
+            else p
+            for p in definition.parameters
+        )
     )
-    authored = StatisticalModelSpec.model_validate(
-        {
-            "mechanisms": [],
-            "likelihoods": [],
-            "parameters": [
-                {
-                    "prior_transform": "dt_persistence_to_ct_decay",
-                    "id": parameter_identity(
-                        SiteKind.DYNAMICS_DECAY, [ConstructRef(id="construct:bbc87212909e45b9e6c3")]
-                    ),
-                    "owners": [{"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"}],
-                    "quantity": "dynamics_decay",
-                    "name": "rho_mood",
-                    "role": "ar_coefficient",
-                    "constraint": "unit_interval",
-                    "description": "Persistence over seven days",
-                }
-            ],
-        }
-    )
-    authored = model_with_prior_payloads(
-        authored,
-        named_prior_payloads(
-            authored,
-            {
-                "rho_mood": {
-                    "distribution": "Beta",
-                    "params": {"alpha": 2.0, "beta": 3.0},
-                    "reference_interval_days": 7.0,
-                }
-            },
-        ),
-    )
-    priors, semantic_bindings, _ = compile_priors(authored, spec)
-    semantics = compile_prior_semantics(spec, priors)
-    semantics = type(semantics).model_validate_json(semantics.model_dump_json())
-    definitions, bindings, auxiliary = bind_parameters(
-        semantic_bindings, spec, None, authored.parameters
-    )
-    assert spec.manifest_ids is not None
-    assert spec.manifest_names is not None
-    artifact = CompiledSSMArtifact(
-        schema_version=2,
-        structure=CompiledStructure(
-            spec=serialize_ssm_spec(spec), edge_lag_days=[], bindings=[], anchor_certificates=[]
-        ),
-        compiled_prior_semantics=semantics,
-        observation_bindings=dict(zip(spec.manifest_ids, spec.manifest_names, strict=True)),
-        parameters=definitions,
-        parameter_bindings=bindings,
-        auxiliary_coordinates=auxiliary,
-        compile_diagnostics=[],
-    )
-    artifact = CompiledSSMArtifact.model_validate_json(artifact.model_dump_json())
-    recovered = next(
-        parameter for parameter in artifact.parameters if parameter.id == authored.parameters[0].id
-    )
-    assert isinstance(recovered.prior, dist.Beta)
-    np.testing.assert_allclose(recovered.prior.concentration1, 2.0)
-    np.testing.assert_allclose(recovered.prior.concentration0, 3.0)
-    assert recovered.reference_interval_days == 7.0
-    restored = load_prior_runtime_bundle(semantics)
-    model = SSMModel(spec, priors=restored.priors)
+    restored = ModelSpec.model_validate_json(definition.model_dump_json())
+    model = SSMModel(restored)
+    binding = next(b for b in parameter_bindings(restored)[0] if b.parameter_id == decay.id)
     value = jnp.array(0.2)
-    with handlers.substitute(data={"vf_0_decay": value}):
+    with handlers.substitute(data={binding.site_name: value}):
         trace = handlers.trace(model._sample_runtime_dynamics).get_trace(
             jnp.eye(1), jnp.zeros((1, 0))
         )
-    law = trace["vf_0_decay"]["fn"]
+    law = trace[binding.site_name]["fn"]
     expected = dist.Beta(2.0, 3.0).log_prob(jnp.exp(-7.0 * value)) + jnp.log(7.0) - 7.0 * value
     np.testing.assert_allclose(law.log_prob(value), expected, atol=2e-6)
     assert np.isfinite(jax.grad(law.log_prob)(value))
-    assert semantics.priors["vf_0_decay"][0].transforms[0].kind == "persistence_to_decay"
 
 
 @pytest.mark.parametrize(
@@ -264,8 +260,5 @@ def test_compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law():
 )
 def test_approved_family_json_roundtrip_keeps_its_native_density(family, params, value):
     law = distribution_from_params(family, params)
-    recipe = serialize_distribution(law)[0]
-    restored = deserialize_distribution(
-        CompiledDistribution.model_validate_json(recipe.model_dump_json())
-    )
+    restored = _ADAPTER.validate_json(_ADAPTER.dump_json(law))
     np.testing.assert_allclose(law.log_prob(value), restored.log_prob(value), atol=1e-6)

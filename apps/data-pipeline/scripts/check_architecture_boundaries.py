@@ -2,10 +2,10 @@
 
 The rules in this module protect the four promoted seams:
 
-1. The SSM compiler consumes ``StructuralPlan`` instead of reaching into
-   structural planning or identification.
+1. The SSM compiler consumes ``ModelSpec`` and its structural accessors instead
+   of calling identification algorithms directly.
 2. The numerical SSM layer consumes parameters with native distributions and never worker schemas.
-3. Compilation and runtime hydration do not call each other.
+3. Runtime construction uses the pure compiler entry points; compilation never calls runtime.
 4. The executable model surface is independent of inference algorithms, while
    inference consumes that surface and cannot reach back through runtime.
 
@@ -145,7 +145,6 @@ def find_violations(source_root: Path) -> tuple[Violation, ...]:
     """Return every forbidden runtime dependency below ``source_root``."""
     violations: list[Violation] = []
     structural_owners = (
-        f"{_PACKAGE}.models.structural",
         f"{_PACKAGE}.utils.causal_design",
         f"{_PACKAGE}.utils.identifiability",
     )
@@ -158,7 +157,7 @@ def find_violations(source_root: Path) -> tuple[Violation, ...]:
                 Violation(
                     ref,
                     "ARCH001",
-                    "the SSM compiler must consume StructuralPlan, not structural planners",
+                    "the SSM compiler must use ModelSpec accessors, not identification internals",
                 )
             )
 
@@ -176,16 +175,20 @@ def find_violations(source_root: Path) -> tuple[Violation, ...]:
                 Violation(
                     ref,
                     "ARCH003",
-                    "the compiler must serialize output without calling runtime hydration",
+                    "the compiler must derive outputs without constructing a runtime",
                 )
             )
 
-        if ref.importer == _RUNTIME and _is_module(ref.imported, _COMPILER):
+        if (
+            ref.importer == _RUNTIME
+            and _is_module(ref.imported, _COMPILER)
+            and ref.imported != f"{_COMPILER}.inputs"
+        ):
             violations.append(
                 Violation(
                     ref,
                     "ARCH004",
-                    "runtime hydration must not call compiler implementation modules",
+                    "runtime construction must use pure compiler entry points",
                 )
             )
 

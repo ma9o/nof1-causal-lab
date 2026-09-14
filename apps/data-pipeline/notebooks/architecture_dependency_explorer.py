@@ -265,7 +265,7 @@ def cluster_model():
             "nof1_causal_lab.json_types",
             "nof1_causal_lab.measurement_types",
             "nof1_causal_lab.utils.observation_semantics",
-            "nof1_causal_lab.utils.structural_plan",
+            "nof1_causal_lab.utils.model_structure",
         )
         identification_prefixes = (
             "nof1_causal_lab.utils.causal_design",
@@ -944,7 +944,7 @@ def boundary_policy_md(mo):
 
     - `domain` imports only itself.
     - `identification` imports `domain`.
-    - `structural-front` imports `identification` and `domain`, then emits `StructuralPlan`.
+    - `structural-front` imports `identification` and `domain`, then emits `ModelSpec`.
     - `ssm-model` imports `domain`, but not identification or inference implementations.
     - `ssm-inference` imports `ssm-model` and `domain`.
     - `analysis` may join identification, model, inference, and domain evidence.

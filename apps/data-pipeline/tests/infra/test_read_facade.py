@@ -21,7 +21,7 @@ def test_read_facade_serves_reads_and_rejects_moves(monkeypatch, tmp_path):
 
     move = client.post(
         "/api/episodes/WS-READONLY/moves",
-        json={"move": {"kind": "run", "artifact_id": "raw_data"}},
+        json={"move": {"kind": "run", "operation_id": "raw_data"}},
     )
     assert move.status_code == 403
     start = client.post("/api/episodes", json={"workspace_id": "WS-READONLY"})
@@ -81,7 +81,7 @@ def test_artifact_endpoint_serves_pinned_versions(monkeypatch, tmp_path):
 
 
 def test_trace_endpoints_join_artifact_version_to_promoted_trace(monkeypatch, tmp_path):
-    from nof1_causal_lab.machine.moves import RunArtifact
+    from nof1_causal_lab.machine.moves import RunOperation
     from nof1_causal_lab.machine.store import (
         ArtifactStore,
         EpisodeJournal,
@@ -98,7 +98,6 @@ def test_trace_endpoints_join_artifact_version_to_promoted_trace(monkeypatch, tm
         provenance="llm",
         derived_from={},
         produced_by="run:raw_data",
-        json_files={"profile.json": {"column_descriptions": []}},
     )
     source = str(tmp_path / "data/WS-TRACE/scratch/runs/seq-000001/llm/raw-data/trace.json")
     storage.write_text(
@@ -113,7 +112,7 @@ def test_trace_endpoints_join_artifact_version_to_promoted_trace(monkeypatch, tm
         TransitionRecord(
             seq=1,
             ts="2026-07-09T00:00:00+00:00",
-            move=RunArtifact(artifact_id="raw_data"),
+            move=RunOperation(operation_id="raw_data"),
             status="applied",
             produced=[raw_data],
             trace_ids=trace_ids,
@@ -131,7 +130,7 @@ def test_trace_endpoints_join_artifact_version_to_promoted_trace(monkeypatch, tm
 
 
 def test_timeline_exposes_typed_resume_reference(monkeypatch, tmp_path):
-    from nof1_causal_lab.machine.moves import RunArtifact
+    from nof1_causal_lab.machine.moves import RunOperation
     from nof1_causal_lab.machine.store import EpisodeJournal, ResumeRef, TransitionRecord
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
@@ -140,7 +139,7 @@ def test_timeline_exposes_typed_resume_reference(monkeypatch, tmp_path):
         TransitionRecord(
             seq=1,
             ts="2026-07-09T00:00:00+00:00",
-            move=RunArtifact(artifact_id="statistical_model_spec"),
+            move=RunOperation(operation_id="statistical_model_spec"),
             status="raised",
             trace_ids=[],
             resume=ResumeRef(

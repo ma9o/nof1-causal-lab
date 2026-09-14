@@ -31,10 +31,11 @@ from dynestyx import StochasticContinuousTimeStateEvolution
 from dynestyx.inference.particle_runtime import Parameterization
 from numpyro.distributions import MultivariateNormal
 
+from nof1_causal_lab.artifacts.likelihood import LinkFunction
 from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
-from nof1_causal_lab.artifacts.statistical_model_spec import LinkFunction
 from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.ssm import SSMModel
+from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
 from nof1_causal_lab.models.ssm.dynamics.vector_field import VectorField
 from nof1_causal_lab.models.ssm.execution.contracts import LikelihoodExtraParams, MeasurementParams
@@ -96,11 +97,11 @@ from nof1_causal_lab.models.ssm.structure import (
     SparseVectorBlockSpec,
     T0CholBlockSpec,
 )
-from tests.ssm_spec_fixtures import (
-    block_ssm_spec,
+from tests.model_fixtures import (
     dense_matrix_dynamics_spec,
     diagonal_diffusion_block,
     make_observation_support_runtime,
+    model_fixture,
 )
 
 if TYPE_CHECKING:
@@ -167,7 +168,7 @@ def _runtime_dynamics(
 
 
 def _one_dim_block_spec():
-    return block_ssm_spec(
+    return model_fixture(
         n_latent=1,
         n_manifest=1,
         dynamics_spec=_dense_matrix_dynamics_spec(1),
@@ -1482,7 +1483,7 @@ class TestDefaultMethodRouting:
 
 
 def test_map_optimizer_smoke_on_small_kalman_model():
-    spec = block_ssm_spec(
+    spec = model_fixture(
         n_latent=1,
         n_manifest=1,
         dynamics_spec=_dense_matrix_dynamics_spec(
@@ -1574,7 +1575,7 @@ def _make_aux_kalman_mcmc_smoke_spec(
     *,
     lambda_block: SparseMatrixBlockSpec | None = None,
 ):
-    return block_ssm_spec(
+    return model_fixture(
         n_latent=1,
         n_manifest=1,
         dynamics_spec=_dense_matrix_dynamics_spec(
@@ -1831,7 +1832,9 @@ def test_marginal_particle_gibbs_paid_mix_reuses_initial_latent_trajectories(
         init_method="random",
         auto_preconditioner_method="none",
         init_scale=0.0,
-        initial_latent_trajectories=jnp.zeros((1, int(observations.shape[0]), int(spec.n_latent))),
+        initial_latent_trajectories=jnp.zeros(
+            (1, int(observations.shape[0]), int(numeric.n_states(spec)))
+        ),
         retain_latent_paths=True,
         reparam=None,
     )
@@ -2011,7 +2014,7 @@ def test_marginal_particle_gibbs_consumes_initial_latent_trajectories():
     model = SSMModel(spec)
     observations, times = _small_kalman_observations_and_times()
     n_steps = int(observations.shape[0])
-    n_latent = int(spec.n_latent)
+    n_latent = int(numeric.n_states(spec))
     options: MarginalParticleGibbsOptions = {
         "num_warmup": 1,
         "num_samples": 1,

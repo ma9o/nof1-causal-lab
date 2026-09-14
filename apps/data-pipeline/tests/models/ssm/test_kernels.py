@@ -8,30 +8,25 @@ from typing import cast
 import jax
 import jax.numpy as jnp
 import pytest
-from pydantic import ValidationError
 
-from nof1_causal_lab.artifacts.statistical_model_spec import LikelihoodSpec, LinkFunction
+from nof1_causal_lab.artifacts.likelihood import LinkFunction
 from nof1_causal_lab.distributions import DistributionFamily
+from nof1_causal_lab.models.likelihoods import observation_law
 from nof1_causal_lab.models.ssm.execution.observation_model import (
     build_observation_kernel,
     compile_observation_model,
 )
-from tests.ssm_spec_fixtures import block_ssm_spec, full_dense_matrix_dynamics_spec
+from tests.model_fixtures import full_dense_matrix_dynamics_spec, model_fixture
 
 
 class TestBuildObservationKernel:
-    def test_likelihood_spec_rejects_invalid_family_link_pair(self):
-        with pytest.raises(ValidationError, match="invalid for gaussian"):
-            LikelihoodSpec(
-                indicator_id="indicator:3316cd345d83d02fe3fc",
-                distribution=DistributionFamily.GAUSSIAN,
-                link=LinkFunction.LOG,
-                reasoning="test",
-            )
+    def test_likelihood_constructor_rejects_invalid_family_link_pair(self):
+        with pytest.raises(ValueError, match="invalid for gaussian"):
+            observation_law("construct:x", DistributionFamily.GAUSSIAN, LinkFunction.LOG)
 
     def test_direct_ssm_spec_rejects_invalid_family_link_pair(self):
         with pytest.raises(ValueError, match="invalid for observation family 'gaussian'"):
-            block_ssm_spec(
+            model_fixture(
                 n_latent=1,
                 dynamics_spec=full_dense_matrix_dynamics_spec(1),
                 manifest_dists=[DistributionFamily.GAUSSIAN],

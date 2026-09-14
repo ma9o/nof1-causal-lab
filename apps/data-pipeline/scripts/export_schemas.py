@@ -24,11 +24,9 @@ from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.artifacts.scenarios import (
     BaselineReportVisualization,
     EffectTrajectoryPoint,
-    ScenarioStartResult,
-    SimulateScenarioInput,
-    SimulateScenarioResult,
+    ScenarioRequest,
+    SimulationResult,
 )
-from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
 from nof1_causal_lab.distributions import OBSERVATION_FAMILY_SPECS
 from nof1_causal_lab.episode_api import (
     ArtifactEnvelope,
@@ -78,7 +76,6 @@ EXPORTED_API_MODELS: tuple[type[BaseModel], ...] = (
     StartEpisodeResponse,
     AutoRunResponse,
     LLMTrace,
-    StructuralPlan,
     ModelSnapshot,
     ArtifactViews,
     ArtifactViewResponse,
@@ -91,9 +88,8 @@ EXPORTED_TOOL_MODELS: tuple[type[BaseModel], ...] = (
     EffectSummary,
     EffectTrajectoryPoint,
     BaselineReportVisualization,
-    ScenarioStartResult,
-    SimulateScenarioResult,
-    SimulateScenarioInput,
+    SimulationResult,
+    ScenarioRequest,
     SimulateScenarioToolResult,
 )
 

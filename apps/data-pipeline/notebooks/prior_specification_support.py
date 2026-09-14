@@ -14,15 +14,14 @@ import json
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from pydantic import TypeAdapter
-
-from nof1_causal_lab.artifacts.mechanism import DynamicsMechanism
+from nof1_causal_lab.artifacts.construct import serialize_edge_references
 from nof1_causal_lab.flows.transitions.model_spec.agentic.construct_flow import (
     ConstructBuildState,
     _acceptance_map,
     _check_result_payload,
     _closed_loop_target,
     _design_for_state,
+    contribution_from_payload,
 )
 from nof1_causal_lab.flows.transitions.model_spec.agentic.construct_prompt import (
     build_construct_messages,
@@ -38,8 +37,8 @@ from nof1_causal_lab.machine.temporal.model_spec_checkpoints import (
     write_model_spec_admission_evaluation,
 )
 from nof1_causal_lab.models.ssm.construct_admission import (
-    AdmissionReport,
     AdmissionTiming,
+    ConstructAdmissionReport,
     FullAdmissionValidation,
     build_construct_order,
     validate_full_admission_state,
@@ -52,7 +51,9 @@ if TYPE_CHECKING:
 
     import polars as pl
 
-    from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
+    from nof1_causal_lab.json_types import JsonObject
 
 
 _SUBMISSION_ERRORS = (
@@ -78,7 +79,7 @@ class AuthoredAttempt:
     attempt: int
     payload: ConstructPayload
     feedback: str
-    report: AdmissionReport | None
+    report: ConstructAdmissionReport | None
     coupled_results: tuple[CheckResult, ...]
     admitted: bool
     error_type: str | None = None
@@ -101,7 +102,7 @@ class WorkbenchRun:
 def run_authored_proposals(
     *,
     cache_workspace_id: str,
-    structural_plan: StructuralPlan,
+    model: ModelSpec,
     data_for_model: pl.DataFrame,
     proposals: Sequence[ConstructPayload],
     n_draws: int,
@@ -115,8 +116,8 @@ def run_authored_proposals(
     contributions are restored through ``restore_construct_state`` before the
     next submission, so notebook reactivity never mutates a prior run's state.
     """
-    structural_plan_payload = json.dumps(
-        structural_plan.model_dump(mode="json"),
+    model_payload = json.dumps(
+        model.model_dump(mode="json"),
         allow_nan=False,
         sort_keys=True,
         separators=(",", ":"),
@@ -125,8 +126,8 @@ def run_authored_proposals(
     if not isinstance(panel_payload, bytes):
         raise TypeError("Binary Polars serialization must return bytes")
     input_identity = {
-        "kind": "prior-specification-workbench-v1",
-        "structural_plan_sha256": hashlib.sha256(structural_plan_payload).hexdigest(),
+        "kind": "prior-specification-workbench-v2",
+        "model_sha256": hashlib.sha256(model_payload).hexdigest(),
         "panel_sha256": hashlib.sha256(panel_payload).hexdigest(),
     }
     checkpoint = ModelSpecCheckpoint(
@@ -137,11 +138,11 @@ def run_authored_proposals(
         input_pins={},
         created_at="1970-01-01T00:00:00+00:00",
     )
-    order = build_construct_order(structural_plan)
+    order = build_construct_order(model)
     first_construct = order[0] if order else None
     state = restore_construct_state(
         checkpoint,
-        structural_plan=structural_plan,
+        model=model,
         data_for_model=data_for_model,
         workspace_id=None,
         target_construct=first_construct,
@@ -152,14 +153,16 @@ def run_authored_proposals(
     attempts_by_construct: dict[str, int] = {}
 
     for payload in proposals:
-        construct = str(payload["construct"])
+        contribution = contribution_from_payload(model, payload)
+        entity = contribution.construct
+        construct = entity.name
         attempts_by_construct[construct] = attempts_by_construct.get(construct, 0) + 1
         attempt = attempts_by_construct[construct]
         accepted_names = {item.construct_name for item in checkpoint.accepted_constructs}
         expected = next((name for name in order if name not in accepted_names), None)
         state = restore_construct_state(
             checkpoint,
-            structural_plan=structural_plan,
+            model=model,
             data_for_model=data_for_model,
             workspace_id=None,
             target_construct=expected,
@@ -168,11 +171,10 @@ def run_authored_proposals(
         state.seed = seed
         state.attempt = attempt
         state.submission_made = False
-        indicators = list(payload["indicators"])
-        priors = dict(payload["priors"])
-        mechanisms = TypeAdapter(list[DynamicsMechanism]).validate_python(payload["mechanisms"])
+        edges = contribution.edges
+        parameters = contribution.parameters
         accept = list(payload.get("accept") or [])
-        report: AdmissionReport | None = None
+        report: ConstructAdmissionReport | None = None
         coupled: tuple[CheckResult, ...] = ()
         admitted = False
         error_type: str | None = None
@@ -180,10 +182,9 @@ def run_authored_proposals(
 
         if construct != expected:
             feedback = state.submit_construct(
-                construct=construct,
-                mechanisms=[mechanism.model_dump(mode="json") for mechanism in mechanisms],
-                indicators=indicators,
-                priors=priors,
+                construct=entity.model_dump(mode="json"),
+                edges=serialize_edge_references(edges),
+                parameters=[parameter.model_dump(mode="json") for parameter in parameters],
                 accept=accept,
             )
         else:
@@ -192,9 +193,9 @@ def run_authored_proposals(
                 accepted_constructs=checkpoint.accepted_constructs,
                 ancestor_constructs=set(state.admitted_contributions),
                 construct_name=construct,
-                mechanisms=mechanisms,
-                indicators=indicators,
-                priors=priors,
+                construct=entity,
+                edges=edges,
+                parameters=parameters,
                 accept=accept,
                 n_draws=n_draws,
                 seed=seed,
@@ -214,10 +215,9 @@ def run_authored_proposals(
             else:
                 try:
                     feedback = state.submit_construct(
-                        construct=construct,
-                        mechanisms=[mechanism.model_dump(mode="json") for mechanism in mechanisms],
-                        indicators=indicators,
-                        priors=priors,
+                        construct=entity.model_dump(mode="json"),
+                        edges=serialize_edge_references(edges),
+                        parameters=[parameter.model_dump(mode="json") for parameter in parameters],
                         accept=accept,
                     )
                 except _SUBMISSION_ERRORS as exc:
@@ -264,10 +264,9 @@ def run_authored_proposals(
             if admitted:
                 accepted = AcceptedConstructCheckpoint(
                     submission_id=f"workbench:{evaluation_key}",
-                    construct_name=construct,
-                    mechanisms=mechanisms,
-                    indicators=indicators,
-                    priors=priors,
+                    entity=entity,
+                    edges=edges,
+                    parameters=parameters,
                     accept=accept,
                     annotations=evaluation.annotations,
                     results=evaluation.results,
@@ -301,7 +300,7 @@ def run_authored_proposals(
     expected = next((name for name in order if name not in accepted_names), None)
     run.state = restore_construct_state(
         checkpoint,
-        structural_plan=structural_plan,
+        model=model,
         data_for_model=data_for_model,
         workspace_id=None,
         target_construct=expected,
@@ -313,7 +312,7 @@ def run_authored_proposals(
 
 def _report_from_cached_evaluation(
     evaluation: ModelSpecAdmissionEvaluation,
-) -> AdmissionReport:
+) -> ConstructAdmissionReport:
     """Hydrate the compact semantic report stored by the production cache."""
     results = tuple(
         CheckResult(
@@ -327,7 +326,7 @@ def _report_from_cached_evaluation(
         )
         for payload in evaluation.results
     )
-    return AdmissionReport(
+    return ConstructAdmissionReport(
         name=evaluation.construct_name,
         results=results,
         timings=(
@@ -347,7 +346,7 @@ def next_construct_prompt(
     *,
     run: WorkbenchRun,
     question: str,
-    structural_plan: StructuralPlan,
+    model: ModelSpec,
     validation_report: ValidationReportPayload,
 ) -> tuple[str, str] | None:
     """Render the production prompt for the next proposal Codex should author."""
@@ -358,7 +357,7 @@ def next_construct_prompt(
         state=run.state,
         construct=construct,
         question=question,
-        structural_plan=structural_plan,
+        model=model,
         validation_report=validation_report,
     )
 
@@ -366,7 +365,7 @@ def next_construct_prompt(
 def validate_full_model(
     *,
     run: WorkbenchRun,
-    structural_plan: StructuralPlan,
+    model: ModelSpec,
     data_for_model: pl.DataFrame,
 ) -> FullAdmissionValidation:
     """Run the production full-model barrier on a complete authored state."""
@@ -375,18 +374,13 @@ def validate_full_model(
             "Full-model validation requires every construct; next active construct is "
             f"{run.state.current_construct!r}."
         )
-    order = build_construct_order(structural_plan)
+    order = build_construct_order(model)
     targets = tuple(
-        _closed_loop_target(
-            run.state.admitted_contributions[name],
-            structural_plan,
-            run.state.admission.mechanisms,
-        )
+        _closed_loop_target(run.state.admitted_contributions[name], run.state.admission.model.edges)
         for name in order
     )
     design = _design_for_state(
         run.state.admission,
-        structural_plan,
         data_for_model,
         n_draws=run.state.n_draws,
         seed=run.state.seed,
@@ -398,7 +392,6 @@ def validate_full_model(
     return validate_full_admission_state(
         run.state.admission,
         targets,
-        structural_plan,
         design,
         accepted=accepted,
     )
@@ -411,3 +404,27 @@ __all__ = [
     "run_authored_proposals",
     "validate_full_model",
 ]
+
+
+def parameter_with_prior(parameter: ParameterSpec, payload: JsonObject) -> ParameterSpec:
+    """Attach a tool submission's distribution and scientific evidence to its parameter."""
+
+    from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
+    from nof1_causal_lab.distributions import PriorDistributionFamily
+    from nof1_causal_lab.prior_distributions import distribution_from_params
+
+    supplied_id = payload.get("parameter_id")
+    if supplied_id is not None and supplied_id != parameter.id:
+        raise ValueError(f"Prior for {parameter.name!r} references a different parameter")
+    params = payload["params"]
+    if not isinstance(params, dict):
+        raise ValueError("Prior constructor params must be a JSON object")
+    return ParameterSpec.model_validate(
+        {
+            **parameter.model_dump(mode="python"),
+            "distribution": distribution_from_params(
+                PriorDistributionFamily(payload["distribution"]), params
+            ),
+            "reference_interval_days": payload.get("reference_interval_days"),
+        }
+    )

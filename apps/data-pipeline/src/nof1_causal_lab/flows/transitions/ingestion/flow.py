@@ -1,23 +1,11 @@
 """ingestion shared contracts, prompts, and input staging helpers."""
 
 import shutil
-from dataclasses import dataclass, field
 from pathlib import Path
 from zipfile import ZipFile, is_zipfile
 
-import polars as pl
-
 from nof1_causal_lab.utils import storage
 from nof1_causal_lab.utils.data import input_dir
-
-
-@dataclass
-class IngestionResult:
-    """Output of the agentic ingestion stage."""
-
-    dataframe: pl.DataFrame
-    column_descriptions: dict[str, str] = field(default_factory=dict)
-
 
 # ---------------------------------------------------------------------------
 # Prompts

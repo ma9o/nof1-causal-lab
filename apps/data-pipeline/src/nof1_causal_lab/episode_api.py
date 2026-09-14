@@ -23,18 +23,19 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, Query, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 
-from nof1_causal_lab.artifacts.identity import ArtifactId  # noqa: TC001
-from nof1_causal_lab.artifacts.latent_structure import CausalEdge, Construct, LatentStructure
-from nof1_causal_lab.artifacts.measurement_structure import Indicator, MeasurementStructureArtifact
-from nof1_causal_lab.artifacts.posterior import PosteriorArtifact
-from nof1_causal_lab.artifacts.statistical_model_spec import (
-    ParameterSpec,
-    StatisticalModelSpecArtifact,
-)
+from nof1_causal_lab.artifacts.construct import CausalEdge, Construct
+from nof1_causal_lab.artifacts.identity import ArtifactId, OperationId  # noqa: TC001
+from nof1_causal_lab.artifacts.indicator import Indicator
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
+from nof1_causal_lab.artifacts.posterior import InferenceReport
 from nof1_causal_lab.flows.runtime_events import RuntimeEvent, read_events
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.artifacts import ArtifactVersionInfo  # noqa: TC001
-from nof1_causal_lab.machine.graph import ARTIFACT_GRAPH, topological_transition_order
+from nof1_causal_lab.machine.graph import (
+    ARTIFACT_GRAPH,
+    topological_transition_order,
+)
 from nof1_causal_lab.utils.llm import LLMTrace
 
 if TYPE_CHECKING:
@@ -46,7 +47,7 @@ from nof1_causal_lab.machine.hierarchy import ActionSpec, ContextSpec  # noqa: T
 from nof1_causal_lab.machine.moves import (
     ExecOptions,
     Move,
-    RunArtifact,
+    RunOperation,
     WriteArtifact,
     freshness_report,
     is_stale,
@@ -228,7 +229,7 @@ machine_router = APIRouter(prefix="/api")
 class MachineTransition(BaseModel):
     """A transition declares the artifacts it consumes and produces and how it can run."""
 
-    transition_id: ArtifactId
+    transition_id: OperationId
     consumes: list[ArtifactId]
     produces: list[ArtifactId]
     produces_optional: list[ArtifactId]
@@ -241,7 +242,7 @@ class MachineDescription(BaseModel):
 
     artifact_ids: list[ArtifactId]
     topological_artifact_order: list[ArtifactId]
-    topological_transition_order: list[ArtifactId]
+    topological_transition_order: list[OperationId]
     contexts: list[ContextSpec]
     actions: list[ActionSpec]
     roots: list[Root]
@@ -280,9 +281,9 @@ def machine_description() -> UncheckedJsonObject:
         ],
         "transitions": [
             {
-                "transition_id": spec.transition_id,
+                "transition_id": spec.operation_id,
                 "consumes": list(spec.consumes),
-                "produces": [spec.produces],
+                "produces": list(spec.produces),
                 "produces_optional": list(spec.produces_optional),
                 "creation_class": spec.creation_class,
                 "writable": spec.writable,
@@ -413,12 +414,14 @@ def _episode_status(workspace_id: str) -> UncheckedJsonObject:
     journal = EpisodeJournal(workspace_id)
     records = journal.read_all()
     state = replay_state(records)
+    next_move = _next_auto_move(workspace_id, state)
     return {
         "workspace_id": workspace_id,
         "seq": records[-1].seq if records else 0,
         "state": state.model_dump(mode="json"),
         "artifacts": [status.model_dump(mode="json") for status in freshness_report(state)],
         "legal": [move.model_dump(mode="json") for move in legal_moves(state)],
+        "next_operation": next_move.operation_id if next_move else None,
         "auto_running": workspace_id in _AUTO_DRIVERS,
     }
 
@@ -451,41 +454,47 @@ def get_model_snapshot(reader: Annotated[ModelReader, Depends(model_reader)]) ->
 
     Omit `at_seq` for the latest applied move, or select a committed journal sequence.
     Zero selects the empty model. Rejected/raised attempts are not revisions (404).
-    Use the returned `seq` for subsequent aggregate or collection reads at the same revision.
+    Use the returned `context.seq` for subsequent aggregate or collection reads at the same revision.
     """
     return reader.snapshot()
 
 
-@router.get(
-    "/{workspace_id}/model/latent-structure", response_model=Sourced[LatentStructure] | None
-)
-def get_model_latent_structure(reader: Annotated[ModelReader, Depends(model_reader)]):
-    """Canonical latent structure, including its default outcome, at the selected revision."""
-    return reader.latent_structure()
+@router.get("/{workspace_id}/model/definition", response_model=Sourced[ModelSpec] | None)
+def get_model_definition(reader: Annotated[ModelReader, Depends(model_reader)]):
+    """The canonical scientific value selected by this journal revision."""
+    return reader.fact(reader.model, "model", "") if reader.model is not None else None
+
+
+class ModelUpdateBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(ge=0)
+    model: ModelSpec
+
+
+@router.put("/{workspace_id}/model", response_model=ModelSnapshot)
+async def update_model(workspace_id: str, body: ModelUpdateBody) -> ModelSnapshot:
+    """Validate and atomically replace the named base model revision."""
+    _require_moves_enabled()
+    result = await _propose(
+        workspace_id,
+        MoveBody(
+            move=WriteArtifact(artifact_id="model", expected_model_version=body.expected_version),
+            payload=body.model.model_dump(mode="json"),
+        ),
+    )
+    if result["status"] != "applied":
+        message = result.get("reason") or result.get("error_message") or result["status"]
+        raise HTTPException(409 if "conflict" in message.lower() else 422, message)
+    return ModelReader(workspace_id, at_seq=result["seq"]).snapshot()
 
 
 @router.get(
-    "/{workspace_id}/model/measurement-structure",
-    response_model=Sourced[MeasurementStructureArtifact] | None,
+    "/{workspace_id}/model/inference-report", response_model=Sourced[InferenceReport] | None
 )
-def get_model_measurement_structure(reader: Annotated[ModelReader, Depends(model_reader)]):
-    """Measurement definitions, clock, and declarations with their shared provenance."""
-    return reader.measurement_structure()
-
-
-@router.get(
-    "/{workspace_id}/model/specification",
-    response_model=Sourced[StatisticalModelSpecArtifact] | None,
-)
-def get_model_specification(reader: Annotated[ModelReader, Depends(model_reader)]):
-    """Canonical specification with prior results compatible with the selected compiler."""
-    return reader.specification()
-
-
-@router.get("/{workspace_id}/model/posterior", response_model=Sourced[PosteriorArtifact] | None)
-def get_model_posterior(reader: Annotated[ModelReader, Depends(model_reader)]):
-    """Canonical posterior with compatible parameter coordinates and its own fit assessment."""
-    return reader.posterior()
+def get_model_inference_report(reader: Annotated[ModelReader, Depends(model_reader)]):
+    """Read the inference transition report associated with the selected model revision."""
+    return reader.inference_report()
 
 
 @router.get("/{workspace_id}/model/constructs", response_model=tuple[Construct, ...])
@@ -508,7 +517,7 @@ def get_model_indicators(reader: Annotated[ModelReader, Depends(model_reader)]):
 
 @router.get("/{workspace_id}/model/parameters", response_model=tuple[ParameterSpec, ...])
 def get_model_parameters(reader: Annotated[ModelReader, Depends(model_reader)]):
-    """Scientific parameter definitions from the selected compiler, without inference execution."""
+    """Scientific parameter definitions from the selected model, without inference execution."""
     return reader.parameters()
 
 
@@ -523,10 +532,10 @@ def get_model_view(
     from nof1_causal_lab.machine.views import read_artifact_views
 
     try:
-        seq, state, installed_at, _ = read_revision(workspace_id, at_seq)
+        seq, state, _, _ = read_revision(workspace_id, at_seq)
     except SnapshotRevisionNotFound as exc:
         raise HTTPException(404, str(exc)) from exc
-    views = read_artifact_views(ArtifactStore(workspace_id), state, installed_at)
+    views = read_artifact_views(ArtifactStore(workspace_id), state)
     if artifact_id not in type(views).model_fields:
         raise HTTPException(404, f"Unknown artifact view {artifact_id}")
     value = getattr(views, artifact_id)
@@ -626,13 +635,11 @@ def get_artifact(
 
 
 class TransitionTraceIndex(BaseModel):
-    """Promoted traces of the applied transition that produced an artifact version."""
+    """Promoted traces identified by their committed execution sequence."""
 
     model_config = ConfigDict(extra="forbid")
 
     workspace_id: str
-    artifact_id: ArtifactId
-    version: int
     seq: int
     trace_ids: list[str]
 
@@ -661,12 +668,27 @@ def get_artifact_traces(
         ):
             return TransitionTraceIndex(
                 workspace_id=workspace_id,
-                artifact_id=artifact_id,
-                version=version,
                 seq=record.seq,
                 trace_ids=record.trace_ids,
             )
     raise HTTPException(404, f"No applied transition produced {artifact_id} v{version}")
+
+
+@router.get("/{workspace_id}/operations/{operation_id}/traces", response_model=TransitionTraceIndex)
+def get_operation_traces(workspace_id: str, operation_id: OperationId) -> TransitionTraceIndex:
+    """The latest applied operation's traces, independently of later ModelSpec authorship."""
+    for record in reversed(EpisodeJournal(workspace_id).read_all()):
+        if (
+            record.status == "applied"
+            and isinstance(record.move, RunOperation)
+            and record.move.operation_id == operation_id
+        ):
+            return TransitionTraceIndex(
+                workspace_id=workspace_id,
+                seq=record.seq,
+                trace_ids=record.trace_ids,
+            )
+    raise HTTPException(404, f"No applied {operation_id} operation in {workspace_id}")
 
 
 @router.get("/{workspace_id}/traces/{seq}/{subroutine_id}", response_model=LLMTrace)
@@ -768,12 +790,12 @@ async def propose_move(workspace_id: str, body: MoveBody) -> UncheckedJsonObject
 
     Two kinds:
 
-    - Run a transition: `{"move": {"kind": "run", "artifact_id": "latent_structure"}}`.
+    - Run a transition: `{"move": {"kind": "run", "operation_id": "latent_structure"}}`.
     - Author a judgment artifact directly (skip the in-service stage):
-      `{"move": {"kind": "write", "artifact_id": "latent_structure", "provenance":
+      `{"move": {"kind": "write", "artifact_id": "model", "expected_model_version": 0, "provenance":
       "llm"}, "payload": {...}}`. The payload is schema-validated against that
       artifact's contract, journaled, and provenance-stamped; the write becomes a
-      new provenance root and marks everything downstream stale until re-run.
+      revision. Consumers retain their original pins; changed scientific inputs invalidate affected results.
 
     The synchronous outcome is the same record the timeline stores. Long transitions
     (statistical model specification, posterior — minutes to hours) can outlive a client timeout; for
@@ -790,24 +812,74 @@ async def propose_move(workspace_id: str, body: MoveBody) -> UncheckedJsonObject
 _AUTO_DRIVERS: dict[str, asyncio.Task[None]] = {}
 
 
-def _needs_run(state: EpisodeState, spec: Transition) -> bool:
+def _needs_run(
+    state: EpisodeState,
+    spec: Transition,
+    model: ModelSpec | None,
+    extraction: TransitionRecord | None = None,
+) -> bool:
     """Missing required outputs, or any existing output gone stale.
 
-    An *absent optional* output with a fresh report is a standing negative
-    finding, not a reason to rerun — otherwise the driver would loop on
+    An *absent optional* output with a completed execution for the same inputs
+    is a standing negative finding, not a reason to rerun — otherwise the driver would loop on
     transitions whose finding was legitimately empty.
     """
-    if not state.has(spec.produces):
+    from nof1_causal_lab.machine.inference import inference_is_current
+
+    if spec.operation_id == "posterior":
+        return bool(model and model.execution_readiness.ready and not inference_is_current(state))
+    if spec.operation_id == "statistical_model_spec" and inference_is_current(state):
+        return False
+    if spec.operation_id == "latent_structure":
+        return model is None or not model.constructs
+    if spec.operation_id == "measurement_structure":
+        return model is None or model.measurement_clock is None or not model.indicators
+    if spec.operation_id == "statistical_model_spec":
+        return (
+            model is None
+            or not model.execution_readiness.ready
+            or not state.has("admission_report")
+            or is_stale(state, "admission_report")
+        )
+    if spec.operation_id == "measurements" and not state.has("panel"):
+        if extraction is None:
+            return True
+        # A completed empty run is a durable finding about these extraction inputs.
+        pins = extraction.diagnostics["input_pins"]
+        return (
+            any(pins[aid] != state.current[aid].version for aid in spec.consumes if aid != "model")
+            or extraction.diagnostics["model_input"]
+            != state.current["model"].model_inputs["extraction"]
+        )
+    if any(not state.has(output) for output in spec.produces):
         return True
     return any(is_stale(state, artifact) for artifact in spec.all_produces if state.has(artifact))
 
 
-def _next_auto_move(state: EpisodeState) -> RunArtifact | None:
-    specs = {spec.transition_id: spec for spec in ARTIFACT_GRAPH}
+def _next_auto_move(workspace_id: str, state: EpisodeState) -> RunOperation | None:
+    from nof1_causal_lab.machine.derivations import read_model
+    from nof1_causal_lab.machine.store import ArtifactStore
+
+    model = (
+        read_model(ArtifactStore(workspace_id), state.current["model"].version)
+        if state.has("model")
+        else None
+    )
+    extraction = next(
+        (
+            record
+            for record in reversed(EpisodeJournal(workspace_id).read_all())
+            if record.status == "applied"
+            and isinstance(record.move, RunOperation)
+            and record.move.operation_id == "measurements"
+        ),
+        None,
+    )
+    specs = {spec.operation_id: spec for spec in ARTIFACT_GRAPH}
     for artifact_id in topological_transition_order():
         spec = specs[artifact_id]
-        move = RunArtifact(artifact_id=artifact_id)
-        if validate_move(state, move) is None and _needs_run(state, spec):
+        move = RunOperation(operation_id=artifact_id)
+        if validate_move(state, move) is None and _needs_run(state, spec, model, extraction):
             return move
     return None
 
@@ -816,17 +888,17 @@ async def _auto_drive(workspace_id: str, options: ExecOptions) -> None:
     try:
         while True:
             state = derive_current_state(workspace_id)
-            move = _next_auto_move(state)
+            move = _next_auto_move(workspace_id, state)
             if move is None:
                 logger.info("auto-run %s: quiescent", workspace_id)
                 return
-            logger.info("auto-run %s: %s", workspace_id, move.artifact_id)
+            logger.info("auto-run %s: %s", workspace_id, move.operation_id)
             outcome = await _propose(workspace_id, MoveBody(move=move, options=options))
             if outcome["status"] != "applied":
                 logger.warning(
                     "auto-run %s stopped: %s %s (%s)",
                     workspace_id,
-                    move.artifact_id,
+                    move.operation_id,
                     outcome["status"],
                     outcome.get("error_type") or outcome.get("reason"),
                 )

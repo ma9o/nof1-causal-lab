@@ -1,149 +1,115 @@
-"""Tests for explicit compiler-independent prior defaults."""
+"""Default laws follow native support and explicitly owned scientific choices."""
 
+import numpy as np
 import numpyro.distributions as dist
 import pytest
-from jsonschema import Draft202012Validator
-from pydantic import ValidationError
 
-from nof1_causal_lab.artifacts.distribution import CompiledDistribution
-from nof1_causal_lab.artifacts.identity import ConstructRef
-from nof1_causal_lab.artifacts.parameter import SiteKind
-from nof1_causal_lab.artifacts.statistical_model_spec import (
-    ParameterConstraint,
-    ParameterRole,
-    ParameterSpec,
-)
-from nof1_causal_lab.distributions import PriorDistributionFamily
+from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.identity import ConstructRef, IndicatorRef
+from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
+from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
+from nof1_causal_lab.models.likelihoods import observation_law
 from nof1_causal_lab.models.prior_planning import default_parameter_prior
-from nof1_causal_lab.models.ssm.compile.parameter_identity import parameter_identity
-from nof1_causal_lab.prior_distributions import serialize_distribution
+from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
+from tests.helpers import make_model
+from tests.slot_fixtures import fixture_parameter_id, with_likelihood_coefficients
 
 
-def _make_param(
-    name: str = "beta_x",
-    role: ParameterRole = ParameterRole.FIXED_EFFECT,
-    constraint: ParameterConstraint = ParameterConstraint.NONE,
-) -> ParameterSpec:
-    owner = ConstructRef(id="construct:test")
-    quantity = SiteKind.DYNAMICS_WEIGHT
-    return ParameterSpec(
-        id=parameter_identity(quantity, [owner]),
-        owners=[owner],
-        quantity=quantity,
-        name=name,
-        role=role,
-        constraint=constraint,
-        description="test param",
-    )
-
-
-class TestDefaultParameterPrior:
-    @pytest.mark.parametrize(
+@pytest.mark.parametrize(
+    ("quantity", "support", "transform", "polarity", "expected"),
+    [
         (
-            "role",
-            "constraint",
-            "expected_distribution",
-            "expected_params",
+            SiteKind.DYNAMICS_WEIGHT,
+            SupportClass.REAL,
+            "identity",
+            "positive",
+            dist.Normal(0.0, 0.5),
         ),
-        [
-            (
-                ParameterRole.FIXED_EFFECT,
-                ParameterConstraint.NONE,
-                PriorDistributionFamily.NORMAL,
-                {"mu": 0.0, "sigma": 0.5},
-            ),
-            (
-                ParameterRole.FIXED_EFFECT,
-                ParameterConstraint.POSITIVE,
-                PriorDistributionFamily.HALF_NORMAL,
-                {"sigma": 1.0},
-            ),
-            (
-                ParameterRole.FIXED_EFFECT,
-                ParameterConstraint.UNIT_INTERVAL,
-                PriorDistributionFamily.BETA,
-                {"alpha": 2.0, "beta": 2.0},
-            ),
-            (
-                ParameterRole.FIXED_EFFECT,
-                ParameterConstraint.CORRELATION,
-                PriorDistributionFamily.UNIFORM,
-                {"lower": -1.0, "upper": 1.0},
-            ),
-            (
-                ParameterRole.RESIDUAL_SD,
-                ParameterConstraint.NONE,
-                PriorDistributionFamily.HALF_NORMAL,
-                {"sigma": 1.0},
-            ),
-            (
-                ParameterRole.STATIC_STATE_SD,
-                ParameterConstraint.NONE,
-                PriorDistributionFamily.HALF_NORMAL,
-                {"sigma": 1.0},
-            ),
-            (
-                ParameterRole.AR_COEFFICIENT,
-                ParameterConstraint.CORRELATION,
-                PriorDistributionFamily.BETA,
-                {"alpha": 2.0, "beta": 2.0},
-            ),
-            (
-                ParameterRole.LOADING,
-                ParameterConstraint.POSITIVE,
-                PriorDistributionFamily.NORMAL,
-                {"mu": 0.5, "sigma": 0.5},
-            ),
-            (
-                ParameterRole.LOADING,
-                ParameterConstraint.NEGATIVE,
-                PriorDistributionFamily.NORMAL,
-                {"mu": -0.5, "sigma": 0.5},
-            ),
-        ],
-        ids=[
-            "unconstrained-normal",
-            "positive-half-normal",
-            "unit-interval-beta",
-            "correlation-uniform",
-            "residual-sd-role",
-            "static-state-sd-role",
-            "ar-role",
-            "positive-loading-pooled-family",
-            "negative-loading-pooled-family",
-        ],
+        (
+            SiteKind.DYNAMICS_POTENTIAL_QUARTIC,
+            SupportClass.POSITIVE,
+            "identity",
+            "positive",
+            dist.HalfNormal(1.0),
+        ),
+        (
+            SiteKind.DYNAMICS_DECAY,
+            SupportClass.POSITIVE,
+            "dt_persistence_to_ct_decay",
+            "positive",
+            dist.Beta(2.0, 2.0),
+        ),
+        (
+            SiteKind.DIFFUSION_LOWER,
+            SupportClass.CORRELATION,
+            "identity",
+            "positive",
+            dist.Uniform(-1.0, 1.0),
+        ),
+        (
+            SiteKind.DIFFUSION_DIAG,
+            SupportClass.POSITIVE,
+            "identity",
+            "positive",
+            dist.HalfNormal(1.0),
+        ),
+        (
+            SiteKind.STATIC_STATE_SD,
+            SupportClass.POSITIVE,
+            "identity",
+            "positive",
+            dist.HalfNormal(1.0),
+        ),
+        (SiteKind.LOADING, SupportClass.REAL, "identity", "positive", dist.Normal(0.5, 0.5)),
+        (SiteKind.LOADING, SupportClass.REAL, "identity", "negative", dist.Normal(-0.5, 0.5)),
+    ],
+)
+def test_default_law(quantity, support, transform, polarity, expected):
+    model = make_model(["X"])
+    construct = model.constructs[0]
+    indicator = construct.indicators[0].model_copy(update={"construct_polarity": polarity})
+    model = model.revised(
+        edges=replace_constructs(
+            model.edges, (construct.model_copy(update={"indicators": (indicator,)}),)
+        )
     )
-    def test_distribution_selection(
-        self,
-        role: ParameterRole,
-        constraint: ParameterConstraint,
-        expected_distribution: PriorDistributionFamily,
-        expected_params: dict[str, float],
-    ):
-        p = _make_param(role=role, constraint=constraint)
-        result = serialize_distribution(default_parameter_prior(p))[0]
-        assert result.distribution == expected_distribution
-        assert result.params == expected_params
-
-    def test_returns_native_distribution(self):
-        assert isinstance(default_parameter_prior(_make_param()), dist.Distribution)
-
-    @pytest.mark.parametrize(
-        ("contract", "metadata"),
-        [
-            (CompiledDistribution, {}),
-        ],
+    owners = (ConstructRef(id=construct.id),)
+    if quantity == SiteKind.LOADING:
+        owners = (*owners, IndicatorRef(id=indicator.id))
+    parameter = ParameterSpec.model_validate(
+        {
+            "id": fixture_parameter_id(quantity, owners),
+            "name": "authored label",
+            "description": "Test quantity",
+            "distribution_transform": transform,
+        }
     )
-    def test_prior_parameters_must_match_the_declared_family(self, contract, metadata):
-        payload = {**metadata, "distribution": "Normal", "params": {"sigma": 1.0}}
-        with pytest.raises(ValidationError, match="Normal requires exactly"):
-            contract.model_validate(payload)
-        validator = Draft202012Validator(contract.model_json_schema())
-        assert not validator.is_valid(payload)
-        payload["params"] = {"mu": 0.0, "sigma": 1.0}
-        validated = contract.model_validate(payload)
-        validator.validate(validated.model_dump(mode="json"))
-        payload["params"]["unknown"] = 2.0
-        assert not validator.is_valid(payload)
-        with pytest.raises(ValidationError, match="Normal requires exactly"):
-            contract.model_validate(payload)
+    if quantity == SiteKind.LOADING:
+        from nof1_causal_lab.artifacts.coefficient import ParameterCoefficient
+        from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec
+
+        indicator = indicator.model_copy(
+            update={
+                "likelihood": with_likelihood_coefficients(
+                    LikelihoodSpec(
+                        law=observation_law(construct.id, "gaussian", "identity"),
+                        reasoning="Test",
+                    ),
+                    {"loading": ParameterCoefficient(parameter_id=parameter.id)},
+                )
+            }
+        )
+        model = model.revised(
+            edges=replace_constructs(
+                model.edges, (construct.model_copy(update={"indicators": (indicator,)}),)
+            ),
+            parameters=(parameter,),
+        )
+    site = SiteDescriptor(
+        name="native site", shape=(), support=support, assembly_group="test", site_kind=quantity
+    )
+    result = default_parameter_prior(parameter, model, site)
+    assert isinstance(result, dist.Distribution)
+    assert type(result) is type(expected)
+    for key, value in expected.get_args().items():
+        np.testing.assert_array_equal(result.get_args()[key], value)

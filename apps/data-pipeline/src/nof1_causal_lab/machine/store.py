@@ -32,7 +32,8 @@ import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
-import cloudpickle
+import pyarrow as pa
+import pyarrow.parquet as pq
 from pydantic import BaseModel, ConfigDict, Field
 
 from nof1_causal_lab.artifacts.identity import ArtifactId  # noqa: TC001
@@ -77,6 +78,18 @@ class ArtifactStore:
     def file_path(self, artifact_id: ArtifactId, version: int, name: str) -> str:
         return storage.join(self.version_dir(artifact_id, version), name)
 
+    def write_array(self, values) -> str:
+        """Store an immutable numerical value, shared by any model revision using it."""
+        from nof1_causal_lab.utils.arrays import write_array
+
+        return write_array(storage.join(self._root, "arrays"), values)
+
+    def read_array(self, identity: str):
+        """Read and verify a numerical value referenced by a model revision."""
+        from nof1_causal_lab.utils.arrays import read_array
+
+        return read_array(storage.join(self._root, "arrays"), identity)
+
     # -- version listing -----------------------------------------------------
 
     def list_versions(self, artifact_id: ArtifactId) -> list[int]:
@@ -104,37 +117,58 @@ class ArtifactStore:
         derived_from: dict[ArtifactId, int],
         produced_by: str | None,
         json_files: UncheckedJsonObject | None = None,
-        parquet_files: dict[str, pl.DataFrame] | None = None,
-        pickle_files: UncheckedJsonObject | None = None,
+        parquet_files: dict[str, pl.DataFrame | pa.Table] | None = None,
     ) -> ArtifactVersionInfo:
         """Persist one immutable artifact version and return its stamp."""
+        model_inputs: dict[str, str] = {}
+        consumed_model_inputs: dict[str, str] = {}
+        if artifact_id == "model":
+            from nof1_causal_lab.artifacts.model_spec import ModelSpec
+            from nof1_causal_lab.machine.artifact_files import json_filename
+            from nof1_causal_lab.models.model_inputs import input_fingerprints
+
+            assert json_files is not None
+            value = ModelSpec.model_validate(json_files[json_filename("model", "model")])
+            model_inputs = input_fingerprints(value)
+        elif "model" in derived_from:
+            from nof1_causal_lab.machine.model_dependencies import MODEL_INPUTS
+
+            purpose = MODEL_INPUTS[artifact_id]
+            source = self.read_meta("model", derived_from["model"])
+            consumed_model_inputs = {purpose: source.model_inputs[purpose]}
+
         version = self.next_version(artifact_id)
         directory = self.version_dir(artifact_id, version)
         storage.makedirs(directory)
 
-        for name, value in (json_files or {}).items():
-            storage.write_text(storage.join(directory, name), json.dumps(value))
-        for name, df in (parquet_files or {}).items():
-            path = storage.join(directory, name)
-            if storage.is_remote():
-                with storage.get_fs().open(path, "wb") as f:
-                    df.write_parquet(f)
-            else:
-                df.write_parquet(path)
-        for name, value in (pickle_files or {}).items():
-            with storage.open_file(storage.join(directory, name), "wb") as f:
-                cloudpickle.dump(value, f)
-
-        info = ArtifactVersionInfo(
-            artifact_id=artifact_id,
-            version=version,
-            provenance=provenance,
-            derived_from=derived_from,
-            produced_by=produced_by,
-            created_at=utc_now_iso(),
-        )
-        storage.write_text(storage.join(directory, "meta.json"), info.model_dump_json())
-        return info
+        try:
+            for name, value in (json_files or {}).items():
+                storage.write_text(storage.join(directory, name), json.dumps(value))
+            for name, df in (parquet_files or {}).items():
+                path = storage.join(directory, name)
+                if isinstance(df, pa.Table):
+                    with storage.open_file(path, "wb") as f:
+                        pq.write_table(df, f, compression="zstd")
+                elif storage.is_remote():
+                    with storage.get_fs().open(path, "wb") as f:
+                        df.write_parquet(f)
+                else:
+                    df.write_parquet(path)
+            info = ArtifactVersionInfo(
+                artifact_id=artifact_id,
+                version=version,
+                provenance=provenance,
+                derived_from=derived_from,
+                produced_by=produced_by,
+                created_at=utc_now_iso(),
+                model_inputs=model_inputs,
+                consumed_model_inputs=consumed_model_inputs,
+            )
+            storage.write_text(storage.join(directory, "meta.json"), info.model_dump_json())
+            return info
+        except Exception:
+            storage.rm_tree(directory)
+            raise
 
     def delete_version(self, artifact_id: ArtifactId, version: int) -> None:
         """Remove one artifact version directory written by a failed move."""
@@ -157,9 +191,10 @@ class ArtifactStore:
             storage_options=storage.polars_storage_options(),
         )
 
-    def read_pickle_file(self, artifact_id: ArtifactId, version: int, name: str) -> Any:
-        with storage.open_file(self.file_path(artifact_id, version, name), "rb") as f:
-            return cloudpickle.load(f)
+    def read_parquet_table(self, artifact_id: ArtifactId, version: int, name: str) -> pa.Table:
+        """Read an Arrow table, preserving its schema and column metadata."""
+        with storage.open_file(self.file_path(artifact_id, version, name), "rb") as file:
+            return pq.read_table(file)
 
 
 # ---------------------------------------------------------------------------

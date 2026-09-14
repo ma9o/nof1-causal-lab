@@ -1,10 +1,22 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
-from nof1_causal_lab.machine.moves import RunArtifact
+import numpyro.distributions as dist
+
+from nof1_causal_lab.artifacts.expressions import (
+    hill as expr_hill,
+)
+from nof1_causal_lab.artifacts.expressions import (
+    state as expr_state,
+)
+from nof1_causal_lab.artifacts.identity import ConstructRef
+from nof1_causal_lab.artifacts.mechanism import DynamicsMechanism
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.parameter import SiteKind
+from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
+from nof1_causal_lab.machine.moves import RunOperation
 from nof1_causal_lab.machine.store import EpisodeJournal, ResumeRef, TransitionRecord
 from nof1_causal_lab.machine.temporal.model_spec_checkpoints import (
     AcceptedConstructCheckpoint,
@@ -21,10 +33,34 @@ from nof1_causal_lab.machine.temporal.model_spec_checkpoints import (
     write_initial_model_spec_checkpoint,
     write_model_spec_admission_evaluation,
 )
-from tests.helpers import make_structural_plan
+from tests.helpers import make_model
+from tests.slot_fixtures import fixture_parameter_id
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.identity import ArtifactId
+
+
+def _entity(name):
+    from nof1_causal_lab.artifacts.coefficient import ParameterCoefficient
+    from nof1_causal_lab.artifacts.state_distribution import InnovationSpec
+
+    construct = make_model([name]).constructs[0]
+    reference = ParameterCoefficient(
+        parameter_id=fixture_parameter_id(SiteKind.DIFFUSION_DIAG, [ConstructRef(id=construct.id)])
+    )
+    return construct.model_copy(update={"innovation": InnovationSpec(scale=reference)})
+
+
+def _parameters(name, scale):
+    owner = ConstructRef(id=_entity(name).id)
+    return (
+        ParameterSpec(
+            id=fixture_parameter_id(SiteKind.DIFFUSION_DIAG, [owner]),
+            name=f"sigma_{name}",
+            description="Test diffusion",
+            distribution=dist.HalfNormal(scale),
+        ),
+    )
 
 
 def _workspace(monkeypatch, tmp_path) -> str:
@@ -38,7 +74,6 @@ def test_accepted_checkpoint_is_immutable_and_idempotent(monkeypatch, tmp_path):
     workspace_id = _workspace(monkeypatch, tmp_path)
     pins: dict[ArtifactId, int] = {
         "question": 1,
-        "structural_plan": 2,
         "identification_report": 2,
         "panel": 3,
         "validation_report": 3,
@@ -57,11 +92,10 @@ def test_accepted_checkpoint_is_immutable_and_idempotent(monkeypatch, tmp_path):
     )
     initial = read_model_spec_checkpoint(workspace_id, initial_ref)
     accepted = AcceptedConstructCheckpoint(
-        mechanisms=[],
+        edges=(),
         submission_id="tool-call-1",
-        construct_name="sleep",
-        indicators=[],
-        priors={"rho_sleep": {"distribution": "Beta", "params": {"alpha": 5, "beta": 2}}},
+        entity=_entity("sleep"),
+        parameters=_parameters("sleep", 0.5),
         results=[
             {
                 "check": "C2 latent scale",
@@ -105,18 +139,18 @@ def test_accepted_checkpoint_is_immutable_and_idempotent(monkeypatch, tmp_path):
 def test_admission_evaluation_key_is_scoped_to_causal_ancestors(monkeypatch, tmp_path):
     workspace_id = _workspace(monkeypatch, tmp_path)
     accepted_a = AcceptedConstructCheckpoint(
-        mechanisms=[],
+        edges=(),
         submission_id="submission-a",
-        construct_name="A",
-        priors={"rho_A": {"distribution": "Normal", "params": {"mu": 0.2}}},
+        entity=_entity("A"),
+        parameters=_parameters("A", 0.2),
         outcome="ADMITTED",
         feedback="accepted",
     )
     accepted_b = AcceptedConstructCheckpoint(
-        mechanisms=[],
+        edges=(),
         submission_id="submission-b",
-        construct_name="B",
-        priors={"rho_B": {"distribution": "Normal", "params": {"mu": 0.3}}},
+        entity=_entity("B"),
+        parameters=_parameters("B", 0.3),
         outcome="ADMITTED",
         feedback="accepted",
     )
@@ -125,16 +159,16 @@ def test_admission_evaluation_key_is_scoped_to_causal_ancestors(monkeypatch, tmp
         run_id="seq-000001",
         seq=1,
         checkpoint_index=2,
-        input_pins={"structural_plan": 2, "panel": 3},
+        input_pins={"panel": 3},
         accepted_constructs=[accepted_a, accepted_b],
         created_at="2026-07-13T00:00:00+00:00",
     )
-    proposal = {
+    proposal: dict[str, Any] = {
         "ancestor_constructs": {"A"},
-        "mechanisms": [],
+        "construct": _entity("X"),
+        "edges": (),
         "construct_name": "X",
-        "indicators": [],
-        "priors": {"rho_X": {"distribution": "Normal", "params": {"mu": 0.5}}},
+        "parameters": _parameters("X", 0.5),
         "accept": [],
         "n_draws": 200,
         "seed": 0,
@@ -149,32 +183,14 @@ def test_admission_evaluation_key_is_scoped_to_causal_ancestors(monkeypatch, tmp
         update={
             "accepted_constructs": [
                 accepted_a,
-                accepted_b.model_copy(
-                    update={
-                        "priors": {
-                            "rho_B": {
-                                "distribution": "Normal",
-                                "params": {"mu": 99.0},
-                            }
-                        }
-                    }
-                ),
+                accepted_b.model_copy(update={"parameters": _parameters("B", 99.0)}),
             ]
         }
     )
     changed_ancestor = checkpoint.model_copy(
         update={
             "accepted_constructs": [
-                accepted_a.model_copy(
-                    update={
-                        "priors": {
-                            "rho_A": {
-                                "distribution": "Normal",
-                                "params": {"mu": 99.0},
-                            }
-                        }
-                    }
-                ),
+                accepted_a.model_copy(update={"parameters": _parameters("A", 99.0)}),
                 accepted_b,
             ]
         }
@@ -217,7 +233,7 @@ def test_latest_failed_stage_four_checkpoint_is_the_resume_source(monkeypatch, t
         TransitionRecord(
             seq=1,
             ts="2026-07-11T00:00:00+00:00",
-            move=RunArtifact(artifact_id="statistical_model_spec"),
+            move=RunOperation(operation_id="statistical_model_spec"),
             status="raised",
             trace_ids=[],
             resume=ResumeRef(
@@ -231,7 +247,7 @@ def test_latest_failed_stage_four_checkpoint_is_the_resume_source(monkeypatch, t
         TransitionRecord(
             seq=2,
             ts="2026-07-11T00:01:00+00:00",
-            move=RunArtifact(artifact_id="posterior"),
+            move=RunOperation(operation_id="posterior"),
             status="raised",
             trace_ids=[],
             resume=None,
@@ -241,7 +257,7 @@ def test_latest_failed_stage_four_checkpoint_is_the_resume_source(monkeypatch, t
         TransitionRecord(
             seq=3,
             ts="2026-07-11T00:02:00+00:00",
-            move=RunArtifact(artifact_id="statistical_model_spec"),
+            move=RunOperation(operation_id="statistical_model_spec"),
             status="raised",
             trace_ids=[],
             resume=ResumeRef(
@@ -261,7 +277,7 @@ def test_latest_failed_stage_four_checkpoint_is_the_resume_source(monkeypatch, t
         TransitionRecord(
             seq=4,
             ts="2026-07-11T00:03:00+00:00",
-            move=RunArtifact(artifact_id="statistical_model_spec"),
+            move=RunOperation(operation_id="statistical_model_spec"),
             status="applied",
             trace_ids=[],
             resume=None,
@@ -279,7 +295,7 @@ def test_target_restore_uses_only_its_causal_ancestor_closure(monkeypatch):
         def __init__(self, *, order, **_kwargs):
             self.order = order
             self.cursor = 0
-            self.admission = AdmissionState()
+            self.admission = AdmissionState(model=make_model(order))
             self.admitted_contributions = {}
             self.search_queries = {}
             self.search_cache = {}
@@ -296,7 +312,7 @@ def test_target_restore_uses_only_its_causal_ancestor_closure(monkeypatch):
     monkeypatch.setattr(
         construct_flow,
         "contribution_from_payload",
-        lambda _design, payload, _catalog: payload["construct"],
+        lambda _design, payload: payload["construct"],
     )
     monkeypatch.setattr(
         construct_admission,
@@ -311,9 +327,10 @@ def test_target_restore_uses_only_its_causal_ancestor_closure(monkeypatch):
         input_pins={},
         accepted_constructs=[
             AcceptedConstructCheckpoint(
-                mechanisms=[],
+                edges=(),
                 submission_id=f"submission-{name}",
-                construct_name=name,
+                entity=_entity(name),
+                parameters=(),
                 outcome="ADMITTED",
                 feedback="accepted",
             )
@@ -321,16 +338,16 @@ def test_target_restore_uses_only_its_causal_ancestor_closure(monkeypatch):
         ],
         created_at="2026-07-11T00:00:00+00:00",
     )
-    structural_plan = StructuralPlan.model_validate(
-        make_structural_plan(
+    model = ModelSpec.model_validate(
+        make_model(
             ["A", "B", "X"],
-            [("A", "X")],
+            [("A", "X"), ("A", "B")],
         )
     )
 
     state = restore_construct_state(
         checkpoint,
-        structural_plan=structural_plan,
+        model=model,
         data_for_model=object(),
         workspace_id=None,
         target_construct="X",
@@ -359,11 +376,11 @@ def test_rebase_retains_independent_branch_and_reopens_failed_descendants(monkey
             return self.target
 
         def submit_construct(self, *, construct, **_kwargs):
-            if construct == "stress":
+            if construct["name"] == "stress":
                 return "stress no longer passes the scale check"
             self.target = None
             self.last_report = SimpleNamespace(
-                name=construct,
+                name=construct["name"],
                 admitted=True,
                 annotations=(),
                 outcome="ADMITTED",
@@ -373,12 +390,12 @@ def test_rebase_retains_independent_branch_and_reopens_failed_descendants(monkey
     monkeypatch.setattr(
         construct_admission,
         "build_construct_order",
-        lambda _structural_plan: ["stress", "sleep", "mood"],
+        lambda _structure: ["stress", "sleep", "mood"],
     )
     monkeypatch.setattr(
         construct_admission,
         "build_construct_units",
-        lambda _structural_plan: [
+        lambda _structure: [
             SimpleNamespace(unit_id="stress", constructs=("stress",), predecessors=()),
             SimpleNamespace(unit_id="sleep", constructs=("sleep",), predecessors=()),
             SimpleNamespace(unit_id="mood", constructs=("mood",), predecessors=("stress",)),
@@ -391,9 +408,10 @@ def test_rebase_retains_independent_branch_and_reopens_failed_descendants(monkey
     )
     accepted = [
         AcceptedConstructCheckpoint(
-            mechanisms=[],
+            edges=(),
             submission_id=f"submission-{name}",
-            construct_name=name,
+            entity=_entity(name),
+            parameters=(),
             outcome="ADMITTED",
             feedback="accepted",
         )
@@ -406,7 +424,6 @@ def test_rebase_retains_independent_branch_and_reopens_failed_descendants(monkey
         checkpoint_index=3,
         input_pins={
             "question": 1,
-            "structural_plan": 1,
             "identification_report": 1,
             "panel": 1,
             "validation_report": 1,
@@ -417,7 +434,7 @@ def test_rebase_retains_independent_branch_and_reopens_failed_descendants(monkey
 
     _state, retained, reopened, reason = rebase_accepted_constructs(
         source,
-        structural_plan=StructuralPlan.model_validate(make_structural_plan(["stress"], [])),
+        model=ModelSpec.model_validate(make_model(["stress"], [])),
         data_for_model=object(),
     )
 
@@ -427,13 +444,16 @@ def test_rebase_retains_independent_branch_and_reopens_failed_descendants(monkey
 
 
 def test_admission_evaluation_key_tracks_fixed_mechanism_choices():
-    from nof1_causal_lab.artifacts.mechanism import FixedCoefficient, HillEdgeMechanism
+    from nof1_causal_lab.artifacts.coefficient import FixedCoefficient
 
-    mechanism = HillEdgeMechanism(
-        edge_id="edge:ab",
-        emax=FixedCoefficient(value=1),
-        ec50=FixedCoefficient(value=1),
-        n=FixedCoefficient(value=2),
+    mechanism = DynamicsMechanism(
+        id="mechanism:checkpoint-hill",
+        expression=expr_hill(
+            expr_state("construct:A"),
+            emax=FixedCoefficient(value=1),
+            ec50=FixedCoefficient(value=1),
+            n=FixedCoefficient(value=2),
+        ),
     )
 
     def key(mechanism):
@@ -442,12 +462,26 @@ def test_admission_evaluation_key_tracks_fixed_mechanism_choices():
             accepted_constructs=[],
             ancestor_constructs=set(),
             construct_name="B",
-            indicators=[],
-            priors={},
-            mechanisms=[mechanism],
+            construct=_entity("B"),
+            parameters=(),
+            edges=(
+                make_model(["A", "B"], [("A", "B")])
+                .edges[0]
+                .model_copy(update={"mechanisms": (mechanism,)}),
+            ),
             accept=[],
             n_draws=16,
             seed=7,
         )
 
-    assert key(mechanism) != key(mechanism.model_copy(update={"n": FixedCoefficient(value=3)}))
+    from nof1_causal_lab.artifacts.expressions import CoefficientExpression, map_expression
+
+    changed = map_expression(
+        mechanism.expression,
+        lambda node: (
+            CoefficientExpression(role="exponent", coefficient=FixedCoefficient(value=3))
+            if isinstance(node, CoefficientExpression) and node.role == "exponent"
+            else node
+        ),
+    )
+    assert key(mechanism) != key(mechanism.model_copy(update={"expression": changed}))

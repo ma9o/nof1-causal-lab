@@ -8,14 +8,14 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+from nof1_causal_lab.models.ssm import numerics as numeric
 
 from .spec import compile_dynamics, pack_component_params_from_samples
 
 if TYPE_CHECKING:
     from jax import Array
 
-    from nof1_causal_lab.models.ssm.inference.types import ParticleMCMCPosterior
-    from nof1_causal_lab.models.ssm.model import SSMSpec
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
     from .vector_field import VectorField
 
@@ -38,7 +38,7 @@ def _posterior_draw_count(samples: UncheckedJsonObject) -> int:
 
 
 def component_param_samples_from_site_samples(
-    spec: SSMSpec,
+    spec: ModelSpec,
     samples: UncheckedJsonObject,
     *,
     prefix: str = "vf",
@@ -53,19 +53,21 @@ def component_param_samples_from_site_samples(
             if hasattr(values, "shape") and len(values.shape) > 0
         }
         param_samples.append(
-            pack_component_params_from_samples(spec.dynamics_spec, draw, prefix=prefix)
+            pack_component_params_from_samples(
+                numeric.dynamics_components(spec), draw, prefix=prefix
+            )
         )
     return param_samples
 
 
 def posterior_dynamics_from_samples(
-    spec: SSMSpec,
+    spec: ModelSpec,
     samples: UncheckedJsonObject,
     *,
     prefix: str = "vf",
 ) -> PosteriorDynamicsSamples:
-    """Rebuild posterior vector-field draws from an ``SSMSpec`` and samples."""
-    compiled = compile_dynamics(spec.dynamics_spec, prefix=prefix)
+    """Rebuild posterior vector-field draws from an ``ModelSpec`` and samples."""
+    compiled = compile_dynamics(numeric.dynamics_components(spec), prefix=prefix)
     return PosteriorDynamicsSamples(
         vector_field=compiled.vector_field,
         param_samples=component_param_samples_from_site_samples(
@@ -73,18 +75,4 @@ def posterior_dynamics_from_samples(
             samples,
             prefix=prefix,
         ),
-    )
-
-
-def posterior_dynamics_from_result(
-    spec: SSMSpec,
-    result: ParticleMCMCPosterior,
-    *,
-    prefix: str = "vf",
-) -> PosteriorDynamicsSamples:
-    """Rebuild posterior vector-field draws from an inference result."""
-    return posterior_dynamics_from_samples(
-        spec,
-        result.get_samples() or {},
-        prefix=prefix,
     )

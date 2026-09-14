@@ -1,4 +1,4 @@
-"""End-to-end tests: CausalDesign -> StatisticalModelSpec -> Prior Conversion -> Discretization.
+"""End-to-end tests: ModelSpec -> Prior Conversion -> Discretization.
 
 These tests verify the full chain from a realistic causal design
 through DT→CT prior conversion and CT→DT discretization, checking that
@@ -6,7 +6,7 @@ the mathematical roundtrip is consistent.
 
 Phase 1 tests:
 - reference_interval_days precedence chain for DT→CT conversion
-- SSMSpec structure (dynamics_support, lambda_support) from DAG
+- ModelSpec structure (dynamics_support, lambda_support) from DAG
 - First-order DT→CT→DT roundtrip consistency
 - Prior predictive produces finite, stable samples
 
@@ -25,95 +25,46 @@ import numpy as np
 import polars as pl
 import pytest
 
-from nof1_causal_lab.artifacts.causal_design import CausalDesign
-from nof1_causal_lab.artifacts.statistical_model_spec import StatisticalModelSpec
-from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
+from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.expressions import expression_coefficients
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.distributions import DistributionFamily
-from nof1_causal_lab.models.ssm import SSMSpec
+from nof1_causal_lab.models.ssm import numerics as numeric
+from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
 from nof1_causal_lab.models.ssm.compile.inputs import (
     compile_priors as compile_ssm_priors,
 )
-from nof1_causal_lab.models.ssm.compile.inputs import (
-    translate_spec as translate_ssm_spec,
-)
-from nof1_causal_lab.models.ssm.dynamics.spec import (
-    DiagonalDecaySpec,
-    LinearEdgeSpec,
-    NodePotentialSpec,
-    StateDecaySpec,
-    StateInterceptSpec,
-)
-from nof1_causal_lab.models.ssm.structure import Free
 from nof1_causal_lab.prior_distributions import prior_reference_value
-from tests.helpers import model_with_prior_payloads, named_prior_payloads
-from tests.ssm_spec_fixtures import (
+from tests.helpers import (
+    complete_test_model,
+    graph_constructs,
+    make_model,
+    model_with_prior_payloads,
+    named_prior_payloads,
+)
+from tests.model_fixtures import (
     affine_test_evolution,
-    block_ssm_spec,
-    dense_matrix_dynamics_spec,
 )
 
 
-def _block_spec_with_edge_support(
-    *,
-    n_latent: int,
-    n_manifest: int,
-    edge_support: np.ndarray,
-    latent_names: list[str] | None = None,
-) -> SSMSpec:
-    return block_ssm_spec(
-        n_latent=n_latent,
-        n_manifest=n_manifest,
-        dynamics_spec=dense_matrix_dynamics_spec(
-            n_latent=n_latent,
-            decay_support=np.ones(n_latent, dtype=bool),
-            edge_support=edge_support,
-            coupling_template=jnp.zeros((n_latent, n_latent)),
-            intercept_support=np.zeros(n_latent, dtype=bool),
-            cint_template=jnp.zeros(n_latent),
-        ),
-        latent_names=latent_names,
-    )
+def _compile_structure(payload: dict[str, Any]) -> ModelSpec:
 
-
-def _compile_structural_plan(causal_design: dict[str, Any]) -> StructuralPlan:
-    from nof1_causal_lab.models.structural import build_structural_plan
-
-    measurement = causal_design.get("measurement", {})
-    indicators = measurement.get("indicators", [])
-    for indicator in indicators:
-        if isinstance(indicator, dict) and "construct_polarity" not in indicator:
-            indicator["construct_polarity"] = "positive"
-    return build_structural_plan(CausalDesign.model_validate(causal_design))
-
-
-def _translate_spec_for_test(
-    statistical_model_spec: dict[str, Any],
-    structural_plan: StructuralPlan,
-):
-    return translate_ssm_spec(
-        StatisticalModelSpec.model_validate(statistical_model_spec),
-        structural_plan=structural_plan,
-    )
+    return ModelSpec.model_validate(payload)
 
 
 def _compile_priors_for_test(
     priors: dict[str, dict[str, Any]],
-    statistical_model_spec: dict[str, Any],
+    scientific_model: ModelSpec,
     *,
-    ssm_spec: SSMSpec | None = None,
-    structural_plan: StructuralPlan | None = None,
     edge_lag_days: dict[tuple[int, int], float] | None = None,
 ):
     prior_registry, index_maps, _diagnostics = compile_ssm_priors(
         model_with_prior_payloads(
-            StatisticalModelSpec.model_validate(statistical_model_spec),
-            named_prior_payloads(
-                StatisticalModelSpec.model_validate(statistical_model_spec), priors
-            ),
+            ModelSpec.model_validate(scientific_model),
+            named_prior_payloads(ModelSpec.model_validate(scientific_model), priors),
         ),
-        ssm_spec,
         edge_lag_days=edge_lag_days,
-        structural_plan=structural_plan,
     )
     return prior_registry, index_maps
 
@@ -126,86 +77,60 @@ def _prior_reference_value(prior, flat_index: int = 0) -> float:
     return float(np.asarray(prior_reference_value(prior)).reshape(-1)[flat_index])
 
 
-def _decay_reference_values(spec: SSMSpec, prior_registry) -> np.ndarray:
-    values = np.zeros(spec.n_latent, dtype=float)
-    for component_index, component in enumerate(spec.dynamics_spec.components):
-        prefix = f"vf_{component_index}"
-        if isinstance(component, DiagonalDecaySpec):
-            prior = _prior_law(prior_registry, component.decay_site_name(prefix))
-            values += np.array(
-                [_prior_reference_value(prior, idx) for idx in range(spec.n_latent)],
-                dtype=float,
-            )
-        elif isinstance(component, (StateDecaySpec, NodePotentialSpec)):
-            prior = _prior_law(prior_registry, component.decay_site_name(prefix))
-            values[component.target] += _prior_reference_value(prior)
+def _decay_reference_values(spec: ModelSpec, prior_registry) -> np.ndarray:
+    values = np.zeros(numeric.n_states(spec), dtype=float)
+    for index, component in enumerate(numeric.dynamics_expressions(spec)):
+        for _, site in component.parameter_sites(f"vf_{index}"):
+            if site.site_kind == SiteKind.DYNAMICS_DECAY:
+                values[component.target] += _prior_reference_value(prior_registry[site.name])
     return values
 
 
-def _linear_edge_weight(
-    spec: SSMSpec,
-    prior_registry,
-    *,
-    source: int,
-    target: int,
-) -> float:
-    for component_index, component in enumerate(spec.dynamics_spec.components):
-        if (
-            isinstance(component, LinearEdgeSpec)
-            and component.source == source
-            and component.target == target
+def _linear_edge_weight(spec: ModelSpec, prior_registry, *, source: int, target: int) -> float:
+    for index, component in enumerate(numeric.dynamics_expressions(spec)):
+        if component.source == source and component.target == target:
+            for _, site in component.parameter_sites(f"vf_{index}"):
+                if site.site_kind == SiteKind.DYNAMICS_WEIGHT:
+                    return _prior_reference_value(prior_registry[site.name])
+    raise AssertionError(f"No linear coefficient for source={source}, target={target}")
+
+
+def _decay_support(spec: ModelSpec) -> np.ndarray:
+    mask = np.zeros(numeric.n_states(spec), dtype=bool)
+    for component in numeric.dynamics_expressions(spec):
+        if any(
+            operand.role == "decay" for operand in expression_coefficients(component.expression)
         ):
-            prior = _prior_law(prior_registry, component.weight_site_name(f"vf_{component_index}"))
-            return _prior_reference_value(prior)
-    raise AssertionError(f"No LinearEdgeSpec for source={source}, target={target}")
-
-
-def _decay_support(spec: SSMSpec) -> np.ndarray:
-    mask = np.zeros(spec.n_latent, dtype=bool)
-    for component in spec.dynamics_spec.components:
-        if isinstance(component, DiagonalDecaySpec):
-            mask[:] = True
-        elif isinstance(component, (StateDecaySpec, NodePotentialSpec)):
             mask[component.target] = True
     return mask
 
 
-def _linear_edge_support(spec: SSMSpec) -> np.ndarray:
-    mask = np.zeros((spec.n_latent, spec.n_latent), dtype=bool)
-    for component in spec.dynamics_spec.components:
-        if isinstance(component, LinearEdgeSpec):
+def _linear_edge_support(spec: ModelSpec) -> np.ndarray:
+    mask = np.zeros((numeric.n_states(spec), numeric.n_states(spec)), dtype=bool)
+    for component in numeric.dynamics_expressions(spec):
+        if component.source is not None and any(
+            operand.role == "weight" for operand in expression_coefficients(component.expression)
+        ):
             mask[component.target, component.source] = True
     return mask
 
 
-def _state_intercept_mask(spec: SSMSpec) -> np.ndarray:
-    mask = np.zeros(spec.n_latent, dtype=bool)
-    for component in spec.dynamics_spec.components:
-        if isinstance(component, StateInterceptSpec):
-            mask[component.target] = True
-        elif isinstance(component, NodePotentialSpec) and isinstance(component.center, Free):
-            # a free well center is the set-point (the additive drift term)
+def _state_intercept_mask(spec: ModelSpec) -> np.ndarray:
+    mask = np.zeros(numeric.n_states(spec), dtype=bool)
+    for component in numeric.dynamics_expressions(spec):
+        if not component.edge_owned and any(
+            operand.role in {"center", "intercept"} for operand in component.parameters
+        ):
             mask[component.target] = True
     return mask
 
 
-def _reference_dynamics_from_priors(spec: SSMSpec, prior_registry) -> jnp.ndarray:
-    dynamics = np.zeros((spec.n_latent, spec.n_latent), dtype=float)
-    for component_index, component in enumerate(spec.dynamics_spec.components):
-        prefix = f"vf_{component_index}"
-        if isinstance(component, DiagonalDecaySpec):
-            prior = _prior_law(prior_registry, component.decay_site_name(prefix))
-            decay = np.array(
-                [_prior_reference_value(prior, idx) for idx in range(spec.n_latent)],
-                dtype=float,
-            )
-            dynamics[np.arange(spec.n_latent), np.arange(spec.n_latent)] -= decay
-        elif isinstance(component, (StateDecaySpec, NodePotentialSpec)):
-            prior = _prior_law(prior_registry, component.decay_site_name(prefix))
-            dynamics[component.target, component.target] -= _prior_reference_value(prior)
-        elif isinstance(component, LinearEdgeSpec):
-            prior = _prior_law(prior_registry, component.weight_site_name(prefix))
-            dynamics[component.target, component.source] += _prior_reference_value(prior)
+def _reference_dynamics_from_priors(spec: ModelSpec, prior_registry) -> jnp.ndarray:
+    dynamics = -np.diag(_decay_reference_values(spec, prior_registry))
+    for target, source in np.argwhere(_linear_edge_support(spec)):
+        dynamics[target, source] += _linear_edge_weight(
+            spec, prior_registry, source=int(source), target=int(target)
+        )
     return jnp.asarray(dynamics, dtype=jnp.float32)
 
 
@@ -215,215 +140,74 @@ def _reference_dynamics_from_priors(spec: SSMSpec, prior_registry) -> jnp.ndarra
 
 
 @pytest.fixture
-def two_construct_structural_plan() -> StructuralPlan:
+def two_construct_structure() -> ModelSpec:
     """Realistic 2-construct causal design: stress → mood.
 
     - Both constructs are daily time-varying
     - 3 indicators: mood_rating, stress_self_report, stress_cortisol
     - stress_cortisol is a second indicator for stress (free loading)
     """
-    return _compile_structural_plan(
+    return _compile_structure(
         {
-            "latent": {
-                "default_outcome": {"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"},
-                "constructs": [
-                    {
-                        "id": "construct:bbc87212909e45b9e6c3",
-                        "name": "mood",
-                        "description": "Daily mood state",
-                        "role": "endogenous",
-                        "temporal_status": "time_varying",
-                    },
-                    {
+            "default_outcome": {"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"},
+            "edges": [
+                {
+                    "cause": {
                         "id": "construct:6b04dc42c531e7091eb8",
                         "name": "stress",
                         "description": "Daily stress level",
                         "role": "exogenous",
                         "temporal_status": "time_varying",
+                        "indicators": [
+                            {
+                                "id": "indicator:4ff8be7491bd87d28af4",
+                                "name": "stress_self_report",
+                                "how_to_measure": "Self-reported stress (1-10)",
+                                "measurement_dtype": "continuous",
+                                "aggregation": "mean",
+                                "construct_polarity": "positive",
+                            },
+                            {
+                                "id": "indicator:522342c2385e38d5e750",
+                                "name": "stress_cortisol",
+                                "how_to_measure": "Salivary cortisol (nmol/L)",
+                                "measurement_dtype": "continuous",
+                                "aggregation": "mean",
+                                "construct_polarity": "positive",
+                            },
+                        ],
                     },
-                ],
-                "edges": [
-                    {
-                        "cause_id": "construct:6b04dc42c531e7091eb8",
-                        "effect_id": "construct:bbc87212909e45b9e6c3",
-                        "id": "edge:923689028b6b177617c2",
-                        "description": "Stress impairs mood",
-                        "lagged": True,
+                    "effect": {
+                        "id": "construct:bbc87212909e45b9e6c3",
+                        "name": "mood",
+                        "description": "Daily mood state",
+                        "role": "endogenous",
+                        "temporal_status": "time_varying",
+                        "indicators": [
+                            {
+                                "id": "indicator:e05e217de7f4442abdc5",
+                                "name": "mood_rating",
+                                "how_to_measure": "Self-reported mood (1-10)",
+                                "measurement_dtype": "continuous",
+                                "aggregation": "mean",
+                                "construct_polarity": "positive",
+                            }
+                        ],
                     },
-                ],
-            },
-            "measurement": {
-                "model_clock": "1d",
-                "indicators": [
-                    {
-                        "id": "indicator:e05e217de7f4442abdc5",
-                        "construct_id": "construct:bbc87212909e45b9e6c3",
-                        "name": "mood_rating",
-                        "how_to_measure": "Self-reported mood (1-10)",
-                        "measurement_dtype": "continuous",
-                        "aggregation": "mean",
-                    },
-                    {
-                        "id": "indicator:4ff8be7491bd87d28af4",
-                        "construct_id": "construct:6b04dc42c531e7091eb8",
-                        "name": "stress_self_report",
-                        "how_to_measure": "Self-reported stress (1-10)",
-                        "measurement_dtype": "continuous",
-                        "aggregation": "mean",
-                    },
-                    {
-                        "id": "indicator:522342c2385e38d5e750",
-                        "construct_id": "construct:6b04dc42c531e7091eb8",
-                        "name": "stress_cortisol",
-                        "how_to_measure": "Salivary cortisol (nmol/L)",
-                        "measurement_dtype": "continuous",
-                        "aggregation": "mean",
-                    },
-                ],
-            },
+                    "id": "edge:923689028b6b177617c2",
+                    "description": "Stress impairs mood",
+                    "lagged": True,
+                }
+            ],
+            "measurement_clock": "1d",
         }
     )
 
 
 @pytest.fixture
-def two_construct_statistical_model_spec() -> dict[str, Any]:
-    """StatisticalModelSpec matching the 2-construct causal design."""
-    return {
-        "mechanisms": [
-            {
-                "kind": "node_potential",
-                "target_id": "construct:bbc87212909e45b9e6c3",
-                "center": {"kind": "fixed", "value": 0},
-                "stiffness": {
-                    "kind": "estimated",
-                    "parameter_id": "parameter:fb33dbedf43eb15e324c86fa97201278e306cb48aa9752104361309d61215122",
-                },
-                "quartic": {"kind": "fixed", "value": 0},
-            },
-            {
-                "kind": "node_potential",
-                "target_id": "construct:6b04dc42c531e7091eb8",
-                "center": {"kind": "fixed", "value": 0},
-                "stiffness": {
-                    "kind": "estimated",
-                    "parameter_id": "parameter:aa675637a0e802f0cb93b867b6112c3e017a59da1b5c5c51af028a0f8671a86c",
-                },
-                "quartic": {"kind": "fixed", "value": 0},
-            },
-            {
-                "kind": "linear",
-                "edge_id": "edge:923689028b6b177617c2",
-                "weight": {
-                    "kind": "estimated",
-                    "parameter_id": "parameter:9ea4b19b64aca6b21b54f4ba461f15339de78aea7d4decc3b5c6a011a0103508",
-                },
-            },
-        ],
-        "likelihoods": [
-            {
-                "indicator_id": "indicator:e05e217de7f4442abdc5",
-                "distribution": "gaussian",
-                "link": "identity",
-                "reasoning": "Continuous Likert-type scale",
-            },
-            {
-                "indicator_id": "indicator:4ff8be7491bd87d28af4",
-                "distribution": "gaussian",
-                "link": "identity",
-                "reasoning": "Continuous Likert-type scale",
-            },
-            {
-                "indicator_id": "indicator:522342c2385e38d5e750",
-                "distribution": "gaussian",
-                "link": "identity",
-                "reasoning": "Continuous biomarker",
-            },
-        ],
-        "parameters": [
-            {
-                "prior_transform": "dt_persistence_to_ct_decay",
-                "id": "parameter:fb33dbedf43eb15e324c86fa97201278e306cb48aa9752104361309d61215122",
-                "owners": [{"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"}],
-                "quantity": "dynamics_decay",
-                "name": "rho_mood",
-                "role": "ar_coefficient",
-                "constraint": "unit_interval",
-                "description": "AR(1) for mood",
-            },
-            {
-                "prior_transform": "dt_persistence_to_ct_decay",
-                "id": "parameter:aa675637a0e802f0cb93b867b6112c3e017a59da1b5c5c51af028a0f8671a86c",
-                "owners": [{"kind": "construct", "id": "construct:6b04dc42c531e7091eb8"}],
-                "quantity": "dynamics_decay",
-                "name": "rho_stress",
-                "role": "ar_coefficient",
-                "constraint": "unit_interval",
-                "description": "AR(1) for stress",
-            },
-            {
-                "prior_transform": "dt_effect_to_ct_rate",
-                "id": "parameter:9ea4b19b64aca6b21b54f4ba461f15339de78aea7d4decc3b5c6a011a0103508",
-                "owners": [
-                    {"kind": "construct", "id": "construct:6b04dc42c531e7091eb8"},
-                    {"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"},
-                    {"kind": "edge", "id": "edge:923689028b6b177617c2"},
-                ],
-                "quantity": "dynamics_weight",
-                "name": "beta_stress_mood",
-                "role": "fixed_effect",
-                "constraint": "none",
-                "description": "Cross-lagged effect of stress on mood",
-            },
-            {
-                "id": "parameter:146688c9f8e2c980c9e7963be61deb23225a81f828c204339c2164d1f51d441e",
-                "owners": [{"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"}],
-                "quantity": "diffusion_diag",
-                "name": "sigma_mood",
-                "role": "residual_sd",
-                "constraint": "positive",
-                "description": "Residual SD for mood",
-            },
-            {
-                "id": "parameter:9d7975348df433b84bd4306b441aed8700269e498f93566157f260542f1a0f7d",
-                "owners": [{"kind": "construct", "id": "construct:6b04dc42c531e7091eb8"}],
-                "quantity": "diffusion_diag",
-                "name": "sigma_stress",
-                "role": "residual_sd",
-                "constraint": "positive",
-                "description": "Residual SD for stress",
-            },
-            {
-                "id": "parameter:5560bb608dd73ebbdeccd935a050f93eb6aebd4713ad3f402586cb41c6273983",
-                "owners": [
-                    {"kind": "indicator", "id": "indicator:522342c2385e38d5e750"},
-                    {"kind": "construct", "id": "construct:6b04dc42c531e7091eb8"},
-                ],
-                "quantity": "loading",
-                "name": "lambda_stress_cortisol_stress",
-                "role": "loading",
-                "constraint": "positive",
-                "description": "Loading: stress → stress_cortisol",
-            },
-            {
-                "id": "parameter:4a7d50d55d422fa4d2c24df7ec531aedd889be77f66b6c322f30a4da9fe26fe9",
-                "owners": [{"kind": "indicator", "id": "indicator:4ff8be7491bd87d28af4"}],
-                "quantity": "manifest_var_diag",
-                "name": "obs_sd_stress_self_report",
-                "role": "measurement_error_sd",
-                "constraint": "positive",
-                "description": "Measurement error SD for stress self-report",
-            },
-            {
-                "id": "parameter:1670c0d211dec90ec8e8ae17e33cc65476c4e818a0c4334ab234b49d552c4b86",
-                "owners": [{"kind": "indicator", "id": "indicator:522342c2385e38d5e750"}],
-                "quantity": "manifest_var_diag",
-                "name": "obs_sd_stress_cortisol",
-                "role": "measurement_error_sd",
-                "constraint": "positive",
-                "description": "Measurement error SD for stress cortisol",
-            },
-        ],
-    }
+def two_construct_model(two_construct_structure) -> ModelSpec:
+    """Explicit scientific choices and defaults before the pure compiler."""
+    return complete_test_model(two_construct_structure)
 
 
 @pytest.fixture
@@ -514,590 +298,137 @@ def weekly_study_priors() -> dict[str, dict[str, Any]]:
 
 
 class TestE2ESpecToDiscretization:
-    """End-to-end: CausalDesign → SSMSpec → dict[str, dist.Distribution] → discretize → roundtrip."""
+    """End-to-end: ModelSpec → ModelSpec → dict[str, dist.Distribution] → discretize → roundtrip."""
 
-    def test_ssm_spec_structure_from_dag(
-        self, two_construct_structural_plan, two_construct_statistical_model_spec
-    ):
-        """Compilation produces correct SSMSpec from DAG structure."""
-        spec, _elags = _translate_spec_for_test(
-            two_construct_statistical_model_spec,
-            structural_plan=two_construct_structural_plan,
-        )
+    def test_source_model_structure_from_dag(self, two_construct_structure, two_construct_model):
+        """Compilation produces correct ModelSpec from DAG structure."""
 
         # Dimensions
-        assert spec.n_latent == 2  # mood, stress
-        assert spec.n_manifest == 3  # mood_rating, stress_self_report, stress_cortisol
-        assert spec.latent_names == ["mood", "stress"]
+        assert numeric.n_states(two_construct_model) == 2  # mood, stress
+        assert (
+            numeric.n_observations(two_construct_model) == 3
+        )  # mood_rating, stress_self_report, stress_cortisol
+        assert numeric.state_names(two_construct_model) == ["stress", "mood"]
 
         # Dynamics support: diagonal decay (AR) + stress→mood linear edge.
-        np.testing.assert_array_equal(_decay_support(spec), [True, True])
-        edge_support = _linear_edge_support(spec)
-        assert edge_support[0, 1]  # stress→mood coupling (effect=mood row, cause=stress col)
-        assert not edge_support[1, 0]  # no mood→stress edge
+        np.testing.assert_array_equal(_decay_support(two_construct_model), [True, True])
+        edge_support = _linear_edge_support(two_construct_model)
+        assert edge_support[1, 0]  # stress→mood coupling (effect=mood row, cause=stress col)
+        assert not edge_support[0, 1]  # no mood→stress edge
 
         # Lambda mask: stress_cortisol has free loading for stress
-        assert spec.lambda_block.free_support is not None
+        assert numeric.loading_block(two_construct_model).free_support is not None
         # mood_rating loads on mood (fixed=1.0), stress_self_report loads on stress (fixed=1.0)
         # stress_cortisol loads on stress (free)
-        manifest_names = spec.manifest_names
+        manifest_names = numeric.observation_names(two_construct_model)
         assert manifest_names is not None
         stress_cortisol_idx = manifest_names.index("stress_cortisol")
-        assert spec.latent_names is not None
-        stress_latent_idx = spec.latent_names.index("stress")
-        assert spec.lambda_block.free_support[stress_cortisol_idx, stress_latent_idx]
+        assert numeric.state_names(two_construct_model) is not None
+        stress_latent_idx = numeric.state_names(two_construct_model).index("stress")
+        assert numeric.loading_block(two_construct_model).free_support[
+            stress_cortisol_idx, stress_latent_idx
+        ]
 
-    def test_causal_design_owns_latent_identity(self):
-        """Latent identity comes from causal_design, not from AR parameter count."""
-        causal_design = _compile_structural_plan(
-            {
-                "latent": {
-                    "default_outcome": {
-                        "kind": "construct",
-                        "id": "construct:bbc87212909e45b9e6c3",
-                    },
-                    "constructs": [
-                        {
-                            "id": "construct:bbc87212909e45b9e6c3",
-                            "name": "mood",
-                            "description": "Daily mood",
-                            "role": "endogenous",
-                            "temporal_status": "time_varying",
-                        },
-                        {
-                            "id": "construct:6b04dc42c531e7091eb8",
-                            "name": "stress",
-                            "description": "Daily stress",
-                            "role": "exogenous",
-                            "temporal_status": "time_varying",
-                        },
-                        {
-                            "id": "construct:30abde5b60291700a4e8",
-                            "name": "trait_vulnerability",
-                            "description": "Stable vulnerability factor",
-                            "role": "exogenous",
-                            "temporal_status": "time_invariant",
-                        },
-                    ],
-                    "edges": [
-                        {
-                            "cause_id": "construct:6b04dc42c531e7091eb8",
-                            "effect_id": "construct:bbc87212909e45b9e6c3",
-                            "id": "edge:923689028b6b177617c2",
-                            "description": "Stress impairs mood",
-                            "lagged": True,
-                        }
-                    ],
-                },
-                "measurement": {
-                    "model_clock": "1d",
-                    "indicators": [
-                        {
-                            "id": "indicator:e05e217de7f4442abdc5",
-                            "construct_id": "construct:bbc87212909e45b9e6c3",
-                            "name": "mood_rating",
-                            "how_to_measure": "Mood rating",
-                            "measurement_dtype": "continuous",
-                            "aggregation": "mean",
-                        },
-                        {
-                            "id": "indicator:c84e0494dc62978358f9",
-                            "construct_id": "construct:6b04dc42c531e7091eb8",
-                            "name": "stress_rating",
-                            "how_to_measure": "Stress rating",
-                            "measurement_dtype": "continuous",
-                            "aggregation": "mean",
-                        },
-                        {
-                            "id": "indicator:bc5372c8cea5ca4442c5",
-                            "construct_id": "construct:30abde5b60291700a4e8",
-                            "name": "vulnerability_score",
-                            "how_to_measure": "Vulnerability questionnaire",
-                            "measurement_dtype": "continuous",
-                            "aggregation": "mean",
-                        },
-                    ],
-                },
-            }
-        )
-        statistical_model_spec = {
-            "mechanisms": [
-                {
-                    "kind": "node_potential",
-                    "target_id": "construct:bbc87212909e45b9e6c3",
-                    "center": {"kind": "fixed", "value": 0},
-                    "stiffness": {
-                        "kind": "estimated",
-                        "parameter_id": "parameter:fb33dbedf43eb15e324c86fa97201278e306cb48aa9752104361309d61215122",
-                    },
-                    "quartic": {"kind": "fixed", "value": 0},
-                },
-                {
-                    "kind": "node_potential",
-                    "target_id": "construct:6b04dc42c531e7091eb8",
-                    "center": {"kind": "fixed", "value": 0},
-                    "stiffness": {
-                        "kind": "estimated",
-                        "parameter_id": "parameter:aa675637a0e802f0cb93b867b6112c3e017a59da1b5c5c51af028a0f8671a86c",
-                    },
-                    "quartic": {"kind": "fixed", "value": 0},
-                },
-                {
-                    "kind": "linear",
-                    "edge_id": "edge:923689028b6b177617c2",
-                    "weight": {
-                        "kind": "estimated",
-                        "parameter_id": "parameter:9ea4b19b64aca6b21b54f4ba461f15339de78aea7d4decc3b5c6a011a0103508",
-                    },
-                },
-            ],
-            "likelihoods": [
-                {
-                    "indicator_id": "indicator:e05e217de7f4442abdc5",
-                    "distribution": "gaussian",
-                    "link": "identity",
-                    "reasoning": "",
-                },
-                {
-                    "indicator_id": "indicator:c84e0494dc62978358f9",
-                    "distribution": "gaussian",
-                    "link": "identity",
-                    "reasoning": "",
-                },
-                {
-                    "indicator_id": "indicator:bc5372c8cea5ca4442c5",
-                    "distribution": "gaussian",
-                    "link": "identity",
-                    "reasoning": "",
-                },
-            ],
-            "parameters": [
-                {
-                    "prior_transform": "dt_persistence_to_ct_decay",
-                    "id": "parameter:fb33dbedf43eb15e324c86fa97201278e306cb48aa9752104361309d61215122",
-                    "owners": [{"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"}],
-                    "quantity": "dynamics_decay",
-                    "name": "rho_mood",
-                    "role": "ar_coefficient",
-                    "constraint": "unit_interval",
-                    "description": "",
-                },
-                {
-                    "prior_transform": "dt_persistence_to_ct_decay",
-                    "id": "parameter:aa675637a0e802f0cb93b867b6112c3e017a59da1b5c5c51af028a0f8671a86c",
-                    "owners": [{"kind": "construct", "id": "construct:6b04dc42c531e7091eb8"}],
-                    "quantity": "dynamics_decay",
-                    "name": "rho_stress",
-                    "role": "ar_coefficient",
-                    "constraint": "unit_interval",
-                    "description": "",
-                },
-                {
-                    "prior_transform": "dt_effect_to_ct_rate",
-                    "id": "parameter:9ea4b19b64aca6b21b54f4ba461f15339de78aea7d4decc3b5c6a011a0103508",
-                    "owners": [
-                        {"kind": "construct", "id": "construct:6b04dc42c531e7091eb8"},
-                        {"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"},
-                        {"kind": "edge", "id": "edge:923689028b6b177617c2"},
-                    ],
-                    "quantity": "dynamics_weight",
-                    "name": "beta_stress_mood",
-                    "role": "fixed_effect",
-                    "constraint": "none",
-                    "description": "",
-                },
-            ],
-        }
-        priors = {
-            "rho_mood": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
-            "rho_stress": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
-            "beta_stress_mood": {"distribution": "Normal", "params": {"mu": 0.3, "sigma": 0.1}},
-        }
+    def test_model_owns_latent_identity(self, two_construct_model):
 
-        spec, _elags = _translate_spec_for_test(
-            statistical_model_spec, structural_plan=causal_design
+        model = two_construct_model
+        renamed = model.revised(
+            edges=replace_constructs(
+                model.edges,
+                tuple(
+                    c.model_copy(update={"name": "renamed"}) if c.name == "mood" else c
+                    for c in model.constructs
+                ),
+            )
         )
-        ssm_priors, _idx = _compile_priors_for_test(
-            priors,
-            statistical_model_spec,
-            ssm_spec=spec,
-            structural_plan=causal_design,
-        )
-
-        assert spec.latent_names == ["mood", "stress", "trait_vulnerability"]
-        assert spec.n_latent == 3
-        np.testing.assert_array_equal(_decay_support(spec), [True, True, False])
-        np.testing.assert_array_equal(_state_intercept_mask(spec), [False, False, False])
-        np.testing.assert_array_equal(
-            spec.diffusion_block.diffusion_chol_support,
-            [
-                [True, False, False],
-                [False, True, False],
-                [False, False, False],
-            ],
-        )
-        assert _decay_reference_values(spec, ssm_priors).shape == (3,)
+        spec, _ = (renamed, numeric.edge_lag_days(renamed))
+        assert numeric.state_names(spec) == ["stress", "renamed"]
+        assert numeric.state_ids(spec) == [c.id for c in model.constructs]
+        assert [p.id for p in renamed.parameters] == [p.id for p in model.parameters]
 
     def test_time_invariant_states_drop_static_target_dynamics_and_diffusion_support(self):
-        """Time-invariant states should not expose dynamics, diffusion, or cint support."""
-        causal_design = _compile_structural_plan(
-            {
-                "latent": {
-                    "default_outcome": {
-                        "kind": "construct",
-                        "id": "construct:bbc87212909e45b9e6c3",
-                    },
-                    "constructs": [
-                        {
-                            "id": "construct:bbc87212909e45b9e6c3",
-                            "name": "mood",
-                            "description": "Daily mood",
-                            "role": "endogenous",
-                            "temporal_status": "time_varying",
-                        },
-                        {
-                            "id": "construct:6b04dc42c531e7091eb8",
-                            "name": "stress",
-                            "description": "Daily stress",
-                            "role": "exogenous",
-                            "temporal_status": "time_varying",
-                        },
-                        {
-                            "id": "construct:30abde5b60291700a4e8",
-                            "name": "trait_vulnerability",
-                            "description": "Stable vulnerability factor",
-                            "role": "exogenous",
-                            "temporal_status": "time_invariant",
-                        },
-                    ],
-                    "edges": [
-                        {
-                            "cause_id": "construct:6b04dc42c531e7091eb8",
-                            "effect_id": "construct:bbc87212909e45b9e6c3",
-                            "id": "edge:923689028b6b177617c2",
-                            "description": "Stress impairs mood",
-                            "lagged": True,
-                        },
-                        {
-                            "cause_id": "construct:30abde5b60291700a4e8",
-                            "effect_id": "construct:bbc87212909e45b9e6c3",
-                            "id": "edge:a985e6c3419002320def",
-                            "description": "Stable vulnerability shifts mood dynamics",
-                            "lagged": False,
-                        },
-                    ],
-                },
-                "measurement": {
-                    "model_clock": "1d",
-                    "indicators": [
-                        {
-                            "id": "indicator:e05e217de7f4442abdc5",
-                            "construct_id": "construct:bbc87212909e45b9e6c3",
-                            "name": "mood_rating",
-                            "how_to_measure": "Mood rating",
-                            "measurement_dtype": "continuous",
-                            "aggregation": "mean",
-                        },
-                        {
-                            "id": "indicator:c84e0494dc62978358f9",
-                            "construct_id": "construct:6b04dc42c531e7091eb8",
-                            "name": "stress_rating",
-                            "how_to_measure": "Stress rating",
-                            "measurement_dtype": "continuous",
-                            "aggregation": "mean",
-                        },
-                        {
-                            "id": "indicator:bc5372c8cea5ca4442c5",
-                            "construct_id": "construct:30abde5b60291700a4e8",
-                            "name": "vulnerability_score",
-                            "how_to_measure": "Vulnerability questionnaire",
-                            "measurement_dtype": "continuous",
-                            "aggregation": "mean",
-                        },
-                    ],
-                },
-            }
-        )
-        statistical_model_spec = {
-            "mechanisms": [
-                {
-                    "kind": "node_potential",
-                    "target_id": "construct:bbc87212909e45b9e6c3",
-                    "center": {"kind": "fixed", "value": 0},
-                    "stiffness": {
-                        "kind": "estimated",
-                        "parameter_id": "parameter:fb33dbedf43eb15e324c86fa97201278e306cb48aa9752104361309d61215122",
-                    },
-                    "quartic": {"kind": "fixed", "value": 0},
-                },
-                {
-                    "kind": "node_potential",
-                    "target_id": "construct:6b04dc42c531e7091eb8",
-                    "center": {"kind": "fixed", "value": 0},
-                    "stiffness": {
-                        "kind": "estimated",
-                        "parameter_id": "parameter:aa675637a0e802f0cb93b867b6112c3e017a59da1b5c5c51af028a0f8671a86c",
-                    },
-                    "quartic": {"kind": "fixed", "value": 0},
-                },
-                {
-                    "kind": "linear",
-                    "edge_id": "edge:923689028b6b177617c2",
-                    "weight": {
-                        "kind": "estimated",
-                        "parameter_id": "parameter:9ea4b19b64aca6b21b54f4ba461f15339de78aea7d4decc3b5c6a011a0103508",
-                    },
-                },
-                {
-                    "kind": "linear",
-                    "edge_id": "edge:a985e6c3419002320def",
-                    "weight": {
-                        "kind": "estimated",
-                        "parameter_id": "parameter:160f72664e50706a6728ad74b7e7924f04eed48fbdf017393de8e5143f5a790d",
-                    },
-                },
-            ],
-            "likelihoods": [
-                {
-                    "indicator_id": "indicator:e05e217de7f4442abdc5",
-                    "distribution": "gaussian",
-                    "link": "identity",
-                    "reasoning": "",
-                },
-                {
-                    "indicator_id": "indicator:c84e0494dc62978358f9",
-                    "distribution": "gaussian",
-                    "link": "identity",
-                    "reasoning": "",
-                },
-                {
-                    "indicator_id": "indicator:bc5372c8cea5ca4442c5",
-                    "distribution": "gaussian",
-                    "link": "identity",
-                    "reasoning": "",
-                },
-            ],
-            "parameters": [
-                {
-                    "prior_transform": "dt_persistence_to_ct_decay",
-                    "id": "parameter:fb33dbedf43eb15e324c86fa97201278e306cb48aa9752104361309d61215122",
-                    "owners": [{"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"}],
-                    "quantity": "dynamics_decay",
-                    "name": "rho_mood",
-                    "role": "ar_coefficient",
-                    "constraint": "unit_interval",
-                    "description": "",
-                },
-                {
-                    "prior_transform": "dt_persistence_to_ct_decay",
-                    "id": "parameter:aa675637a0e802f0cb93b867b6112c3e017a59da1b5c5c51af028a0f8671a86c",
-                    "owners": [{"kind": "construct", "id": "construct:6b04dc42c531e7091eb8"}],
-                    "quantity": "dynamics_decay",
-                    "name": "rho_stress",
-                    "role": "ar_coefficient",
-                    "constraint": "unit_interval",
-                    "description": "",
-                },
-                {
-                    "prior_transform": "dt_effect_to_ct_rate",
-                    "id": "parameter:9ea4b19b64aca6b21b54f4ba461f15339de78aea7d4decc3b5c6a011a0103508",
-                    "owners": [
-                        {"kind": "construct", "id": "construct:6b04dc42c531e7091eb8"},
-                        {"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"},
-                        {"kind": "edge", "id": "edge:923689028b6b177617c2"},
-                    ],
-                    "quantity": "dynamics_weight",
-                    "name": "beta_stress_mood",
-                    "role": "fixed_effect",
-                    "constraint": "none",
-                    "description": "",
-                },
-                {
-                    "prior_transform": "dt_effect_to_ct_rate",
-                    "id": "parameter:160f72664e50706a6728ad74b7e7924f04eed48fbdf017393de8e5143f5a790d",
-                    "owners": [
-                        {"kind": "construct", "id": "construct:30abde5b60291700a4e8"},
-                        {"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"},
-                        {"kind": "edge", "id": "edge:a985e6c3419002320def"},
-                    ],
-                    "quantity": "dynamics_weight",
-                    "name": "beta_trait_vulnerability_mood",
-                    "role": "fixed_effect",
-                    "constraint": "none",
-                    "description": "",
-                },
-                {
-                    "id": "parameter:78336d37062c93b42738e185fd1a0109c7c713746b091838d195514ae6f34adc",
-                    "owners": [
-                        {"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"},
-                        {"kind": "construct", "id": "construct:6b04dc42c531e7091eb8"},
-                    ],
-                    "quantity": "diffusion_lower",
-                    "name": "cor_mood_stress",
-                    "role": "correlation",
-                    "constraint": "correlation",
-                    "description": "",
-                },
-            ],
-        }
 
-        spec, _elags = _translate_spec_for_test(
-            statistical_model_spec, structural_plan=causal_design
-        )
-
-        assert spec.latent_names == ["mood", "stress", "trait_vulnerability"]
-        np.testing.assert_array_equal(_decay_support(spec), [True, True, False])
-        edge_support = _linear_edge_support(spec)
-        assert edge_support[0, 1]
-        assert edge_support[0, 2]
-        assert not edge_support[2, 0]
-        assert not edge_support[2, 1]
-        np.testing.assert_array_equal(_state_intercept_mask(spec), [False, False, False])
-        np.testing.assert_array_equal(
-            spec.diffusion_block.diffusion_chol_support,
-            [
-                [True, False, False],
-                [False, True, False],
-                [False, False, False],
-            ],
-        )
-
-    def test_builder_rejects_mechanism_targets_outside_causal_design(
-        self, two_construct_structural_plan
-    ):
-        """Bad parameter names should fail instead of compiling a different model."""
-        statistical_model_spec = {
-            "mechanisms": [
-                {
-                    "kind": "node_potential",
-                    "target_id": "construct:05cde79d2d36a58cfb68",
-                    "center": {"kind": "fixed", "value": 0},
-                    "stiffness": {
-                        "kind": "estimated",
-                        "parameter_id": "parameter:06d9cf69961c5af677a82e143f7992004a8b9b27c8878ed5e7390deb65160dcc",
-                    },
-                    "quartic": {"kind": "fixed", "value": 0},
-                },
-                {
-                    "kind": "node_potential",
-                    "target_id": "construct:6b04dc42c531e7091eb8",
-                    "center": {"kind": "fixed", "value": 0},
-                    "stiffness": {
-                        "kind": "estimated",
-                        "parameter_id": "parameter:aa675637a0e802f0cb93b867b6112c3e017a59da1b5c5c51af028a0f8671a86c",
-                    },
-                    "quartic": {"kind": "fixed", "value": 0},
-                },
-            ],
-            "likelihoods": [
-                {
-                    "indicator_id": "indicator:e05e217de7f4442abdc5",
-                    "distribution": "gaussian",
-                    "link": "identity",
-                    "reasoning": "",
-                },
-                {
-                    "indicator_id": "indicator:4ff8be7491bd87d28af4",
-                    "distribution": "gaussian",
-                    "link": "identity",
-                    "reasoning": "",
-                },
-                {
-                    "indicator_id": "indicator:522342c2385e38d5e750",
-                    "distribution": "gaussian",
-                    "link": "identity",
-                    "reasoning": "",
-                },
-            ],
-            "parameters": [
-                {
-                    "prior_transform": "dt_persistence_to_ct_decay",
-                    "id": "parameter:06d9cf69961c5af677a82e143f7992004a8b9b27c8878ed5e7390deb65160dcc",
-                    "owners": [{"kind": "construct", "id": "construct:05cde79d2d36a58cfb68"}],
-                    "quantity": "dynamics_decay",
-                    "name": "rho_affect",
-                    "role": "ar_coefficient",
-                    "constraint": "unit_interval",
-                    "description": "",
-                },
-                {
-                    "prior_transform": "dt_persistence_to_ct_decay",
-                    "id": "parameter:aa675637a0e802f0cb93b867b6112c3e017a59da1b5c5c51af028a0f8671a86c",
-                    "owners": [{"kind": "construct", "id": "construct:6b04dc42c531e7091eb8"}],
-                    "quantity": "dynamics_decay",
-                    "name": "rho_stress",
-                    "role": "ar_coefficient",
-                    "constraint": "unit_interval",
-                    "description": "",
-                },
-            ],
-        }
-
-        with pytest.raises(ValueError, match="Mechanism references unknown retained state"):
-            _translate_spec_for_test(
-                statistical_model_spec,
-                structural_plan=two_construct_structural_plan,
+        model = make_model(["baseline", "mood"], [("baseline", "mood")])
+        model = model.revised(
+            edges=replace_constructs(
+                model.edges,
+                (
+                    model.constructs[0].model_copy(
+                        update={"role": "exogenous", "temporal_status": "time_invariant"}
+                    ),
+                    model.constructs[1],
+                ),
             )
+        )
+        model = complete_test_model(model)
+        spec, _ = (model, numeric.edge_lag_days(model))
+        assert not model.constructs[0].dynamics
+        static_index = numeric.state_names(spec).index("baseline")
+        dynamic_index = numeric.state_names(spec).index("mood")
+        assert not _decay_support(spec)[static_index]
+        assert _decay_support(spec)[dynamic_index]
+        assert not numeric.diffusion_block(spec).diffusion_chol_support[static_index, static_index]
+        assert numeric.diffusion_block(spec).diffusion_chol_support[dynamic_index, dynamic_index]
+        assert not _linear_edge_support(spec)[static_index].any()
+        assert not _state_intercept_mask(spec)[static_index]
+
+    def test_model_rejects_mechanism_reference_outside_its_owners(self, two_construct_model):
+        payload = two_construct_model.model_dump(mode="json")
+        target = graph_constructs(payload)[0]["dynamics"][0]
+        target["expression"] = {
+            "kind": "coefficient",
+            "role": "decay",
+            "coefficient": {"kind": "parameter", "parameter_id": "parameter:foreign"},
+        }
+        with pytest.raises(ValueError, match="parameter"):
+            ModelSpec.model_validate(payload)
 
     def test_compiled_artifact_roundtrips_grounded_structure(
         self,
-        two_construct_structural_plan,
-        two_construct_statistical_model_spec,
+        two_construct_structure,
+        two_construct_model,
         weekly_study_priors,
     ):
         """Compiled artifacts preserve the grounded latent and measurement layout."""
-        from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
-        from nof1_causal_lab.models.ssm.runtime import hydrate_compiled_model
+        from nof1_causal_lab.models.model_checks import check_execution
+        from nof1_causal_lab.models.ssm.runtime import build_ssm_model
         from nof1_causal_lab.utils.data import pivot_to_wide
         from tests.helpers import make_prior_model
 
-        typed_statistical_model_spec = StatisticalModelSpec.model_validate(
-            two_construct_statistical_model_spec
-        )
-        compiled = compile_ssm_artifact(
-            make_prior_model(typed_statistical_model_spec, weekly_study_priors),
-            structural_plan=two_construct_structural_plan,
+        typed_scientific_model = ModelSpec.model_validate(two_construct_model)
+        compiled = check_execution(
+            make_prior_model(typed_scientific_model, weekly_study_priors),
         )
 
-        assert compiled.schema_version == 2
-        assert compiled.spec.latent_names == ["mood", "stress"]
-        assert compiled.spec.manifest_names == [
-            "mood_rating",
+        assert len(compiled) == 2
+        assert numeric.state_names(
+            make_prior_model(typed_scientific_model, weekly_study_priors)
+        ) == ["stress", "mood"]
+        assert numeric.observation_names(typed_scientific_model) == [
             "stress_self_report",
             "stress_cortisol",
+            "mood_rating",
         ]
-        parameter_bindings = [
+        binding_rows = [
             {
                 "parameter": next(
-                    p.name for p in compiled.parameters if p.id == binding.parameter_id
+                    p.name
+                    for p in typed_scientific_model.parameters
+                    if p.id == binding.parameter_id
                 ),
                 "site_name": binding.site_name,
                 "flat_index": binding.flat_index,
             }
-            for binding in compiled.parameter_bindings
+            for binding in parameter_bindings(
+                make_prior_model(typed_scientific_model, weekly_study_priors)
+            )[0]
         ]
-        assert sorted(parameter_bindings, key=lambda row: row["parameter"]) == [
-            {"parameter": "beta_stress_mood", "site_name": "vf_2_weight", "flat_index": 0},
-            {
-                "parameter": "lambda_stress_cortisol_stress",
-                "site_name": "lambda_free",
-                "flat_index": 0,
-            },
-            {
-                "parameter": "obs_sd_stress_cortisol",
-                "site_name": "manifest_var_diag_free",
-                "flat_index": 1,
-            },
-            {
-                "parameter": "obs_sd_stress_self_report",
-                "site_name": "manifest_var_diag_free",
-                "flat_index": 0,
-            },
-            {"parameter": "rho_mood", "site_name": "vf_0_decay", "flat_index": 0},
-            {"parameter": "rho_stress", "site_name": "vf_1_decay", "flat_index": 0},
-            {"parameter": "sigma_mood", "site_name": "diffusion_diag_free", "flat_index": 0},
-            {"parameter": "sigma_stress", "site_name": "diffusion_diag_free", "flat_index": 1},
-        ]
+        bindings = {item["parameter"]: item for item in binding_rows}
+        assert bindings["beta_stress_mood"]["site_name"] == "vf_2_p0"
+        assert bindings["rho_mood"]["site_name"] == "vf_1_p0"
+        assert bindings["rho_stress"]["site_name"] == "vf_0_p0"
+        assert bindings["lambda_stress_cortisol_stress"]["flat_index"] == 0
+        assert set(bindings) == {p.name for p in typed_scientific_model.parameters}
 
         data_for_model = pl.DataFrame(
             {
@@ -1122,29 +453,34 @@ class TestE2ESpecToDiscretization:
         )
 
         indicator_ids = {
-            item.name: item.id
-            for item in two_construct_structural_plan.semantics.indicators.values()
+            item.name: item.id for item in two_construct_structure._indicators.values()
         }
         data_for_model = data_for_model.with_columns(
             pl.col("indicator").replace_strict(indicator_ids).alias("indicator_id")
         ).drop("indicator")
-        model = hydrate_compiled_model(
-            compiled, pivot_to_wide(data_for_model).rename(compiled.observation_bindings)
+        model = build_ssm_model(
+            pivot_to_wide(data_for_model).rename(
+                {i.id: i.name for i in typed_scientific_model.indicators}
+            ),
+            model_spec=make_prior_model(typed_scientific_model, weekly_study_priors),
         )
         spec = model.spec
-        assert spec.latent_names == ["mood", "stress"]
+        assert numeric.state_names(spec) == ["stress", "mood"]
         edge_support = _linear_edge_support(spec)
-        assert edge_support[0, 1]
-        assert not edge_support[1, 0]
-        assert spec.lambda_block.free_support is not None
-        assert spec.lambda_block.free_support[2, 1]
+        assert edge_support[1, 0]
+        assert not edge_support[0, 1]
+        assert numeric.loading_block(spec).free_support is not None
+        assert numeric.loading_block(spec).free_support[1, 0]
         runtime = model.get_prior_runtime_bundle()
-        assert runtime.priors["vf_0_decay"].batch_shape == ()
-        assert runtime.priors["vf_1_decay"].batch_shape == ()
-        assert model.parameter_bindings == compiled.parameter_bindings
+        assert runtime.priors["vf_0_p0"].batch_shape == ()
+        assert runtime.priors["vf_1_p0"].batch_shape == ()
+        assert (
+            model.parameter_bindings
+            == parameter_bindings(make_prior_model(typed_scientific_model, weekly_study_priors))[0]
+        )
 
     def test_residual_sd_priors_are_construct_specific(
-        self, two_construct_structural_plan, two_construct_statistical_model_spec
+        self, two_construct_structure, two_construct_model
     ):
         """Construct-specific sigma priors compile to per-latent diffusion scales."""
         priors = {
@@ -1159,23 +495,17 @@ class TestE2ESpecToDiscretization:
             },
         }
 
-        spec, _elags = _translate_spec_for_test(
-            two_construct_statistical_model_spec,
-            structural_plan=two_construct_structural_plan,
-        )
         ssm_priors, _idx = _compile_priors_for_test(
             priors,
-            two_construct_statistical_model_spec,
-            ssm_spec=spec,
-            structural_plan=two_construct_structural_plan,
+            two_construct_model,
         )
 
-        np.testing.assert_allclose(ssm_priors["diffusion_diag_free"].scale, [0.1, 0.9])
+        np.testing.assert_allclose(ssm_priors["diffusion_diag_free"].scale, [0.9, 0.1])
 
     def test_dt_to_ct_uses_reference_interval_days(
         self,
-        two_construct_structural_plan,
-        two_construct_statistical_model_spec,
+        two_construct_structure,
+        two_construct_model,
         weekly_study_priors,
     ):
         """Priors with reference_interval_days use that dt.
@@ -1184,23 +514,17 @@ class TestE2ESpecToDiscretization:
         rho_stress has no reference_interval_days → falls back to dt=1
         beta_stress_mood has reference_interval_days=7 → dt=7
         """
-        spec, _elags = _translate_spec_for_test(
-            two_construct_statistical_model_spec,
-            structural_plan=two_construct_structural_plan,
-        )
         ssm_priors, _idx = _compile_priors_for_test(
             weekly_study_priors,
-            two_construct_statistical_model_spec,
-            ssm_spec=spec,
-            structural_plan=two_construct_structural_plan,
+            two_construct_model,
         )
 
         # --- rho_mood: Beta(3,2) → E=0.6, reference_interval_days=7 ---
         # dynamics decay for mood = -ln(0.6) / 7 ≈ 0.073
         mu_ar_mood = 3.0 / 5.0  # E[Beta(3,2)] = 0.6
         expected_dynamics_mood = -math.log(mu_ar_mood) / 7.0
-        mu_dynamics = _decay_reference_values(spec, ssm_priors)
-        mu_mood = mu_dynamics[0]
+        mu_dynamics = _decay_reference_values(two_construct_model, ssm_priors)
+        mu_mood = mu_dynamics[1]
         assert abs(mu_mood - expected_dynamics_mood) < 0.01, (
             f"mood dynamics: got {mu_mood}, expected {expected_dynamics_mood} "
             f"(using reference_interval_days=7)"
@@ -1210,7 +534,7 @@ class TestE2ESpecToDiscretization:
         # dynamics decay for stress = -ln(0.5) / 1.0 ≈ 0.693
         mu_ar_stress = 0.5
         expected_dynamics_stress = -math.log(mu_ar_stress) / 1.0
-        mu_stress = mu_dynamics[1]
+        mu_stress = mu_dynamics[0]
         assert abs(mu_stress - expected_dynamics_stress) < 0.01, (
             f"stress dynamics: got {mu_stress}, expected {expected_dynamics_stress} "
             f"(fallback to daily dt=1)"
@@ -1219,7 +543,7 @@ class TestE2ESpecToDiscretization:
         # --- beta_stress_mood: Normal(0.3, 0.15), reference_interval_days=7 ---
         # linear-edge weight = 0.3 / 7 ≈ 0.043
         expected_offdiag = 0.3 / 7.0
-        mu_offdiag_val = _linear_edge_weight(spec, ssm_priors, source=1, target=0)
+        mu_offdiag_val = _linear_edge_weight(two_construct_model, ssm_priors, source=0, target=1)
         assert abs(mu_offdiag_val - expected_offdiag) < 0.01, (
             f"stress→mood dynamics: got {mu_offdiag_val}, expected {expected_offdiag} "
             f"(using reference_interval_days=7)"
@@ -1227,23 +551,17 @@ class TestE2ESpecToDiscretization:
 
     def test_ct_dynamics_is_stable(
         self,
-        two_construct_structural_plan,
-        two_construct_statistical_model_spec,
+        two_construct_structure,
+        two_construct_model,
         weekly_study_priors,
     ):
         """The CT dynamics matrix from converted priors has all eigenvalues with Re < 0."""
-        spec, _elags = _translate_spec_for_test(
-            two_construct_statistical_model_spec,
-            structural_plan=two_construct_structural_plan,
-        )
         ssm_priors, _idx = _compile_priors_for_test(
             weekly_study_priors,
-            two_construct_statistical_model_spec,
-            ssm_spec=spec,
-            structural_plan=two_construct_structural_plan,
+            two_construct_model,
         )
 
-        dynamics = np.asarray(_reference_dynamics_from_priors(spec, ssm_priors))
+        dynamics = np.asarray(_reference_dynamics_from_priors(two_construct_model, ssm_priors))
 
         # All eigenvalues must have negative real parts (stability)
         eigenvalues = np.linalg.eigvals(dynamics)
@@ -1252,33 +570,27 @@ class TestE2ESpecToDiscretization:
 
     def test_first_order_roundtrip_ar(
         self,
-        two_construct_structural_plan,
-        two_construct_statistical_model_spec,
+        two_construct_structure,
+        two_construct_model,
         weekly_study_priors,
     ):
         """Resolved AR persistence follows component-owned decay rates."""
-        spec, _elags = _translate_spec_for_test(
-            two_construct_statistical_model_spec,
-            structural_plan=two_construct_structural_plan,
-        )
         ssm_priors, _idx = _compile_priors_for_test(
             weekly_study_priors,
-            two_construct_statistical_model_spec,
-            ssm_spec=spec,
-            structural_plan=two_construct_structural_plan,
+            two_construct_model,
         )
 
-        dynamics = _reference_dynamics_from_priors(spec, ssm_priors)
+        dynamics = _reference_dynamics_from_priors(two_construct_model, ssm_priors)
 
         # Discretize at dt=7 (weekly). The mood prior was authored on the
         # weekly interval, so its diagonal transition recovers that persistence.
         dt_weekly = 7.0
         F_weekly = jla.expm(dynamics * dt_weekly)
 
-        decay_rate = _decay_reference_values(spec, ssm_priors)
+        decay_rate = _decay_reference_values(two_construct_model, ssm_priors)
         baseline_ar_mood = 3.0 / 5.0  # Beta(3,2) mean = 0.6
-        expected_resolved_mood = math.exp(-decay_rate[0] * dt_weekly)
-        recovered_ar_mood = float(F_weekly[0, 0])
+        expected_resolved_mood = math.exp(-decay_rate[1] * dt_weekly)
+        recovered_ar_mood = float(F_weekly[1, 1])
         assert recovered_ar_mood == pytest.approx(baseline_ar_mood, abs=0.05)
         assert abs(recovered_ar_mood - expected_resolved_mood) < 0.05, (
             f"Weekly resolved mood AR: got {recovered_ar_mood:.4f}, "
@@ -1286,7 +598,7 @@ class TestE2ESpecToDiscretization:
         )
 
         # stress: dt=1 for this prior, evaluated over a weekly interval.
-        recovered_ar_stress = float(F_weekly[1, 1])
+        recovered_ar_stress = float(F_weekly[0, 0])
         assert recovered_ar_stress < 0.05, (
             f"Stress AR at weekly interval should be very low (daily-derived rate), "
             f"got {recovered_ar_stress:.4f}"
@@ -1294,8 +606,8 @@ class TestE2ESpecToDiscretization:
 
         # Discretize at dt=1 (daily) for stress resolved persistence.
         F_daily = jla.expm(dynamics * 1.0)
-        expected_daily_stress = math.exp(-decay_rate[1])
-        recovered_daily_stress = float(F_daily[1, 1])
+        expected_daily_stress = math.exp(-decay_rate[0])
+        recovered_daily_stress = float(F_daily[0, 0])
         assert abs(recovered_daily_stress - expected_daily_stress) < 0.05, (
             f"Daily roundtrip stress AR: got {recovered_daily_stress:.4f}, "
             f"expected ≈{expected_daily_stress:.4f}"
@@ -1303,8 +615,8 @@ class TestE2ESpecToDiscretization:
 
     def test_first_order_roundtrip_cross_lag(
         self,
-        two_construct_structural_plan,
-        two_construct_statistical_model_spec,
+        two_construct_structure,
+        two_construct_model,
         weekly_study_priors,
     ):
         """DT→CT→DT roundtrip for cross-lagged coefficient.
@@ -1313,34 +625,27 @@ class TestE2ESpecToDiscretization:
         → CT rate = 0.3/7 → discretize at dt=7 → F[mood,stress] ≈ 0.3
         (first-order approximation; exact requires matrix exponential)
         """
-        spec, _elags = _translate_spec_for_test(
-            two_construct_statistical_model_spec,
-            structural_plan=two_construct_structural_plan,
-        )
         ssm_priors, _idx = _compile_priors_for_test(
             weekly_study_priors,
-            two_construct_statistical_model_spec,
-            ssm_spec=spec,
-            structural_plan=two_construct_structural_plan,
+            two_construct_model,
         )
 
         # Build dynamics matrix
-        dynamics = _reference_dynamics_from_priors(spec, ssm_priors)
+        dynamics = _reference_dynamics_from_priors(two_construct_model, ssm_priors)
 
         # Discretize at weekly interval
         dt_weekly = 7.0
         F_weekly = jla.expm(dynamics * dt_weekly)
 
-        # NOTE: F[0,1] ≠ β_DT because the matrix exponential mixes terms:
-        #   F[0,1] = A[0,1] * (exp(A[0,0]*dt) - exp(A[1,1]*dt)) / (A[1,1] - A[0,0])
-        # For different diagonal entries, this is NOT simply A[0,1]*dt.
+        # NOTE: F[mood,stress] ≠ β_DT because the matrix exponential mixes terms.
+        # For different diagonal entries, this is not simply A[mood,stress]*dt.
         # The exact DT→CT→DT roundtrip requires the matrix logarithm (Phase 2).
         #
         # What we CAN verify at first order:
         # 1. The CT rate was computed correctly (tested in test_dt_to_ct_uses_reference_interval_days)
-        # 2. The coupling direction is preserved (F[0,1] > 0 since A[0,1] > 0)
+        # 2. The coupling direction is preserved (F[mood,stress] > 0).
         # 3. The exact logm(F)/dt recovers the original A (tested in Phase 2 tests)
-        recovered_coupling = float(F_weekly[0, 1])
+        recovered_coupling = float(F_weekly[1, 0])
         assert recovered_coupling > 0, (
             f"Coupling direction should be positive (stress→mood), got {recovered_coupling:.4f}"
         )
@@ -1348,32 +653,26 @@ class TestE2ESpecToDiscretization:
         from scipy.linalg import logm
 
         A_recovered = logm(np.array(F_weekly)).real / dt_weekly
-        ct_rate = float(dynamics[0, 1])  # the CT rate we set
-        assert abs(A_recovered[0, 1] - ct_rate) < 1e-6, (
-            f"Exact logm roundtrip: got {A_recovered[0, 1]:.6f}, expected {ct_rate:.6f}"
+        ct_rate = float(dynamics[1, 0])  # the CT rate we set
+        assert abs(A_recovered[1, 0] - ct_rate) < 1e-6, (
+            f"Exact logm roundtrip: got {A_recovered[1, 0]:.6f}, expected {ct_rate:.6f}"
         )
 
     def test_discretize_produces_valid_system(
         self,
-        two_construct_structural_plan,
-        two_construct_statistical_model_spec,
+        two_construct_structure,
+        two_construct_model,
         weekly_study_priors,
     ):
         """discretize_linear_system_exact produces valid F, Q, c from converted priors."""
-        spec, _elags = _translate_spec_for_test(
-            two_construct_statistical_model_spec,
-            structural_plan=two_construct_structural_plan,
-        )
         ssm_priors, _idx = _compile_priors_for_test(
             weekly_study_priors,
-            two_construct_statistical_model_spec,
-            ssm_spec=spec,
-            structural_plan=two_construct_structural_plan,
+            two_construct_model,
         )
 
         # Build dynamics and diffusion at prior means
-        n = spec.n_latent
-        dynamics = _reference_dynamics_from_priors(spec, ssm_priors)
+        n = numeric.n_states(two_construct_model)
+        dynamics = _reference_dynamics_from_priors(two_construct_model, ssm_priors)
 
         # Simple diagonal diffusion
         diff_sd = _prior_law(ssm_priors, "diffusion_diag_free").scale
@@ -1407,8 +706,8 @@ class TestE2ESpecToDiscretization:
     @pytest.mark.cpu_expensive
     def test_prior_predictive_produces_finite_samples(
         self,
-        two_construct_structural_plan,
-        two_construct_statistical_model_spec,
+        two_construct_structure,
+        two_construct_model,
         weekly_study_priors,
     ):
         """Prior predictive sampling produces finite, bounded outputs."""
@@ -1426,18 +725,17 @@ class TestE2ESpecToDiscretization:
                 "time": np.arange(n_time, dtype=float),
             }
         )
-        from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
-        from nof1_causal_lab.models.ssm.runtime import hydrate_compiled_model
+        from nof1_causal_lab.models.model_checks import check_execution
+        from nof1_causal_lab.models.ssm.runtime import build_ssm_model
         from tests.helpers import make_prior_model
 
-        typed_statistical_model_spec = StatisticalModelSpec.model_validate(
-            two_construct_statistical_model_spec
+        typed_scientific_model = ModelSpec.model_validate(two_construct_model)
+        check_execution(
+            make_prior_model(typed_scientific_model, weekly_study_priors),
         )
-        compiled = compile_ssm_artifact(
-            make_prior_model(typed_statistical_model_spec, weekly_study_priors),
-            two_construct_structural_plan,
+        model = build_ssm_model(
+            mock_data, model_spec=make_prior_model(typed_scientific_model, weekly_study_priors)
         )
-        model = hydrate_compiled_model(compiled, mock_data)
 
         # Sample from prior predictive
         times = jnp.arange(n_time, dtype=jnp.float32)
@@ -1457,134 +755,15 @@ class TestE2ESpecToDiscretization:
         for key in [name for name in dynamics_keys if name.endswith("_decay")]:
             assert jnp.all(samples[key] > 0), f"{key} has non-positive decay draws"
 
-    def test_different_intervals_produce_different_rates(
-        self, two_construct_statistical_model_spec
-    ):
+    def test_different_intervals_produce_different_rates(self, two_construct_model):
         """Same DT beta at different study intervals → different CT rates.
 
         beta=0.3 from weekly (dt=7) → CT rate ≈ 0.043
         beta=0.3 from daily  (dt=1) → CT rate ≈ 0.300
         This is the Kuiper & Ryan (2018) sign-reversal effect in action.
         """
-        causal_design = _compile_structural_plan(
-            {
-                "latent": {
-                    "default_outcome": {
-                        "kind": "construct",
-                        "id": "construct:bbc87212909e45b9e6c3",
-                    },
-                    "constructs": [
-                        {
-                            "id": "construct:bbc87212909e45b9e6c3",
-                            "name": "mood",
-                            "description": "Mood",
-                            "role": "endogenous",
-                            "temporal_status": "time_varying",
-                        },
-                        {
-                            "id": "construct:6b04dc42c531e7091eb8",
-                            "name": "stress",
-                            "description": "Stress",
-                            "role": "exogenous",
-                            "temporal_status": "time_varying",
-                        },
-                    ],
-                    "edges": [
-                        {
-                            "cause_id": "construct:6b04dc42c531e7091eb8",
-                            "effect_id": "construct:bbc87212909e45b9e6c3",
-                            "id": "edge:923689028b6b177617c2",
-                            "description": "test",
-                            "lagged": True,
-                        },
-                    ],
-                },
-                "measurement": {"model_clock": "1d", "indicators": []},
-            }
-        )
 
-        statistical_model_spec = {
-            "mechanisms": [
-                {
-                    "kind": "node_potential",
-                    "target_id": "construct:bbc87212909e45b9e6c3",
-                    "center": {"kind": "fixed", "value": 0},
-                    "stiffness": {
-                        "kind": "estimated",
-                        "parameter_id": "parameter:fb33dbedf43eb15e324c86fa97201278e306cb48aa9752104361309d61215122",
-                    },
-                    "quartic": {"kind": "fixed", "value": 0},
-                },
-                {
-                    "kind": "node_potential",
-                    "target_id": "construct:6b04dc42c531e7091eb8",
-                    "center": {"kind": "fixed", "value": 0},
-                    "stiffness": {
-                        "kind": "estimated",
-                        "parameter_id": "parameter:aa675637a0e802f0cb93b867b6112c3e017a59da1b5c5c51af028a0f8671a86c",
-                    },
-                    "quartic": {"kind": "fixed", "value": 0},
-                },
-                {
-                    "kind": "linear",
-                    "edge_id": "edge:923689028b6b177617c2",
-                    "weight": {
-                        "kind": "estimated",
-                        "parameter_id": "parameter:9ea4b19b64aca6b21b54f4ba461f15339de78aea7d4decc3b5c6a011a0103508",
-                    },
-                },
-            ],
-            "likelihoods": [
-                {
-                    "indicator_id": "indicator:45f78731e3e0c6f3efe1",
-                    "distribution": "gaussian",
-                    "link": "identity",
-                    "reasoning": "",
-                },
-                {
-                    "indicator_id": "indicator:3696aef3ff6f446744e5",
-                    "distribution": "gaussian",
-                    "link": "identity",
-                    "reasoning": "",
-                },
-            ],
-            "parameters": [
-                {
-                    "prior_transform": "dt_persistence_to_ct_decay",
-                    "id": "parameter:fb33dbedf43eb15e324c86fa97201278e306cb48aa9752104361309d61215122",
-                    "owners": [{"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"}],
-                    "quantity": "dynamics_decay",
-                    "name": "rho_mood",
-                    "role": "ar_coefficient",
-                    "constraint": "unit_interval",
-                    "description": "",
-                },
-                {
-                    "prior_transform": "dt_persistence_to_ct_decay",
-                    "id": "parameter:aa675637a0e802f0cb93b867b6112c3e017a59da1b5c5c51af028a0f8671a86c",
-                    "owners": [{"kind": "construct", "id": "construct:6b04dc42c531e7091eb8"}],
-                    "quantity": "dynamics_decay",
-                    "name": "rho_stress",
-                    "role": "ar_coefficient",
-                    "constraint": "unit_interval",
-                    "description": "",
-                },
-                {
-                    "prior_transform": "dt_effect_to_ct_rate",
-                    "id": "parameter:9ea4b19b64aca6b21b54f4ba461f15339de78aea7d4decc3b5c6a011a0103508",
-                    "owners": [
-                        {"kind": "construct", "id": "construct:6b04dc42c531e7091eb8"},
-                        {"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"},
-                        {"kind": "edge", "id": "edge:923689028b6b177617c2"},
-                    ],
-                    "quantity": "dynamics_weight",
-                    "name": "beta_stress_mood",
-                    "role": "fixed_effect",
-                    "constraint": "none",
-                    "description": "",
-                },
-            ],
-        }
+        scientific_model = two_construct_model
 
         # Weekly study priors
         priors_weekly = {
@@ -1607,34 +786,24 @@ class TestE2ESpecToDiscretization:
             },
         }
 
-        edge_support = np.array([[False, True], [False, False]])
-        ssm_spec = _block_spec_with_edge_support(
-            n_latent=2,
-            n_manifest=2,
-            latent_names=["mood", "stress"],
-            edge_support=edge_support,
-        )
+        source_model, _ = (scientific_model, numeric.edge_lag_days(scientific_model))
 
         ssm_priors_w, _idx = _compile_priors_for_test(
             priors_weekly,
-            statistical_model_spec,
-            ssm_spec=ssm_spec,
-            structural_plan=causal_design,
+            scientific_model,
         )
 
         ssm_priors_d, _idx = _compile_priors_for_test(
             priors_daily,
-            statistical_model_spec,
-            ssm_spec=ssm_spec,
-            structural_plan=causal_design,
+            scientific_model,
         )
 
         # Weekly: mixed intervals (beta=7d, rho=1d) → first-order: 0.3 / 7 ≈ 0.043
-        mu_w_val = _linear_edge_weight(ssm_spec, ssm_priors_w, source=1, target=0)
+        mu_w_val = _linear_edge_weight(source_model, ssm_priors_w, source=0, target=1)
         assert abs(mu_w_val - 0.3 / 7.0) < 0.01
 
         # Daily: beta_CT = beta_DT / dt = 0.3 / 1 = 0.3
-        mu_d_val = _linear_edge_weight(ssm_spec, ssm_priors_d, source=1, target=0)
+        mu_d_val = _linear_edge_weight(source_model, ssm_priors_d, source=0, target=1)
         expected_daily = 0.3
         assert abs(mu_d_val - expected_daily) < 0.05, (
             f"Daily case uses beta/dt scaling: got {mu_d_val}, expected {expected_daily}"
@@ -1864,92 +1033,9 @@ class TestExactMatrixLogConversion:
             f"Shorter interval should have less decay: |eigs(F1)|={eigs_1}, |eigs(F2)|={eigs_2}"
         )
 
-    def test_compile_keeps_elementwise_priors_when_intervals_match(
-        self, two_construct_structural_plan
-    ):
+    def test_compile_keeps_elementwise_priors_when_intervals_match(self, two_construct_structure):
         """Compilation keeps factorized DT→CT priors even when dt values match."""
-        statistical_model_spec = {
-            "mechanisms": [
-                {
-                    "kind": "node_potential",
-                    "target_id": "construct:bbc87212909e45b9e6c3",
-                    "center": {"kind": "fixed", "value": 0},
-                    "stiffness": {
-                        "kind": "estimated",
-                        "parameter_id": "parameter:fb33dbedf43eb15e324c86fa97201278e306cb48aa9752104361309d61215122",
-                    },
-                    "quartic": {"kind": "fixed", "value": 0},
-                },
-                {
-                    "kind": "node_potential",
-                    "target_id": "construct:6b04dc42c531e7091eb8",
-                    "center": {"kind": "fixed", "value": 0},
-                    "stiffness": {
-                        "kind": "estimated",
-                        "parameter_id": "parameter:aa675637a0e802f0cb93b867b6112c3e017a59da1b5c5c51af028a0f8671a86c",
-                    },
-                    "quartic": {"kind": "fixed", "value": 0},
-                },
-                {
-                    "kind": "linear",
-                    "edge_id": "edge:923689028b6b177617c2",
-                    "weight": {
-                        "kind": "estimated",
-                        "parameter_id": "parameter:9ea4b19b64aca6b21b54f4ba461f15339de78aea7d4decc3b5c6a011a0103508",
-                    },
-                },
-            ],
-            "likelihoods": [
-                {
-                    "indicator_id": "indicator:e05e217de7f4442abdc5",
-                    "distribution": "gaussian",
-                    "link": "identity",
-                    "reasoning": "",
-                },
-                {
-                    "indicator_id": "indicator:4ff8be7491bd87d28af4",
-                    "distribution": "gaussian",
-                    "link": "identity",
-                    "reasoning": "",
-                },
-            ],
-            "parameters": [
-                {
-                    "prior_transform": "dt_persistence_to_ct_decay",
-                    "id": "parameter:fb33dbedf43eb15e324c86fa97201278e306cb48aa9752104361309d61215122",
-                    "owners": [{"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"}],
-                    "quantity": "dynamics_decay",
-                    "name": "rho_mood",
-                    "role": "ar_coefficient",
-                    "constraint": "unit_interval",
-                    "description": "",
-                },
-                {
-                    "prior_transform": "dt_persistence_to_ct_decay",
-                    "id": "parameter:aa675637a0e802f0cb93b867b6112c3e017a59da1b5c5c51af028a0f8671a86c",
-                    "owners": [{"kind": "construct", "id": "construct:6b04dc42c531e7091eb8"}],
-                    "quantity": "dynamics_decay",
-                    "name": "rho_stress",
-                    "role": "ar_coefficient",
-                    "constraint": "unit_interval",
-                    "description": "",
-                },
-                {
-                    "prior_transform": "dt_effect_to_ct_rate",
-                    "id": "parameter:9ea4b19b64aca6b21b54f4ba461f15339de78aea7d4decc3b5c6a011a0103508",
-                    "owners": [
-                        {"kind": "construct", "id": "construct:6b04dc42c531e7091eb8"},
-                        {"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"},
-                        {"kind": "edge", "id": "edge:923689028b6b177617c2"},
-                    ],
-                    "quantity": "dynamics_weight",
-                    "name": "beta_stress_mood",
-                    "role": "fixed_effect",
-                    "constraint": "none",
-                    "description": "",
-                },
-            ],
-        }
+        scientific_model = complete_test_model(two_construct_structure)
 
         # All parameters at dt=7 (weekly)
         priors = {
@@ -1970,41 +1056,33 @@ class TestExactMatrixLogConversion:
             },
         }
 
-        edge_support = np.array([[False, True], [False, False]])
-        ssm_spec = _block_spec_with_edge_support(
-            n_latent=2,
-            n_manifest=2,
-            latent_names=["mood", "stress"],
-            edge_support=edge_support,
-        )
+        source_model, _ = (scientific_model, numeric.edge_lag_days(scientific_model))
 
         ssm_priors, _idx = _compile_priors_for_test(
             priors,
-            statistical_model_spec,
-            ssm_spec=ssm_spec,
-            structural_plan=two_construct_structural_plan,
+            scientific_model,
         )
 
-        dynamics_decay = _decay_reference_values(ssm_spec, ssm_priors)
-        linear_edge_weight = _linear_edge_weight(ssm_spec, ssm_priors, source=1, target=0)
+        dynamics_decay = _decay_reference_values(source_model, ssm_priors)
+        linear_edge_weight = _linear_edge_weight(source_model, ssm_priors, source=0, target=1)
 
-        assert abs(dynamics_decay[0] - (-math.log(0.6) / 7.0)) < 0.01
-        assert abs(dynamics_decay[1] - (-math.log(0.5) / 7.0)) < 0.01
+        assert abs(dynamics_decay[1] - (-math.log(0.6) / 7.0)) < 0.01
+        assert abs(dynamics_decay[0] - (-math.log(0.5) / 7.0)) < 0.01
         assert abs(linear_edge_weight - (0.3 / 7.0)) < 0.01
 
-    def test_edge_lag_days_populated(self, two_construct_structural_plan):
+    def test_edge_lag_days_populated(self, two_construct_structure):
         """Compilation stores edge lag metadata from causal design during support building."""
         from nof1_causal_lab.models.ssm.compile.inputs import (
-            build_structural_support_from_plan,
+            build_structural_support_from_model,
         )
 
-        _dm, _input_mask, _lm, _lmask, _cat, edge_lag_days = build_structural_support_from_plan(
+        _dm, _input_mask, _lm, _lmask, _cat, edge_lag_days = build_structural_support_from_model(
             ["mood", "stress"],
             ["mood_rating", "stress_self_report"],
             2,
             2,
             manifest_dists=[DistributionFamily.GAUSSIAN] * 2,
-            structural_plan=two_construct_structural_plan,
+            model=two_construct_structure,
         )
 
         # stress -> mood edge, both daily, lagged=True: lag = 24h = 1.0 day
@@ -2013,92 +1091,11 @@ class TestExactMatrixLogConversion:
         assert (0, 1) in edge_lag_days
         assert abs(edge_lag_days[(0, 1)] - 1.0) < 0.01
 
-    def test_dynamics_lag_consistency_warns(self, two_construct_structural_plan, caplog):
+    def test_dynamics_lag_consistency_warns(self, two_construct_structure, caplog):
         """Compilation warns when CT dynamics implies timescale far from edge lag."""
         import logging
 
-        statistical_model_spec = {
-            "mechanisms": [
-                {
-                    "kind": "node_potential",
-                    "target_id": "construct:bbc87212909e45b9e6c3",
-                    "center": {"kind": "fixed", "value": 0},
-                    "stiffness": {
-                        "kind": "estimated",
-                        "parameter_id": "parameter:fb33dbedf43eb15e324c86fa97201278e306cb48aa9752104361309d61215122",
-                    },
-                    "quartic": {"kind": "fixed", "value": 0},
-                },
-                {
-                    "kind": "node_potential",
-                    "target_id": "construct:6b04dc42c531e7091eb8",
-                    "center": {"kind": "fixed", "value": 0},
-                    "stiffness": {
-                        "kind": "estimated",
-                        "parameter_id": "parameter:aa675637a0e802f0cb93b867b6112c3e017a59da1b5c5c51af028a0f8671a86c",
-                    },
-                    "quartic": {"kind": "fixed", "value": 0},
-                },
-                {
-                    "kind": "linear",
-                    "edge_id": "edge:923689028b6b177617c2",
-                    "weight": {
-                        "kind": "estimated",
-                        "parameter_id": "parameter:9ea4b19b64aca6b21b54f4ba461f15339de78aea7d4decc3b5c6a011a0103508",
-                    },
-                },
-            ],
-            "likelihoods": [
-                {
-                    "indicator_id": "indicator:e05e217de7f4442abdc5",
-                    "distribution": "gaussian",
-                    "link": "identity",
-                    "reasoning": "",
-                },
-                {
-                    "indicator_id": "indicator:4ff8be7491bd87d28af4",
-                    "distribution": "gaussian",
-                    "link": "identity",
-                    "reasoning": "",
-                },
-            ],
-            "parameters": [
-                {
-                    "prior_transform": "dt_persistence_to_ct_decay",
-                    "id": "parameter:fb33dbedf43eb15e324c86fa97201278e306cb48aa9752104361309d61215122",
-                    "owners": [{"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"}],
-                    "quantity": "dynamics_decay",
-                    "name": "rho_mood",
-                    "role": "ar_coefficient",
-                    "constraint": "unit_interval",
-                    "description": "",
-                },
-                {
-                    "prior_transform": "dt_persistence_to_ct_decay",
-                    "id": "parameter:aa675637a0e802f0cb93b867b6112c3e017a59da1b5c5c51af028a0f8671a86c",
-                    "owners": [{"kind": "construct", "id": "construct:6b04dc42c531e7091eb8"}],
-                    "quantity": "dynamics_decay",
-                    "name": "rho_stress",
-                    "role": "ar_coefficient",
-                    "constraint": "unit_interval",
-                    "description": "",
-                },
-                {
-                    "prior_transform": "dt_effect_to_ct_rate",
-                    "id": "parameter:9ea4b19b64aca6b21b54f4ba461f15339de78aea7d4decc3b5c6a011a0103508",
-                    "owners": [
-                        {"kind": "construct", "id": "construct:6b04dc42c531e7091eb8"},
-                        {"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"},
-                        {"kind": "edge", "id": "edge:923689028b6b177617c2"},
-                    ],
-                    "quantity": "dynamics_weight",
-                    "name": "beta_stress_mood",
-                    "role": "fixed_effect",
-                    "constraint": "none",
-                    "description": "",
-                },
-            ],
-        }
+        scientific_model = complete_test_model(two_construct_structure)
         # Very large beta → CT rate implies very fast coupling (short timescale)
         # but edge lag is 1 day → should warn about mismatch
         priors = {
@@ -2109,31 +1106,23 @@ class TestExactMatrixLogConversion:
                 "params": {"mu": 6.0, "sigma": 1.0},
             },
         }
-        edge_support = np.array([[False, True], [False, False]])
-        ssm_spec = _block_spec_with_edge_support(
-            n_latent=2,
-            n_manifest=2,
-            latent_names=["mood", "stress"],
-            edge_support=edge_support,
-        )
+
         from nof1_causal_lab.models.ssm.compile.inputs import (
-            build_structural_support_from_plan,
+            build_structural_support_from_model,
         )
 
-        _dm, _input_mask, _lm, _lmask, _cat, edge_lag_days = build_structural_support_from_plan(
+        _dm, _input_mask, _lm, _lmask, _cat, edge_lag_days = build_structural_support_from_model(
             ["mood", "stress"],
             ["mood_rating", "stress_self_report"],
             2,
             2,
             manifest_dists=[DistributionFamily.GAUSSIAN] * 2,
-            structural_plan=two_construct_structural_plan,
+            model=two_construct_structure,
         )
         with caplog.at_level(logging.WARNING, logger="nof1_causal_lab.models.ssm.compile.inputs"):
             _compile_priors_for_test(
                 priors,
-                statistical_model_spec,
-                ssm_spec=ssm_spec,
-                structural_plan=two_construct_structural_plan,
+                scientific_model,
                 edge_lag_days=edge_lag_days,
             )
 

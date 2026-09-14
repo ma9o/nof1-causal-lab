@@ -5,7 +5,7 @@ Constructs are admitted along the causal DAG's topological order (parents before
 children). Each admission bundles the construct's contribution to the model —
 its self-dynamics parameters, its incoming edges (from already-admitted
 parents), and its emission(s) — into the growing :class:`~nof1_causal_lab.
-artifacts.StatisticalModelSpec`, compiles the *cumulative partial* model, runs the **exact**
+artifacts.ModelSpec`, compiles the *cumulative partial* model, runs the **exact**
 prior predictive (Diffrax over the true nonlinear drift, real emission
 families), and feeds the resulting arrays to the reachability battery
 (:mod:`nof1_causal_lab.models.ssm.reachability`).
@@ -32,20 +32,32 @@ import jax.numpy as jnp
 import networkx as nx
 import numpy as np
 
-from nof1_causal_lab.artifacts.statistical_model_spec import (
-    LikelihoodSpec,
-    LinkFunction,
-    ParameterSpec,
-    StatisticalModelSpec,
+from nof1_causal_lab.artifacts.coefficient import FixedCoefficient
+from nof1_causal_lab.artifacts.construct import (
+    CausalEdge,
+    Construct,
+    replace_constructs,
 )
+from nof1_causal_lab.artifacts.expressions import (
+    LiteralExpression,
+    coefficient_key,
+    expression_states,
+    fold_expression,
+    hill_applications,
+    restoring_coefficients,
+)
+from nof1_causal_lab.artifacts.likelihood import LinkFunction
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec  # noqa: TC001
 from nof1_causal_lab.distributions import DistributionFamily
-from nof1_causal_lab.models.ssm.compile.inputs import compile_ssm_inputs_from_statistical_model_spec
-from nof1_causal_lab.models.ssm.dynamics.spec import (
-    DynamicsSpec,
-    HillEdgeSpec,
-    LinearEdgeSpec,
-    NodePotentialSpec,
+from nof1_causal_lab.models.model_structure import model_for_constructs
+from nof1_causal_lab.models.ssm import numerics as numeric
+from nof1_causal_lab.models.ssm.compile.inputs import compile_ssm_inputs_from_model
+from nof1_causal_lab.models.ssm.dynamics.expression import (
+    SCALAR_OPERATIONS,
+    apply_expression_function,
 )
+from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
 from nof1_causal_lab.models.ssm.parameterization import build_prior_runtime_bundle
 from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
     predictive_keys,
@@ -65,11 +77,9 @@ from nof1_causal_lab.models.ssm.reachability import (
     check_transmission,
     stage_outcome,
 )
-from nof1_causal_lab.models.ssm.structure.parameters import Fixed, Free, ParameterSlot
-from nof1_causal_lab.utils.structural_plan import (
+from nof1_causal_lab.utils.model_structure import (
     get_edges,
     get_state_names,
-    restrict_structural_plan,
 )
 
 if TYPE_CHECKING:
@@ -77,9 +87,7 @@ if TYPE_CHECKING:
 
     import numpyro.distributions as dist
 
-    from nof1_causal_lab.artifacts.mechanism import DynamicsMechanism
-    from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
-    from nof1_causal_lab.models.ssm.model import SSMSpec
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 # --------------------------------------------------------------------------- #
 # Proposal / accumulation types
@@ -88,39 +96,32 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class ConstructContribution:
-    """One construct's contribution to the growing model.
+    """A bounded authoring update containing canonical scientific entities."""
 
-    Mechanisms declare the dynamics and reference the free parameter IDs.
-    Priors provide their laws. Parent labels are used only by admission reports.
-    """
-
-    name: str
-    likelihoods: tuple[LikelihoodSpec, ...] = ()
+    construct: Construct
+    edges: tuple[CausalEdge, ...] = ()
     parameters: tuple[ParameterSpec, ...] = ()
-    mechanisms: tuple[DynamicsMechanism, ...] = ()
     edge_parents: tuple[str, ...] = ()
     hill_parents: tuple[str, ...] = ()
+
+    @property
+    def name(self) -> str:
+        return self.construct.name
 
 
 @dataclass(frozen=True)
 class AdmissionState:
-    """Accumulated admitted constructs and the model fragments they contribute."""
+    """One candidate ModelSpec plus the progress of its admission operation."""
 
+    model: ModelSpec
     names: tuple[str, ...] = ()
-    likelihoods: tuple[LikelihoodSpec, ...] = ()
-    parameters: tuple[ParameterSpec, ...] = ()
-    mechanisms: tuple[DynamicsMechanism, ...] = ()
     annotations: tuple[str, ...] = ()
 
-    def statistical_model_spec(self, structural_plan: StructuralPlan) -> StatisticalModelSpec:
-        from nof1_causal_lab.models.ssm.compile.parameter_identity import define_model_parameters
+    def completed_model(self, *, restrict: bool = False) -> ModelSpec:
+        from nof1_causal_lab.models.prior_planning import complete_model
 
-        likelihoods = list(self.likelihoods)
-        return StatisticalModelSpec(
-            likelihoods=likelihoods,
-            mechanisms=list(self.mechanisms),
-            parameters=define_model_parameters(list(self.parameters), likelihoods, structural_plan),
-        )
+        model = model_for_constructs(self.model, set(self.names)) if restrict else self.model
+        return complete_model(model)
 
 
 @dataclass(frozen=True)
@@ -134,7 +135,7 @@ class AdmissionTiming:
 
 
 @dataclass(frozen=True)
-class AdmissionReport:
+class ConstructAdmissionReport:
     """Result of attempting to admit one construct."""
 
     name: str
@@ -163,19 +164,19 @@ class ConstructAdmissionUnit:
 class FullAdmissionValidation:
     """One exact shared simulation plus per-construct full-model reports."""
 
-    reports: tuple[AdmissionReport, ...]
+    reports: tuple[ConstructAdmissionReport, ...]
     timings: tuple[AdmissionTiming, ...]
 
 
 # --------------------------------------------------------------------------- #
-# Planning + structural_plan restriction
+# Planning + model restriction
 # --------------------------------------------------------------------------- #
 
 
-def build_construct_units(structural_plan: StructuralPlan) -> list[ConstructAdmissionUnit]:
+def build_construct_units(model: ModelSpec) -> list[ConstructAdmissionUnit]:
     """Build the SCC-condensed fork/join plan for construct admission.
 
-    The universe is the structural plan's ``state_order`` — constructs
+    The universe is the model's derived ``state_order`` — constructs
     measurement-structure marginalized, anchored, or dropped out of estimation carry no
     state, so there is nothing to admit for them (restricting the plan to one
     would fail compilation with an empty state_order).
@@ -185,14 +186,14 @@ def build_construct_units(structural_plan: StructuralPlan) -> list[ConstructAdmi
     first. Lagged feedback loops are legal latent structure (the latent-structure
     validator only forbids *contemporaneous* cycles), so the sort runs on the
     condensation: members of a feedback cycle are admitted back-to-back in
-    state_order, and restrict_structural_plan defers the closing edge until
+    state_order, and model_for_constructs defers the closing edge until
     the whole cycle is admitted.
     """
-    constructs = get_state_names(structural_plan)
+    constructs = get_state_names(model)
     order_index = {name: i for i, name in enumerate(constructs)}
     graph = nx.DiGraph()
     graph.add_nodes_from(constructs)
-    for edge in get_edges(structural_plan):
+    for edge in get_edges(model):
         cause = edge["cause"]
         effect = edge["effect"]
         if cause in order_index and effect in order_index:
@@ -238,13 +239,9 @@ def build_construct_units(structural_plan: StructuralPlan) -> list[ConstructAdmi
     ]
 
 
-def build_construct_order(structural_plan: StructuralPlan) -> list[str]:
+def build_construct_order(model: ModelSpec) -> list[str]:
     """Deterministic flattened order used for assembly and stable presentation."""
-    return [
-        construct
-        for unit in build_construct_units(structural_plan)
-        for construct in unit.constructs
-    ]
+    return [construct for unit in build_construct_units(model) for construct in unit.constructs]
 
 
 # --------------------------------------------------------------------------- #
@@ -254,60 +251,46 @@ def build_construct_order(structural_plan: StructuralPlan) -> list[str]:
 
 def _compile_partial(
     state: AdmissionState,
-    structural_plan: StructuralPlan,
-) -> tuple[SSMSpec, dict[str, dist.Distribution]]:
-    """Compile the cumulative partial model to an SSMSpec + prior registry."""
-    restricted = restrict_structural_plan(structural_plan, set(state.names))
-    spec, registry, _bindings, _diagnostics, _edge_lag, _parameters, _auxiliary = (
-        compile_ssm_inputs_from_statistical_model_spec(
-            state.statistical_model_spec(restricted),
-            structural_plan=restricted,
-        )
-    )
+) -> tuple[ModelSpec, dict[str, dist.Distribution]]:
+    """Compile the cumulative partial model to an ModelSpec + prior registry."""
+    spec = state.completed_model(restrict=True)
+    registry, _bindings, _diagnostics, _edge_lag, _auxiliary = compile_ssm_inputs_from_model(spec)
     return spec, registry
 
 
-def _spec_names(spec: SSMSpec) -> tuple[list[str], list[str], list[LinkFunction]]:
+def _spec_names(spec: ModelSpec) -> tuple[list[str], list[str], list[LinkFunction]]:
     """Latent names, manifest names, manifest links of a compiled spec.
 
     These are always populated after compilation; a missing one is a compiler
     invariant violation, not a recoverable case.
     """
-    if spec.latent_names is None or spec.manifest_names is None or spec.manifest_links is None:
-        raise ValueError("compiled SSMSpec is missing latent/manifest metadata")
-    return spec.latent_names, spec.manifest_names, spec.manifest_links
+    if (
+        numeric.state_names(spec) is None
+        or numeric.observation_names(spec) is None
+        or numeric.observation_links(spec) is None
+    ):
+        raise ValueError("compiled ModelSpec is missing latent/manifest metadata")
+    return (
+        numeric.state_names(spec),
+        numeric.observation_names(spec),
+        numeric.observation_links(spec),
+    )
 
 
-def _node_potential_index(spec: SSMSpec, latent_idx: int) -> int | None:
-    """Component index of the NodePotential owning ``latent_idx`` (its site prefix)."""
-    for comp_idx, comp in enumerate(spec.dynamics_spec.components):
-        if isinstance(comp, NodePotentialSpec) and comp.target == latent_idx:
-            return comp_idx
-    return None
-
-
-def _edge_component_index(spec: SSMSpec, source: int, target: int) -> tuple[int, str] | None:
-    """Component index + weight/Emax site suffix of the edge (source -> target)."""
-    for comp_idx, comp in enumerate(spec.dynamics_spec.components):
-        if isinstance(comp, LinearEdgeSpec) and comp.source == source and comp.target == target:
-            return comp_idx, "weight"
-        if isinstance(comp, HillEdgeSpec) and comp.source == source and comp.target == target:
-            return comp_idx, "Emax"
-    return None
-
-
-def _hill_ec50_index(spec: SSMSpec, source: int, target: int) -> int | None:
-    for comp_idx, comp in enumerate(spec.dynamics_spec.components):
-        if isinstance(comp, HillEdgeSpec) and comp.source == source and comp.target == target:
-            return comp_idx
-    return None
+def _edge_components(spec: ModelSpec, source: int, target: int):
+    """Every additive native term belonging to one causal edge."""
+    return [
+        (i, component)
+        for i, component in enumerate(numeric.dynamics_expressions(spec))
+        if component.edge_owned and source in component.sources and component.target == target
+    ]
 
 
 def _signal_from_linear_predictor(
     link: LinkFunction,
     lp: np.ndarray,
     *,
-    spec: SSMSpec,
+    spec: ModelSpec,
     pred: Mapping[str, Any],
     manifest_index: int,
 ) -> np.ndarray:
@@ -325,9 +308,9 @@ def _signal_from_linear_predictor(
     if link == LinkFunction.INVERSE:
         return 1.0 / np.clip(_lp, 1e-6, None)
 
-    if spec.manifest_level_counts is None:
+    if numeric.observation_level_counts(spec) is None:
         raise ValueError(f"{link.value} signal extraction requires manifest level counts")
-    level_count = int(spec.manifest_level_counts[manifest_index])
+    level_count = int(numeric.observation_level_counts(spec)[manifest_index])
     if level_count < 2:
         raise ValueError(f"{link.value} signal extraction requires at least two declared levels")
 
@@ -357,7 +340,10 @@ def _signal_from_linear_predictor(
     if link == LinkFunction.SOFTMAX:
         intercepts = np.asarray(pred["obs_cat_intercepts"])[:, manifest_index, : level_count - 1]
         slopes = np.asarray(pred["obs_cat_slopes"])[:, manifest_index, : level_count - 1].copy()
-        if spec.manifest_cat_anchor is not None and spec.manifest_cat_anchor[manifest_index]:
+        if (
+            numeric.categorical_anchors(spec) is not None
+            and numeric.categorical_anchors(spec)[manifest_index]
+        ):
             slopes[:, 0] = 1.0
         nonbaseline = intercepts[:, None, :] + slopes[:, None, :] * _lp[:, :, None]
         logits = np.concatenate([np.zeros((*_lp.shape, 1)), nonbaseline], axis=2)
@@ -486,9 +472,8 @@ class DesignInfo:
 class _EdgeOffTarget:
     """One compiled edge coordinate to disable under the same predictive draws."""
 
-    vector_field_sites: tuple[str, ...] = ()
     input_effect_cells: tuple[tuple[int, int], ...] = ()
-    fixed_hill_components: tuple[int, ...] = ()
+    components: tuple[int, ...] = ()
 
 
 def trial_admission_state(
@@ -499,11 +484,32 @@ def trial_admission_state(
     Used both to run the battery (:func:`admit_construct`) and to derive the
     design (grid + observed data) against the same partial model.
     """
+    from nof1_causal_lab.models.model_parameters import referenced_parameter_ids
+
+    edges = {edge.id: edge for edge in state.model.edges}
+    edges.update((edge.id, edge) for edge in contribution.edges)
+    constructs = tuple(
+        contribution.construct if item.id == contribution.construct.id else item
+        for item in state.model.constructs
+    )
+    parameters = {parameter.id: parameter for parameter in state.model.parameters}
+    parameters.update((parameter.id, parameter) for parameter in contribution.parameters)
+    candidate_edges = replace_constructs(edges.values(), constructs)
+    referenced = referenced_parameter_ids(*constructs, *candidate_edges)
+    extra = {parameter.id for parameter in contribution.parameters} - referenced_parameter_ids(
+        contribution.construct, *contribution.edges
+    )
+    if extra:
+        raise ValueError(f"Parameters are not referenced by model components: {sorted(extra)}")
+    candidate = state.model.revised(
+        edges=candidate_edges,
+        parameters=tuple(
+            parameter for parameter in parameters.values() if parameter.id in referenced
+        ),
+    )
     return AdmissionState(
-        names=(*state.names, contribution.name),
-        likelihoods=(*state.likelihoods, *contribution.likelihoods),
-        parameters=(*state.parameters, *contribution.parameters),
-        mechanisms=(*state.mechanisms, *contribution.mechanisms),
+        model=candidate,
+        names=tuple(dict.fromkeys((*state.names, contribution.name))),
         annotations=state.annotations,
     )
 
@@ -511,18 +517,16 @@ def trial_admission_state(
 def admit_construct(
     state: AdmissionState,
     contribution: ConstructContribution,
-    structural_plan: StructuralPlan,
     design: DesignInfo,
     accepted: Mapping[tuple[str, str], str] | None = None,
-) -> tuple[AdmissionState, AdmissionReport]:
+) -> tuple[AdmissionState, ConstructAdmissionReport]:
     """Attempt to admit one construct; run the battery on the cumulative model."""
     trial = trial_admission_state(state, contribution)
 
     spec, pred, timings = _compile_and_sample_admission_state(
         trial,
-        structural_plan,
         design,
-        compilation_label="Model compilation",
+        compilation_label="ModelSpec compilation",
         predictive_label="Exact prior-predictive simulation",
     )
 
@@ -539,7 +543,7 @@ def admit_construct(
         )
     )
     admitted = outcome.startswith("ADMITTED")
-    report = AdmissionReport(
+    report = ConstructAdmissionReport(
         name=contribution.name,
         results=tuple(results),
         timings=tuple(timings),
@@ -553,7 +557,7 @@ def admit_construct(
 
 
 def _sample_partial(
-    spec: SSMSpec,
+    spec: ModelSpec,
     registry: dict[str, dist.Distribution],
     design: DesignInfo,
 ) -> dict[str, jnp.ndarray]:
@@ -576,14 +580,13 @@ def _elapsed_ms(started_ns: int) -> float:
 
 def _compile_and_sample_admission_state(
     state: AdmissionState,
-    structural_plan: StructuralPlan,
     design: DesignInfo,
     *,
     compilation_label: str,
     predictive_label: str,
-) -> tuple[SSMSpec, dict[str, jnp.ndarray], list[AdmissionTiming]]:
+) -> tuple[ModelSpec, dict[str, jnp.ndarray], list[AdmissionTiming]]:
     started = perf_counter_ns()
-    spec, registry = _compile_partial(state, structural_plan)
+    spec, registry = _compile_partial(state)
     timings = [
         AdmissionTiming(
             phase="model_compilation",
@@ -605,15 +608,15 @@ def _compile_and_sample_admission_state(
     return spec, pred, timings
 
 
-def _coefficient_draws(slot: ParameterSlot, pred: Mapping[str, Any], site_name: str) -> np.ndarray:
-    """Resolve a declared coefficient on the predictive draw axis."""
-    if isinstance(slot, Fixed):
-        return np.full(pred["latents"].shape[0], slot.value)
-    return np.asarray(pred[site_name])
+def _coefficient_draws(operand, component, pred: Mapping[str, Any], prefix: str) -> np.ndarray:
+    if isinstance(operand.coefficient, FixedCoefficient):
+        return np.full(np.shape(pred["latents"])[0], operand.coefficient.value)
+    sites = dict(component.parameter_sites(prefix))
+    return np.asarray(pred[sites[coefficient_key(operand)].name])
 
 
 def _run_battery(
-    spec: SSMSpec,
+    spec: ModelSpec,
     pred: Mapping[str, jax.Array | np.ndarray],
     design: DesignInfo,
     target: ConstructContribution,
@@ -628,7 +631,7 @@ def _run_battery(
     d = latent_names.index(target.name)
     x = np.asarray(pred["latents"][:, :, d])
     times = np.asarray(design.t_grid, dtype=float)
-    indicator_names = tuple(lik.indicator_id for lik in target.likelihoods)
+    indicator_names = tuple(indicator.id for indicator in target.construct.indicators)
     target_obs = design.observation_indices_for(indicator_names)
     structural_indices = target_obs if target_obs.size else np.arange(times.size)
 
@@ -668,13 +671,19 @@ def _run_battery(
     )
 
     # C3 resolvability uses the declared stiffness, whether fixed or estimated.
-    comp_idx = _node_potential_index(spec, d)
-    if comp_idx is not None:
-        comp = spec.dynamics_spec.components[comp_idx]
-        assert isinstance(comp, NodePotentialSpec)
+    potentials = [
+        (i, comp, operand)
+        for i, comp in enumerate(numeric.dynamics_expressions(spec))
+        if comp.target == d and not comp.edge_owned
+        for operand in restoring_coefficients(comp.expression, comp.state_ids[d], kind=comp.kind)
+        if operand.role == "decay"
+    ]
+    if potentials:
         started = perf_counter_ns()
-        stiffness = _coefficient_draws(comp.stiffness, pred, f"vf_{comp_idx}_decay")
-        tau = 1.0 / stiffness
+        stiffness = sum(
+            _coefficient_draws(operand, comp, pred, f"vf_{i}") for i, comp, operand in potentials
+        )
+        tau = 1.0 / np.asarray(stiffness)
         result = check_resolvability(target.name, tau, times[target_obs])
         results.append(result)
         timings.append(
@@ -716,38 +725,55 @@ def _run_battery(
     # C4c Hill saturation (per saturating parent).
     for parent in target.hill_parents:
         p_idx = latent_names.index(parent)
-        comp_idx = _hill_ec50_index(spec, p_idx, d)
-        if comp_idx is None:
-            raise ValueError(f"No Hill mechanism for {parent!r} -> {target.name!r}")
-        comp = spec.dynamics_spec.components[comp_idx]
-        assert isinstance(comp, HillEdgeSpec)
-        started = perf_counter_ns()
-        parent_vals = np.asarray(pred["latents"][:, structural_indices, p_idx])
-        result = check_saturation(
-            f"{parent}->{target.name}",
-            _coefficient_draws(comp.ec50, pred, f"vf_{comp_idx}_EC50"),
-            _coefficient_draws(comp.n, pred, f"vf_{comp_idx}_n"),
-            parent_vals,
-        )
-        results.append(result)
-        timings.append(
-            AdmissionTiming(
-                phase=f"c4c_saturation:{parent}->{target.name}",
-                label=f"C4c saturation: {parent} → {target.name}",
-                duration_ms=_elapsed_ms(started),
-                checks=(result.check,),
+        applications = [
+            (i, comp, source, ec50, exponent)
+            for i, comp in _edge_components(spec, p_idx, d)
+            for source, ec50, exponent in hill_applications(comp.expression)
+            if comp.state_ids[p_idx] in expression_states(source)
+        ]
+        if not applications:
+            raise ValueError(f"No Hill expression for {parent!r} -> {target.name!r}")
+        for comp_idx, comp, source, ec50, exponent in applications:
+            started = perf_counter_ns()
+            parent_vals = fold_expression(
+                source,
+                literal=lambda value: np.asarray(value),
+                state_value=lambda key, comp=comp: np.asarray(
+                    pred["latents"][:, structural_indices, comp.state_ids.index(key)]
+                ),
+                coefficient_value=lambda operand, comp=comp, comp_idx=comp_idx: np.asarray(
+                    _coefficient_draws(operand, comp, pred, f"vf_{comp_idx}")
+                ).reshape(-1, 1),
+                binary=lambda operation, left, right: SCALAR_OPERATIONS[operation](left, right),
+                call=apply_expression_function,
             )
-        )
+            result = check_saturation(
+                f"{parent}->{target.name}",
+                _coefficient_draws(ec50, comp, pred, f"vf_{comp_idx}"),
+                _coefficient_draws(exponent, comp, pred, f"vf_{comp_idx}"),
+                np.asarray(parent_vals),
+            )
+            results.append(result)
+            timings.append(
+                AdmissionTiming(
+                    phase=f"c4c_saturation:{parent}->{target.name}",
+                    label=f"C4c saturation: {parent} → {target.name}",
+                    duration_ms=_elapsed_ms(started),
+                    checks=(result.check,),
+                )
+            )
 
-    time_invariant_mask = spec.diffusion_block.time_invariant_mask
+    time_invariant_mask = numeric.diffusion_block(spec).time_invariant_mask
     target_is_time_invariant = bool(
         time_invariant_mask is not None and np.asarray(time_invariant_mask, dtype=bool)[d]
     )
 
     # C5a/C5b coverage for every indicator; C5c transmission only for dynamic constructs.
-    for lik in target.likelihoods:
+    for indicator in target.construct.indicators:
+        lik = indicator.likelihood
+        assert lik is not None
         started = perf_counter_ns()
-        var = lik.indicator_id
+        var = indicator.id
         observed = np.asarray(design.values_by_indicator[var])
         if observed.size == 0:
             result = check_data_availability(var)
@@ -776,14 +802,16 @@ def _run_battery(
         else:
             signal = np.asarray(pred["expected_observations"][:, oi, m])
         level_count = (
-            int(spec.manifest_level_counts[m]) if spec.manifest_level_counts is not None else None
+            int(numeric.observation_level_counts(spec)[m])
+            if numeric.observation_level_counts(spec) is not None
+            else None
         )
         phase_results = list(
             check_coverage(
                 var,
                 pp_y,
                 observed,
-                distribution=lik.distribution.value,
+                distribution=lik.law.family.value,
                 level_count=level_count,
             )
         )
@@ -792,7 +820,7 @@ def _run_battery(
                 None
                 if signal.ndim == 3
                 else _conditional_variance_for_signal(
-                    lik.distribution,
+                    lik.law.family,
                     signal,
                     pred,
                     m,
@@ -815,7 +843,6 @@ def _run_battery(
 def recheck_member(
     state: AdmissionState,
     target: ConstructContribution,
-    structural_plan: StructuralPlan,
     design: DesignInfo,
 ) -> tuple[tuple[CheckResult, ...], tuple[AdmissionTiming, ...]]:
     """Re-run the battery on an already-admitted member against the closed-loop model.
@@ -827,9 +854,8 @@ def recheck_member(
     """
     spec, pred, timings = _compile_and_sample_admission_state(
         state,
-        structural_plan,
         design,
-        compilation_label="Model compilation",
+        compilation_label="ModelSpec compilation",
         predictive_label="Exact prior-predictive simulation",
     )
     results, diagnostic_timings = _run_battery(spec, pred, design, target)
@@ -840,26 +866,24 @@ def recheck_member(
 def validate_full_admission_state(
     state: AdmissionState,
     targets: tuple[ConstructContribution, ...],
-    structural_plan: StructuralPlan,
     design: DesignInfo,
     accepted: Mapping[str, Mapping[tuple[str, str], str]] | None = None,
 ) -> FullAdmissionValidation:
     """Gate publication with one exact full-model simulation and all construct batteries."""
     spec, pred, timings = _compile_and_sample_admission_state(
         state,
-        structural_plan,
         design,
         compilation_label="Full-model compilation",
         predictive_label="Exact full-model prior-predictive simulation",
     )
 
     accepted = accepted or {}
-    reports: list[AdmissionReport] = []
+    reports: list[ConstructAdmissionReport] = []
     for target in targets:
         results, diagnostic_timings = _run_battery(spec, pred, design, target)
         outcome, annotations = stage_outcome(results, accepted.get(target.name, {}))
         reports.append(
-            AdmissionReport(
+            ConstructAdmissionReport(
                 name=target.name,
                 results=tuple(results),
                 timings=tuple(diagnostic_timings),
@@ -872,46 +896,38 @@ def validate_full_admission_state(
 
 
 def _incoming_edge_off_target(
-    spec: SSMSpec,
+    spec: ModelSpec,
     contribution: ConstructContribution,
     latent_names: list[str],
     target: int,
 ) -> _EdgeOffTarget:
     """Compiled vector-field sites or input-effect cells for incoming edges."""
-    sites: list[str] = []
-    fixed_hill_components: list[int] = []
+    components: set[int] = set()
     input_cells: list[tuple[int, int]] = []
-    input_names = list(spec.input_names or [])
+    input_names = list(numeric.input_names(spec) or [])
     for parent in contribution.edge_parents:
         if parent in latent_names:
             p_idx = latent_names.index(parent)
-            found = _edge_component_index(spec, p_idx, target)
-            if found is not None:
-                comp_idx, suffix = found
-                comp = spec.dynamics_spec.components[comp_idx]
-                if isinstance(comp, HillEdgeSpec) and isinstance(comp.emax, Fixed):
-                    fixed_hill_components.append(comp_idx)
-                else:
-                    sites.append(f"vf_{comp_idx}_{suffix}")
+            components.update(index for index, _ in _edge_components(spec, p_idx, target))
         elif parent in input_names:
             input_cells.append((target, input_names.index(parent)))
-    if contribution.edge_parents and not sites and not input_cells and not fixed_hill_components:
+    if contribution.edge_parents and not input_cells and not components:
         raise ValueError(
             "Could not resolve an edge-off coordinate for incoming parents "
             f"{list(contribution.edge_parents)!r}"
         )
-    return _EdgeOffTarget(tuple(sites), tuple(input_cells), tuple(fixed_hill_components))
+    return _EdgeOffTarget(tuple(input_cells), tuple(sorted(components)))
 
 
 def _resimulate_edge_off(
-    spec: SSMSpec,
+    spec: ModelSpec,
     pred: Mapping[str, jax.Array | np.ndarray],
     t_grid: jnp.ndarray,
     edge_target: _EdgeOffTarget,
     seed: int,
     transition_inputs: Any = None,
 ) -> jnp.ndarray:
-    """Re-simulate the latents with the given edge sites zeroed, all else fixed.
+    """Re-simulate the latents with the given edge contributions zeroed, all else fixed.
 
     Reuses the exact param draws (and Brownian path via ``seed``) from ``pred`` so
     the only difference from the edge-on trajectory is the zeroed edge — the
@@ -923,19 +939,16 @@ def _resimulate_edge_off(
     )
 
     samples = {name: jnp.asarray(value) for name, value in pred.items()}
-    for site in edge_target.vector_field_sites:
-        samples[site] = jnp.zeros_like(samples[site])
-    if edge_target.fixed_hill_components:
-        components = list(spec.dynamics_spec.components)
-        for comp_idx in edge_target.fixed_hill_components:
-            comp = components[comp_idx]
-            assert isinstance(comp, HillEdgeSpec)
-            # The intervention supplies zero directly, outside the positive prior support.
-            components[comp_idx] = replace(comp, emax=Free())
-            samples[comp.emax_site_name(f"vf_{comp_idx}")] = jnp.zeros(samples["latents"].shape[0])
-        spec = replace(
-            spec, dynamics_spec=DynamicsSpec(n_latent=spec.n_latent, components=tuple(components))
-        )
+    natural = numeric.dynamics_expressions(spec)
+    intervention_dynamics = DynamicsSpec(
+        n_latent=numeric.n_states(spec),
+        components=tuple(
+            replace(component, expression=LiteralExpression(value=0))
+            if index in edge_target.components
+            else component
+            for index, component in enumerate(natural)
+        ),
+    )
     if edge_target.input_effect_cells:
         input_effect = jnp.asarray(samples["input_effect"])
         if input_effect.ndim != 3:
@@ -949,5 +962,6 @@ def _resimulate_edge_off(
         t_grid,
         transition_inputs=transition_inputs,
         rng_key=predictive_keys(seed).latents,
+        dynamics=intervention_dynamics,
     )
     return latents

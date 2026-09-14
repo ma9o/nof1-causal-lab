@@ -3,13 +3,14 @@
 import polars as pl
 import pytest
 
-from nof1_causal_lab.machine.moves import RetractedArtifact, RunArtifact, WriteArtifact
+from nof1_causal_lab.machine.moves import RetractedArtifact, RunOperation, WriteArtifact
 from nof1_causal_lab.machine.store import (
     ArtifactStore,
     EpisodeJournal,
     TransitionRecord,
     derive_current_state,
 )
+from tests.helpers import make_model
 
 
 @pytest.fixture
@@ -50,18 +51,18 @@ class TestArtifactStore:
     def test_meta_roundtrip(self, workspace):
         store = ArtifactStore(workspace)
         info = store.write_version(
-            "causal_design",
+            "model",
             provenance="computed",
-            derived_from={"question": 1, "raw_data": 2, "latent_structure": 1},
+            derived_from={"question": 1, "raw_data": 2},
             produced_by="run:measurement_structure",
-            json_files={"causal_design.json": {"latent": {}}},
+            json_files={"model.json": make_model(["X", "Y"], [("X", "Y")]).model_dump(mode="json")},
         )
-        loaded = store.read_meta("causal_design", info.version)
+        loaded = store.read_meta("model", info.version)
         assert loaded == info
         assert loaded.derived_from["raw_data"] == 2
         assert loaded.created_at
 
-    def test_parquet_and_pickle_payloads(self, workspace):
+    def test_parquet_payload(self, workspace):
         store = ArtifactStore(workspace)
         df = pl.DataFrame({"indicator": ["mood"], "value": [3.5]})
         info = store.write_version(
@@ -70,16 +71,14 @@ class TestArtifactStore:
             derived_from={},
             produced_by="run:measurements",
             parquet_files={"panel.parquet": df},
-            pickle_files={"aux.pkl": {"answer": 42}},
         )
         loaded_df = store.read_parquet_file("panel", info.version, "panel.parquet")
         assert loaded_df.equals(df)
-        assert store.read_pickle_file("panel", info.version, "aux.pkl") == {"answer": 42}
 
     def test_empty_artifact_has_no_versions(self, workspace):
         store = ArtifactStore(workspace)
-        assert store.list_versions("posterior") == []
-        assert store.next_version("posterior") == 1
+        assert store.list_versions("model") == []
+        assert store.next_version("model") == 1
 
 
 class TestEpisodeJournal:
@@ -100,7 +99,7 @@ class TestEpisodeJournal:
         journal.append(
             self._record(
                 2,
-                RunArtifact(artifact_id="measurement_structure"),
+                RunOperation(operation_id="measurement_structure"),
                 status="rejected",
                 reason=(
                     "measurement_structure requires artifacts that do not exist: "
@@ -111,7 +110,7 @@ class TestEpisodeJournal:
         journal.append(
             self._record(
                 3,
-                RunArtifact(artifact_id="posterior"),
+                RunOperation(operation_id="posterior"),
                 status="raised",
                 error_type="ModelFitError",
                 error_message="sampler diverged",
@@ -127,7 +126,8 @@ class TestEpisodeJournal:
         assert records[2].diagnostics["rhat_max"] == 2.4
         # Move discriminated union round-trips.
         assert records[0].move.kind == "write"
-        assert records[2].move.artifact_id == "posterior"
+        assert isinstance(records[2].move, RunOperation)
+        assert records[2].move.operation_id == "posterior"
 
     def test_identical_duplicate_seq_is_idempotent(self, workspace):
         journal = EpisodeJournal(workspace)
@@ -140,7 +140,7 @@ class TestEpisodeJournal:
         journal = EpisodeJournal(workspace)
         journal.append(self._record(1, WriteArtifact(artifact_id="question")))
         with pytest.raises(FileExistsError):
-            journal.append(self._record(1, RunArtifact(artifact_id="raw_data")))
+            journal.append(self._record(1, RunOperation(operation_id="raw_data")))
 
     def test_latest_seq_reads_max_entry_without_state_manifest(self, workspace):
         journal = EpisodeJournal(workspace)
@@ -214,7 +214,6 @@ class TestDerivedCurrentState:
             provenance="computed",
             derived_from={},
             produced_by="run:raw_data",
-            json_files={"raw-data.json": {}},
         )
         self._append(
             workspace,
@@ -226,7 +225,7 @@ class TestDerivedCurrentState:
         self._append(
             workspace,
             2,
-            RunArtifact(artifact_id="raw_data"),
+            RunOperation(operation_id="raw_data"),
             produced=[raised],
             status="raised",
         )
@@ -235,13 +234,6 @@ class TestDerivedCurrentState:
 
     def test_applied_retraction_removes_optional_output(self, workspace):
         store = ArtifactStore(workspace)
-        measurements_v1 = store.write_version(
-            "measurements",
-            provenance="computed",
-            derived_from={},
-            produced_by="run:measurements",
-            json_files={"measurements.json": {"workers": []}},
-        )
         panel_v1 = store.write_version(
             "panel",
             provenance="computed",
@@ -252,26 +244,18 @@ class TestDerivedCurrentState:
         self._append(
             workspace,
             1,
-            RunArtifact(artifact_id="measurements"),
-            produced=[measurements_v1, panel_v1],
+            RunOperation(operation_id="measurements"),
+            produced=[panel_v1],
         )
 
         state_with_panel = derive_current_state(workspace)
-        assert state_with_panel.get("measurements") == measurements_v1
         assert state_with_panel.get("panel") == panel_v1
 
-        measurements_v2 = store.write_version(
-            "measurements",
-            provenance="computed",
-            derived_from={},
-            produced_by="run:measurements",
-            json_files={"measurements.json": {"workers": []}},
-        )
         self._append(
             workspace,
             2,
-            RunArtifact(artifact_id="measurements"),
-            produced=[measurements_v2],
+            RunOperation(operation_id="measurements"),
+            produced=[],
             retracted=[
                 RetractedArtifact(
                     artifact_id="panel",
@@ -281,5 +265,4 @@ class TestDerivedCurrentState:
         )
 
         state_without_panel = derive_current_state(workspace)
-        assert state_without_panel.get("measurements") == measurements_v2
         assert state_without_panel.get("panel") is None

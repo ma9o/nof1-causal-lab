@@ -3,10 +3,7 @@
 import jax.numpy as jnp
 import pytest
 
-from nof1_causal_lab.models.ssm.parameterization import (
-    compile_prior_semantics,
-    load_prior_runtime_bundle,
-)
+from nof1_causal_lab.models.ssm.model import SSMModel
 from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
     sample_prior_predictive_from_runtime,
 )
@@ -18,10 +15,10 @@ pytestmark = [pytest.mark.slow, pytest.mark.cpu_expensive]
 class TestCompiledPriorPredictiveRuntime:
     def test_mixed_likelihood_samples_are_finite(self):
         spec = complex_mixed_runtime_spec()
-        semantics = compile_prior_semantics(spec)
+        runtime = SSMModel(spec).get_prior_runtime_bundle()
         samples = sample_prior_predictive_from_runtime(
             spec,
-            load_prior_runtime_bundle(semantics),
+            runtime,
             jnp.linspace(0.0, 5.5, 12, dtype=jnp.float32),
             num_samples=10,
             seed=7,

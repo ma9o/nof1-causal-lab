@@ -8,9 +8,8 @@ from typing import Any
 from temporalio import activity
 
 from nof1_causal_lab.machine.artifact_files import json_filename
-from nof1_causal_lab.machine.derivations import complete_computed_transition
+from nof1_causal_lab.machine.derivations import read_model
 from nof1_causal_lab.machine.graph import transition_spec
-from nof1_causal_lab.machine.model_contracts import project_model_fields
 from nof1_causal_lab.machine.moves import TransitionEffects, input_pins
 from nof1_causal_lab.machine.store import ArtifactStore
 from nof1_causal_lab.machine.temporal.activity_errors import (
@@ -28,10 +27,6 @@ from nof1_causal_lab.utils import storage
 
 def _write_latent_json(path: str, value: Any) -> None:
     storage.write_text(path, json.dumps(value))
-
-
-def _read_latent_json(path: str) -> Any:
-    return storage.read_json(path)
 
 
 def _first_latent_config_value(*values: Any) -> Any:
@@ -132,7 +127,13 @@ async def plan_latent_structure_activity(
         {
             "system_prompt": templates.SYSTEM,
             "user_messages": [
-                templates.USER.format(question=question),
+                templates.USER.format(question=question)
+                + "\nCurrent Model (preserve retained entities and details):\n"
+                + (
+                    read_model(store, pins["model"]).model_dump_json(indent=2)
+                    if "model" in pins
+                    else "{}"
+                ),
                 templates.REVIEW,
             ],
         },
@@ -154,25 +155,10 @@ async def plan_latent_structure_activity(
 async def finalize_latent_structure_activity(
     input: SingleLLMTransitionFinalizeInput,
 ) -> TransitionEffects:
-    from nof1_causal_lab.artifacts.latent_structure import LatentStructureArtifact
+    from nof1_causal_lab.machine.temporal.model_authoring import finalize_model_revision
 
     try:
-        if input.result_ref is None:
-            raise RuntimeError("latent-structure subroutine completed without a result ref")
-        payload = _read_latent_json(input.result_ref)
-        payload = project_model_fields(LatentStructureArtifact, payload)
-
-        store = ArtifactStore(input.workspace_id)
-        produced = [
-            store.write_version(
-                "latent_structure",
-                provenance="computed",
-                derived_from=input.pins,
-                produced_by="run:latent_structure",
-                json_files={json_filename("latent_structure", "latent_structure"): payload},
-            )
-        ]
-        return complete_computed_transition(store, input.state, "latent_structure", produced)
+        return finalize_model_revision(input, "latent_structure")
     except Exception as exc:
         raise as_non_retryable_application_error(exc) from exc
 

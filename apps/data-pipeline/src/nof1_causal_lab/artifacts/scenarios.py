@@ -1,21 +1,16 @@
-"""Causal scenario requests, resolved query identities, and reported results."""
+"""Live simulation requests and responses, optionally retained together in a report."""
 
 from __future__ import annotations
 
-import hashlib
-import json
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .effects import EffectSummary, EffectTrajectoryPoint  # noqa: TC001
 from .identity import (  # noqa: TC001
-    ArtifactRef,
     ConstructId,
     ConstructRef,
-    ModelRef,
-    ScenarioEvaluationId,
-    ScenarioQueryId,
+    ModelRevision,
 )
 
 
@@ -27,7 +22,7 @@ class ScenarioStartInput(BaseModel):
     kind: Literal["baseline", "abducted"] = Field(
         default="baseline",
         description=(
-            "'baseline' starts from the population baseline steady state (an interventional, "
+            "'baseline' starts from the deterministic drift equilibrium (an interventional, "
             "rung-2 query). 'abducted' conditions on the individual's observed evidence and starts "
             "from the recovered fitted latent state (a counterfactual, rung-3 query)."
         ),
@@ -57,7 +52,7 @@ class ScenarioStartInput(BaseModel):
         return self
 
 
-class LatentClampInput(BaseModel):
+class ScenarioClamp(BaseModel):
     """A do-operator on one latent variable over a time window.
 
     The window is ``[from_day, to_day)`` in days relative to the rollout start; outside
@@ -68,7 +63,7 @@ class LatentClampInput(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    variable: str = Field(description="Latent construct to clamp.")
+    target: ConstructRef = Field(description="Persistent identity of the construct to clamp.")
     mode: Literal["set", "shift", "ramp", "trajectory"] = Field(
         description="How the clamped value is specified over the window."
     )
@@ -98,7 +93,7 @@ class LatentClampInput(BaseModel):
     )
 
     @model_validator(mode="after")
-    def validate_payload(self) -> LatentClampInput:
+    def validate_payload(self) -> ScenarioClamp:
         if self.to_day is not None and self.to_day <= self.from_day:
             raise ValueError("clamp to_day must be greater than from_day")
         if self.mode == "set" and self.value is None:
@@ -128,18 +123,17 @@ class ScenarioQueryInput(BaseModel):
     )
 
 
-class SimulateScenarioInput(BaseModel):
+class ScenarioRequest(BaseModel):
+    """One reusable request for an on-demand simulation of a fitted model."""
+
     model_config = ConfigDict(extra="forbid")
 
     start: ScenarioStartInput = Field(default_factory=ScenarioStartInput)
-    clamps: list[LatentClampInput] = Field(
+    clamps: list[ScenarioClamp] = Field(
         min_length=1, description="One or more timed latent clamps composing the scenario."
     )
-    outcome: str | None = Field(
-        default=None,
-        description="Outcome construct. Defaults to the workspace’s selected query outcome.",
-    )
-    query: ScenarioQueryInput = Field(default_factory=ScenarioQueryInput)
+    outcome: ConstructRef = Field(description="Persistent identity of the requested outcome.")
+    readout: ScenarioQueryInput = Field(default_factory=ScenarioQueryInput)
 
 
 class BaselineReportVisualization(BaseModel):
@@ -172,141 +166,63 @@ class BaselineReportVisualization(BaseModel):
     )
 
 
-class ScenarioClamp(LatentClampInput):
-    """A resolved clamp binds its transport label to a persistent construct identity."""
+class SimulationProvenance(BaseModel):
+    """The retained fit and actual numerical settings used by this response."""
 
-    target: ConstructRef
+    model_config = ConfigDict(extra="forbid", frozen=True, allow_inf_nan=False)
 
-
-class ScenarioDefinition(BaseModel):
-    """A scientific scenario fixes its targets, start rule, and requested readout across fits."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    start: ScenarioStartInput
-    clamps: list[ScenarioClamp] = Field(min_length=1)
-    outcome: ConstructRef
-    readout: ScenarioQueryInput
-
-    def identity_payload(self) -> str:
-        # Transport labels aid presentation; only persistent IDs identify targets.
-        payload = self.model_dump(mode="json", exclude={"id"})
-        for clamp in payload["clamps"]:
-            del clamp["variable"]
-        return json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
-
-
-class ScenarioQuery(ScenarioDefinition):
-    """A scientific query keeps its identity across model and posterior revisions."""
-
-    id: ScenarioQueryId
-
-    @classmethod
-    def from_definition(cls, definition: ScenarioDefinition) -> ScenarioQuery:
-        identity = "query:" + hashlib.sha256(definition.identity_payload().encode()).hexdigest()
-        return cls(id=identity, **definition.model_dump(mode="json"))
+    model: ModelRevision
+    engine: Literal["nonlinear_drift_v1", "illustrative_fixture"] = "nonlinear_drift_v1"
+    solver: Literal["Tsit5"] = "Tsit5"
+    rtol: float = Field(gt=0)
+    atol: float = Field(gt=0)
+    max_steps: int = Field(ge=1)
+    draw_count: int = Field(ge=1)
+    time_grid_days: list[float] = Field(min_length=2)
+    start_time_index: int | None = Field(default=None, ge=0)
+    start_time: str | None = None
 
     @model_validator(mode="after")
-    def validate_identity(self) -> ScenarioQuery:
-        expected = "query:" + hashlib.sha256(self.identity_payload().encode()).hexdigest()
-        if self.id != expected:
-            raise ValueError("Scenario query identity does not match its definition")
+    def validate_basis(self) -> SimulationProvenance:
+        from .effects import validate_effect_horizons
+
+        validate_effect_horizons(self.time_grid_days)
+        if self.time_grid_days[0] != 0:
+            raise ValueError("A simulation time grid starts at zero")
         return self
 
 
-class ScenarioEvaluation(BaseModel):
-    """An evaluation binds a scientific query to one model and exact posterior version."""
+class SimulationResult(BaseModel):
+    """Ephemeral response, retained only when explicitly included in a report.
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    This engine integrates the true nonlinear drift for each posterior draw.
+    It does not include future process noise or claim the mean of the SDE.
+    """
 
-    id: ScenarioEvaluationId
-    query_id: ScenarioQueryId
-    model: ModelRef
-    posterior: ArtifactRef
+    model_config = ConfigDict(extra="forbid", frozen=True, allow_inf_nan=False)
 
-    @staticmethod
-    def identity_for(query_id: ScenarioQueryId, model: ModelRef, posterior: ArtifactRef) -> str:
-        payload = json.dumps(
-            {
-                "query_id": query_id,
-                "model": model.model_dump(),
-                "posterior": posterior.model_dump(),
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        return "evaluation:" + hashlib.sha256(payload.encode()).hexdigest()
-
-    @classmethod
-    def for_query(
-        cls, query: ScenarioQuery, *, model: ModelRef, posterior: ArtifactRef
-    ) -> ScenarioEvaluation:
-        return cls(
-            id=cls.identity_for(query.id, model, posterior),
-            query_id=query.id,
-            model=model,
-            posterior=posterior,
-        )
-
-    @model_validator(mode="after")
-    def validate_identity(self) -> ScenarioEvaluation:
-        if self.posterior.artifact_id != "posterior":
-            raise ValueError("A scenario evaluation must pin a posterior artifact")
-        if self.id != self.identity_for(self.query_id, self.model, self.posterior):
-            raise ValueError("Scenario evaluation identity does not match its execution basis")
-        return self
-
-
-class ScenarioStartResult(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    kind: Literal["baseline", "abducted"]
-    time_index: int | None = None
-    time: str | None = None
-    state_source: Literal["baseline_steady_state", "fitted_latent_paths"]
-
-
-class ScenarioResult(BaseModel):
-    """Computed outputs reference the evaluation that fixes their query and posterior."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    evaluation_id: ScenarioEvaluationId
-    start: ScenarioStartResult
-    outcome_label: str = Field(description="Display name of the query's outcome at execution time.")
+    request: ScenarioRequest
+    provenance: SimulationProvenance
+    labels: dict[ConstructId, str]
     summary: EffectSummary
     effect_trajectory: list[EffectTrajectoryPoint] | None = None
     trajectory_peak: EffectTrajectoryPoint | None = None
     visualization: BaselineReportVisualization | None = None
     manifest_effects: dict[str, float] | None = None
-    reference_mean: float = Field(
-        description="Mean reference outcome (baseline steady state or factual forecast)."
-    )
+    reference_mean: float
     warnings: list[str] = Field(default_factory=list)
 
-
-class ScenarioEvaluationResult(BaseModel):
-    """One posterior-specific evaluation and its matching computed outputs."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    evaluation: ScenarioEvaluation
-    result: ScenarioResult
-
     @model_validator(mode="after")
-    def validate_result_evaluation(self) -> ScenarioEvaluationResult:
-        if self.result.evaluation_id != self.evaluation.id:
-            raise ValueError("Scenario result belongs to a different evaluation")
-        return self
-
-
-class SimulateScenarioResult(ScenarioEvaluationResult):
-    """A simulation response includes its reusable scientific query and pinned evaluation."""
-
-    query: ScenarioQuery
-
-    @model_validator(mode="after")
-    def validate_evaluation_query(self) -> SimulateScenarioResult:
-        if self.evaluation.query_id != self.query.id:
-            raise ValueError("Scenario evaluation belongs to a different query")
+    def validate_request_basis(self) -> SimulationResult:
+        targets = {self.request.outcome.id, *(clamp.target.id for clamp in self.request.clamps)}
+        if not targets <= self.labels.keys():
+            raise ValueError("Simulation labels must describe the requested constructs")
+        if self.request.start.kind == "baseline":
+            if (
+                self.provenance.start_time_index is not None
+                or self.provenance.start_time is not None
+            ):
+                raise ValueError("A baseline simulation has no observed start time")
+        elif self.provenance.start_time_index is None:
+            raise ValueError("An abducted simulation must record the resolved observed start")
         return self

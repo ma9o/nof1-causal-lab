@@ -12,8 +12,8 @@ import jax.scipy.linalg as jla
 import numpy as np
 import pytest
 
+from nof1_causal_lab.artifacts.likelihood import DistributionFamily
 from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
-from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily
 from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.models.ssm import (
     SSMModel,
@@ -28,12 +28,12 @@ from nof1_causal_lab.models.ssm.structure import (
     T0CholBlockSpec,
 )
 from nof1_causal_lab.prior_distributions import distribution_from_params
-from tests.ssm_spec_fixtures import (
+from tests.model_fixtures import (
     affine_test_evolution,
-    block_ssm_spec,
     dense_matrix_dynamics_spec,
     full_diagonal_support,
     make_lgss_data,
+    model_fixture,
     zero_diagonal_support,
     zero_loading_support,
     zero_square_support,
@@ -264,7 +264,7 @@ def _make_map_mixed_support_recovery_data() -> dict[str, Any]:
     observations = _build_mixed_support_observations(point_observations)
     observation_support = _build_mixed_support_runtime(times, manifest_names)
 
-    spec = block_ssm_spec(
+    spec = model_fixture(
         n_latent=n_latent,
         n_manifest=n_manifest,
         dynamics_spec=dense_matrix_dynamics_spec(

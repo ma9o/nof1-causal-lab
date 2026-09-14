@@ -1,6 +1,6 @@
 """Kernel layer: pre-resolved callables for SSM inference.
 
-Separates the specification domain (SSMSpec: serializable enums for web UI)
+Separates the specification domain (ModelSpec: serializable enums for web UI)
 from the inference domain (kernels: bound JAX callables). Kernels are built
 once per likelihood evaluation from spec enums + sampled hyperparameters,
 then passed to all backend internals.
@@ -20,7 +20,7 @@ import jax.scipy.linalg as jla
 import jax.scipy.stats as jstats
 import numpy as np
 
-from nof1_causal_lab.artifacts.statistical_model_spec import DistributionFamily, LinkFunction
+from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize, symmetrize_with_jitter
 from nof1_causal_lab.models.ssm.execution.emissions import (
     MeanLogProbFn,
@@ -194,6 +194,13 @@ def _make_student_t_grad_hess(df: float | jnp.ndarray) -> LatentGradHessFn:
     return emission_grad_hess_fn
 
 
+def _delta_grad_hess(_y_t, _z_t, _H, _d, _R, _mask_t):
+    raise ValueError(
+        "Delta observations impose exact constraints and have no smooth log-density "
+        "for Gaussian initialization."
+    )
+
+
 def _make_gaussian_grad_hess() -> LatentGradHessFn:
     """Build emission_grad_hess_fn for Gaussian (full R, exact analytical form)."""
     from nof1_causal_lab.models.ssm.execution.contracts import (
@@ -268,6 +275,8 @@ def build_observation_kernel(
         emission_grad_hess_fn = _make_gaussian_grad_hess()
     elif family_spec.grad_hess_strategy == "student_t":
         emission_grad_hess_fn = _make_student_t_grad_hess(extra_params.get("obs_df", 5.0))
+    elif family_spec.grad_hess_strategy == "delta":
+        emission_grad_hess_fn = _delta_grad_hess
     else:  # "glm"
         sw_fn = get_emission_score_weight_fn(dist, extra_params, link=link)
         assert sw_fn is not None, f"No analytical score/weight fn for dist={dist!r}"

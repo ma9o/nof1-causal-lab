@@ -6,6 +6,7 @@ an explicit parametric linearity assumption.
 
 from __future__ import annotations
 
+from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.utils.identifiability import check_identifiability
 
 
@@ -60,23 +61,13 @@ def _measurement_structure_observing_xyz():
 
 
 class TestIVAllowedDefault:
-    def test_default_gate_finds_iv(self):
-        """Default ``iv_allowed=True`` may mark X as identifiable via Z
-        when U blocks backdoor identification."""
-        latent_structure = _iv_structure_latent_structure()
-        measurement_structure = _measurement_structure_observing_xyz()
-
-        result = check_identifiability(latent_structure, measurement_structure)
-
-        # X should be identifiable via Z (IV) under linearity assumption.
-        assert "X" in result["identifiable_treatments"]
-        info = result["identifiable_treatments"]["X"]
-        # Either do-calculus (front-door / backdoor via Z) OR instrumental_variable
-        # is acceptable — what matters is that IV was considered when available.
-        # We at least want to record that IV was *available* when it's used.
-        if info["method"] == "instrumental_variable":
-            assert "Z" in info["instruments"]
-        assert result["graph_info"]["iv_allowed"] is True
+    def test_default_does_not_promote_a_linear_iv_candidate(self):
+        result = check_identifiability(
+            _iv_structure_latent_structure(), _measurement_structure_observing_xyz()
+        )
+        assert "X" not in result["identifiable_treatments"]
+        assert "X" in result["non_identifiable_treatments"]
+        assert result["graph_info"]["iv_allowed"] is False
 
 
 class TestIVAllowedFalse:
@@ -95,18 +86,10 @@ class TestIVAllowedFalse:
 
         assert result_no_iv["graph_info"]["iv_allowed"] is False
 
-        # If IV identified X, disabling IV must drop X to the non-identifiable set.
-        iv_enabled_x = result_with_iv["identifiable_treatments"].get("X")
-        iv_disabled_x = result_no_iv["identifiable_treatments"].get("X")
-
-        if iv_enabled_x is not None and iv_enabled_x.get("method") == "instrumental_variable":
-            # Was IV-only identified → must be dropped without IV.
-            assert iv_disabled_x is None
-            assert "X" in result_no_iv["non_identifiable_treatments"]
-        else:
-            # If do-calculus alone identifies X (e.g., front-door), both paths agree.
-            assert iv_disabled_x is not None
-            assert iv_disabled_x.get("method") == "do_calculus"
+        assert result_with_iv["identifiable_treatments"]["X"]["method"] == "instrumental_variable"
+        assert result_with_iv["identifiable_treatments"]["X"]["instruments"] == ["Z"]
+        assert "X" not in result_no_iv["identifiable_treatments"]
+        assert "X" in result_no_iv["non_identifiable_treatments"]
 
     def test_disabled_iv_gate_preserves_do_calculus_identifications(self):
         """Treatments identified via do-calculus (backdoor/front-door) should
@@ -149,3 +132,36 @@ class TestIVAllowedFalse:
             result_with_iv["identifiable_treatments"]["X"]["method"]
             == result_no_iv["identifiable_treatments"]["X"]["method"]
         )
+
+
+def test_model_reporting_keeps_nonparametric_findings_without_linear_iv_assumptions():
+    from nof1_causal_lab.artifacts.construct import TemporalStatus
+    from nof1_causal_lab.artifacts.identity import ConstructRef
+    from nof1_causal_lab.models.identification import identify_model
+    from tests.helpers import make_model
+
+    model = make_model(["X", "Y", "Z", "U"], [("Z", "X"), ("X", "Y"), ("U", "X"), ("U", "Y")])
+    identities = {construct.name: construct.id for construct in model.constructs}
+    x_id, y_id, u_id = (identities[name] for name in ("X", "Y", "U"))
+    model = model.revised(
+        edges=replace_constructs(
+            model.edges,
+            tuple(
+                construct.model_copy(
+                    update={
+                        "temporal_status": TemporalStatus.TIME_INVARIANT,
+                        "indicators": () if construct.id == u_id else construct.indicators,
+                    }
+                )
+                for construct in model.constructs
+            ),
+        ),
+        default_outcome=ConstructRef(id=y_id),
+    )
+    report = identify_model(model)
+    assert x_id not in report.estimable_treatments
+    assert x_id in report.non_identifiable
+
+    unconfounded = model.revised(edges=tuple(edge for edge in model.edges if edge.cause.id != u_id))
+    identified = identify_model(unconfounded)
+    assert identified.status.identifiable_treatments[x_id].method == "do_calculus"

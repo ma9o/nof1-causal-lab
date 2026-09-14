@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import numpyro.distributions as dist
 import polars as pl
 from notebooks import prior_specification_support as support
 
-from nof1_causal_lab.artifacts.structural_plan import StructuralPlan
-from nof1_causal_lab.models.ssm.construct_admission import AdmissionReport
+from nof1_causal_lab.models.ssm.construct_admission import ConstructAdmissionReport
 from nof1_causal_lab.models.ssm.reachability import CheckResult
-from tests.helpers import make_structural_plan
+from tests.helpers import complete_test_model, make_model
 
 
 class _AdmittedState:
@@ -21,10 +21,11 @@ class _AdmittedState:
         self.attempt = 0
         self.submission_made = False
 
-    def submit_construct(self, *, construct: str, **_kwargs) -> str:
+    def submit_construct(self, *, construct, **_kwargs) -> str:
+        construct = construct["name"]
         self.submit_calls.append(construct)
         self.current_construct = None
-        self.last_report = AdmissionReport(
+        self.last_report = ConstructAdmissionReport(
             name=construct,
             results=(
                 CheckResult(
@@ -61,23 +62,18 @@ def test_workbench_replay_reuses_cached_evaluation_and_invalidates_semantic_inpu
             submit_calls,
         ),
     )
+    plan = make_model(["sleep"], [])
+    model = complete_test_model(plan)
     proposal = {
-        "construct": "sleep",
-        "mechanisms": [],
-        "indicators": [],
-        "priors": {
-            "rho_sleep": {
-                "distribution": "Beta",
-                "params": {"alpha": 2.0, "beta": 2.0},
-            }
-        },
+        "construct": model.constructs[0].model_dump(mode="json"),
+        "edges": [],
+        "parameters": [p.model_dump(mode="json") for p in model.parameters],
     }
-    plan = StructuralPlan.model_validate(make_structural_plan(["sleep"], []))
     panel = pl.DataFrame({"value": [1.0]})
 
     first = support.run_authored_proposals(
         cache_workspace_id="workbench-test",
-        structural_plan=plan,
+        model=plan,
         data_for_model=panel,
         proposals=[proposal],
         n_draws=16,
@@ -85,7 +81,7 @@ def test_workbench_replay_reuses_cached_evaluation_and_invalidates_semantic_inpu
     )
     second = support.run_authored_proposals(
         cache_workspace_id="workbench-test",
-        structural_plan=plan,
+        model=plan,
         data_for_model=panel,
         proposals=[proposal],
         n_draws=16,
@@ -100,16 +96,16 @@ def test_workbench_replay_reuses_cached_evaluation_and_invalidates_semantic_inpu
 
     changed_proposal = {
         **proposal,
-        "priors": {
-            "rho_sleep": {
-                "distribution": "Beta",
-                "params": {"alpha": 5.0, "beta": 2.0},
-            }
-        },
+        "parameters": [
+            p.model_copy(update={"distribution": dist.Beta(5, 2)}).model_dump(mode="json")
+            if p.name == "rho_sleep"
+            else p.model_dump(mode="json")
+            for p in model.parameters
+        ],
     }
     support.run_authored_proposals(
         cache_workspace_id="workbench-test",
-        structural_plan=plan,
+        model=plan,
         data_for_model=panel,
         proposals=[changed_proposal],
         n_draws=16,
@@ -117,7 +113,7 @@ def test_workbench_replay_reuses_cached_evaluation_and_invalidates_semantic_inpu
     )
     support.run_authored_proposals(
         cache_workspace_id="workbench-test",
-        structural_plan=plan,
+        model=plan,
         data_for_model=pl.DataFrame({"value": [2.0]}),
         proposals=[proposal],
         n_draws=16,

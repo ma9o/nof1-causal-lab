@@ -1,209 +1,86 @@
-"""Small canonical artifacts for fixture-backed stage-runner tests."""
-
-from __future__ import annotations
+"""Small canonical artifacts for fixture-backed runner contract tests."""
 
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any
 
 import polars as pl
 
-from nof1_causal_lab.machine.artifact_files import (
-    json_filename,
-    parquet_filename,
-)
-from nof1_causal_lab.machine.artifacts import ArtifactVersionInfo, EpisodeState
-
-if TYPE_CHECKING:
-    from nof1_causal_lab.machine.store import ArtifactStore
+from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.machine.artifacts import EpisodeState
+from tests.helpers import complete_test_model, fixture_entity_id, make_model
 
 
-def panel_frame(n_days: int = 20) -> pl.DataFrame:
-    start = datetime(2024, 1, 1)
-    rows: list[dict[str, Any]] = []
-    for i in range(n_days):
-        support_start = start + timedelta(days=i)
-        support_end = support_start + timedelta(days=1)
-        anchor = support_end
-        rows.extend(
-            [
-                {
-                    "indicator": "stress_score",
-                    "value": float(1 + (i % 5)),
-                    "anchor_time": anchor.isoformat(),
-                    "support_kind": "interval",
-                    "summary_operator": "mean",
-                    "anchor_policy": "support_end",
-                    "observation_window": "1d",
-                    "support_start": support_start.isoformat(),
-                    "support_end": support_end.isoformat(),
-                },
-                {
-                    "indicator": "sleep_score",
-                    "value": float(8 - (i % 4)),
-                    "anchor_time": anchor.isoformat(),
-                    "support_kind": "interval",
-                    "summary_operator": "mean",
-                    "anchor_policy": "support_end",
-                    "observation_window": "1d",
-                    "support_start": support_start.isoformat(),
-                    "support_end": support_end.isoformat(),
-                },
-            ]
+def scientific_model():
+    model = make_model(["Stress", "Sleep"])
+    model = model.revised(
+        edges=replace_constructs(
+            model.edges,
+            tuple(
+                c.model_copy(
+                    update={
+                        "indicators": (
+                            c.indicators[0].model_copy(
+                                update={
+                                    "id": fixture_entity_id("indicator", name),
+                                    "name": name,
+                                }
+                            ),
+                        )
+                    }
+                )
+                for c, name in zip(
+                    (model.get_construct(identity) for identity in model.state_order),
+                    ["stress_score", "sleep_score"],
+                    strict=True,
+                )
+            ),
         )
-    return pl.DataFrame(rows)
+    )
+    return complete_test_model(model)
 
 
-def statistical_model_spec() -> dict[str, Any]:
-    return {
-        "mechanisms": [
+def panel_frame(n_days=20):
+    start = datetime(2024, 1, 1)
+    return pl.DataFrame(
+        [
             {
-                "kind": "node_potential",
-                "target_id": "construct:98df502ac4daf088ca29",
-                "center": {"kind": "fixed", "value": 0},
-                "stiffness": {
-                    "kind": "estimated",
-                    "parameter_id": "parameter:067ff49138696d741faffe7e2dc6684225435e905b47cba9dbd3b216d7bbe749",
-                },
-                "quartic": {"kind": "fixed", "value": 0},
+                "indicator_id": fixture_entity_id("indicator", indicator),
+                "value": value,
+                "anchor_time": (start + timedelta(days=day + 1)).isoformat(),
+                "support_start": (start + timedelta(days=day)).isoformat(),
+                "support_end": (start + timedelta(days=day + 1)).isoformat(),
+                "support_kind": "interval",
+                "summary_operator": "mean",
+                "anchor_policy": "support_end",
+                "observation_window": "1d",
             }
-        ],
-        "likelihoods": [
-            {
-                "indicator_id": "indicator:3696aef3ff6f446744e5",
-                "distribution": "gaussian",
-                "link": "identity",
-                "reasoning": "Continuous stress score.",
-            },
-            {
-                "indicator_id": "indicator:7f807162156d3eb1b611",
-                "distribution": "gaussian",
-                "link": "identity",
-                "reasoning": "Continuous sleep score.",
-            },
-        ],
-        "parameters": [
-            {
-                "prior_transform": "dt_persistence_to_ct_decay",
-                "id": "parameter:067ff49138696d741faffe7e2dc6684225435e905b47cba9dbd3b216d7bbe749",
-                "owners": [{"kind": "construct", "id": "construct:98df502ac4daf088ca29"}],
-                "quantity": "dynamics_decay",
-                "name": "rho_Stress",
-                "role": "ar_coefficient",
-                "constraint": "unit_interval",
-                "description": "Daily persistence of Stress.",
-            }
-        ],
-    }
-
-
-def stage4_report() -> dict[str, Any]:
-    from nof1_causal_lab.artifacts.statistical_model_spec import StatisticalModelSpec
-    from nof1_causal_lab.models.prior_planning import complete_parameter_priors
-
-    model = complete_parameter_priors(StatisticalModelSpec.model_validate(statistical_model_spec()))
-    return {
-        "statistical_model_spec": model.model_dump(mode="json"),
-        "prior_predictive_samples": {"stress_score": [0.1, 0.2], "sleep_score": [0.0, 0.1]},
-    }
-
-
-def compiled_ssm() -> dict[str, Any]:
-    from nof1_causal_lab.artifacts.compiled_ssm import (
-        CompiledPriorSemantics,
-        CompiledSSMArtifact,
-        CompiledStructure,
+            for day in range(n_days)
+            for indicator, value in (
+                ("stress_score", float(1 + day % 5)),
+                ("sleep_score", float(8 - day % 4)),
+            )
+        ]
     )
-    from nof1_causal_lab.models.ssm.compile.artifact import serialize_ssm_spec
-    from tests.ssm_spec_fixtures import block_ssm_spec, full_dense_matrix_dynamics_spec
-
-    spec = block_ssm_spec(
-        n_latent=2,
-        n_manifest=2,
-        dynamics_spec=full_dense_matrix_dynamics_spec(2),
-        latent_names=["Stress", "Sleep"],
-        manifest_names=["stress_score", "sleep_score"],
-    )
-    artifact = CompiledSSMArtifact(
-        schema_version=2,
-        structure=CompiledStructure(
-            spec=serialize_ssm_spec(spec),
-            edge_lag_days=[],
-            bindings=[],
-            anchor_certificates=[],
-        ),
-        compiled_prior_semantics=CompiledPriorSemantics(
-            schema_version=7,
-            site_registry=[],
-            priors={},
-        ),
-        observation_bindings={"indicator:stress": "stress_score", "indicator:sleep": "sleep_score"},
-        parameters=[],
-        auxiliary_coordinates=[],
-        parameter_bindings=[],
-        compile_diagnostics=[],
-    )
-    return artifact.model_dump(mode="json")
 
 
-def state_from(*infos: ArtifactVersionInfo) -> EpisodeState:
+def state_from(*infos):
     return EpisodeState().with_versions(list(infos))
 
 
-def seed_structural_plan(
-    store: ArtifactStore,
-    *,
-    causal_design_version: int = 1,
-) -> ArtifactVersionInfo:
-    from tests.helpers import make_structural_plan
-
-    plan = make_structural_plan(["Stress", "Sleep"], [])
-    plan["semantics"]["indicators"]["indicator:0000"]["name"] = "stress_score"
-    plan["semantics"]["indicators"]["indicator:0001"]["name"] = "sleep_score"
+def seed_model(store):
     return store.write_version(
-        "structural_plan",
-        provenance="computed",
-        derived_from={"causal_design": causal_design_version},
-        produced_by="derive:structural_plan",
-        json_files={json_filename("structural_plan", "structural_plan"): {"structural_plan": plan}},
+        "model",
+        provenance="llm",
+        derived_from={},
+        produced_by="run:statistical_model_spec",
+        json_files={"model.json": scientific_model().model_dump(mode="json")},
     )
 
 
-def seed_panel(
-    store: ArtifactStore,
-    *,
-    question_version: int = 1,
-    raw_data_version: int = 1,
-    measurement_structure_version: int = 1,
-) -> ArtifactVersionInfo:
+def seed_panel(store, *, model_version=1):
     return store.write_version(
         "panel",
         provenance="computed",
-        derived_from={
-            "question": question_version,
-            "raw_data": raw_data_version,
-            "measurement_structure": measurement_structure_version,
-        },
+        derived_from={"model": model_version},
         produced_by="run:measurements",
-        parquet_files={parquet_filename("panel", "panel"): panel_frame()},
-    )
-
-
-def seed_compiled_ssm(
-    store: ArtifactStore,
-    *,
-    structural_plan_version: int = 1,
-    statistical_model_spec_version: int = 1,
-) -> ArtifactVersionInfo:
-    return store.write_version(
-        "compiled_ssm",
-        provenance="computed",
-        derived_from={
-            "statistical_model_spec": statistical_model_spec_version,
-            "structural_plan": structural_plan_version,
-        },
-        produced_by="derive:compiled_ssm",
-        json_files={
-            json_filename("compiled_ssm", "compiled_ssm"): compiled_ssm(),
-            json_filename("compiled_ssm", "report"): stage4_report(),
-        },
+        parquet_files={"panel.parquet": panel_frame()},
     )

@@ -92,116 +92,91 @@ def simulate(
     input_effect: Array | None = None,
     transition_inputs: Array | None = None,
 ) -> Array:
-    """Forward-simulate the SSM trajectory under ``intervention``.
+    """Bind a causal intervention, then simulate its declared Dynestyx evolution."""
+    from nof1_causal_lab.models.ssm.execution.dynamical_model import continuous_state_evolution
 
-    Two modes:
-
-    - **Deterministic drift trajectory** (default, ``key=None``): the ODE
-      ``dy/dt = f(t, y; θ)`` is integrated with an adaptive Tsit5 solver.
-      For nonlinear drift, this path generally differs from the SDE mean.
-
-    - **Single SDE sample** (``key`` and ``diffusion_cov`` both provided):
-      the SDE ``dy = f(t, y; θ) dt + L dW`` is integrated with a Heun
-      SDE solver, where ``L = chol(diffusion_cov + jitter·I)`` and ``dW``
-      uses indexed increments or ``VirtualBrownianTree`` according to the
-      solver configuration. Independent keys produce independent sample paths
-      for distributional counterfactuals.
-
-    Args:
-        vector_field: Drift callable for the SSM.
-        params: Parameter pytree for the field.
-        intervention: Override set active over the integration window.
-        initial_state: ``(n_latent,)`` state at ``time_grid[0]``. Hard
-            variable overrides are applied to this state before integration.
-        time_grid: ``(T,)`` monotonically increasing array of evaluation
-            times. ``time_grid[0]`` is the integration start.
-        config: Solver tolerances; defaults are conservative for stable
-            linear systems and adequate for moderately stiff non-linear
-            fields.
-        key: Optional JAX PRNG key. When provided alongside
-            ``diffusion_cov``, the simulator returns one SDE sample.
-        diffusion_cov: Optional ``(n_latent, n_latent)`` PSD diffusion
-            covariance ``G·G'``. State-independent (additive Wiener).
-        input_effect: Optional ``(n_latent, n_inputs)`` known-input coefficients.
-        transition_inputs: ``(T, n_inputs)`` forcing values indexed by destination
-            state, with the last interval's value held at the final endpoint.
-
-    Returns:
-        ``(T, n_latent)`` state trajectory at the requested grid. Deterministic
-        drift trajectory in ODE mode, one sample path in SDE mode.
-    """
-    from nof1_causal_lab.models.ssm.execution.dynamical_model import (
-        StructuralDrift,
-        continuous_state_evolution,
+    if (key is None) != (diffusion_cov is None):
+        raise ValueError("SDE mode requires both 'key' and 'diffusion_cov'")
+    args = VectorFieldArgs(params=params, intervention=intervention)
+    initial_state = vector_field.initial_condition(initial_state, args, time_grid[0])
+    evolution = (
+        vector_field.evolution(args, input_effect=input_effect)
+        if diffusion_cov is None
+        else continuous_state_evolution(
+            vector_field, params, diffusion_cov, input_effect, intervention=intervention
+        )
+    )
+    model = dsx.DynamicalModel(
+        initial_condition=dist.Delta(initial_state, event_dim=1),
+        state_evolution=evolution,
+        observation_model=_latent_observation,
+        control_dim=0 if input_effect is None else input_effect.shape[1],
+        t0=time_grid[0],
+    )
+    return simulate_model_path(
+        model,
+        initial_state,
+        time_grid,
+        config=config,
+        key=key,
+        transition_inputs=transition_inputs,
     )
 
-    cfg = config or SimulationConfig()
-    args = VectorFieldArgs(params=params, intervention=intervention)
 
-    t0 = time_grid[0]
-    t1 = time_grid[-1]
-    y0 = vector_field.initial_condition(initial_state, args, t0)
-    control_dim = 0 if input_effect is None else input_effect.shape[1]
+def simulate_model_path(
+    model: dsx.DynamicalModel,
+    initial_state: Array,
+    time_grid: Array,
+    config: SimulationConfig | None = None,
+    *,
+    key: Array | None = None,
+    transition_inputs: Array | None = None,
+) -> Array:
+    """Execute a declared model, preserving indexed Brownian replay and input timing.
+
+    Both inference and prediction supply the same nonlinear state evolution.
+    ODE paths use Dynestyx's solver. SDE paths use Diffrax directly because the
+    pinned library cannot accept the indexed Brownian path used by paired runs.
+    """
+    cfg = config or SimulationConfig()
+    evolution = model.state_evolution
+    stochastic = isinstance(evolution, dsx.StochasticContinuousTimeStateEvolution)
+    if stochastic != (key is not None):
+        raise ValueError("Stochastic evolution requires a key; deterministic evolution does not")
+    y0 = initial_state
+    t0, t1 = time_grid[0], time_grid[-1]
+    n_latent = model.state_dim
     controls = None
-    if input_effect is not None and control_dim:
+    if model.control_dim:
         if transition_inputs is None:
             raise ValueError("SSM has known input effects but transition_inputs was not provided.")
-        controls = jnp.asarray(transition_inputs, dtype=input_effect.dtype)
-        expected = (time_grid.shape[0], control_dim)
+        controls = jnp.asarray(transition_inputs, dtype=y0.dtype)
+        expected = (time_grid.shape[0], model.control_dim)
         if controls.shape != expected:
             raise ValueError(f"transition_inputs must have shape {expected}, got {controls.shape}")
-
-    if key is None or diffusion_cov is None:
-        if (key is None) != (diffusion_cov is None):
-            raise ValueError(
-                "SDE mode requires both 'key' and 'diffusion_cov'; got "
-                f"key={'set' if key is not None else 'None'}, "
-                f"diffusion_cov={'set' if diffusion_cov is not None else 'None'}."
-            )
-        initial_dt = jnp.maximum((t1 - t0) / 256.0, 1e-6)
-        # The latent process is fully observed here; only its state path is used.
-        dynamics = dsx.DynamicalModel(
-            initial_condition=dist.Delta(y0, event_dim=1),
-            state_evolution=dsx.DeterministicContinuousTimeStateEvolution(
-                drift=StructuralDrift(vector_field, args, input_effect),
-            ),
-            observation_model=_latent_observation,
-            control_dim=control_dim,
-            t0=t0,
-        )
+    if time_grid.shape[0] == 1:
+        return y0[None, :]
+    if not stochastic:
         return solve_ode_state_path(
-            dynamics,
+            model,
             initial_state=y0,
             t0=t0,
             path_times=time_grid,
-            # Inputs index the destination state. Dynestyx's continuous controls
-            # are right-continuous values at interval starts.
             ctrl_times=None if controls is None else time_grid,
-            ctrl_values=(
-                None if controls is None else jnp.concatenate([controls[1:], controls[-1:]])
-            ),
+            # Known inputs index destination states; library controls index interval starts.
+            ctrl_values=None
+            if controls is None
+            else jnp.concatenate([controls[1:], controls[-1:]]),
             diffeqsolve_settings={
                 "solver": dfx.Tsit5(),
                 "stepsize_controller": dfx.PIDController(rtol=cfg.rtol, atol=cfg.atol),
-                "dt0": initial_dt,
+                "dt0": jnp.maximum((t1 - t0) / 256.0, 1e-6),
                 "max_steps": cfg.max_steps,
                 "throw": False,
             },
         )
 
-    # SDE path: f(t,y) dt + L dW with L = chol(diffusion_cov).
-    n_latent = vector_field.n_latent
-    dtype = y0.dtype
-    diffusion_cov = jnp.asarray(diffusion_cov, dtype=dtype)
-    jitter = jnp.asarray(1e-8, dtype=dtype)
-    evolution = continuous_state_evolution(
-        vector_field,
-        params,
-        diffusion_cov + jitter * jnp.eye(n_latent, dtype=dtype),
-        input_effect,
-        intervention=intervention,
-    )
-
+    assert key is not None
     if cfg.use_indexed_brownian_path:
         if cfg.sde_dt is None:
             raise ValueError("Indexed Brownian simulation requires an explicit fixed step size")

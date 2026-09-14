@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import polars as pl
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 from nof1_causal_lab.flows.transitions.validation.rules import (
     RULES,
@@ -20,7 +25,7 @@ from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 
 
 def validate_extraction(
-    causal_design: UncheckedJsonObject,
+    model: ModelSpec,
     dataframes: list[pl.DataFrame],
 ) -> UncheckedJsonObject:
     """Validate semantic properties of extracted data.
@@ -47,19 +52,20 @@ def validate_extraction(
     if combined.is_empty():
         return no_data_validation_result()
 
-    from nof1_causal_lab.utils.causal_design import get_constructs, get_indicators
+    from nof1_causal_lab.models.model_inputs import identification_input
 
-    indicators = get_indicators(causal_design)
+    inputs = identification_input(model)
+    indicators = inputs["observations"]["indicators"]
     indicator_ids: set[str] = {ind["id"] for ind in indicators}
     indicator_lookup = {ind["id"]: ind for ind in indicators}
     unknown = set(combined["indicator_id"].unique()) - indicator_ids
     if unknown:
         raise ValueError(f"Observations reference indicators outside the pinned design: {unknown}")
 
-    constructs = get_constructs(causal_design)
+    constructs = inputs["graph"]["constructs"]
     construct_lookup = {c["id"]: c for c in constructs}
 
-    model_clock_str = causal_design.get("measurement", {}).get("model_clock")
+    model_clock_str = inputs["observations"]["model_clock"]
     model_clock_hours: float | None = None
     if model_clock_str:
         import contextlib

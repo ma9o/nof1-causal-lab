@@ -20,13 +20,12 @@ def imports():
     import jax.numpy as jnp
     import numpy as np
 
-    from nof1_causal_lab.artifacts.statistical_model_spec import (
+    from nof1_causal_lab.artifacts.likelihood import (
         DistributionFamily,
         LikelihoodSpec,
         LinkFunction,
-        ParameterSpec,
     )
-    from nof1_causal_lab.flows.transitions.model_spec.agentic.construct_flow import ParamCatalog
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.models.ssm.construct_admission import (
         AdmissionState,
         ConstructContribution,
@@ -40,10 +39,9 @@ def imports():
         ConstructContribution,
         DesignInfo,
         DistributionFamily,
+        ModelSpec,
         LikelihoodSpec,
         LinkFunction,
-        ParamCatalog,
-        ParameterSpec,
         Path,
         admit_construct,
         build_construct_order,
@@ -153,51 +151,51 @@ def dag_spec():
 
 
 @app.cell
-def causal_design(EDGES, INDICATORS, ORDER, build_structural_plan):
-    _edges = [
-        {
-            "id": f"edge:{_c}-{_e}",
-            "cause_id": f"construct:{_c}",
-            "effect_id": f"construct:{_e}",
-            "description": f"{_c} -> {_e}",
-            "lagged": True,
-        }
-        for _c, _e, _sat in EDGES
-    ]
-    CAUSAL_SPEC = {
-        "latent": {
-            "constructs": [
-                {
-                    "id": f"construct:{_n}",
-                    "name": _n,
-                    "description": _n,
-                    "role": "exogenous"
-                    if _n in {"CatchmentLoading", "WaterTemperature"}
-                    else "endogenous",
-                    "temporal_status": "time_varying",
-                }
-                for _n in ORDER
-            ],
-            "edges": _edges,
-        },
-        "measurement": {
-            "model_clock": "1d",
-            "indicators": [
-                {
-                    "id": f"indicator:{_ind}",
-                    "construct_id": f"construct:{_c}",
-                    "name": _ind,
-                    "construct_polarity": "positive",
-                    "how_to_measure": _ind,
-                    "measurement_dtype": _dtype,
-                    "aggregation": "last",
-                }
-                for _ind, _c, _dtype, _f, _l, _tau in INDICATORS
-            ],
-        },
+def scientific_model(EDGES, INDICATORS, ORDER, ModelSpec):
+    _constructs = {
+        item["name"]: item
+        for item in [
+            {
+                "id": f"construct:{_n}",
+                "name": _n,
+                "description": _n,
+                "role": "exogenous"
+                if _n in {"CatchmentLoading", "WaterTemperature"}
+                else "endogenous",
+                "temporal_status": "time_varying",
+                "indicators": [
+                    {
+                        "id": f"indicator:{_ind}",
+                        "name": _ind,
+                        "construct_polarity": "positive",
+                        "how_to_measure": _ind,
+                        "measurement_dtype": _dtype,
+                        "aggregation": "last",
+                    }
+                    for _ind, _c, _dtype, _f, _l, _tau in INDICATORS
+                    if _c == _n
+                ],
+            }
+            for _n in ORDER
+        ]
     }
-    STRUCTURAL_PLAN = build_structural_plan(CAUSAL_SPEC).model_dump(mode="json")
-    return CAUSAL_SPEC, STRUCTURAL_PLAN
+    SCIENTIFIC_MODEL = ModelSpec.model_validate(
+        {
+            "measurement_clock": "1d",
+            "edges": [
+                {
+                    "id": f"edge:{_c}-{_e}",
+                    "cause": _constructs[_c],
+                    "effect": _constructs[_e],
+                    "description": f"{_c} -> {_e}",
+                    "lagged": True,
+                }
+                for _c, _e in EDGES
+            ],
+        }
+    )
+    MODEL = SCIENTIFIC_MODEL
+    return SCIENTIFIC_MODEL, MODEL
 
 
 @app.cell(hide_code=True)
@@ -230,7 +228,7 @@ def eda(INDICATORS, Path, mo, np):
 
 
 @app.cell
-def load_data(DesignInfo, INDICATORS, Path, jnp, np):
+def load_data(DesignInfo, INDICATORS, Path, MODEL, jnp, np):
     _csv = Path("notebooks/data/lake_ecosystem_case_study/observations.csv")
     if not _csv.exists():
         _csv = Path("data/lake_ecosystem_case_study/observations.csv")
@@ -244,10 +242,9 @@ def load_data(DesignInfo, INDICATORS, Path, jnp, np):
     _obs_idx = np.arange(obs_times.size)
     design = DesignInfo(
         t_grid=jnp.asarray(obs_times),
-        obs_index_by_indicator={_ind: _obs_idx for _ind, *_ in INDICATORS},
-        values_by_indicator={_ind: data[_ind] for _ind, *_ in INDICATORS},
-        cadence=float(np.median(np.diff(obs_times))),
-        span=float(np.ptp(obs_times)),
+        obs_index_by_indicator={f"indicator:{_ind}": _obs_idx for _ind, *_ in INDICATORS},
+        values_by_indicator={f"indicator:{_ind}": data[_ind] for _ind, *_ in INDICATORS},
+        manifest_ids=tuple(MODEL.manifest_indicator_order),
         n_draws=64,
         seed=7,
     )
@@ -279,62 +276,48 @@ def strategy_md(mo):
 
 @app.cell
 def elicitation(
-    CAUSAL_SPEC,
+    SCIENTIFIC_MODEL,
     ConstructContribution,
     DistributionFamily,
     HILL,
     INDICATORS,
     LikelihoodSpec,
     LinkFunction,
-    ParamCatalog,
-    ParameterSpec,
-    STRUCTURAL_PLAN,
+    MODEL,
     TAU,
     math,
     np,
 ):
-    from nof1_causal_lab.models.model_mechanisms import (
-        declare_dynamics_mechanisms as _declare_mechanisms,
-    )
-    from nof1_causal_lab.models.prior_planning import parameter_with_prior as _parameter_with_prior
+    from prior_specification_support import parameter_with_prior as _parameter_with_prior
 
-    _catalog = ParamCatalog.from_structural_plan(STRUCTURAL_PLAN)
-    _indicator_ids = {item.name: item.id for item in STRUCTURAL_PLAN.semantics.indicators.values()}
-    _all_mechanisms = _declare_mechanisms(
-        STRUCTURAL_PLAN,
-        [ParameterSpec.model_validate(row) for row in _catalog.metadata.values()],
+    from nof1_causal_lab.artifacts.construct import replace_constructs as _replace_constructs
+    from nof1_causal_lab.models.likelihoods import observation_law as _observation_law
+    from nof1_causal_lab.models.model_mechanisms import declare_dynamics as _declare_dynamics
+    from nof1_causal_lab.models.model_parameters import referenced_parameter_ids as _parameter_ids
+    from nof1_causal_lab.models.parameter_planning import (
+        complete_component_slots as _complete_slots,
+    )
+
+    _hill_choices = set(HILL)
+
+    _template = _declare_dynamics(
+        MODEL,
         hill_edges=[
             edge.id
-            for edge in STRUCTURAL_PLAN.semantics.edges.values()
+            for edge in SCIENTIFIC_MODEL.edges
             if (
-                STRUCTURAL_PLAN.semantics.constructs[edge.cause_id].name,
-                STRUCTURAL_PLAN.semantics.constructs[edge.effect_id].name,
+                SCIENTIFIC_MODEL.get_construct(edge.cause.id).name,
+                SCIENTIFIC_MODEL.get_construct(edge.effect.id).name,
             )
-            in HILL
+            in _hill_choices
         ],
     )
 
-    def _mechanisms_for(construct):
-        _target = next(
-            item.id
-            for item in STRUCTURAL_PLAN.semantics.constructs.values()
-            if item.name == construct
-        )
-        return tuple(
-            mechanism
-            for mechanism in _all_mechanisms
-            if (
-                mechanism.target_id == _target
-                if (mechanism.kind == "node_potential" or mechanism.kind == "constant_drift")
-                else STRUCTURAL_PLAN.semantics.edges[mechanism.edge_id].effect_id == _target
-            )
-        )
-
     _emission = {c: (ind, fam, link) for ind, c, _d, fam, link, _t in INDICATORS}
-    _construct_names = {c["id"]: c["name"] for c in CAUSAL_SPEC["latent"]["constructs"]}
+    _construct_names = {c.id: c.name for c in SCIENTIFIC_MODEL.constructs}
     _parents = {name: [] for name in _construct_names.values()}
-    for _e in CAUSAL_SPEC["latent"]["edges"]:
-        _parents[_construct_names[_e["effect_id"]]].append(_construct_names[_e["cause_id"]])
+    for _e in SCIENTIFIC_MODEL.edges:
+        _parents[_construct_names[_e.effect.id]].append(_construct_names[_e.cause.id])
     DT = 1.0
 
     def _inv_link(link, y):
@@ -398,16 +381,20 @@ def elicitation(
                 # τ·β·anchor_parent → β scale = edge_base·a·anchor_child/anchor_parent.
                 _bscale = edge_base * _relax * _anchor / max(anchor_for(_p, data), 0.25)
                 priors[f"beta_{_p}_{c}"] = _normal(0.0, _bscale)
-        _likelihoods = ()
+        _entity = _template.get_construct(f"construct:{c}")
         if c in _emission:
             _ind, _fam, _link = _emission[c]
-            _likelihoods = (
-                LikelihoodSpec(
-                    indicator_id=_indicator_ids[_ind],
-                    distribution=DistributionFamily(_fam),
-                    link=LinkFunction(_link),
-                    reasoning=f"{_fam}/{_link} for {_ind}",
-                ),
+            _likelihood = LikelihoodSpec(
+                law=_observation_law(_entity.id, DistributionFamily(_fam), LinkFunction(_link)),
+                reasoning=f"{_fam}/{_link} for {_ind}",
+            )
+            _entity = _entity.model_copy(
+                update={
+                    "indicators": tuple(
+                        item.model_copy(update={"likelihood": _likelihood})
+                        for item in _entity.indicators
+                    )
+                }
             )
             _v = data[_ind]
             if _link == "identity":
@@ -422,17 +409,26 @@ def elicitation(
                     math.log(max(float(np.median(_v)), 0.5)), 0.4
                 )
         _edge_parents = tuple(p for p in _parents[c] if (p, c) not in HILL) + tuple(_hill_parents)
+        _proposal = _template.revised(
+            edges=_replace_constructs(
+                _template.edges,
+                tuple(_entity if item.id == _entity.id else item for item in _template.constructs),
+            )
+        )
+        _proposal = _complete_slots(_proposal)
+        _entity = _proposal.get_construct(_entity.id)
+        _edges = tuple(edge for edge in _proposal.edges if edge.effect.id == _entity.id)
+        _referenced = _parameter_ids(_entity, *_edges)
         return ConstructContribution(
-            name=c,
-            likelihoods=_likelihoods,
+            construct=_entity,
+            edges=_edges,
             parameters=tuple(
-                _parameter_with_prior(
-                    ParameterSpec.model_validate(_catalog.metadata_for(_pn)),
-                    {**_law, "reference_interval_days": DT},
-                )
-                for _pn, _law in priors.items()
+                _parameter_with_prior(_p, {**priors[_p.name], "reference_interval_days": DT})
+                if _p.name in priors
+                else _p
+                for _p in _proposal.parameters
+                if _p.id in _referenced
             ),
-            mechanisms=_mechanisms_for(c),
             edge_parents=_edge_parents,
             hill_parents=tuple(_hill_parents),
         )
@@ -458,7 +454,7 @@ def build_md(mo):
 @app.cell
 def run_build(
     AdmissionState,
-    STRUCTURAL_PLAN,
+    MODEL,
     admit_construct,
     build_construct_order,
     contribution,
@@ -498,17 +494,16 @@ def run_build(
 
     def _accept_for(c):
         return {
-            chk: _RATIONALE.get((c, chk), "accepted for this single-pass walkthrough")
+            (chk, c): _RATIONALE.get((c, chk), "accepted for this single-pass walkthrough")
             for chk in _SOFT
         }
 
-    _state = AdmissionState()
+    _state = AdmissionState(model=MODEL)
     reports = {}
-    for _c in build_construct_order(STRUCTURAL_PLAN):
+    for _c in build_construct_order(MODEL):
         _state, _report = admit_construct(
             _state,
             contribution(_c, data),
-            STRUCTURAL_PLAN,
             design,
             accepted=_accept_for(_c),
         )

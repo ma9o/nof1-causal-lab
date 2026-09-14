@@ -8,36 +8,20 @@ reporting; it never reconstructs the prior density or deterministic model sites.
 from __future__ import annotations
 
 import functools
-from typing import TYPE_CHECKING, TypedDict
+from typing import TypedDict
 
 import jax
 import jax.numpy as jnp
 import numpyro.distributions as dist
 from dynestyx.inference.particle_runtime import Parameterization, prepare_parameterization
 from numpyro import handlers
-from numpyro.distributions import MultivariateNormal
 
 from nof1_causal_lab.models.ssm.constants import INTERNAL_DIAGNOSTIC_SITES, MIN_DT
-from nof1_causal_lab.models.ssm.dynamics.spec import (
-    compile_dynamics,
-    pack_component_params_from_samples,
-)
-from nof1_causal_lab.models.ssm.execution.contracts import (
-    LikelihoodExtraParams,
-    MeasurementParams,
-)
-from nof1_causal_lab.models.ssm.execution.dynamical_model import continuous_state_evolution
+from nof1_causal_lab.models.ssm.execution.dynamical_model import assemble_likelihood_inputs
 from nof1_causal_lab.models.ssm.inference.shared import _filter_public_samples, _trace_public_sites
 from nof1_causal_lab.models.ssm.parameterization import (
-    assemble_extra_params_from_registry,
     build_site_registry,
 )
-
-if TYPE_CHECKING:
-    from dynestyx import StochasticContinuousTimeStateEvolution
-
-    from nof1_causal_lab.models.ssm.model import SSMSpec
-    from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
 
 
 class SiteInfoEntry(TypedDict):
@@ -124,36 +108,6 @@ def prepare_model_parameters(model, observations, times, trace_key, reparam):
     return parameters, site_info, public_sites
 
 
-def _assemble_likelihood_inputs(
-    samples: dict[str, jnp.ndarray],
-    spec: SSMSpec,
-    *,
-    registry: list[SiteDescriptor],
-) -> tuple[
-    StochasticContinuousTimeStateEvolution,
-    MeasurementParams,
-    MultivariateNormal,
-    LikelihoodExtraParams | None,
-]:
-    """Consume the canonical deterministic values from NumPyro's prior replay."""
-    compiled = compile_dynamics(spec.dynamics_spec)
-    diffusion_chol = samples["diffusion"]
-    dynamics = continuous_state_evolution(
-        vector_field=compiled.vector_field,
-        vf_params=pack_component_params_from_samples(spec.dynamics_spec, samples),
-        diffusion_cov=diffusion_chol @ diffusion_chol.T,
-        input_effect=samples["input_effect"] if spec.input_effect_block.n_cols else None,
-    )
-    measurement = MeasurementParams(
-        lambda_mat=samples["lambda"],
-        manifest_means=samples["manifest_means"],
-        manifest_cov=samples["manifest_cov"],
-    )
-    initial = MultivariateNormal(samples["t0_means"], covariance_matrix=samples["t0_cov"])
-    extra = assemble_extra_params_from_registry(spec, samples, registry)
-    return dynamics, measurement, initial, extra or None
-
-
 def extract_constrained_samples(
     particles: jnp.ndarray,
     parameters: Parameterization,
@@ -209,7 +163,7 @@ def _build_eval_fns(
         with_aux: bool,
     ):
         original_samples = parameters.constrain(z)
-        dynamics, measurement_params, initial_state, extra_params = _assemble_likelihood_inputs(
+        dynamics, measurement_params, initial_state, extra_params = assemble_likelihood_inputs(
             original_samples,
             model.spec,
             registry=runtime_registry,

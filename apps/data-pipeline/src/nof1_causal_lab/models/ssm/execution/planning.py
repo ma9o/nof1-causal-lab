@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.model import SSMSpec
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
 StructuralBackend = Literal["laplace"]
@@ -16,7 +16,7 @@ ResolvedMethod = Literal["marginal_particle_gibbs"]
 
 @dataclass(frozen=True)
 class InferenceStructurePlan:
-    """Canonical structural plan shared across runtime prep and inference."""
+    """Inference-engine settings shared across runtime preparation and inference."""
 
     structural_backend: StructuralBackend
     resolved_method: ResolvedMethod
@@ -47,7 +47,7 @@ def _resolve_default_method(
 
 
 def plan_inference_structure(
-    spec: SSMSpec,
+    spec: ModelSpec,
     *,
     observation_support: ObservationSupportRuntime | None = None,
     method_override: RequestedMethod | None = None,

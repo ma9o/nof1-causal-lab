@@ -1,5 +1,7 @@
 """Tests for vector-field transition construction."""
 
+from nof1_causal_lab.artifacts.identity import scientific_id
+from tests.dynamics_fixtures import hill_term
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -14,24 +16,14 @@ from dynestyx.inference.configs.discretizer import LocalLinearizationConfig
 from numpyro import handlers
 from numpyro.distributions import MultivariateNormal
 
+from nof1_causal_lab.artifacts.likelihood import LinkFunction
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
-from nof1_causal_lab.artifacts.statistical_model_spec import LinkFunction
 from nof1_causal_lab.distributions import DistributionFamily
-from nof1_causal_lab.models.ssm.dynamics.edges import (
-    DenseLinear,
-    DiagonalDecay,
-    HillEdge,
-    Intercept,
-    LinearEdge,
-    StateDecay,
-    StateIntercept,
-)
-from nof1_causal_lab.models.ssm.dynamics.spec import (
-    DiagonalDecaySpec,
-    DynamicsSpec,
-    HillEdgeSpec,
-)
+from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear, DiagonalDecay, Intercept, LinearEdge, StateDecay, StateIntercept
+from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
 from nof1_causal_lab.models.ssm.dynamics.vector_field import (
+    StructuralDrift,
     VectorField,
 )
 from nof1_causal_lab.models.ssm.execution.contracts import (
@@ -40,7 +32,6 @@ from nof1_causal_lab.models.ssm.execution.contracts import (
     MeasurementParams,
 )
 from nof1_causal_lab.models.ssm.execution.dynamical_model import (
-    StructuralDrift,
     continuous_state_evolution,
 )
 from nof1_causal_lab.models.ssm.inference.backend_factory import get_laplace_backend
@@ -50,7 +41,7 @@ from nof1_causal_lab.models.ssm.inference.targets.laplace.shared import (
 )
 from nof1_causal_lab.models.ssm.inference.targets.transitions import build_discrete_transitions
 from nof1_causal_lab.models.ssm.inference.warmup.map import _build_map_laplace_bundle
-from nof1_causal_lab.models.ssm.model import SSMModel, SSMSpec
+from nof1_causal_lab.models.ssm.model import SSMModel
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 from nof1_causal_lab.models.ssm.structure import (
     DiffusionBlockSpec,
@@ -59,7 +50,8 @@ from nof1_causal_lab.models.ssm.structure import (
     SparseVectorBlockSpec,
     T0CholBlockSpec,
 )
-from tests.ssm_spec_fixtures import affine_test_evolution
+from tests.dynamics_fixtures import decay_term, hill_term
+from tests.model_fixtures import affine_test_evolution, model_fixture
 
 pytestmark = pytest.mark.cpu_expensive
 
@@ -127,15 +119,15 @@ def _trajectory_runtime_dynamics() -> StochasticContinuousTimeStateEvolution:
             n_latent=2,
             components=(
                 DiagonalDecay(),
-                HillEdge(source=0, target=1),
+                hill_term(source=0, target=1).build(),
             ),
         ),
         vf_params=(
             {"decay": jnp.array([0.35, 0.45], dtype=jnp.float32)},
             {
-                "Emax": jnp.array(0.80, dtype=jnp.float32),
-                "EC50": jnp.array(1.20, dtype=jnp.float32),
-                "n": jnp.array(2.0, dtype=jnp.float32),
+                scientific_id("parameter", "emax"): jnp.array(0.80, dtype=jnp.float32),
+                scientific_id("parameter", "ec50"): jnp.array(1.20, dtype=jnp.float32),
+                scientific_id("parameter", "exponent"): jnp.array(2.0, dtype=jnp.float32),
             },
         ),
         diffusion_cov=jnp.diag(jnp.array([0.05, 0.07], dtype=jnp.float32)),
@@ -189,17 +181,17 @@ def _long_interval_mean_support_runtime(n_time: int) -> ObservationSupportRuntim
     )
 
 
-def _nonlinear_point_ssm_spec() -> SSMSpec:
+def _nonlinear_point_ssm_spec() -> ModelSpec:
     n_latent = 2
     n_manifest = 1
-    return SSMSpec(
+    return model_fixture(
         n_latent=n_latent,
         n_manifest=n_manifest,
         dynamics_spec=DynamicsSpec(
             n_latent=n_latent,
             components=(
-                DiagonalDecaySpec(),
-                HillEdgeSpec(
+                *(decay_term(target=i) for i in range(n_latent)),
+                hill_term(
                     source=0,
                     target=1,
                 ),

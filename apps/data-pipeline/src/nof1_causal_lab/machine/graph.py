@@ -1,18 +1,4 @@
-"""The artifact-level ruleset: how each artifact comes into existence.
-
-Nodes are artifacts, not stages. An artifact enters the store exactly one of
-three ways:
-
-- **root** artifacts are written directly by a caller,
-- **produced** artifacts are computed by running the transition keyed by the
-  artifact it primarily creates,
-- **derived** artifacts are deterministic machine-maintained nodes recomputed
-  from their parents inside the same move that changed those parents.
-
-Run legality is a pure existence check over a transition's ``consumes``. Derived
-nodes are never runnable, never writable, and never stale: they move in lockstep
-with their parents through the derivation cascade.
-"""
+"""Operation dependencies and persisted results of one incrementally authored model."""
 
 from __future__ import annotations
 
@@ -22,39 +8,29 @@ from typing import Annotated, Literal
 
 from pydantic import Field
 
-from nof1_causal_lab.artifacts.identity import ArtifactId  # noqa: TC001
+from nof1_causal_lab.artifacts.identity import ArtifactId, OperationId  # noqa: TC001
 
-# How a produced artifact is computed, and therefore whether an external agent
-# can shortcut its run by writing the artifact itself.
 CreationClass = Literal["deterministic", "batch_llm", "judgment"]
 
 
 @dataclass(frozen=True)
 class Transition:
-    """How a produced artifact is computed from its inputs.
-
-    ``produces`` is the transition identity.
-    """
-
+    operation_id: OperationId
     consumes: tuple[ArtifactId, ...]
-    produces: ArtifactId
+    produces: tuple[ArtifactId, ...]
     creation_class: CreationClass
+    optional_consumes: tuple[ArtifactId, ...] = ()
     produces_optional: tuple[ArtifactId, ...] = ()
+    after: tuple[OperationId, ...] = ()
     writable: bool = False
 
     @property
-    def transition_id(self) -> ArtifactId:
-        return self.produces
-
-    @property
     def all_produces(self) -> tuple[ArtifactId, ...]:
-        return (self.produces, *self.produces_optional)
+        return (*self.produces, *self.produces_optional)
 
 
 @dataclass(frozen=True)
 class Derivation:
-    """A deterministic, machine-maintained artifact node."""
-
     produces: ArtifactId
     from_: Annotated[tuple[ArtifactId, ...], Field(alias="from")]
     optional: bool = False
@@ -62,206 +38,117 @@ class Derivation:
 
 @dataclass(frozen=True)
 class Root:
-    """An artifact that enters the store by ``write``, not by a transition."""
-
     artifact_id: ArtifactId
     write_pins: tuple[ArtifactId, ...] = ()
 
 
 ARTIFACT_GRAPH: tuple[Transition, ...] = (
+    Transition("raw_data", (), ("raw_data",), "batch_llm"),
     Transition(
-        consumes=(),
-        produces="raw_data",
-        creation_class="batch_llm",
+        "latent_structure", ("question",), ("model",), "judgment", optional_consumes=("model",)
     ),
     Transition(
-        consumes=("question",),
-        produces="latent_structure",
-        creation_class="judgment",
-        writable=True,
+        "measurement_structure",
+        ("question", "raw_data", "model"),
+        ("model",),
+        "judgment",
+        after=("raw_data", "latent_structure"),
     ),
     Transition(
-        consumes=("question", "raw_data", "latent_structure"),
-        produces="measurement_structure",
-        creation_class="judgment",
-        writable=True,
-    ),
-    Transition(
-        consumes=("question", "raw_data", "measurement_structure"),
-        produces="measurements",
-        creation_class="batch_llm",
+        "measurements",
+        ("question", "raw_data", "model"),
+        (),
+        "batch_llm",
         produces_optional=("panel",),
+        after=("measurement_structure",),
     ),
     Transition(
-        consumes=(
+        "statistical_model_spec",
+        (
             "question",
-            "structural_plan",
+            "model",
             "identification_report",
             "panel",
             "validation_report",
         ),
-        produces="statistical_model_spec",
-        creation_class="judgment",
-        writable=True,
+        ("model",),
+        "judgment",
+        produces_optional=("admission_report",),
+        after=("measurements",),
     ),
     Transition(
-        consumes=("compiled_ssm", "panel"),
-        produces="posterior",
-        creation_class="deterministic",
+        "posterior",
+        ("model", "panel"),
+        ("model",),
+        "deterministic",
+        after=("statistical_model_spec",),
     ),
     Transition(
-        consumes=("posterior", "causal_design", "identification_report"),
-        produces="baseline_report",
-        creation_class="judgment",
+        "baseline_report",
+        ("model", "panel", "identification_report"),
+        ("baseline_report",),
+        "judgment",
+        after=("posterior",),
         writable=True,
     ),
 )
-
 DERIVATIONS: tuple[Derivation, ...] = (
-    Derivation(produces="causal_design", from_=("latent_structure", "measurement_structure")),
-    Derivation(produces="structural_plan", from_=("causal_design",)),
-    Derivation(produces="identification_report", from_=("causal_design",), optional=True),
-    Derivation(produces="validation_report", from_=("panel", "causal_design")),
-    Derivation(produces="compiled_ssm", from_=("statistical_model_spec", "structural_plan")),
+    Derivation("identification_report", ("model",)),
+    Derivation("validation_report", ("panel", "model")),
 )
-
-ROOTS: tuple[Root, ...] = (
-    Root(artifact_id="question"),
-    Root(artifact_id="saved_scenarios"),
-)
-
-ROOT_ARTIFACTS: tuple[ArtifactId, ...] = tuple(root.artifact_id for root in ROOTS)
-
-# The full ``write`` surface: every root, plus every judgment-class transition.
-WRITABLE_ARTIFACTS: tuple[ArtifactId, ...] = ROOT_ARTIFACTS + tuple(
-    spec.transition_id for spec in ARTIFACT_GRAPH if spec.writable
+ROOTS: tuple[Root, ...] = (Root("question"), Root("model"))
+ROOT_ARTIFACTS = tuple(root.artifact_id for root in ROOTS)
+WRITABLE_ARTIFACTS = ROOT_ARTIFACTS + tuple(
+    artifact for spec in ARTIFACT_GRAPH if spec.writable for artifact in spec.produces
 )
 
 
-def transition_spec(artifact_id: ArtifactId) -> Transition:
-    """Return the transition whose primary output is ``artifact_id``."""
+def transition_spec(operation_id: OperationId) -> Transition:
     for spec in ARTIFACT_GRAPH:
-        if spec.transition_id == artifact_id:
+        if spec.operation_id == operation_id:
             return spec
-    known = ", ".join(spec.transition_id for spec in ARTIFACT_GRAPH)
-    raise KeyError(f"Unknown transition '{artifact_id}'. Expected one of: {known}")
-
-
-def producer_of(artifact_id: ArtifactId) -> Transition | Derivation | None:
-    """The graph node that creates an artifact, or None for roots."""
-    for spec in ARTIFACT_GRAPH:
-        if artifact_id in spec.all_produces:
-            return spec
-    for spec in DERIVATIONS:
-        if artifact_id == spec.produces:
-            return spec
-    return None
+    raise KeyError(f"Unknown operation {operation_id!r}")
 
 
 def topological_derivation_order() -> tuple[Derivation, ...]:
-    """Derived nodes sorted so parent derivations precede their children."""
-    derived_by_id = {spec.produces: spec for spec in DERIVATIONS}
-    dep_graph = {
-        spec.produces: {parent for parent in spec.from_ if parent in derived_by_id}
-        for spec in DERIVATIONS
-    }
-    ordered = graphlib.TopologicalSorter(dep_graph).static_order()
-    return tuple(derived_by_id[artifact_id] for artifact_id in ordered)
+    by_id = {spec.produces: spec for spec in DERIVATIONS}
+    graph = {spec.produces: set(spec.from_) & by_id.keys() for spec in DERIVATIONS}
+    return tuple(by_id[key] for key in graphlib.TopologicalSorter(graph).static_order())
 
 
-def _transition_dependencies(artifact_id: ArtifactId) -> set[ArtifactId]:
-    """Runnable transition ids upstream of an artifact dependency."""
-    producer = producer_of(artifact_id)
-    if producer is None:
-        return set()
-    if isinstance(producer, Transition):
-        return {producer.transition_id}
-    dependencies: set[ArtifactId] = set()
-    for parent in producer.from_:
-        dependencies.update(_transition_dependencies(parent))
-    return dependencies
-
-
-def topological_transition_order() -> tuple[ArtifactId, ...]:
-    """Runnable transitions sorted by artifact dependencies."""
-    dep_graph = {
-        spec.transition_id: {
-            dependency
-            for artifact in spec.consumes
-            for dependency in _transition_dependencies(artifact)
-            if dependency != spec.transition_id
-        }
-        for spec in ARTIFACT_GRAPH
-    }
-    return tuple(graphlib.TopologicalSorter(dep_graph).static_order())
+def topological_transition_order() -> tuple[OperationId, ...]:
+    return tuple(
+        graphlib.TopologicalSorter(
+            {spec.operation_id: set(spec.after) for spec in ARTIFACT_GRAPH}
+        ).static_order()
+    )
 
 
 def topological_artifact_order() -> tuple[ArtifactId, ...]:
-    """Artifacts sorted by the complete artifact dependency graph."""
     from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS
 
-    dependencies = _artifact_dependency_graph()
-    for artifact_id in ARTIFACT_IDS:
-        dependencies.setdefault(artifact_id, set())
-    return tuple(graphlib.TopologicalSorter(dependencies).static_order())
-
-
-def _artifact_dependency_graph() -> dict[ArtifactId, set[ArtifactId]]:
-    dependencies: dict[ArtifactId, set[ArtifactId]] = {}
+    dependencies = {key: set() for key in ARTIFACT_IDS}
     for spec in ARTIFACT_GRAPH:
-        for artifact in spec.all_produces:
-            dependencies[artifact] = set(spec.consumes)
+        for key in spec.all_produces:
+            if key not in ROOT_ARTIFACTS:
+                dependencies[key].update(spec.consumes)
     for spec in DERIVATIONS:
-        dependencies[spec.produces] = set(spec.from_)
-    return dependencies
+        dependencies[spec.produces].update(spec.from_)
+    return tuple(graphlib.TopologicalSorter(dependencies).static_order())
 
 
 def _assert_graph_consistent() -> None:
     from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS
 
-    produced: set[ArtifactId] = set()
-    for spec in ARTIFACT_GRAPH:
-        if spec.writable and spec.creation_class != "judgment":
-            raise AssertionError(f"Writable transition '{spec.transition_id}' must be judgment")
-        for artifact in spec.all_produces:
-            if artifact in produced:
-                raise AssertionError(f"Artifact '{artifact}' has two producers")
-            produced.add(artifact)
-
-    for spec in DERIVATIONS:
-        if spec.produces in produced:
-            raise AssertionError(f"Derived artifact '{spec.produces}' has a transition producer")
-        produced.add(spec.produces)
-
-    overlap = produced.intersection(ROOT_ARTIFACTS)
-    if overlap:
-        raise AssertionError(f"Root artifacts cannot have producers: {overlap}")
-
-    all_artifacts = set(ARTIFACT_IDS)
-    unknown_produced = produced - all_artifacts
-    if unknown_produced:
-        raise AssertionError(f"Graph produces unknown artifacts: {unknown_produced}")
-
-    missing = all_artifacts - produced - set(ROOT_ARTIFACTS)
-    if missing:
-        raise AssertionError(f"Artifacts need a root, transition, or derivation: {missing}")
-
-    dependencies = _artifact_dependency_graph()
-    for artifact, parents in dependencies.items():
-        unknown_parents = parents - all_artifacts
-        if unknown_parents:
-            raise AssertionError(f"{artifact} depends on unknown artifacts: {unknown_parents}")
-
-    for root in ROOTS:
-        unknown_pins = set(root.write_pins) - all_artifacts
-        if unknown_pins:
-            raise AssertionError(
-                f"Root '{root.artifact_id}' pins unknown artifacts: {unknown_pins}"
-            )
-
-    graphlib.TopologicalSorter(dependencies).static_order()
-    topological_artifact_order()
+    operations = {spec.operation_id for spec in ARTIFACT_GRAPH}
+    assert len(operations) == len(ARTIFACT_GRAPH), "Operation IDs must be unique"
+    assert all(set(spec.after) <= operations for spec in ARTIFACT_GRAPH)
+    produced = {key for spec in ARTIFACT_GRAPH for key in spec.all_produces}
+    derived = {spec.produces for spec in DERIVATIONS}
+    assert not produced & derived, "Derived artifacts cannot have operation producers"
+    assert produced | derived | set(ROOT_ARTIFACTS) == set(ARTIFACT_IDS)
     topological_transition_order()
+    topological_artifact_order()
     topological_derivation_order()
 
 
