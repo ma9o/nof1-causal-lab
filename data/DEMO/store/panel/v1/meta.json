@@ -1,1 +1,16 @@
-{"artifact_id":"panel","version":1,"provenance":"computed","derived_from":{"question":1,"raw_data":1,"measurement_structure":1},"produced_by":"run:measurements","created_at":"2026-07-08T11:57:26.429605+00:00"}
+{
+  "artifact_id": "panel",
+  "version": 1,
+  "provenance": "computed",
+  "derived_from": {
+    "question": 1,
+    "raw_data": 1,
+    "model": 2
+  },
+  "model_inputs": {},
+  "consumed_model_inputs": {
+    "extraction": "input:754ce8a5f3f43a8300ccba20b4ac4bd33f88326f0e1f4d28727737302a1fcc4a"
+  },
+  "produced_by": "run:measurements",
+  "created_at": "2026-07-08T11:57:26.429605+00:00"
+}

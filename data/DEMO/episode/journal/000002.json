@@ -4,7 +4,8 @@
   "move": {
     "kind": "write",
     "artifact_id": "question",
-    "provenance": "human"
+    "provenance": "human",
+    "expected_model_version": null
   },
   "status": "applied",
   "reason": null,
@@ -17,6 +18,8 @@
       "version": 1,
       "provenance": "human",
       "derived_from": {},
+      "model_inputs": {},
+      "consumed_model_inputs": {},
       "produced_by": null,
       "created_at": "2026-07-08T11:57:25.454344+00:00"
     }

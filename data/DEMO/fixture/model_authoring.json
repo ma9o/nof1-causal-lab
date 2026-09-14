@@ -1,0 +1,472 @@
+{
+  "parameter_evidence": {
+    "parameter:cabcaa1f20b4727a032e91419f21eb59950155a04fbe7397025855966d9cc647": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:6644003d9f950a37d74b82563ce03df73bb93d24eca0f2a3bbcce99728418679": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:0e9a1b1dfe541174568e14b1ff28869410c133c12d1e3a9af74267469c804720": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:10b6c3148f914ad631ff5205317ae8e4054f987ae4976b0ca02ff5dd6bd5dbeb": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:145cae7b491088b812e4c26ad611489cf0f1c53e028abbd083dbcf800675aaef": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:19d63341a2cedf238201371098567432f756f81a31323d6428e69e87e94b1a19": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:2098505b8d1d7997f62805340a3ff337efeeae3695f6f6e97a5d36b530ab9961": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:2e77fa252226c51341ede18b3f1d464dbeb890f4a60a438d704f0fefbc38188e": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:0ad9908a17641c4c8cf0f5a359b0c7d4ecc8dfd394cdf28ac69da1f8f0af9eb2": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:d20ec2885a6fc8305245a06e43d6887d2ae868345c8bf8c7b391ed03fd96b19d": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:5e0f4616e4d76bd70855ce8c6bc4e088d231ffb6d74ba81555fa80703beae1c2": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:4c69c0ffa919eabbb08eed0878b3bf24a3fb06c1cd111d5a091f8fcddd8537e6": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:4d037b0571237ffe38d08e6503b98580c2a7370156a7757848ffaa5fd1728fdd": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:501e52abe92a871a95f3b4b56fad364ae360efc3c575c1e877d754d470292cdc": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:0366100fe006daacd286930ef8bd629af70d9e495e4c1cc45d0ee79028812884": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:9e966cbdb24cdb20e154c855c22d0dd7392a879ab49b9ca1d18c3c3b68c7901f": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:595facfc46354b6582dae818836589a0643813eae29b42665949b9383de56f29": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:60c1e5624e5768a3cb12b77bca44cd14f93f40096f1954d34b8ef00457b560cd": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:8f16c468bd931a509f0b080732c82a6ad95b9250c6d5419dbc7c962e27be5e4d": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:6657e5ab0107fe6a181dfe91715b2003fb0f4bb5e65f903639c56bb7afb97500": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:7ae993e70d7e440b5e653e0e7728fcb07f04c36479498a1e18c0bca4d5a4cd3e": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:682bd44790ce8d881c45c2aa166884c83146b6f6a175a779c90033b22ba9403f": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:6914c1f9f6cf7cc676006f1b1149cdf41592f7ff0e549e7c1efa85d888925eba": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:6d06d0c355dba2e8343ac2e243a6754ed91712effdd567e08a2c88d6fac3fa86": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:6e11cf59457acf739c486d4638043ab03622923871577e92928fdb95b23d4022": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:773a0c8da725a4e3f6240c7807ad981e4948eead8c502f9fe316d4ababbc2e6d": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:56338f70c5882bb1009fde7ce5d2bc81e92a49cbf50b3deb72c02583c0e057b8": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:7965e9dce8c03b2a8ec99330856f28b3a430e74768c60d5068ea3111ba94566f": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:2132145147e99eb5ddd6a4c0f34e9972340540566816ea3034e424b7039c1a57": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:4529be181165946bd05ca47eede4f26cefb5304f6312fd51ac7f67653ebec2fd": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:1b3d4aad4fb2e60a554306e6b6409fb3c55e37aa2a4e9c619c4036863875a32a": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:975f2d0c21bddf6371a2c1d8dcea40ddfc63416258239751962298592d74b9f8": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:9cf821d64c956fb794f034de7b9143541795b485e3177647c1e24ea922bc177f": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:9ec837565ea8266acf16f4e878ab3ec49c793f747dd1620cb8872a15b6d48170": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:69c28f479e2b862713dec406262d00777047e9b2a4d4f158eab27fc9c0a7644d": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:586e79e66975d39c87963bba7fc30ee3e1569df19b00431aabd125ec7fa2d683": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:a522641efd5adb152c5c47a37e5cb0881ff86a0ddfdb11151dda3735a0646a09": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:8140ddf85ce1d8034b0a3be7b25158ca5ca9c18347125ab73c3fa72de151b080": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:93e17976a307088a35da3743f512e7344391cc91defd96d1037b47c81e5f9210": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:a715e88716e8dcfb5aba9aeaf1fa536baa8f78ba1450262e33012a44950d47a1": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:5404e8f376308cdef6da71e4de19f9b0eabc289b812d00c6fd1b0573f89e6dff": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:ce1ebad1f8bd081a26421cfcf318798e7c0081cfa7e691a0938d3039982206ec": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:d04f9da05c382797cd6ece7e35dc6fe984ba19224c035803da1b904139904cef": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:dff8a815d1f023dc237fcc95c1b14df7b8aeb51f7f1fa5c35830c3ac3893e0bc": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    },
+    "parameter:e12fda642336ce481bd4a41010c8391d35da276abc819f7cebc574b61648628a": {
+      "reasoning": "Weakly regularizing deterministic DEMO-fixture prior on the parameter's compiled scale; suitable for visual review but not scientific evidence.",
+      "sources": []
+    }
+  },
+  "compile_diagnostics": [
+    {
+      "parameter": "linear_edge_weight",
+      "is_valid": true,
+      "code": "dt_ct_approximation_warning",
+      "origin": "compile",
+      "severity": "warning",
+      "issue": "beta_taper_speed_dose_reduction_escitalopram_dose_taken (taper_speed_dose_reduction -> escitalopram_dose_taken): matrix-log mismatch; exact CT coupling at 1.0d is 0.196 1/day versus the elementwise beta/dt value 0.149 1/day; logm deviation is 24% and the exact coupling is 111% of the smallest realised CT diagonal damping (0.176 1/day, rho_sleep_circadian_disruption).",
+      "suggested_adjustment": "Use the exact matrix-log CT scale when revising this edge: shorten the reference interval, shrink the DT beta prior, or elicit the prior directly on the CT rate.",
+      "related_parameters": [
+        "parameter:5404e8f376308cdef6da71e4de19f9b0eabc289b812d00c6fd1b0573f89e6dff"
+      ],
+      "compiled_site_name": "vf_7_weight",
+      "compiled_flat_index": 0,
+      "supporting_codes": [],
+      "repair_scope": null,
+      "failure_stage": "compiled_parameters",
+      "bad_sample_sites": [],
+      "bad_manifest_names": [],
+      "failing_draw_indices": [],
+      "first_bad_time_index": null,
+      "pathology_certificate": {
+        "kind": "dt_ct_approximation",
+        "primary_score": 0.2383444478818627,
+        "secondary_score": 1.1115325716510656
+      }
+    },
+    {
+      "parameter": "linear_edge_weight",
+      "is_valid": true,
+      "code": "dt_ct_approximation_warning",
+      "origin": "compile",
+      "severity": "warning",
+      "issue": "beta_adherence_to_regimen_escitalopram_dose_taken (adherence_to_regimen -> escitalopram_dose_taken): matrix-log mismatch; exact CT coupling at 1.0d is 0.104 1/day versus the elementwise beta/dt value 0.078 1/day; logm deviation is 25% and the exact coupling is 59% of the smallest realised CT diagonal damping (0.176 1/day, rho_sleep_circadian_disruption).",
+      "suggested_adjustment": "Use the exact matrix-log CT scale when revising this edge: shorten the reference interval, shrink the DT beta prior, or elicit the prior directly on the CT rate.",
+      "related_parameters": [
+        "parameter:8140ddf85ce1d8034b0a3be7b25158ca5ca9c18347125ab73c3fa72de151b080"
+      ],
+      "compiled_site_name": "vf_8_weight",
+      "compiled_flat_index": 0,
+      "supporting_codes": [],
+      "repair_scope": null,
+      "failure_stage": "compiled_parameters",
+      "bad_sample_sites": [],
+      "bad_manifest_names": [],
+      "failing_draw_indices": [],
+      "first_bad_time_index": null,
+      "pathology_certificate": {
+        "kind": "dt_ct_approximation",
+        "primary_score": 0.2499522255382389,
+        "secondary_score": 0.5910006239412982
+      }
+    },
+    {
+      "parameter": "linear_edge_weight",
+      "is_valid": true,
+      "code": "dt_ct_approximation_warning",
+      "origin": "compile",
+      "severity": "warning",
+      "issue": "beta_internalizing_symptom_burden_adherence_to_regimen (internalizing_symptom_burden -> adherence_to_regimen): matrix-log mismatch; exact CT coupling at 1.0d is 0.177 1/day versus the elementwise beta/dt value 0.131 1/day; logm deviation is 26% and the exact coupling is 100% of the smallest realised CT diagonal damping (0.176 1/day, rho_sleep_circadian_disruption).",
+      "suggested_adjustment": "Use the exact matrix-log CT scale when revising this edge: shorten the reference interval, shrink the DT beta prior, or elicit the prior directly on the CT rate.",
+      "related_parameters": [
+        "parameter:2132145147e99eb5ddd6a4c0f34e9972340540566816ea3034e424b7039c1a57"
+      ],
+      "compiled_site_name": "vf_9_weight",
+      "compiled_flat_index": 0,
+      "supporting_codes": [],
+      "repair_scope": null,
+      "failure_stage": "compiled_parameters",
+      "bad_sample_sites": [],
+      "bad_manifest_names": [],
+      "failing_draw_indices": [],
+      "first_bad_time_index": null,
+      "pathology_certificate": {
+        "kind": "dt_ct_approximation",
+        "primary_score": 0.26070220091428326,
+        "secondary_score": 1.0042109882309622
+      }
+    },
+    {
+      "parameter": "linear_edge_weight",
+      "is_valid": true,
+      "code": "dt_ct_approximation_warning",
+      "origin": "compile",
+      "severity": "warning",
+      "issue": "beta_escitalopram_dose_taken_internalizing_symptom_burden (escitalopram_dose_taken -> internalizing_symptom_burden): matrix-log mismatch; exact CT coupling at 1.0d is 0.091 1/day versus the elementwise beta/dt value 0.066 1/day; logm deviation is 28% and the exact coupling is 52% of the smallest realised CT diagonal damping (0.176 1/day, rho_sleep_circadian_disruption).",
+      "suggested_adjustment": "Use the exact matrix-log CT scale when revising this edge: shorten the reference interval, shrink the DT beta prior, or elicit the prior directly on the CT rate.",
+      "related_parameters": [
+        "parameter:93e17976a307088a35da3743f512e7344391cc91defd96d1037b47c81e5f9210"
+      ],
+      "compiled_site_name": "vf_10_weight",
+      "compiled_flat_index": 0,
+      "supporting_codes": [],
+      "repair_scope": null,
+      "failure_stage": "compiled_parameters",
+      "bad_sample_sites": [],
+      "bad_manifest_names": [],
+      "failing_draw_indices": [],
+      "first_bad_time_index": null,
+      "pathology_certificate": {
+        "kind": "dt_ct_approximation",
+        "primary_score": 0.2751364845889199,
+        "secondary_score": 0.5159402116165678
+      }
+    },
+    {
+      "parameter": "linear_edge_weight",
+      "is_valid": true,
+      "code": "dt_ct_approximation_warning",
+      "origin": "compile",
+      "severity": "warning",
+      "issue": "beta_perceived_stress_burden_sleep_circadian_disruption (perceived_stress_burden -> sleep_circadian_disruption): matrix-log mismatch; exact CT coupling at 1.0d is 0.163 1/day versus the elementwise beta/dt value 0.113 1/day; logm deviation is 31% and the exact coupling is 92% of the smallest realised CT diagonal damping (0.176 1/day, rho_sleep_circadian_disruption).",
+      "suggested_adjustment": "Use the exact matrix-log CT scale when revising this edge: shorten the reference interval, shrink the DT beta prior, or elicit the prior directly on the CT rate.",
+      "related_parameters": [
+        "parameter:7ae993e70d7e440b5e653e0e7728fcb07f04c36479498a1e18c0bca4d5a4cd3e"
+      ],
+      "compiled_site_name": "vf_11_weight",
+      "compiled_flat_index": 0,
+      "supporting_codes": [],
+      "repair_scope": null,
+      "failure_stage": "compiled_parameters",
+      "bad_sample_sites": [],
+      "bad_manifest_names": [],
+      "failing_draw_indices": [],
+      "first_bad_time_index": null,
+      "pathology_certificate": {
+        "kind": "dt_ct_approximation",
+        "primary_score": 0.3082783470816612,
+        "secondary_score": 0.9230601104694681
+      }
+    },
+    {
+      "parameter": "linear_edge_weight",
+      "is_valid": true,
+      "code": "dt_ct_approximation_warning",
+      "origin": "compile",
+      "severity": "warning",
+      "issue": "beta_perceived_stress_burden_internalizing_symptom_burden (perceived_stress_burden -> internalizing_symptom_burden): matrix-log mismatch; exact CT coupling at 1.0d is 0.435 1/day versus the elementwise beta/dt value 0.310 1/day; logm deviation is 29% and the exact coupling is 247% of the smallest realised CT diagonal damping (0.176 1/day, rho_sleep_circadian_disruption).",
+      "suggested_adjustment": "Use the exact matrix-log CT scale when revising this edge: shorten the reference interval, shrink the DT beta prior, or elicit the prior directly on the CT rate.",
+      "related_parameters": [
+        "parameter:6644003d9f950a37d74b82563ce03df73bb93d24eca0f2a3bbcce99728418679"
+      ],
+      "compiled_site_name": "vf_12_weight",
+      "compiled_flat_index": 0,
+      "supporting_codes": [],
+      "repair_scope": null,
+      "failure_stage": "compiled_parameters",
+      "bad_sample_sites": [],
+      "bad_manifest_names": [],
+      "failing_draw_indices": [],
+      "first_bad_time_index": null,
+      "pathology_certificate": {
+        "kind": "dt_ct_approximation",
+        "primary_score": 0.28666976357566365,
+        "secondary_score": 2.4662737547796927
+      }
+    },
+    {
+      "parameter": "linear_edge_weight",
+      "is_valid": true,
+      "code": "dt_ct_approximation_warning",
+      "origin": "compile",
+      "severity": "warning",
+      "issue": "beta_physical_activity_sleep_circadian_disruption (physical_activity -> sleep_circadian_disruption): matrix-log mismatch; exact CT coupling at 1.0d is 0.106 1/day versus the elementwise beta/dt value 0.098 1/day; logm deviation is 7% and the exact coupling is 60% of the smallest realised CT diagonal damping (0.176 1/day, rho_sleep_circadian_disruption).",
+      "suggested_adjustment": "Use the exact matrix-log CT scale when revising this edge: shorten the reference interval, shrink the DT beta prior, or elicit the prior directly on the CT rate.",
+      "related_parameters": [
+        "parameter:8f16c468bd931a509f0b080732c82a6ad95b9250c6d5419dbc7c962e27be5e4d"
+      ],
+      "compiled_site_name": "vf_13_weight",
+      "compiled_flat_index": 0,
+      "supporting_codes": [],
+      "repair_scope": null,
+      "failure_stage": "compiled_parameters",
+      "bad_sample_sites": [],
+      "bad_manifest_names": [],
+      "failing_draw_indices": [],
+      "first_bad_time_index": null,
+      "pathology_certificate": {
+        "kind": "dt_ct_approximation",
+        "primary_score": 0.07243167939379788,
+        "secondary_score": 0.601542309613747
+      }
+    },
+    {
+      "parameter": "linear_edge_weight",
+      "is_valid": true,
+      "code": "dt_ct_approximation_warning",
+      "origin": "compile",
+      "severity": "warning",
+      "issue": "beta_physical_activity_internalizing_symptom_burden (physical_activity -> internalizing_symptom_burden): matrix-log mismatch; exact CT coupling at 1.0d is 0.211 1/day versus the elementwise beta/dt value 0.180 1/day; logm deviation is 15% and the exact coupling is 120% of the smallest realised CT diagonal damping (0.176 1/day, rho_sleep_circadian_disruption).",
+      "suggested_adjustment": "Use the exact matrix-log CT scale when revising this edge: shorten the reference interval, shrink the DT beta prior, or elicit the prior directly on the CT rate.",
+      "related_parameters": [
+        "parameter:4529be181165946bd05ca47eede4f26cefb5304f6312fd51ac7f67653ebec2fd"
+      ],
+      "compiled_site_name": "vf_14_weight",
+      "compiled_flat_index": 0,
+      "supporting_codes": [],
+      "repair_scope": null,
+      "failure_stage": "compiled_parameters",
+      "bad_sample_sites": [],
+      "bad_manifest_names": [],
+      "failing_draw_indices": [],
+      "first_bad_time_index": null,
+      "pathology_certificate": {
+        "kind": "dt_ct_approximation",
+        "primary_score": 0.1462009800610764,
+        "secondary_score": 1.196429431047728
+      }
+    },
+    {
+      "parameter": "linear_edge_weight",
+      "is_valid": true,
+      "code": "dt_ct_approximation_warning",
+      "origin": "compile",
+      "severity": "warning",
+      "issue": "beta_sleep_circadian_disruption_internalizing_symptom_burden (sleep_circadian_disruption -> internalizing_symptom_burden): matrix-log mismatch; exact CT coupling at 1.0d is 0.374 1/day versus the elementwise beta/dt value 0.290 1/day; logm deviation is 23% and the exact coupling is 212% of the smallest realised CT diagonal damping (0.176 1/day, rho_sleep_circadian_disruption).",
+      "suggested_adjustment": "Use the exact matrix-log CT scale when revising this edge: shorten the reference interval, shrink the DT beta prior, or elicit the prior directly on the CT rate.",
+      "related_parameters": [
+        "parameter:e12fda642336ce481bd4a41010c8391d35da276abc819f7cebc574b61648628a"
+      ],
+      "compiled_site_name": "vf_15_weight",
+      "compiled_flat_index": 0,
+      "supporting_codes": [],
+      "repair_scope": null,
+      "failure_stage": "compiled_parameters",
+      "bad_sample_sites": [],
+      "bad_manifest_names": [],
+      "failing_draw_indices": [],
+      "first_bad_time_index": null,
+      "pathology_certificate": {
+        "kind": "dt_ct_approximation",
+        "primary_score": 0.2252038230610077,
+        "secondary_score": 2.124128243598308
+      }
+    },
+    {
+      "parameter": "linear_edge_weight",
+      "is_valid": true,
+      "code": "dt_ct_approximation_warning",
+      "origin": "compile",
+      "severity": "warning",
+      "issue": "beta_internalizing_symptom_burden_sleep_circadian_disruption (internalizing_symptom_burden -> sleep_circadian_disruption): matrix-log mismatch; exact CT coupling at 1.0d is 0.126 1/day versus the elementwise beta/dt value 0.109 1/day; logm deviation is 14% and the exact coupling is 72% of the smallest realised CT diagonal damping (0.176 1/day, rho_sleep_circadian_disruption).",
+      "suggested_adjustment": "Use the exact matrix-log CT scale when revising this edge: shorten the reference interval, shrink the DT beta prior, or elicit the prior directly on the CT rate.",
+      "related_parameters": [
+        "parameter:586e79e66975d39c87963bba7fc30ee3e1569df19b00431aabd125ec7fa2d683"
+      ],
+      "compiled_site_name": "vf_16_weight",
+      "compiled_flat_index": 0,
+      "supporting_codes": [],
+      "repair_scope": null,
+      "failure_stage": "compiled_parameters",
+      "bad_sample_sites": [],
+      "bad_manifest_names": [],
+      "failing_draw_indices": [],
+      "first_bad_time_index": null,
+      "pathology_certificate": {
+        "kind": "dt_ct_approximation",
+        "primary_score": 0.141725819707027,
+        "secondary_score": 0.7176851844690078
+      }
+    },
+    {
+      "parameter": "linear_edge_weight",
+      "is_valid": true,
+      "code": "dt_ct_approximation_warning",
+      "origin": "compile",
+      "severity": "warning",
+      "issue": "beta_internalizing_symptom_burden_physical_activity (internalizing_symptom_burden -> physical_activity): matrix-log mismatch; exact CT coupling at 1.0d is 0.225 1/day versus the elementwise beta/dt value 0.173 1/day; logm deviation is 23% and the exact coupling is 128% of the smallest realised CT diagonal damping (0.176 1/day, rho_sleep_circadian_disruption).",
+      "suggested_adjustment": "Use the exact matrix-log CT scale when revising this edge: shorten the reference interval, shrink the DT beta prior, or elicit the prior directly on the CT rate.",
+      "related_parameters": [
+        "parameter:d20ec2885a6fc8305245a06e43d6887d2ae868345c8bf8c7b391ed03fd96b19d"
+      ],
+      "compiled_site_name": "vf_17_weight",
+      "compiled_flat_index": 0,
+      "supporting_codes": [],
+      "repair_scope": null,
+      "failure_stage": "compiled_parameters",
+      "bad_sample_sites": [],
+      "bad_manifest_names": [],
+      "failing_draw_indices": [],
+      "first_bad_time_index": null,
+      "pathology_certificate": {
+        "kind": "dt_ct_approximation",
+        "primary_score": 0.22955002935620933,
+        "secondary_score": 1.2761420794283065
+      }
+    }
+  ]
+}

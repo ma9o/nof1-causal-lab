@@ -1,1 +1,15 @@
-{"artifact_id":"validation_report","version":1,"provenance":"computed","derived_from":{"panel":1,"causal_design":1},"produced_by":"derive:validation_report","created_at":"2026-07-08T11:57:26.868214+00:00"}
+{
+  "artifact_id": "validation_report",
+  "version": 1,
+  "provenance": "computed",
+  "derived_from": {
+    "panel": 1,
+    "model": 2
+  },
+  "model_inputs": {},
+  "consumed_model_inputs": {
+    "identification": "input:4975416bb78a20c7de469fd07a98f8e4b5d986172fb3d6fb1c0cb0114f585237"
+  },
+  "produced_by": "derive:validation_report",
+  "created_at": "2026-07-08T11:57:26.868214+00:00"
+}

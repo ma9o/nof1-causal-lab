@@ -22,29 +22,22 @@ const DURABLE_ENTRIES = [
 const COMPLETE_ARTIFACTS = [
   "question",
   "raw_data",
-  "latent_structure",
-  "measurement_structure",
-  "causal_design",
+  "model",
   "structural_plan",
   "identification_report",
-  "measurements",
   "panel",
   "validation_report",
-  "statistical_model_spec",
-  "compiled_ssm",
+  "admission_report",
   "posterior",
   "baseline_report",
 ] as const;
 
 const ARTIFACT_PROJECTIONS = {
-  raw_data: "profile.json",
-  latent_structure: "latent-structure.json",
-  measurement_structure: "measurement_structure.json",
-  causal_design: "causal_design.json",
+  model: "model.json",
+  identification_report: "identification_report.json",
   structural_plan: "structural-plan.json",
-  measurements: "measurements.json",
   validation_report: "validation_report.json",
-  statistical_model_spec: "statistical_model_spec.json",
+  admission_report: "admission_report.json",
   posterior: "diagnostics.json",
   baseline_report: "baseline_report.json",
 } as const;
@@ -65,9 +58,12 @@ interface ArtifactVersionInfo {
   artifact_id: string;
   version: number;
   derived_from?: Record<string, number>;
+  model_inputs?: Record<string, string>;
+  consumed_model_inputs?: Record<string, string>;
 }
 
 interface TransitionRecord {
+  move: { kind: string; operation_id?: string };
   seq: number;
   status: string;
   produced?: ArtifactVersionInfo[];
@@ -156,13 +152,21 @@ function isStale(
   visiting = new Set<string>(),
 ): boolean {
   const artifact = current.get(artifactId);
-  if (!artifact || visiting.has(artifactId)) return false;
+  if (artifactId === "model" || !artifact || visiting.has(artifactId)) return false;
 
   const nextVisiting = new Set(visiting).add(artifactId);
   for (const [inputId, pinnedVersion] of Object.entries(artifact.info.derived_from ?? {})) {
     const input = current.get(inputId);
-    if (!input || input.info.version !== pinnedVersion) return true;
-    if (isStale(inputId, current, nextVisiting)) return true;
+    if (!input) return true;
+    const consumed = Object.entries(artifact.info.consumed_model_inputs ?? {});
+    const sameModelInputs =
+      inputId === "model" &&
+      consumed.length > 0 &&
+      consumed.every(
+        ([purpose, fingerprint]) => input.info.model_inputs?.[purpose] === fingerprint,
+      );
+    if (input.info.version !== pinnedVersion && !sameModelInputs) return true;
+    if (inputId !== "model" && isStale(inputId, current, nextVisiting)) return true;
   }
   return false;
 }
@@ -248,7 +252,7 @@ async function copyArtifactProjections(
 async function copyTraceProjections(
   sourceRoot: string,
   stagingRoot: string,
-  current: Map<string, CurrentArtifact>,
+  records: TransitionRecord[],
 ): Promise<ProjectedTraceId[]> {
   const destinationRoot = join(stagingRoot, "fixture", "traces");
   await mkdir(destinationRoot, { recursive: true });
@@ -257,7 +261,13 @@ async function copyTraceProjections(
   for (const [artifactId, tracePattern] of Object.entries(TRACE_PROJECTIONS) as Array<
     [ProjectedTraceId, RegExp]
   >) {
-    const record = (current.get(artifactId) as CurrentArtifact).record;
+    const record = records.findLast(
+      (entry) =>
+        entry.status === "applied" &&
+        entry.move.kind === "run" &&
+        entry.move.operation_id === artifactId,
+    );
+    if (!record) throw new Error(`No applied ${artifactId} operation in source history.`);
     const matchingTraceIds = (record.trace_ids ?? []).filter((traceId) =>
       tracePattern.test(traceId),
     );
@@ -323,7 +333,11 @@ export async function promoteDataWorkspace({
   try {
     await copyDurableWorkspace(sourceRoot, stagingRoot);
     const artifacts = await copyArtifactProjections(sourceRoot, stagingRoot, current);
-    const traces = await copyTraceProjections(sourceRoot, stagingRoot, current);
+    const traces = await copyTraceProjections(
+      sourceRoot,
+      stagingRoot,
+      await readJournal(sourceRoot),
+    );
     await replaceFixture(stagingRoot, fixtureRoot);
     return { source: sourceRoot, destination: fixtureRoot, artifacts, traces };
   } finally {

@@ -1,0 +1,18 @@
+{
+  "artifact_id": "model",
+  "version": 2,
+  "provenance": "computed",
+  "derived_from": {
+    "question": 1,
+    "raw_data": 1,
+    "model": 1
+  },
+  "model_inputs": {
+    "extraction": "input:754ce8a5f3f43a8300ccba20b4ac4bd33f88326f0e1f4d28727737302a1fcc4a",
+    "identification": "input:4975416bb78a20c7de469fd07a98f8e4b5d986172fb3d6fb1c0cb0114f585237",
+    "compilation": "input:6dc173a5572078e3a53b05f5ceb07d96785f7d5c08cdc28bbf41ab9a6eb0c0db"
+  },
+  "consumed_model_inputs": {},
+  "produced_by": "run:measurement_structure",
+  "created_at": "2026-07-08T11:57:25.465716+00:00"
+}

@@ -3,7 +3,7 @@
   "ts": "2026-07-08T11:57:26.868960+00:00",
   "move": {
     "kind": "run",
-    "artifact_id": "statistical_model_spec"
+    "operation_id": "statistical_model_spec"
   },
   "status": "raised",
   "reason": null,
@@ -12,6 +12,8 @@
   "diagnostics": {},
   "produced": [],
   "retracted": [],
-  "trace_ids": ["statistical_model_spec"],
+  "trace_ids": [
+    "statistical_model_spec"
+  ],
   "resume": null
 }

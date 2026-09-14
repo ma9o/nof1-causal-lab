@@ -3,7 +3,7 @@
   "ts": "2026-07-08T11:57:25.453593+00:00",
   "move": {
     "kind": "run",
-    "artifact_id": "raw_data"
+    "operation_id": "raw_data"
   },
   "status": "applied",
   "reason": null,
@@ -16,11 +16,15 @@
       "version": 1,
       "provenance": "computed",
       "derived_from": {},
+      "model_inputs": {},
+      "consumed_model_inputs": {},
       "produced_by": "run:raw_data",
       "created_at": "2026-07-08T11:57:25.453224+00:00"
     }
   ],
   "retracted": [],
-  "trace_ids": ["raw-data"],
+  "trace_ids": [
+    "raw-data"
+  ],
   "resume": null
 }

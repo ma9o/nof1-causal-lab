@@ -7,29 +7,22 @@ import { promoteDataWorkspace } from "./promote-data-to-fixture";
 const ARTIFACTS = [
   "question",
   "raw_data",
-  "latent_structure",
-  "measurement_structure",
-  "causal_design",
+  "model",
   "structural_plan",
   "identification_report",
-  "measurements",
   "panel",
   "validation_report",
-  "statistical_model_spec",
-  "compiled_ssm",
+  "admission_report",
   "posterior",
   "baseline_report",
 ] as const;
 
 const PAYLOADS = {
-  raw_data: "profile.json",
-  latent_structure: "latent-structure.json",
-  measurement_structure: "measurement_structure.json",
-  causal_design: "causal_design.json",
+  model: "model.json",
+  identification_report: "identification_report.json",
   structural_plan: "structural-plan.json",
-  measurements: "measurements.json",
   validation_report: "validation_report.json",
-  statistical_model_spec: "statistical_model_spec.json",
+  admission_report: "admission_report.json",
   posterior: "diagnostics.json",
   baseline_report: "baseline_report.json",
 } as const;
@@ -71,6 +64,31 @@ async function seedCompleteWorkspace(
   await writeJson(join(workspaceRoot, "scratch", "discard.json"), { discard: true });
   await writeJson(join(workspaceRoot, "cache", "discard.json"), { discard: true });
 
+  for (const [index, operation] of [
+    "latent_structure",
+    "measurement_structure",
+    "measurements",
+    "statistical_model_spec",
+  ].entries()) {
+    const seq = 101 + index;
+    const traceId = TRACE_IDS[operation as keyof typeof TRACE_IDS];
+    await writeJson(
+      join(workspaceRoot, "episode", "traces", String(seq).padStart(6, "0"), `${traceId}.json`),
+      { artifact: operation, trace: traceId },
+    );
+    await writeJson(
+      join(workspaceRoot, "episode", "journal", `${String(seq).padStart(6, "0")}.json`),
+      {
+        seq,
+        status: "applied",
+        move: { kind: "run", operation_id: operation },
+        produced: [],
+        retracted: [],
+        trace_ids: [traceId],
+      },
+    );
+  }
+
   for (const [index, artifactId] of ARTIFACTS.entries()) {
     if (artifactId === options.omit) continue;
 
@@ -93,6 +111,9 @@ async function seedCompleteWorkspace(
       const filename = PAYLOADS[artifactId as keyof typeof PAYLOADS];
       await writeJson(join(versionRoot, filename), { artifact: artifactId, version });
     }
+    if (artifactId === "raw_data") {
+      await writeFile(join(versionRoot, "raw.parquet"), "fixture parquet bytes");
+    }
 
     const traceId = TRACE_IDS[artifactId as keyof typeof TRACE_IDS];
     if (traceId) {
@@ -107,6 +128,7 @@ async function seedCompleteWorkspace(
       {
         seq,
         status: "applied",
+        move: { kind: "run", operation_id: artifactId },
         produced: [info],
         retracted: [],
         trace_ids: traceId ? [traceId] : [],
@@ -138,7 +160,13 @@ describe("promoteDataWorkspace", () => {
       dataRoot,
     });
 
-    expect(summary.artifacts).toHaveLength(10);
+    expect(summary.artifacts).toHaveLength(7);
+    expect(
+      await readFile(join(dataRoot, "DEMO", "store", "raw_data", "v2", "raw.parquet"), "utf8"),
+    ).toBe("fixture parquet bytes");
+    expect(await pathExists(join(dataRoot, "DEMO", "fixture", "artifacts", "raw_data.json"))).toBe(
+      false,
+    );
     expect(summary.traces).toHaveLength(6);
     expect(
       JSON.parse(

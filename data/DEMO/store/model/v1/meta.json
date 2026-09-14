@@ -1,0 +1,16 @@
+{
+  "artifact_id": "model",
+  "version": 1,
+  "provenance": "computed",
+  "derived_from": {
+    "question": 1
+  },
+  "model_inputs": {
+    "extraction": "input:96e6dfa801c2b4bd481112dad312e3e021e390bb5bd17e8ffc405a96db0ce786",
+    "identification": "input:a52cc63860e46befdbaf11aef550e273d224338b5a3ab96b45090bbddadbbb89",
+    "compilation": "input:172bbd09ab31029de43a71d4775fe9553f028bb635592dff18ce1b5c8390d7ad"
+  },
+  "consumed_model_inputs": {},
+  "produced_by": "run:latent_structure",
+  "created_at": "2026-07-08T11:57:25.456981+00:00"
+}
