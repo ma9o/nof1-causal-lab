@@ -2,20 +2,16 @@
 
 import type {
   Indicator,
+  JsonObject,
   LOODiagnostics,
-  MCMCDiagnostics,
   PosteriorMarginal,
   PosteriorPair,
   PosteriorPredictiveChecks,
-  SMCDiagnostics,
 } from "@nof1-causal-lab/api-types";
-import { EnergyChart } from "@/components/charts/energy-chart";
 import { LOOPITChart } from "@/components/charts/loo-pit-chart";
-import { MCMCDiagnosticsPanel } from "@/components/charts/mcmc-diagnostics-panel";
 import { ParetoKChart } from "@/components/charts/pareto-k-chart";
 import { PosteriorDensityChart } from "@/components/charts/posterior-density-chart";
 import { PosteriorPairsChart } from "@/components/charts/posterior-pairs-chart";
-import { SMCDiagnosticsChart } from "@/components/charts/smc-diagnostics-chart";
 import {
   Accordion,
   AccordionContent,
@@ -23,6 +19,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
+import { JsonViewer } from "@/components/ui/json-viewer";
 import { StatTooltip } from "@/components/ui/stat-tooltip";
 import { VirtualizedChartGrid } from "@/components/ui/virtualized-chart-grid";
 import { formatNumber } from "@/lib/utils/format";
@@ -31,8 +28,7 @@ import { PPCWarningsTable } from "./ppc-warnings-table";
 interface DiagnosticsAccordionProps {
   indicators: Indicator[];
   ppc?: PosteriorPredictiveChecks | null;
-  mcmcDiagnostics?: MCMCDiagnostics | null;
-  smcDiagnostics?: SMCDiagnostics | null;
+  inferenceDiagnostics?: JsonObject;
   looDiagnostics?: LOODiagnostics | null;
   posteriorMarginals?: PosteriorMarginal[] | null;
   posteriorPairs?: PosteriorPair[] | null;
@@ -41,8 +37,7 @@ interface DiagnosticsAccordionProps {
 export function DiagnosticsAccordion({
   indicators,
   ppc,
-  mcmcDiagnostics,
-  smcDiagnostics,
+  inferenceDiagnostics,
   looDiagnostics,
   posteriorMarginals,
   posteriorPairs,
@@ -53,57 +48,15 @@ export function DiagnosticsAccordion({
   const hasPairs = pairs.length > 0;
   const hasPPC = ppc != null && ppc.per_variable_warnings.length > 0;
 
-  const defaultOpen = ["mcmc", "smc", "ppc", "loo"];
+  const defaultOpen = ["inference", "ppc", "loo"];
 
   return (
     <Accordion defaultValue={defaultOpen} multiple>
-      {/* ── MCMC Diagnostics (convergence + energy + traces + rank histograms) ── */}
-      {mcmcDiagnostics && (
-        <AccordionItem value="mcmc">
-          <AccordionTrigger className="text-sm">
-            <span className="inline-flex items-center gap-1.5 flex-wrap">
-              MCMC Diagnostics
-              <StatTooltip explanation="Chain convergence (R-hat, ESS, MCSE), energy diagnostics, trace plots, and rank histograms for blocked MCMC sampling." />
-              <Badge variant={mcmcDiagnostics.num_divergences === 0 ? "success" : "destructive"}>
-                {mcmcDiagnostics.num_divergences === 0
-                  ? "Converged"
-                  : `${mcmcDiagnostics.num_divergences} divergences`}
-              </Badge>
-            </span>
-          </AccordionTrigger>
+      {inferenceDiagnostics && Object.keys(inferenceDiagnostics).length > 0 && (
+        <AccordionItem value="inference">
+          <AccordionTrigger className="text-sm">Inference diagnostics</AccordionTrigger>
           <AccordionContent>
-            <div className="space-y-4">
-              <MCMCDiagnosticsPanel diagnostics={mcmcDiagnostics} />
-              {mcmcDiagnostics.energy != null && <EnergyChart energy={mcmcDiagnostics.energy} />}
-            </div>
-          </AccordionContent>
-        </AccordionItem>
-      )}
-
-      {/* ── SMC Diagnostics (tempering schedule + ESS + acceptance) ── */}
-      {smcDiagnostics && (
-        <AccordionItem value="smc">
-          <AccordionTrigger className="text-sm">
-            <span className="inline-flex items-center gap-1.5 flex-wrap">
-              SMC Diagnostics
-              <StatTooltip explanation="Tempered SMC convergence: tempering schedule (β from 0→1), effective sample size at each level, and Metropolis-Hastings acceptance rates." />
-              <Badge
-                variant={
-                  smcDiagnostics.beta_schedule.length > 0 &&
-                  smcDiagnostics.beta_schedule[smcDiagnostics.beta_schedule.length - 1] >= 1.0
-                    ? "success"
-                    : "destructive"
-                }
-              >
-                {smcDiagnostics.beta_schedule.length > 0 &&
-                smcDiagnostics.beta_schedule[smcDiagnostics.beta_schedule.length - 1] >= 1.0
-                  ? "Converged"
-                  : "Did not converge"}
-              </Badge>
-            </span>
-          </AccordionTrigger>
-          <AccordionContent>
-            <SMCDiagnosticsChart diagnostics={smcDiagnostics} />
+            <JsonViewer data={inferenceDiagnostics} />
           </AccordionContent>
         </AccordionItem>
       )}

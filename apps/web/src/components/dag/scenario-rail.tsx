@@ -10,7 +10,7 @@ function signed(value: number): string {
 }
 
 function provenanceLabel(scenario: BaselineReportScenario): string {
-  return scenario.result.result.start.kind === "abducted" ? "Counterfactual" : "Interventional";
+  return scenario.result.request.start.kind === "abducted" ? "Counterfactual" : "Interventional";
 }
 
 function ScenarioCard({

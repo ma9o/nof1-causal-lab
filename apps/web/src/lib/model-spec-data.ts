@@ -1,16 +1,14 @@
-import type { LikelihoodSpec, ParameterSpec } from "@nof1-causal-lab/api-types";
+import type { Indicator, ParameterSpec } from "@nof1-causal-lab/api-types";
+import { referencedParameterIds } from "./model-accessors";
 
-/** Observation priors belong to their parameters; owners identify the measurement. */
+/** Display the parameters referenced by this indicator’s likelihood coefficients. */
 export function collectModelSpecObservationPriorTerms({
-  likelihood,
+  indicator,
   parameters,
 }: {
-  likelihood: LikelihoodSpec;
+  indicator: Indicator;
   parameters: ParameterSpec[];
 }): ParameterSpec[] {
-  return parameters.filter((parameter) =>
-    parameter.owners.some(
-      (owner) => owner.kind === "indicator" && owner.id === likelihood.indicator_id,
-    ),
-  );
+  const ids = referencedParameterIds(indicator.likelihood);
+  return parameters.filter((parameter) => ids.has(parameter.id));
 }

@@ -1,15 +1,11 @@
 "use client";
 
-import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
-import { collectModelSpecObservationPriorTerms } from "@/lib/model-spec-data";
-import {
-  observationEquationLatex,
-  observationParameterSymbol,
-  observationPriorLatex,
-} from "@/lib/utils/ssm-latex";
-import type { Indicator, LikelihoodSpec, ParameterSpec } from "@nof1-causal-lab/api-types";
+import type { Indicator, ParameterSpec } from "@nof1-causal-lab/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 import katex from "katex";
+import { InfoTable } from "@/components/ui/info-table";
+import { collectModelSpecObservationPriorTerms } from "@/lib/model-spec-data";
+import { observationParameterSymbol, observationPriorLatex } from "@/lib/utils/ssm-latex";
 
 // ── helpers ──────────────────────────────────────────────
 
@@ -20,11 +16,9 @@ function inlineKatex(latex: string): string {
 // ── row type ─────────────────────────────────────────────
 
 interface ObsModelRow {
-  likelihood: import("@/lib/utils/ssm-latex").LabeledLikelihood;
   variable: string;
   construct: string | undefined;
   equationLatex: string;
-  loadingFixed: boolean;
   priorTerms: ParameterSpec[];
 }
 
@@ -59,41 +53,15 @@ const columns = [
     ),
     enableSorting: false,
   }),
-  col.accessor("loadingFixed", {
-    header: () => (
-      <HeaderWithTooltip
-        label="Loading"
-        tooltip="Whether the factor loading λ is fixed to 1 (reference indicator for scale identification) or freely estimated with a prior."
-      />
-    ),
-    cell: ({ row }) => {
-      const { construct, loadingFixed } = row.original;
-      if (!construct) return <span className="text-muted-foreground">—</span>;
-      return loadingFixed ? (
-        // biome-ignore lint/security/noDangerouslySetInnerHtml: KaTeX renders sanitized math
-        <span dangerouslySetInnerHTML={{ __html: inlineKatex("= 1") }} />
-      ) : (
-        <span className="text-muted-foreground">estimated</span>
-      );
-    },
-  }),
   col.display({
     id: "priors",
     header: "Priors",
-    cell: ({ row }) => (
-      <ObsPriorList likelihood={row.original.likelihood} terms={row.original.priorTerms} />
-    ),
+    cell: ({ row }) => <ObsPriorList terms={row.original.priorTerms} />,
     enableSorting: false,
   }),
 ] as ColumnDef<ObsModelRow, unknown>[];
 
-export function ObsPriorList({
-  likelihood,
-  terms,
-}: {
-  likelihood: import("@/lib/utils/ssm-latex").LabeledLikelihood;
-  terms: ParameterSpec[];
-}) {
+export function ObsPriorList({ terms }: { terms: ParameterSpec[] }) {
   if (terms.length === 0) {
     return <span className="text-xs text-muted-foreground">Not authored</span>;
   }
@@ -106,13 +74,16 @@ export function ObsPriorList({
           // biome-ignore lint/security/noDangerouslySetInnerHtml: KaTeX renders sanitized math
           dangerouslySetInnerHTML={{
             __html: inlineKatex(
-              term.prior
-                ? observationPriorLatex({
-                    prior: term.prior,
-                    parameterName: term.name,
-                    likelihood,
-                  })
-                : `${observationParameterSymbol({ parameterName: term.name, likelihood })}:\\ \\text{Not authored}`,
+              term.value != null
+                ? `${observationParameterSymbol({ parameterName: term.name })} = ${term.value}`
+                : typeof term.distribution === "string"
+                  ? `${observationParameterSymbol({ parameterName: term.name })}:\\ \\text{Joint distribution}`
+                  : term.distribution
+                    ? observationPriorLatex({
+                        prior: term.distribution,
+                        parameterName: term.name,
+                      })
+                    : `${observationParameterSymbol({ parameterName: term.name })}:\\ \\text{Not authored}`,
             ),
           }}
         />
@@ -124,39 +95,28 @@ export function ObsPriorList({
 // ── component ────────────────────────────────────────────
 
 export function ObsModelTable({
-  likelihoods,
   parameters,
   indicators,
   constructs,
+  observationEquations,
 }: {
-  likelihoods: LikelihoodSpec[];
   parameters: ParameterSpec[];
-  indicators?: Indicator[];
+  indicators: Indicator[];
   constructs: import("@nof1-causal-lab/api-types").Construct[];
+  observationEquations: Record<string, string>;
 }) {
-  const rows: ObsModelRow[] = likelihoods.map((lik) => {
-    const indicator = indicators?.find((item) => item.id === lik.indicator_id);
-    const construct = constructs.find((item) => item.id === indicator?.construct_id)?.name;
-    const v = indicator?.name ?? lik.indicator_id;
-    const labeledLikelihood = { ...lik, label: v };
-    const priorTerms = collectModelSpecObservationPriorTerms({
-      likelihood: lik,
-      parameters,
-    });
-    const hasLoadingParam = priorTerms.some((term) =>
-      parameters.some((parameter) => parameter.name === term.name && parameter.role === "loading"),
-    );
-    const loadingFixed = indicator != null && !hasLoadingParam;
+  const rows: ObsModelRow[] = indicators.flatMap((indicator) => {
+    const lik = indicator.likelihood;
+    if (!lik) return [];
+    const construct = constructs.find((item) =>
+      item.indicators.some((owned) => owned.id === indicator.id),
+    )?.name;
+    const v = indicator.name;
+    const priorTerms = collectModelSpecObservationPriorTerms({ indicator, parameters });
     return {
-      likelihood: labeledLikelihood,
       variable: v,
       construct,
-      equationLatex: observationEquationLatex({
-        likelihood: labeledLikelihood,
-        constructName: construct,
-        parameterNames: priorTerms.map((term) => term.name),
-      }).replace(/&/g, ""),
-      loadingFixed,
+      equationLatex: observationEquations[indicator.id],
       priorTerms,
     };
   });

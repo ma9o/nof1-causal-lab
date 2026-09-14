@@ -1,9 +1,10 @@
-import { demoModelSnapshot, demoSnapshotAt } from "@/components/__fixtures__/demo-artifacts";
+import { primaryArtifact } from "@/lib/model-asset/journal";
+import { demoSnapshotAt } from "@/components/__fixtures__/demo-artifacts";
 import { demoTraces } from "@/components/__fixtures__/demo-traces";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { PipelineProgress } from "@/lib/hooks/pipeline-progress";
 import type { ArtifactFreshness, TransitionRecord } from "@nof1-causal-lab/api-types";
-import { ARTIFACT_VIEW_IDS, type LLMTrace } from "@nof1-causal-lab/api-types";
+import { TRANSITIONS, type LLMTrace } from "@nof1-causal-lab/api-types";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { CausalModelAssetView } from "./causal-model-asset";
 import type { MoveTraceState } from "./conversation-pane";
@@ -20,6 +21,8 @@ function produced(artifactId: Artifact, version: number): Produced {
     version,
     provenance: "computed",
     derived_from: {},
+    model_inputs: {},
+    consumed_model_inputs: {},
     produced_by: null,
     created_at: new Date(clock).toISOString(),
   };
@@ -50,7 +53,7 @@ function move(
 /** The DEMO fixture's journal, reconstructed: the same moves the canonical episode applied. */
 const JOURNAL: TransitionRecord[] = [
   move(1, 212, {
-    move: { kind: "run", artifact_id: "raw_data" },
+    move: { kind: "run", operation_id: "raw_data" },
     status: "applied",
     produced: [produced("raw_data", 1)],
     retracted: [],
@@ -64,33 +67,28 @@ const JOURNAL: TransitionRecord[] = [
     trace_ids: [],
   }),
   move(3, 251, {
-    move: { kind: "run", artifact_id: "latent_structure" },
+    move: { kind: "run", operation_id: "latent_structure" },
     status: "applied",
-    produced: [produced("latent_structure", 1)],
+    produced: [produced("model", 1)],
     retracted: [],
     trace_ids: ["latent_structure"],
   }),
   move(4, 175, {
-    move: { kind: "run", artifact_id: "measurement_structure" },
+    move: { kind: "run", operation_id: "measurement_structure" },
     status: "applied",
-    produced: [
-      produced("measurement_structure", 1),
-      produced("causal_design", 1),
-      produced("structural_plan", 1),
-      produced("identification_report", 1),
-    ],
+    produced: [produced("model", 2), produced("identification_report", 1)],
     retracted: [],
     trace_ids: ["measurement_structure"],
   }),
   move(5, 318, {
-    move: { kind: "run", artifact_id: "measurements" },
+    move: { kind: "run", operation_id: "measurements" },
     status: "applied",
-    produced: [produced("measurements", 1), produced("panel", 1), produced("validation_report", 1)],
+    produced: [produced("panel", 1), produced("validation_report", 1)],
     retracted: [],
     trace_ids: ["measurements"],
   }),
   move(6, 74, {
-    move: { kind: "run", artifact_id: "statistical_model_spec" },
+    move: { kind: "run", operation_id: "statistical_model_spec" },
     status: "raised",
     produced: [],
     retracted: [],
@@ -99,32 +97,25 @@ const JOURNAL: TransitionRecord[] = [
     error_message: "ValueError: prior admission rejected a channel",
   }),
   move(7, 188, {
-    move: { kind: "run", artifact_id: "statistical_model_spec" },
+    move: { kind: "run", operation_id: "statistical_model_spec" },
     status: "applied",
-    produced: [produced("statistical_model_spec", 1), produced("compiled_ssm", 1)],
+    produced: [produced("model", 3), produced("admission_report", 1)],
     retracted: [],
     trace_ids: ["statistical_model_spec"],
   }),
   move(8, 1843, {
-    move: { kind: "run", artifact_id: "posterior" },
+    move: { kind: "run", operation_id: "posterior" },
     status: "applied",
-    produced: [produced("posterior", 1)],
+    produced: [],
     retracted: [],
     trace_ids: [],
   }),
   move(9, 133, {
-    move: { kind: "run", artifact_id: "baseline_report" },
+    move: { kind: "run", operation_id: "baseline_report" },
     status: "applied",
     produced: [produced("baseline_report", 1)],
     retracted: [],
     trace_ids: ["baseline_report"],
-  }),
-  move(10, 40, {
-    move: { kind: "write", artifact_id: "saved_scenarios", provenance: "human" },
-    status: "applied",
-    produced: [produced("saved_scenarios", 1)],
-    retracted: [],
-    trace_ids: [],
   }),
 ];
 
@@ -150,19 +141,19 @@ const ARTIFACTS: ArtifactFreshness[] = JOURNAL.flatMap((record) =>
     stale: false,
     version: info.version,
     provenance: "computed" as const,
-    produced_by: `run:${record.move.artifact_id}`,
+    produced_by: `run:${primaryArtifact(record.move)}`,
   })),
 );
 
 const PROGRESS: PipelineProgress = {
   artifacts: Object.fromEntries(
-    ARTIFACT_VIEW_IDS.map((id) => [id, "completed"]),
+    TRANSITIONS.map((section) => [section.id, "completed"]),
   ) as PipelineProgress["artifacts"],
   timings: {},
   transitionErrors: {},
   staleArtifactsByProducer: {},
   autoRunning: false,
-  transitionOrder: [...ARTIFACT_VIEW_IDS],
+  transitionOrder: TRANSITIONS.map((section) => section.id),
   runningTransitions: [],
   isComplete: true,
   isFailed: false,
@@ -189,7 +180,7 @@ const meta = {
     readOnly: false,
     transitions: JOURNAL,
     artifacts: ARTIFACTS,
-    legal: [],
+    nextOperation: null,
     progress: PROGRESS,
     analysisTrace: demoTraces.baseline_report,
     useMoveTrace: useFixtureMoveTrace,
@@ -201,7 +192,7 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-/** v10 · everything materialized; nothing selected shows the asset. */
+/** The completed report; nothing selected shows the asset. */
 export const FinalState: Story = {};
 
 /** The same asset before the specification: no queries, no fitted layer. */
@@ -215,7 +206,7 @@ export const Measured: Story = {
         "latent_structure",
         "measurement_structure",
         "causal_design",
-        "structural_plan",
+        "model",
         "identification_report",
         "measurements",
         "panel",
@@ -241,8 +232,7 @@ export const Materializing: Story = {
   args: {
     transitions: JOURNAL.slice(0, 7),
     artifacts: ARTIFACTS.filter(
-      (artifact) =>
-        !["posterior", "baseline_report", "saved_scenarios"].includes(artifact.artifact_id),
+      (artifact) => !["posterior", "baseline_report"].includes(artifact.artifact_id),
     ),
     progress: {
       ...PROGRESS,
@@ -252,32 +242,5 @@ export const Materializing: Story = {
       isComplete: false,
     },
     analysisTrace: undefined,
-  },
-};
-
-/** Illustrative second fit: one scientific question retains both evaluations. */
-const comparisonSnapshot = structuredClone(demoModelSnapshot);
-const comparedScenario = comparisonSnapshot.saved_scenarios!.value.scenarios[0];
-const alternative = structuredClone(comparedScenario.evaluations[0]);
-alternative.evaluation.id = `evaluation:${"a".repeat(64)}`;
-alternative.evaluation.model.id = "ALTERNATIVE";
-alternative.result.evaluation_id = alternative.evaluation.id;
-alternative.result.summary = {
-  mean: 0.42,
-  median: 0.4,
-  lower_95: 0.1,
-  upper_95: 0.8,
-  prob_positive: 0.97,
-};
-alternative.result.effect_trajectory = null;
-alternative.result.trajectory_peak = null;
-comparedScenario.evaluations.push(alternative);
-
-export const AcrossFits: Story = {
-  args: {
-    useSnapshot: (atSeq: number) => ({
-      data: atSeq === 10 ? comparisonSnapshot : demoSnapshotAt(atSeq),
-      error: null,
-    }),
   },
 };

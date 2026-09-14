@@ -1,6 +1,6 @@
 import type {
   ArtifactFreshness,
-  ArtifactViewId,
+  PipelineSectionId,
   Move,
   RuntimeEvent,
   TransitionRecord,
@@ -23,19 +23,20 @@ export interface AnalysisTransitionRun {
   execution: AnalysisTransitionExecution | null;
 }
 
-export type AnalysisTransitionRuns = Record<ArtifactViewId, AnalysisTransitionRun>;
+export type AnalysisTransitionRuns = Record<PipelineSectionId, AnalysisTransitionRun>;
 
 export interface AnalysisManifest {
   workspaceId: string;
   createdAt: string;
   question?: string;
-  transitionOrder: ArtifactViewId[];
+  transitionOrder: PipelineSectionId[];
   transitionRuns: AnalysisTransitionRuns;
   /** Read-only artifact (e.g. a shared workspace): the UI hides LLM interaction. */
   readOnly: boolean;
 }
 
 export interface EpisodeProgressPayload {
+  nextOperation: import("@nof1-causal-lab/api-types").OperationId | null;
   workspaceId: string;
   autoRunning: boolean;
   seq: number;

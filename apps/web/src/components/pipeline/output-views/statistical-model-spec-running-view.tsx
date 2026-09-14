@@ -1,5 +1,8 @@
 "use client";
 
+import type { ParameterSpec } from "@nof1-causal-lab/api-types";
+import { distributionText } from "@/lib/utils/distribution-format";
+
 import { DagEdge } from "@/components/dag/core/dag-edge";
 import { DagNodeShell } from "@/components/dag/core/dag-node";
 import { Badge } from "@/components/ui/badge";
@@ -9,7 +12,6 @@ import {
   type ModelSpecAdmissionCheckResult,
   type ModelSpecAdmissionConstructState,
   type ModelSpecAdmissionConstructStatus,
-  type ModelSpecAdmissionParameter,
   type ModelSpecAdmissionReport,
   type ModelSpecAdmissionReplayState,
   type ModelSpecAdmissionTiming,
@@ -43,10 +45,6 @@ function constructLabel(construct: ModelSpecAdmissionConstructState | null | und
   return construct.label ?? titleize(construct.name);
 }
 
-function formatParamValue(value: number): string {
-  return Number.isInteger(value) ? String(value) : Number.parseFloat(value.toFixed(3)).toString();
-}
-
 /** End-to-end check runtime: "420ms", "1.4s", "12s". */
 function formatCheckDuration(ms: number): string {
   if (ms > 0 && ms < 1) return "<1ms";
@@ -56,12 +54,12 @@ function formatCheckDuration(ms: number): string {
 }
 
 /** "Normal(0, 1)" from an authored prior; distribution families are already display-cased. */
-function formatPriorSummary(param: ModelSpecAdmissionParameter): string {
-  if (!param.distribution) return "--";
-  const values = Object.values(param.params);
-  return values.length > 0
-    ? `${param.distribution}(${values.map(formatParamValue).join(", ")})`
-    : param.distribution;
+function formatPriorSummary(param: ParameterSpec): string {
+  return typeof param.distribution === "string"
+    ? "Joint distribution"
+    : param.distribution
+      ? distributionText(param.distribution)
+      : "Not authored";
 }
 
 function StatusIcon({ status }: { status: ModelSpecAdmissionConstructStatus }) {

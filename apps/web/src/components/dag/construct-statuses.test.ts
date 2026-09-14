@@ -1,67 +1,23 @@
-import type { MeasurementStructureViewData, StructuralPlan } from "@nof1-causal-lab/api-types";
+import { modelConstructs } from "@/lib/model-accessors";
 import { describe, expect, it } from "vitest";
-import { deriveConstructStatuses } from "./construct-statuses";
+import { demoModelSnapshot } from "@/components/__fixtures__/demo-artifacts";
+import { constructStatuses } from "./construct-statuses";
 
-type CausalDesign = MeasurementStructureViewData["causal_design"];
+describe("constructStatuses", () => {
+  it("preserves the backend findings when construct labels change", () => {
+    const snapshot = structuredClone(demoModelSnapshot);
+    const model = snapshot.model!.value;
+    const first = modelConstructs(model)[0];
+    snapshot.findings.graph_status = { [first.id]: "blocking" };
+    first.name = "a renamed construct";
+    expect(constructStatuses(snapshot)).toEqual({ "a renamed construct": "blocking" });
+  });
 
-describe("deriveConstructStatuses", () => {
-  it("uses the established marginalized/blocking presentation for backend exclusions", () => {
-    const design = {
-      latent: {
-        constructs: ["state", "latent_u", "context", "blocked"].map((name) => ({
-          id: `construct:${name}`,
-          name,
-          description: name,
-          role: "endogenous",
-          temporal_status: "time_varying",
-        })),
-        edges: [],
-      },
-      measurement: { indicators: [], model_clock: "daily" },
-      known_inputs: [],
-      scientific_only_constructs: [{ construct: "context", reason: "Interpretation only" }],
-      identifiability: {
-        identifiable_treatments: {
-          "construct:state": {
-            status: "identified",
-            method: "do_calculus",
-            estimand: "P(y|do(x))",
-            marginalized_confounders: ["construct:latent_u"],
-            instruments: [],
-          },
-        },
-        non_identifiable_treatments: {
-          "construct:blocked": { status: "not_identified", confounders: ["construct:latent_u"] },
-        },
-      },
-    } as unknown as CausalDesign;
-    const structuralPlan = {
-      semantics: {
-        constructs: Object.fromEntries(
-          design.latent.constructs.map((construct) => [`construct:${construct.name}`, construct]),
-        ),
-        edges: {},
-        indicators: {},
-        model_clock: "daily",
-      },
-      dispositions: [
-        ["state", "retained_state"],
-        ["latent_u", "marginalized"],
-        ["context", "identification_only"],
-        ["blocked", "retained_state"],
-      ].map(([name, disposition]) => ({
-        source_id: `construct:${name}`,
-        source_kind: "construct",
-        disposition,
-        reason: String(disposition),
-      })),
-    } as unknown as StructuralPlan;
-
-    expect(deriveConstructStatuses(design, structuralPlan)).toEqual({
-      state: "observed",
-      latent_u: "blocking",
-      context: "marginalized",
-      blocked: "blocking",
-    });
+  it("does not invent findings for incomplete models", () => {
+    const snapshot = structuredClone(demoModelSnapshot);
+    snapshot.findings.graph_status = {};
+    expect(constructStatuses(snapshot)).toEqual({});
+    snapshot.model = null;
+    expect(constructStatuses(snapshot)).toEqual({});
   });
 });

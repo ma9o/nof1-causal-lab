@@ -40,25 +40,25 @@ export function formatClampValue(clamp: LatentClamp): string {
 
 /** do(...) description joining every clamp in the scenario. */
 export function formatScenarioActionDescription(result: AnalysisSimulationResult): string {
-  return result.query.clamps
-    .map((clamp) => `do(${clamp.variable} ${formatClampValue(clamp)})`)
+  return result.request.clamps
+    .map((clamp) => `do(${result.labels[clamp.target.id]} ${formatClampValue(clamp)})`)
     .join(", ");
 }
 
 export function getEffectTrajectoryDays(result: AnalysisSimulationResult): number[] {
-  return result.result.effect_trajectory?.map((point) => point.day) ?? [];
+  return result.effect_trajectory?.map((point) => point.day) ?? [];
 }
 
 export function getNodeReferenceSeries(
   result: AnalysisSimulationResult,
   nodeId: ConstructId,
 ): number[] | null {
-  return result.result.visualization?.reference_node_trajectories?.[nodeId] ?? null;
+  return result.visualization?.reference_node_trajectories?.[nodeId] ?? null;
 }
 
 export function getNodeActionSeries(
   result: AnalysisSimulationResult,
   nodeId: ConstructId,
 ): number[] | null {
-  return result.result.visualization?.action_node_trajectories?.[nodeId] ?? null;
+  return result.visualization?.action_node_trajectories?.[nodeId] ?? null;
 }

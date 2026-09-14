@@ -7,15 +7,16 @@ export function distributionArgumentText(value: JsonValue): string {
   if ("array" in value) return distributionArgumentText(value.array);
   if ("tuple" in value) return distributionArgumentText(value.tuple);
   if ("float" in value) return String(value.float);
-  const constructor = value.distribution ?? value.transform ?? value.constraint;
+  const constructorName = value.distribution ?? value.transform ?? value.constraint;
   const params = value.params;
   if (
-    typeof constructor === "string" &&
+    typeof constructorName === "string" &&
     params &&
     typeof params === "object" &&
     !Array.isArray(params)
   ) {
-    return `${constructor}(${Object.entries(params)
+    return `${constructorName}(${Object.entries(params)
+      .filter(([name]) => name !== "validate_args")
       .map(([name, argument]) => `${name}=${distributionArgumentText(argument)}`)
       .join(", ")})`;
   }
@@ -26,6 +27,7 @@ export function distributionArgumentText(value: JsonValue): string {
 
 export function distributionText(prior: NumPyroDistribution): string {
   return `${prior.distribution}(${Object.entries(prior.params)
+    .filter(([name]) => name !== "validate_args")
     .map(([name, value]) => `${name}=${distributionArgumentText(value)}`)
     .join(", ")})`;
 }

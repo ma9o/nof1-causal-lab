@@ -3,59 +3,48 @@ import type { createModelClient } from "./client";
 import type { paths } from "./generated/model-api";
 import type {
   Construct,
-  ConstructId,
-  EdgeId,
   FactSource,
   Indicator,
-  LatentStructure,
-  MeasurementStructureArtifact,
+  InferenceReport,
   ModelSnapshot,
+  ModelSpec,
   ParameterSpec,
-  PosteriorArtifact,
-  StatisticalModelSpecArtifact,
 } from "./generated/models";
 
 type Expect<T extends true> = T;
 type Extends<A, B> = A extends B ? true : false;
 type Equal<A, B> = [A, B] extends [B, A] ? true : false;
 
-export type CanonicalLatentStructure = Expect<
-  Equal<NonNullable<ModelSnapshot["latent_structure"]>["value"], LatentStructure>
+export type CanonicalDefinition = Expect<
+  Equal<NonNullable<ModelSnapshot["model"]>["value"], ModelSpec>
 >;
-export type CanonicalMeasurementStructure = Expect<
-  Equal<NonNullable<ModelSnapshot["measurement_structure"]>["value"], MeasurementStructureArtifact>
+export type CanonicalInferenceReport = Expect<
+  Equal<NonNullable<ModelSnapshot["findings"]["fit"]>["value"]["report"], InferenceReport>
 >;
-export type CanonicalSpecification = Expect<
-  Equal<NonNullable<ModelSnapshot["specification"]>["value"], StatisticalModelSpecArtifact>
->;
-export type CanonicalPosterior = Expect<
-  Equal<NonNullable<ModelSnapshot["fit"]>["value"]["posterior"], PosteriorArtifact>
->;
-export type CanonicalParameter = Expect<
-  Equal<NonNullable<ModelSnapshot["compiled_parameters"]>["value"][number], ParameterSpec>
->;
-export type IndicatorHasConstructOwner = Expect<Extends<Indicator["construct_id"], ConstructId>>;
-// @ts-expect-error Indicator owners cannot reference edges.
-export type InvalidIndicatorOwner = Expect<Extends<Indicator["construct_id"], EdgeId>>;
+export type CanonicalParameter = Expect<Equal<ModelSpec["parameters"][number], ParameterSpec>>;
+export type CanonicalConstruct = Expect<Equal<ModelSpec["constructs"][number], Construct>>;
+export type OwnedIndicator = Expect<Equal<Construct["indicators"][number], Indicator>>;
+// @ts-expect-error Indicator ownership is declared by containment.
+export type NoIndependentIndicatorOwner = Indicator["construct_id"];
 export type SourceValidityIsScalar = Expect<Extends<FactSource["validity"], "fresh" | "stale">>;
 
 type ModelRead = paths["/api/episodes/{workspace_id}/model"]["get"];
-type LatentRead = paths["/api/episodes/{workspace_id}/model/latent-structure"]["get"];
+type DefinitionRead = paths["/api/episodes/{workspace_id}/model/definition"]["get"];
 type ConstructsRead = paths["/api/episodes/{workspace_id}/model/constructs"]["get"];
 export type GeneratedReadReusesBatch = Expect<
   Equal<ModelRead["responses"][200]["content"]["application/json"], ModelSnapshot>
 >;
-export type GeneratedReadReusesLatentAggregate = Expect<
+export type GeneratedReadReusesDefinition = Expect<
   Equal<
-    LatentRead["responses"][200]["content"]["application/json"],
-    Exclude<ModelSnapshot["latent_structure"], undefined>
+    DefinitionRead["responses"][200]["content"]["application/json"],
+    Exclude<ModelSnapshot["model"], undefined>
   >
 >;
 export type GeneratedReadReusesConstructs = Expect<
   Equal<ConstructsRead["responses"][200]["content"]["application/json"], Construct[]>
 >;
 export type InvalidRevisionQuery = Expect<
-  // @ts-expect-error Revision queries are numbers, not prose.
+  // @ts-expect-error Revision queries require numeric journal positions.
   Extends<string, NonNullable<ModelRead["parameters"]["query"]>["at_seq"]>
 >;
 

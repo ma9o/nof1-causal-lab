@@ -53,8 +53,10 @@ export function buildSimulationGraph(
       .map((construct) => construct.name),
   );
   const indCount = (node: string) =>
-    opts.indicators.filter(
-      (ind) => ind.construct_id === constructs.find((construct) => construct.name === node)!.id,
+    opts.indicators.filter((ind) =>
+      constructs
+        .find((construct) => construct.name === node)!
+        .indicators.some((owned) => owned.id === ind.id),
     ).length;
 
   const selfTap = opts.persistenceNodes.filter((name) => present.has(name));
@@ -66,8 +68,8 @@ export function buildSimulationGraph(
   const causalLinks = unrollCausalLinks(
     edges
       .map((edge) => ({
-        cause: byId.get(edge.cause_id)!.name,
-        effect: byId.get(edge.effect_id)!.name,
+        cause: byId.get(edge.cause.id)!.name,
+        effect: byId.get(edge.effect.id)!.name,
         lagged: edge.lagged,
       }))
       .filter(

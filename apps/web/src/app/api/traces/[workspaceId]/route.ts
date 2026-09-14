@@ -2,7 +2,7 @@ import type { LLMTrace } from "@nof1-causal-lab/api-types";
 import { NextResponse } from "next/server";
 import {
   EpisodeRunError,
-  getArtifactTraceIndex,
+  getOperationTraceIndex,
   getEpisodeTimeline,
   getEpisodeTrace,
 } from "@/lib/server/episode-runs";
@@ -74,7 +74,7 @@ export async function GET(
       );
       return NextResponse.json(mergeTraces(traces));
     }
-    const index = await getArtifactTraceIndex(safeWorkspaceId, artifactId as string);
+    const index = await getOperationTraceIndex(safeWorkspaceId, artifactId as string);
     if (index.trace_ids.length === 0) {
       return NextResponse.json({ error: "No traces for this artifact" }, { status: 404 });
     }

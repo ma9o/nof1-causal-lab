@@ -1,26 +1,18 @@
 "use client";
 
+import { modelConstructs } from "@/lib/model-accessors";
 import type {
-  ArtifactViewId,
-  ArtifactViewData as ArtifactViewPayload,
+  PipelineSectionId,
+  ModelSnapshot,
   BaselineReportArtifact,
-  Indicator,
-  LatentStructureArtifact,
-  MeasurementStructureViewData,
-  MeasurementsData,
-  PosteriorArtifact,
-  RawDataData,
-  StatisticalModelSpecData,
   TransitionMeta,
-  ValidationReportArtifact,
 } from "@nof1-causal-lab/api-types";
-import { type ComponentType, lazy, memo, type ReactNode, Suspense, useMemo } from "react";
-import { deriveConstructStatuses } from "@/components/dag/construct-statuses";
+import { lazy, memo, Suspense, useMemo } from "react";
+import { constructStatuses } from "@/components/dag/construct-statuses";
 import { createSimulateDispatch } from "@/components/dag/interactive/dispatch-simulate";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import type { AnalysisTransitionRun } from "@/lib/api/analysis";
 import { useWorkspaceView } from "@/lib/contexts/workspace-view-context";
-import { useArtifactView } from "@/lib/hooks/use-artifact-view";
 import { useLLMTrace } from "@/lib/hooks/use-llm-trace";
 import { useModelSnapshot } from "@/lib/hooks/use-model-snapshot";
 import type { TransitionRunStatus, TransitionTiming } from "@/lib/hooks/use-run-events";
@@ -55,10 +47,6 @@ const SimulationViewer = lazy(() =>
     default: module.SimulationViewer,
   })),
 );
-
-type ArtifactViewData = ArtifactViewPayload & {
-  context?: string;
-};
 
 type OutputSectionRouterProps = {
   output: TransitionMeta;
@@ -96,11 +84,7 @@ function OutputSectionRouterInner({
     timing?.completedAt && timing?.startedAt ? timing.completedAt - timing.startedAt : undefined;
 
   // Read context + trace from the artifact data once the output has completed.
-  const { data: artifactData } = useArtifactView<ArtifactViewData>(
-    workspaceId,
-    output.id,
-    isCompleted,
-  );
+  const { data: artifactData } = useModelSnapshot(workspaceId);
   const { data: llmTrace } = useLLMTrace(workspaceId, output.id, isCompleted);
 
   return (
@@ -159,104 +143,40 @@ export const OutputSectionRouter = memo(
     transitionRunsEqual(previous.transitionRun, next.transitionRun),
 );
 
-type OutputViewAdapterProps = {
-  workspaceId: string;
-  data: ArtifactViewData;
-};
-
-function createArtifactDataAdapter<TData>(Component: ComponentType<{ data: TData }>) {
-  return function ArtifactDataAdapter({ data }: OutputViewAdapterProps) {
-    return <Component data={data as TData} />;
-  };
-}
-
-function ModelSpecConnectedContent({
-  workspaceId,
-  data,
-}: {
-  workspaceId: string;
-  data: StatisticalModelSpecData;
-}) {
-  const { data: measurementStructure } = useArtifactView<MeasurementStructureViewData>(
-    workspaceId,
-    "measurement_structure",
-    true,
-  );
-  return (
-    <StatisticalModelSpecView
-      data={data}
-      indicators={measurementStructure?.causal_design.measurement.indicators}
-    />
-  );
-}
-
-function createIndicatorDataAdapter<TData>(
-  Component: ComponentType<{ data: TData; workspaceId: string; indicators: Indicator[] }>,
-) {
-  return function IndicatorDataAdapter({ workspaceId, data }: OutputViewAdapterProps) {
-    const { data: measurement } = useArtifactView<MeasurementStructureViewData>(
-      workspaceId,
-      "measurement_structure",
-      true,
-    );
-    if (!measurement) return null;
-    return (
-      <Component
-        workspaceId={workspaceId}
-        data={data as TData}
-        indicators={measurement.causal_design.measurement.indicators}
-      />
-    );
-  };
-}
-
 function BaselineReportConnectedContent({
   workspaceId,
   data,
+  snapshot,
 }: {
   workspaceId: string;
+  snapshot: ModelSnapshot;
   data: BaselineReportArtifact;
 }) {
   const { selectedScenarioKey, selectScenario, readOnly } = useWorkspaceView();
-  const snapshot = useModelSnapshot(workspaceId);
-  const { data: latentStructure } = useArtifactView<LatentStructureArtifact>(
-    workspaceId,
-    "latent_structure",
-    true,
-  );
-  const { data: measurementStructure } = useArtifactView<MeasurementStructureViewData>(
-    workspaceId,
-    "measurement_structure",
-    true,
-  );
-  const model = snapshot.data;
+  const model = snapshot.model?.value;
   const { data: llmTrace } = useLLMTrace(workspaceId, "baseline_report", true);
 
   // The scientific DAG remains the stable base. Fitted edge posteriors and simulation
   // trajectories appear only where the backend materialized them; marginalized
   // constructs stay visible as subdued theory context.
-  const graph = useMemo(() => {
-    const design = measurementStructure?.causal_design;
-    return {
-      constructs: latentStructure?.latent_structure.constructs ?? [],
-      edges: latentStructure?.latent_structure.edges ?? [],
-      indicators: design?.measurement.indicators,
-      knownInputs: design?.known_inputs,
+  const graph = useMemo(
+    () => ({
+      constructs: modelConstructs(model) ?? [],
+      edges: model?.edges ?? [],
+      indicators: modelConstructs(model).flatMap((construct) => construct.indicators),
       edgePosteriors: buildEdgePosteriors({
-        latentStructure,
-        estimates: model?.fit?.value.edge_estimates ?? {},
+        latentStructure: model,
+        estimates: snapshot.findings.fit?.value.edge_estimates ?? {},
       }),
       persistencePosteriors: buildPersistencePosteriors({
-        latentStructure,
-        estimates: model?.fit?.value.decay_estimates ?? {},
+        latentStructure: model,
+        estimates: snapshot.findings.fit?.value.decay_estimates ?? {},
       }),
       identifiableTreatments: data.intervention_results.map(({ treatment }) => treatment),
-      nodeStatuses:
-        design && measurementStructure
-          ? deriveConstructStatuses(design, measurementStructure.structural_plan)
-          : undefined,
-    };
-  }, [data.intervention_results, latentStructure, measurementStructure, model]);
+      nodeStatuses: constructStatuses(snapshot),
+    }),
+    [data.intervention_results, model, snapshot],
+  );
   const scenarios = useMemo(() => buildBaselineReportScenarios({ trace: llmTrace }), [llmTrace]);
   const onSimulate = useMemo(
     () => (readOnly ? undefined : createSimulateDispatch(workspaceId)),
@@ -275,37 +195,65 @@ function BaselineReportConnectedContent({
   );
 }
 
-const outputViewAdapters = {
-  raw_data: ({ workspaceId, data }: OutputViewAdapterProps) => (
-    <RawDataView workspaceId={workspaceId} data={data as RawDataData} />
-  ),
-  latent_structure: createArtifactDataAdapter<LatentStructureArtifact>(LatentStructureView),
-  measurement_structure:
-    createArtifactDataAdapter<MeasurementStructureViewData>(MeasurementStructureView),
-  measurements: createIndicatorDataAdapter<MeasurementsData>(MeasurementsView),
-  validation_report: createIndicatorDataAdapter<ValidationReportArtifact>(ValidationReportView),
-  statistical_model_spec: ({ workspaceId, data }: OutputViewAdapterProps) => (
-    <ModelSpecConnectedContent workspaceId={workspaceId} data={data as StatisticalModelSpecData} />
-  ),
-  posterior: createIndicatorDataAdapter<PosteriorArtifact>(PosteriorView),
-  baseline_report: ({ workspaceId, data }: OutputViewAdapterProps) => (
-    <BaselineReportConnectedContent
-      workspaceId={workspaceId}
-      data={data as BaselineReportArtifact}
-    />
-  ),
-} satisfies Record<ArtifactViewId, (props: OutputViewAdapterProps) => ReactNode>;
-
 function OutputView({
   artifactId,
   workspaceId,
   data,
 }: {
-  artifactId: ArtifactViewId;
+  artifactId: PipelineSectionId;
   workspaceId: string;
-  data?: ArtifactViewData;
+  data?: ModelSnapshot;
 }) {
   if (!data) return null;
-  const renderOutputView = outputViewAdapters[artifactId];
-  return renderOutputView ? renderOutputView({ workspaceId, data }) : null;
+  const indicators =
+    modelConstructs(data.model?.value).flatMap((construct) => construct.indicators) ?? [];
+  switch (artifactId) {
+    case "raw_data":
+      return (
+        data.data.raw_data && (
+          <RawDataView workspaceId={workspaceId} data={data.data.raw_data.value} />
+        )
+      );
+    case "latent_structure":
+      return data.model && <LatentStructureView data={data.model.value} />;
+    case "measurement_structure":
+      return data.model && <MeasurementStructureView data={data} />;
+    case "statistical_model_spec":
+      return data.model && <StatisticalModelSpecView data={data} />;
+    case "measurements":
+      return (
+        data.data.measurements && (
+          <MeasurementsView
+            workspaceId={workspaceId}
+            data={data.data.measurements.value}
+            indicators={indicators}
+          />
+        )
+      );
+    case "validation_report":
+      return (
+        data.findings.validation_report && (
+          <ValidationReportView
+            data={data.findings.validation_report.value}
+            indicators={indicators}
+          />
+        )
+      );
+    case "posterior":
+      return (
+        data.findings.fit && (
+          <PosteriorView data={data.findings.fit.value.report} indicators={indicators} />
+        )
+      );
+    case "baseline_report":
+      return (
+        data.findings.baseline_report && (
+          <BaselineReportConnectedContent
+            workspaceId={workspaceId}
+            snapshot={data}
+            data={data.findings.baseline_report.value}
+          />
+        )
+      );
+  }
 }

@@ -1,19 +1,19 @@
 import type { ArtifactFreshness } from "@/lib/api/analysis";
-import { TRANSITIONS, type ArtifactViewId } from "@nof1-causal-lab/api-types";
+import { TRANSITIONS, type PipelineSectionId } from "@nof1-causal-lab/api-types";
 
 /** Stale artifact ids grouped by the artifact transition or derivation that produced them. */
-export type StaleArtifactsByProducer = Partial<Record<ArtifactViewId, string[]>>;
+export type StaleArtifactsByProducer = Partial<Record<PipelineSectionId, string[]>>;
 
-function isArtifactViewId(value: unknown): value is ArtifactViewId {
+function isPipelineSectionId(value: unknown): value is PipelineSectionId {
   return typeof value === "string" && TRANSITIONS.some((transition) => transition.id === value);
 }
 
-function producerArtifactId(producedBy: string | null | undefined): ArtifactViewId | null {
+function producerArtifactId(producedBy: string | null | undefined): PipelineSectionId | null {
   if (!producedBy) {
     return null;
   }
   const [kind, artifactId] = producedBy.split(":", 2);
-  if ((kind !== "run" && kind !== "derive") || !isArtifactViewId(artifactId)) {
+  if ((kind !== "run" && kind !== "derive") || !isPipelineSectionId(artifactId)) {
     return null;
   }
   return artifactId;

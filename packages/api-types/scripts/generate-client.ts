@@ -37,8 +37,9 @@ const ast = await openapiTS(schema, {
   inject: 'import type * as Domain from "./models";',
   transform(_value, metadata) {
     const name = metadata.path?.match(/^#\/components\/schemas\/([^/]+)$/)?.[1];
-    if (name && names.has(name)) {
-      return ts.factory.createTypeReferenceNode(`Domain.${name}`);
+    const canonical = name?.replace(/-(?:Input|Output)$/, "");
+    if (canonical && names.has(canonical)) {
+      return ts.factory.createTypeReferenceNode(`Domain.${canonical}`);
     }
   },
 });

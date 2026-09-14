@@ -1,7 +1,7 @@
 "use client";
 
 import { parseSimulationResult } from "@/lib/simulation-result";
-import type { SimulateScenarioResult } from "@nof1-causal-lab/api-types";
+import type { SimulationResult } from "@nof1-causal-lab/api-types";
 import type { UIMessage } from "ai";
 import { Bot, Check, Eye, User, Wrench } from "lucide-react";
 import { memo } from "react";
@@ -21,13 +21,13 @@ type DynamicToolMessagePart = Extract<UIMessage["parts"][number], { type: "dynam
 type StaticToolMessagePart = Extract<UIMessage["parts"][number], { type: `tool-${string}` }>;
 type ToolMessagePart = DynamicToolMessagePart | StaticToolMessagePart;
 
-export type SimulationResult = SimulateScenarioResult;
+export type { SimulationResult } from "@nof1-causal-lab/api-types";
 
 const SIMULATION_TOOLS = new Set(["simulate"]);
 
 function simulationHeadline(result: SimulationResult): string {
-  const { mean } = result.result.summary;
-  return `${mean >= 0 ? "+" : ""}${mean.toFixed(2)} SD on ${result.result.outcome_label}`;
+  const { mean } = result.summary;
+  return `${mean >= 0 ? "+" : ""}${mean.toFixed(2)} SD on ${result.labels[result.request.outcome.id]}`;
 }
 
 const TextPart = memo(function TextPart({ text }: { text: string }) {

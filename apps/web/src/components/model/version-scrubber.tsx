@@ -1,4 +1,7 @@
-import type { ArtifactId, ArtifactViewId } from "@nof1-causal-lab/api-types";
+import { primaryArtifact } from "@/lib/model-asset/journal";
+import { TRANSITION_META } from "@nof1-causal-lab/api-types";
+import { moveLabel } from "./model-selection";
+import type { ArtifactId, PipelineSectionId } from "@nof1-causal-lab/api-types";
 import type { TransitionTiming } from "@/lib/hooks/pipeline-progress";
 import type { JournalTick } from "@/lib/model-asset/journal";
 import { cn } from "@/lib/utils";
@@ -91,10 +94,10 @@ export function VersionScrubber({
   ticks: JournalTick[];
   playhead: number;
   latest: number;
-  timings: Partial<Record<ArtifactViewId, TransitionTiming>>;
-  running: ArtifactViewId[];
+  timings: Partial<Record<PipelineSectionId, TransitionTiming>>;
+  running: PipelineSectionId[];
   staleArtifacts: ReadonlySet<ArtifactId>;
-  nextRun: ArtifactId | null;
+  nextRun: import("@nof1-causal-lab/api-types").OperationId | null;
   selectedSeq: number | null;
   onSelectTick: (seq: number) => void;
   onPlayhead: (seq: number) => void;
@@ -162,7 +165,7 @@ export function VersionScrubber({
           const stale =
             tick.status === "applied" &&
             isNow &&
-            [tick.move.artifact_id, ...tick.derived].some((artifactId) =>
+            [primaryArtifact(tick.move), ...tick.derived].some((artifactId) =>
               staleArtifacts.has(artifactId),
             );
           const sub =
@@ -186,7 +189,7 @@ export function VersionScrubber({
                 type="button"
                 onClick={() => onSelectTick(tick.seq)}
                 onDoubleClick={() => onPlayhead(tick.seq)}
-                aria-label={`${ARTIFACT_LABEL[tick.move.artifact_id]} v${tick.version ?? "·"} at move ${tick.seq}`}
+                aria-label={`${moveLabel(tick.move)} v${tick.version ?? "·"} at move ${tick.seq}`}
                 className={cn(
                   "mt-1 inline-block h-3 w-3 cursor-pointer rounded-full bg-foreground shadow-[0_0_0_3px_var(--card)]",
                   tick.move.kind === "write" && "rotate-45 scale-[.85] rounded-sm",
@@ -205,7 +208,7 @@ export function VersionScrubber({
                   stale && "text-warning-foreground",
                 )}
               >
-                {ARTIFACT_LABEL[tick.move.artifact_id]}
+                {moveLabel(tick.move)}
                 {raised ? " · failed" : ""}{" "}
                 {tick.version != null ? (
                   <span className="text-muted-foreground">
@@ -230,7 +233,7 @@ export function VersionScrubber({
           >
             <span className="mt-1 inline-block h-2.5 w-2.5 animate-pulse rounded-full border-2 border-[#2f6bf0] bg-card shadow-[0_0_0_3px_var(--card)]" />
             <div className="mt-0.5 truncate font-mono text-[9px]">
-              {running.map((id) => ARTIFACT_LABEL[id]).join(", ")}
+              {running.map((id) => TRANSITION_META[id].label).join(", ")}
             </div>
             <div className="truncate text-[9px] text-muted-foreground">materializing</div>
             <div className="absolute left-1/2 -top-[20px] -translate-x-1/2 whitespace-nowrap rounded-md bg-foreground px-1.5 text-[9px] font-semibold text-primary-foreground">
@@ -246,7 +249,7 @@ export function VersionScrubber({
               ▶
             </span>
             <div className="mt-0.5 truncate font-mono text-[9px] font-semibold text-[#2f6bf0]">
-              run {ARTIFACT_LABEL[nextRun]}
+              run {TRANSITION_META[nextRun].label}
             </div>
             <div className="truncate text-[9px] text-[#2f6bf0]">
               {staleArtifacts.size > 0 ? "recompute · inputs changed" : "next legal move"}
@@ -258,7 +261,7 @@ export function VersionScrubber({
         <div className="mt-1 flex flex-col gap-1.5 border-t border-dashed pt-2">
           <div className="flex items-baseline gap-2.5 text-[11px]">
             <b className="font-semibold">
-              v{selected.seq} · {ARTIFACT_LABEL[selected.move.artifact_id]}
+              v{selected.seq} · {ARTIFACT_LABEL[primaryArtifact(selected.move)]}
               {selected.version != null ? ` v${selected.version}` : ""}
             </b>
             <span className="text-[10.5px] text-muted-foreground">
@@ -310,7 +313,7 @@ export function VersionScrubber({
 
 function timingFor(
   tick: JournalTick,
-  timings: Partial<Record<ArtifactViewId, TransitionTiming>>,
+  timings: Partial<Record<PipelineSectionId, TransitionTiming>>,
 ): TransitionTiming | undefined {
-  return (timings as Partial<Record<string, TransitionTiming>>)[tick.move.artifact_id];
+  return (timings as Partial<Record<string, TransitionTiming>>)[primaryArtifact(tick.move)];
 }

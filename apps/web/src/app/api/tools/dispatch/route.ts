@@ -36,7 +36,7 @@ async function readToolErrorMessage(response: Response): Promise<string> {
  *
  * Direct (no-LLM) context-tool execution — e.g. the ranking interactive DAG's
  * `simulate`. Proxies to the tool server, which reads pinned artifact
- * versions and hard-flags stale provenance.
+ * versions and rejects stale supporting inputs.
  *
  * Body: { workspaceId, contextId, tool, input }
  */

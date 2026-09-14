@@ -1,14 +1,15 @@
-import type { LatentStructureArtifact } from "@nof1-causal-lab/api-types";
+import { modelConstructs } from "@/lib/model-accessors";
+import type { ModelSpec } from "@nof1-causal-lab/api-types";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { withContainer } from "@/components/story-decorators";
-import { demoLatentStructure } from "../../__fixtures__/demo-artifacts";
+import { demoModel } from "../../__fixtures__/demo-artifacts";
 import { ConstructDetailPanel } from "./construct-detail-panel";
 
-const data = demoLatentStructure as LatentStructureArtifact;
-const constructs = data.latent_structure.constructs;
+const data = demoModel as ModelSpec;
+const constructs = modelConstructs(data);
 const endogenous = constructs.find((c) => c.role === "endogenous")!;
 const exogenous = constructs.find((c) => c.role === "exogenous")!;
-const outcome = constructs.find((c) => c.id === data.latent_structure.default_outcome?.id)!;
+const outcome = constructs.find((c) => c.id === data.default_outcome?.id)!;
 
 const meta = {
   title: "Pipeline/Outputs/Latent Structure/ConstructDetailPanel",

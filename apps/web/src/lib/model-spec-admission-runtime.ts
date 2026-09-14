@@ -1,3 +1,4 @@
+import type { ParameterSpec } from "@nof1-causal-lab/api-types";
 export const MODEL_SPEC_ADMISSION_EVENT_PREFIX = "nof1-causal-lab.model-spec.admission.";
 
 export type ModelSpecAdmissionConstructStatus =
@@ -9,20 +10,12 @@ export type ModelSpecAdmissionConstructStatus =
   | "admitted_with_consequences"
   | "blocked";
 
-export interface ModelSpecAdmissionParameter {
-  name: string;
-  /** Prior distribution family, e.g. "Normal", "HalfNormal", "Beta". */
-  distribution: string;
-  /** Distribution parameters keyed by name, e.g. { mu: 0, sigma: 1 }. */
-  params: Record<string, number>;
-}
-
 export interface ModelSpecAdmissionPlanConstruct {
   name: string;
   label?: string;
   parents?: string[];
   indicators?: string[];
-  parameters?: ModelSpecAdmissionParameter[];
+  parameters?: ParameterSpec[];
   closing_edges?: string[];
 }
 
@@ -73,7 +66,7 @@ export interface ModelSpecAdmissionReport {
   results: ModelSpecAdmissionCheckResult[];
   timings: ModelSpecAdmissionTiming[];
   /** Priors authored for this attempt; populates the construct's "Authored parameters" table. */
-  parameters?: ModelSpecAdmissionParameter[];
+  parameters?: ParameterSpec[];
   coupled_recheck?: ModelSpecAdmissionCoupledRecheck;
 }
 
@@ -173,29 +166,15 @@ function stringArray(value: unknown): string[] {
     : [];
 }
 
-function numberRecord(value: unknown): Record<string, number> {
-  if (!isRecord(value)) return {};
-  return Object.fromEntries(
-    Object.entries(value).filter(
-      (entry): entry is [string, number] => typeof entry[1] === "number",
-    ),
-  );
+function parseParameter(value: unknown): ParameterSpec | null {
+  if (!isRecord(value) || typeof value.id !== "string" || typeof value.name !== "string")
+    return null;
+  return value as unknown as ParameterSpec;
 }
 
-function parseParameter(value: unknown): ModelSpecAdmissionParameter | null {
-  if (!isRecord(value) || typeof value.name !== "string") return null;
-  return {
-    name: value.name,
-    distribution: typeof value.distribution === "string" ? value.distribution : "",
-    params: numberRecord(value.params),
-  };
-}
-
-function parseParameters(value: unknown): ModelSpecAdmissionParameter[] {
+function parseParameters(value: unknown): ParameterSpec[] {
   return Array.isArray(value)
-    ? value
-        .map(parseParameter)
-        .filter((param): param is ModelSpecAdmissionParameter => param !== null)
+    ? value.map(parseParameter).filter((param): param is ParameterSpec => param !== null)
     : [];
 }
 

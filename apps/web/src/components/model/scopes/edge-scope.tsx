@@ -1,6 +1,7 @@
 import type { EdgeId } from "@nof1-causal-lab/api-types";
 import {
   ArtifactChip,
+  FactChip,
   Hint,
   KeyValue,
   OwnerLink,
@@ -18,26 +19,25 @@ export function EdgeScope({ context, id }: { context: ScopeContext; id: EdgeId }
   const edge = context.entities.edgeById.get(id);
   if (!edge) return null;
   const { lagged } = edge;
-  const disposition = context.model.dispositions?.value.find((item) => item.source_id === id);
-  const cause = context.entities.constructById.get(edge.cause_id)!.name;
-  const effect = context.entities.constructById.get(edge.effect_id)!.name;
-  const parameters = parametersForOwner(context.model.compiled_parameters?.value ?? [], edge.id);
-  const priorParameters = parametersForOwner(
-    context.model.specification?.value.statistical_model_spec.parameters ?? [],
-    id,
+  const disposition = context.model.findings.dispositions?.value.find(
+    (item) => item.source_id === id,
   );
+  const cause = context.entities.constructById.get(edge.cause.id)!.name;
+  const effect = context.entities.constructById.get(edge.effect.id)!.name;
+  const parameters = parametersForOwner(context.model.model?.value, edge.id);
+  const priorParameters = parametersForOwner(context.model.model?.value, id);
   const priors = priorRows(priorParameters);
-  const fitted = posteriorRows(parameters, context.model.fit?.value.posterior);
+  const fitted = posteriorRows(parameters, context.model.findings.fit?.value.report);
   return (
     <>
-      <Section title="Structure" chips={<ArtifactChip {...chipFor(context, "latent_structure")} />}>
+      <Section title="Structure" chips={<ArtifactChip {...chipFor(context, "model")} />}>
         <div className="flex flex-wrap items-center gap-1 text-[11px]">
           <Tag>{lagged ? "t−1 → t" : "same t"}</Tag>
-          <OwnerLink onClick={() => context.select({ kind: "construct", id: edge.cause_id })}>
+          <OwnerLink onClick={() => context.select({ kind: "construct", id: edge.cause.id })}>
             {cause}
           </OwnerLink>
           <span className="text-muted-foreground">→</span>
-          <OwnerLink onClick={() => context.select({ kind: "construct", id: edge.effect_id })}>
+          <OwnerLink onClick={() => context.select({ kind: "construct", id: edge.effect.id })}>
             {effect}
           </OwnerLink>
         </div>
@@ -73,7 +73,7 @@ export function EdgeScope({ context, id }: { context: ScopeContext; id: EdgeId }
         )}
       </Section>
       {disposition ? (
-        <Section title="Design" chips={<ArtifactChip {...chipFor(context, "structural_plan")} />}>
+        <Section title="Design" chips={<ArtifactChip {...chipFor(context, "model")} />}>
           <KeyValue
             rows={[
               [
@@ -90,11 +90,8 @@ export function EdgeScope({ context, id }: { context: ScopeContext; id: EdgeId }
           />
         </Section>
       ) : null}
-      {has(context, "statistical_model_spec") ? (
-        <Section
-          title="Model"
-          chips={<ArtifactChip {...chipFor(context, "statistical_model_spec")} />}
-        >
+      {has(context, "model") ? (
+        <Section title="Model" chips={<ArtifactChip {...chipFor(context, "model")} />}>
           {priors.length > 0 ? (
             <PriorTable rows={priors} />
           ) : (
@@ -103,7 +100,7 @@ export function EdgeScope({ context, id }: { context: ScopeContext; id: EdgeId }
         </Section>
       ) : null}
       {fitted.length > 0 ? (
-        <Section title="Fit" chips={<ArtifactChip {...chipFor(context, "posterior")} />}>
+        <Section title="Fit" chips={<FactChip source={context.model.findings.fit?.source} />}>
           <PosteriorTable rows={fitted} />
         </Section>
       ) : null}

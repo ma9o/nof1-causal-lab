@@ -12,18 +12,20 @@ import {
   type TransitionRecord,
 } from "@/lib/server/episode-runs";
 import { ArtifactNotFoundError, readArtifactJson } from "@/lib/server/artifacts";
-import { TRANSITIONS, type ArtifactViewId } from "@nof1-causal-lab/api-types";
+import { TRANSITIONS, type PipelineSectionId } from "@nof1-causal-lab/api-types";
 
 function emptyTransitionRun(): AnalysisTransitionRun {
   return { execution: null };
 }
 
-function isArtifactViewId(value: unknown): value is ArtifactViewId {
+function isPipelineSectionId(value: unknown): value is PipelineSectionId {
   return typeof value === "string" && TRANSITIONS.some((transition) => transition.id === value);
 }
 
-function artifactViewOrder(machine: MachineDescription): ArtifactViewId[] {
-  const ordered = machine.topological_artifact_order.filter(isArtifactViewId);
+function artifactViewOrder(machine: MachineDescription): PipelineSectionId[] {
+  const ordered: PipelineSectionId[] = machine.topological_transition_order.flatMap((id) =>
+    id === "measurements" ? [id, "validation_report"] : [id],
+  );
   const missing = TRANSITIONS.filter((transition) => !ordered.includes(transition.id)).map(
     (transition) => transition.id,
   );
@@ -68,8 +70,8 @@ function summarizeTimelineTransitionRuns(transitions: TransitionRecord[]): Analy
     if (record.move.kind !== "run") {
       continue;
     }
-    const artifactId = record.move.artifact_id;
-    if (!isArtifactViewId(artifactId)) {
+    const artifactId = record.move.operation_id;
+    if (!isPipelineSectionId(artifactId)) {
       continue;
     }
     if (record.status === "rejected") {

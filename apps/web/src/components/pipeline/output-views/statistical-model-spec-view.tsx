@@ -1,12 +1,9 @@
+import { modelConstructs } from "@/lib/model-accessors";
 import { FunctionalSpecLink } from "@/components/analysis-widgets/statistical-model-spec/functional-spec-link";
 import { MeasurementTable } from "@/components/analysis-widgets/statistical-model-spec/measurement-table";
 import { PriorTable } from "@/components/analysis-widgets/statistical-model-spec/prior-table";
 import { SSMEquationDisplay } from "@/components/analysis-widgets/statistical-model-spec/ssm-equation-display";
-import type {
-  Indicator,
-  PriorPredictiveDiagnostic,
-  StatisticalModelSpecData,
-} from "@nof1-causal-lab/api-types";
+import type { PriorPredictiveDiagnostic, ModelSnapshot } from "@nof1-causal-lab/api-types";
 
 function PriorPredictiveDiagnostics({
   diagnostics,
@@ -56,26 +53,25 @@ function PriorPredictiveDiagnostics({
   );
 }
 
-export default function StatisticalModelSpecView({
-  data,
-  indicators,
-}: {
-  data: StatisticalModelSpecData;
-  indicators?: Indicator[];
-}) {
-  const hasLikelihoodDiagnostics = Object.values(data.likelihood_diagnostics).some(
+export default function StatisticalModelSpecView({ data }: { data: ModelSnapshot }) {
+  const model = data.model?.value;
+  if (!model) return null;
+  const indicators = modelConstructs(model).flatMap((construct) => construct.indicators);
+  const diagnostics = data.findings.diagnostics;
+  const hasLikelihoodDiagnostics = Object.values(diagnostics?.likelihood_diagnostics ?? {}).some(
     (diagnostics) => (diagnostics?.histogram.length ?? 0) > 0,
   );
 
   return (
     <div className="space-y-4">
-      {data.structural_plan && (
+      {diagnostics && (
         <SSMEquationDisplay
-          equations={data.state_equations}
-          likelihoods={data.statistical_model_spec.likelihoods}
-          parameters={data.statistical_model_spec.parameters}
+          equations={diagnostics.state_equations}
+          confounderEquations={diagnostics.confounder_equations}
+          observationEquations={diagnostics.observation_equations}
+          parameters={model.parameters}
           indicators={indicators}
-          structuralPlan={data.structural_plan}
+          model={model}
         />
       )}
       {hasLikelihoodDiagnostics && (
@@ -85,31 +81,30 @@ export default function StatisticalModelSpecView({
             <FunctionalSpecLink />
           </div>
           <MeasurementTable
-            likelihoods={data.statistical_model_spec.likelihoods}
-            diagnostics={data.likelihood_diagnostics}
+            diagnostics={diagnostics?.likelihood_diagnostics ?? {}}
             indicators={indicators ?? []}
           />
         </div>
       )}
       <PriorPredictiveDiagnostics
-        diagnostics={data.prior_predictive_diagnostics ?? []}
+        diagnostics={data.findings.admission_report?.value.prior_predictive_diagnostics ?? []}
         names={Object.fromEntries(
-          Object.values(data.structural_plan?.semantics.constructs ?? {}).map((construct) => [
-            construct.id,
-            construct.name,
-          ]),
+          modelConstructs(model).map((construct) => [construct.id, construct.name]),
         )}
       />
-      {data.statistical_model_spec.parameters.length > 0 && (
+      {model.parameters.length > 0 && (
         <div className="space-y-3">
           <div className="space-y-1">
-            <h3 className="text-sm font-semibold">Parameter Priors</h3>
+            <h3 className="text-sm font-semibold">Parameter Distributions</h3>
             <p className="text-sm text-muted-foreground">
-              Priors are shown on each parameter’s declared authoring scale. The state equations
-              show any conversion to the continuous-time model scale.
+              Distributions are shown on each parameter’s declared scale. The state equations show
+              any conversion to the continuous-time model scale.
             </p>
           </div>
-          <PriorTable parameters={data.statistical_model_spec.parameters} />
+          <PriorTable
+            parameters={model.parameters}
+            densities={diagnostics?.prior_densities ?? {}}
+          />
         </div>
       )}
     </div>

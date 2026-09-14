@@ -1,9 +1,9 @@
 import { TRANSITION_META } from "@nof1-causal-lab/api-types";
-import type { ArtifactViewId } from "@nof1-causal-lab/api-types";
+import type { PipelineSectionId } from "@nof1-causal-lab/api-types";
 import { Loader2 } from "lucide-react";
 import { motion } from "motion/react";
 
-export function ActiveTransitionsIndicator({ artifactIds }: { artifactIds: ArtifactViewId[] }) {
+export function ActiveTransitionsIndicator({ artifactIds }: { artifactIds: PipelineSectionId[] }) {
   if (artifactIds.length === 0) return null;
   const labels = artifactIds.map((artifactId) => TRANSITION_META[artifactId].label);
 

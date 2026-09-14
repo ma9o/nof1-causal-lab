@@ -1,7 +1,8 @@
-import type { SimulateScenarioResult } from "@nof1-causal-lab/api-types";
+import { modelConstructs } from "@/lib/model-accessors";
+import type { SimulationResult } from "@nof1-causal-lab/api-types";
 import type { UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
-import { demoLatentStructure, demoModelSnapshot } from "@/components/__fixtures__/demo-artifacts";
+import { demoModel, demoModelSnapshot } from "@/components/__fixtures__/demo-artifacts";
 import { demoBaselineTrace } from "@/components/dag/__fixtures__/baseline_report-materialized-fixture";
 import { buildBaselineReportScenarios, buildEdgePosteriors } from "./baseline-report-scenarios";
 
@@ -16,7 +17,7 @@ if (!interventionResult || !counterfactualResult) {
 /** A refinement assistant turn carrying a live (object-valued) simulation result. */
 function refinementSimMessage(
   toolCallId: string,
-  result: SimulateScenarioResult,
+  result: SimulationResult,
   blurb = "Done.",
   input: unknown = {},
 ): UIMessage {
@@ -46,27 +47,25 @@ describe("buildBaselineReportScenarios — interventions from a persisted trace"
 
     const newest = scenarios[0];
     expect(newest.key).toBe("sim-5");
-    expect(newest.result.result.start.kind).toBe("baseline");
+    expect(newest.result.request.start.kind).toBe("baseline");
     expect(newest.title).toBe("do(taper_speed_dose_reduction set 0.9)");
     expect(newest.requestedHorizonDays).toBe(60);
     expect(newest.userQuery).toContain("taper speed is raised sharply");
     // The assistant text beside the tool call becomes the scenario blurb.
     expect(newest.blurb).toContain("Rapid taper");
     // String-coerced result round-trips to the structured object.
-    expect(newest.result.result.summary.mean).toBe(interventionResult.result.summary.mean);
-    expect(newest.result.result.visualization?.node_effect_trajectories).toBeDefined();
+    expect(newest.result.summary.mean).toBe(interventionResult.summary.mean);
+    expect(newest.result.visualization?.node_effect_trajectories).toBeDefined();
   });
 
   it("captures abducted counterfactual fields and manifest projection", () => {
     const scenarios = buildBaselineReportScenarios({ trace: demoBaselineTrace });
 
     const counterfactual = scenarios.find(
-      (scenario) => scenario.result.result.start.kind === "abducted",
+      (scenario) => scenario.result.request.start.kind === "abducted",
     );
     expect(counterfactual?.key).toBe("sim-4");
-    expect(counterfactual?.result.result.summary.mean).toBe(
-      counterfactualResult.result.summary.mean,
-    );
+    expect(counterfactual?.result.summary.mean).toBe(counterfactualResult.summary.mean);
 
     // Manifest projection carried through on the set-mode simulation.
     const setMode = scenarios.find((scenario) => scenario.key === "sim-5");
@@ -76,12 +75,9 @@ describe("buildBaselineReportScenarios — interventions from a persisted trace"
 
 describe("buildBaselineReportScenarios — trace ∪ extra messages", () => {
   it("dedupes by tool-call id with the extra-message copy winning and ranked newest", () => {
-    const edited: SimulateScenarioResult = {
+    const edited: SimulationResult = {
       ...interventionResult,
-      result: {
-        ...interventionResult.result,
-        summary: { ...interventionResult.result.summary, mean: 0.99 },
-      },
+      summary: { ...interventionResult.summary, mean: 0.99 },
     };
 
     const scenarios = buildBaselineReportScenarios({
@@ -94,8 +90,8 @@ describe("buildBaselineReportScenarios — trace ∪ extra messages", () => {
     expect(scenarios.filter((scenario) => scenario.key === "sim-5")).toHaveLength(1);
     // …the refinement copy wins and leads the interventions.
     expect(scenarios[0].key).toBe("sim-5");
-    expect(scenarios[0].result.result.summary.mean).toBe(0.99);
-    expect(scenarios[0].requestedHorizonDays).toBe(edited.query.readout.horizon_days);
+    expect(scenarios[0].result.summary.mean).toBe(0.99);
+    expect(scenarios[0].requestedHorizonDays).toBe(edited.request.readout.horizon_days);
   });
 
   it("orders production-valid interventions newest-first", () => {
@@ -111,40 +107,23 @@ describe("buildBaselineReportScenarios — trace ∪ extra messages", () => {
   });
 });
 
-describe("simulation query ownership", () => {
-  it("does not display a result attached to a different query", () => {
-    const mismatched: SimulateScenarioResult = {
-      ...interventionResult,
-      result: { ...interventionResult.result, evaluation_id: counterfactualResult.evaluation.id },
-    };
-    expect(
-      buildBaselineReportScenarios({
-        extraMessages: [refinementSimMessage("mismatch", mismatched)],
-      }),
-    ).toEqual([]);
-  });
-});
-
 describe("owned graph findings", () => {
   it("uses persistent owners even when the display name changes", () => {
-    const structure = structuredClone(demoLatentStructure);
-    const edge = structure.latent_structure.edges.find(
-      (item) => demoModelSnapshot.fit!.value.edge_estimates[item.id],
+    const structure = structuredClone(demoModel);
+    const edge = structure.edges.find(
+      (item) => demoModelSnapshot.findings.fit!.value.edge_estimates[item.id],
     )!;
-    structure.latent_structure.constructs.find((item) => item.id === edge.cause_id)!.name =
-      "renamed";
+    modelConstructs(structure).find((item) => item.id === edge.cause.id)!.name = "renamed";
     expect(
       buildEdgePosteriors({
         latentStructure: structure,
-        estimates: demoModelSnapshot.fit!.value.edge_estimates,
+        estimates: demoModelSnapshot.findings.fit!.value.edge_estimates,
       }),
     ).toHaveProperty(
-      `renamed→${demoLatentStructure.latent_structure.constructs.find((item) => item.id === edge.effect_id)!.name}`,
+      `renamed→${modelConstructs(demoModel).find((item) => item.id === edge.effect.id)!.name}`,
     );
   });
   it("does not parse parameter descriptions or invent absent findings", () => {
-    expect(buildEdgePosteriors({ latentStructure: demoLatentStructure, estimates: {} })).toEqual(
-      {},
-    );
+    expect(buildEdgePosteriors({ latentStructure: demoModel, estimates: {} })).toEqual({});
   });
 });

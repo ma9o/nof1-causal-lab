@@ -1,13 +1,10 @@
 import type {
-  ArtifactId,
   ArtifactViewData,
   ArtifactViewId,
   CapabilitiesResponse,
   EpisodeStatus,
-  JsonObject,
   LLMTrace,
   MachineDescription,
-  Move,
   MoveOutcome,
   RuntimeEvent,
   TransitionRecord,
@@ -33,14 +30,6 @@ export type {
 } from "@nof1-causal-lab/api-types";
 
 const TOOL_SERVER = getToolServerUrl();
-
-/** Artifacts a human-edited result can write back into the machine. */
-export const WRITABLE_ARTIFACTS: Partial<Record<string, ArtifactId>> = {
-  latent_structure: "latent_structure",
-  measurement_structure: "measurement_structure",
-  statistical_model_spec: "statistical_model_spec",
-  baseline_report: "baseline_report",
-};
 
 export class EpisodeRunError extends Error {
   constructor(
@@ -79,21 +68,6 @@ export async function startEpisode(
   });
 }
 
-export async function proposeMove(
-  workspaceId: string,
-  move: Move,
-  payload?: JsonObject,
-): Promise<MoveOutcome> {
-  return episodeFetch(`/${workspaceId}/moves`, {
-    method: "POST",
-    body: JSON.stringify({
-      move,
-      ...(payload !== undefined ? { payload } : {}),
-    }),
-  });
-}
-
-/** Starts the background auto-run driver; throws EpisodeRunError(409) when already running. */
 export async function startAutoRun(workspaceId: string): Promise<void> {
   await episodeFetch(`/${workspaceId}/auto`, {
     method: "POST",
@@ -119,12 +93,12 @@ export async function getEpisodeEvents(
   return episodeFetch(`/${workspaceId}/events${search}`);
 }
 
-export async function getArtifactTraceIndex(
+export async function getOperationTraceIndex(
   workspaceId: string,
   artifactId: string,
 ): Promise<TransitionTraceIndex> {
   const response = await fetch(
-    `${TOOL_SERVER}/api/episodes/${workspaceId}/artifacts/${artifactId}/traces`,
+    `${TOOL_SERVER}/api/episodes/${workspaceId}/operations/${artifactId}/traces`,
     { cache: "no-store" },
   );
   if (!response.ok) {

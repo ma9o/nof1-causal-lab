@@ -1,4 +1,4 @@
-import type { ArtifactViewId } from "@nof1-causal-lab/api-types";
+import type { PipelineSectionId } from "@nof1-causal-lab/api-types";
 import { afterEach, describe, expect, it } from "vitest";
 import { getMockFixture, isMockMode, simulatePipelineEvents } from "./mock-provider";
 
@@ -64,7 +64,7 @@ describe("getMockFixture", () => {
 describe("simulatePipelineEvents", () => {
   it("emits paired start and complete callbacks in machine order", () => {
     const events: Array<{ type: string; id: string }> = [];
-    const transitionOrder: ArtifactViewId[] = ["raw_data", "latent_structure", "measurements"];
+    const transitionOrder: PipelineSectionId[] = ["raw_data", "latent_structure", "measurements"];
 
     const cleanup = simulatePipelineEvents(
       {

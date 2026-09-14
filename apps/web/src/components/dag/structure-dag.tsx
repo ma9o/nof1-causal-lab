@@ -28,7 +28,6 @@ interface StructureDagProps {
   edges: CausalEdge[];
   indicators?: Indicator[];
   /** Constructs compiled as observed transition inputs rather than latent states. */
-  knownInputs?: KnownInput[];
   /**
    * Per-construct backend disposition/identifiability status. Colors the node border and any
    * incident edge: blocking → destructive, marginalized → warning.
@@ -243,7 +242,6 @@ export function StructureDag({
   outcomeId,
   edges,
   indicators,
-  knownInputs = [],
   nodeStatuses,
   onNodeClick,
   direction = "RIGHT",
@@ -260,19 +258,26 @@ export function StructureDag({
   );
   const byName = useMemo(() => new Map(constructs.map((c) => [c.name, c])), [constructs]);
   const knownInputByName = useMemo(
-    () => new Map(knownInputs.map((input) => [byId.get(input.construct_id)!.name, input])),
-    [knownInputs, byId],
+    () =>
+      new Map(
+        constructs.flatMap((construct) =>
+          construct.usage?.kind === "known_input"
+            ? [[construct.name, construct.usage] as const]
+            : [],
+        ),
+      ),
+    [constructs],
   );
 
   const indicatorsByConstruct = useMemo(() => {
-    const map = new Map<string, Indicator[]>();
-    for (const ind of indicators ?? []) {
-      const list = map.get(byId.get(ind.construct_id)!.name);
-      if (list) list.push(ind);
-      else map.set(byId.get(ind.construct_id)!.name, [ind]);
-    }
-    return map;
-  }, [indicators, byId]);
+    const selected = new Set((indicators ?? []).map((indicator) => indicator.id));
+    return new Map(
+      constructs.flatMap((construct) => {
+        const owned = construct.indicators.filter((indicator) => selected.has(indicator.id));
+        return owned.length ? [[construct.name, owned] as const] : [];
+      }),
+    );
+  }, [constructs, indicators]);
 
   const nodeWidth = indicatorsByConstruct.size > 0 ? NODE_W_WITH_INDICATORS : NODE_W;
 
@@ -287,10 +292,10 @@ export function StructureDag({
     );
     const causalLinks = unrollCausalLinks(
       edges
-        .filter((edge) => edge.cause_id !== edge.effect_id)
+        .filter((edge) => edge.cause.id !== edge.effect.id)
         .map((edge) => ({
-          cause: byId.get(edge.cause_id)!.name,
-          effect: byId.get(edge.effect_id)!.name,
+          cause: byId.get(edge.cause.id)!.name,
+          effect: byId.get(edge.effect.id)!.name,
           lagged: edge.lagged,
         })),
       timeVaryingNames,
@@ -346,8 +351,8 @@ export function StructureDag({
     if (!selected) return null;
     const set = new Set<string>([selected]);
     for (const e of edges) {
-      if (byId.get(e.cause_id)!.name === selected) set.add(byId.get(e.effect_id)!.name);
-      if (byId.get(e.effect_id)!.name === selected) set.add(byId.get(e.cause_id)!.name);
+      if (byId.get(e.cause.id)!.name === selected) set.add(byId.get(e.effect.id)!.name);
+      if (byId.get(e.effect.id)!.name === selected) set.add(byId.get(e.cause.id)!.name);
     }
     return set;
   }, [selected, edges, byId]);
@@ -370,11 +375,11 @@ export function StructureDag({
     (construct) =>
       construct.temporal_status === "time_varying" &&
       (construct.role === "endogenous" ||
-        edges.some((edge) => edge.lagged && byId.get(edge.cause_id)!.name === construct.name)),
+        edges.some((edge) => edge.lagged && byId.get(edge.cause.id)!.name === construct.name)),
   );
   const hasCrossLagged = edges.some(
     (edge) =>
-      edge.lagged && byName.get(byId.get(edge.cause_id)!.name)?.temporal_status === "time_varying",
+      edge.lagged && byName.get(byId.get(edge.cause.id)!.name)?.temporal_status === "time_varying",
   );
   const hasContemporaneous = edges.some((edge) => !edge.lagged);
   const statusValues = nodeStatuses ? Object.values(nodeStatuses) : [];

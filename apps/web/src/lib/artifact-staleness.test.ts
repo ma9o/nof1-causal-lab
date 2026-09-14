@@ -4,7 +4,7 @@ import { groupStaleArtifactsByProducer, hasStaleArtifacts } from "./artifact-sta
 
 function artifact(overrides: Partial<ArtifactFreshness>): ArtifactFreshness {
   return {
-    artifact_id: "latent_structure",
+    artifact_id: "model",
     exists: true,
     stale: false,
     version: 1,
@@ -18,12 +18,12 @@ describe("groupStaleArtifactsByProducer", () => {
   it("groups stale existing artifacts by producing artifact", () => {
     const report = [
       artifact({
-        artifact_id: "latent_structure",
+        artifact_id: "model",
         stale: true,
         produced_by: "run:latent_structure",
       }),
       artifact({
-        artifact_id: "measurement_structure",
+        artifact_id: "identification_report",
         stale: true,
         produced_by: "run:measurement_structure",
       }),
@@ -31,8 +31,8 @@ describe("groupStaleArtifactsByProducer", () => {
     ];
 
     expect(groupStaleArtifactsByProducer(report)).toEqual({
-      latent_structure: ["latent_structure"],
-      measurement_structure: ["measurement_structure"],
+      latent_structure: ["model"],
+      measurement_structure: ["identification_report"],
     });
   });
 

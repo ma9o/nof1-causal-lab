@@ -1,4 +1,11 @@
-import type { ArtifactId, ConstructId, EdgeId, IndicatorId } from "@nof1-causal-lab/api-types";
+import {
+  TRANSITION_META,
+  type Move,
+  type ArtifactId,
+  type ConstructId,
+  type EdgeId,
+  type IndicatorId,
+} from "@nof1-causal-lab/api-types";
 
 /** What the details pane is scoped to: the asset itself or one of its parts. */
 export type ModelSelection =
@@ -24,19 +31,12 @@ export const SCOPE_KIND_LABEL: Record<ModelSelection["kind"], string> = {
 export const ARTIFACT_LABEL: Record<ArtifactId, string> = {
   question: "Question",
   raw_data: "Preprocess",
-  latent_structure: "Latent structure",
-  measurement_structure: "Measurement structure",
-  causal_design: "Causal design",
-  structural_plan: "Structural plan",
+  model: "Model",
   identification_report: "Identification report",
-  measurements: "Data extraction",
   panel: "Panel",
   validation_report: "Validation",
-  statistical_model_spec: "Statistical model spec",
-  compiled_ssm: "Compiled model",
-  posterior: "Inference",
+  admission_report: "Admission report",
   baseline_report: "Treatment effects",
-  saved_scenarios: "Saved scenarios",
 };
 
 export function humanize(value: string): string {
@@ -49,4 +49,10 @@ export function formatSigned(value: number, digits = 2): string {
 
 export function formatPlain(value: number, digits = 2): string {
   return `${value < 0 ? "−" : ""}${Math.abs(value).toFixed(digits)}`;
+}
+
+export function moveLabel(move: Move): string {
+  return move.kind === "run"
+    ? TRANSITION_META[move.operation_id].label
+    : ARTIFACT_LABEL[move.artifact_id];
 }

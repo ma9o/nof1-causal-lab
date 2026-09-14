@@ -56,9 +56,9 @@ export function buildLayeredCausalGraph(
   const constructById = new Map(constructs.map((construct) => [construct.id, construct] as const));
   const historyById = new Map(constructs.map((construct) => [ghostId(construct.id), construct]));
   for (const edge of edges) {
-    if (!constructById.has(edge.cause_id) || !constructById.has(edge.effect_id)) {
+    if (!constructById.has(edge.cause.id) || !constructById.has(edge.effect.id)) {
       throw new Error(
-        `Causal edge '${edge.cause_id}→${edge.effect_id}' references an unknown construct.`,
+        `Causal edge '${edge.cause.id}→${edge.effect.id}' references an unknown construct.`,
       );
     }
   }
@@ -72,12 +72,12 @@ export function buildLayeredCausalGraph(
     (construct) => construct.role === "endogenous" && construct.temporal_status === "time_varying",
   );
   const causalLinks = edges
-    .filter((edge) => edge.cause_id !== edge.effect_id)
+    .filter((edge) => edge.cause.id !== edge.effect.id)
     .map((edge) => ({
       ...edge,
       source:
-        edge.lagged && timeVaryingIds.has(edge.cause_id) ? ghostId(edge.cause_id) : edge.cause_id,
-      target: edge.effect_id,
+        edge.lagged && timeVaryingIds.has(edge.cause.id) ? ghostId(edge.cause.id) : edge.cause.id,
+      target: edge.effect.id,
     }));
   const ghosts = new Set([
     ...causalLinks.filter((edge) => isGhost(edge.source)).map((edge) => edge.source),
@@ -87,8 +87,8 @@ export function buildLayeredCausalGraph(
   const edgeDefinitions: Array<Omit<LayeredGraphEdgeMeta, "slotId">> = [
     ...causalLinks.map((edge) => ({
       id: edge.id,
-      cause: edge.cause_id,
-      effect: edge.effect_id,
+      cause: edge.cause.id,
+      effect: edge.effect.id,
       source: edge.source,
       target: edge.target,
       lagged: edge.lagged,

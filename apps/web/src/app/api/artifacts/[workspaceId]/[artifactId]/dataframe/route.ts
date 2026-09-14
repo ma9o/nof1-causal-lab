@@ -3,7 +3,7 @@ import { normalizeWorkspaceId } from "@/lib/workspace-id";
 
 const PARQUET_MAP: Record<string, { artifact: "raw_data" | "panel"; key: "raw" | "panel" }> = {
   raw_data: { artifact: "raw_data", key: "raw" },
-  measurements: { artifact: "panel", key: "panel" },
+  panel: { artifact: "panel", key: "panel" },
 };
 
 export async function GET(

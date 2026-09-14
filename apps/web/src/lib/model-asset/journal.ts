@@ -1,4 +1,18 @@
-import type { ArtifactId, Move, TransitionRecord } from "@nof1-causal-lab/api-types";
+import {
+  MACHINE_DESCRIPTION,
+  type ArtifactId,
+  type Move,
+  type TransitionRecord,
+} from "@nof1-causal-lab/api-types";
+
+/** Resolve operation outputs through the backend's declared machine graph. */
+export function primaryArtifact(move: Move): ArtifactId {
+  if (move.kind === "write") return move.artifact_id;
+  const operation = MACHINE_DESCRIPTION.transitions.find(
+    (entry) => entry.transition_id === move.operation_id,
+  )!;
+  return [...operation.produces, ...operation.produces_optional][0];
+}
 
 /**
  * One tick of the version scrubber: an applied or raised move. Rejected attempts never
@@ -16,6 +30,7 @@ export interface JournalTick {
   retracted: ArtifactId[];
   error: string | null;
   traceIds: string[];
+  diagnostics: TransitionRecord["diagnostics"];
 }
 
 export function journalTicks(transitions: readonly TransitionRecord[]): JournalTick[] {
@@ -24,7 +39,7 @@ export function journalTicks(transitions: readonly TransitionRecord[]): JournalT
     if (record.status === "rejected") {
       continue;
     }
-    const own = record.produced.find((info) => info.artifact_id === record.move.artifact_id);
+    const own = record.produced.find((info) => info.artifact_id === primaryArtifact(record.move));
     ticks.push({
       seq: record.seq,
       ts: record.ts,
@@ -32,11 +47,12 @@ export function journalTicks(transitions: readonly TransitionRecord[]): JournalT
       status: record.status,
       version: own?.version ?? null,
       derived: record.produced
-        .filter((info) => info.artifact_id !== record.move.artifact_id)
+        .filter((info) => info.artifact_id !== primaryArtifact(record.move))
         .map((info) => info.artifact_id),
       retracted: record.retracted.map((entry) => entry.artifact_id),
       error: record.error_message ?? record.error_type ?? null,
       traceIds: record.trace_ids,
+      diagnostics: record.diagnostics,
     });
   }
   return ticks;
@@ -57,12 +73,12 @@ export function modelPosition(
   model: import("@nof1-causal-lab/api-types").ModelSnapshot,
 ): AssetSnapshot {
   return {
-    playhead: model.seq,
+    playhead: model.context.seq,
     versions: Object.fromEntries(
-      Object.entries(model.state.current).map(([id, info]) => [id, info.version]),
+      Object.entries(model.context.state.current).map(([id, info]) => [id, info.version]),
     ),
-    installedAt: model.installed_at,
-    retracted: model.retracted,
+    installedAt: model.context.installed_at,
+    retracted: model.context.retracted,
   };
 }
 

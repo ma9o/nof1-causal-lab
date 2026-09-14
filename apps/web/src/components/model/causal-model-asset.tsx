@@ -1,5 +1,7 @@
 "use client";
 
+import { TRANSITION_META } from "@nof1-causal-lab/api-types";
+
 import { useModelSnapshot } from "@/lib/hooks/use-model-snapshot";
 
 import { DagCanvasFrame } from "@/components/dag/core/dag-canvas";
@@ -15,7 +17,6 @@ import type {
   ArtifactId,
   LLMTrace,
   ModelSnapshot,
-  Move,
   TransitionRecord,
 } from "@nof1-causal-lab/api-types";
 import { useMutation } from "@tanstack/react-query";
@@ -23,7 +24,7 @@ import { useCallback, useMemo, useState } from "react";
 import { indexModel } from "./asset-data";
 import { ConversationPane, type MoveTraceState, type UseMoveTrace } from "./conversation-pane";
 import { DetailsPane } from "./details-pane";
-import { ARTIFACT_LABEL, ASSET_SELECTION, type ModelSelection } from "./model-selection";
+import { ASSET_SELECTION, type ModelSelection } from "./model-selection";
 import { buildModelQueries } from "./queries";
 import type { ScopeContext } from "./scopes/scope-context";
 import { VersionScrubber } from "./version-scrubber";
@@ -35,7 +36,7 @@ export interface CausalModelAssetViewProps {
   useSnapshot: (atSeq: number) => { data: ModelSnapshot | undefined; error: Error | null };
   transitions: TransitionRecord[];
   artifacts: ArtifactFreshness[];
-  legal: Move[];
+  nextOperation: import("@nof1-causal-lab/api-types").OperationId | null;
   progress: PipelineProgress;
   analysisTrace: LLMTrace | undefined;
   useMoveTrace: UseMoveTrace;
@@ -84,8 +85,7 @@ function ModelRevision({
   workspaceId,
   readOnly,
   transitions,
-  artifacts: liveArtifacts,
-  legal,
+  nextOperation,
   progress,
   analysisTrace,
   useMoveTrace,
@@ -107,24 +107,23 @@ function ModelRevision({
   setFocusSeq: (seq: number | null) => void;
 }) {
   const entities = useMemo(() => indexModel(model), [model]);
-  const question = model.question?.value.text;
-  const artifacts = model.artifacts;
+  const question = model.data.question?.value.text;
+  const artifacts = model.context.artifacts;
 
   const ticks = useMemo(() => journalTicks(transitions), [transitions]);
   const latest = useMemo(() => latestSeq(transitions), [transitions]);
-  const playhead = model.seq;
+  const playhead = model.context.seq;
   const snapshot = useMemo(() => modelPosition(model), [model]);
   const current = useMemo(() => modelPosition(currentModel), [currentModel]);
   const outcome =
-    entities.constructs.find(
-      (construct) => construct.id === model.latent_structure?.value.default_outcome?.id,
-    )?.name ?? null;
+    entities.constructs.find((construct) => construct.id === model.model?.value.default_outcome?.id)
+      ?.name ?? null;
   const queries = useMemo(() => buildModelQueries(model), [model]);
   const selectedQuery =
     selection.kind === "query" ? queries.find((query) => query.key === selection.key) : undefined;
   const simulation =
-    selectedQuery?.simulation?.evaluation.model.id === model.model.id &&
-    selectedQuery.simulation.evaluation.posterior.version === model.state.current.posterior?.version
+    selectedQuery?.simulation?.provenance.model.workspace_id === model.context.workspace.id &&
+    selectedQuery.simulation.provenance.model.version === model.context.state.current.model?.version
       ? selectedQuery.simulation
       : null;
   const staleArtifacts = useMemo(
@@ -136,20 +135,7 @@ function ModelRevision({
   );
   const running = progress.runningTransitions;
   const isNow = playhead >= latest && running.length === 0;
-  const nextRun = useMemo(() => {
-    const statusById = new Map(liveArtifacts.map((artifact) => [artifact.artifact_id, artifact]));
-    const candidates = legal
-      .filter((move) => move.kind === "run")
-      .map((move) => move.artifact_id)
-      .filter((artifactId) => {
-        const status = statusById.get(artifactId);
-        return !status || !status.exists || status.stale;
-      });
-    const ordered = [...progress.transitionOrder].filter((artifactId) =>
-      candidates.includes(artifactId),
-    );
-    return ordered[0] ?? candidates[0] ?? null;
-  }, [liveArtifacts, legal, progress.transitionOrder]);
+  const nextRun = nextOperation;
 
   const select = useCallback((next: ModelSelection) => setSelection(next), [setSelection]);
   const selectTick = useCallback(
@@ -166,6 +152,7 @@ function ModelRevision({
       entities,
       snapshot,
       current,
+      canSimulate: currentModel.context.can_simulate,
       ticks,
       artifacts,
       question,
@@ -181,6 +168,7 @@ function ModelRevision({
       entities,
       snapshot,
       current,
+      currentModel.context.can_simulate,
       ticks,
       artifacts,
       question,
@@ -196,7 +184,7 @@ function ModelRevision({
   const selectedNode = selection.kind === "construct" ? selection.id : null;
   const status =
     running.length > 0
-      ? `auto-run · ${running.map((id) => ARTIFACT_LABEL[id]).join(", ")} running`
+      ? `auto-run · ${running.map((id) => TRANSITION_META[id].label).join(", ")} running`
       : !isNow
         ? `viewing v${playhead} of v${latest} · read-only`
         : "live · idle";
@@ -230,7 +218,7 @@ function ModelRevision({
           ) : null}
           {isNow && nextRun && onRun && !readOnly ? (
             <Button type="button" size="sm" onClick={onRun}>
-              ▶ run {ARTIFACT_LABEL[nextRun]}
+              ▶ run {TRANSITION_META[nextRun].label}
             </Button>
           ) : null}
         </div>
@@ -265,7 +253,7 @@ function ModelRevision({
           <DetailsPane
             selection={selection}
             context={context}
-            posteriorStale={staleArtifacts.has("posterior")}
+            posteriorStale={model.findings.fit?.source.validity === "stale"}
           />
         </div>
         <ConversationPane
@@ -324,7 +312,7 @@ export function CausalModelAsset({
       useSnapshot={useSnapshot}
       transitions={episode.transitions}
       artifacts={episode.artifacts}
-      legal={episode.legal}
+      nextOperation={episode.nextOperation}
       progress={progress}
       analysisTrace={undefined}
       useMoveTrace={useMoveTrace}

@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
 import { StatTooltip } from "@/components/ui/stat-tooltip";
 import { formatNumber } from "@/lib/utils/format";
-import type { LikelihoodSpec, ModelSpecLikelihoodDiagnostics } from "@nof1-causal-lab/api-types";
+import type { LikelihoodSpec, LikelihoodDiagnostics } from "@nof1-causal-lab/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 import { scaleLinear } from "d3-scale";
 import { curveMonotoneX, line } from "d3-shape";
@@ -18,7 +18,7 @@ import { SparklineTooltip } from "./sparkline-tooltip";
 interface MeasurementRow {
   likelihood: LikelihoodSpec;
   label: string;
-  diagnostics?: ModelSpecLikelihoodDiagnostics;
+  diagnostics?: LikelihoodDiagnostics;
 }
 
 interface DisplayBin {
@@ -44,23 +44,6 @@ function measurementXDomain(data: MeasurementChartPoint[]): [number, number] {
   }
 
   return [min, max];
-}
-
-// ── Link label helper ─────────────────────────────────────
-
-function linkLabel(link: string): string {
-  switch (link) {
-    case "identity":
-      return "E[y] = \u03BC";
-    case "log":
-      return "E[y] = exp(\u03BC)";
-    case "logit":
-      return "E[y] = \u03C3(\u03BC)";
-    case "probit":
-      return "E[y] = \u03A6(\u03BC)";
-    default:
-      return "g\u207B\u00B9(\u03BC)";
-  }
 }
 
 // ── Inline chart ──────────────────────────────────────────
@@ -248,7 +231,7 @@ const MeasurementSparkline = memo(
   },
   (previous, next) =>
     previous.row.diagnostics === next.row.diagnostics &&
-    previous.row.likelihood.distribution === next.row.likelihood.distribution,
+    previous.row.likelihood.law.distribution === next.row.likelihood.law.distribution,
 );
 
 // ── Table columns ─────────────────────────────────────────
@@ -264,12 +247,7 @@ const baseColumns: ColumnDef<MeasurementRow, unknown>[] = [
   col.display({
     id: "distribution",
     header: "Distribution",
-    cell: ({ row }) => <Badge variant="outline">{row.original.likelihood.distribution}</Badge>,
-  }),
-  col.display({
-    id: "link",
-    header: "Link",
-    cell: ({ row }) => <Badge variant="secondary">{linkLabel(row.original.likelihood.link)}</Badge>,
+    cell: ({ row }) => <Badge variant="outline">{row.original.likelihood.law.distribution}</Badge>,
   }),
   col.display({
     id: "chart",
@@ -331,23 +309,25 @@ const baseColumns: ColumnDef<MeasurementRow, unknown>[] = [
 
 export function MeasurementTable({
   indicators,
-  likelihoods,
   diagnostics,
 }: {
-  likelihoods: LikelihoodSpec[];
   indicators: import("@nof1-causal-lab/api-types").Indicator[];
-  diagnostics: Record<string, ModelSpecLikelihoodDiagnostics | undefined>;
+  diagnostics: Record<string, LikelihoodDiagnostics | undefined>;
 }) {
   const rows: MeasurementRow[] = useMemo(
     () =>
-      likelihoods.map((lik) => ({
-        likelihood: lik,
-        label:
-          indicators.find((indicator) => indicator.id === lik.indicator_id)?.name ??
-          lik.indicator_id,
-        diagnostics: diagnostics[lik.indicator_id],
-      })),
-    [likelihoods, indicators, diagnostics],
+      indicators.flatMap((indicator) =>
+        indicator.likelihood
+          ? [
+              {
+                likelihood: indicator.likelihood,
+                label: indicator.name,
+                diagnostics: diagnostics[indicator.id],
+              },
+            ]
+          : [],
+      ),
+    [indicators, diagnostics],
   );
 
   const columns = baseColumns;

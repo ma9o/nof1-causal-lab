@@ -1,7 +1,7 @@
-import type { LatentStructureArtifact } from "@nof1-causal-lab/api-types";
+import type { ModelSpec } from "@nof1-causal-lab/api-types";
 import { TRANSITIONS } from "@nof1-causal-lab/api-types";
 import type { Meta } from "@storybook/nextjs-vite";
-import { demoLatentStructure } from "../../__fixtures__/demo-artifacts";
+import { demoModel } from "../../__fixtures__/demo-artifacts";
 import { demoTraces } from "../../__fixtures__/demo-traces";
 import {
   createCompletedOutputStory,
@@ -11,7 +11,7 @@ import {
 import LatentStructureView from "./latent-structure-view";
 
 const output = TRANSITIONS.find((s) => s.id === "latent_structure")!;
-const data = demoLatentStructure as LatentStructureArtifact;
+const data = demoModel as ModelSpec;
 
 const meta = {
   title: "Pipeline/Outputs/Latent Structure/Panel",

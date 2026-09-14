@@ -1,3 +1,4 @@
+import { modelConstructs } from "@/lib/model-accessors";
 /**
  * analysis scenario model.
  *
@@ -15,7 +16,7 @@
 
 import type {
   EffectSummary,
-  LatentStructureArtifact,
+  ModelSpec,
   LLMTrace,
   PosteriorEstimate,
 } from "@nof1-causal-lab/api-types";
@@ -117,11 +118,11 @@ function toScenario(raw: RawSimulation): BaselineReportScenario {
     key: raw.toolCallId,
     provenance: "intervention",
     title: formatScenarioActionDescription(raw.result),
-    outcome: raw.result.result.outcome_label,
-    summary: raw.result.result.summary,
-    manifestEffects: raw.result.result.manifest_effects ?? null,
+    outcome: raw.result.labels[raw.result.request.outcome.id],
+    summary: raw.result.summary,
+    manifestEffects: raw.result.manifest_effects ?? null,
     result: raw.result,
-    requestedHorizonDays: raw.result.query.readout.horizon_days,
+    requestedHorizonDays: raw.result.request.readout.horizon_days,
     userQuery: raw.userQuery,
     blurb: raw.blurb,
   };
@@ -154,17 +155,17 @@ export function buildEdgePosteriors({
   latentStructure,
   estimates,
 }: {
-  latentStructure?: LatentStructureArtifact | null;
+  latentStructure?: ModelSpec | null;
   estimates: import("@nof1-causal-lab/api-types").FitSummary["edge_estimates"];
 }): Record<string, PosteriorEstimate> {
   const names = new Map(
-    latentStructure?.latent_structure.constructs.map((construct) => [construct.id, construct.name]),
+    modelConstructs(latentStructure).map((construct) => [construct.id, construct.name]),
   );
   return Object.fromEntries(
-    (latentStructure?.latent_structure.edges ?? []).flatMap((edge) => {
+    (latentStructure?.edges ?? []).flatMap((edge) => {
       const estimate = estimates[edge.id];
       return estimate
-        ? [[`${names.get(edge.cause_id)}→${names.get(edge.effect_id)}`, estimate]]
+        ? [[`${names.get(edge.cause.id)}→${names.get(edge.effect.id)}`, estimate]]
         : [];
     }),
   );
@@ -175,11 +176,11 @@ export function buildPersistencePosteriors({
   latentStructure,
   estimates,
 }: {
-  latentStructure?: LatentStructureArtifact | null;
+  latentStructure?: ModelSpec | null;
   estimates: import("@nof1-causal-lab/api-types").FitSummary["decay_estimates"];
 }): Record<string, PosteriorEstimate> {
   return Object.fromEntries(
-    (latentStructure?.latent_structure.constructs ?? []).flatMap((construct) => {
+    (modelConstructs(latentStructure) ?? []).flatMap((construct) => {
       const estimate = estimates[construct.id];
       return estimate ? [[construct.name, estimate]] : [];
     }),

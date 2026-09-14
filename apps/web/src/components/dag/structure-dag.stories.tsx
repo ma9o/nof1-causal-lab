@@ -1,17 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useState } from "react";
-import {
-  constructs,
-  design,
-  edges,
-  indicators,
-  knownInputs,
-  structuralPlan,
-} from "./__fixtures__/dag-base-fixtures";
-import { deriveConstructStatuses } from "./construct-statuses";
+import { constructs, edges, indicators } from "./__fixtures__/dag-base-fixtures";
+import { constructStatuses } from "./construct-statuses";
+import { demoModelSnapshot } from "@/components/__fixtures__/demo-artifacts";
 import { StructureDag } from "./structure-dag";
 
-const nodeStatuses = deriveConstructStatuses(design, structuralPlan);
+const nodeStatuses = constructStatuses(demoModelSnapshot);
 
 const meta: Meta<typeof StructureDag> = {
   title: "DAG/Structure DAG",
@@ -43,7 +37,6 @@ export const MeasurementStructureStory: Story = {
         constructs={constructs}
         edges={edges}
         indicators={indicators}
-        knownInputs={knownInputs}
         nodeStatuses={nodeStatuses}
       />
     </div>

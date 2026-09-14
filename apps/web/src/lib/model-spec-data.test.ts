@@ -1,28 +1,30 @@
-import { demoModelSnapshot } from "@/components/__fixtures__/demo-artifacts";
+import { modelConstructs } from "@/lib/model-accessors";
 import { describe, expect, it } from "vitest";
+import { demoModelSnapshot } from "@/components/__fixtures__/demo-artifacts";
+import { referencedParameterIds } from "./model-accessors";
 import { collectModelSpecObservationPriorTerms } from "./model-spec-data";
 
 describe("scientific prior references", () => {
-  it("uses explicit owners and distinguishes reuse of an indicator name", () => {
-    const base = demoModelSnapshot.compiled_parameters!.value.find((p) =>
-      p.owners.some((o) => o.kind === "indicator"),
-    )!;
-    const owner = base.owners.find((o) => o.kind === "indicator")!;
-    const parameter = { ...base, name: "arbitrary parameter label" };
-    const likelihood = {
-      indicator_id: owner.id as `indicator:${string}`,
-      distribution: "gaussian" as const,
-      link: "identity" as const,
-      reasoning: "",
-      standardized: false,
-      sources: [],
+  it("follows coefficient references independently of display names", () => {
+    const model = demoModelSnapshot.model!.value;
+    const indicator = modelConstructs(model)
+      .flatMap((c) => c.indicators)
+      .find((i) => referencedParameterIds(i.likelihood).size > 0)!;
+    const id = [...referencedParameterIds(indicator.likelihood)][0];
+    const parameter = {
+      ...model.parameters.find((p) => p.id === id)!,
+      name: "arbitrary parameter label",
     };
-    const args = { likelihood, parameters: [parameter] };
-    expect(collectModelSpecObservationPriorTerms(args)).toEqual([parameter]);
     expect(
       collectModelSpecObservationPriorTerms({
-        ...args,
-        likelihood: { ...likelihood, indicator_id: "indicator:another" },
+        indicator: { ...indicator, name: "renamed indicator" },
+        parameters: [parameter],
+      }),
+    ).toEqual([parameter]);
+    expect(
+      collectModelSpecObservationPriorTerms({
+        indicator: { ...indicator, likelihood: null },
+        parameters: [parameter],
       }),
     ).toEqual([]);
   });

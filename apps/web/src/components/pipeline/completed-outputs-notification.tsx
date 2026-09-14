@@ -2,7 +2,7 @@
 
 import type { PipelineProgress } from "@/lib/hooks/use-run-events";
 import { TRANSITION_META } from "@nof1-causal-lab/api-types";
-import type { ArtifactViewId } from "@nof1-causal-lab/api-types";
+import type { PipelineSectionId } from "@nof1-causal-lab/api-types";
 import { ArrowDown } from "lucide-react";
 import { motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -15,12 +15,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
  */
 export function CompletedOutputsNotification({ progress }: { progress: PipelineProgress }) {
   // Outputs the user has scrolled past (seen) at least once
-  const seenRef = useRef<Set<ArtifactViewId>>(new Set());
-  const [observerSeen, setObserverSeen] = useState<Set<ArtifactViewId>>(new Set());
+  const seenRef = useRef<Set<PipelineSectionId>>(new Set());
+  const [observerSeen, setObserverSeen] = useState<Set<PipelineSectionId>>(new Set());
 
   // Derive the list of completed/failed output ids from progress
   const completedArtifactIds = useMemo(() => {
-    const ids: ArtifactViewId[] = [];
+    const ids: PipelineSectionId[] = [];
     for (const artifactId of progress.transitionOrder) {
       const status = progress.artifacts[artifactId];
       if (status === "completed" || status === "failed") {
@@ -48,10 +48,10 @@ export function CompletedOutputsNotification({ progress }: { progress: PipelineP
     if (elementsToObserve.length === 0) return;
 
     const observer = new IntersectionObserver((entries) => {
-      const newlySeen: ArtifactViewId[] = [];
+      const newlySeen: PipelineSectionId[] = [];
       for (const entry of entries) {
         if (entry.isIntersecting) {
-          const artifactId = entry.target.id as ArtifactViewId;
+          const artifactId = entry.target.id as PipelineSectionId;
           seenRef.current.add(artifactId);
           observer.unobserve(entry.target);
           newlySeen.push(artifactId);

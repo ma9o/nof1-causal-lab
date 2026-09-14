@@ -1,4 +1,4 @@
-import type { ArtifactId, PosteriorEstimate } from "@nof1-causal-lab/api-types";
+import type { ArtifactId, FactSource, PosteriorEstimate } from "@nof1-causal-lab/api-types";
 import type { ReactNode } from "react";
 import { signColor } from "@/components/dag/core/palette";
 import { cn } from "@/lib/utils";
@@ -33,15 +33,12 @@ export function Section({
   );
 }
 
-/** An artifact at a version, as the owner of the facts around it. */
-export function ArtifactChip({
-  id,
-  version,
+function ReferenceChip({
+  label,
   stale = false,
   retracted = false,
 }: {
-  id: ArtifactId;
-  version: number | null;
+  label: string;
   stale?: boolean;
   retracted?: boolean;
 }) {
@@ -56,10 +53,39 @@ export function ArtifactChip({
             : "border-foreground",
       )}
     >
-      {id}
-      {retracted ? " retracted" : version != null ? ` v${version}${stale ? " · stale" : ""}` : ""}
+      {label}
+      {retracted ? " retracted" : stale ? " · stale" : ""}
     </span>
   );
+}
+
+/** The artifact revision that owns these facts. */
+export function ArtifactChip({
+  id,
+  version,
+  stale,
+  retracted,
+}: {
+  id: ArtifactId;
+  version: number | null;
+  stale?: boolean;
+  retracted?: boolean;
+}) {
+  return (
+    <ReferenceChip
+      label={`${id}${version != null ? ` v${version}` : ""}`}
+      stale={stale}
+      retracted={retracted}
+    />
+  );
+}
+
+/** Findings can be owned by a transition log or by an artifact. */
+export function FactChip({ source }: { source: FactSource | undefined }) {
+  if (!source) return null;
+  const ref = source.ref;
+  const label = "seq" in ref ? `move ${ref.seq}` : `${ref.artifact_id} v${ref.version}`;
+  return <ReferenceChip label={label} stale={source.validity === "stale"} />;
 }
 
 export function KeyValue({ rows }: { rows: Array<[string, ReactNode]> }) {
@@ -168,7 +194,7 @@ export function PriorTable({ rows }: { rows: PriorRow[] }) {
         <tr className="text-left text-muted-foreground">
           <th className="border-b pb-0.5 pr-1.5 font-medium">parameter</th>
           <th className="border-b pb-0.5 pr-1.5 font-medium">role</th>
-          <th className="border-b pb-0.5 font-medium">prior</th>
+          <th className="border-b pb-0.5 font-medium">distribution</th>
         </tr>
       </thead>
       <tbody>
@@ -186,8 +212,6 @@ export function PriorTable({ rows }: { rows: PriorRow[] }) {
 
 export interface PosteriorRow extends PosteriorEstimate {
   parameter: string;
-  rhat: number | null;
-  ess: number | null;
 }
 
 export function PosteriorTable({ rows }: { rows: PosteriorRow[] }) {
@@ -199,7 +223,6 @@ export function PosteriorTable({ rows }: { rows: PosteriorRow[] }) {
           <th className="border-b pb-0.5 pr-1.5 font-medium">parameter</th>
           <th className="border-b pb-0.5 pr-1.5 font-medium">mean</th>
           <th className="border-b pb-0.5 pr-1.5 font-medium">interval</th>
-          <th className="border-b pb-0.5 font-medium">R̂ · ESS</th>
         </tr>
       </thead>
       <tbody>
@@ -218,11 +241,6 @@ export function PosteriorTable({ rows }: { rows: PosteriorRow[] }) {
             >
               [{formatPlain(row.lower)}, {formatPlain(row.upper)}] ·{" "}
               {formatPosteriorIntervalLabel(row)}
-            </td>
-            <td className="truncate border-b py-0.5 font-mono">
-              {row.rhat != null && row.ess != null
-                ? `${row.rhat.toFixed(2)} · ${Math.round(row.ess)}`
-                : "—"}
             </td>
           </tr>
         ))}

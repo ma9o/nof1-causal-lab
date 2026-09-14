@@ -47,17 +47,14 @@ function crumbParts(selection: ModelSelection, context: ScopeContext): ReactNode
       const edge = context.entities.edgeById.get(selection.id);
       return [
         edge
-          ? `${humanize(context.entities.constructById.get(edge.cause_id)!.name)} → ${humanize(context.entities.constructById.get(edge.effect_id)!.name)}`
+          ? `${humanize(context.entities.constructById.get(edge.cause.id)!.name)} → ${humanize(context.entities.constructById.get(edge.effect.id)!.name)}`
           : selection.id,
       ];
     }
     case "indicator": {
       const indicator = context.entities.indicatorById.get(selection.id);
       return indicator
-        ? [
-            humanize(context.entities.constructById.get(indicator.construct_id)!.name),
-            indicator.name,
-          ]
+        ? [humanize(context.entities.indicatorOwnerById.get(indicator.id)!.name), indicator.name]
         : [selection.id];
     }
     case "query":
@@ -84,7 +81,13 @@ function ScopeBody({ selection, context }: { selection: ModelSelection; context:
       return <IndicatorScope context={context} id={selection.id} />;
     case "query": {
       const query = context.queries.find((candidate) => candidate.key === selection.key);
-      return query ? <QueryScope context={context} query={query} /> : null;
+      return query ? (
+        <QueryScope
+          key={`${context.model.context.workspace.id}:${query.key}:${JSON.stringify(query.request)}`}
+          context={context}
+          query={query}
+        />
+      ) : null;
     }
   }
 }
@@ -120,7 +123,7 @@ export function DetailsPane({
             queries={context.queries}
             selectedKey={selectedQueryKey}
             outcome={context.outcome}
-            posteriorVersion={context.snapshot.versions.posterior ?? null}
+            modelVersion={context.snapshot.versions.model ?? null}
             posteriorStale={posteriorStale}
             onSelect={(key) => context.select({ kind: "query", key })}
           />

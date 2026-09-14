@@ -1,4 +1,4 @@
-import type { ArtifactViewId, ArtifactStatus } from "@nof1-causal-lab/api-types";
+import type { PipelineSectionId, ArtifactStatus } from "@nof1-causal-lab/api-types";
 import type { StaleArtifactsByProducer } from "@/lib/artifact-staleness";
 
 export type TransitionRunStatus = Exclude<ArtifactStatus, "blocked">;
@@ -9,18 +9,18 @@ export interface TransitionTiming {
 }
 
 export interface PipelineProgress {
-  artifacts: Record<ArtifactViewId, TransitionRunStatus>;
-  timings: Partial<Record<ArtifactViewId, TransitionTiming>>;
+  artifacts: Record<PipelineSectionId, TransitionRunStatus>;
+  timings: Partial<Record<PipelineSectionId, TransitionTiming>>;
   /** Failure detail per transition (raised transition / failed telemetry event). */
-  transitionErrors: Partial<Record<ArtifactViewId, string>>;
+  transitionErrors: Partial<Record<PipelineSectionId, string>>;
   /** Backend-computed freshness report, grouped by producing artifact for display. */
   staleArtifactsByProducer: StaleArtifactsByProducer;
   /** Whether the facade's auto-run driver is currently active. */
   autoRunning: boolean;
   /** Artifact display order from the machine's topological artifact order. */
-  transitionOrder: ArtifactViewId[];
+  transitionOrder: PipelineSectionId[];
   /** Currently running transitions; plural because independent branches can execute concurrently. */
-  runningTransitions: ArtifactViewId[];
+  runningTransitions: PipelineSectionId[];
   isComplete: boolean;
   isFailed: boolean;
 }
@@ -33,16 +33,16 @@ const TRANSITION_STATUS_PRIORITY: Record<TransitionRunStatus, number> = {
 };
 
 function getRunningTransitions(
-  artifacts: Record<ArtifactViewId, TransitionRunStatus>,
-  transitionOrder: readonly ArtifactViewId[],
-): ArtifactViewId[] {
+  artifacts: Record<PipelineSectionId, TransitionRunStatus>,
+  transitionOrder: readonly PipelineSectionId[],
+): PipelineSectionId[] {
   return transitionOrder.filter((artifactId) => artifacts[artifactId] === "running");
 }
 
 function requireTransitionOrder(
   prev: PipelineProgress | undefined,
-  transitionOrder: readonly ArtifactViewId[] | undefined,
-): readonly ArtifactViewId[] {
+  transitionOrder: readonly PipelineSectionId[] | undefined,
+): readonly PipelineSectionId[] {
   const order = transitionOrder ?? prev?.transitionOrder;
   if (!order) {
     throw new Error("Transition progress requires machine topological artifact order");
@@ -51,16 +51,16 @@ function requireTransitionOrder(
 }
 
 function createPendingArtifacts(
-  transitionOrder: readonly ArtifactViewId[],
-): Record<ArtifactViewId, TransitionRunStatus> {
-  const artifacts = {} as Record<ArtifactViewId, TransitionRunStatus>;
+  transitionOrder: readonly PipelineSectionId[],
+): Record<PipelineSectionId, TransitionRunStatus> {
+  const artifacts = {} as Record<PipelineSectionId, TransitionRunStatus>;
   for (const artifactId of transitionOrder) {
     artifacts[artifactId] = "pending";
   }
   return artifacts;
 }
 
-export function initialProgress(transitionOrder: readonly ArtifactViewId[]): PipelineProgress {
+export function initialProgress(transitionOrder: readonly PipelineSectionId[]): PipelineProgress {
   const artifacts = createPendingArtifacts(transitionOrder);
 
   return {
@@ -84,9 +84,9 @@ export function initialProgress(transitionOrder: readonly ArtifactViewId[]): Pip
  */
 export function restartTransitionAttempt(
   prev: PipelineProgress | undefined,
-  artifactId: ArtifactViewId,
+  artifactId: PipelineSectionId,
   eventTime?: number,
-  transitionOrder?: readonly ArtifactViewId[],
+  transitionOrder?: readonly PipelineSectionId[],
 ): PipelineProgress {
   const order = requireTransitionOrder(prev, transitionOrder);
   const current = prev ?? initialProgress(order);
@@ -115,11 +115,11 @@ export function restartTransitionAttempt(
 
 export function applyTransitionUpdate(
   prev: PipelineProgress | undefined,
-  artifactId: ArtifactViewId,
+  artifactId: PipelineSectionId,
   status: TransitionRunStatus,
   eventTime?: number,
   errorMessage?: string,
-  transitionOrder?: readonly ArtifactViewId[],
+  transitionOrder?: readonly PipelineSectionId[],
 ): PipelineProgress {
   const order = requireTransitionOrder(prev, transitionOrder);
   const current = prev ?? initialProgress(order);

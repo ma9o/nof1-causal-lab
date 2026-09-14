@@ -11,7 +11,7 @@ export function EffectChart({
   simulation: AnalysisSimulationResult;
   width?: number;
 }) {
-  const trajectory = simulation.result.effect_trajectory ?? [];
+  const trajectory = simulation.effect_trajectory ?? [];
   if (trajectory.length < 2) {
     return null;
   }
@@ -24,8 +24,8 @@ export function EffectChart({
   const values = [
     0,
     ...trajectory.map((point) => point.effect),
-    simulation.result.summary.lower_95,
-    simulation.result.summary.upper_95,
+    simulation.summary.lower_95,
+    simulation.summary.upper_95,
   ];
   const lo = Math.min(...values);
   const hi = Math.max(...values);
@@ -37,8 +37,8 @@ export function EffectChart({
         `${index === 0 ? "M" : "L"}${sx(point.day).toFixed(1)},${sy(point.effect).toFixed(1)}`,
     )
     .join("");
-  const color = signColor(simulation.result.summary.mean);
-  const clamp = simulation.query.clamps[0];
+  const color = signColor(simulation.summary.mean);
+  const clamp = simulation.request.clamps[0];
   const clampEnd = clamp.to_day ?? horizon;
   const axisDays = [0, 0.25, 0.5, 0.75, 1].map((fraction) => Math.round(horizon * fraction));
   return (
@@ -65,7 +65,8 @@ export function EffectChart({
         fill={DAG_COLORS.intervention}
         fontWeight={600}
       >
-        do · {clamp.variable} {formatClampValue(clamp)} · d{clamp.from_day}–{clampEnd}
+        do · {simulation.labels[clamp.target.id]} {formatClampValue(clamp)} · d{clamp.from_day}–
+        {clampEnd}
       </text>
       {axisDays.map((day) => (
         <text
@@ -93,21 +94,21 @@ export function EffectChart({
       <line
         x1={x1 + 3}
         x2={x1 + 3}
-        y1={sy(simulation.result.summary.lower_95)}
-        y2={sy(simulation.result.summary.upper_95)}
+        y1={sy(simulation.summary.lower_95)}
+        y2={sy(simulation.summary.upper_95)}
         stroke={color}
         strokeWidth={2}
       />
       <text
         x={x1 + 12}
-        y={sy(simulation.result.summary.mean)}
+        y={sy(simulation.summary.mean)}
         fontSize={8.5}
         fontWeight={650}
         fontFamily="ui-monospace, monospace"
         fill={color}
         dominantBaseline="middle"
       >
-        posterior {formatSigned(simulation.result.summary.mean, 3)}
+        posterior {formatSigned(simulation.summary.mean, 3)}
       </text>
     </svg>
   );

@@ -8,7 +8,6 @@ import {
   edges,
   identifiableTreatments,
   indicators,
-  knownInputs,
   materializedBaselineReportData,
   demoBaselineTrace,
   nodeStatuses,
@@ -25,7 +24,7 @@ const graph = {
   constructs,
   edges,
   indicators,
-  knownInputs,
+
   edgePosteriors,
   persistencePosteriors,
   identifiableTreatments,

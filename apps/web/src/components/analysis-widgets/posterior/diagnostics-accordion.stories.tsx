@@ -1,8 +1,11 @@
-import { demoMeasurementStructure } from "@/components/__fixtures__/demo-artifacts";
-const indicators = demoMeasurementStructure.causal_design.measurement.indicators;
+import { modelConstructs } from "@/lib/model-accessors";
+import { demoModelSnapshot } from "@/components/__fixtures__/demo-artifacts";
+const indicators = modelConstructs(demoModelSnapshot.model!.value).flatMap(
+  (construct) => construct.indicators,
+);
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { withContainer } from "@/components/story-decorators";
-import { posterior, posteriorAuxKalmanMCMC } from "@/components/__fixtures__/inference-data";
+import { posterior } from "@/components/__fixtures__/inference-data";
 import { DiagnosticsAccordion } from "./diagnostics-accordion";
 
 const meta = {
@@ -15,31 +18,29 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const MCMCOnly: Story = {
+export const InferenceOnly: Story = {
   args: {
-    mcmcDiagnostics: posteriorAuxKalmanMCMC.assessment.mcmc_diagnostics,
-    posteriorMarginals: posteriorAuxKalmanMCMC.posterior_marginals,
-    posteriorPairs: posteriorAuxKalmanMCMC.posterior_pairs,
+    inferenceDiagnostics: posterior.inference_diagnostics,
   },
 };
 
 export const AllSections: Story = {
   args: {
-    ppc: posteriorAuxKalmanMCMC.assessment.ppc,
-    mcmcDiagnostics: posteriorAuxKalmanMCMC.assessment.mcmc_diagnostics,
-    looDiagnostics: posteriorAuxKalmanMCMC.assessment.loo_diagnostics,
-    posteriorMarginals: posteriorAuxKalmanMCMC.posterior_marginals,
-    posteriorPairs: posteriorAuxKalmanMCMC.posterior_pairs,
+    ppc: posterior.assessment.ppc,
+    inferenceDiagnostics: posterior.inference_diagnostics,
+    looDiagnostics: posterior.assessment.loo_diagnostics,
+    posteriorMarginals: posterior.posterior_marginals,
+    posteriorPairs: posterior.posterior_pairs,
   },
 };
 
-export const ParticleDiagnosticsWithLOO: Story = {
+export const EngineDefinedFields: Story = {
   args: {
-    smcDiagnostics: posterior.assessment.smc_diagnostics,
-    looDiagnostics: posterior.assessment.loo_diagnostics,
-    ppc: posterior.assessment.ppc,
-    posteriorMarginals: posterior.posterior_marginals,
-    posteriorPairs: posterior.posterior_pairs,
+    inferenceDiagnostics: {
+      warmup: { iterations: 120, step_sizes: [0.1, 0.05, 0.025] },
+      particle_moves: { accepted: [true, false, true], unavailable_metric: null },
+      message: "Engine telemetry",
+    },
   },
 };
 

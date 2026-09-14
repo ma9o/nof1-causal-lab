@@ -2,6 +2,7 @@ import type { IndicatorId } from "@nof1-causal-lab/api-types";
 import { humanize } from "../model-selection";
 import {
   ArtifactChip,
+  FactChip,
   Hint,
   KeyValue,
   OwnerLink,
@@ -17,20 +18,18 @@ import { chipFor, type ScopeContext } from "./scope-context";
 export function IndicatorScope({ context, id }: { context: ScopeContext; id: IndicatorId }) {
   const indicator = context.entities.indicatorById.get(id);
   if (!indicator) return null;
-  const disposition = context.model.dispositions?.value.find((item) => item.source_id === id);
-  const audit = context.model.validation_report?.value.indicators[id];
-  const counts = context.model.measurements?.value.per_indicator_counts[id];
-  const likelihood = context.model.specification?.value.statistical_model_spec.likelihoods.find(
-    (item) => item.indicator_id === id,
+  const disposition = context.model.findings.dispositions?.value.find(
+    (item) => item.source_id === id,
   );
-  const parameters = parametersForOwner(context.model.compiled_parameters?.value ?? [], id);
-  const priorParameters = parametersForOwner(
-    context.model.specification?.value.statistical_model_spec.parameters ?? [],
-    id,
-  );
-  const fitted = posteriorRows(parameters, context.model.fit?.value.posterior);
+  const audit = context.model.findings.validation_report?.value.indicators[id];
+  const counts = context.model.data.measurements?.value.per_indicator_counts[id];
+  const owner = context.entities.indicatorOwnerById.get(id)!;
+  const likelihood = indicator.likelihood;
+  const parameters = parametersForOwner(context.model.model?.value, id);
+  const priorParameters = parametersForOwner(context.model.model?.value, id);
+  const fitted = posteriorRows(parameters, context.model.findings.fit?.value.report);
   const checks =
-    context.model.fit?.value.posterior.assessment.ppc.per_variable_warnings.filter(
+    context.model.findings.fit?.value.report.assessment.ppc.per_variable_warnings.filter(
       (item) => item.indicator_id === id,
     ) ?? [];
   const issues = audit?.validation.issues.filter((issue) => issue.severity !== "info") ?? [];
@@ -38,24 +37,17 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
   const okChecks = checkEntries.filter(([, status]) => status === "ok").length;
   return (
     <>
-      <Section
-        title="Measurement"
-        chips={<ArtifactChip {...chipFor(context, "measurement_structure")} />}
-      >
+      <Section title="Measurement" chips={<ArtifactChip {...chipFor(context, "model")} />}>
         <div className="text-[11px]">
-          <OwnerLink
-            onClick={() => context.select({ kind: "construct", id: indicator.construct_id })}
-          >
-            {context.entities.constructById.get(indicator.construct_id)!.name}
+          <OwnerLink onClick={() => context.select({ kind: "construct", id: owner.id })}>
+            {context.entities.constructById.get(owner.id)!.name}
           </OwnerLink>
         </div>
         <div className="flex flex-wrap gap-1">
           <Tag>{indicator.measurement_dtype}</Tag>
           <Tag tone="secondary">{indicator.aggregation}</Tag>
           <Tag tone="secondary">
-            window{" "}
-            {indicator.observation_window ??
-              context.model.measurement_structure?.value.measurement_structure.model_clock}
+            window {indicator.observation_window ?? context.model.model?.value.measurement_clock}
           </Tag>
           <Tag tone="secondary">{indicator.extraction_mode}</Tag>
           <Tag>{indicator.construct_polarity}</Tag>
@@ -74,7 +66,7 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
         </div>
       </Section>
       {disposition ? (
-        <Section title="Design" chips={<ArtifactChip {...chipFor(context, "structural_plan")} />}>
+        <Section title="Design" chips={<ArtifactChip {...chipFor(context, "model")} />}>
           <KeyValue
             rows={[
               [
@@ -96,7 +88,7 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
           title="Evidence"
           chips={
             <>
-              <ArtifactChip {...chipFor(context, "measurements")} />
+              <ArtifactChip {...chipFor(context, "panel")} />
               <ArtifactChip {...chipFor(context, "validation_report")} />
             </>
           }
@@ -122,20 +114,16 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
         </Section>
       ) : null}
       {likelihood ? (
-        <Section
-          title="Model"
-          chips={<ArtifactChip {...chipFor(context, "statistical_model_spec")} />}
-        >
+        <Section title="Model" chips={<ArtifactChip {...chipFor(context, "model")} />}>
           <div className="flex flex-wrap gap-1">
-            <Tag tone="secondary">{likelihood.distribution}</Tag>
-            <Tag>{likelihood.link} link</Tag>
+            <Tag tone="secondary">{likelihood.law.distribution}</Tag>
             {likelihood.standardized ? <Tag>standardized</Tag> : null}
           </div>
           <PriorTable rows={priorRows(priorParameters)} />
         </Section>
       ) : null}
       {checks.length > 0 || (parameters.length > 0 && fitted.length > 0) ? (
-        <Section title="Fit" chips={<ArtifactChip {...chipFor(context, "posterior")} />}>
+        <Section title="Fit" chips={<FactChip source={context.model.findings.fit?.source} />}>
           {checks.length > 0 ? (
             <div className="flex flex-wrap gap-1">
               {checks.map((check) => (

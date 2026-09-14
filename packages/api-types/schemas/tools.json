@@ -88,20 +88,20 @@
   "latent-structure": [
     {
       "name": "validate_latent_structure",
-      "description": "Tool for validating latent structure JSON (latent-structure).",
+      "description": "Validate the full candidate Model with its existing identities and owned details.",
       "parameters": {
         "additionalProperties": false,
         "properties": {
-          "structure_json": {
-            "description": "The JSON string containing the latent structure to validate.",
-            "title": "Structure Json",
+          "model_json": {
+            "description": "The full candidate ModelSpec as JSON, preserving existing entity IDs and all retained details.",
+            "title": "Model Json",
             "type": "string"
           }
         },
         "required": [
-          "structure_json"
+          "model_json"
         ],
-        "title": "ValidateLatentStructureInput",
+        "title": "ModelSubmission",
         "type": "object"
       },
       "result": null
@@ -110,20 +110,20 @@
   "measurement-structure": [
     {
       "name": "validate_measurement_structure",
-      "description": "Validate measurement structure, known-input declarations, and compiler constraints.",
+      "description": "Validate the full candidate Model with its existing identities and owned details.",
       "parameters": {
         "additionalProperties": false,
         "properties": {
-          "measurement_json": {
-            "description": "The JSON string containing the measurement structure and known-input declarations to validate.",
-            "title": "Measurement Json",
+          "model_json": {
+            "description": "The full candidate ModelSpec as JSON, preserving existing entity IDs and all retained details.",
+            "title": "Model Json",
             "type": "string"
           }
         },
         "required": [
-          "measurement_json"
+          "model_json"
         ],
-        "title": "ValidateMeasurementStructureInput",
+        "title": "ModelSubmission",
         "type": "object"
       },
       "result": null
@@ -176,7 +176,7 @@
   "ranking": [
     {
       "name": "get_model_info",
-      "description": "Return a read-only summary of the fitted model, variables, identifiability status, diagnostics, and baseline effects.",
+      "description": "Return a read-only summary of the fitted model, variables with persistent IDs, identifiability status, diagnostics, and baseline effects.",
       "parameters": {
         "additionalProperties": false,
         "properties": {
@@ -213,9 +213,10 @@
     },
     {
       "name": "simulate",
-      "description": "Run a composable causal scenario on the fitted generative model. Start from the population baseline steady state (interventional) or an abducted fitted latent state (counterfactual), apply one or more timed latent clamps (do-operators), and read the effect on an outcome over a horizon.",
+      "description": "Run a live nonlinear drift simulation across posterior draws, without future process noise. Start from the deterministic baseline equilibrium (interventional) or an abducted fitted latent state (counterfactual), apply one or more timed latent clamps (do-operators), and read the effect on an outcome over a horizon. Targets and outcome use persistent construct IDs. The result is ephemeral unless explicitly included in a report, which retains its request and provenance.",
       "parameters": {
         "additionalProperties": false,
+        "description": "One reusable request for an on-demand simulation of a fitted model.",
         "properties": {
           "start": {
             "additionalProperties": false,
@@ -223,7 +224,7 @@
             "properties": {
               "kind": {
                 "default": "baseline",
-                "description": "'baseline' starts from the population baseline steady state (an interventional, rung-2 query). 'abducted' conditions on the individual's observed evidence and starts from the recovered fitted latent state (a counterfactual, rung-3 query).",
+                "description": "'baseline' starts from the deterministic drift equilibrium (an interventional, rung-2 query). 'abducted' conditions on the individual's observed evidence and starts from the recovered fitted latent state (a counterfactual, rung-3 query).",
                 "enum": [
                   "baseline",
                   "abducted"
@@ -268,10 +269,27 @@
               "additionalProperties": false,
               "description": "A do-operator on one latent variable over a time window.\n\nThe window is ``[from_day, to_day)`` in days relative to the rollout start; outside\nthe window the variable evolves under its natural dynamics. ``set`` pins to an absolute\nvalue, ``shift`` adds an amount to the variable's start-state value, ``ramp`` linearly\ninterpolates across the window, and ``trajectory`` tracks a list of values across it.",
               "properties": {
-                "variable": {
-                  "description": "Latent construct to clamp.",
-                  "title": "Variable",
-                  "type": "string"
+                "target": {
+                  "additionalProperties": false,
+                  "description": "A construct reference identifies a construct independently of its current name or\nrevision.",
+                  "properties": {
+                    "kind": {
+                      "const": "construct",
+                      "default": "construct",
+                      "title": "Kind",
+                      "type": "string"
+                    },
+                    "id": {
+                      "pattern": "^construct:[A-Za-z0-9_.-]+$",
+                      "tsType": "`construct:${string}`",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ],
+                  "title": "ConstructRef",
+                  "type": "object"
                 },
                 "mode": {
                   "description": "How the clamped value is specified over the window.",
@@ -374,10 +392,10 @@
                 }
               },
               "required": [
-                "variable",
+                "target",
                 "mode"
               ],
-              "title": "LatentClampInput",
+              "title": "ScenarioClamp",
               "type": "object"
             },
             "minItems": 1,
@@ -385,19 +403,28 @@
             "type": "array"
           },
           "outcome": {
-            "anyOf": [
-              {
+            "additionalProperties": false,
+            "description": "A construct reference identifies a construct independently of its current name or\nrevision.",
+            "properties": {
+              "kind": {
+                "const": "construct",
+                "default": "construct",
+                "title": "Kind",
                 "type": "string"
               },
-              {
-                "type": "null"
+              "id": {
+                "pattern": "^construct:[A-Za-z0-9_.-]+$",
+                "tsType": "`construct:${string}`",
+                "type": "string"
               }
+            },
+            "required": [
+              "id"
             ],
-            "default": null,
-            "description": "Outcome construct. Defaults to the workspace\u2019s selected query outcome.",
-            "title": "Outcome"
+            "title": "ConstructRef",
+            "type": "object"
           },
-          "query": {
+          "readout": {
             "additionalProperties": false,
             "properties": {
               "estimand": {
@@ -435,413 +462,21 @@
           }
         },
         "required": [
-          "clamps"
+          "clamps",
+          "outcome"
         ],
-        "title": "SimulateScenarioInput",
+        "title": "ScenarioRequest",
         "type": "object"
       },
       "result": {
         "anyOf": [
           {
             "additionalProperties": false,
-            "description": "A simulation response includes its reusable scientific query and pinned evaluation.",
+            "description": "Ephemeral response, retained only when explicitly included in a report.\n\nThis engine integrates the true nonlinear drift for each posterior draw.\nIt does not include future process noise or claim the mean of the SDE.",
             "properties": {
-              "evaluation": {
+              "request": {
                 "additionalProperties": false,
-                "description": "An evaluation binds a scientific query to one model and exact posterior version.",
-                "properties": {
-                  "id": {
-                    "pattern": "^evaluation:[0-9a-f]{64}$",
-                    "tsType": "`evaluation:${string}`",
-                    "type": "string"
-                  },
-                  "query_id": {
-                    "pattern": "^query:[0-9a-f]{64}$",
-                    "tsType": "`query:${string}`",
-                    "type": "string"
-                  },
-                  "model": {
-                    "additionalProperties": false,
-                    "description": "A model reference identifies the workspace that owns the scientific model.",
-                    "properties": {
-                      "kind": {
-                        "const": "model",
-                        "default": "model",
-                        "title": "Kind",
-                        "type": "string"
-                      },
-                      "id": {
-                        "minLength": 1,
-                        "title": "Id",
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "id"
-                    ],
-                    "title": "ModelRef",
-                    "type": "object"
-                  },
-                  "posterior": {
-                    "additionalProperties": false,
-                    "description": "An artifact reference identifies the exact stored version that supports a model fact.",
-                    "properties": {
-                      "artifact_id": {
-                        "enum": [
-                          "question",
-                          "raw_data",
-                          "latent_structure",
-                          "measurement_structure",
-                          "causal_design",
-                          "structural_plan",
-                          "identification_report",
-                          "measurements",
-                          "panel",
-                          "validation_report",
-                          "statistical_model_spec",
-                          "compiled_ssm",
-                          "posterior",
-                          "baseline_report",
-                          "saved_scenarios"
-                        ],
-                        "type": "string"
-                      },
-                      "version": {
-                        "minimum": 1,
-                        "title": "Version",
-                        "type": "integer"
-                      }
-                    },
-                    "required": [
-                      "artifact_id",
-                      "version"
-                    ],
-                    "title": "ArtifactRef",
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "id",
-                  "query_id",
-                  "model",
-                  "posterior"
-                ],
-                "title": "ScenarioEvaluation",
-                "type": "object"
-              },
-              "result": {
-                "additionalProperties": false,
-                "description": "Computed outputs reference the evaluation that fixes their query and posterior.",
-                "properties": {
-                  "evaluation_id": {
-                    "pattern": "^evaluation:[0-9a-f]{64}$",
-                    "tsType": "`evaluation:${string}`",
-                    "type": "string"
-                  },
-                  "start": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "kind": {
-                        "enum": [
-                          "baseline",
-                          "abducted"
-                        ],
-                        "title": "Kind",
-                        "type": "string"
-                      },
-                      "time_index": {
-                        "anyOf": [
-                          {
-                            "type": "integer"
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ],
-                        "default": null,
-                        "title": "Time Index"
-                      },
-                      "time": {
-                        "anyOf": [
-                          {
-                            "type": "string"
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ],
-                        "default": null,
-                        "title": "Time"
-                      },
-                      "state_source": {
-                        "enum": [
-                          "baseline_steady_state",
-                          "fitted_latent_paths"
-                        ],
-                        "title": "State Source",
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "kind",
-                      "state_source"
-                    ],
-                    "title": "ScenarioStartResult",
-                    "type": "object"
-                  },
-                  "outcome_label": {
-                    "description": "Display name of the query's outcome at execution time.",
-                    "title": "Outcome Label",
-                    "type": "string"
-                  },
-                  "summary": {
-                    "additionalProperties": false,
-                    "description": "An effect summary reports posterior location, uncertainty, and sign probability.",
-                    "properties": {
-                      "mean": {
-                        "title": "Mean",
-                        "type": "number"
-                      },
-                      "median": {
-                        "title": "Median",
-                        "type": "number"
-                      },
-                      "lower_95": {
-                        "title": "Lower 95",
-                        "type": "number"
-                      },
-                      "upper_95": {
-                        "title": "Upper 95",
-                        "type": "number"
-                      },
-                      "prob_positive": {
-                        "maximum": 1,
-                        "minimum": 0,
-                        "title": "Prob Positive",
-                        "type": "number"
-                      }
-                    },
-                    "required": [
-                      "mean",
-                      "median",
-                      "lower_95",
-                      "upper_95",
-                      "prob_positive"
-                    ],
-                    "title": "EffectSummary",
-                    "type": "object"
-                  },
-                  "effect_trajectory": {
-                    "anyOf": [
-                      {
-                        "items": {
-                          "additionalProperties": false,
-                          "description": "An effect trajectory point records a causal delta at one elapsed rollout time.",
-                          "properties": {
-                            "day": {
-                              "minimum": 0,
-                              "title": "Day",
-                              "type": "number"
-                            },
-                            "effect": {
-                              "title": "Effect",
-                              "type": "number"
-                            }
-                          },
-                          "required": [
-                            "day",
-                            "effect"
-                          ],
-                          "title": "EffectTrajectoryPoint",
-                          "type": "object"
-                        },
-                        "type": "array"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ],
-                    "default": null,
-                    "title": "Effect Trajectory"
-                  },
-                  "trajectory_peak": {
-                    "anyOf": [
-                      {
-                        "additionalProperties": false,
-                        "description": "An effect trajectory point records a causal delta at one elapsed rollout time.",
-                        "properties": {
-                          "day": {
-                            "minimum": 0,
-                            "title": "Day",
-                            "type": "number"
-                          },
-                          "effect": {
-                            "title": "Effect",
-                            "type": "number"
-                          }
-                        },
-                        "required": [
-                          "day",
-                          "effect"
-                        ],
-                        "title": "EffectTrajectoryPoint",
-                        "type": "object"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ],
-                    "default": null
-                  },
-                  "visualization": {
-                    "anyOf": [
-                      {
-                        "additionalProperties": false,
-                        "properties": {
-                          "reference_node_trajectories": {
-                            "anyOf": [
-                              {
-                                "additionalProperties": {
-                                  "items": {
-                                    "type": "number"
-                                  },
-                                  "type": "array"
-                                },
-                                "propertyNames": {
-                                  "pattern": "^construct:[A-Za-z0-9_.-]+$",
-                                  "tsType": "`construct:${string}`",
-                                  "type": "string"
-                                },
-                                "type": "object"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ],
-                            "default": null,
-                            "description": "Per-construct latent trajectories for the reference (no-clamp) path aligned to effect_trajectory days.",
-                            "title": "Reference Node Trajectories"
-                          },
-                          "action_node_trajectories": {
-                            "anyOf": [
-                              {
-                                "additionalProperties": {
-                                  "items": {
-                                    "type": "number"
-                                  },
-                                  "type": "array"
-                                },
-                                "propertyNames": {
-                                  "pattern": "^construct:[A-Za-z0-9_.-]+$",
-                                  "tsType": "`construct:${string}`",
-                                  "type": "string"
-                                },
-                                "type": "object"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ],
-                            "default": null,
-                            "description": "Per-construct latent trajectories under the composed clamps aligned to effect_trajectory days.",
-                            "title": "Action Node Trajectories"
-                          },
-                          "node_effect_trajectories": {
-                            "anyOf": [
-                              {
-                                "additionalProperties": {
-                                  "items": {
-                                    "type": "number"
-                                  },
-                                  "type": "array"
-                                },
-                                "propertyNames": {
-                                  "pattern": "^construct:[A-Za-z0-9_.-]+$",
-                                  "tsType": "`construct:${string}`",
-                                  "type": "string"
-                                },
-                                "type": "object"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ],
-                            "default": null,
-                            "description": "Per-construct latent effect trajectories aligned to effect_trajectory days. Values are causal deltas relative to the reference path.",
-                            "title": "Node Effect Trajectories"
-                          },
-                          "start_state": {
-                            "anyOf": [
-                              {
-                                "additionalProperties": {
-                                  "type": "number"
-                                },
-                                "propertyNames": {
-                                  "pattern": "^construct:[A-Za-z0-9_.-]+$",
-                                  "tsType": "`construct:${string}`",
-                                  "type": "string"
-                                },
-                                "type": "object"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ],
-                            "default": null,
-                            "description": "Posterior mean latent state the rollout started from.",
-                            "title": "Start State"
-                          }
-                        },
-                        "title": "BaselineReportVisualization",
-                        "type": "object"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ],
-                    "default": null
-                  },
-                  "manifest_effects": {
-                    "anyOf": [
-                      {
-                        "additionalProperties": {
-                          "type": "number"
-                        },
-                        "type": "object"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ],
-                    "default": null,
-                    "title": "Manifest Effects"
-                  },
-                  "reference_mean": {
-                    "description": "Mean reference outcome (baseline steady state or factual forecast).",
-                    "title": "Reference Mean",
-                    "type": "number"
-                  },
-                  "warnings": {
-                    "items": {
-                      "type": "string"
-                    },
-                    "title": "Warnings",
-                    "type": "array"
-                  }
-                },
-                "required": [
-                  "evaluation_id",
-                  "start",
-                  "outcome_label",
-                  "summary",
-                  "reference_mean"
-                ],
-                "title": "ScenarioResult",
-                "type": "object"
-              },
-              "query": {
-                "additionalProperties": false,
-                "description": "A scientific query keeps its identity across model and posterior revisions.",
+                "description": "One reusable request for an on-demand simulation of a fitted model.",
                 "properties": {
                   "start": {
                     "additionalProperties": false,
@@ -849,7 +484,7 @@
                     "properties": {
                       "kind": {
                         "default": "baseline",
-                        "description": "'baseline' starts from the population baseline steady state (an interventional, rung-2 query). 'abducted' conditions on the individual's observed evidence and starts from the recovered fitted latent state (a counterfactual, rung-3 query).",
+                        "description": "'baseline' starts from the deterministic drift equilibrium (an interventional, rung-2 query). 'abducted' conditions on the individual's observed evidence and starts from the recovered fitted latent state (a counterfactual, rung-3 query).",
                         "enum": [
                           "baseline",
                           "abducted"
@@ -889,14 +524,32 @@
                     "type": "object"
                   },
                   "clamps": {
+                    "description": "One or more timed latent clamps composing the scenario.",
                     "items": {
                       "additionalProperties": false,
-                      "description": "A resolved clamp binds its transport label to a persistent construct identity.",
+                      "description": "A do-operator on one latent variable over a time window.\n\nThe window is ``[from_day, to_day)`` in days relative to the rollout start; outside\nthe window the variable evolves under its natural dynamics. ``set`` pins to an absolute\nvalue, ``shift`` adds an amount to the variable's start-state value, ``ramp`` linearly\ninterpolates across the window, and ``trajectory`` tracks a list of values across it.",
                       "properties": {
-                        "variable": {
-                          "description": "Latent construct to clamp.",
-                          "title": "Variable",
-                          "type": "string"
+                        "target": {
+                          "additionalProperties": false,
+                          "description": "A construct reference identifies a construct independently of its current name or\nrevision.",
+                          "properties": {
+                            "kind": {
+                              "const": "construct",
+                              "default": "construct",
+                              "title": "Kind",
+                              "type": "string"
+                            },
+                            "id": {
+                              "pattern": "^construct:[A-Za-z0-9_.-]+$",
+                              "tsType": "`construct:${string}`",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id"
+                          ],
+                          "title": "ConstructRef",
+                          "type": "object"
                         },
                         "mode": {
                           "description": "How the clamped value is specified over the window.",
@@ -996,34 +649,11 @@
                           "default": null,
                           "description": "Window end in days from the rollout start. Null runs through the horizon.",
                           "title": "To Day"
-                        },
-                        "target": {
-                          "additionalProperties": false,
-                          "description": "A construct reference identifies a construct independently of its current name or\nrevision.",
-                          "properties": {
-                            "kind": {
-                              "const": "construct",
-                              "default": "construct",
-                              "title": "Kind",
-                              "type": "string"
-                            },
-                            "id": {
-                              "pattern": "^construct:[A-Za-z0-9_.-]+$",
-                              "tsType": "`construct:${string}`",
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "id"
-                          ],
-                          "title": "ConstructRef",
-                          "type": "object"
                         }
                       },
                       "required": [
-                        "variable",
-                        "mode",
-                        "target"
+                        "target",
+                        "mode"
                       ],
                       "title": "ScenarioClamp",
                       "type": "object"
@@ -1089,30 +719,375 @@
                     },
                     "title": "ScenarioQueryInput",
                     "type": "object"
-                  },
-                  "id": {
-                    "pattern": "^query:[0-9a-f]{64}$",
-                    "tsType": "`query:${string}`",
-                    "type": "string"
                   }
                 },
                 "required": [
-                  "start",
                   "clamps",
-                  "outcome",
-                  "readout",
-                  "id"
+                  "outcome"
                 ],
-                "title": "ScenarioQuery",
+                "title": "ScenarioRequest",
                 "type": "object"
+              },
+              "provenance": {
+                "additionalProperties": false,
+                "description": "The retained fit and actual numerical settings used by this response.",
+                "properties": {
+                  "model": {
+                    "additionalProperties": false,
+                    "description": "The workspace and version of the scientific design supporting an inference.",
+                    "properties": {
+                      "workspace_id": {
+                        "minLength": 1,
+                        "title": "Workspace Id",
+                        "type": "string"
+                      },
+                      "version": {
+                        "minimum": 1,
+                        "title": "Version",
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "workspace_id",
+                      "version"
+                    ],
+                    "title": "ModelRevision",
+                    "type": "object"
+                  },
+                  "engine": {
+                    "default": "nonlinear_drift_v1",
+                    "enum": [
+                      "nonlinear_drift_v1",
+                      "illustrative_fixture"
+                    ],
+                    "title": "Engine",
+                    "type": "string"
+                  },
+                  "solver": {
+                    "const": "Tsit5",
+                    "default": "Tsit5",
+                    "title": "Solver",
+                    "type": "string"
+                  },
+                  "rtol": {
+                    "exclusiveMinimum": 0,
+                    "title": "Rtol",
+                    "type": "number"
+                  },
+                  "atol": {
+                    "exclusiveMinimum": 0,
+                    "title": "Atol",
+                    "type": "number"
+                  },
+                  "max_steps": {
+                    "minimum": 1,
+                    "title": "Max Steps",
+                    "type": "integer"
+                  },
+                  "draw_count": {
+                    "minimum": 1,
+                    "title": "Draw Count",
+                    "type": "integer"
+                  },
+                  "time_grid_days": {
+                    "items": {
+                      "type": "number"
+                    },
+                    "minItems": 2,
+                    "title": "Time Grid Days",
+                    "type": "array"
+                  },
+                  "start_time_index": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Start Time Index"
+                  },
+                  "start_time": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Start Time"
+                  }
+                },
+                "required": [
+                  "model",
+                  "rtol",
+                  "atol",
+                  "max_steps",
+                  "draw_count",
+                  "time_grid_days"
+                ],
+                "title": "SimulationProvenance",
+                "type": "object"
+              },
+              "labels": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "propertyNames": {
+                  "pattern": "^construct:[A-Za-z0-9_.-]+$",
+                  "tsType": "`construct:${string}`",
+                  "type": "string"
+                },
+                "title": "Labels",
+                "type": "object"
+              },
+              "summary": {
+                "additionalProperties": false,
+                "description": "An effect summary reports posterior location, uncertainty, and sign probability.",
+                "properties": {
+                  "mean": {
+                    "title": "Mean",
+                    "type": "number"
+                  },
+                  "median": {
+                    "title": "Median",
+                    "type": "number"
+                  },
+                  "lower_95": {
+                    "title": "Lower 95",
+                    "type": "number"
+                  },
+                  "upper_95": {
+                    "title": "Upper 95",
+                    "type": "number"
+                  },
+                  "prob_positive": {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "title": "Prob Positive",
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "mean",
+                  "median",
+                  "lower_95",
+                  "upper_95",
+                  "prob_positive"
+                ],
+                "title": "EffectSummary",
+                "type": "object"
+              },
+              "effect_trajectory": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "An effect trajectory point records a causal delta at one elapsed rollout time.",
+                      "properties": {
+                        "day": {
+                          "minimum": 0,
+                          "title": "Day",
+                          "type": "number"
+                        },
+                        "effect": {
+                          "title": "Effect",
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "day",
+                        "effect"
+                      ],
+                      "title": "EffectTrajectoryPoint",
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Effect Trajectory"
+              },
+              "trajectory_peak": {
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "description": "An effect trajectory point records a causal delta at one elapsed rollout time.",
+                    "properties": {
+                      "day": {
+                        "minimum": 0,
+                        "title": "Day",
+                        "type": "number"
+                      },
+                      "effect": {
+                        "title": "Effect",
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "day",
+                      "effect"
+                    ],
+                    "title": "EffectTrajectoryPoint",
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "visualization": {
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "reference_node_trajectories": {
+                        "anyOf": [
+                          {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "number"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "pattern": "^construct:[A-Za-z0-9_.-]+$",
+                              "tsType": "`construct:${string}`",
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "description": "Per-construct latent trajectories for the reference (no-clamp) path aligned to effect_trajectory days.",
+                        "title": "Reference Node Trajectories"
+                      },
+                      "action_node_trajectories": {
+                        "anyOf": [
+                          {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "number"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "pattern": "^construct:[A-Za-z0-9_.-]+$",
+                              "tsType": "`construct:${string}`",
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "description": "Per-construct latent trajectories under the composed clamps aligned to effect_trajectory days.",
+                        "title": "Action Node Trajectories"
+                      },
+                      "node_effect_trajectories": {
+                        "anyOf": [
+                          {
+                            "additionalProperties": {
+                              "items": {
+                                "type": "number"
+                              },
+                              "type": "array"
+                            },
+                            "propertyNames": {
+                              "pattern": "^construct:[A-Za-z0-9_.-]+$",
+                              "tsType": "`construct:${string}`",
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "description": "Per-construct latent effect trajectories aligned to effect_trajectory days. Values are causal deltas relative to the reference path.",
+                        "title": "Node Effect Trajectories"
+                      },
+                      "start_state": {
+                        "anyOf": [
+                          {
+                            "additionalProperties": {
+                              "type": "number"
+                            },
+                            "propertyNames": {
+                              "pattern": "^construct:[A-Za-z0-9_.-]+$",
+                              "tsType": "`construct:${string}`",
+                              "type": "string"
+                            },
+                            "type": "object"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "description": "Posterior mean latent state the rollout started from.",
+                        "title": "Start State"
+                      }
+                    },
+                    "title": "BaselineReportVisualization",
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "manifest_effects": {
+                "anyOf": [
+                  {
+                    "additionalProperties": {
+                      "type": "number"
+                    },
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Manifest Effects"
+              },
+              "reference_mean": {
+                "title": "Reference Mean",
+                "type": "number"
+              },
+              "warnings": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Warnings",
+                "type": "array"
               }
             },
             "required": [
-              "evaluation",
-              "result",
-              "query"
+              "request",
+              "provenance",
+              "labels",
+              "summary",
+              "reference_mean"
             ],
-            "title": "SimulateScenarioResult",
+            "title": "SimulationResult",
             "type": "object"
           },
           {

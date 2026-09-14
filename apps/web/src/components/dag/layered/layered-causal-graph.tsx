@@ -7,7 +7,7 @@ import type {
   LikelihoodSpec,
   ModelSnapshot,
   PosteriorEstimate,
-  SimulateScenarioResult,
+  SimulationResult,
 } from "@nof1-causal-lab/api-types";
 import { Pause, Play } from "lucide-react";
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -58,7 +58,7 @@ export type LayeredCausalGraphVariant = "workbench" | "asset";
 
 export interface LayeredCausalGraphProps {
   model: ModelSnapshot;
-  simulation?: SimulateScenarioResult | null;
+  simulation?: SimulationResult | null;
   /** Selected construct; the caller owns selection so other panes can scope to it. */
   selectedNode: ConstructId | null;
   onSelectNode: (construct: ConstructId | null) => void;
@@ -206,7 +206,9 @@ function measurementSummary(
 ): string {
   const rendered = indicators.slice(0, 2).map((indicator) => {
     const likelihood = likelihoodByVariable.get(indicator.id);
-    const suffix = likelihood ? `:${likelihood.distribution}` : `:${indicator.measurement_dtype}`;
+    const suffix = likelihood
+      ? `:${likelihood.law.distribution}`
+      : `:${indicator.measurement_dtype}`;
     return `${warningVariables.has(indicator.id) ? "!" : "•"} ${truncate(humanize(indicator.name), 15)}${suffix}`;
   });
   if (indicators.length > 2) rendered.push(`+${indicators.length - 2}`);
@@ -535,43 +537,44 @@ export function LayeredCausalGraph({
   const nodeStatuses = new Map(
     entities.constructs.map((entity) => [
       entity.id,
-      designVisible ? model.graph_status[entity.id] : null,
+      designVisible ? model.findings.graph_status[entity.id] : null,
     ]),
   );
   const edgeDispositions = new Map(
     entities.edges.map((entity) => [
       entity.id,
       designVisible
-        ? model.dispositions?.value.find((item) => item.source_id === entity.id)?.disposition
+        ? model.findings.dispositions?.value.find((item) => item.source_id === entity.id)
+            ?.disposition
         : undefined,
     ]),
   );
-  const indicatorsByConstruct = new Map<ConstructId, Indicator[]>();
-  if (visible.has("measurement"))
-    for (const indicator of entities.indicators) {
-      const owned = indicatorsByConstruct.get(indicator.construct_id) ?? [];
-      owned.push(indicator);
-      indicatorsByConstruct.set(indicator.construct_id, owned);
-    }
+  const indicatorsByConstruct = new Map<ConstructId, Indicator[]>(
+    visible.has("measurement")
+      ? entities.constructs.map((construct) => [construct.id, construct.indicators])
+      : [],
+  );
   const knownInputIds = new Set(
-    (model.measurement_structure?.value.known_inputs ?? []).map((item) => item.construct_id),
+    entities.constructs
+      .filter((construct) => construct.usage?.kind === "known_input")
+      .map((construct) => construct.id),
   );
   const likelihoodByVariable = new Map(
     specificationVisible
-      ? (model.specification?.value.statistical_model_spec.likelihoods ?? []).map(
-          (item) => [item.indicator_id, item] as const,
+      ? entities.indicators.flatMap((indicator) =>
+          indicator.likelihood ? [[indicator.id, indicator.likelihood] as const] : [],
         )
       : [],
   );
   const warningVariables = new Set(
     fitVisible
-      ? (model.fit?.value.posterior.assessment.ppc.per_variable_warnings ?? [])
+      ? (model.findings.fit?.value.report.assessment.ppc.per_variable_warnings ?? [])
           .filter((check) => !check.passed)
           .map((check) => check.indicator_id)
       : [],
   );
-  const edgePosteriors = fitVisible ? (model.fit?.value.edge_estimates ?? {}) : {};
-  const persistencePosteriors = fitVisible ? (model.fit?.value.decay_estimates ?? {}) : {};
+  const edgePosteriors = fitVisible ? (model.findings.fit?.value.edge_estimates ?? {}) : {};
+  const persistencePosteriors = fitVisible ? (model.findings.fit?.value.decay_estimates ?? {}) : {};
   const maximumPosteriorMean = Math.max(
     0,
     ...Object.values(edgePosteriors).map((posterior) => Math.abs(posterior.mean)),
@@ -598,8 +601,8 @@ export function LayeredCausalGraph({
     if (!selectedNode) return null;
     const names = new Set([selectedNode]);
     for (const edge of entities.edges) {
-      if (edge.cause_id === selectedNode) names.add(edge.effect_id);
-      if (edge.effect_id === selectedNode) names.add(edge.cause_id);
+      if (edge.cause.id === selectedNode) names.add(edge.effect.id);
+      if (edge.effect.id === selectedNode) names.add(edge.cause.id);
     }
     return names;
   }, [entities.edges, selectedNode]);
@@ -642,7 +645,7 @@ export function LayeredCausalGraph({
     const posterior = meta.isSelf ? persistencePosteriors[meta.cause] : edgePosteriors[meta.id];
     const activeClamp =
       currentDay != null &&
-      simulationResult?.query.clamps.some(
+      simulationResult?.request.clamps.some(
         (clamp) =>
           clamp.target.id === meta.effect &&
           clamp.from_day <= currentDay &&
@@ -813,7 +816,7 @@ export function LayeredCausalGraph({
               const clamp =
                 currentDay == null
                   ? undefined
-                  : simulationResult?.query.clamps.find(
+                  : simulationResult?.request.clamps.find(
                       (candidate) =>
                         candidate.target.id === construct.id &&
                         candidate.from_day <= currentDay &&
@@ -826,8 +829,7 @@ export function LayeredCausalGraph({
                     construct={construct}
                     isOutcome={
                       construct.id ===
-                      (simulation?.query.outcome.id ??
-                        model.latent_structure?.value.default_outcome?.id)
+                      (simulation?.request.outcome.id ?? model.model?.value.default_outcome?.id)
                     }
                     indicators={nodeIndicators}
                     likelihoodByVariable={likelihoodByVariable}

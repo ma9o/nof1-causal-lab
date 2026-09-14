@@ -1,9 +1,9 @@
 "use client";
 
-import type { ArtifactViewId } from "@nof1-causal-lab/api-types";
+import type { PipelineSectionId } from "@nof1-causal-lab/api-types";
 import { useCallback, useEffect, useRef } from "react";
 
-export function useKeyboardNav(visibleArtifactIds: ArtifactViewId[]) {
+export function useKeyboardNav(visibleArtifactIds: PipelineSectionId[]) {
   const currentIndex = useRef(-1);
 
   const scrollToArtifact = useCallback(

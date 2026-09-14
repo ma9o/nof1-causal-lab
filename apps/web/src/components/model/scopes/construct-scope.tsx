@@ -5,6 +5,7 @@ import { formatPlain, formatSigned, humanize } from "../model-selection";
 import { rankingQueryKey } from "../queries";
 import {
   ArtifactChip,
+  FactChip,
   Callout,
   Hint,
   KeyValue,
@@ -38,44 +39,38 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
   const { model, entities, queries } = context;
   const construct = entities.constructById.get(id);
   if (!construct) return null;
-  const inEdges = entities.edges.filter((edge) => edge.effect_id === id);
-  const outEdges = entities.edges.filter((edge) => edge.cause_id === id);
-  const indicators = entities.indicators.filter((indicator) => indicator.construct_id === id);
-  const scientificOnly = model.measurement_structure?.value.scientific_only_constructs.find(
-    (item) => item.construct_id === id,
+  const inEdges = entities.edges.filter((edge) => edge.effect.id === id);
+  const outEdges = entities.edges.filter((edge) => edge.cause.id === id);
+  const indicators = construct.indicators;
+  const scientificOnly = construct.usage?.kind === "scientific_only" ? construct.usage : null;
+  const disposition = context.model.findings.dispositions?.value.find(
+    (item) => item.source_id === id,
   );
-  const disposition = context.model.dispositions?.value.find((item) => item.source_id === id);
   const finding =
-    model.identification?.value.identifiable_treatments[id] ??
-    model.identification?.value.non_identifiable_treatments[id];
+    model.findings.identification?.value.status.identifiable_treatments[id] ??
+    model.findings.identification?.value.status.non_identifiable_treatments[id];
   const identified = finding?.status === "identified" ? finding : null;
   const notIdentified = finding?.status === "not_identified" ? finding : null;
-  const parameters = parametersForOwner(context.model.compiled_parameters?.value ?? [], id);
-  const priorParameters = parametersForOwner(
-    context.model.specification?.value.statistical_model_spec.parameters ?? [],
-    id,
-  );
+  const parameters = parametersForOwner(context.model.model?.value, id);
+  const priorParameters = parametersForOwner(context.model.model?.value, id);
   const priors = priorRows(priorParameters);
   const admission =
-    model.specification?.value.prior_predictive_diagnostics.filter(
+    model.findings.admission_report?.value.prior_predictive_diagnostics.filter(
       (item) => item.construct_id === id,
     ) ?? [];
-  const fitted = posteriorRows(parameters, context.model.fit?.value.posterior);
+  const fitted = posteriorRows(parameters, context.model.findings.fit?.value.report);
   const rankingQuery = queries.find((query) => query.key === rankingQueryKey(id));
   const effect = rankingQuery?.posterior ?? null;
-  const temporal = model.baseline_report?.value.intervention_results.find(
+  const temporal = model.findings.baseline_report?.value.intervention_results.find(
     (effect) => effect.treatment_id === id,
   )?.temporal;
   const namesFor = (ids: ConstructId[]) =>
     ids.map((id) => entities.constructById.get(id)?.name ?? id).join(", ");
-  const posteriorStatus = context.artifacts.find(
-    (artifact) => artifact.artifact_id === "posterior",
-  );
-  const effectStale = posteriorStatus?.stale === true;
+  const effectStale = context.model.findings.baseline_report?.source.validity === "stale";
 
   return (
     <>
-      <Section title="Structure" chips={<ArtifactChip {...chipFor(context, "latent_structure")} />}>
+      <Section title="Structure" chips={<ArtifactChip {...chipFor(context, "model")} />}>
         <Prose>{construct.description}</Prose>
         <KeyValue
           rows={[
@@ -83,7 +78,7 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
             ["temporal", construct.temporal_status.replace("_", "-")],
             [
               "default query outcome",
-              model.latent_structure?.value.default_outcome?.id === construct.id ? "yes" : "no",
+              model.model?.value.default_outcome?.id === construct.id ? "yes" : "no",
             ],
           ]}
         />
@@ -104,7 +99,7 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
                       })
                     }
                   >
-                    {entities.constructById.get(edge.cause_id)!.name}
+                    {entities.constructById.get(edge.cause.id)!.name}
                   </OwnerLink>
                   <Tag>{edge.lagged ? "t−1 → t" : "same t"}</Tag>
                 </li>
@@ -120,7 +115,7 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
                       })
                     }
                   >
-                    {entities.constructById.get(edge.effect_id)!.name}
+                    {entities.constructById.get(edge.effect.id)!.name}
                   </OwnerLink>
                   <Tag>{edge.lagged ? "t−1 → t" : "same t"}</Tag>
                 </li>
@@ -129,11 +124,8 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
           </>
         ) : null}
       </Section>
-      {model.measurement_structure ? (
-        <Section
-          title="Measurement"
-          chips={<ArtifactChip {...chipFor(context, "measurement_structure")} />}
-        >
+      {model.model?.value.measurement_clock ? (
+        <Section title="Measurement" chips={<ArtifactChip {...chipFor(context, "model")} />}>
           {indicators && indicators.length > 0 ? (
             <ul className="m-0 flex list-none flex-col gap-1 p-0">
               {indicators.map((indicator) => (
@@ -161,8 +153,8 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
           title="Design"
           chips={
             <>
-              <ArtifactChip {...chipFor(context, "causal_design")} />
-              <ArtifactChip {...chipFor(context, "structural_plan")} />
+              <ArtifactChip {...chipFor(context, "model")} />
+              <ArtifactChip {...chipFor(context, "model")} />
               {has(context, "identification_report") ? (
                 <ArtifactChip {...chipFor(context, "identification_report")} />
               ) : null}
@@ -211,17 +203,7 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
         </Section>
       ) : null}
       {priors.length > 0 ? (
-        <Section
-          title="Model"
-          chips={
-            <>
-              <ArtifactChip {...chipFor(context, "statistical_model_spec")} />
-              {has(context, "compiled_ssm") ? (
-                <ArtifactChip {...chipFor(context, "compiled_ssm")} />
-              ) : null}
-            </>
-          }
-        >
+        <Section title="Model" chips={<ArtifactChip {...chipFor(context, "model")} />}>
           <PriorTable rows={priors} />
           {admission.map((entry) => (
             <Hint key={`${entry.check}-${entry.mode}`}>
@@ -232,7 +214,7 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
         </Section>
       ) : null}
       {fitted.length > 0 ? (
-        <Section title="Fit" chips={<ArtifactChip {...chipFor(context, "posterior")} />}>
+        <Section title="Fit" chips={<FactChip source={context.model.findings.fit?.source} />}>
           <PosteriorTable rows={fitted} />
         </Section>
       ) : null}

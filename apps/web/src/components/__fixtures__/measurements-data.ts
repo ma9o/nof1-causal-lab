@@ -2,10 +2,7 @@ import type { ObservationRecord, MeasurementsData } from "@nof1-causal-lab/api-t
 import { demoMeasurements } from "./demo-artifacts";
 import extractionsSample from "./extraction-sample.json";
 
-// The persisted `measurements.json` no longer inlines observation rows — production derives
-// `combined_extractions_sample` and `per_indicator_counts` from the extraction parquet (see
-// `deriveMeasurementsData`). `extraction-sample.json` is a parquet-derived sample so stories
-// can render the extraction / model-spec panels without reading parquet at module load.
+// Stories use a larger panel sample than the standard backend preview.
 export const combinedExtractionsSample =
   extractionsSample.combined_extractions_sample as unknown as ObservationRecord[];
 

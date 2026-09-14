@@ -14,36 +14,22 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
   "artifact_ids": [
     "question",
     "raw_data",
-    "latent_structure",
-    "measurement_structure",
-    "causal_design",
-    "structural_plan",
+    "model",
     "identification_report",
-    "measurements",
     "panel",
     "validation_report",
-    "statistical_model_spec",
-    "compiled_ssm",
-    "posterior",
-    "baseline_report",
-    "saved_scenarios"
+    "admission_report",
+    "baseline_report"
   ],
   "topological_artifact_order": [
-    "raw_data",
     "question",
-    "saved_scenarios",
-    "latent_structure",
-    "measurement_structure",
-    "measurements",
-    "panel",
-    "causal_design",
-    "structural_plan",
+    "raw_data",
+    "model",
     "identification_report",
+    "panel",
     "validation_report",
-    "statistical_model_spec",
-    "compiled_ssm",
-    "posterior",
-    "baseline_report"
+    "baseline_report",
+    "admission_report"
   ],
   "topological_transition_order": [
     "raw_data",
@@ -109,7 +95,7 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "label": "Latent structure proposal loop",
       "parent_id": "episode-machine",
       "owns": [
-        "latent_structure"
+        "model"
       ],
       "allowed_tools": [
         "validate_latent_structure"
@@ -125,7 +111,7 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "label": "Measurement structure proposal loop",
       "parent_id": "episode-machine",
       "owns": [
-        "measurement_structure"
+        "model"
       ],
       "allowed_tools": [
         "validate_measurement_structure"
@@ -142,7 +128,6 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "label": "Indicator extraction worker fan-out",
       "parent_id": "episode-machine",
       "owns": [
-        "measurements",
         "panel"
       ],
       "allowed_tools": [
@@ -160,7 +145,8 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "label": "Model/prior reducer",
       "parent_id": "episode-machine",
       "owns": [
-        "statistical_model_spec"
+        "model",
+        "admission_report"
       ],
       "allowed_tools": [
         "search_literature",
@@ -182,13 +168,13 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "label": "Exact nonlinear SSM inference job",
       "parent_id": "episode-machine",
       "owns": [
-        "posterior"
+        "model"
       ],
       "allowed_tools": [],
       "runtime_state": [
         "sampler_config",
         "diagnostics",
-        "fitted_artifact"
+        "conditioned_model"
       ]
     },
     {
@@ -315,7 +301,9 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "derives": [],
       "move": {
         "kind": "write",
-        "artifact_id": "question"
+        "artifact_id": "question",
+        "provenance": "human",
+        "expected_model_version": null
       },
       "query": null,
       "lower_context_id": null
@@ -350,7 +338,7 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "derives": [],
       "move": {
         "kind": "run",
-        "artifact_id": "raw_data"
+        "operation_id": "raw_data"
       },
       "query": null,
       "lower_context_id": "ingestion"
@@ -381,19 +369,16 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
         "question"
       ],
       "produces": [
-        "latent_structure"
+        "model"
       ],
       "produces_optional": [],
       "derives": [
-        "causal_design",
-        "structural_plan",
         "identification_report",
-        "validation_report",
-        "compiled_ssm"
+        "validation_report"
       ],
       "move": {
         "kind": "run",
-        "artifact_id": "latent_structure"
+        "operation_id": "latent_structure"
       },
       "query": null,
       "lower_context_id": "latent-structure"
@@ -408,22 +393,19 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "consumes": [
         "question",
         "raw_data",
-        "latent_structure"
+        "model"
       ],
       "produces": [
-        "measurement_structure"
+        "model"
       ],
       "produces_optional": [],
       "derives": [
-        "causal_design",
-        "structural_plan",
         "identification_report",
-        "validation_report",
-        "compiled_ssm"
+        "validation_report"
       ],
       "move": {
         "kind": "run",
-        "artifact_id": "measurement_structure"
+        "operation_id": "measurement_structure"
       },
       "query": null,
       "lower_context_id": "measurement-structure"
@@ -436,22 +418,21 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "mode": "direct",
       "context_id": "navigator",
       "consumes": [
-        "measurement_structure"
+        "model"
       ],
       "produces": [
-        "measurement_structure"
+        "model"
       ],
       "produces_optional": [],
       "derives": [
-        "causal_design",
-        "structural_plan",
         "identification_report",
-        "validation_report",
-        "compiled_ssm"
+        "validation_report"
       ],
       "move": {
         "kind": "write",
-        "artifact_id": "measurement_structure"
+        "artifact_id": "model",
+        "provenance": "human",
+        "expected_model_version": null
       },
       "query": null,
       "lower_context_id": null
@@ -464,7 +445,7 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "mode": "direct",
       "context_id": "navigator",
       "consumes": [
-        "causal_design"
+        "model"
       ],
       "produces": [],
       "produces_optional": [],
@@ -485,18 +466,18 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "consumes": [
         "question",
         "raw_data",
-        "measurement_structure"
+        "model"
       ],
-      "produces": [
-        "measurements"
-      ],
+      "produces": [],
       "produces_optional": [
         "panel"
       ],
-      "derives": [],
+      "derives": [
+        "validation_report"
+      ],
       "move": {
         "kind": "run",
-        "artifact_id": "measurements"
+        "operation_id": "measurements"
       },
       "query": null,
       "lower_context_id": "measurement"
@@ -510,21 +491,24 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "context_id": "navigator",
       "consumes": [
         "question",
-        "structural_plan",
+        "model",
         "identification_report",
         "panel",
         "validation_report"
       ],
       "produces": [
-        "statistical_model_spec"
+        "model"
       ],
-      "produces_optional": [],
+      "produces_optional": [
+        "admission_report"
+      ],
       "derives": [
-        "compiled_ssm"
+        "identification_report",
+        "validation_report"
       ],
       "move": {
         "kind": "run",
-        "artifact_id": "statistical_model_spec"
+        "operation_id": "statistical_model_spec"
       },
       "query": null,
       "lower_context_id": "statistical-model-spec"
@@ -537,17 +521,20 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "mode": "async",
       "context_id": "navigator",
       "consumes": [
-        "compiled_ssm",
+        "model",
         "panel"
       ],
       "produces": [
-        "posterior"
+        "model"
       ],
       "produces_optional": [],
-      "derives": [],
+      "derives": [
+        "identification_report",
+        "validation_report"
+      ],
       "move": {
         "kind": "run",
-        "artifact_id": "posterior"
+        "operation_id": "posterior"
       },
       "query": null,
       "lower_context_id": "inference"
@@ -560,7 +547,7 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "mode": "direct",
       "context_id": "navigator",
       "consumes": [
-        "compiled_ssm"
+        "model"
       ],
       "produces": [],
       "produces_optional": [],
@@ -577,8 +564,8 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "mode": "delegated",
       "context_id": "navigator",
       "consumes": [
-        "posterior",
-        "causal_design",
+        "model",
+        "panel",
         "identification_report"
       ],
       "produces": [
@@ -588,7 +575,7 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "derives": [],
       "move": {
         "kind": "run",
-        "artifact_id": "baseline_report"
+        "operation_id": "baseline_report"
       },
       "query": null,
       "lower_context_id": "ranking"
@@ -601,8 +588,8 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "mode": "direct",
       "context_id": "navigator",
       "consumes": [
-        "posterior",
-        "causal_design",
+        "model",
+        "panel",
         "identification_report"
       ],
       "produces": [],
@@ -624,8 +611,8 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "mode": "direct",
       "context_id": "navigator",
       "consumes": [
-        "posterior",
-        "causal_design",
+        "model",
+        "panel",
         "identification_report"
       ],
       "produces": [],
@@ -647,35 +634,13 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "mode": "direct",
       "context_id": "navigator",
       "consumes": [
-        "posterior",
+        "model",
         "panel"
       ],
       "produces": [],
       "produces_optional": [],
       "derives": [],
       "move": null,
-      "query": null,
-      "lower_context_id": null
-    },
-    {
-      "action_id": "analyze.save",
-      "namespace": "analyze",
-      "name": "save",
-      "kind": "produce",
-      "mode": "direct",
-      "context_id": "navigator",
-      "consumes": [
-        "posterior"
-      ],
-      "produces": [
-        "saved_scenarios"
-      ],
-      "produces_optional": [],
-      "derives": [],
-      "move": {
-        "kind": "write",
-        "artifact_id": "saved_scenarios"
-      },
       "query": null,
       "lower_context_id": null
     }
@@ -686,7 +651,7 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "write_pins": []
     },
     {
-      "artifact_id": "saved_scenarios",
+      "artifact_id": "model",
       "write_pins": []
     }
   ],
@@ -707,36 +672,34 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
         "question"
       ],
       "produces": [
-        "latent_structure"
+        "model"
       ],
       "produces_optional": [],
       "creation_class": "judgment",
-      "writable": true
+      "writable": false
     },
     {
       "transition_id": "measurement_structure",
       "consumes": [
         "question",
         "raw_data",
-        "latent_structure"
+        "model"
       ],
       "produces": [
-        "measurement_structure"
+        "model"
       ],
       "produces_optional": [],
       "creation_class": "judgment",
-      "writable": true
+      "writable": false
     },
     {
       "transition_id": "measurements",
       "consumes": [
         "question",
         "raw_data",
-        "measurement_structure"
+        "model"
       ],
-      "produces": [
-        "measurements"
-      ],
+      "produces": [],
       "produces_optional": [
         "panel"
       ],
@@ -747,26 +710,28 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "transition_id": "statistical_model_spec",
       "consumes": [
         "question",
-        "structural_plan",
+        "model",
         "identification_report",
         "panel",
         "validation_report"
       ],
       "produces": [
-        "statistical_model_spec"
+        "model"
       ],
-      "produces_optional": [],
+      "produces_optional": [
+        "admission_report"
+      ],
       "creation_class": "judgment",
-      "writable": true
+      "writable": false
     },
     {
       "transition_id": "posterior",
       "consumes": [
-        "compiled_ssm",
+        "model",
         "panel"
       ],
       "produces": [
-        "posterior"
+        "model"
       ],
       "produces_optional": [],
       "creation_class": "deterministic",
@@ -775,8 +740,8 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
     {
       "transition_id": "baseline_report",
       "consumes": [
-        "posterior",
-        "causal_design",
+        "model",
+        "panel",
         "identification_report"
       ],
       "produces": [
@@ -789,40 +754,17 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
   ],
   "derivations": [
     {
-      "produces": "causal_design",
-      "from": [
-        "latent_structure",
-        "measurement_structure"
-      ],
-      "optional": false
-    },
-    {
-      "produces": "structural_plan",
-      "from": [
-        "causal_design"
-      ],
-      "optional": false
-    },
-    {
       "produces": "identification_report",
       "from": [
-        "causal_design"
+        "model"
       ],
-      "optional": true
+      "optional": false
     },
     {
       "produces": "validation_report",
       "from": [
         "panel",
-        "causal_design"
-      ],
-      "optional": false
-    },
-    {
-      "produces": "compiled_ssm",
-      "from": [
-        "statistical_model_spec",
-        "structural_plan"
+        "model"
       ],
       "optional": false
     }
@@ -832,225 +774,101 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "json": {
         "question": "question.json"
       },
-      "parquet": {},
-      "pickle": {}
+      "parquet": {}
     },
     "raw_data": {
-      "json": {
-        "profile": "profile.json"
-      },
+      "json": {},
       "parquet": {
         "raw": "raw.parquet"
-      },
-      "pickle": {}
+      }
     },
-    "latent_structure": {
+    "model": {
       "json": {
-        "latent_structure": "latent-structure.json"
+        "model": "model.json"
       },
-      "parquet": {},
-      "pickle": {}
-    },
-    "measurement_structure": {
-      "json": {
-        "measurement_structure": "measurement_structure.json"
-      },
-      "parquet": {},
-      "pickle": {}
-    },
-    "causal_design": {
-      "json": {
-        "causal_design": "causal_design.json"
-      },
-      "parquet": {},
-      "pickle": {}
-    },
-    "structural_plan": {
-      "json": {
-        "structural_plan": "structural-plan.json"
-      },
-      "parquet": {},
-      "pickle": {}
+      "parquet": {}
     },
     "identification_report": {
       "json": {
         "identification_report": "identification_report.json"
       },
-      "parquet": {},
-      "pickle": {}
-    },
-    "measurements": {
-      "json": {
-        "measurements": "measurements.json"
-      },
-      "parquet": {},
-      "pickle": {}
+      "parquet": {}
     },
     "panel": {
       "json": {},
       "parquet": {
         "panel": "panel.parquet"
-      },
-      "pickle": {}
+      }
     },
     "validation_report": {
       "json": {
         "validation_report": "validation_report.json"
       },
-      "parquet": {},
-      "pickle": {}
+      "parquet": {}
     },
-    "statistical_model_spec": {
+    "admission_report": {
       "json": {
-        "statistical_model_spec": "statistical_model_spec.json"
+        "admission_report": "admission_report.json"
       },
-      "parquet": {},
-      "pickle": {}
-    },
-    "compiled_ssm": {
-      "json": {
-        "compiled_ssm": "compiled-ssm.json",
-        "report": "report.json"
-      },
-      "parquet": {},
-      "pickle": {}
-    },
-    "posterior": {
-      "json": {
-        "diagnostics": "diagnostics.json"
-      },
-      "parquet": {},
-      "pickle": {
-        "fitted": "fitted.pkl"
-      }
+      "parquet": {}
     },
     "baseline_report": {
       "json": {
         "baseline_report": "baseline_report.json"
       },
-      "parquet": {},
-      "pickle": {}
-    },
-    "saved_scenarios": {
-      "json": {
-        "saved_scenarios": "saved_scenarios.json"
-      },
-      "parquet": {},
-      "pickle": {}
+      "parquet": {}
     }
   }
 };
-export const ARTIFACT_IDS = ["question","raw_data","latent_structure","measurement_structure","causal_design","structural_plan","identification_report","measurements","panel","validation_report","statistical_model_spec","compiled_ssm","posterior","baseline_report","saved_scenarios"] as const satisfies readonly ArtifactId[];
+export const ARTIFACT_IDS = ["question","raw_data","model","identification_report","panel","validation_report","admission_report","baseline_report"] as const satisfies readonly ArtifactId[];
 export const ARTIFACT_FILE_SPECS: Record<ArtifactId, ArtifactFileSpec> = {
   "question": {
     "json": {
       "question": "question.json"
     },
-    "parquet": {},
-    "pickle": {}
+    "parquet": {}
   },
   "raw_data": {
-    "json": {
-      "profile": "profile.json"
-    },
+    "json": {},
     "parquet": {
       "raw": "raw.parquet"
-    },
-    "pickle": {}
+    }
   },
-  "latent_structure": {
+  "model": {
     "json": {
-      "latent_structure": "latent-structure.json"
+      "model": "model.json"
     },
-    "parquet": {},
-    "pickle": {}
-  },
-  "measurement_structure": {
-    "json": {
-      "measurement_structure": "measurement_structure.json"
-    },
-    "parquet": {},
-    "pickle": {}
-  },
-  "causal_design": {
-    "json": {
-      "causal_design": "causal_design.json"
-    },
-    "parquet": {},
-    "pickle": {}
-  },
-  "structural_plan": {
-    "json": {
-      "structural_plan": "structural-plan.json"
-    },
-    "parquet": {},
-    "pickle": {}
+    "parquet": {}
   },
   "identification_report": {
     "json": {
       "identification_report": "identification_report.json"
     },
-    "parquet": {},
-    "pickle": {}
-  },
-  "measurements": {
-    "json": {
-      "measurements": "measurements.json"
-    },
-    "parquet": {},
-    "pickle": {}
+    "parquet": {}
   },
   "panel": {
     "json": {},
     "parquet": {
       "panel": "panel.parquet"
-    },
-    "pickle": {}
+    }
   },
   "validation_report": {
     "json": {
       "validation_report": "validation_report.json"
     },
-    "parquet": {},
-    "pickle": {}
+    "parquet": {}
   },
-  "statistical_model_spec": {
+  "admission_report": {
     "json": {
-      "statistical_model_spec": "statistical_model_spec.json"
+      "admission_report": "admission_report.json"
     },
-    "parquet": {},
-    "pickle": {}
-  },
-  "compiled_ssm": {
-    "json": {
-      "compiled_ssm": "compiled-ssm.json",
-      "report": "report.json"
-    },
-    "parquet": {},
-    "pickle": {}
-  },
-  "posterior": {
-    "json": {
-      "diagnostics": "diagnostics.json"
-    },
-    "parquet": {},
-    "pickle": {
-      "fitted": "fitted.pkl"
-    }
+    "parquet": {}
   },
   "baseline_report": {
     "json": {
       "baseline_report": "baseline_report.json"
     },
-    "parquet": {},
-    "pickle": {}
-  },
-  "saved_scenarios": {
-    "json": {
-      "saved_scenarios": "saved_scenarios.json"
-    },
-    "parquet": {},
-    "pickle": {}
+    "parquet": {}
   }
 };
 

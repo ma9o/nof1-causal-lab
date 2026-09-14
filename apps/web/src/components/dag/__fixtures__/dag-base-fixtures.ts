@@ -1,14 +1,5 @@
-import type {
-  LatentStructureArtifact,
-  MeasurementStructureViewData,
-} from "@nof1-causal-lab/api-types";
-import { demoLatentStructure, demoMeasurementStructure } from "../../__fixtures__/demo-artifacts";
-
-const latentStructure = demoLatentStructure as LatentStructureArtifact;
-const measurementStructure = demoMeasurementStructure as MeasurementStructureViewData;
-export const design = measurementStructure.causal_design;
-export const structuralPlan = measurementStructure.structural_plan;
-export const constructs = latentStructure.latent_structure.constructs;
-export const edges = latentStructure.latent_structure.edges;
-export const indicators = design.measurement.indicators;
-export const knownInputs = design.known_inputs;
+import { modelConstructs } from "@/lib/model-accessors";
+import { demoModel } from "../../__fixtures__/demo-artifacts";
+export const constructs = modelConstructs(demoModel);
+export const edges = demoModel.edges;
+export const indicators = constructs.flatMap((construct) => construct.indicators);

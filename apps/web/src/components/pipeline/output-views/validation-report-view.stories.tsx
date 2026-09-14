@@ -1,5 +1,8 @@
-import { demoMeasurementStructure } from "@/components/__fixtures__/demo-artifacts";
-const indicators = demoMeasurementStructure.causal_design.measurement.indicators;
+import { modelConstructs } from "@/lib/model-accessors";
+import { demoModelSnapshot } from "@/components/__fixtures__/demo-artifacts";
+const indicators = modelConstructs(demoModelSnapshot.model!.value).flatMap(
+  (construct) => construct.indicators,
+);
 import type { Meta } from "@storybook/nextjs-vite";
 import { TRANSITIONS } from "@nof1-causal-lab/api-types";
 import { normalizeValidationReportData } from "@/components/analysis-widgets/validation-report/__fixtures__/normalize-validation-report";

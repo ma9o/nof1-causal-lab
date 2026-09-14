@@ -9,11 +9,11 @@ const col = createColumnHelper<CausalEdge>();
 function columns(constructs: Construct[]) {
   const names = new Map(constructs.map((item) => [item.id, item.name]));
   return [
-    col.accessor("cause_id", {
+    col.accessor("cause.id", {
       header: "Cause",
       cell: (info) => <span className="font-medium">{names.get(info.getValue())}</span>,
     }),
-    col.accessor("effect_id", {
+    col.accessor("effect.id", {
       header: "Effect",
       cell: (info) => <span className="font-medium">{names.get(info.getValue())}</span>,
     }),

@@ -6,7 +6,6 @@ import type {
   Construct,
   PosteriorEstimate,
   Indicator,
-  KnownInput,
 } from "@nof1-causal-lab/api-types";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { DagCanvasFrame, DagSvg } from "../core/dag-canvas";
@@ -42,7 +41,6 @@ interface InteractiveDagProps {
   constructs: Construct[];
   edges: CausalEdge[];
   indicators?: Indicator[];
-  knownInputs?: KnownInput[];
   edgePosteriors?: Record<string, PosteriorEstimate>;
   persistencePosteriors?: Record<string, PosteriorEstimate>;
   identifiableTreatments?: string[];
@@ -65,7 +63,6 @@ export function InteractiveDag({
   constructs,
   edges,
   indicators = [],
-  knownInputs = [],
   edgePosteriors = {},
   persistencePosteriors = {},
   identifiableTreatments = [],
@@ -75,7 +72,7 @@ export function InteractiveDag({
   nodeStatuses,
   onNodeClick,
 }: InteractiveDagProps) {
-  const outcome = result.result.outcome_label;
+  const outcome = result.labels[result.request.outcome.id];
   const [dir, setDir] = useState<"LR" | "TB">("LR");
   const [localShowIndicators, setLocalShowIndicators] = useState(false);
   const showIndicators = indicatorsVisible ?? localShowIndicators;
@@ -122,13 +119,15 @@ export function InteractiveDag({
   const knownInputSet = useMemo(
     () =>
       new Set(
-        knownInputs.map((input) => constructs.find((item) => item.id === input.construct_id)!.name),
+        constructs
+          .filter((construct) => construct.usage?.kind === "known_input")
+          .map((construct) => construct.name),
       ),
-    [knownInputs, constructs],
+    [constructs],
   );
 
   // Active interventions belong to the current resolved query.
-  const interventions = currentResult.query.clamps;
+  const interventions = currentResult.request.clamps;
   const maximumPosteriorMean = useMemo(
     () =>
       Math.max(
@@ -148,13 +147,20 @@ export function InteractiveDag({
       const res = await onSimulate(
         buildSimulateInput(
           result,
-          [{ variable: node, mode: "set", value, from_day: fromDay }],
+          [
+            {
+              target: { kind: "construct", id: constructs.find((c) => c.name === node)!.id },
+              mode: "set",
+              value,
+              from_day: fromDay,
+            },
+          ],
           horizonDays,
         ),
       );
       setCurrentResult(res);
     },
-    [onSimulate, days, clampedDay, n, result],
+    [onSimulate, days, clampedDay, n, result, constructs],
   );
   const resetScenario = useCallback(() => setCurrentResult(result), [result]);
 
@@ -290,7 +296,7 @@ export function InteractiveDag({
                 currentDay != null &&
                 interventions.some(
                   (clamp) =>
-                    clamp.variable === baseId(b) &&
+                    currentResult.labels[clamp.target.id] === baseId(b) &&
                     clamp.from_day <= currentDay &&
                     (clamp.to_day == null || currentDay < clamp.to_day),
                 );
@@ -356,7 +362,7 @@ export function InteractiveDag({
               const actionSeries = getNodeActionSeries(currentResult, construct.id) ?? [];
               const nodeInterventions = isPrev
                 ? []
-                : interventions.filter((clamp) => clamp.variable === base);
+                : interventions.filter((clamp) => currentResult.labels[clamp.target.id] === base);
               const cardHl = hoverEndpoints.includes(base);
               const status = nodeStatuses?.[base];
               const contextOnly = status === "marginalized";
@@ -386,7 +392,7 @@ export function InteractiveDag({
                     name={base}
                     kind={construct.role === "endogenous" ? "endo" : "exo"}
                     vary={construct.temporal_status === "time_varying" ? "varying" : "invariant"}
-                    isTarget={construct.id === result.query.outcome.id}
+                    isTarget={construct.id === result.request.outcome.id}
                     isPrev={isPrev}
                     days={days}
                     reference={referenceSeries}
@@ -409,8 +415,8 @@ export function InteractiveDag({
                   />
                   {showIndicators && !isPrev ? (
                     <IndicatorStack
-                      indicators={indicators.filter(
-                        (indicator) => indicator.construct_id === construct.id,
+                      indicators={indicators.filter((indicator) =>
+                        construct.indicators.some((owned) => owned.id === indicator.id),
                       )}
                     />
                   ) : null}
@@ -479,7 +485,7 @@ export function InteractiveDag({
               <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
                 {interventions.map((iv, index) => (
                   <span
-                    key={`${iv.variable}-${iv.from_day}-${index}`}
+                    key={`${iv.target.id}-${iv.from_day}-${index}`}
                     style={{
                       position: "absolute",
                       top: 0,
@@ -520,7 +526,7 @@ export function InteractiveDag({
                           whiteSpace: "nowrap",
                         }}
                       >
-                        {`do · ${iv.variable.replace(/_/g, " ")} @d${iv.from_day}`}
+                        {`do · ${currentResult.labels[iv.target.id].replace(/_/g, " ")} @d${iv.from_day}`}
                       </b>
                       {currentResult !== result ? (
                         <span
@@ -582,7 +588,7 @@ export function InteractiveDag({
             fontSize: 11.5,
           }}
         >
-          {`End-state result · effect ${currentResult.result.summary.mean.toFixed(3)} [${currentResult.result.summary.lower_95.toFixed(3)}, ${currentResult.result.summary.upper_95.toFixed(3)}] · no trajectory projection requested.`}
+          {`End-state result · effect ${currentResult.summary.mean.toFixed(3)} [${currentResult.summary.lower_95.toFixed(3)}, ${currentResult.summary.upper_95.toFixed(3)}] · no trajectory projection requested.`}
         </div>
       )}
     </div>

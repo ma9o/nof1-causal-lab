@@ -21,9 +21,14 @@ describe("native distribution display", () => {
         params: {
           base_dist: {
             distribution: "Normal",
-            params: { loc: { array: [0, 1], dtype: "float32" }, scale: 2 },
+            params: {
+              loc: { array: [0, 1], dtype: "float32" },
+              scale: 2,
+              validate_args: false,
+            },
           },
           reinterpreted_batch_ndims: 1,
+          validate_args: true,
         },
       }),
     ).toBe("Independent(base_dist=Normal(loc=[0, 1], scale=2), reinterpreted_batch_ndims=1)");

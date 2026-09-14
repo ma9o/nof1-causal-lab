@@ -1,3 +1,4 @@
+import { indicatorOwners } from "@/lib/model-accessors";
 import { Badge } from "@/components/ui/badge";
 import { InfoTable } from "@/components/ui/info-table";
 import type { Indicator, Construct } from "@nof1-causal-lab/api-types";
@@ -37,11 +38,12 @@ export function IndicatorTable({
   indicators: Indicator[];
   constructs: Construct[];
 }) {
+  const owners = indicatorOwners(constructs);
   return (
     <InfoTable
       columns={columns as ColumnDef<Indicator, unknown>[]}
       data={indicators}
-      groupBy={(row) => row.construct_id}
+      groupBy={(row) => owners.get(row.id)!.id}
       renderGroupHeader={(construct, rows) => (
         <>
           <span className="text-sm font-semibold">

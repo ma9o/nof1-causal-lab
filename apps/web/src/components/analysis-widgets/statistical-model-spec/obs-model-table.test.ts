@@ -1,36 +1,13 @@
-import { parameters } from "./__fixtures__/statistical-model-spec-fixtures";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { LabeledLikelihood } from "@/lib/utils/ssm-latex";
+import { parameters } from "./__fixtures__/statistical-model-spec-fixtures";
 
 import { ObsPriorList } from "./obs-model-table";
 
-const gaussianLikelihood = {
-  indicator_id: "indicator:sleep",
-  label: "sleep",
-  distribution: "gaussian",
-  link: "identity",
-  standardized: false,
-  reasoning: "",
-  sources: [],
-} satisfies LabeledLikelihood;
-
-const betaLikelihood = {
-  indicator_id: "indicator:appointment_attendance",
-  label: "appointment_attendance",
-  distribution: "beta",
-  link: "logit",
-  standardized: false,
-  reasoning: "",
-  sources: [],
-} satisfies LabeledLikelihood;
-
 describe("ObsPriorList", () => {
   it("marks missing authored observation priors as not authored", () => {
-    const markup = renderToStaticMarkup(
-      createElement(ObsPriorList, { likelihood: gaussianLikelihood, terms: [] }),
-    );
+    const markup = renderToStaticMarkup(createElement(ObsPriorList, { terms: [] }));
 
     expect(markup).toContain("Not authored");
   });
@@ -38,25 +15,22 @@ describe("ObsPriorList", () => {
   it("marks missing expected observation terms as not authored", () => {
     const markup = renderToStaticMarkup(
       createElement(ObsPriorList, {
-        likelihood: gaussianLikelihood,
-        terms: [{ ...parameters[0], name: "obs_sd_sleep", prior: null }],
+        terms: [{ ...parameters[0], name: "obs_sd_sleep", distribution: null }],
       }),
     );
 
     expect(markup).toContain("Not authored");
-    expect(markup).toContain("\\sigma_{\\text{sleep}}");
-    expect(markup).not.toContain("obs sd sleep");
+    expect(markup).toContain("\\theta_{\\text{obs sd sleep}}");
   });
 
-  it("renders beta observation concentration as phi instead of a raw obs_* name", () => {
+  it("renders the scientific parameter label used in the conditional equation", () => {
     const markup = renderToStaticMarkup(
       createElement(ObsPriorList, {
-        likelihood: betaLikelihood,
         terms: [
           {
             ...parameters[0],
             name: "obs_concentration",
-            prior: {
+            distribution: {
               distribution: "Gamma",
               params: { concentration: 5, rate: 0.5 },
             },
@@ -65,7 +39,6 @@ describe("ObsPriorList", () => {
       }),
     );
 
-    expect(markup).toContain("\\phi \\sim \\text{Gamma}(5,\\; 0.5)");
-    expect(markup).not.toContain("obs concentration");
+    expect(markup).toContain("\\theta_{\\text{obs concentration}} \\sim \\text{Gamma}(5,\\; 0.5)");
   });
 });

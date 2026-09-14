@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ArtifactViewId } from "@nof1-causal-lab/api-types";
+import type { PipelineSectionId } from "@nof1-causal-lab/api-types";
 import {
   applyTransitionUpdate,
   initialProgress,
@@ -7,7 +7,7 @@ import {
   type PipelineProgress,
 } from "./pipeline-progress";
 
-const TEST_ORDER: ArtifactViewId[] = [
+const TEST_ORDER: PipelineSectionId[] = [
   "raw_data",
   "latent_structure",
   "measurement_structure",
@@ -20,7 +20,7 @@ const TEST_ORDER: ArtifactViewId[] = [
 
 function applyUpdate(
   prev: PipelineProgress | undefined,
-  artifactId: ArtifactViewId,
+  artifactId: PipelineSectionId,
   status: "pending" | "running" | "completed" | "failed",
   eventTime?: number,
   errorMessage?: string,
@@ -30,7 +30,7 @@ function applyUpdate(
 
 function restartAttempt(
   prev: PipelineProgress | undefined,
-  artifactId: ArtifactViewId,
+  artifactId: PipelineSectionId,
   eventTime?: number,
 ): PipelineProgress {
   return restartTransitionAttempt(prev, artifactId, eventTime, TEST_ORDER);

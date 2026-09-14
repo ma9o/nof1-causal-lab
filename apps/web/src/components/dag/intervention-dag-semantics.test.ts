@@ -10,18 +10,23 @@ import type { AnalysisSimulationResult } from "./intervention-dag-types";
 describe("intervention DAG semantics", () => {
   it("formats baseline-relative clamp labels from a baseline-start scenario", () => {
     const result = {
-      query: {
-        clamps: [{ variable: "lipid_burden", mode: "shift", amount: 1, from_day: 0 }],
+      request: {
+        clamps: [
+          {
+            target: { id: "construct:lipid", kind: "construct" },
+            mode: "shift",
+            amount: 1,
+            from_day: 0,
+          },
+        ],
       },
-      result: {
-        start: { kind: "baseline", state_source: "baseline_steady_state" },
-        effect_trajectory: [{ day: 1, effect: 0.2 }],
-        visualization: {
-          reference_node_trajectories: { "construct:lipid": [0.85] },
-          action_node_trajectories: { "construct:lipid": [1.85] },
-          node_effect_trajectories: { "construct:lipid": [1] },
-          start_state: null,
-        },
+      labels: { "construct:lipid": "lipid_burden" },
+      effect_trajectory: [{ day: 1, effect: 0.2 }],
+      visualization: {
+        reference_node_trajectories: { "construct:lipid": [0.85] },
+        action_node_trajectories: { "construct:lipid": [1.85] },
+        node_effect_trajectories: { "construct:lipid": [1] },
+        start_state: null,
       },
     } as unknown as AnalysisSimulationResult;
 

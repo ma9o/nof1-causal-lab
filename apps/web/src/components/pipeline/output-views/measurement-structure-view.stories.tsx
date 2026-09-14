@@ -1,17 +1,17 @@
 import type { Meta } from "@storybook/nextjs-vite";
 import { TRANSITIONS } from "@nof1-causal-lab/api-types";
-import type { MeasurementStructureViewData } from "@nof1-causal-lab/api-types";
+import type { ModelSnapshot } from "@nof1-causal-lab/api-types";
 import {
   createCompletedOutputStory,
   createOutputStatusStory,
   outputStoryDecorators,
 } from "../output-story-helpers";
 import MeasurementStructureView from "./measurement-structure-view";
-import { demoMeasurementStructure } from "../../__fixtures__/demo-artifacts";
+import { demoModelSnapshot } from "../../__fixtures__/demo-artifacts";
 import { demoTraces } from "../../__fixtures__/demo-traces";
 
 const output = TRANSITIONS.find((s) => s.id === "measurement_structure")!;
-const data = demoMeasurementStructure as MeasurementStructureViewData;
+const data = demoModelSnapshot as ModelSnapshot;
 
 const meta = {
   title: "Pipeline/Outputs/Measurement Structure/Panel",

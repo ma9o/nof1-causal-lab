@@ -6,7 +6,7 @@ import {
   nodeStatuses,
   persistencePosteriors,
 } from "../__fixtures__/baseline_report-materialized-fixture";
-import { constructs, edges, indicators, knownInputs } from "../__fixtures__/dag-base-fixtures";
+import { constructs, edges, indicators } from "../__fixtures__/dag-base-fixtures";
 import { buildBaselineReportScenarios } from "../../pipeline/output-views/baseline-report-scenarios";
 import { InteractiveDag } from "./interactive-dag";
 
@@ -22,7 +22,7 @@ const graphArgs = {
   constructs,
   edges,
   indicators,
-  knownInputs,
+
   edgePosteriors,
   persistencePosteriors,
   identifiableTreatments,

@@ -33,6 +33,7 @@ export async function GET(
     return NextResponse.json({
       workspaceId: safeWorkspaceId,
       autoRunning: status.auto_running,
+      nextOperation: status.next_operation,
       seq: status.seq,
       artifacts: status.artifacts,
       legal: status.legal,

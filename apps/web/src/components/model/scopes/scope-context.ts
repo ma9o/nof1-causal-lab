@@ -15,6 +15,7 @@ export interface ScopeContext {
   entities: ReturnType<typeof indexModel>;
   snapshot: AssetSnapshot;
   current: AssetSnapshot;
+  canSimulate: boolean;
   ticks: JournalTick[];
   artifacts: ArtifactFreshness[];
   question: string | undefined;

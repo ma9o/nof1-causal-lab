@@ -99,7 +99,6 @@ function ScenarioDetail({
         constructs={graph.constructs}
         edges={graph.edges}
         indicators={graph.indicators}
-        knownInputs={graph.knownInputs}
         edgePosteriors={graph.edgePosteriors}
         persistencePosteriors={graph.persistencePosteriors}
         identifiableTreatments={graph.identifiableTreatments}
@@ -109,7 +108,7 @@ function ScenarioDetail({
         onSimulate={onSimulate}
         onNodeClick={onNodeClick}
       />
-      <SimulationWarnings warnings={scenario.result.result.warnings} />
+      <SimulationWarnings warnings={scenario.result.warnings} />
       {scenario.manifestEffects ? (
         <ManifestProjection
           manifestEffects={scenario.manifestEffects}

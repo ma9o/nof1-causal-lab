@@ -10,7 +10,6 @@ export type {
   ModelSpecAdmissionCheckResult,
   ModelSpecAdmissionConstructState,
   ModelSpecAdmissionConstructStatus,
-  ModelSpecAdmissionParameter,
   ModelSpecAdmissionPlan,
   ModelSpecAdmissionPlanConstruct,
   ModelSpecAdmissionPlanEdge,

@@ -4,7 +4,7 @@ import { ARTIFACT_FILE_SPECS } from "@nof1-causal-lab/api-types";
 
 export type { ArtifactId } from "@nof1-causal-lab/api-types";
 
-type FileKind = "json" | "parquet" | "pickle";
+type FileKind = "json" | "parquet";
 
 export class ArtifactNotFoundError extends Error {
   constructor(message: string) {

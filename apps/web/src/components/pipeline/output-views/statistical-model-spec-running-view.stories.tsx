@@ -1,10 +1,11 @@
+import type { ParameterSpec } from "@nof1-causal-lab/api-types";
+import { demoParameters } from "@/components/__fixtures__/demo-artifacts";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import {
   MODEL_SPEC_ADMISSION_EVENT_PREFIX,
   type ModelSpecAdmissionCheckResult,
   type ModelSpecAdmissionCoupledRecheck,
   type ModelSpecAdmissionEventRecord,
-  type ModelSpecAdmissionParameter,
   type ModelSpecAdmissionPlan,
   type ModelSpecAdmissionReplayState,
   type ModelSpecAdmissionTiming,
@@ -33,20 +34,10 @@ type Story = StoryObj<typeof meta>;
 // Illustrative authored priors keyed on the semantic-binding parameter names
 // (rho_ persistence, sigma_ process SD, beta_ edge weight, lambda_ loading,
 // obs_sd_ residual SD, t0_ initial state, self_limit_ / obs_shape_ dynamics).
-function priorFor(name: string): ModelSpecAdmissionParameter {
-  if (name.startsWith("t0_mean_"))
-    return { name, distribution: "Normal", params: { mu: 0, sigma: 1 } };
-  if (name.startsWith("t0_sd_")) return { name, distribution: "HalfNormal", params: { sigma: 1 } };
-  if (name.startsWith("rho_")) return { name, distribution: "Beta", params: { alpha: 2, beta: 2 } };
-  if (name.startsWith("sigma_")) return { name, distribution: "HalfNormal", params: { sigma: 1 } };
-  if (name.startsWith("self_limit_"))
-    return { name, distribution: "HalfNormal", params: { sigma: 0.5 } };
-  if (name.startsWith("lambda_"))
-    return { name, distribution: "Normal", params: { mu: 1, sigma: 0.5 } };
-  if (name.startsWith("obs_sd_")) return { name, distribution: "HalfNormal", params: { sigma: 1 } };
-  if (name.startsWith("obs_shape_"))
-    return { name, distribution: "Gamma", params: { concentration: 2, rate: 2 } };
-  return { name, distribution: "Normal", params: { mu: 0, sigma: 1 } };
+function priorFor(name: string): ParameterSpec {
+  const parameter = demoParameters.find((item) => item.name === name);
+  if (!parameter) throw new Error(`Fixture has no parameter ${name}`);
+  return parameter;
 }
 
 const PLAN: ModelSpecAdmissionPlan = {

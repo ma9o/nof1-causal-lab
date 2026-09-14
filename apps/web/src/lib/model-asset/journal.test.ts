@@ -10,6 +10,8 @@ function produced(artifactId: Produced["artifact_id"], version: number): Produce
     version,
     provenance: "computed",
     derived_from: {},
+    model_inputs: {},
+    consumed_model_inputs: {},
     produced_by: null,
     created_at: "2026-07-08T11:57:25Z",
   };
@@ -39,44 +41,31 @@ function record(
 }
 
 const JOURNAL: TransitionRecord[] = [
-  record(1, { kind: "run", artifact_id: "raw_data" }, "applied", {
+  record(1, { kind: "run", operation_id: "raw_data" }, "applied", {
     produced: [produced("raw_data", 1)],
     trace_ids: ["raw_data"],
   }),
   record(2, { kind: "write", artifact_id: "question", provenance: "human" }, "applied", {
     produced: [produced("question", 1)],
   }),
-  record(3, { kind: "run", artifact_id: "measurement_structure" }, "applied", {
-    produced: [
-      produced("measurement_structure", 1),
-      produced("causal_design", 1),
-      produced("structural_plan", 1),
-    ],
+  record(3, { kind: "run", operation_id: "measurement_structure" }, "applied", {
+    produced: [produced("model", 2), produced("identification_report", 1)],
     trace_ids: ["measurement_structure"],
   }),
-  record(4, { kind: "run", artifact_id: "statistical_model_spec" }, "raised", {
+  record(4, { kind: "run", operation_id: "statistical_model_spec" }, "raised", {
     error_type: "ValueError",
     error_message: "prior admission failed",
   }),
-  record(5, { kind: "run", artifact_id: "statistical_model_spec" }, "rejected", {
+  record(5, { kind: "run", operation_id: "statistical_model_spec" }, "rejected", {
     reason: "inputs missing",
   }),
-  record(6, { kind: "run", artifact_id: "statistical_model_spec" }, "applied", {
-    produced: [produced("statistical_model_spec", 1), produced("compiled_ssm", 1)],
+  record(6, { kind: "run", operation_id: "statistical_model_spec" }, "applied", {
+    produced: [produced("model", 3), produced("identification_report", 1)],
   }),
-  record(
-    7,
-    { kind: "write", artifact_id: "measurement_structure", provenance: "human" },
-    "applied",
-    {
-      produced: [
-        produced("measurement_structure", 2),
-        produced("causal_design", 2),
-        produced("structural_plan", 2),
-      ],
-      retracted: [{ artifact_id: "compiled_ssm", reason_ref: "stale-spec" }],
-    },
-  ),
+  record(7, { kind: "write", artifact_id: "model", provenance: "human" }, "applied", {
+    produced: [produced("model", 4), produced("identification_report", 2)],
+    retracted: [{ artifact_id: "identification_report", reason_ref: "stale-spec" }],
+  }),
 ];
 
 describe("journalTicks", () => {
@@ -87,13 +76,32 @@ describe("journalTicks", () => {
 
   it("reads the installed version, derived co-outputs and retractions off the record", () => {
     const [, , design, raised, , rewrite] = journalTicks(JOURNAL);
-    expect(design.version).toBe(1);
-    expect(design.derived).toEqual(["causal_design", "structural_plan"]);
+    expect(design.version).toBe(2);
+    expect(design.derived).toEqual(["identification_report"]);
     expect(raised.version).toBeNull();
     expect(raised.error).toBe("prior admission failed");
-    expect(rewrite.version).toBe(2);
-    expect(rewrite.retracted).toEqual(["compiled_ssm"]);
+    expect(rewrite.version).toBe(4);
+    expect(rewrite.retracted).toEqual(["identification_report"]);
   });
+});
+
+it("keeps extraction outcomes and empty completions without a worker artifact", () => {
+  const workers = [{ worker_id: 0, status: "failed", error: "No observations" }];
+  const [populated, empty] = journalTicks([
+    record(1, { kind: "run", operation_id: "measurements" }, "applied", {
+      produced: [produced("panel", 1), produced("validation_report", 1)],
+    }),
+    record(2, { kind: "run", operation_id: "measurements" }, "applied", {
+      diagnostics: { workers },
+      retracted: [{ artifact_id: "panel", reason_ref: "empty extraction" }],
+    }),
+  ]);
+  expect(populated.version).toBe(1);
+  expect(populated.derived).toEqual(["validation_report"]);
+  expect(empty.version).toBeNull();
+  expect(empty.derived).toEqual([]);
+  expect(empty.retracted).toEqual(["panel"]);
+  expect(empty.diagnostics.workers).toEqual(workers);
 });
 
 describe("latestSeq", () => {

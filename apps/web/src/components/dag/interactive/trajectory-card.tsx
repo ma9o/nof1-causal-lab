@@ -2,7 +2,7 @@
 
 import { formatPosteriorIntervalLabel } from "@/lib/utils/format";
 
-import type { PosteriorEstimate, LatentClampInput } from "@nof1-causal-lab/api-types";
+import type { PosteriorEstimate, ScenarioClamp } from "@nof1-causal-lab/api-types";
 import { ticks } from "d3-array";
 import { useState } from "react";
 import { DAG_COLORS, signColor } from "../core/palette";
@@ -34,7 +34,7 @@ interface TrajectoryCardProps {
   reference: number[];
   action: number[];
   timeIndex: number;
-  interventions: LatentClampInput[];
+  interventions: ScenarioClamp[];
   /** Backend disposition/identification status for retained theory context. */
   status?: ConstructStatus;
   /** Compiled as an observed transition input rather than a latent state. */
@@ -324,7 +324,7 @@ export function TrajectoryCard({
           ) : null}
 
           {nodeInterventions.map((clamp, clampIndex) => (
-            <g key={`${clamp.variable}-${clamp.from_day}-${clampIndex}`}>
+            <g key={`${clamp.target.id}-${clamp.from_day}-${clampIndex}`}>
               <line
                 x1={sx(clamp.from_day)}
                 x2={sx(clamp.from_day)}

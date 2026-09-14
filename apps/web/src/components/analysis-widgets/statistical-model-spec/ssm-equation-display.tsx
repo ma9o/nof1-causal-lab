@@ -1,9 +1,5 @@
-import type {
-  Indicator,
-  LikelihoodSpec,
-  ParameterSpec,
-  StateEquation,
-} from "@nof1-causal-lab/api-types";
+import { modelConstructs } from "@/lib/model-accessors";
+import type { Indicator, ParameterSpec, StateEquation } from "@nof1-causal-lab/api-types";
 import katex from "katex";
 import { FunctionalSpecLink } from "@/components/analysis-widgets/statistical-model-spec/functional-spec-link";
 import { ObsModelTable } from "@/components/analysis-widgets/statistical-model-spec/obs-model-table";
@@ -16,14 +12,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { confounderGroupLatex, confounderGroups } from "@/lib/utils/ssm-latex";
 
 interface SsmEquationDisplayProps {
-  likelihoods: LikelihoodSpec[];
+  confounderEquations: StateEquation[];
+  observationEquations: Record<string, string>;
   equations: StateEquation[];
   parameters: ParameterSpec[];
-  indicators?: Indicator[];
-  structuralPlan: import("@nof1-causal-lab/api-types").StructuralPlan;
+  indicators: Indicator[];
+  model: import("@nof1-causal-lab/api-types").ModelSpec;
 }
 
 /** Render a LaTeX string to an HTML string via KaTeX. */
@@ -35,11 +31,6 @@ function tex(latex: string, displayMode = true): string {
   });
 }
 
-/** Render a confounder group's LaTeX to HTML via KaTeX. */
-function confounderGroupHtml(group: Parameters<typeof confounderGroupLatex>[0]): string {
-  return tex(confounderGroupLatex(group));
-}
-
 /** Inline KaTeX span. */
 function Katex({ latex }: { latex: string }) {
   // biome-ignore lint/security/noDangerouslySetInnerHtml: KaTeX renders sanitized math
@@ -48,12 +39,12 @@ function Katex({ latex }: { latex: string }) {
 
 export function SSMEquationDisplay({
   equations,
-  likelihoods,
+  confounderEquations,
+  observationEquations,
   parameters,
   indicators,
-  structuralPlan,
+  model,
 }: SsmEquationDisplayProps) {
-  const corrGroups = confounderGroups(structuralPlan);
   return (
     <div className="space-y-5">
       <div className="flex items-start justify-between gap-3">
@@ -92,22 +83,22 @@ export function SSMEquationDisplay({
       )}
 
       {/* ── Correlated errors (per marginalized confounder) ── */}
-      {corrGroups && (
+      {confounderEquations.length > 0 && (
         <section>
           <h4 className="mb-2 inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Marginalized Confounders
             <StatTooltip explanation="Marginalized time-varying confounders induce shared process noise among these states." />
           </h4>
           <div className="space-y-3">
-            {corrGroups.map((group) => (
+            {confounderEquations.map((group) => (
               <div
-                key={group.confounder}
+                key={group.construct_id}
                 className="overflow-x-auto rounded-md border bg-muted/30 px-4 py-3"
               >
                 <div
                   // biome-ignore lint/security/noDangerouslySetInnerHtml: KaTeX renders sanitized math
                   dangerouslySetInnerHTML={{
-                    __html: confounderGroupHtml(group),
+                    __html: tex(group.latex),
                   }}
                 />
               </div>
@@ -117,34 +108,18 @@ export function SSMEquationDisplay({
       )}
 
       {/* ── Observation model ── */}
-      {likelihoods.length > 0 && (
+      {indicators.some((indicator) => indicator.likelihood) && (
         <section>
           <h4 className="mb-2 inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Observation Model
-            <StatTooltip explanation="Maps latent states to observed indicators. Each variable has a distribution family (e.g. Gaussian, Poisson) and a link function (e.g. identity, log, logit) that transforms the linear predictor λᵀη(t) to the distribution's natural parameter." />
+            <StatTooltip explanation="Maps latent states to observed indicators. Each conditional distribution is rendered from its declared expressions over scientific states and parameters." />
           </h4>
-          <div className="overflow-x-auto rounded-md border bg-muted/30 px-4 py-3">
-            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Semantic model-spec Form
-            </p>
-            <div
-              // biome-ignore lint/security/noDangerouslySetInnerHtml: KaTeX renders sanitized math
-              dangerouslySetInnerHTML={{
-                __html: tex(
-                  String.raw`\begin{aligned}
-\mu_k(t) &= \boldsymbol{\lambda}_k^\top \boldsymbol{\eta}(t) \\[4pt]
-\mathbb{E}[y_k(t)] &= g_k^{-1}\!\bigl(\mu_k(t)\bigr), \quad y_k(t) \sim \mathcal{F}_k
-\end{aligned}`,
-                ),
-              }}
-            />
-          </div>
           <div className="mt-3">
             <ObsModelTable
-              likelihoods={likelihoods}
+              observationEquations={observationEquations}
               parameters={parameters}
               indicators={indicators}
-              constructs={Object.values(structuralPlan.semantics.constructs)}
+              constructs={modelConstructs(model)}
             />
           </div>
         </section>

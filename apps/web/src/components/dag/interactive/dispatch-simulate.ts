@@ -4,7 +4,7 @@ import type { SimulateFn } from "./simulate-input";
 /**
  * The production `onSimulate`: run a do() scenario by dispatching the ranking
  * `simulate` tool directly (no LLM) via `POST /api/tools/dispatch`. Returns
- * the `SimulateScenarioResult`.
+ * the `SimulationResult`.
  */
 export function createSimulateDispatch(workspaceId: string): SimulateFn {
   return async (input): Promise<AnalysisSimulationResult> => {

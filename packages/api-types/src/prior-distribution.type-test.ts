@@ -1,17 +1,18 @@
 import type {
-  CompiledDistribution,
+  DistributionId,
+  ModelSpec,
+  NumPyroDistribution,
   ParameterId,
   ParameterSpec,
-  NumPyroDistribution,
 } from "./generated/models";
 
 type Expect<T extends true> = T;
 type Extends<A, B> = A extends B ? true : false;
-type GammaRecipe = Extract<CompiledDistribution, { distribution: "Gamma" }>;
 
-export type ParameterRetainsEvidence = Expect<Extends<ParameterSpec["prior_reasoning"], string>>;
+// @ts-expect-error Authoring evidence belongs in transition logs.
+export type NoParameterProvenance = ParameterSpec["prior_reasoning"];
 export type ParameterOwnsIdentity = Expect<Extends<ParameterSpec["id"], ParameterId>>;
 export type ParameterCarriesNativeLaw = Expect<
-  Extends<NonNullable<ParameterSpec["prior"]>, NumPyroDistribution>
+  Extends<NonNullable<ParameterSpec["distribution"]>, NumPyroDistribution | DistributionId>
 >;
-export type CompiledRetainsTransforms = Expect<Extends<GammaRecipe["transforms"], unknown[]>>;
+export type ModelOwnsParameters = Expect<Extends<ModelSpec["parameters"][number], ParameterSpec>>;

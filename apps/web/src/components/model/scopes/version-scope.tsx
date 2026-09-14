@@ -1,6 +1,9 @@
+import { JsonViewer } from "@/components/ui/json-viewer";
+import { primaryArtifact } from "@/lib/model-asset/journal";
+import { moveLabel } from "../model-selection";
 import { Button } from "@/components/ui/button";
 import type { JournalTick } from "@/lib/model-asset/journal";
-import { ARTIFACT_LABEL } from "../model-selection";
+
 import { ArtifactChip, Hint, KeyValue, Section, Tag } from "../scope-primitives";
 import type { ScopeContext } from "./scope-context";
 
@@ -11,7 +14,7 @@ export function VersionScope({ context, tick }: { context: ScopeContext; tick: J
   const viewingHere = context.snapshot.playhead === record.seq;
   return (
     <>
-      <Section title={`${record.move.kind} ${record.move.artifact_id}`}>
+      <Section title={`${record.move.kind} ${primaryArtifact(record.move)}`}>
         <KeyValue
           rows={[
             ["status", record.status],
@@ -26,9 +29,11 @@ export function VersionScope({ context, tick }: { context: ScopeContext; tick: J
       {record.status === "applied" ? (
         <Section title="Installed by this move">
           <ul className="m-0 flex list-none flex-col gap-1 p-0">
-            <li className="flex flex-wrap items-center gap-1.5">
-              <ArtifactChip id={record.move.artifact_id} version={record.version} />
-            </li>
+            {record.version != null && (
+              <li className="flex flex-wrap items-center gap-1.5">
+                <ArtifactChip id={primaryArtifact(record.move)} version={record.version} />
+              </li>
+            )}
             {record.derived.map((artifactId) => (
               <li key={artifactId} className="flex flex-wrap items-center gap-1.5">
                 <ArtifactChip
@@ -48,9 +53,13 @@ export function VersionScope({ context, tick }: { context: ScopeContext; tick: J
       ) : (
         <Section title="Outcome">
           <Hint issue>
-            {ARTIFACT_LABEL[record.move.artifact_id]} raised before writing anything; the asset is
-            unchanged.
+            {moveLabel(record.move)} raised before writing anything; the asset is unchanged.
           </Hint>
+        </Section>
+      )}
+      {record.diagnostics.workers != null && (
+        <Section title="Extraction workers">
+          <JsonViewer data={record.diagnostics.workers} />
         </Section>
       )}
       <Section title="Conversation">

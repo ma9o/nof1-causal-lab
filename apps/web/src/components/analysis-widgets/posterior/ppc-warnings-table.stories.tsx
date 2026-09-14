@@ -1,11 +1,14 @@
-import { demoMeasurementStructure } from "@/components/__fixtures__/demo-artifacts";
-const indicators = demoMeasurementStructure.causal_design.measurement.indicators;
+import { modelConstructs } from "@/lib/model-accessors";
+import { demoModelSnapshot } from "@/components/__fixtures__/demo-artifacts";
+const indicators = modelConstructs(demoModelSnapshot.model!.value).flatMap(
+  (construct) => construct.indicators,
+);
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { withContainer } from "@/components/story-decorators";
-import { posteriorAuxKalmanMCMC } from "@/components/__fixtures__/inference-data";
+import { posterior } from "@/components/__fixtures__/inference-data";
 import { PPCWarningsTable } from "./ppc-warnings-table";
 
-const ppc = posteriorAuxKalmanMCMC.assessment.ppc!;
+const ppc = posterior.assessment.ppc!;
 
 const meta = {
   args: { indicators },

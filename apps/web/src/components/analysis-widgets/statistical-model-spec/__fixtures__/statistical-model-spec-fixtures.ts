@@ -1,22 +1,18 @@
-import type { MeasurementStructureViewData } from "@nof1-causal-lab/api-types";
+import { modelConstructs } from "@/lib/model-accessors";
 import {
-  demoMeasurementStructure,
-  demoStatisticalModelSpec,
+  demoModel,
+  demoModelSnapshot,
+  demoModelDiagnostics,
+  demoAdmissionReport,
 } from "../../../__fixtures__/demo-artifacts";
-
-const measurementStructure = demoMeasurementStructure as MeasurementStructureViewData;
-
-export const modelSpecData = demoStatisticalModelSpec;
-
-export const equations = modelSpecData.state_equations;
-
-export const likelihoods = modelSpecData.statistical_model_spec.likelihoods;
-export const parameters = modelSpecData.statistical_model_spec.parameters;
-export const indicators = measurementStructure.causal_design.measurement.indicators;
-export const likelihoodDiagnostics = modelSpecData.likelihood_diagnostics;
-export const priorPredictiveSamples = modelSpecData.prior_predictive_samples as
-  | Record<string, number[]>
-  | undefined;
-
-export const structuralPlan = modelSpecData.structural_plan!;
-export const constructs = Object.values(structuralPlan.semantics.constructs);
+export const model = demoModel;
+export const modelSpecData = demoModelSnapshot;
+export const observationEquations = demoModelDiagnostics.observation_equations;
+export const equations = demoModelDiagnostics.state_equations;
+export const confounderEquations = demoModelDiagnostics.confounder_equations;
+export const parameters = demoModel.parameters;
+export const priorDensities = demoModelDiagnostics.prior_densities;
+export const indicators = modelConstructs(demoModel).flatMap((construct) => construct.indicators);
+export const likelihoodDiagnostics = demoModelDiagnostics.likelihood_diagnostics;
+export const priorPredictiveSamples = demoAdmissionReport.prior_predictive_samples;
+export const constructs = modelConstructs(demoModel);

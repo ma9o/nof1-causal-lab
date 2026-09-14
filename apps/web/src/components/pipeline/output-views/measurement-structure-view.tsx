@@ -1,21 +1,24 @@
 "use client";
 
-import { deriveConstructStatuses } from "@/components/dag/construct-statuses";
+import { modelConstructs } from "@/lib/model-accessors";
+import { constructStatuses } from "@/components/dag/construct-statuses";
 import { StructureDag } from "@/components/dag/structure-dag";
 import { IndicatorTable } from "@/components/analysis-widgets/measurement-structure/indicator-table";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import type { MeasurementStructureViewData } from "@nof1-causal-lab/api-types";
+import type { ModelSnapshot } from "@nof1-causal-lab/api-types";
 import { AlertTriangle } from "lucide-react";
 
-export default function MeasurementStructureView({ data }: { data: MeasurementStructureViewData }) {
-  const spec = data.causal_design;
+export default function MeasurementStructureView({ data }: { data: ModelSnapshot }) {
+  const spec = data.model?.value;
+  if (!spec) return null;
+  const indicators = modelConstructs(spec).flatMap((construct) => construct.indicators);
   const names = new Map<string, string>(
-    spec.latent.constructs.map((construct) => [construct.id, construct.name]),
+    modelConstructs(spec).map((construct) => [construct.id, construct.name]),
   );
-  const nonId = spec.identifiability?.non_identifiable_treatments ?? {};
+  const nonId = data.findings.identification?.value.status.non_identifiable_treatments ?? {};
   const nonIdEntries = Object.entries(nonId);
-  const nodeStatuses = deriveConstructStatuses(spec, data.structural_plan);
+  const nodeStatuses = constructStatuses(data);
 
   return (
     <div className="space-y-4">
@@ -50,17 +53,13 @@ export default function MeasurementStructureView({ data }: { data: MeasurementSt
         </Alert>
       )}
       <StructureDag
-        outcomeId={data.causal_design.latent.default_outcome?.id}
-        constructs={spec.latent.constructs}
-        edges={spec.latent.edges}
-        indicators={spec.measurement.indicators}
-        knownInputs={spec.known_inputs}
+        outcomeId={spec.default_outcome?.id}
+        constructs={modelConstructs(spec)}
+        edges={spec.edges}
+        indicators={indicators}
         nodeStatuses={nodeStatuses}
       />
-      <IndicatorTable
-        constructs={spec.latent.constructs}
-        indicators={spec.measurement.indicators}
-      />
+      <IndicatorTable constructs={modelConstructs(spec)} indicators={indicators} />
     </div>
   );
 }

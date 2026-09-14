@@ -1,18 +1,19 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { withContainer } from "@/components/story-decorators";
 import {
+  observationEquations,
   equations,
   indicators,
-  likelihoods,
   parameters,
-  structuralPlan,
+  model,
+  confounderEquations,
 } from "./__fixtures__/statistical-model-spec-fixtures";
 import { SSMEquationDisplay } from "./ssm-equation-display";
 
 const meta = {
   title: "Pipeline/Outputs/Statistical Model Spec/SSMEquationDisplay",
   component: SSMEquationDisplay,
-  args: { structuralPlan, equations },
+  args: { model, equations, confounderEquations, observationEquations },
   decorators: [withContainer()],
 } satisfies Meta<typeof SSMEquationDisplay>;
 
@@ -20,9 +21,9 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  args: { likelihoods, parameters, indicators },
+  args: { parameters, indicators },
 };
 
 export const WithoutIndicators: Story = {
-  args: { likelihoods, parameters },
+  args: { parameters, indicators: [] },
 };

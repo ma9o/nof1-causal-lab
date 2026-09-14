@@ -20,7 +20,7 @@ import {
   type ModelSpecAdmissionReplayState,
 } from "@/lib/model-spec-admission-runtime";
 import { type TransitionProgressStatus } from "@/lib/transition-runtime";
-import type { ArtifactViewId } from "@nof1-causal-lab/api-types";
+import type { PipelineSectionId } from "@nof1-causal-lab/api-types";
 import { TRANSITIONS } from "@nof1-causal-lab/api-types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef } from "react";
@@ -32,7 +32,6 @@ import {
   type PipelineProgress,
   type TransitionRunStatus,
 } from "./pipeline-progress";
-import { getArtifactViewQueryKey } from "./use-artifact-view";
 
 export type { PipelineProgress, TransitionRunStatus, TransitionTiming } from "./pipeline-progress";
 
@@ -60,7 +59,7 @@ export function cursorTimestampMs(cursor: string): number | undefined {
   return Math.floor(Number(nanos) / 1_000_000);
 }
 
-function isArtifactViewId(value: unknown): value is ArtifactViewId {
+function isPipelineSectionId(value: unknown): value is PipelineSectionId {
   return typeof value === "string" && TRANSITIONS.some((transition) => transition.id === value);
 }
 
@@ -69,7 +68,7 @@ function isTransitionRunStatus(value: unknown): value is TransitionProgressStatu
 }
 
 export interface TransitionProgressEvent {
-  artifactId: ArtifactViewId;
+  artifactId: PipelineSectionId;
   status: TransitionProgressStatus;
   eventTime?: number;
   error?: { type: string; message: string };
@@ -87,7 +86,7 @@ export function parseTransitionProgressEvent(record: RuntimeEvent): TransitionPr
   const payload = record.payload;
   const artifactId = payload?.transition_id;
   const status = payload?.status;
-  if (!isArtifactViewId(artifactId) || !isTransitionRunStatus(status)) {
+  if (!isPipelineSectionId(artifactId) || !isTransitionRunStatus(status)) {
     return null;
   }
 
@@ -115,9 +114,8 @@ function toRuntimeEventRecord(record: RuntimeEvent) {
 function invalidateArtifactView(
   queryClient: ReturnType<typeof useQueryClient>,
   workspaceId: string,
-  artifactId: ArtifactViewId,
 ) {
-  queryClient.invalidateQueries({ queryKey: getArtifactViewQueryKey(workspaceId, artifactId) });
+  queryClient.invalidateQueries({ queryKey: ["pipeline", workspaceId, "artifact"] });
   queryClient.invalidateQueries({ queryKey: ["model-snapshot", workspaceId, "latest"] });
 }
 
@@ -130,13 +128,13 @@ function invalidateArtifactView(
 function applyRunTransition(
   progress: PipelineProgress | undefined,
   transition: TransitionRecord,
-  transitionOrder: readonly ArtifactViewId[],
+  transitionOrder: readonly PipelineSectionId[],
 ): PipelineProgress | undefined {
   if (transition.move.kind !== "run") {
     return progress;
   }
-  const artifactId = transition.move.artifact_id;
-  if (!isArtifactViewId(artifactId)) {
+  const artifactId = transition.move.operation_id;
+  if (!isPipelineSectionId(artifactId)) {
     return progress;
   }
   const eventTime = Date.parse(transition.ts);
@@ -167,8 +165,8 @@ function hasRunningTransition(progress: PipelineProgress | undefined): boolean {
 
 function applyExistingArtifactView(
   progress: PipelineProgress | undefined,
-  artifactId: ArtifactViewId,
-  transitionOrder: readonly ArtifactViewId[],
+  artifactId: PipelineSectionId,
+  transitionOrder: readonly PipelineSectionId[],
 ): PipelineProgress {
   const current = progress ?? initialProgress(transitionOrder);
   if (current.artifacts[artifactId] !== "pending") {
@@ -186,7 +184,7 @@ function applyExistingArtifactView(
 
 export function useRunEvents(
   workspaceId: string | null,
-  transitionOrder: readonly ArtifactViewId[] | undefined,
+  transitionOrder: readonly PipelineSectionId[] | undefined,
 ) {
   const queryClient = useQueryClient();
   const cursorRef = useRef<string | null>(null);
@@ -195,7 +193,7 @@ export function useRunEvents(
 
   const updateTransition = useCallback(
     (
-      artifactId: ArtifactViewId,
+      artifactId: PipelineSectionId,
       status: TransitionRunStatus,
       eventTime?: number,
       errorMessage?: string,
@@ -265,7 +263,7 @@ export function useRunEvents(
           transitionEvent.error?.message,
         );
         if (transitionEvent.status === "completed") {
-          invalidateArtifactView(queryClient, workspaceId, transitionEvent.artifactId);
+          invalidateArtifactView(queryClient, workspaceId);
         }
       }
       if (payload.events.length > 0) {
@@ -274,7 +272,7 @@ export function useRunEvents(
 
       for (const artifact of payload.artifacts) {
         const artifactId = artifact.artifact_id;
-        if (!artifact.exists || !isArtifactViewId(artifactId)) {
+        if (!artifact.exists || !isPipelineSectionId(artifactId)) {
           continue;
         }
         queryClient.setQueryData<PipelineProgress>(getPipelineStatusQueryKey(workspaceId), (old) =>
@@ -328,7 +326,7 @@ export function useRunEvents(
           onTransitionStart: (id) => updateTransition(id, "running"),
           onTransitionComplete: (id) => {
             updateTransition(id, "completed");
-            invalidateArtifactView(queryClient, workspaceId, id);
+            invalidateArtifactView(queryClient, workspaceId);
           },
         },
         transitionOrder,

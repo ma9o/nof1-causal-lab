@@ -1,21 +1,26 @@
 import { signColor } from "@/components/dag/core/palette";
-import { Button } from "@/components/ui/button";
+import { JsonViewer } from "@/components/ui/json-viewer";
 import { formatPlain, formatSigned, humanize } from "../model-selection";
-import { ArtifactChip, Hint, KeyValue, OwnerLink, Prose, Section, Tag } from "../scope-primitives";
+import {
+  ArtifactChip,
+  FactChip,
+  Hint,
+  KeyValue,
+  OwnerLink,
+  Prose,
+  Section,
+} from "../scope-primitives";
 import { chipFor, type ScopeContext } from "./scope-context";
 
 export function AssetScope({ context }: { context: ScopeContext }) {
   const { model, queries } = context;
-  const rawData = model.raw_data?.value;
-  const fit = model.fit?.value;
-  const saved = model.saved_scenarios?.value.scenarios ?? [];
-  const commentary = model.baseline_report?.value.final_summary;
+  const rawData = model.data.raw_data?.value;
+  const fit = model.findings.fit?.value;
+  const commentary = model.findings.baseline_report?.value.final_summary;
   const sorted = queries
     .filter((query) => query.origin === "ranking" && query.posterior)
     .sort((left, right) => Math.abs(right.posterior!.mean) - Math.abs(left.posterior!.mean));
-  const mcmc = fit?.posterior.assessment.mcmc_diagnostics;
-  const smc = fit?.posterior.assessment.smc_diagnostics;
-  const loo = fit?.posterior.assessment.loo_diagnostics;
+  const loo = fit?.report.assessment.loo_diagnostics;
   return (
     <>
       {context.question ? (
@@ -35,29 +40,11 @@ export function AssetScope({ context }: { context: ScopeContext }) {
         </Section>
       ) : null}
       {fit ? (
-        <Section title="Fit" chips={<ArtifactChip {...chipFor(context, "posterior")} />}>
+        <Section title="Fit" chips={<FactChip source={context.model.findings.fit?.source} />}>
           <KeyValue
             rows={[
-              ["method", fit.posterior.inference_metadata.method.replaceAll("_", " ")],
-              ...(mcmc
-                ? ([
-                    [
-                      "sampler",
-                      `${mcmc.num_chains ?? "?"} chains × ${mcmc.num_samples ?? "?"} · accept ${mcmc.accept_prob_mean.toFixed(2)}`,
-                    ],
-                    [
-                      "divergences",
-                      <Tag key="div" tone={mcmc.num_divergences === 0 ? "success" : "destructive"}>
-                        {mcmc.num_divergences}
-                      </Tag>,
-                    ],
-                  ] as Array<[string, React.ReactNode]>)
-                : []),
-              ...(smc
-                ? ([["SMC", `${smc.n_particles} particles · ${smc.n_levels} levels`]] as Array<
-                    [string, React.ReactNode]
-                  >)
-                : []),
+              ["method", fit.report.inference_metadata.method.replaceAll("_", " ")],
+              ["draws", fit.report.inference_metadata.n_samples.toLocaleString()],
               ...(loo
                 ? ([
                     [
@@ -69,6 +56,14 @@ export function AssetScope({ context }: { context: ScopeContext }) {
               ["PPC", `${fit.predictive_checks_passed}/${fit.predictive_checks_total} checks pass`],
             ]}
           />
+          {Object.keys(fit.report.inference_diagnostics).length > 0 && (
+            <details className="mt-2 text-xs">
+              <summary className="cursor-pointer py-1 text-muted-foreground">
+                Inference diagnostics
+              </summary>
+              <JsonViewer data={fit.report.inference_diagnostics} />
+            </details>
+          )}
         </Section>
       ) : null}
       {sorted.length > 0 ? (
@@ -143,33 +138,6 @@ export function AssetScope({ context }: { context: ScopeContext }) {
           <Hint>
             <span className="line-clamp-6">{commentary}</span>
           </Hint>
-        </Section>
-      ) : null}
-      {saved.length > 0 ? (
-        <Section
-          title="Saved scenarios"
-          chips={<ArtifactChip {...chipFor(context, "saved_scenarios")} />}
-        >
-          <ul className="m-0 flex list-none flex-col gap-1 p-0 text-[11px]">
-            {saved.map((scenario) => (
-              <li key={scenario.query.id} className="flex flex-col">
-                <Button
-                  type="button"
-                  variant="link"
-                  size="xs"
-                  className="h-auto justify-start p-0 text-[11px] font-semibold"
-                  onClick={() => context.select({ kind: "query", key: scenario.query.id })}
-                >
-                  {scenario.label}
-                </Button>
-                <Hint>
-                  {scenario.query.clamps.map((clamp) => clamp.variable).join(", ")} ·{" "}
-                  {scenario.query.readout.horizon_days} days · {scenario.evaluations.length}{" "}
-                  evaluations
-                </Hint>
-              </li>
-            ))}
-          </ul>
         </Section>
       ) : null}
     </>

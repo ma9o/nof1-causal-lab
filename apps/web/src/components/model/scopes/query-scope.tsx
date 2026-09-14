@@ -1,4 +1,7 @@
 import { useState } from "react";
+import { createSimulateDispatch } from "@/components/dag/interactive/dispatch-simulate";
+import type { SimulationResult } from "@nof1-causal-lab/api-types";
+import { Button } from "@/components/ui/button";
 import { signColor } from "@/components/dag/core/palette";
 import { formatClampValue } from "@/components/dag/intervention-dag-semantics";
 import { EffectChart } from "../effect-chart";
@@ -8,21 +11,31 @@ import { ArtifactChip, Hint, KeyValue, Section, Tag } from "../scope-primitives"
 import { type ScopeContext } from "./scope-context";
 
 export function QueryScope({ context, query }: { context: ScopeContext; query: ModelQuery }) {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const simulation =
-    query.evaluations.find((item) => item.evaluation.id === selectedId) ?? query.simulation;
-  const posterior = simulation?.result.summary ?? query.posterior;
-  const posteriorVersion = simulation?.evaluation.posterior.version ?? query.posteriorVersion;
-  const modelId = simulation?.evaluation.model.id ?? context.model.model.id;
-  const outcome = simulation?.result.outcome_label ?? query.outcome;
-  const posteriorStatus = context.artifacts.find(
-    (artifact) => artifact.artifact_id === "posterior",
-  );
+  const [live, setLive] = useState<SimulationResult | null>(null);
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const simulation = live ?? query.simulation;
+  const posterior = simulation?.summary ?? query.posterior;
+  const modelVersion = simulation?.provenance.model.version ?? query.modelVersion;
+  const modelId = simulation?.provenance.model.workspace_id ?? context.model.context.workspace.id;
+  const outcome = simulation ? simulation.labels[simulation.request.outcome.id] : query.outcome;
+  async function run() {
+    if (!query.request) return;
+    setRunning(true);
+    setError(null);
+    try {
+      setLive(await createSimulateDispatch(context.model.context.workspace.id)(query.request));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Simulation failed");
+    } finally {
+      setRunning(false);
+    }
+  }
   const stale =
-    modelId === context.model.model.id &&
-    posteriorVersion === context.snapshot.versions.posterior &&
-    posteriorStatus?.stale === true;
-  const clamps = simulation?.query.clamps ?? query.savedQuery?.clamps ?? [];
+    modelId === context.model.context.workspace.id &&
+    (modelVersion !== context.snapshot.versions.model ||
+      context.model.findings.fit?.source.validity === "stale");
+  const clamps = simulation?.request.clamps ?? query.request?.clamps ?? [];
   const clamp = clamps[0];
   return (
     <>
@@ -33,7 +46,12 @@ export function QueryScope({ context, query }: { context: ScopeContext; query: M
               "intervene on",
               <span key="v" className="font-mono">
                 {clamps.length
-                  ? clamps.map((item) => `${item.variable}: ${formatClampValue(item)}`).join("; ")
+                  ? clamps
+                      .map(
+                        (item) =>
+                          `${simulation?.labels[item.target.id] ?? context.entities.constructs.find((c) => c.id === item.target.id)?.name ?? item.target.id}: ${formatClampValue(item)}`,
+                      )
+                      .join("; ")
                   : query.title}
               </span>,
             ],
@@ -60,53 +78,20 @@ export function QueryScope({ context, query }: { context: ScopeContext; query: M
               : []),
           ]}
         />
-        {query.prompt ? <Hint>asked: “{query.prompt}”</Hint> : null}
       </Section>
-      {query.evaluations.length > 1 ? (
-        <Section title="Evaluations" wide>
-          <Hint>
-            Compare the same question across fitted models. Select an evaluation to inspect its
-            result.
-          </Hint>
-          <table className="w-full text-left text-[10.5px]">
-            <thead className="text-muted-foreground">
-              <tr>
-                <th className="py-1">Model / posterior</th>
-                <th>Mean effect</th>
-                <th>95% interval</th>
-              </tr>
-            </thead>
-            <tbody>
-              {query.evaluations.map((item) => (
-                <tr
-                  key={item.evaluation.id}
-                  className={item.evaluation.id === simulation?.evaluation.id ? "bg-muted/60" : ""}
-                >
-                  <td className="py-1.5">
-                    <button
-                      type="button"
-                      className="text-left underline underline-offset-2"
-                      aria-pressed={item.evaluation.id === simulation?.evaluation.id}
-                      onClick={() => setSelectedId(item.evaluation.id)}
-                    >
-                      {item.evaluation.model.id} · posterior v{item.evaluation.posterior.version}
-                    </button>
-                  </td>
-                  <td className="font-mono">{formatSigned(item.result.summary.mean, 3)}</td>
-                  <td className="font-mono">
-                    [{formatPlain(item.result.summary.lower_95)},{" "}
-                    {formatPlain(item.result.summary.upper_95)}]
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {query.request ? (
+        <Section title="Simulate">
+          <Button size="sm" onClick={run} disabled={running || !context.canSimulate}>
+            {running ? "Simulating…" : "Run on current fit"}
+          </Button>
+          <Hint>Runs the nonlinear drift across posterior draws. Results stay in this view.</Hint>
+          {error ? <Hint issue>{error}</Hint> : null}
         </Section>
       ) : null}
       {posterior ? (
         <Section
           title="Result"
-          chips={<ArtifactChip id="posterior" version={posteriorVersion} stale={stale} />}
+          chips={<ArtifactChip id="model" version={modelVersion} stale={stale} />}
         >
           <div
             className={`flex flex-wrap items-baseline gap-1.5 font-mono text-[10.5px] ${stale ? "opacity-55" : ""}`}
@@ -132,9 +117,9 @@ export function QueryScope({ context, query }: { context: ScopeContext; query: M
             {posterior.mean > 0 ? "raises" : posterior.mean < 0 ? "lowers" : "leaves"}{" "}
             {outcome ? humanize(outcome) : "the outcome"}
             {query.horizonDays != null ? ` at day ${query.horizonDays}` : " at the steady state"} ·{" "}
-            {modelId} · pinned to posterior v{posteriorVersion ?? "?"}
+            {modelId} · pinned to model v{modelVersion ?? "?"}
           </Hint>
-          {simulation?.result.warnings.map((warning) => (
+          {simulation?.warnings.map((warning) => (
             <Hint key={warning} issue>
               {warning}
             </Hint>
@@ -142,12 +127,11 @@ export function QueryScope({ context, query }: { context: ScopeContext; query: M
         </Section>
       ) : (
         <Section title="Result">
-          <Hint>A kept query without a result of its own; asking it again produces one.</Hint>
+          <Hint>Run this request to see its result on the current fit.</Hint>
         </Section>
       )}
-      {simulation?.result.effect_trajectory && simulation.result.effect_trajectory.length > 1 ? (
+      {simulation?.effect_trajectory && simulation.effect_trajectory.length > 1 ? (
         <Section title="Over the horizon" wide>
-          {query.blurb ? <Hint>{query.blurb}</Hint> : null}
           <EffectChart simulation={simulation} />
         </Section>
       ) : null}

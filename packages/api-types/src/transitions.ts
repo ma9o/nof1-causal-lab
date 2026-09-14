@@ -3,23 +3,22 @@ export type { ArtifactId } from "./generated/models";
 
 export const ARTIFACT_VIEW_IDS = [
   "raw_data",
-  "latent_structure",
-  "measurement_structure",
+  "model",
   "measurements",
   "validation_report",
-  "statistical_model_spec",
-  "posterior",
+  "admission_report",
+  "model_diagnostics",
+  "inference_report",
   "baseline_report",
-] as const;
-
+] as const satisfies readonly (keyof import("./generated/models").ArtifactViews)[];
 export type ArtifactViewId = (typeof ARTIFACT_VIEW_IDS)[number];
-
-export type TransitionId = Exclude<ArtifactViewId, "validation_report">;
+export type TransitionId = import("./generated/models").OperationId;
+export type PipelineSectionId = TransitionId | "validation_report";
 
 export type TransitionLogScopePolicy = "subflow" | "subflow-with-children";
 
 export interface TransitionMeta {
-  id: ArtifactViewId;
+  id: PipelineSectionId;
   label: string;
   /** Human-readable hint shown while this transition is running. */
   loadingHint: string;
@@ -74,7 +73,7 @@ export const TRANSITIONS: TransitionMeta[] = [
   },
   {
     id: "statistical_model_spec",
-    label: "Statistical Model Spec",
+    label: "Statistical specification",
     loadingHint: "LLM is specifying the statistical model and priors...",
     description:
       "Specifies observation likelihoods, SSM parameters, and prior distributions using domain knowledge and empirical data.",
@@ -97,6 +96,6 @@ export const TRANSITIONS: TransitionMeta[] = [
   },
 ];
 
-export const TRANSITION_META: Record<ArtifactViewId, TransitionMeta> = Object.fromEntries(
+export const TRANSITION_META: Record<PipelineSectionId, TransitionMeta> = Object.fromEntries(
   TRANSITIONS.map((transition) => [transition.id, transition]),
-) as Record<ArtifactViewId, TransitionMeta>;
+) as Record<PipelineSectionId, TransitionMeta>;

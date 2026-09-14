@@ -9,14 +9,14 @@ export function QueryCollection({
   queries,
   selectedKey,
   outcome,
-  posteriorVersion,
+  modelVersion,
   posteriorStale,
   onSelect,
 }: {
   queries: ModelQuery[];
   selectedKey: string | null;
   outcome: string | null;
-  posteriorVersion: number | null;
+  modelVersion: number | null;
   posteriorStale: boolean;
   onSelect: (key: string) => void;
 }) {
@@ -27,11 +27,11 @@ export function QueryCollection({
         <span className="text-[10px] font-normal text-muted-foreground">{queries.length}</span>
       </div>
       <div className="flex flex-wrap gap-1">
-        <ArtifactChip id="posterior" version={posteriorVersion} stale={posteriorStale} />
+        <ArtifactChip id="model" version={modelVersion} stale={posteriorStale} />
       </div>
       {posteriorStale ? (
         <div className="rounded-md border border-warning/40 bg-warning/14 px-1.5 py-1 text-[9.5px] leading-tight text-warning-foreground text-pretty">
-          the selected posterior is stale · saved queries retain their original fit
+          the selected posterior is stale · report results retain their original fit
         </div>
       ) : null}
       <div className="flex min-h-0 flex-col gap-1.5 overflow-y-auto">
@@ -42,7 +42,6 @@ export function QueryCollection({
             onClick={() => onSelect(query.key)}
             className={cn(
               "flex min-w-0 cursor-pointer flex-col gap-0.5 rounded-lg border bg-card px-1.5 py-1 text-left",
-              query.origin === "saved" && "border-dashed",
               selectedKey === query.key && "border-primary bg-primary/5 ring-2 ring-primary/30",
             )}
           >

@@ -1,7 +1,7 @@
-import type { SimulateScenarioResult } from "@nof1-causal-lab/api-types";
+import type { SimulationResult } from "@nof1-causal-lab/api-types";
 
-/** Read the same query/result envelope from a live tool output or serialized trace. */
-export function parseSimulationResult(output: unknown): SimulateScenarioResult | null {
+/** Select current simulation responses from heterogeneous tool messages. */
+export function parseSimulationResult(output: unknown): SimulationResult | null {
   let value = output;
   if (typeof value === "string") {
     try {
@@ -11,25 +11,13 @@ export function parseSimulationResult(output: unknown): SimulateScenarioResult |
     }
   }
   if (typeof value !== "object" || value === null) return null;
-  const candidate = value as Partial<SimulateScenarioResult>;
-  const { query, evaluation, result } = candidate;
-  return typeof query === "object" &&
-    query !== null &&
-    typeof query.id === "string" &&
-    Array.isArray(query.clamps) &&
-    query.clamps.length > 0 &&
-    typeof evaluation === "object" &&
-    evaluation !== null &&
-    evaluation.query_id === query.id &&
-    typeof evaluation.id === "string" &&
-    typeof result === "object" &&
-    result !== null &&
-    result.evaluation_id === evaluation.id &&
-    typeof result.outcome_label === "string" &&
-    typeof result.summary === "object" &&
-    result.summary !== null &&
-    typeof result.start === "object" &&
-    result.start !== null
-    ? (value as SimulateScenarioResult)
+  const candidate = value as Partial<SimulationResult>;
+  return candidate.request != null &&
+    Array.isArray(candidate.request.clamps) &&
+    candidate.request.clamps.length > 0 &&
+    candidate.provenance?.model?.version != null &&
+    candidate.labels != null &&
+    candidate.summary != null
+    ? (value as SimulationResult)
     : null;
 }

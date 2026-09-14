@@ -3,14 +3,13 @@
 import { formatNumber } from "@/lib/utils/format";
 
 import { Badge } from "@/components/ui/badge";
-import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
+import { InfoTable } from "@/components/ui/info-table";
 import { distributionArgumentText } from "@/lib/utils/distribution-format";
-import type { ParameterSpec } from "@nof1-causal-lab/api-types";
+import type { ParameterSpec, DensityPoint, ModelDiagnostics } from "@nof1-causal-lab/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 import { scaleLinear } from "d3-scale";
 import { area, curveMonotoneX, line } from "d3-shape";
 import { type MouseEvent, useMemo, useState } from "react";
-import { SourceBadges } from "../source-badges";
 import { SparklineTooltip } from "./sparkline-tooltip";
 
 type PriorRow = ParameterSpec;
@@ -20,21 +19,9 @@ const DENSITY_CHART_WIDTH = 144;
 const DENSITY_CHART_HEIGHT = 64;
 const DENSITY_CHART_MARGIN = { top: 4, right: 5, bottom: 14, left: 3 };
 
-interface DensityPoint {
-  x: number;
-  y: number;
-}
-
-function densityPoints(points: PriorRow["prior_density_points"]): DensityPoint[] {
-  return (points ?? []).flatMap((point) =>
-    typeof point.x === "number" && typeof point.y === "number" ? [{ x: point.x, y: point.y }] : [],
-  );
-}
-
 /** Compact inline density chart with axes. */
-function DensitySparkline({ prior }: { prior: PriorRow }) {
+function DensitySparkline({ prior, data }: { prior: PriorRow; data: DensityPoint[] }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
-  const data = useMemo(() => densityPoints(prior.prior_density_points), [prior]);
 
   if (data.length === 0) {
     return <span className="text-xs text-muted-foreground">--</span>;
@@ -91,7 +78,7 @@ function DensitySparkline({ prior }: { prior: PriorRow }) {
         className="h-full w-full"
         viewBox={`0 0 ${DENSITY_CHART_WIDTH} ${DENSITY_CHART_HEIGHT}`}
         role="img"
-        aria-label={`Prior density for ${prior.name}`}
+        aria-label={`Distribution density for ${prior.name}`}
       >
         {areaPath && <path d={areaPath} fill="var(--primary)" opacity={0.15} />}
         {linePath && <path d={linePath} fill="none" stroke="var(--primary)" strokeWidth={1.5} />}
@@ -134,58 +121,65 @@ function DensitySparkline({ prior }: { prior: PriorRow }) {
   );
 }
 
-const baseColumns = [
-  col.accessor("name", {
-    header: "Parameter",
-    cell: (info) => <span className="font-medium font-mono text-xs">{info.getValue()}</span>,
-  }),
-  col.accessor((parameter) => parameter.prior?.distribution ?? "Unspecified", {
-    id: "distribution",
-    header: "Distribution",
-    cell: (info) => <Badge variant="outline">{info.getValue()}</Badge>,
-  }),
-  col.display({
-    id: "params",
-    header: "Params",
-    cell: ({ row }) => {
-      const params = row.original.prior?.params ?? {};
-      return (
-        <div className="flex flex-col gap-0.5 font-mono text-xs text-muted-foreground">
-          {Object.entries(params).map(([k, v]) => (
-            <span key={k}>
-              {k}={distributionArgumentText(v)}
+const priorColumns = (densities: ModelDiagnostics["prior_densities"]) =>
+  [
+    col.accessor("name", {
+      header: "Parameter",
+      cell: (info) => <span className="font-medium font-mono text-xs">{info.getValue()}</span>,
+    }),
+    col.accessor(
+      (parameter) =>
+        parameter.value != null
+          ? "Fixed"
+          : typeof parameter.distribution === "string"
+            ? "Joint distribution"
+            : (parameter.distribution?.distribution ?? "Unspecified"),
+      {
+        id: "distribution",
+        header: "Distribution",
+        cell: (info) => <Badge variant="outline">{info.getValue()}</Badge>,
+      },
+    ),
+    col.display({
+      id: "params",
+      header: "Params",
+      cell: ({ row }) => {
+        if (row.original.value != null)
+          return <span className="font-mono text-xs">{row.original.value}</span>;
+        if (typeof row.original.distribution === "string")
+          return (
+            <span className="text-xs text-muted-foreground">
+              Shared with other model quantities
             </span>
-          ))}
-        </div>
-      );
-    },
-  }),
-  col.display({
-    id: "density",
-    header: "Density",
-    cell: ({ row }) => <DensitySparkline prior={row.original} />,
-  }),
-  col.accessor("prior_reasoning", {
-    header: "Reasoning",
-    cell: (info) => (
-      <span className="max-w-xs whitespace-normal text-xs text-muted-foreground">
-        {info.getValue()}
-      </span>
-    ),
-  }),
-  col.display({
-    id: "sources",
-    header: () => (
-      <HeaderWithTooltip
-        label="Sources"
-        tooltip="Literature sources supporting this prior choice. Click to open."
-      />
-    ),
-    cell: ({ row }) => <SourceBadges sources={row.original.prior_sources} />,
-    meta: { align: "center" },
-  }),
-] as ColumnDef<PriorRow, unknown>[];
+          );
+        const params = row.original.distribution?.params ?? {};
+        return (
+          <div className="flex flex-col gap-0.5 font-mono text-xs text-muted-foreground">
+            {Object.entries(params).map(([k, v]) => (
+              <span key={k}>
+                {k}={distributionArgumentText(v)}
+              </span>
+            ))}
+          </div>
+        );
+      },
+    }),
+    col.display({
+      id: "density",
+      header: "Density",
+      cell: ({ row }) => (
+        <DensitySparkline prior={row.original} data={densities[row.original.id] ?? []} />
+      ),
+    }),
+  ] as ColumnDef<PriorRow, unknown>[];
 
-export function PriorTable({ parameters }: { parameters: ParameterSpec[] }) {
-  return <InfoTable columns={baseColumns} data={parameters} estimateRowHeight={72} />;
+export function PriorTable({
+  parameters,
+  densities,
+}: {
+  parameters: ParameterSpec[];
+  densities: ModelDiagnostics["prior_densities"];
+}) {
+  const columns = useMemo(() => priorColumns(densities), [densities]);
+  return <InfoTable columns={columns} data={parameters} estimateRowHeight={72} />;
 }

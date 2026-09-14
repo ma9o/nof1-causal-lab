@@ -1,8 +1,8 @@
-import type { LatentClampInput, SimulateScenarioInput } from "@nof1-causal-lab/api-types";
+import type { ScenarioClamp, ScenarioRequest } from "@nof1-causal-lab/api-types";
 import type { AnalysisSimulationResult } from "../intervention-dag-types";
 
 /** Interactive scenarios always select an explicit outcome. */
-export type SimulateInput = SimulateScenarioInput & { outcome: string };
+export type SimulateInput = ScenarioRequest;
 
 /**
  * Runs a scenario and returns its result. The interactive DAG is agnostic to
@@ -14,13 +14,13 @@ export type SimulateFn = (input: SimulateInput) => Promise<AnalysisSimulationRes
 /** Re-run `base`'s scenario start with a new set of clamps over the same horizon. */
 export function buildSimulateInput(
   base: AnalysisSimulationResult,
-  clamps: [LatentClampInput, ...LatentClampInput[]],
+  clamps: [ScenarioClamp, ...ScenarioClamp[]],
   horizonDays: number,
 ): SimulateInput {
   return {
-    start: { ...base.query.start },
+    start: { ...base.request.start },
     clamps,
-    outcome: base.result.outcome_label,
-    query: { estimand: "trajectory", horizon_days: horizonDays, projection: "latent" },
+    outcome: base.request.outcome,
+    readout: { estimand: "trajectory", horizon_days: horizonDays, projection: "latent" },
   };
 }

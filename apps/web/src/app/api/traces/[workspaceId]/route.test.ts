@@ -9,11 +9,11 @@ vi.mock("@/lib/server/episode-runs", () => ({
       super(message);
     }
   },
-  getArtifactTraceIndex: vi.fn(),
+  getOperationTraceIndex: vi.fn(),
   getEpisodeTrace: vi.fn(),
 }));
 
-import { getArtifactTraceIndex, getEpisodeTrace } from "@/lib/server/episode-runs";
+import { getOperationTraceIndex, getEpisodeTrace } from "@/lib/server/episode-runs";
 import { GET } from "./route";
 
 describe("GET /api/traces/[workspaceId]", () => {
@@ -22,10 +22,8 @@ describe("GET /api/traces/[workspaceId]", () => {
   });
 
   it("resolves the producing transition and merges its promoted traces", async () => {
-    vi.mocked(getArtifactTraceIndex).mockResolvedValue({
+    vi.mocked(getOperationTraceIndex).mockResolvedValue({
       workspace_id: "DEMO",
-      artifact_id: "statistical_model_spec",
-      version: 1,
       seq: 6,
       trace_ids: ["construct-a", "construct-b"],
     });
@@ -63,10 +61,8 @@ describe("GET /api/traces/[workspaceId]", () => {
   });
 
   it("returns 404 when the producing transition has no promoted traces", async () => {
-    vi.mocked(getArtifactTraceIndex).mockResolvedValue({
+    vi.mocked(getOperationTraceIndex).mockResolvedValue({
       workspace_id: "DEMO",
-      artifact_id: "posterior",
-      version: 1,
       seq: 8,
       trace_ids: [],
     });

@@ -1,5 +1,7 @@
 "use client";
 
+import { primaryArtifact } from "@/lib/model-asset/journal";
+
 import type { LLMTrace } from "@nof1-causal-lab/api-types";
 import { useEffect, useMemo, useRef } from "react";
 import { ChatMessages } from "@/components/ui/custom/chat-messages";
@@ -7,7 +9,7 @@ import type { JournalTick } from "@/lib/model-asset/journal";
 import { cn } from "@/lib/utils";
 import { formatCompact } from "@/lib/utils/format";
 import { traceToUIMessages } from "@/lib/utils/trace-to-ui-messages";
-import { ARTIFACT_LABEL } from "./model-selection";
+import { ARTIFACT_LABEL, moveLabel } from "./model-selection";
 
 export type MoveTraceState =
   | { status: "loading" }
@@ -51,7 +53,7 @@ function TurnBody({
         <div className="rounded-xl border bg-secondary px-2.5 py-1.5 text-pretty">
           {tick.move.artifact_id === "question" && question
             ? question
-            : `${ARTIFACT_LABEL[tick.move.artifact_id]} written${byHand ? " by hand" : ""}`}
+            : `${moveLabel(tick.move)} written${byHand ? " by hand" : ""}`}
         </div>
         {tick.derived.length > 0 || tick.retracted.length > 0 ? (
           <MachineLine>
@@ -67,7 +69,10 @@ function TurnBody({
     return (
       <div className="pl-4">
         <MachineLine>
-          computed · installed {[tick.move.artifact_id, ...tick.derived].join(", ")}
+          computed ·{" "}
+          {tick.version == null && tick.derived.length === 0
+            ? "no output"
+            : `installed ${[...(tick.version != null ? [primaryArtifact(tick.move)] : []), ...tick.derived].join(", ")}`}
         </MachineLine>
       </div>
     );
@@ -169,7 +174,7 @@ function Turn({
             focused && "underline underline-offset-[3px]",
           )}
         >
-          {ARTIFACT_LABEL[tick.move.artifact_id]}
+          {moveLabel(tick.move)}
         </b>
         {tick.version != null ? (
           <span className="font-mono text-[10px]">v{tick.version}</span>
