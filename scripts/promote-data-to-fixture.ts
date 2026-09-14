@@ -1,7 +1,17 @@
 #!/usr/bin/env bun
 
 import { randomUUID } from "node:crypto";
-import { access, cp, mkdir, mkdtemp, readdir, readFile, rename, rm } from "node:fs/promises";
+import {
+  access,
+  cp,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -20,26 +30,17 @@ const DURABLE_ENTRIES = [
 ] as const;
 
 const COMPLETE_ARTIFACTS = [
-  "question",
   "raw_data",
   "model",
-  "structural_plan",
   "identification_report",
   "panel",
   "validation_report",
-  "admission_report",
-  "posterior",
-  "baseline_report",
 ] as const;
 
 const ARTIFACT_PROJECTIONS = {
   model: "model.json",
   identification_report: "identification_report.json",
-  structural_plan: "structural-plan.json",
   validation_report: "validation_report.json",
-  admission_report: "admission_report.json",
-  posterior: "diagnostics.json",
-  baseline_report: "baseline_report.json",
 } as const;
 
 const TRACE_PROJECTIONS = {
@@ -48,7 +49,6 @@ const TRACE_PROJECTIONS = {
   measurement_structure: /^measurement-structure$/,
   measurements: /^measurement-chunk-/,
   statistical_model_spec: /^model-spec-/,
-  baseline_report: /^baseline-report$/,
 } as const;
 
 type ProjectedArtifactId = keyof typeof ARTIFACT_PROJECTIONS;
@@ -60,6 +60,7 @@ interface ArtifactVersionInfo {
   derived_from?: Record<string, number>;
   model_inputs?: Record<string, string>;
   consumed_model_inputs?: Record<string, string>;
+  produced_by?: string;
 }
 
 interface TransitionRecord {
@@ -69,6 +70,7 @@ interface TransitionRecord {
   produced?: ArtifactVersionInfo[];
   retracted?: Array<{ artifact_id: string }>;
   trace_ids?: string[];
+  diagnostics: Record<string, unknown>;
 }
 
 interface CurrentArtifact {
@@ -192,6 +194,17 @@ async function validateCompleteWorkspace(
   const stale = COMPLETE_ARTIFACTS.filter((artifactId) => isStale(artifactId, current));
   if (stale.length > 0) {
     throw new Error(`Source workspace has stale current artifacts: ${stale.join(", ")}.`);
+  }
+
+  const model = current.get("model") as CurrentArtifact;
+  if (
+    model.info.produced_by !== "run:posterior" ||
+    model.record.move.operation_id !== "posterior"
+  ) {
+    throw new Error("Source workspace has no completed inference for its current model.");
+  }
+  if (model.info.derived_from?.panel !== current.get("panel")!.info.version) {
+    throw new Error("Source workspace inference has stale panel inputs.");
   }
 
   for (const artifactId of COMPLETE_ARTIFACTS) {
@@ -333,11 +346,24 @@ export async function promoteDataWorkspace({
   try {
     await copyDurableWorkspace(sourceRoot, stagingRoot);
     const artifacts = await copyArtifactProjections(sourceRoot, stagingRoot, current);
-    const traces = await copyTraceProjections(
-      sourceRoot,
-      stagingRoot,
-      await readJournal(sourceRoot),
-    );
+    const records = await readJournal(sourceRoot);
+    const traces = await copyTraceProjections(sourceRoot, stagingRoot, records);
+    for (const [operation, filename] of [
+      ["statistical_model_spec", "model_authoring.json"],
+      ["posterior", "inference.json"],
+    ]) {
+      const record = records.findLast(
+        (entry) =>
+          entry.status === "applied" &&
+          entry.move.kind === "run" &&
+          entry.move.operation_id === operation,
+      );
+      if (!record) throw new Error(`No applied ${operation} operation in source history.`);
+      await writeFile(
+        join(stagingRoot, "fixture", filename),
+        JSON.stringify(record.diagnostics, null, 2) + "\n",
+      );
+    }
     await replaceFixture(stagingRoot, fixtureRoot);
     return { source: sourceRoot, destination: fixtureRoot, artifacts, traces };
   } finally {

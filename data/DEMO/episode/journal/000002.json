@@ -3,9 +3,9 @@
   "ts": "2026-07-08T11:57:25.454453+00:00",
   "move": {
     "kind": "write",
-    "artifact_id": "question",
+    "artifact_id": "model",
     "provenance": "human",
-    "expected_model_version": null
+    "expected_model_version": 0
   },
   "status": "applied",
   "reason": null,
@@ -14,11 +14,16 @@
   "diagnostics": {},
   "produced": [
     {
-      "artifact_id": "question",
+      "artifact_id": "model",
       "version": 1,
       "provenance": "human",
       "derived_from": {},
-      "model_inputs": {},
+      "model_inputs": {
+        "extraction": "input:8ad45924bf0717c00e45b718caa4bb3a3a750f3555bf1148c9c6f2307fbd0aa8",
+        "identification": "input:c91f88f510f2f330630d018aa8e96fa4ae6f8af55e22c4eeec9590f29f3e80d9",
+        "compilation": "input:8bf8946bdaa4a3b4e3f71097e4e7bb933660c658c364b80571abee3276907f95",
+        "belief": "input:5b13597003f88a3e25b13cda7585e905fad8af355483dc651717ac9147b7bd0a"
+      },
       "consumed_model_inputs": {},
       "produced_by": null,
       "created_at": "2026-07-08T11:57:25.454344+00:00"

@@ -13,15 +13,16 @@
   "produced": [
     {
       "artifact_id": "model",
-      "version": 1,
+      "version": 2,
       "provenance": "computed",
       "derived_from": {
-        "question": 1
+        "model": 1
       },
       "model_inputs": {
-        "extraction": "input:96e6dfa801c2b4bd481112dad312e3e021e390bb5bd17e8ffc405a96db0ce786",
-        "identification": "input:a52cc63860e46befdbaf11aef550e273d224338b5a3ab96b45090bbddadbbb89",
-        "compilation": "input:172bbd09ab31029de43a71d4775fe9553f028bb635592dff18ce1b5c8390d7ad"
+        "extraction": "input:8ad45924bf0717c00e45b718caa4bb3a3a750f3555bf1148c9c6f2307fbd0aa8",
+        "identification": "input:486eb7f2d4a485922e6d2331eda2c4c6cd9e7f99771d3eaf80781c653c8473f2",
+        "compilation": "input:3417f269b325c890954ed38d7b4940aaa69b49e8c7e43ea55e65428d3dfeda8a",
+        "belief": "input:ebf258deb1d9be84173a7035179b7c50ea3c75536dc8e8b72f0c8335d990e5e7"
       },
       "consumed_model_inputs": {},
       "produced_by": "run:latent_structure",

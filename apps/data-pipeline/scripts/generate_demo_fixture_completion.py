@@ -1,9 +1,10 @@
 """Compose DEMO read fixtures from retained canonical artifacts.
 
-The illustrative inference report and scenario values are fixed fixture inputs.
+The illustrative inference report is a fixed fixture input.
 The original joint samples were not retained; the report stays in the log, and
 this fixture deliberately does not invent a conditioned ModelSpec. This
-command validates their references and regenerates presentation reads through
+command validates their scientific references.
+It regenerates presentation reads through
 the production reader, without fitting or generating new inference results. Prior plot viewports use
 a small deterministic native draw; curve densities come from NumPyro.
 
@@ -52,8 +53,7 @@ def build_outputs():
                 construct.model_copy(
                     update={
                         "dynamics": (),
-                        "innovation": None,
-                        "initial_state": None,
+                        "coefficients": (),
                         "indicators": tuple(
                             indicator.model_copy(update={"likelihood": None})
                             for indicator in construct.indicators
@@ -64,21 +64,20 @@ def build_outputs():
             ),
         ),
         parameters=(),
+        distributions={},
     )
     proposed = measured.revised(
         edges=replace_constructs(
             measured.edges,
             tuple(
-                construct.model_copy(update={"indicators": (), "usage": None})
-                for construct in measured.constructs
+                construct.model_copy(update={"indicators": ()}) for construct in measured.constructs
             ),
         ),
         measurement_clock=None,
     )
     for aid, value in payloads.items():
         ARTIFACT_CONTRACTS[aid].model_validate(value)
-    model.check_execution()
-    payloads["question"] = json.loads((DEMO_ROOT / "store/question/v1/question.json").read_text())
+    model.require_measurements()
     tables = {
         "raw_data": pq.read_table(DEMO_ROOT / "store/raw_data/v1/raw.parquet"),
         "panel": pq.read_table(DEMO_ROOT / "store/panel/v1/panel.parquet"),
@@ -89,22 +88,26 @@ def build_outputs():
         tuple[int, Move, list[tuple[ArtifactId, dict[ArtifactId, int], ModelSpec | None]]]
     ] = [
         (1, RunOperation(operation_id="raw_data"), [("raw_data", {}, None)]),
-        (2, WriteArtifact(artifact_id="question"), [("question", {}, None)]),
-        (3, RunOperation(operation_id="latent_structure"), [("model", {"question": 1}, proposed)]),
+        (
+            2,
+            WriteArtifact(artifact_id="model", expected_model_version=0),
+            [("model", {}, ModelSpec(question=model.question))],
+        ),
+        (3, RunOperation(operation_id="latent_structure"), [("model", {"model": 1}, proposed)]),
         (
             4,
             RunOperation(operation_id="measurement_structure"),
             [
-                ("model", {"question": 1, "raw_data": 1, "model": 1}, measured),
-                ("identification_report", {"model": 2}, None),
+                ("model", {"raw_data": 1, "model": 2}, measured),
+                ("identification_report", {"model": 3}, None),
             ],
         ),
         (
             5,
             RunOperation(operation_id="measurements"),
             [
-                ("panel", {"question": 1, "raw_data": 1, "model": 2}, None),
-                ("validation_report", {"model": 2, "panel": 1}, None),
+                ("panel", {"raw_data": 1, "model": 3}, None),
+                ("validation_report", {"model": 3, "panel": 1}, None),
             ],
         ),
         (
@@ -113,21 +116,15 @@ def build_outputs():
             [
                 (
                     "model",
-                    {"model": 2, "panel": 1, "validation_report": 1},
+                    {"model": 3, "panel": 1, "validation_report": 1},
                     model,
                 ),
-                ("admission_report", {"model": 3, "panel": 1}, None),
             ],
         ),
         (
             8,
             RunOperation(operation_id="posterior"),
             [],
-        ),
-        (
-            9,
-            RunOperation(operation_id="baseline_report"),
-            [("baseline_report", {"model": 3, "panel": 1, "identification_report": 1}, None)],
         ),
     ]
     with (

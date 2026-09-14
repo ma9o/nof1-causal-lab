@@ -16,7 +16,6 @@ from scripts.migrate_additive_model import (
 )
 from scripts.migrate_mechanism_identity import remap_references, retired_identity_map
 
-from nof1_causal_lab.artifacts.identity import ConstructRef
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.machine.moves import is_stale
 from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal, replay_state
@@ -73,6 +72,8 @@ def _legacy_layers(model):
 
     value = remap_references(flat_catalogue_payload(model), inverse)
     latent = {key: value[key] for key in ("constructs", "edges", "default_outcome")}
+    if latent["default_outcome"] is not None:
+        latent["default_outcome"] = {"kind": "construct", "id": latent["default_outcome"]}
     measurement = {
         "measurement_structure": {"model_clock": value["measurement_clock"], "indicators": []},
         "known_inputs": [],
@@ -86,7 +87,6 @@ def _legacy_layers(model):
         "observation_intercept_policy": value["policies"]["observation_intercept"],
     }
     for owner in latent["constructs"]:
-        owner.pop("usage")
         for indicator in owner.pop("indicators"):
             likelihood = indicator.pop("likelihood")
             if likelihood is not None:
@@ -102,7 +102,12 @@ def _legacy_layers(model):
             term.pop("id")
             statistical["mechanisms"].append({"edge_id": owner["id"], **term})
     for parameter in statistical["parameters"]:
-        parameter["prior"] = parameter.pop("distribution")
+        reference = parameter.pop("distribution")
+        parameter["prior"] = (
+            model.model_dump(mode="json")["distributions"][reference]
+            if reference is not None
+            else None
+        )
         parameter["prior_transform"] = parameter.pop("distribution_transform")
         parameter["prior_reasoning"] = "Original proposal"
         parameter["prior_sources"] = []
@@ -119,7 +124,7 @@ def _legacy_layers(model):
 def historical(tmp_path):
     source = tmp_path / "original" / "HISTORY"
     model = make_model(["Treatment", "Outcome"], [("Treatment", "Outcome")])
-    model = model.revised(default_outcome=ConstructRef(id=model.constructs[1].id))
+    model = model.revised(default_outcome=model.constructs[1].id)
     latent, measurement, _ = _legacy_layers(model)
     q = _version(source, "question", 1, "question.json", {"text": "Question"}, {})
     l1 = _version(
@@ -267,10 +272,7 @@ def test_history_keeps_original_pins_failures_negative_findings_and_source_bytes
         for i in records[2].produced
     )
     negative = store.read_json_file("identification_report", restored, "identification_report.json")
-    assert (
-        next(iter(negative["status"]["non_identifiable_treatments"].values()))["notes"]
-        == "Original negative finding"
-    )
+    assert next(iter(negative["treatments"].values()))["notes"] == "Original negative finding"
     assert store.read_meta("panel", 5).derived_from == {
         "model": manifest["model_revisions"]["measurement_structure/v1"]
     }
@@ -367,6 +369,21 @@ def test_retired_compiler_matches_checks_derived_from_the_model():
         if any(owner.kind == "mechanism" for owner in model.parameter_context(parameter.id).owners)
     }
     expected = ModelSpec.model_validate(remap_references(model.model_dump(mode="json"), ids))
+    from nof1_causal_lab.models.model_distributions import with_parameter_distributions
+
+    expected = with_parameter_distributions(
+        expected.revised(
+            parameters=tuple(
+                p.model_copy(update={"distribution": None}) for p in expected.parameters
+            ),
+            distributions={},
+        ),
+        {
+            p.id: law
+            for p in expected.parameters
+            if (law := expected.distribution_for(p.id)) is not None
+        },
+    )
     assert converted_model == expected
     validate_retired_compiler(old, converted_model)
     assert converted_model.check_execution() == compiled

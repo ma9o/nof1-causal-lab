@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-from copy import deepcopy
 from pathlib import Path
 
 from pydantic import TypeAdapter
@@ -12,11 +11,12 @@ from pydantic import TypeAdapter
 from nof1_causal_lab.artifacts.identity import ConstructId
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.json_types import JsonObject
+from scripts.migrate_identity_references import convert_payload
 
 
 def connect_endpoints(payload: JsonObject) -> JsonObject:
     """Move existing definitions to their edges; never invent or discard a construct."""
-    value = deepcopy(payload)
+    value = convert_payload(payload)
     objects = TypeAdapter(list[JsonObject])
     identity_type = TypeAdapter(ConstructId)
     constructs = objects.validate_python(value.pop("constructs"))
@@ -53,7 +53,11 @@ def main() -> None:
     args = parser.parse_args()
     if args.destination.exists():
         parser.error("The destination must not exist; preserve the original model")
-    model = ModelSpec.model_validate(connect_endpoints(json.loads(args.source.read_text())))
+    from scripts.migrate_distribution_references import convert_distribution_references
+
+    model = ModelSpec.model_validate(
+        convert_distribution_references(connect_endpoints(json.loads(args.source.read_text())))
+    )
     args.destination.write_text(model.model_dump_json(indent=2) + "\n")
 
 

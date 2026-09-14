@@ -22819,11 +22819,10 @@
       }
     ],
     "input_pins": {
-      "question": 1,
       "raw_data": 1,
-      "model": 2
+      "model": 3
     },
-    "model_input": "input:754ce8a5f3f43a8300ccba20b4ac4bd33f88326f0e1f4d28727737302a1fcc4a",
+    "model_input": "input:a7fefb165a8e2c82fa3bed8e5002ff17cd0ca49502901d81f6b70b7a94de36ed",
     "n_observations": 226216
   },
   "produced": [
@@ -22832,13 +22831,12 @@
       "version": 1,
       "provenance": "computed",
       "derived_from": {
-        "question": 1,
         "raw_data": 1,
-        "model": 2
+        "model": 3
       },
       "model_inputs": {},
       "consumed_model_inputs": {
-        "extraction": "input:754ce8a5f3f43a8300ccba20b4ac4bd33f88326f0e1f4d28727737302a1fcc4a"
+        "extraction": "input:a7fefb165a8e2c82fa3bed8e5002ff17cd0ca49502901d81f6b70b7a94de36ed"
       },
       "produced_by": "run:measurements",
       "created_at": "2026-07-08T11:57:26.429605+00:00"
@@ -22849,11 +22847,11 @@
       "provenance": "computed",
       "derived_from": {
         "panel": 1,
-        "model": 2
+        "model": 3
       },
       "model_inputs": {},
       "consumed_model_inputs": {
-        "identification": "input:4975416bb78a20c7de469fd07a98f8e4b5d986172fb3d6fb1c0cb0114f585237"
+        "identification": "input:3ab9678a13cc6c2ff2f254823430592cf1656568959666fa2df00fc7ba227645"
       },
       "produced_by": "derive:validation_report",
       "created_at": "2026-07-08T11:57:26.868214+00:00"

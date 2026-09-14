@@ -1,16 +1,15 @@
 {
   "artifact_id": "model",
   "version": 1,
-  "provenance": "computed",
-  "derived_from": {
-    "question": 1
-  },
+  "provenance": "human",
+  "derived_from": {},
   "model_inputs": {
-    "extraction": "input:96e6dfa801c2b4bd481112dad312e3e021e390bb5bd17e8ffc405a96db0ce786",
-    "identification": "input:a52cc63860e46befdbaf11aef550e273d224338b5a3ab96b45090bbddadbbb89",
-    "compilation": "input:172bbd09ab31029de43a71d4775fe9553f028bb635592dff18ce1b5c8390d7ad"
+    "extraction": "input:8ad45924bf0717c00e45b718caa4bb3a3a750f3555bf1148c9c6f2307fbd0aa8",
+    "identification": "input:c91f88f510f2f330630d018aa8e96fa4ae6f8af55e22c4eeec9590f29f3e80d9",
+    "compilation": "input:8bf8946bdaa4a3b4e3f71097e4e7bb933660c658c364b80571abee3276907f95",
+    "belief": "input:5b13597003f88a3e25b13cda7585e905fad8af355483dc651717ac9147b7bd0a"
   },
   "consumed_model_inputs": {},
-  "produced_by": "run:latent_structure",
-  "created_at": "2026-07-08T11:57:25.456981+00:00"
+  "produced_by": null,
+  "created_at": "2026-07-08T11:57:25.454344+00:00"
 }

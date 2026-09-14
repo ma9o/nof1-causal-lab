@@ -5,26 +5,17 @@ import { join } from "node:path";
 import { promoteDataWorkspace } from "./promote-data-to-fixture";
 
 const ARTIFACTS = [
-  "question",
   "raw_data",
   "model",
-  "structural_plan",
   "identification_report",
   "panel",
   "validation_report",
-  "admission_report",
-  "posterior",
-  "baseline_report",
 ] as const;
 
 const PAYLOADS = {
   model: "model.json",
   identification_report: "identification_report.json",
-  structural_plan: "structural-plan.json",
   validation_report: "validation_report.json",
-  admission_report: "admission_report.json",
-  posterior: "diagnostics.json",
-  baseline_report: "baseline_report.json",
 } as const;
 
 const TRACE_IDS = {
@@ -33,7 +24,6 @@ const TRACE_IDS = {
   measurement_structure: "measurement-structure",
   measurements: "measurement-chunk-000000-attempt-001",
   statistical_model_spec: "model-spec-sleep-attempt-001",
-  baseline_report: "baseline-report",
 } as const;
 
 const temporaryRoots: string[] = [];
@@ -55,7 +45,7 @@ async function writeJson(path: string, value: unknown): Promise<void> {
 async function seedCompleteWorkspace(
   dataRoot: string,
   workspaceId: string,
-  options: { omit?: string; staleBaseline?: boolean } = {},
+  options: { omit?: string; staleValidation?: boolean } = {},
 ): Promise<void> {
   const workspaceRoot = join(dataRoot, workspaceId);
   await mkdir(join(workspaceRoot, "input"), { recursive: true });
@@ -85,6 +75,14 @@ async function seedCompleteWorkspace(
         produced: [],
         retracted: [],
         trace_ids: [traceId],
+        diagnostics:
+          operation === "statistical_model_spec"
+            ? {
+                search_queries: { "parameter:test": "prior study" },
+                validation_diagnostics: [],
+                prior_predictive: { samples: { "indicator:test": [0.5] }, diagnostics: [] },
+              }
+            : {},
       },
     );
   }
@@ -95,13 +93,17 @@ async function seedCompleteWorkspace(
     const seq = index + 1;
     const version = 2;
     const derivedFrom =
-      artifactId === "baseline_report" && options.staleBaseline ? { posterior: 1 } : {};
+      artifactId === "validation_report" && options.staleValidation
+        ? { model: 1 }
+        : artifactId === "model"
+          ? { panel: 2 }
+          : {};
     const info = {
       artifact_id: artifactId,
       version,
       provenance: "computed",
       derived_from: derivedFrom,
-      produced_by: `run:${artifactId}`,
+      produced_by: artifactId === "model" ? "run:posterior" : `run:${artifactId}`,
       created_at: "2026-08-07T00:00:00Z",
     };
     const versionRoot = join(workspaceRoot, "store", artifactId, `v${version}`);
@@ -128,10 +130,12 @@ async function seedCompleteWorkspace(
       {
         seq,
         status: "applied",
-        move: { kind: "run", operation_id: artifactId },
+        move: { kind: "run", operation_id: artifactId === "model" ? "posterior" : artifactId },
         produced: [info],
         retracted: [],
         trace_ids: traceId ? [traceId] : [],
+        diagnostics:
+          artifactId === "model" ? { report: { inference_metadata: { method: "test" } } } : {},
       },
     );
   }
@@ -160,19 +164,24 @@ describe("promoteDataWorkspace", () => {
       dataRoot,
     });
 
-    expect(summary.artifacts).toHaveLength(7);
+    expect(summary.artifacts).toHaveLength(3);
     expect(
       await readFile(join(dataRoot, "DEMO", "store", "raw_data", "v2", "raw.parquet"), "utf8"),
     ).toBe("fixture parquet bytes");
     expect(await pathExists(join(dataRoot, "DEMO", "fixture", "artifacts", "raw_data.json"))).toBe(
       false,
     );
-    expect(summary.traces).toHaveLength(6);
+    expect(summary.traces).toHaveLength(5);
     expect(
-      JSON.parse(
-        await readFile(join(dataRoot, "DEMO", "fixture", "artifacts", "posterior.json"), "utf8"),
-      ),
-    ).toEqual({ artifact: "posterior", version: 2 });
+      JSON.parse(await readFile(join(dataRoot, "DEMO", "fixture", "inference.json"), "utf8")),
+    ).toEqual({ report: { inference_metadata: { method: "test" } } });
+    expect(
+      JSON.parse(await readFile(join(dataRoot, "DEMO", "fixture", "model_authoring.json"), "utf8")),
+    ).toEqual({
+      search_queries: { "parameter:test": "prior study" },
+      validation_diagnostics: [],
+      prior_predictive: { samples: { "indicator:test": [0.5] }, diagnostics: [] },
+    });
     expect(
       JSON.parse(
         await readFile(
@@ -181,7 +190,7 @@ describe("promoteDataWorkspace", () => {
         ),
       ),
     ).toEqual({ artifact: "statistical_model_spec", trace: "model-spec-sleep-attempt-001" });
-    expect(await pathExists(join(dataRoot, "DEMO", "store", "posterior", "v2", "meta.json"))).toBe(
+    expect(await pathExists(join(dataRoot, "DEMO", "store", "model", "v2", "meta.json"))).toBe(
       true,
     );
     expect(
@@ -196,13 +205,13 @@ describe("promoteDataWorkspace", () => {
     const root = await mkdtemp(join(tmpdir(), "nof1-fixture-promotion-"));
     temporaryRoots.push(root);
     const dataRoot = join(root, "data");
-    await seedCompleteWorkspace(dataRoot, "CANDIDATE", { omit: "baseline_report" });
+    await seedCompleteWorkspace(dataRoot, "CANDIDATE", { omit: "validation_report" });
     await mkdir(join(dataRoot, "DEMO"), { recursive: true });
     await writeFile(join(dataRoot, "DEMO", "sentinel.txt"), "keep me");
 
     await expect(
       promoteDataWorkspace({ sourceWorkspaceId: "CANDIDATE", dataRoot }),
-    ).rejects.toThrow("missing current artifacts: baseline_report");
+    ).rejects.toThrow("missing current artifacts: validation_report");
 
     expect(await readFile(join(dataRoot, "DEMO", "sentinel.txt"), "utf8")).toBe("keep me");
     expect((await readdir(dataRoot)).some((entry) => entry.startsWith(".DEMO-promotion-"))).toBe(
@@ -214,13 +223,13 @@ describe("promoteDataWorkspace", () => {
     const root = await mkdtemp(join(tmpdir(), "nof1-fixture-promotion-"));
     temporaryRoots.push(root);
     const dataRoot = join(root, "data");
-    await seedCompleteWorkspace(dataRoot, "CANDIDATE", { staleBaseline: true });
+    await seedCompleteWorkspace(dataRoot, "CANDIDATE", { staleValidation: true });
     await mkdir(join(dataRoot, "DEMO"), { recursive: true });
     await writeFile(join(dataRoot, "DEMO", "sentinel.txt"), "keep me");
 
     await expect(
       promoteDataWorkspace({ sourceWorkspaceId: "CANDIDATE", dataRoot }),
-    ).rejects.toThrow("stale current artifacts: baseline_report");
+    ).rejects.toThrow("stale current artifacts: validation_report");
     expect(await readFile(join(dataRoot, "DEMO", "sentinel.txt"), "utf8")).toBe("keep me");
   });
 });

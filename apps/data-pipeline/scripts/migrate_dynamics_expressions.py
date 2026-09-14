@@ -7,17 +7,16 @@ import json
 from pathlib import Path
 from typing import Any
 
-from pydantic import TypeAdapter
-
-from nof1_causal_lab.artifacts.coefficient import Coefficient
 from nof1_causal_lab.artifacts.expressions import (
     coefficient,
     hill,
     linear_effect,
-    restoring_force,
+    restoring_potential,
     state,
 )
-from nof1_causal_lab.artifacts.mechanism import DynamicsMechanism
+from nof1_causal_lab.artifacts.identity import ConstructId
+from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
+from scripts.migrate_coefficient_values import convert_value
 
 type RetiredMechanismPayload = dict[str, Any]
 
@@ -27,30 +26,36 @@ def convert_mechanism(
 ) -> RetiredMechanismPayload:
     """Preserve mechanism and parameter identities and every fixed model-scale value."""
     values = {
-        key: TypeAdapter(Coefficient).validate_python(value)
+        key: convert_value(value)
         for key, value in payload.items()
         if isinstance(value, dict) and value.get("kind") in {"fixed", "parameter"}
     }
     match payload["kind"]:
         case "node_potential":
-            expression = restoring_force(target, **values)
+            expression = restoring_potential(ConstructId(target), **values)
         case "constant_drift":
             expression = coefficient(values["intercept"], "intercept")
         case "linear":
             if source is None:
                 raise ValueError("A retired linear edge requires its containing edge")
-            expression = linear_effect(source, values["weight"])
+            expression = linear_effect(ConstructId(source), values["weight"])
         case "interaction":
             if source is None:
                 raise ValueError("A retired interaction requires its containing edge")
-            expression = linear_effect(source, values["weight"]) * state(payload["moderator_id"])
+            expression = linear_effect(ConstructId(source), values["weight"]) * state(
+                payload["moderator_id"]
+            )
         case "hill":
             if source is None:
                 raise ValueError("A retired Hill edge requires its containing edge")
-            expression = hill(state(source), **values)
+            expression = hill(state(ConstructId(source)), **values)
         case _:
             raise ValueError(f"Unknown retired mechanism kind {payload['kind']!r}")
-    return DynamicsMechanism(id=payload["id"], expression=expression).model_dump(mode="json")
+    return DynamicsMechanismSpec(
+        id=payload["id"],
+        kind="potential" if payload["kind"] == "node_potential" else "drift",
+        expression=expression,
+    ).model_dump(mode="json")
 
 
 def convert_owned_expressions(payload: Any) -> Any:

@@ -6,7 +6,7 @@
       "cause": {
         "id": "construct:517d64db16ceb6e6a692",
         "name": "natural_recovery_propensity",
-        "description": "Tendency for the original episode to remit or remain well without medication because of natural history, resilience, regression to the mean, and nonpharmacologic recovery.",
+        "description": "Tendency for the original episode to remit or remain well without medication because of natural history, resilience, regression to the mean, and nonpharmacologic recovery.\n\nEarlier measurement assessment: Only sparse retrospective evidence is available for the untreated illness course, so it remains scientific and identification context.",
         "indicators": [
           {
             "id": "indicator:a1c5e49b6b167636f7a0",
@@ -16,6 +16,7 @@
             "construct_polarity": "positive",
             "measurement_dtype": "ordinal",
             "aggregation": "last",
+            "recording": "samples",
             "observation_window": null,
             "ordinal_levels": [
               "low",
@@ -36,13 +37,9 @@
           }
         ],
         "dynamics": [],
-        "innovation": null,
-        "initial_state": null,
+        "coefficients": [],
+        "innovation_family": "gaussian",
         "distribution": null,
-        "usage": {
-          "kind": "scientific_only",
-          "reason": "Only sparse retrospective evidence is available for the untreated illness course, so it remains scientific and identification context."
-        },
         "role": "exogenous",
         "temporal_status": "time_invariant"
       },
@@ -63,10 +60,8 @@
                     "left": {
                       "kind": "coefficient",
                       "role": "observation_intercept",
-                      "coefficient": {
-                        "kind": "fixed",
-                        "value": 0.0
-                      }
+                      "value": 0.0,
+                      "construct_ids": []
                     },
                     "right": {
                       "kind": "binary",
@@ -74,10 +69,8 @@
                       "left": {
                         "kind": "coefficient",
                         "role": "loading",
-                        "coefficient": {
-                          "kind": "parameter",
-                          "parameter_id": "parameter:501e52abe92a871a95f3b4b56fad364ae360efc3c575c1e877d754d470292cdc"
-                        }
+                        "value": "parameter:501e52abe92a871a95f3b4b56fad364ae360efc3c575c1e877d754d470292cdc",
+                        "construct_ids": []
                       },
                       "right": {
                         "kind": "state",
@@ -92,18 +85,14 @@
                       {
                         "kind": "coefficient",
                         "role": "cutpoint_base",
-                        "coefficient": {
-                          "kind": "parameter",
-                          "parameter_id": "parameter:9ec837565ea8266acf16f4e878ab3ec49c793f747dd1620cb8872a15b6d48170"
-                        }
+                        "value": "parameter:9ec837565ea8266acf16f4e878ab3ec49c793f747dd1620cb8872a15b6d48170",
+                        "construct_ids": []
                       },
                       {
                         "kind": "coefficient",
                         "role": "cutpoint_gaps",
-                        "coefficient": {
-                          "kind": "parameter",
-                          "parameter_id": "parameter:2098505b8d1d7997f62805340a3ff337efeeae3695f6f6e97a5d36b530ab9961"
-                        }
+                        "value": "parameter:2098505b8d1d7997f62805340a3ff337efeeae3695f6f6e97a5d36b530ab9961",
+                        "construct_ids": []
                       }
                     ]
                   }
@@ -118,6 +107,7 @@
             "construct_polarity": "positive",
             "measurement_dtype": "ordinal",
             "aggregation": "last",
+            "recording": "samples",
             "observation_window": "2w",
             "ordinal_levels": [
               "0",
@@ -168,10 +158,8 @@
                     "left": {
                       "kind": "coefficient",
                       "role": "observation_intercept",
-                      "coefficient": {
-                        "kind": "fixed",
-                        "value": 0.0
-                      }
+                      "value": 0.0,
+                      "construct_ids": []
                     },
                     "right": {
                       "kind": "binary",
@@ -179,10 +167,8 @@
                       "left": {
                         "kind": "coefficient",
                         "role": "loading",
-                        "coefficient": {
-                          "kind": "parameter",
-                          "parameter_id": "parameter:7965e9dce8c03b2a8ec99330856f28b3a430e74768c60d5068ea3111ba94566f"
-                        }
+                        "value": "parameter:7965e9dce8c03b2a8ec99330856f28b3a430e74768c60d5068ea3111ba94566f",
+                        "construct_ids": []
                       },
                       "right": {
                         "kind": "state",
@@ -197,18 +183,14 @@
                       {
                         "kind": "coefficient",
                         "role": "cutpoint_base",
-                        "coefficient": {
-                          "kind": "parameter",
-                          "parameter_id": "parameter:6e11cf59457acf739c486d4638043ab03622923871577e92928fdb95b23d4022"
-                        }
+                        "value": "parameter:6e11cf59457acf739c486d4638043ab03622923871577e92928fdb95b23d4022",
+                        "construct_ids": []
                       },
                       {
                         "kind": "coefficient",
                         "role": "cutpoint_gaps",
-                        "coefficient": {
-                          "kind": "parameter",
-                          "parameter_id": "parameter:975f2d0c21bddf6371a2c1d8dcea40ddfc63416258239751962298592d74b9f8"
-                        }
+                        "value": "parameter:975f2d0c21bddf6371a2c1d8dcea40ddfc63416258239751962298592d74b9f8",
+                        "construct_ids": []
                       }
                     ]
                   }
@@ -223,6 +205,7 @@
             "construct_polarity": "positive",
             "measurement_dtype": "ordinal",
             "aggregation": "last",
+            "recording": "samples",
             "observation_window": "2w",
             "ordinal_levels": [
               "0",
@@ -267,10 +250,8 @@
                     "left": {
                       "kind": "coefficient",
                       "role": "observation_intercept",
-                      "coefficient": {
-                        "kind": "fixed",
-                        "value": 0.0
-                      }
+                      "value": 0.0,
+                      "construct_ids": []
                     },
                     "right": {
                       "kind": "binary",
@@ -278,10 +259,8 @@
                       "left": {
                         "kind": "coefficient",
                         "role": "loading",
-                        "coefficient": {
-                          "kind": "fixed",
-                          "value": -1.0
-                        }
+                        "value": -1.0,
+                        "construct_ids": []
                       },
                       "right": {
                         "kind": "state",
@@ -292,10 +271,8 @@
                   "scale": {
                     "kind": "coefficient",
                     "role": "observation_scale",
-                    "coefficient": {
-                      "kind": "parameter",
-                      "parameter_id": "parameter:145cae7b491088b812e4c26ad611489cf0f1c53e028abbd083dbcf800675aaef"
-                    }
+                    "value": "parameter:145cae7b491088b812e4c26ad611489cf0f1c53e028abbd083dbcf800675aaef",
+                    "construct_ids": []
                   }
                 }
               },
@@ -308,6 +285,7 @@
             "construct_polarity": "negative",
             "measurement_dtype": "continuous",
             "aggregation": "mean",
+            "recording": "samples",
             "observation_window": null,
             "ordinal_levels": null,
             "categorical_levels": null,
@@ -329,10 +307,8 @@
                     "left": {
                       "kind": "coefficient",
                       "role": "observation_intercept",
-                      "coefficient": {
-                        "kind": "fixed",
-                        "value": 0.0
-                      }
+                      "value": 0.0,
+                      "construct_ids": []
                     },
                     "right": {
                       "kind": "binary",
@@ -340,10 +316,8 @@
                       "left": {
                         "kind": "coefficient",
                         "role": "loading",
-                        "coefficient": {
-                          "kind": "parameter",
-                          "parameter_id": "parameter:dff8a815d1f023dc237fcc95c1b14df7b8aeb51f7f1fa5c35830c3ac3893e0bc"
-                        }
+                        "value": "parameter:dff8a815d1f023dc237fcc95c1b14df7b8aeb51f7f1fa5c35830c3ac3893e0bc",
+                        "construct_ids": []
                       },
                       "right": {
                         "kind": "state",
@@ -358,18 +332,14 @@
                       {
                         "kind": "coefficient",
                         "role": "cutpoint_base",
-                        "coefficient": {
-                          "kind": "parameter",
-                          "parameter_id": "parameter:2e77fa252226c51341ede18b3f1d464dbeb890f4a60a438d704f0fefbc38188e"
-                        }
+                        "value": "parameter:2e77fa252226c51341ede18b3f1d464dbeb890f4a60a438d704f0fefbc38188e",
+                        "construct_ids": []
                       },
                       {
                         "kind": "coefficient",
                         "role": "cutpoint_gaps",
-                        "coefficient": {
-                          "kind": "parameter",
-                          "parameter_id": "parameter:6d06d0c355dba2e8343ac2e243a6754ed91712effdd567e08a2c88d6fac3fa86"
-                        }
+                        "value": "parameter:6d06d0c355dba2e8343ac2e243a6754ed91712effdd567e08a2c88d6fac3fa86",
+                        "construct_ids": []
                       }
                     ]
                   }
@@ -384,6 +354,7 @@
             "construct_polarity": "positive",
             "measurement_dtype": "ordinal",
             "aggregation": "last",
+            "recording": "samples",
             "observation_window": null,
             "ordinal_levels": [
               "none",
@@ -406,6 +377,7 @@
         "dynamics": [
           {
             "id": "mechanism:a32f36b05122fe46b2da66a925ce28188b06a24ed0691563efa38f10ebf0131f",
+            "kind": "drift",
             "expression": {
               "kind": "binary",
               "operator": "subtract",
@@ -422,10 +394,8 @@
                   "right": {
                     "kind": "coefficient",
                     "role": "decay",
-                    "coefficient": {
-                      "kind": "parameter",
-                      "parameter_id": "parameter:0ad9908a17641c4c8cf0f5a359b0c7d4ecc8dfd394cdf28ac69da1f8f0af9eb2"
-                    }
+                    "value": "parameter:0ad9908a17641c4c8cf0f5a359b0c7d4ecc8dfd394cdf28ac69da1f8f0af9eb2",
+                    "construct_ids": []
                   }
                 },
                 "right": {
@@ -438,10 +408,8 @@
                   "right": {
                     "kind": "coefficient",
                     "role": "center",
-                    "coefficient": {
-                      "kind": "fixed",
-                      "value": 0.0
-                    }
+                    "value": 0.0,
+                    "construct_ids": []
                   }
                 }
               },
@@ -451,10 +419,8 @@
                 "left": {
                   "kind": "coefficient",
                   "role": "quartic",
-                  "coefficient": {
-                    "kind": "fixed",
-                    "value": 0.0
-                  }
+                  "value": 0.0,
+                  "construct_ids": []
                 },
                 "right": {
                   "kind": "binary",
@@ -469,10 +435,8 @@
                     "right": {
                       "kind": "coefficient",
                       "role": "center",
-                      "coefficient": {
-                        "kind": "fixed",
-                        "value": 0.0
-                      }
+                      "value": 0.0,
+                      "construct_ids": []
                     }
                   },
                   "right": {
@@ -484,28 +448,28 @@
             }
           }
         ],
-        "innovation": {
-          "distribution": "gaussian",
-          "scale": {
-            "kind": "parameter",
-            "parameter_id": "parameter:10b6c3148f914ad631ff5205317ae8e4054f987ae4976b0ca02ff5dd6bd5dbeb"
+        "coefficients": [
+          {
+            "kind": "coefficient",
+            "role": "diffusion_scale",
+            "value": "parameter:10b6c3148f914ad631ff5205317ae8e4054f987ae4976b0ca02ff5dd6bd5dbeb",
+            "construct_ids": []
           },
-          "loadings": [],
-          "degrees_of_freedom": null
-        },
-        "initial_state": {
-          "mean": {
-            "kind": "fixed",
-            "value": 0.0
+          {
+            "kind": "coefficient",
+            "role": "initial_mean",
+            "value": 0.0,
+            "construct_ids": []
           },
-          "scale": {
-            "kind": "fixed",
-            "value": 1.0
-          },
-          "correlations": []
-        },
+          {
+            "kind": "coefficient",
+            "role": "initial_scale",
+            "value": 1.0,
+            "construct_ids": []
+          }
+        ],
+        "innovation_family": "gaussian",
         "distribution": null,
-        "usage": null,
         "role": "endogenous",
         "temporal_status": "time_varying"
       },
@@ -523,7 +487,7 @@
       "effect": {
         "id": "construct:4cfc4a70f9d59a668364",
         "name": "past_escitalopram_response_tolerability",
-        "description": "Historical symptom improvement, relapse prevention, side effects, and functional change while on escitalopram, reflecting drug effect plus natural recovery and expectancy.",
+        "description": "Historical symptom improvement, relapse prevention, side effects, and functional change while on escitalopram, reflecting drug effect plus natural recovery and expectancy.\n\nEarlier measurement assessment: Historical response is represented by a sparse retrospective summary, so it remains measured assignment context rather than an executable dynamic state.",
         "indicators": [
           {
             "id": "indicator:cd5618fdf5311bf6e90d",
@@ -533,6 +497,7 @@
             "construct_polarity": "positive",
             "measurement_dtype": "ordinal",
             "aggregation": "last",
+            "recording": "samples",
             "observation_window": null,
             "ordinal_levels": [
               "poor_or_harmful",
@@ -557,13 +522,9 @@
           }
         ],
         "dynamics": [],
-        "innovation": null,
-        "initial_state": null,
+        "coefficients": [],
+        "innovation_family": "gaussian",
         "distribution": null,
-        "usage": {
-          "kind": "scientific_only",
-          "reason": "Historical response is represented by a sparse retrospective summary, so it remains measured assignment context rather than an executable dynamic state."
-        },
         "role": "endogenous",
         "temporal_status": "time_invariant"
       },
@@ -587,7 +548,7 @@
       "effect": {
         "id": "construct:4a7b8d4d0772b0b10e4e",
         "name": "duration_current_escitalopram_use",
-        "description": "Length of continuous escitalopram use before taper decision, including time at stable maintenance dose.",
+        "description": "Length of continuous escitalopram use before taper decision, including time at stable maintenance dose.\n\nEarlier measurement assessment: Historical exposure duration is observed only as sparse static context and feeds an unsupported neuroadaptation mechanism.",
         "indicators": [
           {
             "id": "indicator:ea0f209a3393fba5194e",
@@ -597,6 +558,7 @@
             "construct_polarity": "positive",
             "measurement_dtype": "continuous",
             "aggregation": "last",
+            "recording": "samples",
             "observation_window": null,
             "ordinal_levels": null,
             "categorical_levels": null,
@@ -614,13 +576,9 @@
           }
         ],
         "dynamics": [],
-        "innovation": null,
-        "initial_state": null,
+        "coefficients": [],
+        "innovation_family": "gaussian",
         "distribution": null,
-        "usage": {
-          "kind": "scientific_only",
-          "reason": "Historical exposure duration is observed only as sparse static context and feeds an unsupported neuroadaptation mechanism."
-        },
         "role": "endogenous",
         "temporal_status": "time_invariant"
       },
@@ -638,7 +596,7 @@
       "effect": {
         "id": "construct:47ab45d6fa00e93be7ee",
         "name": "patient_taper_preference_beliefs",
-        "description": "Current motivation to taper or continue, perceived medication benefit, concerns about dependence or side effects, fear of relapse, and coping confidence.",
+        "description": "Current motivation to taper or continue, perceived medication benefit, concerns about dependence or side effects, fear of relapse, and coping confidence.\n\nEarlier measurement assessment: The sparse semantic proxy is entangled with the documented taper plan, so it remains assignment context rather than an executable latent state.",
         "indicators": [
           {
             "id": "indicator:c9a9156464b8dce5ba14",
@@ -648,6 +606,7 @@
             "construct_polarity": "positive",
             "measurement_dtype": "ordinal",
             "aggregation": "last",
+            "recording": "samples",
             "observation_window": null,
             "ordinal_levels": [
               "wants_continue",
@@ -667,13 +626,9 @@
           }
         ],
         "dynamics": [],
-        "innovation": null,
-        "initial_state": null,
+        "coefficients": [],
+        "innovation_family": "gaussian",
         "distribution": null,
-        "usage": {
-          "kind": "scientific_only",
-          "reason": "The sparse semantic proxy is entangled with the documented taper plan, so it remains assignment context rather than an executable latent state."
-        },
         "role": "endogenous",
         "temporal_status": "time_varying"
       },
@@ -720,10 +675,8 @@
                     "left": {
                       "kind": "coefficient",
                       "role": "observation_intercept",
-                      "coefficient": {
-                        "kind": "fixed",
-                        "value": 0.0
-                      }
+                      "value": 0.0,
+                      "construct_ids": []
                     },
                     "right": {
                       "kind": "binary",
@@ -731,10 +684,8 @@
                       "left": {
                         "kind": "coefficient",
                         "role": "loading",
-                        "coefficient": {
-                          "kind": "fixed",
-                          "value": 1.0
-                        }
+                        "value": 1.0,
+                        "construct_ids": []
                       },
                       "right": {
                         "kind": "state",
@@ -749,18 +700,14 @@
                       {
                         "kind": "coefficient",
                         "role": "cutpoint_base",
-                        "coefficient": {
-                          "kind": "parameter",
-                          "parameter_id": "parameter:4d037b0571237ffe38d08e6503b98580c2a7370156a7757848ffaa5fd1728fdd"
-                        }
+                        "value": "parameter:4d037b0571237ffe38d08e6503b98580c2a7370156a7757848ffaa5fd1728fdd",
+                        "construct_ids": []
                       },
                       {
                         "kind": "coefficient",
                         "role": "cutpoint_gaps",
-                        "coefficient": {
-                          "kind": "parameter",
-                          "parameter_id": "parameter:60c1e5624e5768a3cb12b77bca44cd14f93f40096f1954d34b8ef00457b560cd"
-                        }
+                        "value": "parameter:60c1e5624e5768a3cb12b77bca44cd14f93f40096f1954d34b8ef00457b560cd",
+                        "construct_ids": []
                       }
                     ]
                   }
@@ -775,6 +722,7 @@
             "construct_polarity": "positive",
             "measurement_dtype": "ordinal",
             "aggregation": "last",
+            "recording": "samples",
             "observation_window": null,
             "ordinal_levels": [
               "none_or_continue",
@@ -797,6 +745,7 @@
         "dynamics": [
           {
             "id": "mechanism:e8184b912b99c103394e7feb9b322d3926c348e02bd311f464906b4d23b9234c",
+            "kind": "drift",
             "expression": {
               "kind": "binary",
               "operator": "subtract",
@@ -813,10 +762,8 @@
                   "right": {
                     "kind": "coefficient",
                     "role": "decay",
-                    "coefficient": {
-                      "kind": "parameter",
-                      "parameter_id": "parameter:56338f70c5882bb1009fde7ce5d2bc81e92a49cbf50b3deb72c02583c0e057b8"
-                    }
+                    "value": "parameter:56338f70c5882bb1009fde7ce5d2bc81e92a49cbf50b3deb72c02583c0e057b8",
+                    "construct_ids": []
                   }
                 },
                 "right": {
@@ -829,10 +776,8 @@
                   "right": {
                     "kind": "coefficient",
                     "role": "center",
-                    "coefficient": {
-                      "kind": "fixed",
-                      "value": 0.0
-                    }
+                    "value": 0.0,
+                    "construct_ids": []
                   }
                 }
               },
@@ -842,10 +787,8 @@
                 "left": {
                   "kind": "coefficient",
                   "role": "quartic",
-                  "coefficient": {
-                    "kind": "fixed",
-                    "value": 0.0
-                  }
+                  "value": 0.0,
+                  "construct_ids": []
                 },
                 "right": {
                   "kind": "binary",
@@ -860,10 +803,8 @@
                     "right": {
                       "kind": "coefficient",
                       "role": "center",
-                      "coefficient": {
-                        "kind": "fixed",
-                        "value": 0.0
-                      }
+                      "value": 0.0,
+                      "construct_ids": []
                     }
                   },
                   "right": {
@@ -875,28 +816,28 @@
             }
           }
         ],
-        "innovation": {
-          "distribution": "gaussian",
-          "scale": {
-            "kind": "parameter",
-            "parameter_id": "parameter:6914c1f9f6cf7cc676006f1b1149cdf41592f7ff0e549e7c1efa85d888925eba"
+        "coefficients": [
+          {
+            "kind": "coefficient",
+            "role": "diffusion_scale",
+            "value": "parameter:6914c1f9f6cf7cc676006f1b1149cdf41592f7ff0e549e7c1efa85d888925eba",
+            "construct_ids": []
           },
-          "loadings": [],
-          "degrees_of_freedom": null
-        },
-        "initial_state": {
-          "mean": {
-            "kind": "fixed",
-            "value": 0.0
+          {
+            "kind": "coefficient",
+            "role": "initial_mean",
+            "value": 0.0,
+            "construct_ids": []
           },
-          "scale": {
-            "kind": "fixed",
-            "value": 1.0
-          },
-          "correlations": []
-        },
+          {
+            "kind": "coefficient",
+            "role": "initial_scale",
+            "value": 1.0,
+            "construct_ids": []
+          }
+        ],
+        "innovation_family": "gaussian",
         "distribution": null,
-        "usage": null,
         "role": "endogenous",
         "temporal_status": "time_varying"
       },
@@ -928,10 +869,8 @@
                     "left": {
                       "kind": "coefficient",
                       "role": "observation_intercept",
-                      "coefficient": {
-                        "kind": "fixed",
-                        "value": 0.0
-                      }
+                      "value": 0.0,
+                      "construct_ids": []
                     },
                     "right": {
                       "kind": "binary",
@@ -939,10 +878,8 @@
                       "left": {
                         "kind": "coefficient",
                         "role": "loading",
-                        "coefficient": {
-                          "kind": "fixed",
-                          "value": 1.0
-                        }
+                        "value": 1.0,
+                        "construct_ids": []
                       },
                       "right": {
                         "kind": "state",
@@ -957,18 +894,14 @@
                       {
                         "kind": "coefficient",
                         "role": "cutpoint_base",
-                        "coefficient": {
-                          "kind": "parameter",
-                          "parameter_id": "parameter:773a0c8da725a4e3f6240c7807ad981e4948eead8c502f9fe316d4ababbc2e6d"
-                        }
+                        "value": "parameter:773a0c8da725a4e3f6240c7807ad981e4948eead8c502f9fe316d4ababbc2e6d",
+                        "construct_ids": []
                       },
                       {
                         "kind": "coefficient",
                         "role": "cutpoint_gaps",
-                        "coefficient": {
-                          "kind": "parameter",
-                          "parameter_id": "parameter:ce1ebad1f8bd081a26421cfcf318798e7c0081cfa7e691a0938d3039982206ec"
-                        }
+                        "value": "parameter:ce1ebad1f8bd081a26421cfcf318798e7c0081cfa7e691a0938d3039982206ec",
+                        "construct_ids": []
                       }
                     ]
                   }
@@ -983,6 +916,7 @@
             "construct_polarity": "positive",
             "measurement_dtype": "ordinal",
             "aggregation": "last",
+            "recording": "samples",
             "observation_window": null,
             "ordinal_levels": [
               "poor",
@@ -1003,6 +937,7 @@
         "dynamics": [
           {
             "id": "mechanism:77a618b3a97659af9d80a93d2132c7ce7434415a337b0477d28bab72e652ad5c",
+            "kind": "drift",
             "expression": {
               "kind": "binary",
               "operator": "subtract",
@@ -1019,10 +954,8 @@
                   "right": {
                     "kind": "coefficient",
                     "role": "decay",
-                    "coefficient": {
-                      "kind": "parameter",
-                      "parameter_id": "parameter:69c28f479e2b862713dec406262d00777047e9b2a4d4f158eab27fc9c0a7644d"
-                    }
+                    "value": "parameter:69c28f479e2b862713dec406262d00777047e9b2a4d4f158eab27fc9c0a7644d",
+                    "construct_ids": []
                   }
                 },
                 "right": {
@@ -1035,10 +968,8 @@
                   "right": {
                     "kind": "coefficient",
                     "role": "center",
-                    "coefficient": {
-                      "kind": "fixed",
-                      "value": 0.0
-                    }
+                    "value": 0.0,
+                    "construct_ids": []
                   }
                 }
               },
@@ -1048,10 +979,8 @@
                 "left": {
                   "kind": "coefficient",
                   "role": "quartic",
-                  "coefficient": {
-                    "kind": "fixed",
-                    "value": 0.0
-                  }
+                  "value": 0.0,
+                  "construct_ids": []
                 },
                 "right": {
                   "kind": "binary",
@@ -1066,10 +995,8 @@
                     "right": {
                       "kind": "coefficient",
                       "role": "center",
-                      "coefficient": {
-                        "kind": "fixed",
-                        "value": 0.0
-                      }
+                      "value": 0.0,
+                      "construct_ids": []
                     }
                   },
                   "right": {
@@ -1081,28 +1008,28 @@
             }
           }
         ],
-        "innovation": {
-          "distribution": "gaussian",
-          "scale": {
-            "kind": "parameter",
-            "parameter_id": "parameter:a522641efd5adb152c5c47a37e5cb0881ff86a0ddfdb11151dda3735a0646a09"
+        "coefficients": [
+          {
+            "kind": "coefficient",
+            "role": "diffusion_scale",
+            "value": "parameter:a522641efd5adb152c5c47a37e5cb0881ff86a0ddfdb11151dda3735a0646a09",
+            "construct_ids": []
           },
-          "loadings": [],
-          "degrees_of_freedom": null
-        },
-        "initial_state": {
-          "mean": {
-            "kind": "fixed",
-            "value": 0.0
+          {
+            "kind": "coefficient",
+            "role": "initial_mean",
+            "value": 0.0,
+            "construct_ids": []
           },
-          "scale": {
-            "kind": "fixed",
-            "value": 1.0
-          },
-          "correlations": []
-        },
+          {
+            "kind": "coefficient",
+            "role": "initial_scale",
+            "value": 1.0,
+            "construct_ids": []
+          }
+        ],
+        "innovation_family": "gaussian",
         "distribution": null,
-        "usage": null,
         "role": "endogenous",
         "temporal_status": "time_varying"
       },
@@ -1115,16 +1042,15 @@
       "mechanisms": [
         {
           "id": "mechanism:07abbc428da88151f01aaa68e7cff5e551e6ccb8a346ccd084626b35a5cb98e2",
+          "kind": "drift",
           "expression": {
             "kind": "binary",
             "operator": "multiply",
             "left": {
               "kind": "coefficient",
               "role": "weight",
-              "coefficient": {
-                "kind": "parameter",
-                "parameter_id": "parameter:5404e8f376308cdef6da71e4de19f9b0eabc289b812d00c6fd1b0573f89e6dff"
-              }
+              "value": "parameter:5404e8f376308cdef6da71e4de19f9b0eabc289b812d00c6fd1b0573f89e6dff",
+              "construct_ids": []
             },
             "right": {
               "kind": "state",
@@ -1154,10 +1080,8 @@
                     "left": {
                       "kind": "coefficient",
                       "role": "observation_intercept",
-                      "coefficient": {
-                        "kind": "fixed",
-                        "value": 0.0
-                      }
+                      "value": 0.0,
+                      "construct_ids": []
                     },
                     "right": {
                       "kind": "binary",
@@ -1165,10 +1089,8 @@
                       "left": {
                         "kind": "coefficient",
                         "role": "loading",
-                        "coefficient": {
-                          "kind": "fixed",
-                          "value": 1.0
-                        }
+                        "value": 1.0,
+                        "construct_ids": []
                       },
                       "right": {
                         "kind": "state",
@@ -1179,10 +1101,8 @@
                   "scale": {
                     "kind": "coefficient",
                     "role": "observation_scale",
-                    "coefficient": {
-                      "kind": "fixed",
-                      "value": 0.0
-                    }
+                    "value": 0.0,
+                    "construct_ids": []
                   }
                 }
               },
@@ -1195,6 +1115,7 @@
             "construct_polarity": "positive",
             "measurement_dtype": "continuous",
             "aggregation": "last",
+            "recording": "samples",
             "observation_window": null,
             "ordinal_levels": null,
             "categorical_levels": null,
@@ -1210,6 +1131,7 @@
         "dynamics": [
           {
             "id": "mechanism:58f45f380ac997f933dee44f02a846e5ff08ca13fb3a5b92e39cc74ea86891c0",
+            "kind": "drift",
             "expression": {
               "kind": "binary",
               "operator": "subtract",
@@ -1226,10 +1148,8 @@
                   "right": {
                     "kind": "coefficient",
                     "role": "decay",
-                    "coefficient": {
-                      "kind": "parameter",
-                      "parameter_id": "parameter:1b3d4aad4fb2e60a554306e6b6409fb3c55e37aa2a4e9c619c4036863875a32a"
-                    }
+                    "value": "parameter:1b3d4aad4fb2e60a554306e6b6409fb3c55e37aa2a4e9c619c4036863875a32a",
+                    "construct_ids": []
                   }
                 },
                 "right": {
@@ -1242,10 +1162,8 @@
                   "right": {
                     "kind": "coefficient",
                     "role": "center",
-                    "coefficient": {
-                      "kind": "fixed",
-                      "value": 0.0
-                    }
+                    "value": 0.0,
+                    "construct_ids": []
                   }
                 }
               },
@@ -1255,10 +1173,8 @@
                 "left": {
                   "kind": "coefficient",
                   "role": "quartic",
-                  "coefficient": {
-                    "kind": "fixed",
-                    "value": 0.0
-                  }
+                  "value": 0.0,
+                  "construct_ids": []
                 },
                 "right": {
                   "kind": "binary",
@@ -1273,10 +1189,8 @@
                     "right": {
                       "kind": "coefficient",
                       "role": "center",
-                      "coefficient": {
-                        "kind": "fixed",
-                        "value": 0.0
-                      }
+                      "value": 0.0,
+                      "construct_ids": []
                     }
                   },
                   "right": {
@@ -1288,28 +1202,28 @@
             }
           }
         ],
-        "innovation": {
-          "distribution": "gaussian",
-          "scale": {
-            "kind": "parameter",
-            "parameter_id": "parameter:6657e5ab0107fe6a181dfe91715b2003fb0f4bb5e65f903639c56bb7afb97500"
+        "coefficients": [
+          {
+            "kind": "coefficient",
+            "role": "diffusion_scale",
+            "value": "parameter:6657e5ab0107fe6a181dfe91715b2003fb0f4bb5e65f903639c56bb7afb97500",
+            "construct_ids": []
           },
-          "loadings": [],
-          "degrees_of_freedom": null
-        },
-        "initial_state": {
-          "mean": {
-            "kind": "fixed",
-            "value": 0.0
+          {
+            "kind": "coefficient",
+            "role": "initial_mean",
+            "value": 0.0,
+            "construct_ids": []
           },
-          "scale": {
-            "kind": "fixed",
-            "value": 1.0
-          },
-          "correlations": []
-        },
+          {
+            "kind": "coefficient",
+            "role": "initial_scale",
+            "value": 1.0,
+            "construct_ids": []
+          }
+        ],
+        "innovation_family": "gaussian",
         "distribution": null,
-        "usage": null,
         "role": "endogenous",
         "temporal_status": "time_varying"
       },
@@ -1322,16 +1236,15 @@
       "mechanisms": [
         {
           "id": "mechanism:a6e6223a838e8dad372abdb87e2b5c778a70a01f227ef135056f0595f191a075",
+          "kind": "drift",
           "expression": {
             "kind": "binary",
             "operator": "multiply",
             "left": {
               "kind": "coefficient",
               "role": "weight",
-              "coefficient": {
-                "kind": "parameter",
-                "parameter_id": "parameter:8140ddf85ce1d8034b0a3be7b25158ca5ca9c18347125ab73c3fa72de151b080"
-              }
+              "value": "parameter:8140ddf85ce1d8034b0a3be7b25158ca5ca9c18347125ab73c3fa72de151b080",
+              "construct_ids": []
             },
             "right": {
               "kind": "state",
@@ -1363,16 +1276,15 @@
       "mechanisms": [
         {
           "id": "mechanism:251403dada87e89f019e77afe9d7d7d67c758a5e713f2b289219544dbcd8a1b7",
+          "kind": "drift",
           "expression": {
             "kind": "binary",
             "operator": "multiply",
             "left": {
               "kind": "coefficient",
               "role": "weight",
-              "coefficient": {
-                "kind": "parameter",
-                "parameter_id": "parameter:2132145147e99eb5ddd6a4c0f34e9972340540566816ea3034e424b7039c1a57"
-              }
+              "value": "parameter:2132145147e99eb5ddd6a4c0f34e9972340540566816ea3034e424b7039c1a57",
+              "construct_ids": []
             },
             "right": {
               "kind": "state",
@@ -1408,10 +1320,9 @@
         "description": "Discontinuation symptoms after dose reduction, including dizziness, insomnia, anxiety, irritability, flu-like symptoms, nausea, and disequilibrium.",
         "indicators": [],
         "dynamics": [],
-        "innovation": null,
-        "initial_state": null,
+        "coefficients": [],
+        "innovation_family": "gaussian",
         "distribution": null,
-        "usage": null,
         "role": "endogenous",
         "temporal_status": "time_varying"
       },
@@ -1454,7 +1365,7 @@
       "effect": {
         "id": "construct:eb28b45b275c6732596f",
         "name": "neuroadaptation_dependence_state",
-        "description": "Physiologic adaptation to sustained SSRI exposure that can make rapid reductions destabilizing even if the original disorder is inactive.",
+        "description": "Physiologic adaptation to sustained SSRI exposure that can make rapid reductions destabilizing even if the original disorder is inactive.\n\nEarlier measurement assessment: The available text-derived adaptation proxy cannot independently resolve the physiologic state from duration and taper documentation.",
         "indicators": [
           {
             "id": "indicator:d14078f40ae3b26ae799",
@@ -1464,6 +1375,7 @@
             "construct_polarity": "positive",
             "measurement_dtype": "ordinal",
             "aggregation": "last",
+            "recording": "samples",
             "observation_window": null,
             "ordinal_levels": [
               "none",
@@ -1486,13 +1398,9 @@
           }
         ],
         "dynamics": [],
-        "innovation": null,
-        "initial_state": null,
+        "coefficients": [],
+        "innovation_family": "gaussian",
         "distribution": null,
-        "usage": {
-          "kind": "scientific_only",
-          "reason": "The available text-derived adaptation proxy cannot independently resolve the physiologic state from duration and taper documentation."
-        },
         "role": "endogenous",
         "temporal_status": "time_varying"
       },
@@ -1515,10 +1423,9 @@
         "description": "Stable person-specific susceptibility to SSRI discontinuation symptoms, distinct from the historical fact of prior withdrawal episodes.",
         "indicators": [],
         "dynamics": [],
-        "innovation": null,
-        "initial_state": null,
+        "coefficients": [],
+        "innovation_family": "gaussian",
         "distribution": null,
-        "usage": null,
         "role": "exogenous",
         "temporal_status": "time_invariant"
       },
@@ -1596,10 +1503,8 @@
                     "left": {
                       "kind": "coefficient",
                       "role": "observation_intercept",
-                      "coefficient": {
-                        "kind": "fixed",
-                        "value": 0.0
-                      }
+                      "value": 0.0,
+                      "construct_ids": []
                     },
                     "right": {
                       "kind": "binary",
@@ -1607,10 +1512,8 @@
                       "left": {
                         "kind": "coefficient",
                         "role": "loading",
-                        "coefficient": {
-                          "kind": "fixed",
-                          "value": -1.0
-                        }
+                        "value": -1.0,
+                        "construct_ids": []
                       },
                       "right": {
                         "kind": "state",
@@ -1621,10 +1524,8 @@
                   "scale": {
                     "kind": "coefficient",
                     "role": "observation_scale",
-                    "coefficient": {
-                      "kind": "fixed",
-                      "value": 0.0
-                    }
+                    "value": 0.0,
+                    "construct_ids": []
                   }
                 }
               },
@@ -1637,6 +1538,7 @@
             "construct_polarity": "negative",
             "measurement_dtype": "continuous",
             "aggregation": "mean",
+            "recording": "samples",
             "observation_window": null,
             "ordinal_levels": null,
             "categorical_levels": null,
@@ -1650,6 +1552,7 @@
         "dynamics": [
           {
             "id": "mechanism:224080b59e640d88063926684df751e9f4d11d865fa8a82798fcdd3c8f518dea",
+            "kind": "drift",
             "expression": {
               "kind": "binary",
               "operator": "subtract",
@@ -1666,10 +1569,8 @@
                   "right": {
                     "kind": "coefficient",
                     "role": "decay",
-                    "coefficient": {
-                      "kind": "parameter",
-                      "parameter_id": "parameter:a715e88716e8dcfb5aba9aeaf1fa536baa8f78ba1450262e33012a44950d47a1"
-                    }
+                    "value": "parameter:a715e88716e8dcfb5aba9aeaf1fa536baa8f78ba1450262e33012a44950d47a1",
+                    "construct_ids": []
                   }
                 },
                 "right": {
@@ -1682,10 +1583,8 @@
                   "right": {
                     "kind": "coefficient",
                     "role": "center",
-                    "coefficient": {
-                      "kind": "fixed",
-                      "value": 0.0
-                    }
+                    "value": 0.0,
+                    "construct_ids": []
                   }
                 }
               },
@@ -1695,10 +1594,8 @@
                 "left": {
                   "kind": "coefficient",
                   "role": "quartic",
-                  "coefficient": {
-                    "kind": "fixed",
-                    "value": 0.0
-                  }
+                  "value": 0.0,
+                  "construct_ids": []
                 },
                 "right": {
                   "kind": "binary",
@@ -1713,10 +1610,8 @@
                     "right": {
                       "kind": "coefficient",
                       "role": "center",
-                      "coefficient": {
-                        "kind": "fixed",
-                        "value": 0.0
-                      }
+                      "value": 0.0,
+                      "construct_ids": []
                     }
                   },
                   "right": {
@@ -1728,28 +1623,28 @@
             }
           }
         ],
-        "innovation": {
-          "distribution": "gaussian",
-          "scale": {
-            "kind": "parameter",
-            "parameter_id": "parameter:9cf821d64c956fb794f034de7b9143541795b485e3177647c1e24ea922bc177f"
+        "coefficients": [
+          {
+            "kind": "coefficient",
+            "role": "diffusion_scale",
+            "value": "parameter:9cf821d64c956fb794f034de7b9143541795b485e3177647c1e24ea922bc177f",
+            "construct_ids": []
           },
-          "loadings": [],
-          "degrees_of_freedom": null
-        },
-        "initial_state": {
-          "mean": {
-            "kind": "fixed",
-            "value": 0.0
+          {
+            "kind": "coefficient",
+            "role": "initial_mean",
+            "value": 0.0,
+            "construct_ids": []
           },
-          "scale": {
-            "kind": "fixed",
-            "value": 1.0
-          },
-          "correlations": []
-        },
+          {
+            "kind": "coefficient",
+            "role": "initial_scale",
+            "value": 1.0,
+            "construct_ids": []
+          }
+        ],
+        "innovation_family": "gaussian",
         "distribution": null,
-        "usage": null,
         "role": "endogenous",
         "temporal_status": "time_varying"
       },
@@ -1787,10 +1682,8 @@
                     "left": {
                       "kind": "coefficient",
                       "role": "observation_intercept",
-                      "coefficient": {
-                        "kind": "fixed",
-                        "value": 0.0
-                      }
+                      "value": 0.0,
+                      "construct_ids": []
                     },
                     "right": {
                       "kind": "binary",
@@ -1798,10 +1691,8 @@
                       "left": {
                         "kind": "coefficient",
                         "role": "loading",
-                        "coefficient": {
-                          "kind": "fixed",
-                          "value": 1.0
-                        }
+                        "value": 1.0,
+                        "construct_ids": []
                       },
                       "right": {
                         "kind": "state",
@@ -1816,18 +1707,14 @@
                       {
                         "kind": "coefficient",
                         "role": "cutpoint_base",
-                        "coefficient": {
-                          "kind": "parameter",
-                          "parameter_id": "parameter:0e9a1b1dfe541174568e14b1ff28869410c133c12d1e3a9af74267469c804720"
-                        }
+                        "value": "parameter:0e9a1b1dfe541174568e14b1ff28869410c133c12d1e3a9af74267469c804720",
+                        "construct_ids": []
                       },
                       {
                         "kind": "coefficient",
                         "role": "cutpoint_gaps",
-                        "coefficient": {
-                          "kind": "parameter",
-                          "parameter_id": "parameter:d04f9da05c382797cd6ece7e35dc6fe984ba19224c035803da1b904139904cef"
-                        }
+                        "value": "parameter:d04f9da05c382797cd6ece7e35dc6fe984ba19224c035803da1b904139904cef",
+                        "construct_ids": []
                       }
                     ]
                   }
@@ -1842,6 +1729,7 @@
             "construct_polarity": "positive",
             "measurement_dtype": "ordinal",
             "aggregation": "last",
+            "recording": "samples",
             "observation_window": null,
             "ordinal_levels": [
               "none",
@@ -1863,6 +1751,7 @@
         "dynamics": [
           {
             "id": "mechanism:2f54b9b7cd429317b0a645c72fd34785fda6b437257e765ae9326f1e81b52e30",
+            "kind": "drift",
             "expression": {
               "kind": "binary",
               "operator": "subtract",
@@ -1879,10 +1768,8 @@
                   "right": {
                     "kind": "coefficient",
                     "role": "decay",
-                    "coefficient": {
-                      "kind": "parameter",
-                      "parameter_id": "parameter:9e966cbdb24cdb20e154c855c22d0dd7392a879ab49b9ca1d18c3c3b68c7901f"
-                    }
+                    "value": "parameter:9e966cbdb24cdb20e154c855c22d0dd7392a879ab49b9ca1d18c3c3b68c7901f",
+                    "construct_ids": []
                   }
                 },
                 "right": {
@@ -1895,10 +1782,8 @@
                   "right": {
                     "kind": "coefficient",
                     "role": "center",
-                    "coefficient": {
-                      "kind": "fixed",
-                      "value": 0.0
-                    }
+                    "value": 0.0,
+                    "construct_ids": []
                   }
                 }
               },
@@ -1908,10 +1793,8 @@
                 "left": {
                   "kind": "coefficient",
                   "role": "quartic",
-                  "coefficient": {
-                    "kind": "fixed",
-                    "value": 0.0
-                  }
+                  "value": 0.0,
+                  "construct_ids": []
                 },
                 "right": {
                   "kind": "binary",
@@ -1926,10 +1809,8 @@
                     "right": {
                       "kind": "coefficient",
                       "role": "center",
-                      "coefficient": {
-                        "kind": "fixed",
-                        "value": 0.0
-                      }
+                      "value": 0.0,
+                      "construct_ids": []
                     }
                   },
                   "right": {
@@ -1941,28 +1822,28 @@
             }
           }
         ],
-        "innovation": {
-          "distribution": "gaussian",
-          "scale": {
-            "kind": "parameter",
-            "parameter_id": "parameter:595facfc46354b6582dae818836589a0643813eae29b42665949b9383de56f29"
+        "coefficients": [
+          {
+            "kind": "coefficient",
+            "role": "diffusion_scale",
+            "value": "parameter:595facfc46354b6582dae818836589a0643813eae29b42665949b9383de56f29",
+            "construct_ids": []
           },
-          "loadings": [],
-          "degrees_of_freedom": null
-        },
-        "initial_state": {
-          "mean": {
-            "kind": "fixed",
-            "value": 0.0
+          {
+            "kind": "coefficient",
+            "role": "initial_mean",
+            "value": 0.0,
+            "construct_ids": []
           },
-          "scale": {
-            "kind": "fixed",
-            "value": 1.0
-          },
-          "correlations": []
-        },
+          {
+            "kind": "coefficient",
+            "role": "initial_scale",
+            "value": 1.0,
+            "construct_ids": []
+          }
+        ],
+        "innovation_family": "gaussian",
         "distribution": null,
-        "usage": null,
         "role": "endogenous",
         "temporal_status": "time_varying"
       },
@@ -1996,16 +1877,15 @@
       "mechanisms": [
         {
           "id": "mechanism:9ba84da79ac9a80d0a2a93bf7637f66397afe2aef39cf3edee8a839e045b22f2",
+          "kind": "drift",
           "expression": {
             "kind": "binary",
             "operator": "multiply",
             "left": {
               "kind": "coefficient",
               "role": "weight",
-              "coefficient": {
-                "kind": "parameter",
-                "parameter_id": "parameter:93e17976a307088a35da3743f512e7344391cc91defd96d1037b47c81e5f9210"
-              }
+              "value": "parameter:93e17976a307088a35da3743f512e7344391cc91defd96d1037b47c81e5f9210",
+              "construct_ids": []
             },
             "right": {
               "kind": "state",
@@ -2031,16 +1911,15 @@
       "mechanisms": [
         {
           "id": "mechanism:757ee8c6eadf256fb70586e6ab234015403802baf0604b132ed4b7d51a5d68bf",
+          "kind": "drift",
           "expression": {
             "kind": "binary",
             "operator": "multiply",
             "left": {
               "kind": "coefficient",
               "role": "weight",
-              "coefficient": {
-                "kind": "parameter",
-                "parameter_id": "parameter:cabcaa1f20b4727a032e91419f21eb59950155a04fbe7397025855966d9cc647"
-              }
+              "value": "parameter:cabcaa1f20b4727a032e91419f21eb59950155a04fbe7397025855966d9cc647",
+              "construct_ids": []
             },
             "right": {
               "kind": "state",
@@ -2056,12 +1935,26 @@
         "indicators": [
           {
             "id": "indicator:0b02f0d32a40caec29ef",
-            "likelihood": null,
+            "likelihood": {
+              "law": {
+                "distribution": "Delta",
+                "arguments": {
+                  "v": {
+                    "kind": "state",
+                    "construct_id": "construct:ac82920bb78125ab0aca"
+                  }
+                }
+              },
+              "standardized": false,
+              "reasoning": "The earlier model conditioned on recorded values exactly. Delta preserves that assumption at observed anchors; absent readings remain unknown.",
+              "sources": []
+            },
             "name": "external_stressor_event_count",
             "how_to_measure": "Within each day, inspect `calendar_summary`, `calendar_description`, `journal_text`, `imessage_text`, `transaction_name`, `merchant_name`, `finance_category_primary`, and `finance_category_detailed` for external stressful events such as conflict, deadlines, job strain, illness in self/others, bereavement, financial shock, legal/administrative problems, travel disruption, or major schedule disruption. Count distinct stressful events in the day. Return 0 if there is usable daily source evidence and no stressful event is indicated; return null if no usable event/text/transaction evidence exists.",
             "construct_polarity": "positive",
             "measurement_dtype": "count",
             "aggregation": "count",
+            "recording": "samples",
             "observation_window": null,
             "ordinal_levels": null,
             "categorical_levels": null,
@@ -2080,15 +1973,9 @@
           }
         ],
         "dynamics": [],
-        "innovation": null,
-        "initial_state": null,
+        "coefficients": [],
+        "innovation_family": "gaussian",
         "distribution": null,
-        "usage": {
-          "kind": "known_input",
-          "source_indicator_id": "indicator:0b02f0d32a40caec29ef",
-          "scale": 1.0,
-          "missing_policy": "zero"
-        },
         "role": "exogenous",
         "temporal_status": "time_varying"
       },
@@ -2111,16 +1998,15 @@
       "mechanisms": [
         {
           "id": "mechanism:e90a3b403968297eb93c5deff3632d69db6b1258b8e18d0183abab4c49e724da",
+          "kind": "drift",
           "expression": {
             "kind": "binary",
             "operator": "multiply",
             "left": {
               "kind": "coefficient",
               "role": "weight",
-              "coefficient": {
-                "kind": "parameter",
-                "parameter_id": "parameter:7ae993e70d7e440b5e653e0e7728fcb07f04c36479498a1e18c0bca4d5a4cd3e"
-              }
+              "value": "parameter:7ae993e70d7e440b5e653e0e7728fcb07f04c36479498a1e18c0bca4d5a4cd3e",
+              "construct_ids": []
             },
             "right": {
               "kind": "state",
@@ -2146,16 +2032,15 @@
       "mechanisms": [
         {
           "id": "mechanism:0f3aa418ace84a47067f495fb5127bfa20f751fc7558537a6bb8e712c3ab2557",
+          "kind": "drift",
           "expression": {
             "kind": "binary",
             "operator": "multiply",
             "left": {
               "kind": "coefficient",
               "role": "weight",
-              "coefficient": {
-                "kind": "parameter",
-                "parameter_id": "parameter:6644003d9f950a37d74b82563ce03df73bb93d24eca0f2a3bbcce99728418679"
-              }
+              "value": "parameter:6644003d9f950a37d74b82563ce03df73bb93d24eca0f2a3bbcce99728418679",
+              "construct_ids": []
             },
             "right": {
               "kind": "state",
@@ -2181,16 +2066,15 @@
       "mechanisms": [
         {
           "id": "mechanism:0b9716d48e43ec98660ca6b0d75981fb11806a0518859e6938305a9d2f6b2bd4",
+          "kind": "drift",
           "expression": {
             "kind": "binary",
             "operator": "multiply",
             "left": {
               "kind": "coefficient",
               "role": "weight",
-              "coefficient": {
-                "kind": "parameter",
-                "parameter_id": "parameter:8f16c468bd931a509f0b080732c82a6ad95b9250c6d5419dbc7c962e27be5e4d"
-              }
+              "value": "parameter:8f16c468bd931a509f0b080732c82a6ad95b9250c6d5419dbc7c962e27be5e4d",
+              "construct_ids": []
             },
             "right": {
               "kind": "state",
@@ -2220,10 +2104,8 @@
                         "left": {
                           "kind": "coefficient",
                           "role": "observation_intercept",
-                          "coefficient": {
-                            "kind": "parameter",
-                            "parameter_id": "parameter:4c69c0ffa919eabbb08eed0878b3bf24a3fb06c1cd111d5a091f8fcddd8537e6"
-                          }
+                          "value": "parameter:4c69c0ffa919eabbb08eed0878b3bf24a3fb06c1cd111d5a091f8fcddd8537e6",
+                          "construct_ids": []
                         },
                         "right": {
                           "kind": "binary",
@@ -2231,10 +2113,8 @@
                           "left": {
                             "kind": "coefficient",
                             "role": "loading",
-                            "coefficient": {
-                              "kind": "fixed",
-                              "value": 1.0
-                            }
+                            "value": 1.0,
+                            "construct_ids": []
                           },
                           "right": {
                             "kind": "state",
@@ -2247,10 +2127,8 @@
                   "concentration": {
                     "kind": "coefficient",
                     "role": "dispersion",
-                    "coefficient": {
-                      "kind": "parameter",
-                      "parameter_id": "parameter:682bd44790ce8d881c45c2aa166884c83146b6f6a175a779c90033b22ba9403f"
-                    }
+                    "value": "parameter:682bd44790ce8d881c45c2aa166884c83146b6f6a175a779c90033b22ba9403f",
+                    "construct_ids": []
                   }
                 }
               },
@@ -2263,6 +2141,7 @@
             "construct_polarity": "positive",
             "measurement_dtype": "count",
             "aggregation": "sum",
+            "recording": "samples",
             "observation_window": null,
             "ordinal_levels": null,
             "categorical_levels": null,
@@ -2276,6 +2155,7 @@
         "dynamics": [
           {
             "id": "mechanism:b534d1d4ae14c7580e29490b3af208ad55626e342ad74fe5b5c15fd92ee58584",
+            "kind": "drift",
             "expression": {
               "kind": "binary",
               "operator": "subtract",
@@ -2292,10 +2172,8 @@
                   "right": {
                     "kind": "coefficient",
                     "role": "decay",
-                    "coefficient": {
-                      "kind": "parameter",
-                      "parameter_id": "parameter:5e0f4616e4d76bd70855ce8c6bc4e088d231ffb6d74ba81555fa80703beae1c2"
-                    }
+                    "value": "parameter:5e0f4616e4d76bd70855ce8c6bc4e088d231ffb6d74ba81555fa80703beae1c2",
+                    "construct_ids": []
                   }
                 },
                 "right": {
@@ -2308,10 +2186,8 @@
                   "right": {
                     "kind": "coefficient",
                     "role": "center",
-                    "coefficient": {
-                      "kind": "fixed",
-                      "value": 0.0
-                    }
+                    "value": 0.0,
+                    "construct_ids": []
                   }
                 }
               },
@@ -2321,10 +2197,8 @@
                 "left": {
                   "kind": "coefficient",
                   "role": "quartic",
-                  "coefficient": {
-                    "kind": "fixed",
-                    "value": 0.0
-                  }
+                  "value": 0.0,
+                  "construct_ids": []
                 },
                 "right": {
                   "kind": "binary",
@@ -2339,10 +2213,8 @@
                     "right": {
                       "kind": "coefficient",
                       "role": "center",
-                      "coefficient": {
-                        "kind": "fixed",
-                        "value": 0.0
-                      }
+                      "value": 0.0,
+                      "construct_ids": []
                     }
                   },
                   "right": {
@@ -2354,28 +2226,28 @@
             }
           }
         ],
-        "innovation": {
-          "distribution": "gaussian",
-          "scale": {
-            "kind": "parameter",
-            "parameter_id": "parameter:19d63341a2cedf238201371098567432f756f81a31323d6428e69e87e94b1a19"
+        "coefficients": [
+          {
+            "kind": "coefficient",
+            "role": "diffusion_scale",
+            "value": "parameter:19d63341a2cedf238201371098567432f756f81a31323d6428e69e87e94b1a19",
+            "construct_ids": []
           },
-          "loadings": [],
-          "degrees_of_freedom": null
-        },
-        "initial_state": {
-          "mean": {
-            "kind": "fixed",
-            "value": 0.0
+          {
+            "kind": "coefficient",
+            "role": "initial_mean",
+            "value": 0.0,
+            "construct_ids": []
           },
-          "scale": {
-            "kind": "fixed",
-            "value": 1.0
-          },
-          "correlations": []
-        },
+          {
+            "kind": "coefficient",
+            "role": "initial_scale",
+            "value": 1.0,
+            "construct_ids": []
+          }
+        ],
+        "innovation_family": "gaussian",
         "distribution": null,
-        "usage": null,
         "role": "endogenous",
         "temporal_status": "time_varying"
       },
@@ -2392,16 +2264,15 @@
       "mechanisms": [
         {
           "id": "mechanism:6c2b6bec46486c06fe50c6504720b3d46f6dff193562ae4cf1336f4bbd479962",
+          "kind": "drift",
           "expression": {
             "kind": "binary",
             "operator": "multiply",
             "left": {
               "kind": "coefficient",
               "role": "weight",
-              "coefficient": {
-                "kind": "parameter",
-                "parameter_id": "parameter:4529be181165946bd05ca47eede4f26cefb5304f6312fd51ac7f67653ebec2fd"
-              }
+              "value": "parameter:4529be181165946bd05ca47eede4f26cefb5304f6312fd51ac7f67653ebec2fd",
+              "construct_ids": []
             },
             "right": {
               "kind": "state",
@@ -2433,16 +2304,15 @@
       "mechanisms": [
         {
           "id": "mechanism:052d161218a99131ae0a5ee92a08322dd5b01bea4b2842f8517d3022b0b0740d",
+          "kind": "drift",
           "expression": {
             "kind": "binary",
             "operator": "multiply",
             "left": {
               "kind": "coefficient",
               "role": "weight",
-              "coefficient": {
-                "kind": "parameter",
-                "parameter_id": "parameter:e12fda642336ce481bd4a41010c8391d35da276abc819f7cebc574b61648628a"
-              }
+              "value": "parameter:e12fda642336ce481bd4a41010c8391d35da276abc819f7cebc574b61648628a",
+              "construct_ids": []
             },
             "right": {
               "kind": "state",
@@ -2474,16 +2344,15 @@
       "mechanisms": [
         {
           "id": "mechanism:3a11ded652157bf690c15634b6bdbc296d66dded921fee5a7e62cc5f7d653b56",
+          "kind": "drift",
           "expression": {
             "kind": "binary",
             "operator": "multiply",
             "left": {
               "kind": "coefficient",
               "role": "weight",
-              "coefficient": {
-                "kind": "parameter",
-                "parameter_id": "parameter:586e79e66975d39c87963bba7fc30ee3e1569df19b00431aabd125ec7fa2d683"
-              }
+              "value": "parameter:586e79e66975d39c87963bba7fc30ee3e1569df19b00431aabd125ec7fa2d683",
+              "construct_ids": []
             },
             "right": {
               "kind": "state",
@@ -2509,16 +2378,15 @@
       "mechanisms": [
         {
           "id": "mechanism:27e4b6629795dc5faca5a7c25f895e4a7d030b44cfb0a6ead3097075adac06fb",
+          "kind": "drift",
           "expression": {
             "kind": "binary",
             "operator": "multiply",
             "left": {
               "kind": "coefficient",
               "role": "weight",
-              "coefficient": {
-                "kind": "parameter",
-                "parameter_id": "parameter:d20ec2885a6fc8305245a06e43d6887d2ae868345c8bf8c7b391ed03fd96b19d"
-              }
+              "value": "parameter:d20ec2885a6fc8305245a06e43d6887d2ae868345c8bf8c7b391ed03fd96b19d",
+              "construct_ids": []
             },
             "right": {
               "kind": "state",
@@ -2549,7 +2417,7 @@
       "effect": {
         "id": "construct:ecfbf689dbd8add308bb",
         "name": "clinical_monitoring_rescue_care",
-        "description": "Frequency and quality of clinical follow-up, safety monitoring, medication review, dose rescue, and crisis support.",
+        "description": "Frequency and quality of clinical follow-up, safety monitoring, medication review, dose rescue, and crisis support.\n\nEarlier measurement assessment: Clinical contacts and rescue actions are sparse, event-triggered assignment signals that preserve treatment-change context without supporting a latent state.",
         "indicators": [
           {
             "id": "indicator:80833c21d9dd9f2ce5d5",
@@ -2559,6 +2427,7 @@
             "construct_polarity": "positive",
             "measurement_dtype": "count",
             "aggregation": "count",
+            "recording": "samples",
             "observation_window": null,
             "ordinal_levels": null,
             "categorical_levels": null,
@@ -2576,6 +2445,7 @@
             "construct_polarity": "positive",
             "measurement_dtype": "binary",
             "aggregation": "last",
+            "recording": "samples",
             "observation_window": null,
             "ordinal_levels": null,
             "categorical_levels": null,
@@ -2593,13 +2463,9 @@
           }
         ],
         "dynamics": [],
-        "innovation": null,
-        "initial_state": null,
+        "coefficients": [],
+        "innovation_family": "gaussian",
         "distribution": null,
-        "usage": {
-          "kind": "scientific_only",
-          "reason": "Clinical contacts and rescue actions are sparse, event-triggered assignment signals that preserve treatment-change context without supporting a latent state."
-        },
         "role": "endogenous",
         "temporal_status": "time_varying"
       },
@@ -2636,12 +2502,26 @@
         "indicators": [
           {
             "id": "indicator:7f51bc663e8e0bbea95f",
-            "likelihood": null,
+            "likelihood": {
+              "law": {
+                "distribution": "Delta",
+                "arguments": {
+                  "v": {
+                    "kind": "state",
+                    "construct_id": "construct:428de2b75c12e36ca19d"
+                  }
+                }
+              },
+              "standardized": false,
+              "reasoning": "The earlier model conditioned on recorded values exactly. Delta preserves that assumption at observed anchors; absent readings remain unknown.",
+              "sources": []
+            },
             "name": "other_treatment_change_count",
             "how_to_measure": "Within each day, inspect `medication_name`, `drug_name`, `medication_dose_mg`, `medication_action`, `clinical_note_text`, `assessment_text`, and `plan_text` for non-escitalopram psychotropic medications, sleep aids, anxiolytics, stimulants, supplements, hormonal treatments, or somatic treatments that are initiated, stopped, increased, decreased, or used as needed. Count distinct non-escitalopram treatment changes or active PRN uses. Return 0 if medication/treatment evidence is present and no relevant non-escitalopram treatment is active or changed; return null if there is no usable treatment evidence.",
             "construct_polarity": "positive",
             "measurement_dtype": "count",
             "aggregation": "count",
+            "recording": "samples",
             "observation_window": null,
             "ordinal_levels": null,
             "categorical_levels": null,
@@ -2659,15 +2539,9 @@
           }
         ],
         "dynamics": [],
-        "innovation": null,
-        "initial_state": null,
+        "coefficients": [],
+        "innovation_family": "gaussian",
         "distribution": null,
-        "usage": {
-          "kind": "known_input",
-          "source_indicator_id": "indicator:7f51bc663e8e0bbea95f",
-          "scale": 1.0,
-          "missing_policy": "zero"
-        },
         "role": "endogenous",
         "temporal_status": "time_varying"
       },
@@ -2680,16 +2554,15 @@
       "mechanisms": [
         {
           "id": "mechanism:08b396baa67488bfb48e47684080fa91323245e226a0a18d38948c15e52d9395",
+          "kind": "drift",
           "expression": {
             "kind": "binary",
             "operator": "multiply",
             "left": {
               "kind": "coefficient",
               "role": "weight",
-              "coefficient": {
-                "kind": "parameter",
-                "parameter_id": "parameter:0366100fe006daacd286930ef8bd629af70d9e495e4c1cc45d0ee79028812884"
-              }
+              "value": "parameter:0366100fe006daacd286930ef8bd629af70d9e495e4c1cc45d0ee79028812884",
+              "construct_ids": []
             },
             "right": {
               "kind": "state",
@@ -2718,20 +2591,7 @@
       "description": "Effect of external_stressful_events on perceived_stress_burden (contemporaneous)",
       "distribution_transform": "dt_effect_to_ct_rate",
       "value": null,
-      "distribution": {
-        "distribution": "Normal",
-        "params": {
-          "loc": {
-            "array": 0.10474999994039536,
-            "dtype": "float32"
-          },
-          "scale": {
-            "array": 0.1599999964237213,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:496082f22b14ee4769abd9b01dcd462de465cd1c7764e97357aadfc664bffc71",
       "reference_interval_days": 1.0
     },
     {
@@ -2740,20 +2600,7 @@
       "description": "Effect of perceived_stress_burden on internalizing_symptom_burden (lagged)",
       "distribution_transform": "dt_effect_to_ct_rate",
       "value": null,
-      "distribution": {
-        "distribution": "Normal",
-        "params": {
-          "loc": {
-            "array": 0.3100000023841858,
-            "dtype": "float32"
-          },
-          "scale": {
-            "array": 0.1599999964237213,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:c9910822aa33032d5664671cd67ab684767ac6f1448cfe95a9af53131e85e5ba",
       "reference_interval_days": 1.0
     },
     {
@@ -2762,20 +2609,7 @@
       "description": "Ordered-logistic threshold base for journal_stress_severity",
       "distribution_transform": "identity",
       "value": null,
-      "distribution": {
-        "distribution": "Normal",
-        "params": {
-          "loc": {
-            "array": 0.0,
-            "dtype": "float32"
-          },
-          "scale": {
-            "array": 1.25,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:ae80b1650ffc6f073260da72a09c0380b4b0704ae565c97b72fe4d984c44c2f6",
       "reference_interval_days": null
     },
     {
@@ -2784,16 +2618,7 @@
       "description": "Residual/innovation SD for internalizing_symptom_burden",
       "distribution_transform": "identity",
       "value": null,
-      "distribution": {
-        "distribution": "HalfNormal",
-        "params": {
-          "scale": {
-            "array": 0.44999998807907104,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:ab2bbd1c8c8df0c6f6f12408cd2a79f5e9cd3b448f5300fe5c4bdb6adec26ee1",
       "reference_interval_days": null
     },
     {
@@ -2802,16 +2627,7 @@
       "description": "Measurement-error SD for state_of_mind_valence",
       "distribution_transform": "identity",
       "value": null,
-      "distribution": {
-        "distribution": "HalfNormal",
-        "params": {
-          "scale": {
-            "array": 0.44999998807907104,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:1ef3fe738fa13714276c1bddbffc17e5c9515c353ebaa67f9acb11599b3a39c8",
       "reference_interval_days": null
     },
     {
@@ -2820,16 +2636,7 @@
       "description": "Residual/innovation SD for physical_activity",
       "distribution_transform": "identity",
       "value": null,
-      "distribution": {
-        "distribution": "HalfNormal",
-        "params": {
-          "scale": {
-            "array": 0.44999998807907104,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:49107e26e494b089fba2f6087eea7f8783c60b9962330a5ab977843802692aac",
       "reference_interval_days": null
     },
     {
@@ -2838,16 +2645,7 @@
       "description": "Ordered-logistic threshold gaps for phq9_screening_score",
       "distribution_transform": "identity",
       "value": null,
-      "distribution": {
-        "distribution": "HalfNormal",
-        "params": {
-          "scale": {
-            "array": 0.6499999761581421,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:0c2c9cf4242ae6407514607c63ff0bc388bf7ef8152e500a12d05fc8874a9a88",
       "reference_interval_days": null
     },
     {
@@ -2856,20 +2654,7 @@
       "description": "Ordered-logistic threshold base for journal_internalizing_symptom_severity",
       "distribution_transform": "identity",
       "value": null,
-      "distribution": {
-        "distribution": "Normal",
-        "params": {
-          "loc": {
-            "array": 0.0,
-            "dtype": "float32"
-          },
-          "scale": {
-            "array": 1.25,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:288116cce726096db7b40795fe0afa75386a343fd524c9727cd91e2d5fa5a1db",
       "reference_interval_days": null
     },
     {
@@ -2878,20 +2663,7 @@
       "description": "Baseline daily persistence absent incoming feedback for internalizing_symptom_burden",
       "distribution_transform": "dt_persistence_to_ct_decay",
       "value": null,
-      "distribution": {
-        "distribution": "Beta",
-        "params": {
-          "concentration1": {
-            "array": 10.680419921875,
-            "dtype": "float32"
-          },
-          "concentration0": {
-            "array": 3.319580078125,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:cca95f52434cdcaeb826264c99bf39f273bc7d866b6151988184aea61f80e0e0",
       "reference_interval_days": 1.0
     },
     {
@@ -2900,20 +2672,7 @@
       "description": "Effect of internalizing_symptom_burden on physical_activity (lagged)",
       "distribution_transform": "dt_effect_to_ct_rate",
       "value": null,
-      "distribution": {
-        "distribution": "Normal",
-        "params": {
-          "loc": {
-            "array": -0.1732500046491623,
-            "dtype": "float32"
-          },
-          "scale": {
-            "array": 0.1599999964237213,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:74978cad3ccc65d634926750aeae064b63e293239d46f3ff9cf53efc87643176",
       "reference_interval_days": 1.0
     },
     {
@@ -2922,20 +2681,7 @@
       "description": "Baseline daily persistence absent incoming feedback for physical_activity",
       "distribution_transform": "dt_persistence_to_ct_decay",
       "value": null,
-      "distribution": {
-        "distribution": "Beta",
-        "params": {
-          "concentration1": {
-            "array": 11.610759735107422,
-            "dtype": "float32"
-          },
-          "concentration0": {
-            "array": 2.389240026473999,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:d6488b1e64593ab11cda2eccfe1ce1a41854d231d3a20f44ae34b3e7de4f73f9",
       "reference_interval_days": 1.0
     },
     {
@@ -2944,20 +2690,7 @@
       "description": "Observation intercept for daily_step_count",
       "distribution_transform": "identity",
       "value": null,
-      "distribution": {
-        "distribution": "Normal",
-        "params": {
-          "loc": {
-            "array": 0.0,
-            "dtype": "float32"
-          },
-          "scale": {
-            "array": 1.0,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:c3390fe19be39d8da920439eaceaadc5d556ff5ce81ebd92bb2edd811f5df0b6",
       "reference_interval_days": null
     },
     {
@@ -2966,20 +2699,7 @@
       "description": "Ordered-logistic threshold base for taper_speed_instruction_intensity",
       "distribution_transform": "identity",
       "value": null,
-      "distribution": {
-        "distribution": "Normal",
-        "params": {
-          "loc": {
-            "array": 0.0,
-            "dtype": "float32"
-          },
-          "scale": {
-            "array": 1.25,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:65dc4a125d59cc580bea340f77a0dd1880064c9f975c59e814964252c9ce7587",
       "reference_interval_days": null
     },
     {
@@ -2988,34 +2708,7 @@
       "description": "Factor loading for phq9_screening_score on internalizing_symptom_burden",
       "distribution_transform": "identity",
       "value": null,
-      "distribution": {
-        "distribution": "TwoSidedTruncatedDistribution",
-        "params": {
-          "low": {
-            "array": 0.05000000074505806,
-            "dtype": "float32"
-          },
-          "high": {
-            "array": 3.0,
-            "dtype": "float32"
-          },
-          "base_dist": {
-            "distribution": "Normal",
-            "params": {
-              "loc": {
-                "array": 1.0,
-                "dtype": "float32"
-              },
-              "scale": {
-                "array": 0.30000001192092896,
-                "dtype": "float32"
-              },
-              "validate_args": true
-            }
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:8cbb0485f75fd3827d368e3bb22bef4cd766f980e0f38a42493f36fbe3395280",
       "reference_interval_days": null
     },
     {
@@ -3024,20 +2717,7 @@
       "description": "Effect of other_psychotropic_or_somatic_treatments on internalizing_symptom_burden (lagged)",
       "distribution_transform": "dt_effect_to_ct_rate",
       "value": null,
-      "distribution": {
-        "distribution": "Normal",
-        "params": {
-          "loc": {
-            "array": -0.07113999873399734,
-            "dtype": "float32"
-          },
-          "scale": {
-            "array": 0.1599999964237213,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:a72e23316d425ca786dd0c141b04a2dfa24068f458f39fc267a355a356c56277",
       "reference_interval_days": 1.0
     },
     {
@@ -3046,20 +2726,7 @@
       "description": "Baseline daily persistence absent incoming feedback for perceived_stress_burden",
       "distribution_transform": "dt_persistence_to_ct_decay",
       "value": null,
-      "distribution": {
-        "distribution": "Beta",
-        "params": {
-          "concentration1": {
-            "array": 11.30051040649414,
-            "dtype": "float32"
-          },
-          "concentration0": {
-            "array": 2.6994900703430176,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:60032b84449d1abd8bbd25b04971120b6b33c45b1612600eb039fb35b1fa3f23",
       "reference_interval_days": 1.0
     },
     {
@@ -3068,16 +2735,7 @@
       "description": "Residual/innovation SD for perceived_stress_burden",
       "distribution_transform": "identity",
       "value": null,
-      "distribution": {
-        "distribution": "HalfNormal",
-        "params": {
-          "scale": {
-            "array": 0.44999998807907104,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:aacbcc02861e8eebdaef76401a12dbac61dfed9da74f51e423f92ff23ad43be2",
       "reference_interval_days": null
     },
     {
@@ -3086,16 +2744,7 @@
       "description": "Ordered-logistic threshold gaps for taper_speed_instruction_intensity",
       "distribution_transform": "identity",
       "value": null,
-      "distribution": {
-        "distribution": "HalfNormal",
-        "params": {
-          "scale": {
-            "array": 0.6499999761581421,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:18ddb11fd70eb792993e90f6fa88c1cda6cec90fb7c521c3d64b76e3dbab924c",
       "reference_interval_days": null
     },
     {
@@ -3104,20 +2753,7 @@
       "description": "Effect of physical_activity on sleep_circadian_disruption (lagged)",
       "distribution_transform": "dt_effect_to_ct_rate",
       "value": null,
-      "distribution": {
-        "distribution": "Normal",
-        "params": {
-          "loc": {
-            "array": -0.09831999987363815,
-            "dtype": "float32"
-          },
-          "scale": {
-            "array": 0.1599999964237213,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:491e6a0e2428e5fdda8622a8899c72ead9a6223cf6aa60662d60eb32e26d1ba8",
       "reference_interval_days": 1.0
     },
     {
@@ -3126,16 +2762,7 @@
       "description": "Residual/innovation SD for escitalopram_dose_taken",
       "distribution_transform": "identity",
       "value": null,
-      "distribution": {
-        "distribution": "HalfNormal",
-        "params": {
-          "scale": {
-            "array": 0.44999998807907104,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:7a0f9df3235cbb20c9ef2b4ed31ac4b6a172bebc313f72f1364e3a61d4465682",
       "reference_interval_days": null
     },
     {
@@ -3144,20 +2771,7 @@
       "description": "Effect of perceived_stress_burden on sleep_circadian_disruption (lagged)",
       "distribution_transform": "dt_effect_to_ct_rate",
       "value": null,
-      "distribution": {
-        "distribution": "Normal",
-        "params": {
-          "loc": {
-            "array": -0.11251000314950943,
-            "dtype": "float32"
-          },
-          "scale": {
-            "array": 0.1599999964237213,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:3e5adb036faafa775bc242ff73ccf79cab95a0082fe3352cde4884aa3bcb0569",
       "reference_interval_days": 1.0
     },
     {
@@ -3166,20 +2780,7 @@
       "description": "Negative-binomial observation dispersion",
       "distribution_transform": "identity",
       "value": null,
-      "distribution": {
-        "distribution": "Gamma",
-        "params": {
-          "concentration": {
-            "array": 3.0,
-            "dtype": "float32"
-          },
-          "rate": {
-            "array": 0.6000000238418579,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:94a13dd3dceca9041e358054cf20e671d54ea5d8ec680828f726410e37ba2a69",
       "reference_interval_days": null
     },
     {
@@ -3188,16 +2789,7 @@
       "description": "Residual/innovation SD for taper_speed_dose_reduction",
       "distribution_transform": "identity",
       "value": null,
-      "distribution": {
-        "distribution": "HalfNormal",
-        "params": {
-          "scale": {
-            "array": 0.44999998807907104,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:13310129775282e866b788bba9a1dedb834bb9a59dddfdd0c3ae9b641547bd33",
       "reference_interval_days": null
     },
     {
@@ -3206,16 +2798,7 @@
       "description": "Ordered-logistic threshold gaps for journal_internalizing_symptom_severity",
       "distribution_transform": "identity",
       "value": null,
-      "distribution": {
-        "distribution": "HalfNormal",
-        "params": {
-          "scale": {
-            "array": 0.6499999761581421,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:da1f3c2a614961765654c7d55cb49ea707e08ce5899daa585f9aca1187dd66f3",
       "reference_interval_days": null
     },
     {
@@ -3224,20 +2807,7 @@
       "description": "Ordered-logistic threshold base for gad7_screening_score",
       "distribution_transform": "identity",
       "value": null,
-      "distribution": {
-        "distribution": "Normal",
-        "params": {
-          "loc": {
-            "array": 0.0,
-            "dtype": "float32"
-          },
-          "scale": {
-            "array": 1.25,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:ec3a02889b9626bcc9ba4c8e72db7198822eab9d1bb6dfc9d7cc1052bebdb4bc",
       "reference_interval_days": null
     },
     {
@@ -3246,20 +2816,7 @@
       "description": "Ordered-logistic threshold base for medication_adherence_documented",
       "distribution_transform": "identity",
       "value": null,
-      "distribution": {
-        "distribution": "Normal",
-        "params": {
-          "loc": {
-            "array": 0.0,
-            "dtype": "float32"
-          },
-          "scale": {
-            "array": 1.25,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:cbaa20b2a959fb0c937869248b28ea10964a227e61f4fb8529c406efde66ce21",
       "reference_interval_days": null
     },
     {
@@ -3268,20 +2825,7 @@
       "description": "Baseline daily persistence absent incoming feedback for taper_speed_dose_reduction",
       "distribution_transform": "dt_persistence_to_ct_decay",
       "value": null,
-      "distribution": {
-        "distribution": "Beta",
-        "params": {
-          "concentration1": {
-            "array": 11.041780471801758,
-            "dtype": "float32"
-          },
-          "concentration0": {
-            "array": 2.9582200050354004,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:a1f47d88a5a55cb9362a5e8ec73a23ce292fe59f9b6715541f3d90c9a493fd45",
       "reference_interval_days": 1.0
     },
     {
@@ -3290,34 +2834,7 @@
       "description": "Factor loading for gad7_screening_score on internalizing_symptom_burden",
       "distribution_transform": "identity",
       "value": null,
-      "distribution": {
-        "distribution": "TwoSidedTruncatedDistribution",
-        "params": {
-          "low": {
-            "array": 0.05000000074505806,
-            "dtype": "float32"
-          },
-          "high": {
-            "array": 3.0,
-            "dtype": "float32"
-          },
-          "base_dist": {
-            "distribution": "Normal",
-            "params": {
-              "loc": {
-                "array": 1.0,
-                "dtype": "float32"
-              },
-              "scale": {
-                "array": 0.30000001192092896,
-                "dtype": "float32"
-              },
-              "validate_args": true
-            }
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:d204b44d9d4e676d650ccf9a3e1d65399b69ce04a5eca8f0730e5f80d5516a22",
       "reference_interval_days": null
     },
     {
@@ -3326,20 +2843,7 @@
       "description": "Effect of internalizing_symptom_burden on adherence_to_regimen (lagged)",
       "distribution_transform": "dt_effect_to_ct_rate",
       "value": null,
-      "distribution": {
-        "distribution": "Normal",
-        "params": {
-          "loc": {
-            "array": -0.13082000613212585,
-            "dtype": "float32"
-          },
-          "scale": {
-            "array": 0.1599999964237213,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:c7f65f7671929b71f07ebc294b39a15972cc2f674eb925faadc6b52d2ab96b68",
       "reference_interval_days": 1.0
     },
     {
@@ -3348,20 +2852,7 @@
       "description": "Effect of physical_activity on internalizing_symptom_burden (lagged)",
       "distribution_transform": "dt_effect_to_ct_rate",
       "value": null,
-      "distribution": {
-        "distribution": "Normal",
-        "params": {
-          "loc": {
-            "array": -0.18000000715255737,
-            "dtype": "float32"
-          },
-          "scale": {
-            "array": 0.1599999964237213,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:3c8496c65da11f3efdb202624428e40024264fed8d54bd1f268908009b23c0b3",
       "reference_interval_days": 1.0
     },
     {
@@ -3370,20 +2861,7 @@
       "description": "Baseline daily persistence absent incoming feedback for escitalopram_dose_taken",
       "distribution_transform": "dt_persistence_to_ct_decay",
       "value": null,
-      "distribution": {
-        "distribution": "Beta",
-        "params": {
-          "concentration1": {
-            "array": 10.301989555358887,
-            "dtype": "float32"
-          },
-          "concentration0": {
-            "array": 3.698009967803955,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:053137cbe0d8d602a32b5d31de9a8e810429848ceb4da7fa2519e5f137d9f6bb",
       "reference_interval_days": 1.0
     },
     {
@@ -3392,16 +2870,7 @@
       "description": "Ordered-logistic threshold gaps for gad7_screening_score",
       "distribution_transform": "identity",
       "value": null,
-      "distribution": {
-        "distribution": "HalfNormal",
-        "params": {
-          "scale": {
-            "array": 0.6499999761581421,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:abbce13ff2889b68e6d6efd9dd0b7f2c3c21df333e723b55c46cf8ee9fc33c41",
       "reference_interval_days": null
     },
     {
@@ -3410,16 +2879,7 @@
       "description": "Residual/innovation SD for sleep_circadian_disruption",
       "distribution_transform": "identity",
       "value": null,
-      "distribution": {
-        "distribution": "HalfNormal",
-        "params": {
-          "scale": {
-            "array": 0.44999998807907104,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:ab90adc61f10435e2aea1ae6a02028b3177878a3c0b22a6c07d2ba8f32bb45b2",
       "reference_interval_days": null
     },
     {
@@ -3428,20 +2888,7 @@
       "description": "Ordered-logistic threshold base for phq9_screening_score",
       "distribution_transform": "identity",
       "value": null,
-      "distribution": {
-        "distribution": "Normal",
-        "params": {
-          "loc": {
-            "array": 0.0,
-            "dtype": "float32"
-          },
-          "scale": {
-            "array": 1.25,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:320716146fd565a557ccb35ae17a41df9c21324cc3c0af9b9449cd572b73afe7",
       "reference_interval_days": null
     },
     {
@@ -3450,20 +2897,7 @@
       "description": "Baseline daily persistence absent incoming feedback for adherence_to_regimen",
       "distribution_transform": "dt_persistence_to_ct_decay",
       "value": null,
-      "distribution": {
-        "distribution": "Beta",
-        "params": {
-          "concentration1": {
-            "array": 10.710809707641602,
-            "dtype": "float32"
-          },
-          "concentration0": {
-            "array": 3.2891900539398193,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:9f9287d449bb48a51d32ea3b7d464616cf2d843e7158721a7784b948d1a2410d",
       "reference_interval_days": 1.0
     },
     {
@@ -3472,20 +2906,7 @@
       "description": "Effect of internalizing_symptom_burden on sleep_circadian_disruption (lagged)",
       "distribution_transform": "dt_effect_to_ct_rate",
       "value": null,
-      "distribution": {
-        "distribution": "Normal",
-        "params": {
-          "loc": {
-            "array": 0.10853999853134155,
-            "dtype": "float32"
-          },
-          "scale": {
-            "array": 0.1599999964237213,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:5aad683d0ce8308023e0c05e71efd7c67c36ccfbfc3c8668abf684a476401352",
       "reference_interval_days": 1.0
     },
     {
@@ -3494,16 +2915,7 @@
       "description": "Residual/innovation SD for adherence_to_regimen",
       "distribution_transform": "identity",
       "value": null,
-      "distribution": {
-        "distribution": "HalfNormal",
-        "params": {
-          "scale": {
-            "array": 0.44999998807907104,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:623a240ec0a8635b08b68e5bf9e09993fe1a81c8bb6d1f237cbb17e9e0565f73",
       "reference_interval_days": null
     },
     {
@@ -3512,20 +2924,7 @@
       "description": "Effect of adherence_to_regimen on escitalopram_dose_taken (lagged)",
       "distribution_transform": "dt_effect_to_ct_rate",
       "value": null,
-      "distribution": {
-        "distribution": "Normal",
-        "params": {
-          "loc": {
-            "array": 0.07811000198125839,
-            "dtype": "float32"
-          },
-          "scale": {
-            "array": 0.1599999964237213,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:6627d992f700ad8b978149e37208786eaa2a94a9ed032148530392376d61c323",
       "reference_interval_days": 1.0
     },
     {
@@ -3534,20 +2933,7 @@
       "description": "Effect of escitalopram_dose_taken on internalizing_symptom_burden (lagged)",
       "distribution_transform": "dt_effect_to_ct_rate",
       "value": null,
-      "distribution": {
-        "distribution": "Normal",
-        "params": {
-          "loc": {
-            "array": 0.06589999794960022,
-            "dtype": "float32"
-          },
-          "scale": {
-            "array": 0.1599999964237213,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:6e8abca2c7c0ae65d1a128c8157df67a905744571ca4f71525260fb4853a63f9",
       "reference_interval_days": 1.0
     },
     {
@@ -3556,20 +2942,7 @@
       "description": "Baseline daily persistence absent incoming feedback for sleep_circadian_disruption",
       "distribution_transform": "dt_persistence_to_ct_decay",
       "value": null,
-      "distribution": {
-        "distribution": "Beta",
-        "params": {
-          "concentration1": {
-            "array": 11.738189697265625,
-            "dtype": "float32"
-          },
-          "concentration0": {
-            "array": 2.261810064315796,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:3aba3511182ece88ca115396d7e7f9ab00f196621b761eda14964c72ee452ea1",
       "reference_interval_days": 1.0
     },
     {
@@ -3578,20 +2951,7 @@
       "description": "Effect of taper_speed_dose_reduction on escitalopram_dose_taken (lagged)",
       "distribution_transform": "dt_effect_to_ct_rate",
       "value": null,
-      "distribution": {
-        "distribution": "Normal",
-        "params": {
-          "loc": {
-            "array": -0.14917999505996704,
-            "dtype": "float32"
-          },
-          "scale": {
-            "array": 0.1599999964237213,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:3e2d9ea13d8a8c5903dfd0763f5e2e2264c9556f9fa21c6f48acf44979baf6bf",
       "reference_interval_days": 1.0
     },
     {
@@ -3600,16 +2960,7 @@
       "description": "Ordered-logistic threshold gaps for medication_adherence_documented",
       "distribution_transform": "identity",
       "value": null,
-      "distribution": {
-        "distribution": "HalfNormal",
-        "params": {
-          "scale": {
-            "array": 0.6499999761581421,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:8740c85acf8b94177dfe4aeddea65538ca176b6fcfdba8026fc3331d0af10b2b",
       "reference_interval_days": null
     },
     {
@@ -3618,16 +2969,7 @@
       "description": "Ordered-logistic threshold gaps for journal_stress_severity",
       "distribution_transform": "identity",
       "value": null,
-      "distribution": {
-        "distribution": "HalfNormal",
-        "params": {
-          "scale": {
-            "array": 0.6499999761581421,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:3e6aa6ccec778bd4a42cead09d76a37b6fd248dc3a388e5dde644a35443bdb0e",
       "reference_interval_days": null
     },
     {
@@ -3636,34 +2978,7 @@
       "description": "Factor loading for journal_internalizing_symptom_severity on internalizing_symptom_burden",
       "distribution_transform": "identity",
       "value": null,
-      "distribution": {
-        "distribution": "TwoSidedTruncatedDistribution",
-        "params": {
-          "low": {
-            "array": 0.05000000074505806,
-            "dtype": "float32"
-          },
-          "high": {
-            "array": 3.0,
-            "dtype": "float32"
-          },
-          "base_dist": {
-            "distribution": "Normal",
-            "params": {
-              "loc": {
-                "array": 1.0,
-                "dtype": "float32"
-              },
-              "scale": {
-                "array": 0.30000001192092896,
-                "dtype": "float32"
-              },
-              "validate_args": true
-            }
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:4ade242b7a96b20fa48fab260cdb4510b0d5294a9ccb2545c8ce0ef10f5fba77",
       "reference_interval_days": null
     },
     {
@@ -3672,28 +2987,630 @@
       "description": "Effect of sleep_circadian_disruption on internalizing_symptom_burden (lagged)",
       "distribution_transform": "dt_effect_to_ct_rate",
       "value": null,
-      "distribution": {
-        "distribution": "Normal",
-        "params": {
-          "loc": {
-            "array": 0.28999999165534973,
-            "dtype": "float32"
-          },
-          "scale": {
-            "array": 0.1599999964237213,
-            "dtype": "float32"
-          },
-          "validate_args": true
-        }
-      },
+      "distribution": "distribution:2b4340e544b0d5990a726e24a540c6af175a546610aff77f2c514fb8ebfea5bb",
       "reference_interval_days": 1.0
     }
   ],
-  "distributions": {},
+  "distributions": {
+    "distribution:496082f22b14ee4769abd9b01dcd462de465cd1c7764e97357aadfc664bffc71": {
+      "distribution": "Normal",
+      "params": {
+        "loc": {
+          "array": 0.10474999994039536,
+          "dtype": "float32"
+        },
+        "scale": {
+          "array": 0.1599999964237213,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:c9910822aa33032d5664671cd67ab684767ac6f1448cfe95a9af53131e85e5ba": {
+      "distribution": "Normal",
+      "params": {
+        "loc": {
+          "array": 0.3100000023841858,
+          "dtype": "float32"
+        },
+        "scale": {
+          "array": 0.1599999964237213,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:ae80b1650ffc6f073260da72a09c0380b4b0704ae565c97b72fe4d984c44c2f6": {
+      "distribution": "Normal",
+      "params": {
+        "loc": {
+          "array": 0.0,
+          "dtype": "float32"
+        },
+        "scale": {
+          "array": 1.25,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:ab2bbd1c8c8df0c6f6f12408cd2a79f5e9cd3b448f5300fe5c4bdb6adec26ee1": {
+      "distribution": "HalfNormal",
+      "params": {
+        "scale": {
+          "array": 0.44999998807907104,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:1ef3fe738fa13714276c1bddbffc17e5c9515c353ebaa67f9acb11599b3a39c8": {
+      "distribution": "HalfNormal",
+      "params": {
+        "scale": {
+          "array": 0.44999998807907104,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:49107e26e494b089fba2f6087eea7f8783c60b9962330a5ab977843802692aac": {
+      "distribution": "HalfNormal",
+      "params": {
+        "scale": {
+          "array": 0.44999998807907104,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:0c2c9cf4242ae6407514607c63ff0bc388bf7ef8152e500a12d05fc8874a9a88": {
+      "distribution": "HalfNormal",
+      "params": {
+        "scale": {
+          "array": 0.6499999761581421,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:288116cce726096db7b40795fe0afa75386a343fd524c9727cd91e2d5fa5a1db": {
+      "distribution": "Normal",
+      "params": {
+        "loc": {
+          "array": 0.0,
+          "dtype": "float32"
+        },
+        "scale": {
+          "array": 1.25,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:cca95f52434cdcaeb826264c99bf39f273bc7d866b6151988184aea61f80e0e0": {
+      "distribution": "Beta",
+      "params": {
+        "concentration1": {
+          "array": 10.680419921875,
+          "dtype": "float32"
+        },
+        "concentration0": {
+          "array": 3.319580078125,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:74978cad3ccc65d634926750aeae064b63e293239d46f3ff9cf53efc87643176": {
+      "distribution": "Normal",
+      "params": {
+        "loc": {
+          "array": -0.1732500046491623,
+          "dtype": "float32"
+        },
+        "scale": {
+          "array": 0.1599999964237213,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:d6488b1e64593ab11cda2eccfe1ce1a41854d231d3a20f44ae34b3e7de4f73f9": {
+      "distribution": "Beta",
+      "params": {
+        "concentration1": {
+          "array": 11.610759735107422,
+          "dtype": "float32"
+        },
+        "concentration0": {
+          "array": 2.389240026473999,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:c3390fe19be39d8da920439eaceaadc5d556ff5ce81ebd92bb2edd811f5df0b6": {
+      "distribution": "Normal",
+      "params": {
+        "loc": {
+          "array": 0.0,
+          "dtype": "float32"
+        },
+        "scale": {
+          "array": 1.0,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:65dc4a125d59cc580bea340f77a0dd1880064c9f975c59e814964252c9ce7587": {
+      "distribution": "Normal",
+      "params": {
+        "loc": {
+          "array": 0.0,
+          "dtype": "float32"
+        },
+        "scale": {
+          "array": 1.25,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:8cbb0485f75fd3827d368e3bb22bef4cd766f980e0f38a42493f36fbe3395280": {
+      "distribution": "TwoSidedTruncatedDistribution",
+      "params": {
+        "low": {
+          "array": 0.05000000074505806,
+          "dtype": "float32"
+        },
+        "high": {
+          "array": 3.0,
+          "dtype": "float32"
+        },
+        "base_dist": {
+          "distribution": "Normal",
+          "params": {
+            "loc": {
+              "array": 1.0,
+              "dtype": "float32"
+            },
+            "scale": {
+              "array": 0.30000001192092896,
+              "dtype": "float32"
+            },
+            "validate_args": true
+          }
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:a72e23316d425ca786dd0c141b04a2dfa24068f458f39fc267a355a356c56277": {
+      "distribution": "Normal",
+      "params": {
+        "loc": {
+          "array": -0.07113999873399734,
+          "dtype": "float32"
+        },
+        "scale": {
+          "array": 0.1599999964237213,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:60032b84449d1abd8bbd25b04971120b6b33c45b1612600eb039fb35b1fa3f23": {
+      "distribution": "Beta",
+      "params": {
+        "concentration1": {
+          "array": 11.30051040649414,
+          "dtype": "float32"
+        },
+        "concentration0": {
+          "array": 2.6994900703430176,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:aacbcc02861e8eebdaef76401a12dbac61dfed9da74f51e423f92ff23ad43be2": {
+      "distribution": "HalfNormal",
+      "params": {
+        "scale": {
+          "array": 0.44999998807907104,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:18ddb11fd70eb792993e90f6fa88c1cda6cec90fb7c521c3d64b76e3dbab924c": {
+      "distribution": "HalfNormal",
+      "params": {
+        "scale": {
+          "array": 0.6499999761581421,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:491e6a0e2428e5fdda8622a8899c72ead9a6223cf6aa60662d60eb32e26d1ba8": {
+      "distribution": "Normal",
+      "params": {
+        "loc": {
+          "array": -0.09831999987363815,
+          "dtype": "float32"
+        },
+        "scale": {
+          "array": 0.1599999964237213,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:7a0f9df3235cbb20c9ef2b4ed31ac4b6a172bebc313f72f1364e3a61d4465682": {
+      "distribution": "HalfNormal",
+      "params": {
+        "scale": {
+          "array": 0.44999998807907104,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:3e5adb036faafa775bc242ff73ccf79cab95a0082fe3352cde4884aa3bcb0569": {
+      "distribution": "Normal",
+      "params": {
+        "loc": {
+          "array": -0.11251000314950943,
+          "dtype": "float32"
+        },
+        "scale": {
+          "array": 0.1599999964237213,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:94a13dd3dceca9041e358054cf20e671d54ea5d8ec680828f726410e37ba2a69": {
+      "distribution": "Gamma",
+      "params": {
+        "concentration": {
+          "array": 3.0,
+          "dtype": "float32"
+        },
+        "rate": {
+          "array": 0.6000000238418579,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:13310129775282e866b788bba9a1dedb834bb9a59dddfdd0c3ae9b641547bd33": {
+      "distribution": "HalfNormal",
+      "params": {
+        "scale": {
+          "array": 0.44999998807907104,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:da1f3c2a614961765654c7d55cb49ea707e08ce5899daa585f9aca1187dd66f3": {
+      "distribution": "HalfNormal",
+      "params": {
+        "scale": {
+          "array": 0.6499999761581421,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:ec3a02889b9626bcc9ba4c8e72db7198822eab9d1bb6dfc9d7cc1052bebdb4bc": {
+      "distribution": "Normal",
+      "params": {
+        "loc": {
+          "array": 0.0,
+          "dtype": "float32"
+        },
+        "scale": {
+          "array": 1.25,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:cbaa20b2a959fb0c937869248b28ea10964a227e61f4fb8529c406efde66ce21": {
+      "distribution": "Normal",
+      "params": {
+        "loc": {
+          "array": 0.0,
+          "dtype": "float32"
+        },
+        "scale": {
+          "array": 1.25,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:a1f47d88a5a55cb9362a5e8ec73a23ce292fe59f9b6715541f3d90c9a493fd45": {
+      "distribution": "Beta",
+      "params": {
+        "concentration1": {
+          "array": 11.041780471801758,
+          "dtype": "float32"
+        },
+        "concentration0": {
+          "array": 2.9582200050354004,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:d204b44d9d4e676d650ccf9a3e1d65399b69ce04a5eca8f0730e5f80d5516a22": {
+      "distribution": "TwoSidedTruncatedDistribution",
+      "params": {
+        "low": {
+          "array": 0.05000000074505806,
+          "dtype": "float32"
+        },
+        "high": {
+          "array": 3.0,
+          "dtype": "float32"
+        },
+        "base_dist": {
+          "distribution": "Normal",
+          "params": {
+            "loc": {
+              "array": 1.0,
+              "dtype": "float32"
+            },
+            "scale": {
+              "array": 0.30000001192092896,
+              "dtype": "float32"
+            },
+            "validate_args": true
+          }
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:c7f65f7671929b71f07ebc294b39a15972cc2f674eb925faadc6b52d2ab96b68": {
+      "distribution": "Normal",
+      "params": {
+        "loc": {
+          "array": -0.13082000613212585,
+          "dtype": "float32"
+        },
+        "scale": {
+          "array": 0.1599999964237213,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:3c8496c65da11f3efdb202624428e40024264fed8d54bd1f268908009b23c0b3": {
+      "distribution": "Normal",
+      "params": {
+        "loc": {
+          "array": -0.18000000715255737,
+          "dtype": "float32"
+        },
+        "scale": {
+          "array": 0.1599999964237213,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:053137cbe0d8d602a32b5d31de9a8e810429848ceb4da7fa2519e5f137d9f6bb": {
+      "distribution": "Beta",
+      "params": {
+        "concentration1": {
+          "array": 10.301989555358887,
+          "dtype": "float32"
+        },
+        "concentration0": {
+          "array": 3.698009967803955,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:abbce13ff2889b68e6d6efd9dd0b7f2c3c21df333e723b55c46cf8ee9fc33c41": {
+      "distribution": "HalfNormal",
+      "params": {
+        "scale": {
+          "array": 0.6499999761581421,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:ab90adc61f10435e2aea1ae6a02028b3177878a3c0b22a6c07d2ba8f32bb45b2": {
+      "distribution": "HalfNormal",
+      "params": {
+        "scale": {
+          "array": 0.44999998807907104,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:320716146fd565a557ccb35ae17a41df9c21324cc3c0af9b9449cd572b73afe7": {
+      "distribution": "Normal",
+      "params": {
+        "loc": {
+          "array": 0.0,
+          "dtype": "float32"
+        },
+        "scale": {
+          "array": 1.25,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:9f9287d449bb48a51d32ea3b7d464616cf2d843e7158721a7784b948d1a2410d": {
+      "distribution": "Beta",
+      "params": {
+        "concentration1": {
+          "array": 10.710809707641602,
+          "dtype": "float32"
+        },
+        "concentration0": {
+          "array": 3.2891900539398193,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:5aad683d0ce8308023e0c05e71efd7c67c36ccfbfc3c8668abf684a476401352": {
+      "distribution": "Normal",
+      "params": {
+        "loc": {
+          "array": 0.10853999853134155,
+          "dtype": "float32"
+        },
+        "scale": {
+          "array": 0.1599999964237213,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:623a240ec0a8635b08b68e5bf9e09993fe1a81c8bb6d1f237cbb17e9e0565f73": {
+      "distribution": "HalfNormal",
+      "params": {
+        "scale": {
+          "array": 0.44999998807907104,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:6627d992f700ad8b978149e37208786eaa2a94a9ed032148530392376d61c323": {
+      "distribution": "Normal",
+      "params": {
+        "loc": {
+          "array": 0.07811000198125839,
+          "dtype": "float32"
+        },
+        "scale": {
+          "array": 0.1599999964237213,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:6e8abca2c7c0ae65d1a128c8157df67a905744571ca4f71525260fb4853a63f9": {
+      "distribution": "Normal",
+      "params": {
+        "loc": {
+          "array": 0.06589999794960022,
+          "dtype": "float32"
+        },
+        "scale": {
+          "array": 0.1599999964237213,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:3aba3511182ece88ca115396d7e7f9ab00f196621b761eda14964c72ee452ea1": {
+      "distribution": "Beta",
+      "params": {
+        "concentration1": {
+          "array": 11.738189697265625,
+          "dtype": "float32"
+        },
+        "concentration0": {
+          "array": 2.261810064315796,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:3e2d9ea13d8a8c5903dfd0763f5e2e2264c9556f9fa21c6f48acf44979baf6bf": {
+      "distribution": "Normal",
+      "params": {
+        "loc": {
+          "array": -0.14917999505996704,
+          "dtype": "float32"
+        },
+        "scale": {
+          "array": 0.1599999964237213,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:8740c85acf8b94177dfe4aeddea65538ca176b6fcfdba8026fc3331d0af10b2b": {
+      "distribution": "HalfNormal",
+      "params": {
+        "scale": {
+          "array": 0.6499999761581421,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:3e6aa6ccec778bd4a42cead09d76a37b6fd248dc3a388e5dde644a35443bdb0e": {
+      "distribution": "HalfNormal",
+      "params": {
+        "scale": {
+          "array": 0.6499999761581421,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:4ade242b7a96b20fa48fab260cdb4510b0d5294a9ccb2545c8ce0ef10f5fba77": {
+      "distribution": "TwoSidedTruncatedDistribution",
+      "params": {
+        "low": {
+          "array": 0.05000000074505806,
+          "dtype": "float32"
+        },
+        "high": {
+          "array": 3.0,
+          "dtype": "float32"
+        },
+        "base_dist": {
+          "distribution": "Normal",
+          "params": {
+            "loc": {
+              "array": 1.0,
+              "dtype": "float32"
+            },
+            "scale": {
+              "array": 0.30000001192092896,
+              "dtype": "float32"
+            },
+            "validate_args": true
+          }
+        },
+        "validate_args": true
+      }
+    },
+    "distribution:2b4340e544b0d5990a726e24a540c6af175a546610aff77f2c514fb8ebfea5bb": {
+      "distribution": "Normal",
+      "params": {
+        "loc": {
+          "array": 0.28999999165534973,
+          "dtype": "float32"
+        },
+        "scale": {
+          "array": 0.1599999964237213,
+          "dtype": "float32"
+        },
+        "validate_args": true
+      }
+    }
+  },
   "time_points": [],
   "measurement_clock": "1d",
-  "default_outcome": {
-    "kind": "construct",
-    "id": "construct:6ca86c47aaf18b2472ce"
-  }
+  "default_outcome": "construct:6ca86c47aaf18b2472ce",
+  "question": "I've been on escitalopram for about two and a half years. I'm thinking about tapering. Has the medication actually been moving the needle, or did I just get better on my own — and what would my likely trajectory look like over the next two months if I taper off now versus stay on it?"
 }

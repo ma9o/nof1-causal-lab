@@ -73,8 +73,9 @@ def merge_scientific_values(
         }
     converted, _ = identify_mechanisms(payload)
     from scripts.migrate_component_slots import convert_component_slots
+    from scripts.migrate_construct_usage import convert_construct_usage
 
-    return ModelSpec.model_validate(convert_component_slots(converted))
+    return ModelSpec.model_validate(convert_construct_usage(convert_component_slots(converted)))
 
 
 def validate_retired_compiler(payload: RetiredPayload, model: ModelSpec) -> None:
@@ -88,7 +89,8 @@ def validate_retired_compiler(payload: RetiredPayload, model: ModelSpec) -> None
         canonical = model.parameter(identities.get(definition["id"], definition["id"]))
         if (
             canonical.distribution is None
-            or canonical.model_dump(mode="json")["distribution"] != definition["prior"]
+            or model.model_dump(mode="json")["distributions"][canonical.distribution]
+            != definition["prior"]
         ):
             raise ValueError(f"Authored and compiled priors disagree for {canonical.id}")
     # Compilation verifies that the complete scientific value can reproduce all
@@ -190,14 +192,13 @@ def migrate_workspace(source: Path, destination: Path) -> RetiredPayload:
     import shutil
     from tempfile import TemporaryDirectory
 
-    from nof1_causal_lab.artifacts.admission import AdmissionReport
     from nof1_causal_lab.artifacts.catalog import ARTIFACT_CONTRACTS
     from nof1_causal_lab.artifacts.identification import IdentificationReport
     from nof1_causal_lab.artifacts.posterior import InferenceReport
+    from nof1_causal_lab.artifacts.prior_predictive import PriorPredictiveResult
     from nof1_causal_lab.machine.artifact_files import artifact_file_spec
     from nof1_causal_lab.machine.artifacts import ArtifactVersionInfo
     from nof1_causal_lab.machine.model_dependencies import MODEL_INPUTS
-    from nof1_causal_lab.machine.store import TransitionRecord
     from nof1_causal_lab.models.model_inputs import input_fingerprints
 
     source, destination = source.resolve(), destination.resolve()
@@ -352,10 +353,7 @@ def migrate_workspace(source: Path, destination: Path) -> RetiredPayload:
                 models[key] = (revision, model, info)
                 directory = target / "store" / "model" / f"v{revision}"
                 write(directory / "model.json", model.model_dump(mode="json"))
-                write(
-                    directory / "meta.json",
-                    ArtifactVersionInfo.model_validate(info).model_dump(mode="json"),
-                )
+                write(directory / "meta.json", info)
             return models[key][0]
 
         for (aid, version), _info in sorted(
@@ -394,11 +392,24 @@ def migrate_workspace(source: Path, destination: Path) -> RetiredPayload:
 
         def identification_report(design_version):
             design = payload("causal_design", design_version)["causal_design"]
+            positive = design["identifiability"]["identifiable_treatments"]
+            negative = design["identifiability"]["non_identifiable_treatments"]
+            if positive.keys() & negative.keys():
+                raise ValueError("A treatment cannot be both identified and non-identifiable")
             report = IdentificationReport(
                 outcome=design["latent"]["default_outcome"]["id"]
                 if design["latent"]["default_outcome"]
                 else None,
-                status=design["identifiability"],
+                treatments={
+                    **{
+                        identity: {**finding, "status": "identified"}
+                        for identity, finding in positive.items()
+                    },
+                    **{
+                        identity: {**finding, "status": "not_identified"}
+                        for identity, finding in negative.items()
+                    },
+                },
             )
             report.validate_model(by_revision[ensure_model("causal_design", design_version)])
             return report.model_dump(mode="json")
@@ -408,7 +419,7 @@ def migrate_workspace(source: Path, destination: Path) -> RetiredPayload:
         from nof1_causal_lab.utils.arrays import read_array, write_array
 
         array_directory = str(target / "store/arrays")
-        conditioned_meta = {}
+        conditioned_meta: dict[tuple[str, int], RetiredPayload] = {}
         for (aid, version), old in sorted(metadata.items()):
             if aid != "posterior":
                 continue
@@ -420,6 +431,7 @@ def migrate_workspace(source: Path, destination: Path) -> RetiredPayload:
                 read(directory / "diagnostics.json"),
                 retired_identity_map(by_revision[base_version]),
             )
+            value.update(value.pop("assessment"))
             report = InferenceReport.model_validate(
                 {key: value[key] for key in InferenceReport.model_fields if key in value}
             )
@@ -441,17 +453,15 @@ def migrate_workspace(source: Path, destination: Path) -> RetiredPayload:
                 array_loader=cache(partial(read_array, array_directory)),
             )
             revision = max(by_revision) + 1
-            info = ArtifactVersionInfo.model_validate(
-                {
-                    "artifact_id": "model",
-                    "version": revision,
-                    "provenance": old["provenance"],
-                    "derived_from": pins,
-                    "produced_by": "run:posterior",
-                    "created_at": old["created_at"],
-                    "model_inputs": input_fingerprints(conditioned),
-                }
-            ).model_dump(mode="json")
+            info = {
+                "artifact_id": "model",
+                "version": revision,
+                "provenance": old["provenance"],
+                "derived_from": pins,
+                "produced_by": "run:posterior",
+                "created_at": old["created_at"],
+                "model_inputs": input_fingerprints(conditioned),
+            }
             by_revision[revision], model_info[revision] = conditioned, info
             posterior_models[version] = revision
             mapped[aid, version] = ("model", revision)
@@ -493,13 +503,18 @@ def migrate_workspace(source: Path, destination: Path) -> RetiredPayload:
                 info["consumed_model_inputs"] = {
                     purpose: model_info[pins["model"]]["model_inputs"][purpose]
                 }
-            info = ArtifactVersionInfo.model_validate(info).model_dump(mode="json")
             converted_meta[aid, version] = info
             directory = target / "store" / aid / f"v{version}"
             shutil.copytree(source / "store" / aid / f"v{version}", directory)
             if aid == "identification_report":
                 old_design = old["derived_from"]["causal_design"]
                 write(directory / "identification_report.json", identification_report(old_design))
+            if aid == "validation_report":
+                report_path = directory / "validation_report.json"
+                report = read(report_path)
+                for audit in report["indicators"].values():
+                    audit.update(audit.pop("validation"))
+                write(report_path, report)
             if aid in ARTIFACT_CONTRACTS:
                 for filename in artifact_file_spec(aid).json.values():
                     ARTIFACT_CONTRACTS[aid].model_validate(read(directory / filename))
@@ -538,32 +553,21 @@ def migrate_workspace(source: Path, destination: Path) -> RetiredPayload:
             write(directory / "identification_report.json", identification_report(version))
             write(directory / "meta.json", info)
 
-        # Admission findings retain the old statistical artifact version, while its
-        # scientific definition maps to the corresponding ModelSpec version.
-        for (aid, version), old in metadata.items():
+        model_spec_logs = {}
+        for aid, version in metadata:
             if aid != "statistical_model_spec":
                 continue
             value = payload(aid, version)
-            report = AdmissionReport.model_validate(
-                {key: value[key] for key in AdmissionReport.model_fields if key in value}
-            )
-            pins = convert_pins(old["derived_from"])
-            pins["model"] = ensure_model(aid, version)
-            info = {
-                **old,
-                "artifact_id": "admission_report",
-                "derived_from": pins,
-                "model_inputs": {},
-                "consumed_model_inputs": {
-                    "belief": model_info[pins["model"]]["model_inputs"]["belief"]
-                },
+            findings = {
+                "search_queries": value.get("search_queries"),
+                "validation_warnings": value.get("validation_warnings"),
             }
-            converted_meta["admission_report", version] = info
-            write(
-                target / "store/admission_report" / f"v{version}" / "admission_report.json",
-                report.model_dump(mode="json"),
-            )
-            write(target / "store/admission_report" / f"v{version}" / "meta.json", info)
+            if value.get("prior_predictive_samples") is not None:
+                findings["prior_predictive"] = PriorPredictiveResult(
+                    samples=value["prior_predictive_samples"],
+                    diagnostics=value.get("prior_predictive_diagnostics", []),
+                ).model_dump(mode="json")
+            model_spec_logs[version] = findings
 
         current_model: int = 0
         source_current = {}
@@ -606,7 +610,7 @@ def migrate_workspace(source: Path, destination: Path) -> RetiredPayload:
                     record["diagnostics"]["authored_model"] = payload(aid, version)[
                         "statistical_model_spec"
                     ]
-                    produced.append(converted_meta["admission_report", version])
+                    record["diagnostics"].update(model_spec_logs[version])
                 if aid == "causal_design" and version in additional_reports:
                     produced.append(additional_reports[version])
 
@@ -634,8 +638,6 @@ def migrate_workspace(source: Path, destination: Path) -> RetiredPayload:
                         **item,
                         "artifact_id": "identification_report",
                     }
-                elif aid == "statistical_model_spec":
-                    retracted["admission_report"] = {**item, "artifact_id": "admission_report"}
                 if aid in authored - {"causal_design"} and affected:
                     retracted["model"] = {**item, "artifact_id": "model"}
             if affected and not any(info["artifact_id"] == "model" for info in produced):
@@ -658,7 +660,6 @@ def migrate_workspace(source: Path, destination: Path) -> RetiredPayload:
             # Accepted scratch from the former submission schema is archived but
             # cannot be resumed into a different authoring contract.
             record["resume"] = None
-            record = TransitionRecord.model_validate(record).model_dump(mode="json")
             if record["status"] == "applied":
                 for item in original_retracted:
                     source_current.pop(item["artifact_id"], None)
@@ -670,13 +671,18 @@ def migrate_workspace(source: Path, destination: Path) -> RetiredPayload:
                     if info["artifact_id"] == "model":
                         current_model = int(info["version"])
             write(target / "episode/journal" / path.name, record)
+        from scripts.migrate_model_question import fold_questions
+
+        question_revisions = fold_questions(target)
         manifest = {
             "schema_version": 1,
             "source": str(source),
             "source_sha256": originals,
             "model_revisions": {
-                f"{aid}/v{version}": mapped[aid, version][1] for aid, version in sorted(mapped)
+                f"{aid}/v{version}": question_revisions[f"model/v{mapped[aid, version][1]}"]
+                for aid, version in sorted(mapped)
             },
+            "question_revisions": question_revisions,
             "numerical_outputs": "preserved; no fitting or simulation",
             "restored_identification_reports": {
                 str(version): info["version"] for version, info in additional_reports.items()

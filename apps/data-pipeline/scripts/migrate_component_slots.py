@@ -112,11 +112,17 @@ def convert_component_slots(payload: RetiredModelPayload) -> JsonObject:
 
     coefficient_kinds(value)
     from scripts.migrate_connected_graph import connect_endpoints
+    from scripts.migrate_construct_coefficients import convert_payload as convert_coefficients
+    from scripts.migrate_distribution_references import convert_distribution_references
     from scripts.migrate_dynamics_expressions import convert_owned_expressions
     from scripts.migrate_likelihood_expressions import convert_payload
 
     model = ModelSpec.model_validate(
-        connect_endpoints(convert_payload(convert_owned_expressions(value)))
+        convert_distribution_references(
+            convert_coefficients(
+                connect_endpoints(convert_payload(convert_owned_expressions(value)))
+            )
+        )
     )
     if model.parameters or any(construct.dynamics for construct in model.constructs):
         model = complete_component_slots(

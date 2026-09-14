@@ -25,37 +25,29 @@
         "looks_integer_valued": true,
         "variance_to_mean_ratio": 3.6022727272727275
       },
-      "validation": {
-        "issues": [
-          {
-            "subject": {
-              "kind": "indicator",
-              "id": "indicator:93c7007ff8e5a6565b25"
-            },
-            "issue_type": "low_n",
-            "severity": "warning",
-            "message": "Only 5 observations (recommend >= 10)"
-          },
-          {
-            "subject": {
-              "kind": "indicator",
-              "id": "indicator:93c7007ff8e5a6565b25"
-            },
-            "issue_type": "large_timestamp_gap",
-            "severity": "warning",
-            "message": "Max consecutive gap 336h > 5x 24.0h (120.0h)"
-          }
-        ],
-        "checks": {
-          "max_gap_ratio": "warning",
-          "dtype_violations": "ok",
-          "time_coverage_ratio": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "variance": "ok",
-          "n_obs": "warning",
-          "n_unparseable_timestamps": "ok",
-          "duplicate_pct": "ok"
+      "issues": [
+        {
+          "indicator_id": "indicator:93c7007ff8e5a6565b25",
+          "issue_type": "low_n",
+          "severity": "warning",
+          "message": "Only 5 observations (recommend >= 10)"
+        },
+        {
+          "indicator_id": "indicator:93c7007ff8e5a6565b25",
+          "issue_type": "large_timestamp_gap",
+          "severity": "warning",
+          "message": "Max consecutive gap 336h > 5x 24.0h (120.0h)"
         }
+      ],
+      "checks": {
+        "max_gap_ratio": "warning",
+        "dtype_violations": "ok",
+        "time_coverage_ratio": "ok",
+        "arithmetic_sequence_detected": "ok",
+        "variance": "ok",
+        "n_obs": "warning",
+        "n_unparseable_timestamps": "ok",
+        "duplicate_pct": "ok"
       }
     },
     "indicator:b3eb347f05220d9f4130": {
@@ -82,37 +74,29 @@
         "looks_integer_valued": true,
         "variance_to_mean_ratio": 2.3709677419354835
       },
-      "validation": {
-        "issues": [
-          {
-            "subject": {
-              "kind": "indicator",
-              "id": "indicator:b3eb347f05220d9f4130"
-            },
-            "issue_type": "low_n",
-            "severity": "warning",
-            "message": "Only 5 observations (recommend >= 10)"
-          },
-          {
-            "subject": {
-              "kind": "indicator",
-              "id": "indicator:b3eb347f05220d9f4130"
-            },
-            "issue_type": "large_timestamp_gap",
-            "severity": "warning",
-            "message": "Max consecutive gap 336h > 5x 24.0h (120.0h)"
-          }
-        ],
-        "checks": {
-          "max_gap_ratio": "warning",
-          "dtype_violations": "ok",
-          "time_coverage_ratio": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "variance": "ok",
-          "n_obs": "warning",
-          "n_unparseable_timestamps": "ok",
-          "duplicate_pct": "ok"
+      "issues": [
+        {
+          "indicator_id": "indicator:b3eb347f05220d9f4130",
+          "issue_type": "low_n",
+          "severity": "warning",
+          "message": "Only 5 observations (recommend >= 10)"
+        },
+        {
+          "indicator_id": "indicator:b3eb347f05220d9f4130",
+          "issue_type": "large_timestamp_gap",
+          "severity": "warning",
+          "message": "Max consecutive gap 336h > 5x 24.0h (120.0h)"
         }
+      ],
+      "checks": {
+        "max_gap_ratio": "warning",
+        "dtype_violations": "ok",
+        "time_coverage_ratio": "ok",
+        "arithmetic_sequence_detected": "ok",
+        "variance": "ok",
+        "n_obs": "warning",
+        "n_unparseable_timestamps": "ok",
+        "duplicate_pct": "ok"
       }
     },
     "indicator:b20fa3887689d5616a60": {
@@ -139,18 +123,16 @@
         "looks_integer_valued": false,
         "variance_to_mean_ratio": 0.340323258998435
       },
-      "validation": {
-        "issues": [],
-        "checks": {
-          "max_gap_ratio": "ok",
-          "dtype_violations": "ok",
-          "time_coverage_ratio": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "variance": "ok",
-          "n_obs": "ok",
-          "n_unparseable_timestamps": "ok",
-          "duplicate_pct": "ok"
-        }
+      "issues": [],
+      "checks": {
+        "max_gap_ratio": "ok",
+        "dtype_violations": "ok",
+        "time_coverage_ratio": "ok",
+        "arithmetic_sequence_detected": "ok",
+        "variance": "ok",
+        "n_obs": "ok",
+        "n_unparseable_timestamps": "ok",
+        "duplicate_pct": "ok"
       }
     },
     "indicator:8e1b73dd3c754b48e92c": {
@@ -177,28 +159,23 @@
         "looks_integer_valued": true,
         "variance_to_mean_ratio": 0.3551996912984759
       },
-      "validation": {
-        "issues": [
-          {
-            "subject": {
-              "kind": "indicator",
-              "id": "indicator:8e1b73dd3c754b48e92c"
-            },
-            "issue_type": "suspicious_pattern",
-            "severity": "warning",
-            "message": ">50% of values are 1.0 (49/74)"
-          }
-        ],
-        "checks": {
-          "max_gap_ratio": "ok",
-          "dtype_violations": "ok",
-          "time_coverage_ratio": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "variance": "ok",
-          "n_obs": "ok",
-          "n_unparseable_timestamps": "ok",
-          "duplicate_pct": "warning"
+      "issues": [
+        {
+          "indicator_id": "indicator:8e1b73dd3c754b48e92c",
+          "issue_type": "suspicious_pattern",
+          "severity": "warning",
+          "message": ">50% of values are 1.0 (49/74)"
         }
+      ],
+      "checks": {
+        "max_gap_ratio": "ok",
+        "dtype_violations": "ok",
+        "time_coverage_ratio": "ok",
+        "arithmetic_sequence_detected": "ok",
+        "variance": "ok",
+        "n_obs": "ok",
+        "n_unparseable_timestamps": "ok",
+        "duplicate_pct": "warning"
       }
     },
     "indicator:eca6b8b2c4379267b6c8": {
@@ -225,28 +202,23 @@
         "looks_integer_valued": true,
         "variance_to_mean_ratio": 0.8987854251012141
       },
-      "validation": {
-        "issues": [
-          {
-            "subject": {
-              "kind": "indicator",
-              "id": "indicator:eca6b8b2c4379267b6c8"
-            },
-            "issue_type": "suspicious_pattern",
-            "severity": "warning",
-            "message": ">50% of values are 0.0 (48/79)"
-          }
-        ],
-        "checks": {
-          "max_gap_ratio": "ok",
-          "dtype_violations": "ok",
-          "time_coverage_ratio": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "variance": "ok",
-          "n_obs": "ok",
-          "n_unparseable_timestamps": "ok",
-          "duplicate_pct": "warning"
+      "issues": [
+        {
+          "indicator_id": "indicator:eca6b8b2c4379267b6c8",
+          "issue_type": "suspicious_pattern",
+          "severity": "warning",
+          "message": ">50% of values are 0.0 (48/79)"
         }
+      ],
+      "checks": {
+        "max_gap_ratio": "ok",
+        "dtype_violations": "ok",
+        "time_coverage_ratio": "ok",
+        "arithmetic_sequence_detected": "ok",
+        "variance": "ok",
+        "n_obs": "ok",
+        "n_unparseable_timestamps": "ok",
+        "duplicate_pct": "warning"
       }
     },
     "indicator:eb0949a188790298c25d": {
@@ -273,28 +245,23 @@
         "looks_integer_valued": true,
         "variance_to_mean_ratio": 1.3541666666666672
       },
-      "validation": {
-        "issues": [
-          {
-            "subject": {
-              "kind": "indicator",
-              "id": "indicator:eb0949a188790298c25d"
-            },
-            "issue_type": "suspicious_pattern",
-            "severity": "warning",
-            "message": ">50% of values are 20.0 (13/19)"
-          }
-        ],
-        "checks": {
-          "max_gap_ratio": "ok",
-          "dtype_violations": "ok",
-          "time_coverage_ratio": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "variance": "ok",
-          "n_obs": "ok",
-          "n_unparseable_timestamps": "ok",
-          "duplicate_pct": "warning"
+      "issues": [
+        {
+          "indicator_id": "indicator:eb0949a188790298c25d",
+          "issue_type": "suspicious_pattern",
+          "severity": "warning",
+          "message": ">50% of values are 20.0 (13/19)"
         }
+      ],
+      "checks": {
+        "max_gap_ratio": "ok",
+        "dtype_violations": "ok",
+        "time_coverage_ratio": "ok",
+        "arithmetic_sequence_detected": "ok",
+        "variance": "ok",
+        "n_obs": "ok",
+        "n_unparseable_timestamps": "ok",
+        "duplicate_pct": "warning"
       }
     },
     "indicator:1f8878c9ba1ad571b89e": {
@@ -321,28 +288,23 @@
         "looks_integer_valued": true,
         "variance_to_mean_ratio": 0.024369747899159664
       },
-      "validation": {
-        "issues": [
-          {
-            "subject": {
-              "kind": "indicator",
-              "id": "indicator:1f8878c9ba1ad571b89e"
-            },
-            "issue_type": "suspicious_pattern",
-            "severity": "warning",
-            "message": ">50% of values are 2.0 (58/61)"
-          }
-        ],
-        "checks": {
-          "max_gap_ratio": "ok",
-          "dtype_violations": "ok",
-          "time_coverage_ratio": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "variance": "ok",
-          "n_obs": "ok",
-          "n_unparseable_timestamps": "ok",
-          "duplicate_pct": "warning"
+      "issues": [
+        {
+          "indicator_id": "indicator:1f8878c9ba1ad571b89e",
+          "issue_type": "suspicious_pattern",
+          "severity": "warning",
+          "message": ">50% of values are 2.0 (58/61)"
         }
+      ],
+      "checks": {
+        "max_gap_ratio": "ok",
+        "dtype_violations": "ok",
+        "time_coverage_ratio": "ok",
+        "arithmetic_sequence_detected": "ok",
+        "variance": "ok",
+        "n_obs": "ok",
+        "n_unparseable_timestamps": "ok",
+        "duplicate_pct": "warning"
       }
     },
     "indicator:7a4890fc254d4a508b7c": {
@@ -369,28 +331,23 @@
         "looks_integer_valued": true,
         "variance_to_mean_ratio": 0.17169691155308942
       },
-      "validation": {
-        "issues": [
-          {
-            "subject": {
-              "kind": "indicator",
-              "id": "indicator:7a4890fc254d4a508b7c"
-            },
-            "issue_type": "dtype_violation",
-            "severity": "warning",
-            "message": "12 outlier(s) outside [73.00, 101.00]"
-          }
-        ],
-        "checks": {
-          "max_gap_ratio": "ok",
-          "dtype_violations": "warning",
-          "time_coverage_ratio": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "variance": "ok",
-          "n_obs": "ok",
-          "n_unparseable_timestamps": "ok",
-          "duplicate_pct": "ok"
+      "issues": [
+        {
+          "indicator_id": "indicator:7a4890fc254d4a508b7c",
+          "issue_type": "dtype_violation",
+          "severity": "warning",
+          "message": "12 outlier(s) outside [73.00, 101.00]"
         }
+      ],
+      "checks": {
+        "max_gap_ratio": "ok",
+        "dtype_violations": "warning",
+        "time_coverage_ratio": "ok",
+        "arithmetic_sequence_detected": "ok",
+        "variance": "ok",
+        "n_obs": "ok",
+        "n_unparseable_timestamps": "ok",
+        "duplicate_pct": "ok"
       }
     },
     "indicator:21069529417a9a99ee50": {
@@ -417,18 +374,16 @@
         "looks_integer_valued": true,
         "variance_to_mean_ratio": 319.94936361121654
       },
-      "validation": {
-        "issues": [],
-        "checks": {
-          "max_gap_ratio": "ok",
-          "dtype_violations": "ok",
-          "time_coverage_ratio": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "variance": "ok",
-          "n_obs": "ok",
-          "n_unparseable_timestamps": "ok",
-          "duplicate_pct": "ok"
-        }
+      "issues": [],
+      "checks": {
+        "max_gap_ratio": "ok",
+        "dtype_violations": "ok",
+        "time_coverage_ratio": "ok",
+        "arithmetic_sequence_detected": "ok",
+        "variance": "ok",
+        "n_obs": "ok",
+        "n_unparseable_timestamps": "ok",
+        "duplicate_pct": "ok"
       }
     },
     "indicator:9becfedce394873f8c0c": {
@@ -455,28 +410,23 @@
         "looks_integer_valued": true,
         "variance_to_mean_ratio": 0.5335542667771334
       },
-      "validation": {
-        "issues": [
-          {
-            "subject": {
-              "kind": "indicator",
-              "id": "indicator:9becfedce394873f8c0c"
-            },
-            "issue_type": "suspicious_pattern",
-            "severity": "warning",
-            "message": ">50% of values are 1.0 (39/72)"
-          }
-        ],
-        "checks": {
-          "max_gap_ratio": "ok",
-          "dtype_violations": "ok",
-          "time_coverage_ratio": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "variance": "ok",
-          "n_obs": "ok",
-          "n_unparseable_timestamps": "ok",
-          "duplicate_pct": "warning"
+      "issues": [
+        {
+          "indicator_id": "indicator:9becfedce394873f8c0c",
+          "issue_type": "suspicious_pattern",
+          "severity": "warning",
+          "message": ">50% of values are 1.0 (39/72)"
         }
+      ],
+      "checks": {
+        "max_gap_ratio": "ok",
+        "dtype_violations": "ok",
+        "time_coverage_ratio": "ok",
+        "arithmetic_sequence_detected": "ok",
+        "variance": "ok",
+        "n_obs": "ok",
+        "n_unparseable_timestamps": "ok",
+        "duplicate_pct": "warning"
       }
     },
     "indicator:0b02f0d32a40caec29ef": {
@@ -503,18 +453,16 @@
         "looks_integer_valued": true,
         "variance_to_mean_ratio": 1.393477548344805
       },
-      "validation": {
-        "issues": [],
-        "checks": {
-          "max_gap_ratio": "ok",
-          "dtype_violations": "ok",
-          "time_coverage_ratio": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "variance": "ok",
-          "n_obs": "ok",
-          "n_unparseable_timestamps": "ok",
-          "duplicate_pct": "ok"
-        }
+      "issues": [],
+      "checks": {
+        "max_gap_ratio": "ok",
+        "dtype_violations": "ok",
+        "time_coverage_ratio": "ok",
+        "arithmetic_sequence_detected": "ok",
+        "variance": "ok",
+        "n_obs": "ok",
+        "n_unparseable_timestamps": "ok",
+        "duplicate_pct": "ok"
       }
     },
     "indicator:7f51bc663e8e0bbea95f": {
@@ -541,18 +489,16 @@
         "looks_integer_valued": true,
         "variance_to_mean_ratio": 0.9863013698630134
       },
-      "validation": {
-        "issues": [],
-        "checks": {
-          "max_gap_ratio": "ok",
-          "dtype_violations": "ok",
-          "time_coverage_ratio": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "variance": "ok",
-          "n_obs": "ok",
-          "n_unparseable_timestamps": "ok",
-          "duplicate_pct": "ok"
-        }
+      "issues": [],
+      "checks": {
+        "max_gap_ratio": "ok",
+        "dtype_violations": "ok",
+        "time_coverage_ratio": "ok",
+        "arithmetic_sequence_detected": "ok",
+        "variance": "ok",
+        "n_obs": "ok",
+        "n_unparseable_timestamps": "ok",
+        "duplicate_pct": "ok"
       }
     },
     "indicator:c9a9156464b8dce5ba14": {
@@ -579,28 +525,23 @@
         "looks_integer_valued": true,
         "variance_to_mean_ratio": 0.2680701754385965
       },
-      "validation": {
-        "issues": [
-          {
-            "subject": {
-              "kind": "indicator",
-              "id": "indicator:c9a9156464b8dce5ba14"
-            },
-            "issue_type": "suspicious_pattern",
-            "severity": "warning",
-            "message": ">50% of values are 2.0 (36/61)"
-          }
-        ],
-        "checks": {
-          "max_gap_ratio": "ok",
-          "dtype_violations": "ok",
-          "time_coverage_ratio": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "variance": "ok",
-          "n_obs": "ok",
-          "n_unparseable_timestamps": "ok",
-          "duplicate_pct": "warning"
+      "issues": [
+        {
+          "indicator_id": "indicator:c9a9156464b8dce5ba14",
+          "issue_type": "suspicious_pattern",
+          "severity": "warning",
+          "message": ">50% of values are 2.0 (36/61)"
         }
+      ],
+      "checks": {
+        "max_gap_ratio": "ok",
+        "dtype_violations": "ok",
+        "time_coverage_ratio": "ok",
+        "arithmetic_sequence_detected": "ok",
+        "variance": "ok",
+        "n_obs": "ok",
+        "n_unparseable_timestamps": "ok",
+        "duplicate_pct": "warning"
       }
     },
     "indicator:a1c5e49b6b167636f7a0": {
@@ -627,28 +568,23 @@
         "looks_integer_valued": true,
         "variance_to_mean_ratio": 0.7142857142857144
       },
-      "validation": {
-        "issues": [
-          {
-            "subject": {
-              "kind": "indicator",
-              "id": "indicator:a1c5e49b6b167636f7a0"
-            },
-            "issue_type": "suspicious_pattern",
-            "severity": "warning",
-            "message": ">50% of values are 0.0 (10/15)"
-          }
-        ],
-        "checks": {
-          "max_gap_ratio": "ok",
-          "dtype_violations": "ok",
-          "time_coverage_ratio": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "variance": "ok",
-          "n_obs": "ok",
-          "n_unparseable_timestamps": "ok",
-          "duplicate_pct": "warning"
+      "issues": [
+        {
+          "indicator_id": "indicator:a1c5e49b6b167636f7a0",
+          "issue_type": "suspicious_pattern",
+          "severity": "warning",
+          "message": ">50% of values are 0.0 (10/15)"
         }
+      ],
+      "checks": {
+        "max_gap_ratio": "ok",
+        "dtype_violations": "ok",
+        "time_coverage_ratio": "ok",
+        "arithmetic_sequence_detected": "ok",
+        "variance": "ok",
+        "n_obs": "ok",
+        "n_unparseable_timestamps": "ok",
+        "duplicate_pct": "warning"
       }
     },
     "indicator:cd5618fdf5311bf6e90d": {
@@ -675,28 +611,23 @@
         "looks_integer_valued": true,
         "variance_to_mean_ratio": 0.17154882154882156
       },
-      "validation": {
-        "issues": [
-          {
-            "subject": {
-              "kind": "indicator",
-              "id": "indicator:cd5618fdf5311bf6e90d"
-            },
-            "issue_type": "suspicious_pattern",
-            "severity": "warning",
-            "message": ">50% of values are 3.0 (54/67)"
-          }
-        ],
-        "checks": {
-          "max_gap_ratio": "ok",
-          "dtype_violations": "ok",
-          "time_coverage_ratio": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "variance": "ok",
-          "n_obs": "ok",
-          "n_unparseable_timestamps": "ok",
-          "duplicate_pct": "warning"
+      "issues": [
+        {
+          "indicator_id": "indicator:cd5618fdf5311bf6e90d",
+          "issue_type": "suspicious_pattern",
+          "severity": "warning",
+          "message": ">50% of values are 3.0 (54/67)"
         }
+      ],
+      "checks": {
+        "max_gap_ratio": "ok",
+        "dtype_violations": "ok",
+        "time_coverage_ratio": "ok",
+        "arithmetic_sequence_detected": "ok",
+        "variance": "ok",
+        "n_obs": "ok",
+        "n_unparseable_timestamps": "ok",
+        "duplicate_pct": "warning"
       }
     },
     "indicator:ea0f209a3393fba5194e": {
@@ -723,18 +654,16 @@
         "looks_integer_valued": true,
         "variance_to_mean_ratio": 139.6943885112935
       },
-      "validation": {
-        "issues": [],
-        "checks": {
-          "max_gap_ratio": "ok",
-          "dtype_violations": "ok",
-          "time_coverage_ratio": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "variance": "ok",
-          "n_obs": "ok",
-          "n_unparseable_timestamps": "ok",
-          "duplicate_pct": "ok"
-        }
+      "issues": [],
+      "checks": {
+        "max_gap_ratio": "ok",
+        "dtype_violations": "ok",
+        "time_coverage_ratio": "ok",
+        "arithmetic_sequence_detected": "ok",
+        "variance": "ok",
+        "n_obs": "ok",
+        "n_unparseable_timestamps": "ok",
+        "duplicate_pct": "ok"
       }
     },
     "indicator:d14078f40ae3b26ae799": {
@@ -761,28 +690,23 @@
         "looks_integer_valued": true,
         "variance_to_mean_ratio": 0.13941726223199563
       },
-      "validation": {
-        "issues": [
-          {
-            "subject": {
-              "kind": "indicator",
-              "id": "indicator:d14078f40ae3b26ae799"
-            },
-            "issue_type": "suspicious_pattern",
-            "severity": "warning",
-            "message": ">50% of values are 3.0 (46/86)"
-          }
-        ],
-        "checks": {
-          "max_gap_ratio": "ok",
-          "dtype_violations": "ok",
-          "time_coverage_ratio": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "variance": "ok",
-          "n_obs": "ok",
-          "n_unparseable_timestamps": "ok",
-          "duplicate_pct": "warning"
+      "issues": [
+        {
+          "indicator_id": "indicator:d14078f40ae3b26ae799",
+          "issue_type": "suspicious_pattern",
+          "severity": "warning",
+          "message": ">50% of values are 3.0 (46/86)"
         }
+      ],
+      "checks": {
+        "max_gap_ratio": "ok",
+        "dtype_violations": "ok",
+        "time_coverage_ratio": "ok",
+        "arithmetic_sequence_detected": "ok",
+        "variance": "ok",
+        "n_obs": "ok",
+        "n_unparseable_timestamps": "ok",
+        "duplicate_pct": "warning"
       }
     },
     "indicator:80833c21d9dd9f2ce5d5": {
@@ -809,18 +733,16 @@
         "looks_integer_valued": true,
         "variance_to_mean_ratio": 0.9974937343358397
       },
-      "validation": {
-        "issues": [],
-        "checks": {
-          "max_gap_ratio": "ok",
-          "dtype_violations": "ok",
-          "time_coverage_ratio": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "variance": "ok",
-          "n_obs": "ok",
-          "n_unparseable_timestamps": "ok",
-          "duplicate_pct": "ok"
-        }
+      "issues": [],
+      "checks": {
+        "max_gap_ratio": "ok",
+        "dtype_violations": "ok",
+        "time_coverage_ratio": "ok",
+        "arithmetic_sequence_detected": "ok",
+        "variance": "ok",
+        "n_obs": "ok",
+        "n_unparseable_timestamps": "ok",
+        "duplicate_pct": "ok"
       }
     },
     "indicator:a7234127c37d7ce4a0c2": {
@@ -847,18 +769,16 @@
         "looks_integer_valued": true,
         "variance_to_mean_ratio": 0.14814814814814814
       },
-      "validation": {
-        "issues": [],
-        "checks": {
-          "max_gap_ratio": "ok",
-          "dtype_violations": "ok",
-          "time_coverage_ratio": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "variance": "ok",
-          "n_obs": "ok",
-          "n_unparseable_timestamps": "ok",
-          "duplicate_pct": "ok"
-        }
+      "issues": [],
+      "checks": {
+        "max_gap_ratio": "ok",
+        "dtype_violations": "ok",
+        "time_coverage_ratio": "ok",
+        "arithmetic_sequence_detected": "ok",
+        "variance": "ok",
+        "n_obs": "ok",
+        "n_unparseable_timestamps": "ok",
+        "duplicate_pct": "ok"
       }
     }
   },

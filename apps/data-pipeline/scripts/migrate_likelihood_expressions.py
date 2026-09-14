@@ -8,7 +8,6 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from nof1_causal_lab.artifacts.coefficient import FixedCoefficient, ParameterCoefficient
 from nof1_causal_lab.artifacts.expressions import (
     CoefficientExpression,
     LiteralExpression,
@@ -16,8 +15,10 @@ from nof1_causal_lab.artifacts.expressions import (
     map_expression,
     state,
 )
-from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec, ObservationLaw
+from nof1_causal_lab.artifacts.identity import ConstructId
+from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec, ObservationLawSpec
 from nof1_causal_lab.models.likelihoods import observation_law
+from scripts.migrate_coefficient_values import convert_value
 
 type RetiredPayload = dict[str, Any]
 
@@ -36,14 +37,6 @@ _RETIRED_SLOTS = {
 }
 
 
-def _coefficient(value):
-    if value is None:
-        return None
-    return (FixedCoefficient if value["kind"] == "fixed" else ParameterCoefficient).model_validate(
-        value
-    )
-
-
 def convert_likelihood(
     value: RetiredPayload, construct_id: str, *, ordinal_levels=()
 ) -> RetiredPayload:
@@ -51,11 +44,11 @@ def convert_likelihood(
     old = deepcopy(value)
     family, link = old.pop("distribution"), old.pop("link")
     shell = LikelihoodSpec(
-        law=observation_law(construct_id, family, link), reasoning=old["reasoning"]
+        law=observation_law(ConstructId(construct_id), family, link), reasoning=old["reasoning"]
     )
     original_predictor = shell.terms.predictor
     replacements = {
-        role: _coefficient(old.pop(name, None)) for role, name in _RETIRED_SLOTS.items()
+        role: convert_value(old.pop(name, None)) for role, name in _RETIRED_SLOTS.items()
     }
     cross_loadings = old.pop("cross_loadings", [])
 
@@ -68,20 +61,20 @@ def convert_likelihood(
                 and replacements[node.role] is None
             ):
                 return LiteralExpression(value=0)
-            return node.model_copy(update={"coefficient": replacements[node.role]})
+            return node.model_copy(update={"value": replacements[node.role]})
         return node
 
     predictor = map_expression(original_predictor, operand)
     extended = predictor
     for loading in cross_loadings:
-        extended = extended + coefficient(_coefficient(loading["coefficient"]), "loading") * state(
+        extended = extended + coefficient(convert_value(loading["coefficient"]), "loading") * state(
             loading["other_id"]
         )
 
     def add_cross_loadings(node):
         return extended if node == predictor else node
 
-    law = ObservationLaw(
+    law = ObservationLawSpec(
         distribution=shell.law.distribution,
         arguments={
             name: map_expression(map_expression(argument, operand), add_cross_loadings)
