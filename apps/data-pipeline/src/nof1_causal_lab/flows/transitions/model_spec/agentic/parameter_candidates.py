@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from nof1_causal_lab.artifacts.parameter import PriorAuthoringTransform, SiteKind
 from nof1_causal_lab.artifacts.parameter_spec import ParameterConstraint, ParameterRole
+from nof1_causal_lab.models.model_distributions import parameter_distribution_id
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
@@ -21,7 +22,6 @@ _ROLES = {
         ParameterConstraint.POSITIVE,
     ),
     SiteKind.DYNAMICS_WEIGHT: (ParameterRole.FIXED_EFFECT, ParameterConstraint.NONE),
-    SiteKind.INPUT_EFFECT: (ParameterRole.FIXED_EFFECT, ParameterConstraint.NONE),
     SiteKind.DYNAMICS_CINT: (ParameterRole.STATE_INTERCEPT, ParameterConstraint.NONE),
     SiteKind.DYNAMICS_POTENTIAL_CENTER: (ParameterRole.STATE_INTERCEPT, ParameterConstraint.NONE),
     SiteKind.DYNAMICS_POTENTIAL_QUARTIC: (
@@ -79,6 +79,7 @@ def describe_parameters(model: ModelSpec) -> list[ParameterMetadata]:
         edges = [model.edge(owner.id) for owner in context.owners if owner.kind == "edge"]
         row = {
             **parameter.model_dump(mode="json"),
+            "distribution": parameter.distribution or parameter_distribution_id(parameter.id),
             "role": role,
             "constraint": constraint,
             "slots": [use.slot for use in context.uses],

@@ -29,7 +29,7 @@ def test_machine_description_serves_graph_and_classes():
         "topological_artifact_order"
     ].index("validation_report")
     assert description["topological_transition_order"][0] == "raw_data"
-    assert "question" in description["artifact_ids"]
+    assert "question" not in description["artifact_ids"]
     assert {entry["action_id"] for entry in description["actions"]} == {
         action.action_id for action in ACTIONS
     }

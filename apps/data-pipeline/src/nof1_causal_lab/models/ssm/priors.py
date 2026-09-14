@@ -32,7 +32,6 @@ DEFAULT_PRIORS_BY_FIELD: dict[str, dist.Distribution] = {
     "hill_n": dist.TruncatedNormal(loc=2.0, scale=0.5, low=1.0, high=4.0),
     "diffusion_diag": dist.HalfNormal(scale=1.0),
     "diffusion_offdiag": dist.Normal(loc=0.0, scale=0.5),
-    "input_effect": dist.Normal(loc=0.0, scale=0.5),
     "static_state_sd": dist.HalfNormal(scale=1.0),
     "lambda_free": dist.Normal(loc=0.5, scale=0.5),
     "manifest_means": dist.Normal(loc=0.0, scale=2.0),

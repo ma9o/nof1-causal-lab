@@ -1,6 +1,5 @@
 """Numerical acceptance of Dynestyx model interpretation with local inference."""
 
-from nof1_causal_lab.artifacts.coefficient import FixedCoefficient
 from dataclasses import replace
 
 import jax
@@ -15,11 +14,10 @@ from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
 from nof1_causal_lab.models.ssm.inference import fit
 from nof1_causal_lab.models.ssm.inference.problem import build_particle_problem
 from nof1_causal_lab.models.ssm.model import SSMModel
-
 from tests.dynamics_fixtures import potential_term
 from tests.model_fixtures import default_lambda_block, model_fixture
 
-pytestmark = pytest.mark.cpu_expensive
+pytestmark = pytest.mark.inference
 
 
 def nonlinear_model():
@@ -34,8 +32,8 @@ def nonlinear_model():
                 potential_term(
                     target=0,
                     center=None,
-                    stiffness=FixedCoefficient(value=0.4),
-                    quartic=FixedCoefficient(value=0.2),
+                    stiffness=0.4,
+                    quartic=0.2,
                 ),
             ),
         ),
@@ -45,7 +43,13 @@ def nonlinear_model():
     return SSMModel(spec)
 
 
-def test_nonlinear_mixed_missing_irregular_particle_fit_and_exact_diagnostics():
+def test_nonlinear_mixed_missing_irregular_particle_fit_and_exact_diagnostics(monkeypatch):
+    from nof1_causal_lab.models.ssm.inference.warmup import latent_init
+
+    def _unexpected_ieks(*_args, **_kwargs):
+        raise AssertionError("supplied trajectories must skip IEKS initialization")
+
+    monkeypatch.setattr(latent_init, "compute_ieks_latent_paths", _unexpected_ieks)
     model = nonlinear_model()
     times = jnp.array([0.0, 0.05, 0.17, 0.4, 0.9])
     observations = jnp.array(
@@ -80,7 +84,8 @@ def test_nonlinear_mixed_missing_irregular_particle_fit_and_exact_diagnostics():
     )
     transition = runtime.transition_log_prob(context, path[0], path[1], jnp.asarray(1))
     # Genuine nonlinear drift, rather than agreement between two linear surrogates.
-    center = context[0].state_evolution.drift.args.params[0]["center"]
+    # Center is the sole free drift coefficient; stiffness and quartic are fixed.
+    (center,) = context[0].state_evolution.drift.args.params[0].values()
     drift = -0.4 * (path[0] - center) - 0.2 * (path[0] - center) ** 3
     law = dist.MultivariateNormal(
         path[0] + 0.05 * drift,
@@ -100,6 +105,10 @@ def test_nonlinear_mixed_missing_irregular_particle_fit_and_exact_diagnostics():
         seed=9,
         n_particles=4,
         n_parameter_particles=2,
+        parameter_proposal="pseudo_langevin",
+        dsmc_leaf_proposal="paid_mix",
+        adaptation_scheme="dual_averaging",
+        initial_latent_trajectories=path[None, ...],
         param_step_size=0.0005,
         latent_delta=0.2,
         init_method="random",
@@ -109,6 +118,11 @@ def test_nonlinear_mixed_missing_irregular_particle_fit_and_exact_diagnostics():
         reparam=None,
     )
     assert "likelihood_backend" not in result.diagnostics
+    diagnostics = result.diagnostics["marginal_particle_gibbs"]
+    assert diagnostics["parameter_kernel"] == "m_pgibbs_pseudo_langevin"
+    assert diagnostics["dsmc_leaf_proposal"] == "paid_mix"
+    assert diagnostics["adaptation_scheme"] == "dual_averaging"
+    assert diagnostics["latent_transition_kind"] == "euler_maruyama"
     latent_paths = result.draws.latent_paths
     assert latent_paths is not None
     assert latent_paths.shape == (4, 5, 1)
@@ -117,4 +131,5 @@ def test_nonlinear_mixed_missing_irregular_particle_fit_and_exact_diagnostics():
     assert jnp.all(jnp.isfinite(factors))
     assert jnp.all(factors[..., 3] == 0.0)
     for values in result.get_samples().values():
+        assert values.shape[0] == 4
         assert jnp.all(jnp.isfinite(values))

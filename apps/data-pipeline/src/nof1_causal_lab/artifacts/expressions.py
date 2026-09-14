@@ -9,8 +9,10 @@ from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, model_validator
 
 from nof1_causal_lab.scalar_functions import hill_response, restoring_drift
 
-from .coefficient import Coefficient, FixedCoefficient, ParameterCoefficient
-from .identity import ConstructId  # noqa: TC001
+from .identity import (
+    ConstructId,  # noqa: TC001
+    ParameterId,  # noqa: TC001
+)
 from .parameter import SiteKind, SupportClass
 
 if TYPE_CHECKING:
@@ -36,7 +38,23 @@ type CoefficientRole = Literal[
     "cutpoint_gaps",
     "category_intercepts",
     "category_slopes",
+    "diffusion_scale",
+    "diffusion_loading",
+    "process_degrees_of_freedom",
+    "initial_mean",
+    "initial_scale",
+    "initial_correlation",
 ]
+CONSTRUCT_COEFFICIENT_ROLES: frozenset[CoefficientRole] = frozenset(
+    {
+        "diffusion_scale",
+        "diffusion_loading",
+        "process_degrees_of_freedom",
+        "initial_mean",
+        "initial_scale",
+        "initial_correlation",
+    }
+)
 type BinaryOperator = Literal["add", "subtract", "multiply", "divide", "power", "maximum"]
 type ExpressionFunction = Literal[
     "exp", "sigmoid", "normal_cdf", "ordered_cutpoints", "category_logits"
@@ -76,6 +94,16 @@ COEFFICIENT_MEANINGS: Mapping[CoefficientRole, CoefficientMeaning] = {
     "cutpoint_gaps": CoefficientMeaning(SiteKind.OBS_ORDERED_GAPS, SupportClass.POSITIVE),
     "category_intercepts": CoefficientMeaning(SiteKind.OBS_CAT_INTERCEPTS, SupportClass.REAL),
     "category_slopes": CoefficientMeaning(SiteKind.OBS_CAT_SLOPES, SupportClass.REAL),
+    "diffusion_scale": CoefficientMeaning(
+        SiteKind.DIFFUSION_DIAG, SupportClass.POSITIVE, allows_zero=True
+    ),
+    "diffusion_loading": CoefficientMeaning(SiteKind.DIFFUSION_LOWER, SupportClass.REAL),
+    "process_degrees_of_freedom": CoefficientMeaning(SiteKind.PROC_DF, SupportClass.POSITIVE),
+    "initial_mean": CoefficientMeaning(SiteKind.T0_MEANS, SupportClass.REAL),
+    "initial_scale": CoefficientMeaning(
+        SiteKind.T0_VAR_DIAG, SupportClass.POSITIVE, allows_zero=True
+    ),
+    "initial_correlation": CoefficientMeaning(SiteKind.T0_VAR_LOWER, SupportClass.CORRELATION),
 }
 
 
@@ -122,7 +150,13 @@ class CoefficientExpression(ExpressionValue):
 
     kind: Literal["coefficient"] = "coefficient"
     role: CoefficientRole
-    coefficient: Coefficient | None = None
+    value: FiniteFloat | ParameterId | None = Field(
+        default=None,
+        description="Finite literal or persistent parameter ID; null leaves the operand unassigned.",
+    )
+    construct_ids: tuple[ConstructId, ...] = Field(
+        default=(), description="Additional constructs participating in this coefficient use."
+    )
 
     @property
     def meaning(self) -> CoefficientMeaning:
@@ -138,8 +172,8 @@ class CoefficientExpression(ExpressionValue):
 
     @model_validator(mode="after")
     def validate_fixed_support(self) -> CoefficientExpression:
-        if isinstance(self.coefficient, FixedCoefficient):
-            self.validate_value(self.coefficient.value)
+        if isinstance(self.value, (int, float)):
+            self.validate_value(self.value)
         return self
 
 
@@ -194,16 +228,21 @@ def state(identity: ConstructId) -> StateExpression:
     return StateExpression(construct_id=identity)
 
 
-def coefficient(value: Coefficient | None, role: CoefficientRole) -> CoefficientExpression:
-    return CoefficientExpression(role=role, coefficient=value)
+def coefficient(
+    value: float | ParameterId | None,
+    role: CoefficientRole,
+    *,
+    construct_ids: tuple[ConstructId, ...] = (),
+) -> CoefficientExpression:
+    return CoefficientExpression(role=role, value=value, construct_ids=construct_ids)
 
 
 def restoring_force(
     target: ConstructId,
     *,
-    center: Coefficient | None,
-    stiffness: Coefficient | None,
-    quartic: Coefficient | None,
+    center: float | ParameterId | None,
+    stiffness: float | ParameterId | None,
+    quartic: float | ParameterId | None,
 ) -> Expression:
     """Restoring drift -stiffness * (x - center) - quartic * (x - center)^3."""
     return restoring_drift(
@@ -214,16 +253,16 @@ def restoring_force(
     )
 
 
-def linear_effect(source: ConstructId, weight: Coefficient) -> Expression:
+def linear_effect(source: ConstructId, weight: float | ParameterId) -> Expression:
     return coefficient(weight, "weight") * state(source)
 
 
 def restoring_potential(
     target: ConstructId,
     *,
-    center: Coefficient | None,
-    stiffness: Coefficient | None,
-    quartic: Coefficient | None,
+    center: float | ParameterId | None,
+    stiffness: float | ParameterId | None,
+    quartic: float | ParameterId | None,
 ) -> Expression:
     """Scalar node energy; Dynestyx differentiates it to obtain the restoring drift."""
     delta = state(target) - coefficient(center, "center")
@@ -234,7 +273,11 @@ def restoring_potential(
 
 
 def hill(
-    source: Expression, *, emax: Coefficient | None, ec50: Coefficient | None, n: Coefficient | None
+    source: Expression,
+    *,
+    emax: float | ParameterId | None,
+    ec50: float | ParameterId | None,
+    n: float | ParameterId | None,
 ) -> Expression:
     """The native non-negative Hill response, including its numerical denominator term."""
     return hill_response(
@@ -316,7 +359,7 @@ def fold_expression[T](
     return visit(value)
 
 
-def linear_coefficient(value: Expression, source: ConstructId) -> Coefficient:
+def linear_coefficient(value: Expression, source: ConstructId) -> float | ParameterId:
     """Recognize the scalar linear form supported by input and projection matrices."""
     if isinstance(value, BinaryExpression) and value.operator == "multiply":
         for lhs, rhs in ((value.left, value.right), (value.right, value.left)):
@@ -325,11 +368,11 @@ def linear_coefficient(value: Expression, source: ConstructId) -> Coefficient:
                 and lhs.role == "weight"
                 and rhs == state(source)
             ):
-                if lhs.coefficient is None:
+                if lhs.value is None:
                     from nof1_causal_lab.compilation_errors import IncompleteModelError
 
                     raise IncompleteModelError("Linear expression requires its coefficient")
-                return lhs.coefficient
+                return lhs.value
     raise ValueError("This execution boundary requires one scalar linear coefficient")
 
 
@@ -350,9 +393,9 @@ def restoring_coefficients(
         and value
         == constructor(
             target,
-            center=roles["center"].coefficient,
-            stiffness=roles["decay"].coefficient,
-            quartic=roles["quartic"].coefficient,
+            center=roles["center"].value,
+            stiffness=roles["decay"].value,
+            quartic=roles["quartic"].value,
         )
     ):
         return operands
@@ -364,12 +407,12 @@ def restoring_coefficients(
     return ()
 
 
-def coefficient_key(operand: CoefficientExpression) -> str:
+def coefficient_key(operand: CoefficientExpression) -> ParameterId:
     """The numerical operand key follows a parameter's persistent identity."""
-    reference = operand.coefficient
-    if not isinstance(reference, ParameterCoefficient):
+    reference = operand.value
+    if not isinstance(reference, str):
         raise TypeError("Fixed coefficients do not have numerical sample sites")
-    return reference.parameter_id
+    return reference
 
 
 def hill_applications(
@@ -394,6 +437,6 @@ def hill_applications(
             continue
         for operand in expression_coefficients(node.right):
             if operand.role == "ec50" and node == hill(
-                dose.left, emax=emax.coefficient, ec50=operand.coefficient, n=exponent.coefficient
+                dose.left, emax=emax.value, ec50=operand.value, n=exponent.value
             ):
                 yield dose.left, operand, exponent

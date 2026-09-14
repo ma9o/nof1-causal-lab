@@ -7,7 +7,8 @@ from typing import Any
 
 from temporalio import activity
 
-from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
+from nof1_causal_lab.machine.artifact_files import parquet_filename
+from nof1_causal_lab.machine.derivations import read_model
 from nof1_causal_lab.machine.graph import transition_spec
 from nof1_causal_lab.machine.moves import TransitionEffects, input_pins
 from nof1_causal_lab.machine.store import ArtifactStore
@@ -46,17 +47,14 @@ async def plan_measurement_structure_activity(
     pins = input_pins(input.state, spec)
     run_id = f"seq-{input.seq:06d}"
 
-    question = store.read_json_file(
-        "question",
-        pins["question"],
-        json_filename("question", "question"),
-    )["text"]
+    model = read_model(store, pins["model"])
+    question = model.require_question()
     raw_table = store.read_parquet_table(
         "raw_data",
         pins["raw_data"],
         parquet_filename("raw_data", "raw"),
     )
-    model = store.read_json_file("model", pins["model"], json_filename("model", "model"))
+    model_payload = model.model_dump(mode="json")
     dataset_schema = format_schema_for_llm(raw_table)
     dataset_summary = f"{raw_table.num_rows} rows x {raw_table.num_columns} columns"
     context_ref = storage.join(
@@ -70,13 +68,13 @@ async def plan_measurement_structure_activity(
             "user_messages": [
                 build_measurement_structure_user_prompt(
                     question,
-                    model,
+                    model_payload,
                     [dataset_schema],
                     dataset_summary,
                 ),
                 templates.REVIEW,
             ],
-            "model": model,
+            "model": model_payload,
         },
     )
 

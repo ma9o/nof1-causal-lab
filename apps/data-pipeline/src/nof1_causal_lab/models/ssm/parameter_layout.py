@@ -105,18 +105,6 @@ class SSMParameterLayout:
         return self._count_for_kind(SiteKind.STATIC_STATE_SD)
 
     @property
-    def input_effect_positions(self) -> list[tuple[int, int]]:
-        return self._matrix_positions_for_kind(SiteKind.INPUT_EFFECT)
-
-    @property
-    def input_effect_index(self) -> dict[tuple[int, int], int]:
-        return self._matrix_index_for_kind(SiteKind.INPUT_EFFECT)
-
-    @property
-    def n_input_effect(self) -> int:
-        return self._count_for_kind(SiteKind.INPUT_EFFECT)
-
-    @property
     def diffusion_diag_positions(self) -> list[int]:
         return self._vector_positions_for_kind(SiteKind.DIFFUSION_DIAG)
 

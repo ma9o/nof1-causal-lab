@@ -21,17 +21,15 @@ from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
 
 # var1 is driven by var0; both stable. Baseline steady state is η* = -A⁻¹c = [1, 1].
 _PARAMS = ({"drift": jnp.array([[-1.0, 0.0], [0.5, -1.0]]), "cint": jnp.array([1.0, 0.5])},)
-_TIME_GRID = jnp.linspace(0.0, 30.0, 31)  # daily grid, day == index
-
-
-pytestmark = pytest.mark.cpu_expensive
+_STEADY_STATE = jnp.array([[1.0, 1.0]])
+_TIME_GRID = jnp.linspace(0.0, 12.0, 13)  # daily grid, day == index
 
 
 def _vf() -> VectorField:
     return VectorField(n_latent=2, components=(DenseLinear(),))
 
 
-def _run(clamps, initial_states=None):
+def _run(clamps, initial_states=_STEADY_STATE):
     baseline, action, effect = vmap_simulate_clamps_from_state(
         _vf(), [_PARAMS], initial_states=initial_states, clamps=clamps, time_grid=_TIME_GRID
     )
@@ -43,15 +41,17 @@ def test_segment_bounds_split_at_window_edges():
         ClampSpec(index=0, mode="set", value=0.5, from_day=0.0, to_day=14.0),
         ClampSpec(index=1, mode="shift", amount=1.0, from_day=20.0),
     ]
-    assert build_segment_bounds(_TIME_GRID, clamps) == [(0, 14), (14, 20), (20, 30)]
+    grid = jnp.arange(31.0)
+    assert build_segment_bounds(grid, clamps) == [(0, 14), (14, 20), (20, 30)]
     # No windows → a single segment.
-    assert build_segment_bounds(_TIME_GRID, [ClampSpec(index=0, mode="shift", amount=1.0)]) == [
-        (0, 30)
-    ]
+    assert build_segment_bounds(grid, [ClampSpec(index=0, mode="shift", amount=1.0)]) == [(0, 30)]
 
 
+@pytest.mark.simulation
 def test_full_horizon_shift_holds_and_propagates():
-    _baseline, action, effect = _run([ClampSpec(index=0, mode="shift", amount=1.0)])
+    _baseline, action, effect = _run(
+        [ClampSpec(index=0, mode="shift", amount=1.0)], initial_states=None
+    )
     # var0 held at baseline(1) + 1 = 2 across the whole horizon.
     assert jnp.allclose(action[:, 0], 2.0, atol=0.05)
     # Positive coupling lifts var1 by the end.
@@ -59,26 +59,22 @@ def test_full_horizon_shift_holds_and_propagates():
     assert jnp.isclose(effect[-1, 0], 1.0, atol=0.05)
 
 
-def test_finite_window_releases_to_natural():
-    # Clamp var0 := 3 over [0, 10), then release.
+@pytest.mark.simulation
+def test_window_clamp_pins_at_onset_and_releases_to_natural():
+    # The segmentation correctness check: a set clamp opening at day 2 must JUMP to
+    # the value at day 2 (not merely hold its slope from the natural value).
     _baseline, action, _effect = _run(
-        [ClampSpec(index=0, mode="set", value=3.0, from_day=0.0, to_day=10.0)]
+        [ClampSpec(index=0, mode="set", value=3.0, from_day=2.0, to_day=4.0)]
     )
-    assert jnp.isclose(action[5, 0], 3.0, atol=0.05)  # inside window
-    assert jnp.isclose(action[30, 0], 1.0, atol=0.1)  # relaxed back to steady state
+    assert jnp.isclose(action[1, 0], 1.0, atol=0.05)
+    assert jnp.allclose(action[2:5, 0], 3.0, atol=0.05)
+    # After release, x(t) = 1 + 2 exp(-(t - 4)); this checks the decay,
+    # rather than only its eventual equilibrium.
+    expected_release = 1.0 + 2.0 * jnp.exp(-(_TIME_GRID[4:] - 4.0))
+    assert jnp.allclose(action[4:, 0], expected_release, atol=0.01)
 
 
-def test_mid_rollout_onset_pins_exactly():
-    # The segmentation correctness check: a set clamp opening at day 10 must JUMP to
-    # the value at day 10 (not merely hold its slope from the natural value).
-    _baseline, action, _effect = _run(
-        [ClampSpec(index=0, mode="set", value=3.0, from_day=10.0, to_day=20.0)]
-    )
-    assert jnp.isclose(action[5, 0], 1.0, atol=0.05)  # natural before the window
-    assert jnp.isclose(action[15, 0], 3.0, atol=0.05)  # pinned inside the window
-    assert jnp.isclose(action[30, 0], 1.0, atol=0.1)  # released after the window
-
-
+@pytest.mark.simulation
 def test_multiple_simultaneous_clamps():
     _baseline, action, _effect = _run(
         [
@@ -90,6 +86,7 @@ def test_multiple_simultaneous_clamps():
     assert jnp.allclose(action[:, 1], 5.0, atol=0.05)
 
 
+@pytest.mark.simulation
 def test_trajectory_clamp_tracks_values():
     _baseline, action, _effect = _run(
         [ClampSpec(index=0, mode="trajectory", values=(1.0, 3.0), from_day=0.0, to_day=10.0)]
@@ -100,6 +97,7 @@ def test_trajectory_clamp_tracks_values():
     assert jnp.isclose(action[10, 0], 3.0, atol=0.05)
 
 
+@pytest.mark.simulation
 def test_abducted_start_evolves_from_given_state():
     initial_states = jnp.array([[0.0, 0.0]])
     baseline, _action, _effect = _run(

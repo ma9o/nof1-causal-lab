@@ -4,9 +4,10 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from nof1_causal_lab.artifacts.construct import CausalEdge, Construct
+from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
 from nof1_causal_lab.artifacts.execution import StructuralItemDisposition
 from nof1_causal_lab.artifacts.identification import IdentificationReport
+from nof1_causal_lab.artifacts.identity import ArtifactRef, ConstructId, IndicatorId
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.machine.artifact_files import json_filename
 from nof1_causal_lab.machine.moves import WriteArtifact
@@ -54,6 +55,7 @@ def _model():
     }
     return ModelSpec.model_validate(
         {
+            "question": "Does X change Y?",
             "measurement_clock": "1d",
             "edges": [
                 {
@@ -71,10 +73,10 @@ def _model():
 def _drop_x(model):
     return model.revised(
         edges=(
-            CausalEdge(
+            CausalEdgeSpec(
                 id="edge:yz",
                 cause=model.get_construct("construct:y"),
-                effect=Construct(
+                effect=ConstructSpec(
                     id="construct:z",
                     name="Z",
                     description="Downstream response",
@@ -115,7 +117,6 @@ def _commit(workspace, artifact_id, payload, *, pins=None, retracted=()):
 
 
 def _measured(workspace):
-    _commit(workspace, "question", {"text": "Does X change Y?"})
     _commit(workspace, "model", _model().model_dump(mode="json"))
 
 
@@ -130,12 +131,12 @@ def test_snapshot_exists_before_any_compilation(workspace):
     empty = ModelReader(workspace).snapshot()
     assert empty.context.seq == 0
     assert _definitions(empty) == ()
-    assert empty.data.question is None
-    _commit(workspace, "question", {"text": "Does X change Y?"})
+    assert empty.model is None
+    _commit(workspace, "model", {"question": "Does X change Y?"})
     snapshot = ModelReader(workspace).snapshot()
-    assert _present(snapshot.data.question).value.text == "Does X change Y?"
-    assert _present(snapshot.data.question).source.ref.model_dump() == {
-        "artifact_id": "question",
+    assert _present(snapshot.model).value.question == "Does X change Y?"
+    assert _present(snapshot.model).source.ref.model_dump() == {
+        "artifact_id": "model",
         "version": 1,
     }
     assert not _definitions(snapshot)
@@ -152,7 +153,10 @@ def test_ownership_and_sources_are_explicit_from_first_structure(workspace):
         "indicator:y",
     }
     model = _present(snapshot.model).value
-    assert model.indicator("indicator:x") is model.get_construct("construct:x").indicators[0]
+    assert (
+        model.indicator(IndicatorId("indicator:x"))
+        is model.get_construct(ConstructId("construct:x")).indicators[0]
+    )
     assert _present(snapshot.model).source.pointer == ""
     assert _present(snapshot.model).source.validity == "fresh"
     assert (
@@ -164,6 +168,8 @@ def test_ownership_and_sources_are_explicit_from_first_structure(workspace):
 def test_rename_preserves_identity_and_historical_content(workspace):
     _measured(workspace)
     before = ModelReader(workspace).snapshot()
+    assert before.context.workspace_id == workspace
+    assert _present(before.model).source.ref == ArtifactRef(artifact_id="model", version=1)
     payload = _model().model_dump(mode="json")
     graph_constructs(payload)[0]["name"] = "Treatment"
     _commit(workspace, "model", payload, pins={"model": 1})
@@ -172,9 +178,14 @@ def test_rename_preserves_identity_and_historical_content(workspace):
         entity.id for entity in _definitions(after)
     ]
     assert ModelReader(workspace, at_seq=before.context.seq).snapshot() == before
-    assert _present(after.model).value.get_construct("construct:x").name == "Treatment"
-    assert _present(after.model).value.indicator_owner("indicator:x").id == "construct:x"
-    assert "construct_id" not in _present(after.model).value.indicator("indicator:x").model_dump()
+    assert _present(after.model).value.get_construct(ConstructId("construct:x")).name == "Treatment"
+    assert (
+        _present(after.model).value.indicator_owner(IndicatorId("indicator:x")).id == "construct:x"
+    )
+    assert (
+        "construct_id"
+        not in _present(after.model).value.indicator(IndicatorId("indicator:x")).model_dump()
+    )
     assert _present(after.model).source.validity == "fresh"
     assert _present(after.model).source.ref.model_dump() == {"artifact_id": "model", "version": 2}
 
@@ -194,7 +205,7 @@ def test_planning_preserves_ids_across_name_and_lag_edits():
 def test_snapshot_derives_dispositions_from_its_model_revision(workspace):
     _measured(workspace)
     planned = ModelReader(workspace).snapshot()
-    assert {item.source_id for item in _present(planned.findings.dispositions).value} == {
+    assert {item.target.id for item in _present(planned.findings.dispositions).value} == {
         item.id for item in _definitions(planned)
     }
     _commit(
@@ -222,24 +233,24 @@ def test_removed_construct_removes_its_owned_indicators(workspace):
         "construct:z",
         "edge:yz",
     }
-    assert len(_definitions(ModelReader(workspace, at_seq=2).snapshot())) == 5
+    assert len(_definitions(ModelReader(workspace, at_seq=1).snapshot())) == 5
 
 
 def test_uncommitted_versions_and_failed_attempts_never_become_snapshots(workspace):
     _measured(workspace)
     before = ModelReader(workspace).snapshot()
     ArtifactStore(workspace).write_version(
-        "question",
+        "model",
         provenance="human",
         derived_from={},
         produced_by=None,
-        json_files={"question.json": {"text": "Uncommitted"}},
+        json_files={"model.json": {"question": "Uncommitted"}},
     )
     EpisodeJournal(workspace).append(
         TransitionRecord(
             seq=3,
             ts="2026-09-12T13:00:00Z",
-            move=WriteArtifact(artifact_id="question"),
+            move=WriteArtifact(artifact_id="model", expected_model_version=1),
             status="raised",
             trace_ids=[],
             resume=None,
@@ -250,7 +261,7 @@ def test_uncommitted_versions_and_failed_attempts_never_become_snapshots(workspa
         ModelReader(workspace, at_seq=3)
     client = TestClient(create_read_facade_app())
     url = f"/api/episodes/{workspace}/model"
-    assert client.get(url).json()["context"]["seq"] == 2
+    assert client.get(url).json()["context"]["seq"] == 1
     assert client.get(url + "?at_seq=3").status_code == 404
     assert client.get(url + "?at_seq=-1").status_code == 422
     assert client.get(url + "?at_seq=0").json()["model"] is None
@@ -279,7 +290,9 @@ def test_owned_likelihood_survives_reused_names(workspace, monkeypatch):
     _measured(workspace)
     payload = _model().model_dump(mode="json")
     graph_constructs(payload)[1]["indicators"][0]["likelihood"] = {
-        "law": observation_law("construct:y", "gaussian", "identity").model_dump(mode="json"),
+        "law": observation_law(ConstructId("construct:y"), "gaussian", "identity").model_dump(
+            mode="json"
+        ),
         "reasoning": "Test",
     }
     _commit(workspace, "model", payload)
@@ -293,12 +306,12 @@ def test_owned_likelihood_survives_reused_names(workspace, monkeypatch):
 
     monkeypatch.setattr(ArtifactStore, "read_meta", reject_catalog)
     after = ModelReader(workspace).snapshot()
-    assert _present(after.model).value.indicator("indicator:x").likelihood is None
+    assert _present(after.model).value.indicator(IndicatorId("indicator:x")).likelihood is None
     assert (
-        _present(after.model).value.indicator("indicator:y").likelihood
-        == _present(before.model).value.indicator("indicator:y").likelihood
+        _present(after.model).value.indicator(IndicatorId("indicator:y")).likelihood
+        == _present(before.model).value.indicator(IndicatorId("indicator:y")).likelihood
     )
-    assert _present(after.model).value.indicator("indicator:y").name == "X_obs"
+    assert _present(after.model).value.indicator(IndicatorId("indicator:y")).name == "X_obs"
     assert ModelReader(workspace, at_seq=before.context.seq).snapshot() == before
 
 
@@ -307,25 +320,24 @@ def test_owned_mechanisms_survive_rename_and_disappear_with_owner(workspace, own
     _measured(workspace)
     payload = _model().model_dump(mode="json")
     field = "dynamics" if owner == "constructs" else "mechanisms"
-    from nof1_causal_lab.artifacts.coefficient import FixedCoefficient
     from nof1_causal_lab.artifacts.expressions import hill, restoring_force, state
-    from nof1_causal_lab.artifacts.mechanism import DynamicsMechanism
+    from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
 
     entity = (graph_constructs(payload) if owner == "constructs" else payload["edges"])[0]
-    mechanism = DynamicsMechanism(
+    mechanism = DynamicsMechanismSpec(
         id="mechanism:owned-term",
         expression=restoring_force(
             entity["id"],
-            center=FixedCoefficient(value=0),
-            stiffness=FixedCoefficient(value=1),
-            quartic=FixedCoefficient(value=0),
+            center=0,
+            stiffness=1,
+            quartic=0,
         )
         if owner == "constructs"
         else hill(
             state(entity["cause"]["id"]),
-            emax=FixedCoefficient(value=2),
-            ec50=FixedCoefficient(value=1),
-            n=FixedCoefficient(value=2),
+            emax=2,
+            ec50=1,
+            n=2,
         ),
     ).model_dump(mode="json")
     entity[field] = [mechanism]
@@ -344,16 +356,8 @@ def test_owned_mechanisms_survive_rename_and_disappear_with_owner(workspace, own
     assert ModelReader(workspace, at_seq=before.context.seq).snapshot() == before
 
 
-@pytest.mark.parametrize(
-    "usage",
-    [
-        {"kind": "known_input", "source_indicator_id": "indicator:x"},
-        {"kind": "scientific_only", "reason": "Scientific context"},
-    ],
-)
-def test_rename_changes_only_construct_label(usage):
+def test_rename_changes_only_construct_label():
     payload = _model().model_dump(mode="json")
-    graph_constructs(payload)[0]["usage"] = usage
     original = ModelSpec.model_validate(payload)
     graph_constructs(payload)[0]["name"] = "Renamed"
     renamed = ModelSpec.model_validate(payload)
@@ -361,18 +365,18 @@ def test_rename_changes_only_construct_label(usage):
     assert original.edges[0].id == renamed.edges[0].id
     assert original.edges[0].effect == renamed.edges[0].effect
     assert original.edges[0].cause.model_copy(update={"name": "Renamed"}) == renamed.edges[0].cause
-    assert original.constructs[0].usage == renamed.constructs[0].usage
     assert original.state_order == renamed.state_order
 
 
 def _identification():
     return {
         "outcome": "construct:y",
-        "status": {
-            "identifiable_treatments": {
-                "construct:x": {"method": "do_calculus", "estimand": "P(Y | do(X))"}
+        "treatments": {
+            "construct:x": {
+                "status": "identified",
+                "method": "do_calculus",
+                "estimand": "P(Y | do(X))",
             },
-            "non_identifiable_treatments": {},
         },
     }
 
@@ -391,10 +395,7 @@ def test_identification_is_independent_and_keeps_original_pin_after_rename(works
     )
     assert _present(after.findings.identification).source.validity == "stale"
     assert after.context.state.current["identification_report"].derived_from == {"model": 1}
-    assert (
-        "construct:x"
-        in _present(after.findings.identification).value.status.identifiable_treatments
-    )
+    assert "construct:x" in _present(after.findings.identification).value.estimable_treatments
 
 
 @pytest.mark.parametrize(
@@ -405,31 +406,48 @@ def test_identification_rejects_unresolved_construct_ids(field):
     if field == "outcome":
         payload["outcome"] = "construct:missing"
     elif field == "treatment":
-        payload["status"]["identifiable_treatments"]["construct:missing"] = {
+        payload["treatments"]["construct:missing"] = {
+            "status": "identified",
             "method": "do_calculus",
             "estimand": "test",
         }
     elif field == "confounders":
-        payload["status"]["non_identifiable_treatments"]["construct:y"] = {
-            "confounders": ["construct:missing"]
+        payload["treatments"]["construct:y"] = {
+            "status": "not_identified",
+            "confounders": ["construct:missing"],
         }
     else:
-        payload["status"]["identifiable_treatments"]["construct:x"][field] = ["construct:missing"]
+        payload["treatments"]["construct:x"][field] = ["construct:missing"]
     with pytest.raises(ValueError, match="unknown construct IDs"):
         IdentificationReport.model_validate(payload).validate_model(_model())
 
 
-def test_identification_rejects_conflicting_results():
+def test_identification_round_trip_preserves_tagged_evidence():
     payload = _identification()
-    payload["status"]["non_identifiable_treatments"]["construct:x"] = {"confounders": []}
-    with pytest.raises(ValidationError, match="both identified and non-identifiable"):
+    payload["treatments"]["construct:y"] = {
+        "status": "not_identified",
+        "confounders": ["construct:x"],
+        "notes": "Blocking confounding",
+    }
+    report = IdentificationReport.model_validate(payload)
+    restored = IdentificationReport.model_validate_json(report.model_dump_json())
+    assert restored == report
+    assert restored.estimable_treatments == ["construct:x"]
+    identified = restored.treatments[ConstructId("construct:x")]
+    assert identified.status == "identified"
+    assert identified.estimand == "P(Y | do(X))"
+    assert restored.non_identifiable[ConstructId("construct:y")].confounders == ["construct:x"]
+    assert restored.non_identifiable[ConstructId("construct:y")].notes == "Blocking confounding"
+
+    payload["treatments"]["construct:y"]["estimand"] = "Contradictory positive evidence"
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         IdentificationReport.model_validate(payload)
 
 
 def test_collection_accessors_share_canonical_objects_and_one_revision(workspace):
     _measured(workspace)
     reader = ModelReader(workspace)
-    assert type(reader.constructs()[0]) is Construct
+    assert type(reader.constructs()[0]) is ConstructSpec
     assert reader.constructs()[0] is _present(reader.model).constructs[0]
     assert reader.edges()[0] is _present(reader.model).edges[0]
     assert reader.indicators()[0] is _present(reader.model).constructs[0].indicators[0]
@@ -437,7 +455,7 @@ def test_collection_accessors_share_canonical_objects_and_one_revision(workspace
     graph_constructs(payload)[0]["name"] = "Changed after opening"
     _commit(workspace, "model", payload)
     assert reader.constructs()[0].name == "X"
-    assert reader.snapshot().context.seq == 2
+    assert reader.snapshot().context.seq == 1
     assert ModelReader(workspace).constructs()[0].name == "Changed after opening"
 
 
@@ -456,7 +474,7 @@ def test_accessors_do_not_materialize_other_views(workspace, monkeypatch, access
     monkeypatch.setattr(ModelReader, "snapshot", reject_batch)
     client = TestClient(create_read_facade_app())
     path = f"/api/episodes/{workspace}/model/{accessor.replace('_', '-')}"
-    response = client.get(path + "?at_seq=2")
+    response = client.get(path + "?at_seq=1")
     assert response.status_code == 200
     assert response.json() == payload
     assert client.get(path + "?at_seq=99").status_code == 404
@@ -464,9 +482,17 @@ def test_accessors_do_not_materialize_other_views(workspace, monkeypatch, access
     assert client.get(path + "?at_seq=0").json() == ([] if collection else None)
 
 
-@pytest.mark.parametrize("kind", ["construct", "indicator"])
-def test_dispositions_reject_incompatible_owner_kind(kind):
-    with pytest.raises(ValidationError, match="does not apply to its owner kind"):
-        StructuralItemDisposition(
-            source_id=f"{kind}:x", source_kind=kind, disposition="retained_edge", reason="Test"
+@pytest.mark.parametrize(
+    ("target", "disposition", "error"),
+    [
+        ({"kind": "construct", "id": "construct:x"}, "retained_edge", "does not apply"),
+        ({"kind": "indicator", "id": "indicator:x"}, "retained_edge", "does not apply"),
+        ({"kind": "construct", "id": "indicator:x"}, "retained_state", "pattern"),
+        ({"kind": "mechanism", "id": "mechanism:x"}, "retained_state", "union_tag_invalid"),
+    ],
+)
+def test_dispositions_validate_target_identity_and_compatible_decision(target, disposition, error):
+    with pytest.raises(ValidationError, match=error):
+        StructuralItemDisposition.model_validate(
+            {"target": target, "disposition": disposition, "reason": "Test"}
         )

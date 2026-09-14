@@ -78,7 +78,7 @@ def check_dtype_range(
         if violation_count > 0:
             issues.append(
                 {
-                    "subject": {"kind": "indicator", "id": ind_name},
+                    "indicator_id": ind_name,
                     "issue_type": "dtype_violation",
                     "severity": "error",
                     "message": f"Binary indicator has values outside {{0, 1}}: {non_binary.to_list()[:5]}",
@@ -92,7 +92,7 @@ def check_dtype_range(
         if len(negative) > 0:
             issues.append(
                 {
-                    "subject": {"kind": "indicator", "id": ind_name},
+                    "indicator_id": ind_name,
                     "issue_type": "dtype_violation",
                     "severity": "error",
                     "message": f"Count indicator has negative values: {negative.to_list()[:5]}",
@@ -101,7 +101,7 @@ def check_dtype_range(
         if len(fractional) > 0:
             issues.append(
                 {
-                    "subject": {"kind": "indicator", "id": ind_name},
+                    "indicator_id": ind_name,
                     "issue_type": "dtype_violation",
                     "severity": "error",
                     "message": (
@@ -126,7 +126,7 @@ def check_dtype_range(
                 if violation_count > 0:
                     issues.append(
                         {
-                            "subject": {"kind": "indicator", "id": ind_name},
+                            "indicator_id": ind_name,
                             "issue_type": "dtype_violation",
                             "severity": "warning",
                             "message": (
@@ -158,7 +158,7 @@ def check_time_coverage(
     if time_span_hours < min_hours:
         issues.append(
             {
-                "subject": {"kind": "indicator", "id": ind_name},
+                "indicator_id": ind_name,
                 "issue_type": "insufficient_coverage",
                 "severity": "warning",
                 "message": (
@@ -190,7 +190,7 @@ def check_timestamp_gaps(
     if max_gap_hours > threshold:
         issues.append(
             {
-                "subject": {"kind": "indicator", "id": ind_name},
+                "indicator_id": ind_name,
                 "issue_type": "large_timestamp_gap",
                 "severity": "warning",
                 "message": (
@@ -228,7 +228,7 @@ def check_hallucination_signals(
             most_common = vc.sort("count", descending=True).row(0)[0]
             issues.append(
                 {
-                    "subject": {"kind": "indicator", "id": ind_name},
+                    "indicator_id": ind_name,
                     "issue_type": "suspicious_pattern",
                     "severity": "warning",
                     "message": (
@@ -246,7 +246,7 @@ def check_hallucination_signals(
                 arithmetic_sequence_detected = True
                 issues.append(
                     {
-                        "subject": {"kind": "indicator", "id": ind_name},
+                        "indicator_id": ind_name,
                         "issue_type": "suspicious_pattern",
                         "severity": "warning",
                         "message": f"Values form arithmetic sequence with step {step}",
@@ -307,11 +307,11 @@ def check_construct_correlations(
                 if corr is not None and not math.isnan(corr) and corr < 0:
                     issues.append(
                         {
-                            "subject": {"kind": "construct", "id": construct_id},
+                            "indicator_id": None,
                             "issue_type": "low_construct_correlation",
                             "severity": "warning",
                             "message": (
-                                f"Indicators {name_a} and {name_b} have negative "
+                                f"Indicators {name_a} and {name_b} of {construct_id} have negative "
                                 f"daily correlation (r={corr:.3f}), violating reflective "
                                 f"measurement assumption"
                             ),

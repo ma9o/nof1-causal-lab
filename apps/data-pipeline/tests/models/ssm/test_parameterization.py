@@ -19,10 +19,8 @@ from nof1_causal_lab.distributions import (
     DistributionFamily,
 )
 from nof1_causal_lab.models.ssm import numerics as numeric
-from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
 from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
-from nof1_causal_lab.models.ssm.inference.backend_factory import get_laplace_backend
-from nof1_causal_lab.models.ssm.inference.utils import _discover_sites
+from nof1_causal_lab.models.ssm.inference.utils import _discover_sites, _DummyLikelihoodBackend
 from nof1_causal_lab.models.ssm.model import SSMModel
 from nof1_causal_lab.models.ssm.parameterization import (
     assemble_deterministics_from_registry,
@@ -46,7 +44,6 @@ from tests.helpers import (
 )
 from tests.model_fixtures import (
     default_diffusion_block,
-    default_input_effect_block,
     default_lambda_block,
     default_manifest_chol_block,
     default_manifest_means_block,
@@ -78,7 +75,6 @@ def _make_spec(
     manifest_chol_block=None,
     t0_means_block=None,
     t0_chol_block=None,
-    input_effect_block=None,
     static_state_sd_block=None,
     **kwargs,
 ) -> ModelSpec:
@@ -95,7 +91,6 @@ def _make_spec(
         manifest_chol_block=manifest_chol_block or default_manifest_chol_block(n_manifest),
         t0_means_block=t0_means_block or default_t0_means_block(n_latent),
         t0_chol_block=t0_chol_block or default_t0_chol_block(n_latent),
-        input_effect_block=input_effect_block or default_input_effect_block(n_latent),
         static_state_sd_block=static_state_sd_block or default_static_state_sd_block(),
         **native_axis_metadata(n_latent, n_manifest, kwargs),
     )
@@ -347,47 +342,28 @@ def _assert_registry_matches_trace(registry, site_info):
 
 
 class TestSiteRegistry:
-    @pytest.mark.cpu_expensive
     def test_registry_names_match_trace(self, simple_model):
         """Registry produces the same site names as model tracing."""
         spec = simple_model.spec
         registry = build_site_registry(spec)
-        backend = get_laplace_backend(simple_model, 6)
-        T = 10
+        backend = _DummyLikelihoodBackend()
+        T = 2
         obs = jnp.zeros((T, numeric.n_observations(spec)))
         times = jnp.linspace(0, 1, T)
         site_info = _discover_sites(simple_model, obs, times, random.PRNGKey(0), backend)
         _assert_registry_matches_trace(registry, site_info)
 
-    @pytest.mark.cpu_expensive
     def test_registry_names_match_trace_dag(self, dag_model):
         """Registry matches trace for DAG-constrained model with cint."""
         spec = dag_model.spec
         registry = build_site_registry(spec)
-        backend = get_laplace_backend(dag_model, 6)
-        T = 10
+        backend = _DummyLikelihoodBackend()
+        T = 2
         obs = jnp.zeros((T, numeric.n_observations(spec)))
         times = jnp.linspace(0, 1, T)
         site_info = _discover_sites(dag_model, obs, times, random.PRNGKey(0), backend)
         _assert_registry_matches_trace(registry, site_info)
 
-    @pytest.mark.cpu_expensive
-    def test_registry_shapes_match_trace(self, simple_model):
-        """Registry shapes match traced shapes."""
-        spec = simple_model.spec
-        registry = build_site_registry(spec)
-        backend = get_laplace_backend(simple_model, 6)
-        T = 10
-        obs = jnp.zeros((T, numeric.n_observations(spec)))
-        times = jnp.linspace(0, 1, T)
-        site_info = _discover_sites(simple_model, obs, times, random.PRNGKey(0), backend)
-        for site in registry:
-            assert site.shape == site_info[site.name]["shape"], (
-                f"Shape mismatch for {site.name}: "
-                f"registry={site.shape}, trace={site_info[site.name]['shape']}"
-            )
-
-    @pytest.mark.cpu_expensive
     def test_registry_shapes_match_trace_partial_manifest_variance_mask(self):
         """Masked manifest variance exposes only free diagonal entries as a site."""
         spec = _make_spec(
@@ -401,8 +377,8 @@ class TestSiteRegistry:
         )
         model = SSMModel(spec)
         registry = build_site_registry(spec)
-        backend = get_laplace_backend(model, 6)
-        T = 10
+        backend = _DummyLikelihoodBackend()
+        T = 2
         obs = jnp.zeros((T, numeric.n_observations(spec)))
         times = jnp.linspace(0, 1, T)
         site_info = _discover_sites(model, obs, times, random.PRNGKey(0), backend)
@@ -512,7 +488,6 @@ class TestSiteRegistry:
 
         assert "proc_df" in trace
 
-    @pytest.mark.cpu_expensive
     def test_static_state_sd_site_is_registered_and_traced(self):
         """Compiled baseline factors should expose a positive static-state SD site."""
         spec = _make_spec(
@@ -537,7 +512,7 @@ class TestSiteRegistry:
         assert site_map["static_state_sd_free"].shape == (1,)
         assert site_map["static_state_sd_free"].support == SupportClass.POSITIVE
 
-        backend = get_laplace_backend(model, 6)
+        backend = _DummyLikelihoodBackend()
         obs = jnp.zeros((5, numeric.n_observations(spec)))
         times = jnp.arange(5, dtype=jnp.float32)
         site_info = _discover_sites(model, obs, times, random.PRNGKey(0), backend)
@@ -590,9 +565,6 @@ class TestDeterministicAssembly:
     def test_assemble_deterministics_from_registry_free_spec(self, simple_spec):
         """Registry-driven assembly builds the expected matrices."""
         samples = {
-            "vf_0_decay": jnp.array([[0.5, 0.3]], dtype=jnp.float32),
-            "vf_1_weight": jnp.array([0.1], dtype=jnp.float32),
-            "vf_2_weight": jnp.array([-0.2], dtype=jnp.float32),
             "diffusion_diag_free": jnp.array([[0.4, 0.6]], dtype=jnp.float32),
             "diffusion_lower_free": jnp.array([[0.25]], dtype=jnp.float32),
             "lambda_free": jnp.array([], dtype=jnp.float32).reshape(1, 0),
@@ -680,7 +652,6 @@ class TestDeterministicAssembly:
             ),
         )
         samples = {
-            "vf_0_decay": jnp.array([[0.5, 0.3]], dtype=jnp.float32),
             "diffusion_diag_free": jnp.array([[0.4, 0.6]], dtype=jnp.float32),
             "diffusion_lower_free": jnp.array([[0.25]], dtype=jnp.float32),
             "lambda_free": jnp.array([], dtype=jnp.float32).reshape(1, 0),
@@ -708,7 +679,6 @@ class TestDeterministicAssembly:
             ),
         )
         samples = {
-            "vf_0_decay": jnp.array([[0.5, 0.3]], dtype=jnp.float32),
             "diffusion_diag_free": jnp.array([[0.4, 0.6]], dtype=jnp.float32),
             "diffusion_lower_free": jnp.array([[0.25]], dtype=jnp.float32),
             "lambda_free": jnp.array([], dtype=jnp.float32).reshape(1, 0),
@@ -742,7 +712,6 @@ class TestDeterministicAssembly:
             ),
         )
         samples = {
-            "vf_0_decay": jnp.array([[0.5, 0.3, 0.4]], dtype=jnp.float32),
             "diffusion_diag_free": jnp.array([[0.4, 0.6, 0.5]], dtype=jnp.float32),
             "diffusion_lower_free": jnp.array([[0.25, 0.1, -0.15]], dtype=jnp.float32),
             "lambda_free": jnp.array([], dtype=jnp.float32).reshape(1, 0),
@@ -941,99 +910,6 @@ class TestCompiledArtifactIntegration:
             for anchor in artifact
         )
 
-    def test_known_input_beta_binds_to_input_effect_site(self):
-        """A beta from a known input compiles to B, not the latent dynamics matrix."""
-        from nof1_causal_lab.models.model_checks import check_execution
-
-        scientific_definition = {
-            "default_outcome": {"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"},
-            "edges": [
-                {
-                    "cause": {
-                        "id": "construct:16176a18c25802dee8a1",
-                        "name": "dose",
-                        "description": "Dose",
-                        "role": "exogenous",
-                        "temporal_status": "time_varying",
-                        "indicators": [
-                            {
-                                "id": "indicator:5806a6a8417abd85897f",
-                                "name": "dose_mg",
-                                "construct_polarity": "positive",
-                                "how_to_measure": "Dose in mg",
-                                "measurement_dtype": "continuous",
-                                "aggregation": "sum",
-                            }
-                        ],
-                        "usage": {
-                            "kind": "known_input",
-                            "source_indicator_id": "indicator:5806a6a8417abd85897f",
-                            "scale": 10.0,
-                            "missing_policy": "forward_fill",
-                        },
-                    },
-                    "effect": {
-                        "id": "construct:bbc87212909e45b9e6c3",
-                        "name": "mood",
-                        "description": "Mood",
-                        "role": "endogenous",
-                        "temporal_status": "time_varying",
-                        "indicators": [
-                            {
-                                "id": "indicator:45f78731e3e0c6f3efe1",
-                                "name": "mood_score",
-                                "construct_polarity": "positive",
-                                "how_to_measure": "Mood score",
-                                "measurement_dtype": "continuous",
-                                "aggregation": "mean",
-                            }
-                        ],
-                    },
-                    "id": "edge:3d7176b256a26799c7c4",
-                    "description": "Dose affects mood",
-                    "lagged": True,
-                }
-            ],
-            "measurement_clock": "1d",
-        }
-        scientific_model = complete_test_model(ModelSpec.model_validate(scientific_definition))
-        priors = {
-            "rho_mood": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
-            "beta_dose_mood": {"distribution": "Normal", "params": {"mu": 0.3, "sigma": 0.1}},
-            "sigma_mood": {"distribution": "HalfNormal", "params": {"sigma": 1.0}},
-        }
-
-        ModelSpec.model_validate(scientific_definition)
-        typed_scientific_model = ModelSpec.model_validate(scientific_model)
-        check_execution(
-            make_prior_model(typed_scientific_model, priors),
-        )
-
-        assert numeric.observation_names(typed_scientific_model) == ["mood_score"]
-        assert numeric.input_names(typed_scientific_model) == ["dose"]
-        assert numeric.input_sources(typed_scientific_model) == ["dose_mg"]
-        assert numeric.input_lagged(typed_scientific_model) == [True]
-        assert numeric.input_effect_block(typed_scientific_model).free_support.tolist() == [[True]]
-        beta_binding = next(
-            binding
-            for binding in parameter_bindings(make_prior_model(typed_scientific_model, priors))[0]
-            if binding.parameter_id
-            == next(p.id for p in typed_scientific_model.parameters if p.name == "beta_dose_mood")
-        )
-        assert {
-            "parameter_id": beta_binding.parameter_id,
-            "site_name": beta_binding.site_name,
-            "flat_index": beta_binding.flat_index,
-        } == {
-            "parameter_id": next(
-                p.id for p in typed_scientific_model.parameters if p.name == "beta_dose_mood"
-            ),
-            "site_name": "input_effect_free",
-            "flat_index": 0,
-        }
-        assert beta_binding.site_kind is SiteKind.INPUT_EFFECT
-        assert beta_binding.transform is PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE
-
     def test_runtime_derives_the_authored_priors(self, scientific_model_and_priors):
         import polars as pl
 
@@ -1048,13 +924,3 @@ class TestCompiledArtifactIntegration:
         assert set(model.get_prior_runtime_bundle().priors) == {
             site.name for site in build_site_registry(definition)
         }
-
-    def test_readiness_rejects_a_second_model_definition(self, scientific_model_and_priors):
-        from nof1_causal_lab.artifacts.execution import ExecutionReadiness
-
-        scientific_model, priors = scientific_model_and_priors
-        definition = make_prior_model(scientific_model, priors)
-        with pytest.raises(ValueError, match="Extra inputs"):
-            ExecutionReadiness.model_validate(
-                {**definition.execution_readiness.model_dump(), "spec": definition.model_dump()}
-            )

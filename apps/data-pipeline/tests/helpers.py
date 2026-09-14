@@ -3,9 +3,30 @@
 import asyncio
 from collections.abc import Sequence
 from hashlib import sha256
-from typing import Any
+from typing import Any, Literal, overload
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.identity import ConstructId, EdgeId, IndicatorId, MechanismId
+
+
+@overload
+def fixture_entity_id(kind: Literal["construct"], initial_identity: str) -> ConstructId: ...
+
+
+@overload
+def fixture_entity_id(kind: Literal["edge"], initial_identity: str) -> EdgeId: ...
+
+
+@overload
+def fixture_entity_id(kind: Literal["indicator"], initial_identity: str) -> IndicatorId: ...
+
+
+@overload
+def fixture_entity_id(kind: Literal["mechanism"], initial_identity: str) -> MechanismId: ...
+
+
+@overload
+def fixture_entity_id(kind: str, initial_identity: str) -> str: ...
 
 
 def fixture_entity_id(kind: str, initial_identity: str) -> str:
@@ -31,33 +52,22 @@ def make_prior_model(statistical_model_spec, priors):
 
 def model_with_prior_payloads(model, payloads):
     """Attach explicit ID-keyed law inputs for compiler behavior tests."""
-    from notebooks.prior_specification_support import parameter_with_prior
+    from notebooks.prior_specification_support import model_with_prior_payloads as attach_priors
 
     if model is None:
         if payloads:
             raise ValueError("Prior inputs require a scientific model")
         return None
-    by_id = {parameter.id: parameter for parameter in model.parameters}
-    unknown = payloads.keys() - by_id.keys()
-    if unknown:
-        raise ValueError(f"Prior input does not correspond to any parameter: {sorted(unknown)}")
-    return model.revised(
-        parameters=tuple(
-            parameter_with_prior(parameter, payloads[parameter.id])
-            if parameter.id in payloads
-            else parameter
-            for parameter in model.parameters
-        )
-    )
+    return attach_priors(model, payloads)
 
 
 def make_model(state_names: list[str], edges: Sequence[tuple[str, str]] = ()):
     """A connected test graph; uncoupled states share an unmeasured downstream outcome."""
-    from nof1_causal_lab.artifacts.construct import CausalEdge, Construct
+    from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
     constructs = {
-        name: Construct.model_validate(
+        name: ConstructSpec.model_validate(
             {
                 "id": fixture_entity_id("construct", name),
                 "name": name,
@@ -82,7 +92,7 @@ def make_model(state_names: list[str], edges: Sequence[tuple[str, str]] = ()):
         assert set(state_names) == {name for pair in edges for name in pair}
     if not edges:
         outcome = "unmeasured_outcome"
-        constructs[outcome] = Construct(
+        constructs[outcome] = ConstructSpec(
             id=fixture_entity_id("construct", outcome),
             name=outcome,
             description="A downstream response outside the numerical fixture's measured states.",
@@ -92,7 +102,7 @@ def make_model(state_names: list[str], edges: Sequence[tuple[str, str]] = ()):
         edges = [(name, outcome) for name in state_names]
     return ModelSpec(
         edges=tuple(
-            CausalEdge(
+            CausalEdgeSpec(
                 id=fixture_entity_id("edge", cause + "->" + effect),
                 cause=constructs[cause],
                 effect=constructs[effect],
@@ -215,13 +225,11 @@ def native_axis_metadata(n_latent, n_manifest, metadata):
     manifest_names = metadata.get("manifest_names") or [
         f"manifest_{index}" for index in range(n_manifest)
     ]
-    input_names = metadata.get("input_names") or []
     return {
         "latent_names": latent_names,
         "manifest_names": manifest_names,
         "latent_ids": [fixture_entity_id("construct", name) for name in latent_names],
         "manifest_ids": [fixture_entity_id("indicator", name) for name in manifest_names],
-        "input_ids": [fixture_entity_id("construct", name) for name in input_names],
         "static_factor_ids": [],
         **metadata,
     }

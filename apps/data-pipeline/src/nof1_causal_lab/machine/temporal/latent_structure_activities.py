@@ -7,7 +7,6 @@ from typing import Any
 
 from temporalio import activity
 
-from nof1_causal_lab.machine.artifact_files import json_filename
 from nof1_causal_lab.machine.derivations import read_model
 from nof1_causal_lab.machine.graph import transition_spec
 from nof1_causal_lab.machine.moves import TransitionEffects, input_pins
@@ -113,11 +112,8 @@ async def plan_latent_structure_activity(
     spec = transition_spec("latent_structure")
     pins = input_pins(input.state, spec)
     run_id = f"seq-{input.seq:06d}"
-    question = store.read_json_file(
-        "question",
-        pins["question"],
-        json_filename("question", "question"),
-    )["text"]
+    model = read_model(store, pins["model"])
+    question = model.require_question()
     context_ref = storage.join(
         subroutine_root(input.workspace_id, run_id, "latent-structure"),
         "context.json",
@@ -129,11 +125,7 @@ async def plan_latent_structure_activity(
             "user_messages": [
                 templates.USER.format(question=question)
                 + "\nCurrent Model (preserve retained entities and details):\n"
-                + (
-                    read_model(store, pins["model"]).model_dump_json(indent=2)
-                    if "model" in pins
-                    else "{}"
-                ),
+                + model.model_dump_json(indent=2),
                 templates.REVIEW,
             ],
         },

@@ -36,15 +36,6 @@ class PosteriorDrawsInfo(BaseModel):
     )
 
 
-class PosteriorAssessment(BaseModel):
-    """Predictive assessments of a fitted posterior."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    ppc: PosteriorPredictiveChecks
-    loo_diagnostics: LOODiagnostics | None = None
-
-
 class InferenceReport(BaseModel):
     """Display findings recorded by an inference transition, separate from ModelSpec."""
 
@@ -54,6 +45,7 @@ class InferenceReport(BaseModel):
         default_factory=dict,
         description="Engine-reported telemetry for this fit; keys and values are engine-defined.",
     )
-    assessment: PosteriorAssessment
+    ppc: PosteriorPredictiveChecks
+    loo_diagnostics: LOODiagnostics | None = None
     posterior_marginals: list[PosteriorMarginal] | None = None
     posterior_pairs: list[PosteriorPair] | None = None

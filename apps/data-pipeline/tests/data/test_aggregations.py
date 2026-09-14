@@ -822,3 +822,42 @@ class TestComputeIndicators:
         expr = _build_agg_expr("mean", "heart_rate")
         result = df.select(expr)
         assert abs(result["value"][0] - 75.0) < 0.01
+
+
+@pytest.mark.parametrize(
+    ("recording", "aggregation", "expected"),
+    [
+        ("samples", "last", [None, 4.0, None, 8.0]),
+        ("changes", "last", [None, 4.0, 4.0, 8.0]),
+        ("samples", "sum", [None, 4.0, None, 8.0]),
+        ("events", "sum", [None, 4.0, 0.0, 8.0]),
+        ("events", "count", [0.0, 1.0, 0.0, 1.0]),
+    ],
+)
+def test_recording_semantics_resolve_only_declared_gaps(recording, aggregation, expected):
+    from nof1_causal_lab.artifacts.indicator import IndicatorSpec
+
+    indicator = IndicatorSpec(
+        id="indicator:record",
+        name="record",
+        how_to_measure="Read the recorded value",
+        construct_polarity="positive",
+        measurement_dtype="count",
+        aggregation=aggregation,
+        recording=recording,
+        extraction_mode="computed",
+        source_columns=("reading",),
+    )
+    raw = pl.DataFrame(
+        {
+            "timestamp": [datetime(2026, 1, 4), datetime(2026, 1, 1), datetime(2026, 1, 2)],
+            "reading": [8.0, None, 4.0],
+        }
+    )
+    result = compute_indicators(raw, [indicator.model_dump(mode="json")], "1d", "timestamp")
+    assert result["value"].cast(pl.Float64).to_list() == expected
+    # Conversions belong to the deterministic recipe and precede persistence.
+    if recording == "changes":
+        converted = indicator.model_copy(update={"computed_rule": "last(reading) / 2"})
+        result = compute_indicators(raw, [converted.model_dump(mode="json")], "1d", "timestamp")
+        assert result["value"].cast(pl.Float64).to_list() == [None, 2.0, 2.0, 4.0]

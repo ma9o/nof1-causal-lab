@@ -19,8 +19,9 @@ from nof1_causal_lab.artifacts.expressions import (
 from nof1_causal_lab.artifacts.expressions import (
     state as expr_state,
 )
+from nof1_causal_lab.artifacts.identity import ConstructId
 from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
-from nof1_causal_lab.artifacts.mechanism import DynamicsMechanism
+from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.models.likelihoods import observation_law, revise_law
@@ -237,14 +238,13 @@ class SyntheticNonlinearData:
     observations: jnp.ndarray
     times: jnp.ndarray
     latent: jnp.ndarray
-    transition_inputs: jnp.ndarray
     observation_support: ObservationSupportRuntime
 
 
 def build_synthetic_nonlinear_spec(*, diffusion_scale: float = 1.0) -> ModelSpec:
     """Author the nonlinear recovery fixture as one scientific definition."""
-    from nof1_causal_lab.artifacts.coefficient import FixedCoefficient, ParameterCoefficient
-    from nof1_causal_lab.artifacts.construct import CausalEdge, Construct, KnownInput
+    from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
+    from nof1_causal_lab.artifacts.expressions import coefficient
     from nof1_causal_lab.artifacts.identity import (
         ConstructRef,
         EdgeRef,
@@ -252,10 +252,9 @@ def build_synthetic_nonlinear_spec(*, diffusion_scale: float = 1.0) -> ModelSpec
         MechanismRef,
         scientific_id,
     )
-    from nof1_causal_lab.artifacts.indicator import Indicator
+    from nof1_causal_lab.artifacts.indicator import IndicatorSpec
     from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec
     from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
-    from nof1_causal_lab.artifacts.state_distribution import InitialStateSpec, InnovationSpec
     from nof1_causal_lab.models.prior_planning import complete_model
 
     definitions = {}
@@ -268,11 +267,11 @@ def build_synthetic_nonlinear_spec(*, diffusion_scale: float = 1.0) -> ModelSpec
             description="Synthetic fixture quantity",
             value=value,
         )
-        return ParameterCoefficient(parameter_id=identity)
+        return identity
 
     constructs = []
     for column, name in enumerate(LATENT_NAMES):
-        identity = f"construct:{name}"
+        identity = ConstructId(f"construct:{name}")
         owner = ConstructRef(id=identity)
         mechanism_id = f"mechanism:relaxation-{name}"
         decay = quantity(SiteKind.DYNAMICS_DECAY, [owner, MechanismRef(id=mechanism_id)])
@@ -297,7 +296,7 @@ def build_synthetic_nonlinear_spec(*, diffusion_scale: float = 1.0) -> ModelSpec
             scale = (
                 quantity(SiteKind.MANIFEST_VAR_DIAG, refs)
                 if MANIFEST_DISTS[row].uses_manifest_noise
-                else FixedCoefficient(value=0)
+                else 0
             )
             dtype = (
                 "count"
@@ -305,7 +304,7 @@ def build_synthetic_nonlinear_spec(*, diffusion_scale: float = 1.0) -> ModelSpec
                 else "continuous"
             )
             indicators.append(
-                Indicator(
+                IndicatorSpec(
                     id=indicator_id,
                     name=obs_name,
                     how_to_measure="Read the synthetic observation",
@@ -320,7 +319,7 @@ def build_synthetic_nonlinear_spec(*, diffusion_scale: float = 1.0) -> ModelSpec
                         lambda node, loading=loading, intercept=intercept, scale=scale: (
                             node.model_copy(
                                 update={
-                                    "coefficient": {
+                                    "value": {
                                         "loading": loading,
                                         "observation_intercept": intercept,
                                         "observation_scale": scale,
@@ -335,29 +334,33 @@ def build_synthetic_nonlinear_spec(*, diffusion_scale: float = 1.0) -> ModelSpec
                     ),
                 )
             )
-        innovation = InnovationSpec(scale=quantity(SiteKind.DIFFUSION_DIAG, [owner]))
-        initial = InitialStateSpec(
-            mean=quantity(SiteKind.T0_MEANS, [owner], float(TRUE_T0_MEAN[column])),
-            scale=quantity(SiteKind.T0_VAR_DIAG, [owner], float(TRUE_T0_SD[column])),
-        )
         constructs.append(
-            Construct(
+            ConstructSpec(
                 id=identity,
                 name=name,
                 description="Synthetic latent state",
                 role="endogenous",
                 temporal_status="time_varying",
                 indicators=tuple(indicators),
-                innovation=innovation,
-                initial_state=initial,
+                coefficients=(
+                    coefficient(quantity(SiteKind.DIFFUSION_DIAG, [owner]), "diffusion_scale"),
+                    coefficient(
+                        quantity(SiteKind.T0_MEANS, [owner], float(TRUE_T0_MEAN[column])),
+                        "initial_mean",
+                    ),
+                    coefficient(
+                        quantity(SiteKind.T0_VAR_DIAG, [owner], float(TRUE_T0_SD[column])),
+                        "initial_scale",
+                    ),
+                ),
                 dynamics=(
-                    DynamicsMechanism(
+                    DynamicsMechanismSpec(
                         id=mechanism_id,
                         expression=restoring_force(
                             identity,
-                            center=FixedCoefficient(value=0),
+                            center=0,
                             stiffness=decay,
-                            quartic=FixedCoefficient(value=0),
+                            quartic=0,
                         ),
                     ),
                 ),
@@ -370,7 +373,7 @@ def build_synthetic_nonlinear_spec(*, diffusion_scale: float = 1.0) -> ModelSpec
         pair = (cause, effect)
         if pair not in edges:
             identity = f"edge:{cause}-{effect}"
-            edges[pair] = CausalEdge(
+            edges[pair] = CausalEdgeSpec(
                 id=identity,
                 cause=next(construct for construct in constructs if construct.name == cause),
                 effect=next(construct for construct in constructs if construct.name == effect),
@@ -392,13 +395,13 @@ def build_synthetic_nonlinear_spec(*, diffusion_scale: float = 1.0) -> ModelSpec
         owner = edge(LATENT_NAMES[source], LATENT_NAMES[target])
         mechanism_id = f"mechanism:hill-{source}-{target}"
         terms[owner.id].append(
-            DynamicsMechanism(
+            DynamicsMechanismSpec(
                 id=mechanism_id,
                 expression=expr_hill(
                     expr_state(owner.cause.id),
                     emax=quantity(SiteKind.HILL_EMAX, refs(owner, mechanism_id)),
-                    ec50=FixedCoefficient(value=TRUE_HILL_BY_SITE[prefix + "_EC50"]),
-                    n=FixedCoefficient(value=TRUE_HILL_BY_SITE[prefix + "_n"]),
+                    ec50=TRUE_HILL_BY_SITE[prefix + "_EC50"],
+                    n=TRUE_HILL_BY_SITE[prefix + "_n"],
                 ),
             )
         )
@@ -407,7 +410,7 @@ def build_synthetic_nonlinear_spec(*, diffusion_scale: float = 1.0) -> ModelSpec
         edge(LATENT_NAMES[moderator], LATENT_NAMES[target])
         mechanism_id = f"mechanism:interaction-{source}-{moderator}-{target}"
         terms[owner.id].append(
-            DynamicsMechanism(
+            DynamicsMechanismSpec(
                 id=mechanism_id,
                 expression=linear_effect(
                     owner.cause.id,
@@ -419,37 +422,55 @@ def build_synthetic_nonlinear_spec(*, diffusion_scale: float = 1.0) -> ModelSpec
                         ],
                     ),
                 )
-                * expr_state(f"construct:{LATENT_NAMES[moderator]}"),
+                * expr_state(ConstructId(f"construct:{LATENT_NAMES[moderator]}")),
             )
         )
     for name in INPUT_NAMES:
-        indicator = Indicator(
+        indicator = IndicatorSpec(
             id=f"indicator:{name}",
             name=name,
-            how_to_measure="Read the known driver",
+            likelihood=LikelihoodSpec(
+                law=observation_law(
+                    ConstructId(f"construct:{name}"),
+                    DistributionFamily.DELTA,
+                    LinkFunction.IDENTITY,
+                ),
+                reasoning="Synthetic driver values are observed exactly at each anchor.",
+            ),
+            how_to_measure="Read the exact synthetic driver",
             construct_polarity="positive",
             measurement_dtype="continuous",
             aggregation="last",
         )
         constructs.append(
-            Construct(
+            ConstructSpec(
                 id=f"construct:{name}",
                 name=name,
                 description="Known synthetic input",
                 role="exogenous",
                 temporal_status="time_varying",
                 indicators=(indicator,),
-                usage=KnownInput(source_indicator_id=indicator.id),
+                coefficients=(
+                    coefficient(0, "initial_mean"),
+                    coefficient(1, "initial_scale"),
+                    coefficient(1, "diffusion_scale"),
+                ),
+                dynamics=(
+                    DynamicsMechanismSpec(
+                        id=f"mechanism:driver-{name}",
+                        expression=coefficient(0, "intercept"),
+                    ),
+                ),
             )
         )
     for row, column in TRUE_INPUT_EFFECT_POSITIONS:
         owner = edge(INPUT_NAMES[column], LATENT_NAMES[row], False)
         mechanism_id = f"mechanism:input-{row}-{column}"
         terms[owner.id].append(
-            DynamicsMechanism(
+            DynamicsMechanismSpec(
                 id=mechanism_id,
                 expression=linear_effect(
-                    owner.cause.id, quantity(SiteKind.INPUT_EFFECT, refs(owner, mechanism_id))
+                    owner.cause.id, quantity(SiteKind.DYNAMICS_WEIGHT, refs(owner, mechanism_id))
                 ),
             )
         )
@@ -475,16 +496,16 @@ def build_synthetic_nonlinear_spec(*, diffusion_scale: float = 1.0) -> ModelSpec
         SiteKind.OBS_R: dist.LogNormal(float(np.log(6.0)), 0.6),
         SiteKind.OBS_SHAPE: dist.LogNormal(float(np.log(5.0)), 0.6),
     }
-    return model.revised(
-        parameters=tuple(
-            parameter.model_copy(
-                update={"distribution": overrides[model.parameter_context(parameter.id).quantity]}
-            )
+    from nof1_causal_lab.models.model_distributions import with_parameter_distributions
+
+    return with_parameter_distributions(
+        model,
+        {
+            parameter.id: overrides[model.parameter_context(parameter.id).quantity]
+            for parameter in model.parameters
             if parameter.value is None
             and model.parameter_context(parameter.id).quantity in overrides
-            else parameter
-            for parameter in model.parameters
-        )
+        },
     )
 
 
@@ -495,10 +516,8 @@ def build_synthetic_nonlinear_model(
     diffusion_scale: float = 1.0,
 ) -> SSMModel:
     model = SSMModel(build_synthetic_nonlinear_spec(diffusion_scale=diffusion_scale))
-    if data is not None:
-        model.set_transition_inputs(data.transition_inputs)
-        if include_interval_support:
-            model.set_observation_support(data.observation_support)
+    if data is not None and include_interval_support:
+        model.set_observation_support(data.observation_support)
     return model
 
 
@@ -510,7 +529,7 @@ def _build_transition_inputs(T: int) -> np.ndarray:
 
 
 def _build_gp_interval_support(T: int, gp_rows: np.ndarray, window: int = 3):
-    n_manifest = len(MANIFEST_NAMES)
+    n_manifest = len(MANIFEST_NAMES) + len(INPUT_NAMES)
     support_start_times = np.full((T, n_manifest), np.nan, dtype=np.float64)
     support_end_times = np.full((T, n_manifest), np.nan, dtype=np.float64)
     interval_prev_coeffs = np.zeros((T, n_manifest), dtype=np.float64)
@@ -538,7 +557,7 @@ def _build_gp_interval_support(T: int, gp_rows: np.ndarray, window: int = 3):
 
     return _make_observation_support_runtime(
         anchor_times=np.arange(T, dtype=np.float64),
-        manifest_names=MANIFEST_NAMES,
+        manifest_names=[*MANIFEST_NAMES, *INPUT_NAMES],
         support_kinds=support_kinds,
         summary_operators=summary_operators,
         observation_windows=observation_windows,
@@ -713,10 +732,9 @@ def simulate_synthetic_nonlinear_data(
         )
 
     return SyntheticNonlinearData(
-        observations=jnp.asarray(observations),
+        observations=jnp.asarray(np.column_stack([observations, transition_inputs])),
         times=jnp.arange(T, dtype=jnp.float32),
-        latent=jnp.asarray(latent),
-        transition_inputs=jnp.asarray(transition_inputs),
+        latent=jnp.asarray(np.column_stack([latent, transition_inputs])),
         observation_support=support,
     )
 
@@ -740,6 +758,10 @@ def _scalar_recovery_targets() -> dict[str, float]:
                 (0, 2, "vf_7"),
             ]
         },
+        **{
+            f"mechanism:input-{row}-{column}": float(TRUE_INPUT_EFFECT[row, column])
+            for row, column in TRUE_INPUT_EFFECT_POSITIONS
+        },
         "mechanism:interaction-1-2-0": TRUE_MULTIPLICATIVE_BY_SITE["vf_4_weight"],
         "mechanism:interaction-0-1-2": TRUE_MULTIPLICATIVE_BY_SITE["vf_8_weight"],
     }
@@ -757,15 +779,6 @@ def _scalar_recovery_targets() -> dict[str, float]:
 
 
 SCALAR_RECOVERY_TARGETS = _scalar_recovery_targets()
-
-INPUT_EFFECT_RECOVERY_TARGETS = {
-    f"input_{INPUT_NAMES[col]}_{LATENT_NAMES[row]}": {
-        "site": "input_effect_free",
-        "index": idx,
-        "true": TRUE_INPUT_EFFECT[row, col],
-    }
-    for idx, (row, col) in enumerate(TRUE_INPUT_EFFECT_POSITIONS)
-}
 
 MEASUREMENT_MEAN_RECOVERY_TARGETS = {
     f"manifest_mean_{MANIFEST_NAMES[manifest_idx]}": {
@@ -787,7 +800,6 @@ MEASUREMENT_LOADING_RECOVERY_TARGETS = {
 
 RECOVERY_TARGETS = {
     **SCALAR_RECOVERY_TARGETS,
-    **INPUT_EFFECT_RECOVERY_TARGETS,
     **MEASUREMENT_MEAN_RECOVERY_TARGETS,
     **MEASUREMENT_LOADING_RECOVERY_TARGETS,
 }

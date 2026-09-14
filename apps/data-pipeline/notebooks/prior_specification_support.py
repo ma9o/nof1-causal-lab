@@ -52,7 +52,6 @@ if TYPE_CHECKING:
     import polars as pl
 
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
     from nof1_causal_lab.json_types import JsonObject
 
 
@@ -173,6 +172,7 @@ def run_authored_proposals(
         state.submission_made = False
         edges = contribution.edges
         parameters = contribution.parameters
+        distributions = contribution.distributions
         accept = list(payload.get("accept") or [])
         report: ConstructAdmissionReport | None = None
         coupled: tuple[CheckResult, ...] = ()
@@ -185,6 +185,7 @@ def run_authored_proposals(
                 construct=entity.model_dump(mode="json"),
                 edges=serialize_edge_references(edges),
                 parameters=[parameter.model_dump(mode="json") for parameter in parameters],
+                distributions=payload["distributions"],
                 accept=accept,
             )
         else:
@@ -196,6 +197,7 @@ def run_authored_proposals(
                 construct=entity,
                 edges=edges,
                 parameters=parameters,
+                distributions=distributions,
                 accept=accept,
                 n_draws=n_draws,
                 seed=seed,
@@ -218,6 +220,7 @@ def run_authored_proposals(
                         construct=entity.model_dump(mode="json"),
                         edges=serialize_edge_references(edges),
                         parameters=[parameter.model_dump(mode="json") for parameter in parameters],
+                        distributions=payload["distributions"],
                         accept=accept,
                     )
                 except _SUBMISSION_ERRORS as exc:
@@ -267,6 +270,7 @@ def run_authored_proposals(
                     entity=entity,
                     edges=edges,
                     parameters=parameters,
+                    distributions=distributions,
                     accept=accept,
                     annotations=evaluation.annotations,
                     results=evaluation.results,
@@ -406,25 +410,39 @@ __all__ = [
 ]
 
 
-def parameter_with_prior(parameter: ParameterSpec, payload: JsonObject) -> ParameterSpec:
-    """Attach a tool submission's distribution and scientific evidence to its parameter."""
-
+def model_with_prior_payloads(model: ModelSpec, payloads: Mapping[str, JsonObject]) -> ModelSpec:
+    """Resolve notebook prior submissions into model-owned laws and parameter references."""
     from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
     from nof1_causal_lab.distributions import PriorDistributionFamily
+    from nof1_causal_lab.models.model_distributions import with_parameter_distributions
     from nof1_causal_lab.prior_distributions import distribution_from_params
 
-    supplied_id = payload.get("parameter_id")
-    if supplied_id is not None and supplied_id != parameter.id:
-        raise ValueError(f"Prior for {parameter.name!r} references a different parameter")
-    params = payload["params"]
-    if not isinstance(params, dict):
-        raise ValueError("Prior constructor params must be a JSON object")
-    return ParameterSpec.model_validate(
-        {
-            **parameter.model_dump(mode="python"),
-            "distribution": distribution_from_params(
-                PriorDistributionFamily(payload["distribution"]), params
-            ),
-            "reference_interval_days": payload.get("reference_interval_days"),
-        }
-    )
+    by_id = {parameter.id: parameter for parameter in model.parameters}
+    unknown = payloads.keys() - by_id.keys()
+    if unknown:
+        raise ValueError(f"Prior input does not correspond to any parameter: {sorted(unknown)}")
+    laws = {}
+    parameters = []
+    for parameter in model.parameters:
+        if parameter.id not in payloads:
+            parameters.append(parameter)
+            continue
+        payload = payloads[parameter.id]
+        supplied_id = payload.get("parameter_id")
+        if supplied_id is not None and supplied_id != parameter.id:
+            raise ValueError(f"Prior for {parameter.name!r} references a different parameter")
+        params = payload["params"]
+        if not isinstance(params, dict):
+            raise ValueError("Prior constructor params must be a JSON object")
+        laws[parameter.id] = distribution_from_params(
+            PriorDistributionFamily(payload["distribution"]), params
+        )
+        parameters.append(
+            ParameterSpec.model_validate(
+                {
+                    **parameter.model_dump(mode="python"),
+                    "reference_interval_days": payload.get("reference_interval_days"),
+                }
+            )
+        )
+    return with_parameter_distributions(model.revised(parameters=tuple(parameters)), laws)

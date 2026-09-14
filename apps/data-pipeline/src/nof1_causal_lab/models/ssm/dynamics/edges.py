@@ -1,27 +1,8 @@
-"""Vector-field components — edges and full-vector terms.
+"""Linear numerical components for initialization and local derivative checks.
 
-A ``VectorFieldComponent`` is anything that contributes to ``dη/dt``. Components
-are composed by ``VectorField`` into the system vector field. Two
-broad kinds live here:
-
-- **Single-target edges** with explicit source / target indices:
-  ``LinearEdge``, ``HillEdge``, ``MultiplicativeEdge``. These are the
-  user-facing primitives the LLM elicits for the non-linear vocabulary
-  (Linear ≈ baseline coupling; Hill ≈ saturating dose-response;
-  Multiplicative ≈ true bilinear interaction).
-
-- **Full-vector terms** that contribute to several latents at once:
-  ``DenseLinear`` wraps a posterior-shaped ``A @ η + c`` in one XLA op
-  (the fast path for the existing dense-matrix posterior posterior);
-  ``DiagonalDecay`` and ``Intercept`` are full-vector background terms;
-  ``StateDecay`` and ``StateIntercept`` are scalar, target-owned versions
-  used by compiler-produced component specs.
-
-Every component implements the same ``contribute`` signature, so
-``VectorField`` is a single uniform loop. Each component reads
-its own slice of ``args.params`` (matched by position in the components
-tuple), which keeps parameter shapes scoped to the component that owns
-them.
+Scientific mechanisms compile through ``ExpressionComponent``. These matrix and
+scalar components support explicitly linear numerical work while obeying the
+same per-edge intervention protocol.
 """
 
 from __future__ import annotations
@@ -30,8 +11,6 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import equinox as eqx
 import jax.numpy as jnp
-
-from nof1_causal_lab.scalar_functions import hill_response
 
 if TYPE_CHECKING:
     from jax import Array
@@ -183,9 +162,3 @@ class LinearEdge(eqx.Module):
     ) -> Array:
         contribution = params["weight"] * eta_per_edge[self.target, self.source]
         return accumulator.at[self.target].add(contribution)
-
-
-
-
-
-

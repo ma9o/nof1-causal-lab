@@ -14,7 +14,8 @@ import polars as pl
 import pytest
 
 from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
-from nof1_causal_lab.artifacts.parameter import PriorAuthoringTransform, SiteKind, SupportClass
+from nof1_causal_lab.artifacts.parameter import PriorAuthoringTransform, SiteKind
+from nof1_causal_lab.models.model_distributions import with_parameter_distributions
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.compile.inputs import compile_priors
 from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
@@ -22,25 +23,21 @@ from nof1_causal_lab.models.ssm.runtime import (
     build_ssm_model,
     prepare_fit_inputs,
     prepare_model_runtime,
-    prepare_transition_inputs,
     sample_prior_predictive,
 )
 from nof1_causal_lab.models.ssm.structure import (
     DiffusionBlockSpec,
-    SparseMatrixBlockSpec,
     T0CholBlockSpec,
 )
 from tests.dynamics_fixtures import decay_term, hill_term, interaction_term
 from tests.helpers import (
     complete_test_model,
-    fixture_entity_id,
     make_model,
     make_prior_model,
     native_axis_metadata,
 )
 from tests.model_fixtures import (
     default_diffusion_block,
-    default_input_effect_block,
     default_lambda_block,
     default_manifest_chol_block,
     default_manifest_means_block,
@@ -74,7 +71,6 @@ def _make_spec(
     manifest_chol_block=None,
     t0_means_block=None,
     t0_chol_block=None,
-    input_effect_block=None,
     static_state_sd_block=None,
     **kwargs,
 ) -> ModelSpec:
@@ -91,7 +87,6 @@ def _make_spec(
         manifest_chol_block=manifest_chol_block or default_manifest_chol_block(n_manifest),
         t0_means_block=t0_means_block or default_t0_means_block(n_latent),
         t0_chol_block=t0_chol_block or default_t0_chol_block(n_latent),
-        input_effect_block=input_effect_block or default_input_effect_block(n_latent),
         static_state_sd_block=static_state_sd_block or default_static_state_sd_block(),
         **native_axis_metadata(n_latent, n_manifest, kwargs),
     )
@@ -125,7 +120,6 @@ class TestBuilderPriorConversion:
             parameters=tuple(
                 p.model_copy(
                     update={
-                        "distribution": dist.Normal(0.2, 0.8),
                         "distribution_transform": PriorAuthoringTransform.INITIAL_STATE_CORRELATION,
                     }
                 )
@@ -134,6 +128,7 @@ class TestBuilderPriorConversion:
                 for p in model.parameters
             )
         )
+        model = with_parameter_distributions(model, {correlation.id: dist.Normal(0.2, 0.8)})
         law = compile_priors(model)[0]["t0_var_lower_free"]
         np.testing.assert_allclose(law.base_dist.loc, [0.2])
         np.testing.assert_allclose(law.base_dist.scale, [0.8])
@@ -158,12 +153,7 @@ class TestBuilderPriorConversion:
             scales[0].id: dist.HalfNormal(0.7),
             scales[1].id: dist.HalfNormal(0.9),
         }
-        model = model.revised(
-            parameters=tuple(
-                p.model_copy(update={"distribution": laws[p.id]}) if p.id in laws else p
-                for p in model.parameters
-            )
-        )
+        model = with_parameter_distributions(model, laws)
         priors, bindings, _ = compile_priors(model)
         np.testing.assert_allclose(priors["t0_means_free"].loc, [0.2, 0.4])
         np.testing.assert_allclose(priors["t0_var_diag_free"].scale, [0.7, 0.9])
@@ -208,7 +198,7 @@ class TestBuilderPriorConversion:
         with pytest.raises(ValueError, match="measurement clock"):
             compile_priors(model)
 
-    @pytest.mark.cpu_expensive
+    @pytest.mark.predictive
     def test_prior_predictive_supports_hill_edge_spec(self):
         """The prior predictive path should accept nonlinear component dynamics."""
         spec = _make_spec(
@@ -243,7 +233,7 @@ class TestBuilderPriorConversion:
         assert samples["observations"].shape == (3, 4, 2)
         assert bool(jnp.isfinite(samples["observations"]).all())
 
-    @pytest.mark.cpu_expensive
+    @pytest.mark.predictive
     def test_prior_predictive_observation_shape_matches_affine_and_nonlinear_specs(self):
         """Affine and nonlinear specs should use the same public predictive shape."""
         times = jnp.linspace(0.0, 1.0, 4, dtype=jnp.float32)
@@ -379,166 +369,8 @@ class TestPrepareFitInputs:
 
         np.testing.assert_allclose(np.asarray(observations[:, 0]), np.array([0.0, 0.0]))
 
-    def test_transition_inputs_are_scaled_filled_and_shifted_to_interval_start(self):
-        """Known inputs are deterministic transition covariates aligned to interval starts."""
-        spec = _make_spec(
-            n_latent=1,
-            n_manifest=1,
-            input_effect_block=SparseMatrixBlockSpec(
-                n_rows=1,
-                n_cols=1,
-                free_support=np.array([[True]]),
-                template=jnp.zeros((1, 1)),
-                free_site_name="input_effect_free",
-                det_site_name="input_effect",
-                support=SupportClass.REAL,
-                site_kind=SiteKind.INPUT_EFFECT,
-                assembly_group="input_effect",
-                fixed_spec_field="input_effect",
-                priors_field="input_effect",
-            ),
-            input_names=["dose"],
-            input_source_indicators=["dose_mg"],
-            input_scales=[10.0],
-            input_missing_policies=["forward_fill"],
-            input_lagged=[True],
-        )
-        wide = pl.DataFrame(
-            {
-                "time": [0.0, 1.0, 2.0, 3.0],
-                "dose_mg": [0.0, 20.0, None, 30.0],
-                "mood_rating": [1.0, 2.0, 3.0, 4.0],
-            }
-        )
-
-        transition_inputs = prepare_transition_inputs(spec, wide)
-
-        assert transition_inputs is not None
-        np.testing.assert_allclose(
-            np.asarray(transition_inputs),
-            np.array([[0.0], [0.0], [2.0], [2.0]], dtype=np.float32),
-        )
-
-    def test_contemporaneous_transition_inputs_are_not_shifted(self):
-        spec = _make_spec(
-            n_latent=1,
-            n_manifest=1,
-            input_effect_block=SparseMatrixBlockSpec(
-                n_rows=1,
-                n_cols=1,
-                free_support=np.array([[True]]),
-                template=jnp.zeros((1, 1)),
-                free_site_name="input_effect_free",
-                det_site_name="input_effect",
-                support=SupportClass.REAL,
-                site_kind=SiteKind.INPUT_EFFECT,
-                assembly_group="input_effect",
-                fixed_spec_field="input_effect",
-                priors_field="input_effect",
-            ),
-            input_names=["dose"],
-            input_source_indicators=["dose_mg"],
-            input_scales=[10.0],
-            input_missing_policies=["forward_fill"],
-            input_lagged=[False],
-        )
-        wide = pl.DataFrame(
-            {
-                "time": [0.0, 1.0, 2.0, 3.0],
-                "dose_mg": [0.0, 20.0, None, 30.0],
-                "mood_rating": [1.0, 2.0, 3.0, 4.0],
-            }
-        )
-
-        transition_inputs = prepare_transition_inputs(spec, wide)
-
-        assert transition_inputs is not None
-        np.testing.assert_allclose(
-            np.asarray(transition_inputs),
-            np.array([[0.0], [2.0], [2.0], [3.0]], dtype=np.float32),
-        )
-
 
 class TestPrepareModelRuntime:
-    def test_support_boundary_rows_preserve_known_input_columns(self):
-        data_for_model = pl.DataFrame(
-            {
-                "indicator_id": [
-                    "indicator:3696aef3ff6f446744e5",
-                    fixture_entity_id("indicator", "dose_mg"),
-                ],
-                "value": [1.0, 20.0],
-                "anchor_time": [
-                    "2024-02-01T00:00:00",
-                    "2024-02-01T00:00:00",
-                ],
-                "support_kind": ["interval", "point"],
-                "summary_operator": ["mean", "last"],
-                "anchor_policy": ["support_end", "support_end"],
-                "observation_window": ["1mo", None],
-                "support_start": [
-                    "2024-01-01T00:00:00",
-                    "2024-02-01T00:00:00",
-                ],
-                "support_end": [
-                    "2024-02-01T00:00:00",
-                    "2024-02-01T00:00:00",
-                ],
-            }
-        )
-
-        class StubModel:
-            def __init__(self):
-                self.spec = _make_spec(
-                    n_latent=1,
-                    n_manifest=1,
-                    manifest_names=["stress_score"],
-                    input_effect_block=SparseMatrixBlockSpec(
-                        n_rows=1,
-                        n_cols=1,
-                        free_support=np.array([[True]]),
-                        template=jnp.zeros((1, 1)),
-                        free_site_name="input_effect_free",
-                        det_site_name="input_effect",
-                        support=SupportClass.REAL,
-                        site_kind=SiteKind.INPUT_EFFECT,
-                        assembly_group="input_effect",
-                        fixed_spec_field="input_effect",
-                        priors_field="input_effect",
-                    ),
-                    input_names=["dose"],
-                    input_source_indicators=["dose_mg"],
-                    input_scales=[10.0],
-                    input_missing_policies=["forward_fill"],
-                    input_lagged=[False],
-                )
-                self.parameter_layout = object()
-
-            def set_observation_support(self, observation_support):
-                self.observation_support = observation_support
-
-            def set_transition_inputs(self, transition_inputs):
-                self.transition_inputs = transition_inputs
-
-        runtime = prepare_model_runtime(
-            data_for_model,
-            model_spec=(cast("SSMModel", StubModel())).spec,
-            model=cast("SSMModel", StubModel()),
-            sampler_config=cast(
-                "SamplerConfigOverride",
-                {"method": "marginal_particle_gibbs"},
-            ),
-        )
-
-        assert runtime.wide_data.columns == ["time", "stress_score", "dose_mg"]
-        assert runtime.wide_data["time"].to_list() == [-31.0, 0.0]
-        assert runtime.wide_data["dose_mg"].to_list() == [None, 20.0]
-        assert runtime.transition_inputs is not None
-        np.testing.assert_allclose(
-            np.asarray(runtime.transition_inputs),
-            np.array([[0.0], [2.0]], dtype=np.float32),
-        )
-
     def test_preserves_long_observation_metadata_and_augments_support_boundaries(self, caplog):
         data_for_model = pl.DataFrame(
             {
@@ -566,9 +398,6 @@ class TestPrepareModelRuntime:
 
             def set_observation_support(self, observation_support):
                 self.observation_support = observation_support
-
-            def set_transition_inputs(self, transition_inputs):
-                self.transition_inputs = transition_inputs
 
         with caplog.at_level("INFO"):
             runtime = prepare_model_runtime(
@@ -647,9 +476,6 @@ class TestPrepareModelRuntime:
             def set_observation_support(self, observation_support):
                 self.observation_support = observation_support
 
-            def set_transition_inputs(self, transition_inputs):
-                self.transition_inputs = transition_inputs
-
         runtime = prepare_model_runtime(
             data_for_model,
             model_spec=(cast("SSMModel", StubModel())).spec,
@@ -672,7 +498,7 @@ class TestPrepareModelRuntime:
         assert runtime.observation_support.interval_weights[2, 0, 1] == pytest.approx(1.0)
         assert runtime.observation_support.interval_weights[3, 0, 1] == pytest.approx(1.0)
 
-    @pytest.mark.cpu_expensive
+    @pytest.mark.predictive
     def test_prior_predictive_reuses_prepared_support_schedule(self):
         data_for_model = pl.DataFrame(
             {
@@ -716,7 +542,6 @@ class TestPrepareModelRuntime:
             times=runtime.times,
             observation_support=runtime.observation_support,
             observation_mask=~jnp.isnan(runtime.observations),
-            transition_inputs=runtime.transition_inputs,
         )
 
         assert samples["observations"].shape == (3, 2, 1)

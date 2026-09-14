@@ -10,6 +10,7 @@ import pytest
 from numpyro.distributions import constraints, transforms
 from pydantic import TypeAdapter
 
+from nof1_causal_lab.models.model_distributions import with_parameter_distributions
 from nof1_causal_lab.numpyro_json import NumPyroDistribution
 from nof1_causal_lab.prior_distributions import (
     batch_prior_distributions,
@@ -189,12 +190,7 @@ def test_scientific_roundtrip_preserves_distinct_native_coordinate_laws():
         p for p in model.parameters if model.parameter_context(p.id).quantity == SiteKind.T0_MEANS
     ]
     laws = {means[0].id: dist.Normal(-1.0, 0.5), means[1].id: dist.StudentT(4.0, 0.3, 0.7)}
-    model = model.revised(
-        parameters=tuple(
-            p.model_copy(update={"distribution": laws[p.id]}) if p.id in laws else p
-            for p in model.parameters
-        )
-    )
+    model = with_parameter_distributions(model, laws)
     restored = ModelSpec.model_validate_json(model.model_dump_json())
     assert restored == model
     before = compile_priors(model)[0]["t0_means_free"]
@@ -222,22 +218,17 @@ def test_compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law():
     )
     definition = definition.revised(
         parameters=tuple(
-            p.model_copy(
-                update={"distribution": dist.Beta(2.0, 3.0), "reference_interval_days": 7.0}
-            )
-            if p.id == decay.id
-            else p
+            p.model_copy(update={"reference_interval_days": 7.0}) if p.id == decay.id else p
             for p in definition.parameters
         )
     )
+    definition = with_parameter_distributions(definition, {decay.id: dist.Beta(2.0, 3.0)})
     restored = ModelSpec.model_validate_json(definition.model_dump_json())
     model = SSMModel(restored)
     binding = next(b for b in parameter_bindings(restored)[0] if b.parameter_id == decay.id)
     value = jnp.array(0.2)
     with handlers.substitute(data={binding.site_name: value}):
-        trace = handlers.trace(model._sample_runtime_dynamics).get_trace(
-            jnp.eye(1), jnp.zeros((1, 0))
-        )
+        trace = handlers.trace(model._sample_runtime_dynamics).get_trace(jnp.eye(1))
     law = trace[binding.site_name]["fn"]
     expected = dist.Beta(2.0, 3.0).log_prob(jnp.exp(-7.0 * value)) + jnp.log(7.0) - 7.0 * value
     np.testing.assert_allclose(law.log_prob(value), expected, atol=2e-6)

@@ -1,26 +1,12 @@
-"""Comprehensive tests for SSM inference backends.
+"""Contract and numerical reference tests for inference.
 
-Tests cover:
-1. Laplace likelihood backend: finite likelihood, determinism, gradient flow
-2. Observation kernels: Gaussian, Poisson, Student-t, Gamma
-3. Parameter recovery: simulate → fit() → check credible intervals
-4. Hierarchical likelihood robustness
-5. Edge cases and builder wiring
-6. Default inference routing
-
-Test Matrix:
-| Model Class                    | Noise Family         | Test Type          |
-|--------------------------------|----------------------|--------------------|
-| Linear-Gaussian                | gaussian             | LL finite, grad    |
-| Linear, Poisson obs            | poisson              | Param recovery     |
-| Linear, Student-t obs          | student_t            | Param recovery     |
-| Linear, Student-t process      | student_t diffusion  | Variance calib     |
-| High-dim, Poisson + Student-t  | poisson + student_t  | Stress test        |
+Structural contracts run by default. Select Laplace initialization with ``warmup``
+and particle sampling with ``inference``. Recovery checks live in
+``test_parameter_recovery.py``.
 """
 
-import logging
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, cast
 
 import jax
 import jax.numpy as jnp
@@ -35,10 +21,9 @@ from nof1_causal_lab.artifacts.likelihood import LinkFunction
 from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
 from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.ssm import SSMModel
-from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
 from nof1_causal_lab.models.ssm.dynamics.vector_field import VectorField
-from nof1_causal_lab.models.ssm.execution.contracts import LikelihoodExtraParams, MeasurementParams
+from nof1_causal_lab.models.ssm.execution.contracts import MeasurementParams
 from nof1_causal_lab.models.ssm.execution.dynamical_model import continuous_state_evolution
 from nof1_causal_lab.models.ssm.execution.emissions import get_mean_param_log_prob_fn
 from nof1_causal_lab.models.ssm.execution.observation_model import (
@@ -48,14 +33,11 @@ from nof1_causal_lab.models.ssm.execution.observation_model import (
 from nof1_causal_lab.models.ssm.execution.observation_operator import (
     compile_observation_operator,
     expected_observation_mean,
-    get_point_like_mask,
     get_summary_operator_codes,
-    get_support_kind_codes,
     trajectory_observation_log_probs,
 )
 from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior, fit
 from nof1_causal_lab.models.ssm.inference.backend_factory import get_laplace_backend
-from nof1_causal_lab.models.ssm.inference.problem import build_particle_problem
 from nof1_causal_lab.models.ssm.inference.targets.laplace import (
     LaplaceLikelihood,
     _assemble_support_aware_observation_system,
@@ -68,27 +50,17 @@ from nof1_causal_lab.models.ssm.inference.targets.laplace import (
     _ieks_smooth,
     _infer_support_groups,
     _make_support_window_derivatives,
-    _point_ieks_mode,
     _predictive_latent_init,
     _should_use_dense_support_laplace,
     _solve_block_banded_from_cholesky,
     _solve_block_tridiagonal,
-    _support_aware_ieks_laplace,
-    _support_aware_ieks_mode,
     _support_aware_step_halving_search,
     block_profile_logdet_packed_cotangent,
-)
-from nof1_causal_lab.models.ssm.inference.targets.laplace.point import (
-    _point_laplace_terms_from_mode,
-)
-from nof1_causal_lab.models.ssm.inference.targets.laplace.support import (
-    _support_aware_laplace_terms_from_mode,
 )
 from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
 from nof1_causal_lab.models.ssm.inference.utils import _discover_sites
 from nof1_causal_lab.models.ssm.inference.warmup.map import (
     _build_map_laplace_bundle,
-    fit_map,
 )
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 from nof1_causal_lab.models.ssm.structure import (
@@ -105,13 +77,7 @@ from tests.model_fixtures import (
 )
 
 if TYPE_CHECKING:
-    from dynestyx.inference.particle_runtime import ParticleRuntime
-
     from nof1_causal_lab.models.ssm.inference.types import InferenceMethod
-    from nof1_causal_lab.sampler_config import MarginalParticleGibbsOptions
-
-
-pytestmark = pytest.mark.cpu_expensive
 
 
 def _dense_matrix_dynamics_spec(
@@ -151,7 +117,6 @@ def _runtime_dynamics(
     drift: jnp.ndarray,
     diffusion_cov: jnp.ndarray,
     cint: jnp.ndarray | None = None,
-    input_effect: jnp.ndarray | None = None,
 ) -> StochasticContinuousTimeStateEvolution:
     params = {"drift": drift}
     if cint is not None:
@@ -163,7 +128,6 @@ def _runtime_dynamics(
         ),
         vf_params=(params,),
         diffusion_cov=diffusion_cov,
-        input_effect=input_effect,
     )
 
 
@@ -233,6 +197,7 @@ def test_expected_observation_mean_dispatches_by_summary_operator():
 # =============================================================================
 
 
+@pytest.mark.warmup
 class TestLaplaceEMBlockSolver:
     """Numerical checks for the block-tridiagonal IEKS rewrite."""
 
@@ -343,217 +308,8 @@ class TestLaplaceEMBlockSolver:
         np.testing.assert_allclose(z_smooth, z_dense, atol=1e-4, rtol=1e-4)
         assert jnp.isfinite(log_lik).all()
 
-    def test_point_implicit_laplace_value_matches_direct_mode_evaluation(self):
-        """Implicit point-path wrapper should match direct mode solve + Laplace eval."""
-        observations = jnp.array([[0.1], [0.3], [-0.2], [0.15]], dtype=jnp.float32)
-        obs_mask = jnp.ones_like(observations, dtype=bool)
-        Ad = jnp.broadcast_to(jnp.array([[0.91]], dtype=jnp.float32), (4, 1, 1))
-        Qd = jnp.broadcast_to(jnp.array([[0.07]], dtype=jnp.float32), (4, 1, 1))
-        cd = jnp.zeros((4, 1), dtype=jnp.float32)
-        H_rows = jnp.broadcast_to(jnp.array([[[1.0]]], dtype=jnp.float32), (4, 1, 1))
-        d_rows = jnp.zeros((4, 1), dtype=jnp.float32)
-        init_mean = jnp.array([0.05], dtype=jnp.float32)
-        init_cov = jnp.array([[0.6]], dtype=jnp.float32)
 
-        def _runtime(raw_params):
-            obs_df = jnp.exp(raw_params[0]) + 2.5
-            obs_var = jnp.exp(raw_params[1]) + 0.1
-            obs_kernel = build_observation_kernel(
-                DistributionFamily.STUDENT_T,
-                LinkFunction.IDENTITY,
-                {"obs_df": obs_df},
-            )
-            return jnp.array([[obs_var]], dtype=jnp.float32), obs_kernel
-
-        def _implicit_objective(raw_params):
-            R, obs_kernel = _runtime(raw_params)
-            _z_mode, log_lik, _inner_eval_aux = _ieks_smooth(
-                observations,
-                obs_mask,
-                Ad,
-                Qd,
-                cd,
-                H_rows,
-                d_rows,
-                R,
-                init_mean,
-                init_cov,
-                obs_kernel,
-                n_ieks_iters=12,
-            )
-            return log_lik
-
-        def _direct_objective(raw_params):
-            R, obs_kernel = _runtime(raw_params)
-            z_mode, _mode_aux = _point_ieks_mode(
-                observations,
-                obs_mask,
-                Ad,
-                Qd,
-                cd,
-                H_rows,
-                d_rows,
-                R,
-                init_mean,
-                init_cov,
-                obs_kernel,
-                n_ieks_iters=12,
-            )
-            log_lik, _mode_log_joint, _laplace_logdet, _min_chol_diag = (
-                _point_laplace_terms_from_mode(
-                    z_mode,
-                    observations,
-                    obs_mask,
-                    Ad,
-                    Qd,
-                    cd,
-                    H_rows,
-                    d_rows,
-                    R,
-                    init_mean,
-                    init_cov,
-                    obs_kernel,
-                )
-            )
-            return log_lik
-
-        raw_params = jnp.array([0.35, -1.2], dtype=jnp.float32)
-        implicit_value = _implicit_objective(raw_params)
-        direct_value = _direct_objective(raw_params)
-
-        np.testing.assert_allclose(
-            np.asarray(implicit_value),
-            np.asarray(direct_value),
-            rtol=1e-5,
-            atol=1e-5,
-        )
-
-    def test_point_implicit_gradient_matches_finite_difference(self):
-        """Implicit point-path gradient should agree with finite differences."""
-        observations = jnp.array([[0.1], [0.3], [-0.2], [0.15]], dtype=jnp.float32)
-        obs_mask = jnp.ones_like(observations, dtype=bool)
-        Ad = jnp.broadcast_to(jnp.array([[0.91]], dtype=jnp.float32), (4, 1, 1))
-        Qd = jnp.broadcast_to(jnp.array([[0.07]], dtype=jnp.float32), (4, 1, 1))
-        cd = jnp.zeros((4, 1), dtype=jnp.float32)
-        H_rows = jnp.broadcast_to(jnp.array([[[1.0]]], dtype=jnp.float32), (4, 1, 1))
-        d_rows = jnp.zeros((4, 1), dtype=jnp.float32)
-        init_mean = jnp.array([0.05], dtype=jnp.float32)
-        init_cov = jnp.array([[0.6]], dtype=jnp.float32)
-
-        def _build_measurement_objects(manifest_cov, runtime_extra_params):
-            return compile_observation_model(
-                [DistributionFamily.STUDENT_T],
-                manifest_cov=manifest_cov,
-                extra_params=runtime_extra_params,
-                manifest_links=[LinkFunction.IDENTITY],
-                observation_support=None,
-            )
-
-        def _objective(raw_params):
-            obs_df = jnp.exp(raw_params[0]) + 2.5
-            obs_var = jnp.exp(raw_params[1]) + 0.1
-            extra_params: LikelihoodExtraParams = {"obs_df": obs_df}
-            R = jnp.array([[obs_var]], dtype=jnp.float32)
-            measurement_semantics = _build_measurement_objects(R, extra_params)
-            _z_mode, log_lik, _inner_eval_aux = _ieks_smooth(
-                observations,
-                obs_mask,
-                Ad,
-                Qd,
-                cd,
-                H_rows,
-                d_rows,
-                R,
-                init_mean,
-                init_cov,
-                measurement_semantics.kernel,
-                n_ieks_iters=12,
-                build_measurement_objects=_build_measurement_objects,
-                extra_params=extra_params,
-            )
-            return log_lik
-
-        raw_params = jnp.array([0.35, -1.2], dtype=jnp.float32)
-        implicit_grad = jax.grad(_objective)(raw_params)
-
-        eps = 1e-3
-        finite_diff = np.zeros((2,), dtype=np.float32)
-        raw_params_np = np.asarray(raw_params)
-        for idx in range(raw_params_np.shape[0]):
-            step = np.zeros_like(raw_params_np)
-            step[idx] = eps
-            finite_diff[idx] = (
-                float(_objective(jnp.asarray(raw_params_np + step, dtype=jnp.float32)))
-                - float(_objective(jnp.asarray(raw_params_np - step, dtype=jnp.float32)))
-            ) / (2.0 * eps)
-
-        np.testing.assert_allclose(
-            np.asarray(implicit_grad),
-            finite_diff,
-            rtol=5e-2,
-            atol=5e-2,
-        )
-
-    def test_point_backend_gradient_supports_traced_observation_hyperparameters(self):
-        """LaplaceLikelihood point path should differentiate through traced obs hyperparameters."""
-        backend = LaplaceLikelihood(
-            n_latent=1,
-            n_manifest=1,
-            manifest_dists=[DistributionFamily.STUDENT_T],
-            manifest_links=[LinkFunction.IDENTITY],
-            n_ieks_iters=12,
-        )
-        ct_params = _runtime_dynamics(
-            drift=jnp.array([[-0.09]], dtype=jnp.float32),
-            diffusion_cov=jnp.array([[0.07]], dtype=jnp.float32),
-            cint=jnp.array([0.0], dtype=jnp.float32),
-        )
-        init = MultivariateNormal(
-            loc=jnp.array([0.05], dtype=jnp.float32),
-            covariance_matrix=jnp.array([[0.6]], dtype=jnp.float32),
-        )
-        observations = jnp.array([[0.1], [0.3], [-0.2], [0.15]], dtype=jnp.float32)
-        time_intervals = jnp.array([1.0, 1.0, 1.0, 1.0], dtype=jnp.float32)
-
-        def _objective(raw_params):
-            obs_df = jnp.exp(raw_params[0]) + 2.5
-            obs_var = jnp.exp(raw_params[1]) + 0.1
-            meas_params = MeasurementParams(
-                lambda_mat=jnp.array([[1.0]], dtype=jnp.float32),
-                manifest_means=jnp.array([0.0], dtype=jnp.float32),
-                manifest_cov=jnp.array([[obs_var]], dtype=jnp.float32),
-            )
-            return backend.compute_log_likelihood(
-                ct_params,
-                meas_params,
-                init,
-                observations,
-                time_intervals,
-                extra_params={"obs_df": obs_df},
-            )
-
-        raw_params = jnp.array([0.35, -1.2], dtype=jnp.float32)
-        implicit_grad = jax.grad(_objective)(raw_params)
-
-        eps = 1e-3
-        finite_diff = np.zeros((2,), dtype=np.float32)
-        raw_params_np = np.asarray(raw_params)
-        for idx in range(raw_params_np.shape[0]):
-            step = np.zeros_like(raw_params_np)
-            step[idx] = eps
-            finite_diff[idx] = (
-                float(_objective(jnp.asarray(raw_params_np + step, dtype=jnp.float32)))
-                - float(_objective(jnp.asarray(raw_params_np - step, dtype=jnp.float32)))
-            ) / (2.0 * eps)
-
-        np.testing.assert_allclose(
-            np.asarray(implicit_grad),
-            finite_diff,
-            rtol=5e-2,
-            atol=5e-2,
-        )
-
-
+@pytest.mark.inference
 class TestSupportAwareTrajectoryObservationLogProb:
     def test_window_average_matches_manual_gaussian_average(self):
         support = make_observation_support_runtime(
@@ -729,6 +485,7 @@ class TestLaplaceSupportAware:
         np.testing.assert_array_equal(np.asarray(row_upper_bandwidths), np.array([3, 2, 1, 0]))
         assert bandwidth == 3
 
+    @pytest.mark.warmup
     def test_profile_masked_banded_cholesky_matches_full_banded_solver(self):
         row_upper_bandwidths = jnp.array([3, 2, 1, 1, 0], dtype=jnp.int32)
         row_lower_bandwidths = jnp.asarray(
@@ -782,6 +539,7 @@ class TestLaplaceSupportAware:
             atol=1e-6,
         )
 
+    @pytest.mark.warmup
     def test_predictive_latent_init_rolls_forward_mean_dynamics(self):
         Ad = jnp.array(
             [
@@ -801,10 +559,7 @@ class TestLaplaceSupportAware:
             np.array([2.5, 6.0, 16.0], dtype=np.float32),
         )
 
-    def test_dense_support_path_threshold_matches_smallgolden_regime(self):
-        assert _should_use_dense_support_laplace(n_time=10, n_latent=12) is True
-        assert _should_use_dense_support_laplace(n_time=20, n_latent=12) is False
-
+    @pytest.mark.warmup
     def test_support_window_gauss_newton_matches_linear_gaussian_exact_blocks(self):
         support = make_observation_support_runtime(
             anchor_times=np.array([0.0, 1.0]),
@@ -903,170 +658,10 @@ class TestLaplaceSupportAware:
         np.testing.assert_allclose(np.asarray(rhs[:, 0]), expected_rhs[:, 0], rtol=1e-5, atol=1e-5)
 
 
-class TestLaplaceSupportAwareGradients:
-    """Implicit-mode gradient + autodiff equivalence checks for support-aware Laplace."""
-
-    @pytest.mark.slow
-    def test_support_aware_implicit_mode_gradient_matches_direct_autodiff(self):
-        support = make_observation_support_runtime(
-            anchor_times=np.array([0.0, 1.0, 2.0]),
-            manifest_names=["avg_signal"],
-            support_kinds=["interval"],
-            observation_windows=["2d"],
-            support_start_times=np.array([[np.nan], [np.nan], [0.0]]),
-            support_end_times=np.array([[np.nan], [np.nan], [2.0]]),
-            interval_prev_coeffs=np.array([[0.0], [0.5], [0.5]], dtype=np.float32),
-            interval_curr_coeffs=np.array([[0.0], [0.5], [0.5]], dtype=np.float32),
-            interval_weights=np.array([[0.0], [1.0], [1.0]], dtype=np.float32),
-        )
-        window_batches, bandwidth, row_upper_bandwidths = _infer_support_groups(support)
-        row_lower_bandwidths = jnp.asarray(
-            _compute_profile_lower_bandwidths(np.asarray(row_upper_bandwidths)),
-            dtype=jnp.int32,
-        )
-        point_like_mask = get_point_like_mask(get_support_kind_codes(support), jnp.float32)
-        summary_operator_codes = get_summary_operator_codes(support)
-        clean_obs = jnp.array([[0.0], [0.0], [0.25]], dtype=jnp.float32)
-        obs_mask = jnp.array([[False], [False], [True]])
-        Ad = jnp.broadcast_to(jnp.array([[0.92]], dtype=jnp.float32), (3, 1, 1))
-        Qd = jnp.broadcast_to(jnp.array([[0.08]], dtype=jnp.float32), (3, 1, 1))
-        cd = jnp.zeros((3, 1), dtype=jnp.float32)
-        H = jnp.array([[1.0]], dtype=jnp.float32)
-        d = jnp.array([0.0], dtype=jnp.float32)
-        init_mean = jnp.array([0.1], dtype=jnp.float32)
-        init_cov = jnp.array([[0.7]], dtype=jnp.float32)
-
-        def _build_measurement_objects(manifest_cov, runtime_extra_params):
-            measurement_semantics = compile_observation_model(
-                [DistributionFamily.STUDENT_T],
-                manifest_cov=manifest_cov,
-                extra_params=runtime_extra_params,
-                manifest_links=[LinkFunction.IDENTITY],
-                observation_support=support,
-            )
-            window_derivatives = tuple(
-                _make_support_window_derivatives(
-                    max_state_len=batch.max_state_len,
-                    n_latent=1,
-                    n_manifest=1,
-                    summary_operator_codes=summary_operator_codes,
-                    obs_kernel=measurement_semantics.kernel,
-                    mean_log_prob_fn=measurement_semantics.mean_log_prob_fn,
-                )
-                for batch in window_batches
-            )
-            return measurement_semantics, window_derivatives
-
-        def _runtime_params(raw_params):
-            obs_df = jnp.exp(raw_params[0]) + 2.5
-            obs_var = jnp.exp(raw_params[1]) + 0.1
-            return (
-                jnp.array([[obs_var]], dtype=jnp.float32),
-                {"obs_df": obs_df},
-            )
-
-        def _implicit_objective(raw_params):
-            R, extra_params = _runtime_params(raw_params)
-            measurement_semantics, window_derivatives = _build_measurement_objects(R, extra_params)
-            log_lik, _z_mode, _inner_eval_aux = _support_aware_ieks_laplace(
-                clean_obs,
-                obs_mask,
-                Ad,
-                Qd,
-                cd,
-                H,
-                d,
-                R,
-                init_mean,
-                init_cov,
-                measurement_semantics.kernel,
-                measurement_semantics.mean_log_prob_fn,
-                support,
-                window_batches,
-                bandwidth,
-                row_upper_bandwidths,
-                row_lower_bandwidths,
-                window_derivatives,
-                _build_measurement_objects,
-                extra_params,
-                n_ieks_iters=2,
-            )
-            return log_lik
-
-        def _direct_objective(raw_params):
-            R, extra_params = _runtime_params(raw_params)
-            measurement_semantics, window_derivatives = _build_measurement_objects(R, extra_params)
-            z_mode, _mode_aux = _support_aware_ieks_mode(
-                clean_obs,
-                obs_mask,
-                Ad,
-                Qd,
-                cd,
-                H,
-                d,
-                R,
-                init_mean,
-                init_cov,
-                measurement_semantics.kernel,
-                measurement_semantics.mean_log_prob_fn,
-                support,
-                window_batches,
-                bandwidth,
-                row_upper_bandwidths,
-                row_lower_bandwidths,
-                window_derivatives,
-                n_ieks_iters=2,
-                factor_block_cholesky_fn=_factor_block_banded_cholesky,
-                solve_block_from_cholesky_fn=_solve_block_banded_from_cholesky,
-            )
-            log_lik, _mode_log_joint, _laplace_logdet, _min_chol_diag = (
-                _support_aware_laplace_terms_from_mode(
-                    z_mode,
-                    clean_obs,
-                    obs_mask,
-                    Ad,
-                    Qd,
-                    cd,
-                    H,
-                    d,
-                    R,
-                    init_mean,
-                    init_cov,
-                    measurement_semantics.kernel,
-                    measurement_semantics.mean_log_prob_fn,
-                    support,
-                    window_batches,
-                    point_like_mask,
-                    window_derivatives,
-                    bandwidth,
-                    row_upper_bandwidths,
-                    row_lower_bandwidths,
-                    factor_block_cholesky_fn=_factor_block_banded_cholesky,
-                )
-            )
-            return log_lik
-
-        raw_params = jnp.array([1.1, -0.7], dtype=jnp.float32)
-        implicit_value, implicit_grad = jax.value_and_grad(_implicit_objective)(raw_params)
-        direct_value, direct_grad = jax.value_and_grad(_direct_objective)(raw_params)
-
-        np.testing.assert_allclose(
-            np.asarray(implicit_value),
-            np.asarray(direct_value),
-            rtol=1e-5,
-            atol=1e-5,
-        )
-        np.testing.assert_allclose(
-            np.asarray(implicit_grad),
-            np.asarray(direct_grad),
-            rtol=5e-4,
-            atol=5e-4,
-        )
-
-
 class TestLaplaceBackendCaching:
     """Backend-cache reuse, invalidation, and support-window derivative caching."""
 
+    @pytest.mark.warmup
     def test_block_profile_logdet_cotangent_matches_direct_autodiff(self):
         row_upper_bandwidths = jnp.array([2, 2, 1, 0], dtype=jnp.int32)
         row_lower_bandwidths = jnp.asarray(
@@ -1158,6 +753,14 @@ class TestLaplaceBackendCaching:
             "nof1_causal_lab.models.ssm.inference.targets.laplace._ieks_smooth",
             _fake_ieks,
         )
+        monkeypatch.setattr(
+            "nof1_causal_lab.models.ssm.inference.targets.laplace.build_discrete_transitions",
+            lambda *_args, **_kwargs: SimpleNamespace(
+                A=jnp.ones((3, 1, 1)),
+                cov=jnp.ones((3, 1, 1)),
+                bias=jnp.zeros((3, 1)),
+            ),
+        )
 
         ll_0, _aux_0 = backend.compute_log_likelihood_with_aux(
             ct_params,
@@ -1202,140 +805,50 @@ class TestLaplaceBackendCaching:
             n_ieks_iters=2,
             observation_support=support,
         )
-        ct_params = _runtime_dynamics(
-            drift=jnp.array([[-0.4]], dtype=jnp.float32),
-            diffusion_cov=jnp.array([[0.1]], dtype=jnp.float32),
-            cint=jnp.array([0.0], dtype=jnp.float32),
-        )
-        meas_params = MeasurementParams(
-            lambda_mat=jnp.array([[1.0]], dtype=jnp.float32),
-            manifest_means=jnp.array([0.0], dtype=jnp.float32),
+        compiled = compile_observation_model(
+            [DistributionFamily.GAUSSIAN],
             manifest_cov=jnp.array([[0.2]], dtype=jnp.float32),
+            manifest_links=[LinkFunction.IDENTITY],
+            observation_support=support,
         )
-        init = MultivariateNormal(
-            loc=jnp.array([0.0], dtype=jnp.float32),
-            covariance_matrix=jnp.array([[1.0]], dtype=jnp.float32),
-        )
-        observations = jnp.array([[jnp.nan], [jnp.nan], [0.25]], dtype=jnp.float32)
-        time_intervals = jnp.array([1.0, 1.0, 1.0], dtype=jnp.float32)
+        built = []
 
-        derivative_calls: list[int] = []
-        sentinel_window_derivatives = object()
-
-        monkeypatch.setattr(
-            "nof1_causal_lab.models.ssm.inference.targets.laplace._should_use_dense_support_laplace",
-            lambda **_kwargs: False,
-        )
-
-        def _fake_make_support_window_derivatives(**_kwargs):
-            derivative_calls.append(1)
-            return sentinel_window_derivatives
-
-        def _fake_support_laplace(*_args, window_derivatives=None, z_init=None, **_kwargs):
-            del z_init
-            assert window_derivatives == (sentinel_window_derivatives,)
-            return (
-                jnp.array(-1.0, dtype=jnp.float32),
-                jnp.array([[0.1], [0.2], [0.3]], dtype=jnp.float32),
-                {},
-            )
+        def _build(**_kwargs):
+            result = object()
+            built.append(result)
+            return result
 
         monkeypatch.setattr(
             "nof1_causal_lab.models.ssm.inference.targets.laplace._make_support_window_derivatives",
-            _fake_make_support_window_derivatives,
+            _build,
         )
-        monkeypatch.setattr(
-            "nof1_causal_lab.models.ssm.inference.targets.laplace._support_aware_ieks_laplace",
-            _fake_support_laplace,
+        first = backend._get_support_window_derivatives(compiled, None, allow_cache=True)
+        assert backend._get_support_window_derivatives(compiled, None, allow_cache=True) is first
+        assert len(built) == 1
+
+        # Runtime hyperparameters and stateless evaluations must not reuse a
+        # closure that captured previous values, or contaminate the cached one.
+        assert (
+            backend._get_support_window_derivatives(compiled, {"obs_df": 5.0}, allow_cache=True)
+            != first
         )
+        assert backend._get_support_window_derivatives(compiled, None, allow_cache=False) != first
+        assert backend._get_support_window_derivatives(compiled, None, allow_cache=True) is first
+        assert len(built) == 3
 
-        backend.compute_log_likelihood_with_aux(
-            ct_params,
-            meas_params,
-            init,
-            observations,
-            time_intervals,
-        )
-        backend.compute_log_likelihood_with_aux(
-            ct_params,
-            meas_params,
-            init,
-            observations,
-            time_intervals,
-        )
-
-        assert derivative_calls == [1]
-
-    def test_laplace_backend_interval_support_path_handles_large_float64_windows(self):
-        n_latent = 10
-        n_manifest = 10
-        n_time = 18
-        anchor_times = np.arange(n_time, dtype=np.float64)
-        support_start = np.full((n_time, n_manifest), np.nan, dtype=np.float64)
-        support_end = np.full((n_time, n_manifest), np.nan, dtype=np.float64)
-        interval_prev = np.zeros((n_time, n_manifest, 1), dtype=np.float64)
-        interval_curr = np.zeros((n_time, n_manifest, 1), dtype=np.float64)
-        interval_weights = np.zeros((n_time, n_manifest, 1), dtype=np.float64)
-        emission_slots = np.full((n_time, n_manifest), -1, dtype=np.int64)
-
-        for t in range(1, n_time):
-            support_start[t, :] = anchor_times[t - 1]
-            support_end[t, :] = anchor_times[t]
-            interval_prev[t, :, 0] = 0.5
-            interval_curr[t, :, 0] = 0.5
-            interval_weights[t, :, 0] = 1.0
-            emission_slots[t, :] = 0
-
-        support = ObservationSupportRuntime(
-            anchor_times=anchor_times,
-            manifest_names=[f"y{i}" for i in range(n_manifest)],
-            support_kinds=["interval"] * n_manifest,
-            summary_operators=["mean"] * n_manifest,
-            anchor_policies=["support_end"] * n_manifest,
-            observation_windows=["1d"] * n_manifest,
-            support_start_times=support_start,
-            support_end_times=support_end,
-            interval_prev_coeffs=interval_prev,
-            interval_curr_coeffs=interval_curr,
-            interval_weights=interval_weights,
-            emission_slot_indices=emission_slots,
-        )
-        backend = LaplaceLikelihood(
-            n_latent=n_latent,
-            n_manifest=n_manifest,
-            manifest_dists=[DistributionFamily.GAUSSIAN] * n_manifest,
-            manifest_links=[LinkFunction.IDENTITY] * n_manifest,
-            n_ieks_iters=2,
+        changed = compile_observation_model(
+            [DistributionFamily.POISSON],
+            manifest_cov=jnp.array([[0.2]], dtype=jnp.float32),
+            manifest_links=[LinkFunction.LOG],
             observation_support=support,
         )
-        observations = jnp.zeros((n_time, n_manifest), dtype=jnp.float32).at[0].set(jnp.nan)
-        time_intervals = jnp.ones((n_time,), dtype=jnp.float32)
-        ct_params = _runtime_dynamics(
-            drift=-0.2 * jnp.eye(n_latent, dtype=jnp.float32),
-            diffusion_cov=jnp.diag(jnp.linspace(0.01, 0.03, n_latent, dtype=jnp.float32)),
-            cint=jnp.zeros(n_latent, dtype=jnp.float32),
-        )
-        meas_params = MeasurementParams(
-            lambda_mat=jnp.eye(n_manifest, n_latent, dtype=jnp.float32),
-            manifest_means=jnp.zeros(n_manifest, dtype=jnp.float32),
-            manifest_cov=jnp.diag(jnp.linspace(0.05, 0.09, n_manifest, dtype=jnp.float32)),
-        )
-        init = MultivariateNormal(
-            loc=jnp.zeros(n_latent, dtype=jnp.float32),
-            covariance_matrix=jnp.eye(n_latent, dtype=jnp.float32),
-        )
+        assert backend._get_support_window_derivatives(changed, None, allow_cache=True) != first
+        assert len(built) == 4
 
-        assert _should_use_dense_support_laplace(n_time=n_time, n_latent=n_latent) is False
 
-        ll = backend.compute_log_likelihood(
-            ct_params,
-            meas_params,
-            init,
-            observations,
-            time_intervals,
-        )
-
-        assert jnp.isfinite(ll)
+def test_support_solver_routes_small_and_large_latent_paths():
+    assert _should_use_dense_support_laplace(n_time=3, n_latent=1)
+    assert not _should_use_dense_support_laplace(n_time=18, n_latent=10)
 
 
 class TestObservationKernelMissingData:
@@ -1410,7 +923,7 @@ class TestInferenceCaching:
             _ExplodingBackend(),
         )
 
-        assert "vf_0_decay" in site_info
+        assert "vf_0_p0" in site_info
         assert "manifest_var_diag_free" in site_info
 
 
@@ -1451,7 +964,7 @@ class TestDefaultMethodRouting:
             del kwargs
             return ParticleMCMCPosterior(
                 draws=JointPosteriorDraws(
-                    parameters={"vf_0_decay": jnp.zeros((1, 1), dtype=jnp.float32)}
+                    parameters={"vf_0_p0": jnp.zeros((1,), dtype=jnp.float32)}
                 ),
                 diagnostics={},
             )
@@ -1480,95 +993,6 @@ class TestDefaultMethodRouting:
                 times=times,
                 method=cast("InferenceMethod", "map"),
             )
-
-
-def test_map_optimizer_smoke_on_small_kalman_model():
-    spec = model_fixture(
-        n_latent=1,
-        n_manifest=1,
-        dynamics_spec=_dense_matrix_dynamics_spec(
-            1,
-            decay_support=np.array([False]),
-            edge_support=np.zeros((1, 1), dtype=bool),
-            coupling_template=jnp.array([[-0.4]], dtype=jnp.float32),
-        ),
-        diffusion_block=diagonal_diffusion_block(1),
-        lambda_block=SparseMatrixBlockSpec(
-            n_rows=1,
-            n_cols=1,
-            free_support=np.zeros((1, 1), dtype=bool),
-            template=jnp.array([[1.0]], dtype=jnp.float32),
-            free_site_name="lambda_free",
-            det_site_name="lambda",
-            support=SupportClass.REAL,
-            site_kind=SiteKind.LOADING,
-            assembly_group="lambda",
-            fixed_spec_field="lambda_mat",
-            priors_field="lambda_free",
-        ),
-        manifest_means_block=SparseVectorBlockSpec(
-            n=1,
-            free_support=np.array([False]),
-            template=jnp.array([0.0], dtype=jnp.float32),
-            free_site_name="manifest_means_free",
-            det_site_name="manifest_means",
-            support=SupportClass.REAL,
-            site_kind=SiteKind.MANIFEST_MEANS,
-            assembly_group="manifest",
-            fixed_spec_field="manifest_means",
-            priors_field="manifest_means",
-        ),
-        manifest_chol_block=ManifestCholBlockSpec(
-            n_manifest=1,
-            diag_support=np.array([True]),
-            template=jnp.array([[0.0]], dtype=jnp.float32),
-        ),
-        t0_means_block=SparseVectorBlockSpec(
-            n=1,
-            free_support=np.array([False]),
-            template=jnp.array([0.0], dtype=jnp.float32),
-            free_site_name="t0_means_free",
-            det_site_name="t0_means",
-            support=SupportClass.REAL,
-            site_kind=SiteKind.T0_MEANS,
-            assembly_group="t0",
-            fixed_spec_field="t0_means",
-            priors_field="t0_means",
-        ),
-        t0_chol_block=T0CholBlockSpec(
-            n_latent=1,
-            diag_support=np.array([True]),
-            correlation_support=np.zeros((1, 1), dtype=bool),
-            template=jnp.array([[1.0]], dtype=jnp.float32),
-        ),
-    )
-    model = SSMModel(spec)
-    observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
-    times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
-
-    result = fit_map(
-        model,
-        observations=observations,
-        times=times,
-        num_samples=6,
-        n_ieks_iters=2,
-        maxiter=5,
-        n_init_samples=4,
-        seed=0,
-    )
-
-    assert result.method == "map"
-    assert result.diagnostics["optimizer"] == "L-BFGS-B"
-    assert np.isfinite(result.diagnostics["mode_log_likelihood"])
-    assert np.isfinite(result.diagnostics["mode_log_posterior"])
-
-    samples = result.get_samples()
-    assert samples["diffusion_diag_free"].shape == (6, 1)
-    assert samples["manifest_var_diag_free"].shape == (6, 1)
-    assert samples["t0_var_diag_free"].shape == (6, 1)
-    assert bool(jnp.isfinite(samples["diffusion_diag_free"]).all())
-    assert bool(jnp.isfinite(samples["manifest_var_diag_free"]).all())
-    assert bool(jnp.isfinite(samples["t0_var_diag_free"]).all())
 
 
 def _make_aux_kalman_mcmc_smoke_spec(
@@ -1658,241 +1082,21 @@ def _assert_small_particle_mcmc_result(result, *, method: str, num_samples: int)
     assert latent_summary is not None
     assert latent_summary["mean"].shape == (3, 1)
     assert bool(jnp.isfinite(latent_summary["mean"]).all())
-    latent_paths = result.get_latent_paths()
+    latent_paths = result.draws.latent_paths
     assert latent_paths is not None
-    assert latent_paths.shape == (1, num_samples, 3, 1)
+    assert latent_paths.shape == (num_samples, 3, 1)
 
 
-@pytest.mark.parametrize(
-    ("parameter_proposal", "expected_kernel", "expected_target"),
-    [
-        ("random_walk", "m_pgibbs_random_walk", 0.35),
-        ("pseudo_langevin", "m_pgibbs_pseudo_langevin", 0.35),
-    ],
-)
-def test_marginal_particle_gibbs_smoke_on_small_kalman_model(
-    parameter_proposal, expected_kernel, expected_target
-):
-    spec = _make_aux_kalman_mcmc_smoke_spec()
-    model = SSMModel(spec)
-    observations, times = _small_kalman_observations_and_times()
-
-    result = fit(
-        model,
-        observations=observations,
-        times=times,
-        method="marginal_particle_gibbs",
-        num_warmup=1,
-        num_samples=2,
-        num_chains=1,
-        seed=23,
-        n_particles=3,
-        n_parameter_particles=2,
-        latent_smoother="dsmc",
-        param_step_size=0.001,
-        parameter_proposal=parameter_proposal,
-        init_method="random",
-        auto_preconditioner_method="none",
-        init_scale=0.0,
-        retain_latent_paths=True,
-        reparam=None,
-    )
-
-    _assert_small_particle_mcmc_result(
-        result,
-        method="marginal_particle_gibbs",
-        num_samples=2,
-    )
-    diag = result.diagnostics["marginal_particle_gibbs"]
-    assert diag["parameter_kernel"] == expected_kernel
-    assert diag["parameter_proposal"] == parameter_proposal
-    assert diag["adaptation_scheme"] == "simple"
-    assert diag["param_target_accept"] == pytest.approx(expected_target)
-    assert diag["latent_kernel"] == "conditional_desequentialized_smc"
-    assert diag["latent_smoother"] == "dsmc"
-    assert diag["latent_transition_kind"] == "euler_maruyama"
-    assert diag["latent_smoother_algorithm"] == "conditional_desequentialized_smc"
-    assert diag["latent_smoother_family"] == "posterior_mixture_dsmc"
-    assert diag["latent_smoother_selection"] == "tree_stitch_combination"
-    assert diag["latent_smoother_parallel"] is True
-    assert diag["latent_backward_sampling"] is False
-    assert diag["latent_delta"] == 0.2
-    assert diag["amala_kappa"] == 0.75
-    assert diag["amala_grad_clip"] == float("inf")
-
-
-def test_marginal_particle_gibbs_dsmc_amala_exact_uses_euler_scheme():
-    spec = _make_aux_kalman_mcmc_smoke_spec()
-    model = SSMModel(spec)
-    observations, times = _small_kalman_observations_and_times()
-
-    result = fit(
-        model,
-        observations=observations,
-        times=times,
-        method="marginal_particle_gibbs",
-        num_warmup=1,
-        num_samples=1,
-        num_chains=1,
-        seed=43,
-        n_particles=3,
-        n_parameter_particles=2,
-        latent_smoother="dsmc",
-        dsmc_leaf_proposal="amala_exact",
-        param_step_size=0.001,
-        parameter_proposal="random_walk",
-        init_method="random",
-        auto_preconditioner_method="none",
-        init_scale=0.0,
-        retain_latent_paths=True,
-        reparam=None,
-    )
-
-    _assert_small_particle_mcmc_result(
-        result,
-        method="marginal_particle_gibbs",
-        num_samples=1,
-    )
-    diag = result.diagnostics["marginal_particle_gibbs"]
-    assert diag["latent_smoother"] == "dsmc"
-    assert diag["dsmc_leaf_proposal"] == "amala_exact"
-    assert diag["latent_transition_kind"] == "euler_maruyama"
-
-
-def test_marginal_particle_gibbs_dsmc_paid_mix_smoke():
-    spec = _make_aux_kalman_mcmc_smoke_spec()
-    model = SSMModel(spec)
-    observations, times = _small_kalman_observations_and_times()
-
-    result = fit(
-        model,
-        observations=observations,
-        times=times,
-        method="marginal_particle_gibbs",
-        num_warmup=1,
-        num_samples=1,
-        num_chains=1,
-        seed=43,
-        n_particles=3,
-        n_parameter_particles=2,
-        latent_smoother="dsmc",
-        dsmc_leaf_proposal="paid_mix",
-        param_step_size=0.001,
-        parameter_proposal="random_walk",
-        init_method="random",
-        auto_preconditioner_method="none",
-        init_scale=0.0,
-        retain_latent_paths=True,
-        reparam=None,
-    )
-
-    _assert_small_particle_mcmc_result(
-        result,
-        method="marginal_particle_gibbs",
-        num_samples=1,
-    )
-    diag = result.diagnostics["marginal_particle_gibbs"]
-    assert diag["latent_smoother"] == "dsmc"
-    assert diag["dsmc_leaf_proposal"] == "paid_mix"
-    assert diag["latent_transition_kind"] == "euler_maruyama"
-    latent_frozen_fraction = diag["latent_frozen_fraction"]
-    assert isinstance(latent_frozen_fraction, int | float)
-    assert 0.0 <= latent_frozen_fraction <= 1.0
-
-
-def test_marginal_particle_gibbs_paid_mix_reuses_initial_latent_trajectories(
-    monkeypatch,
-):
+@pytest.mark.inference
+def test_particle_fit_preserves_public_draws_and_sign_flip_moves(monkeypatch):
     from nof1_causal_lab.models.ssm.inference.warmup import latent_init
 
-    spec = _make_aux_kalman_mcmc_smoke_spec()
-    model = SSMModel(spec)
-    observations, times = _small_kalman_observations_and_times()
-
-    def _unexpected_ieks(*args, **kwargs):
-        del args, kwargs
-        raise AssertionError("cached initial trajectories must skip IEKS")
-
-    monkeypatch.setattr(latent_init, "compute_ieks_latent_paths", _unexpected_ieks)
-    result = fit(
-        model,
-        observations=observations,
-        times=times,
-        method="marginal_particle_gibbs",
-        num_warmup=1,
-        num_samples=1,
-        num_chains=1,
-        seed=43,
-        n_particles=3,
-        n_parameter_particles=2,
-        latent_smoother="dsmc",
-        dsmc_leaf_proposal="paid_mix",
-        param_step_size=0.001,
-        parameter_proposal="random_walk",
-        init_method="random",
-        auto_preconditioner_method="none",
-        init_scale=0.0,
-        initial_latent_trajectories=jnp.zeros(
-            (1, int(observations.shape[0]), int(numeric.n_states(spec)))
-        ),
-        retain_latent_paths=True,
-        reparam=None,
-    )
-
-    _assert_small_particle_mcmc_result(
-        result,
-        method="marginal_particle_gibbs",
-        num_samples=1,
-    )
-
-
-def test_marginal_particle_gibbs_dsmc_coordinate_block_smoke():
-    spec = _make_aux_kalman_mcmc_smoke_spec()
-    model = SSMModel(spec)
-    observations, times = _small_kalman_observations_and_times()
-
-    result = fit(
-        model,
-        observations=observations,
-        times=times,
-        method="marginal_particle_gibbs",
-        num_warmup=1,
-        num_samples=1,
-        num_chains=1,
-        seed=43,
-        n_particles=3,
-        n_parameter_particles=2,
-        latent_smoother="dsmc",
-        dsmc_leaf_proposal="amala_exact",
-        latent_block_coords=1,
-        param_step_size=0.001,
-        parameter_proposal="random_walk",
-        init_method="random",
-        auto_preconditioner_method="none",
-        init_scale=0.0,
-        retain_latent_paths=True,
-        reparam=None,
-    )
-
-    _assert_small_particle_mcmc_result(
-        result,
-        method="marginal_particle_gibbs",
-        num_samples=1,
-    )
-    diag = result.diagnostics["marginal_particle_gibbs"]
-    assert diag["latent_block_coords"] == 1
-    latent_frozen_fraction = diag["latent_frozen_fraction"]
-    assert isinstance(latent_frozen_fraction, int | float)
-    assert 0.0 <= latent_frozen_fraction <= 1.0
-
-
-def test_marginal_particle_gibbs_sign_flip_moves_smoke():
     spec = _make_aux_kalman_mcmc_smoke_spec(
         lambda_block=SparseMatrixBlockSpec(
             n_rows=1,
             n_cols=1,
             free_support=np.ones((1, 1), dtype=bool),
-            template=jnp.array([[1.0]], dtype=jnp.float32),
+            template=jnp.ones((1, 1), dtype=jnp.float32),
             free_site_name="lambda_free",
             det_site_name="lambda",
             support=SupportClass.REAL,
@@ -1905,224 +1109,10 @@ def test_marginal_particle_gibbs_sign_flip_moves_smoke():
     model = SSMModel(spec)
     observations, times = _small_kalman_observations_and_times()
 
-    result = fit(
-        model,
-        observations=observations,
-        times=times,
-        method="marginal_particle_gibbs",
-        num_warmup=1,
-        num_samples=2,
-        num_chains=1,
-        seed=43,
-        n_particles=3,
-        n_parameter_particles=2,
-        latent_smoother="dsmc",
-        dsmc_leaf_proposal="amala_exact",
-        latent_sign_flip_moves=True,
-        param_step_size=0.001,
-        parameter_proposal="random_walk",
-        init_method="random",
-        auto_preconditioner_method="none",
-        init_scale=0.0,
-        retain_latent_paths=True,
-        reparam=None,
-    )
+    def _unexpected_ieks(*_args, **_kwargs):
+        raise AssertionError("supplied trajectories must skip IEKS initialization")
 
-    _assert_small_particle_mcmc_result(
-        result,
-        method="marginal_particle_gibbs",
-        num_samples=2,
-    )
-    diag = result.diagnostics["marginal_particle_gibbs"]
-    assert diag["latent_sign_flip_moves"] is True
-    sign_flip_accept_rate = diag["sign_flip_accept_rate"]
-    assert isinstance(sign_flip_accept_rate, int | float)
-    assert 0.0 <= sign_flip_accept_rate <= 1.0
-
-
-def test_marginal_particle_gibbs_paid_mix_requires_pilot_moments():
-    from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.kernel import (
-        build_marginal_particle_gibbs_kernel,
-    )
-    from nof1_causal_lab.models.ssm.transition_kinds import LATENT_TRANSITION_EULER_MARUYAMA
-
-    spec = _make_aux_kalman_mcmc_smoke_spec()
-    model = SSMModel(spec)
-    observations, times = _small_kalman_observations_and_times()
-    bundle = build_particle_problem(
-        model,
-        observations,
-        times,
-        scheme=LATENT_TRANSITION_EULER_MARUYAMA,
-        trace_key=jax.random.PRNGKey(0),
-        reparam=None,
-    )
-    with pytest.raises(ValueError, match="requires pilot"):
-        build_marginal_particle_gibbs_kernel(
-            bundle.runtime,
-            num_particles=3,
-            num_parameter_particles=2,
-            param_step_size=0.001,
-            latent_smoother="dsmc",
-            dsmc_leaf_proposal="paid_mix",
-        )
-
-
-def test_marginal_particle_gibbs_rejects_nonfinite_initial_state():
-    from nof1_causal_lab.models.ssm.transition_kinds import LATENT_TRANSITION_EULER_MARUYAMA
-
-    spec = _make_aux_kalman_mcmc_smoke_spec()
-    model = SSMModel(spec)
-    observations, times = _small_kalman_observations_and_times()
-    bundle = build_particle_problem(
-        model,
-        observations,
-        times,
-        scheme=LATENT_TRANSITION_EULER_MARUYAMA,
-        trace_key=jax.random.PRNGKey(0),
-        reparam=None,
-    )
-    dim = int(bundle.runtime.initial_position.shape[0])
-
-    import equinox as eqx
-
-    with pytest.raises(eqx.EquinoxRuntimeError, match="non-finite transition covariance"):
-        fit(
-            model,
-            observations=observations,
-            times=times,
-            method="marginal_particle_gibbs",
-            num_warmup=1,
-            num_samples=1,
-            num_chains=1,
-            seed=43,
-            n_particles=3,
-            n_parameter_particles=2,
-            latent_smoother="dsmc",
-            dsmc_leaf_proposal="amala_exact",
-            param_step_size=0.001,
-            parameter_proposal="random_walk",
-            init_method="random",
-            auto_preconditioner_method="none",
-            initial_positions_override=jnp.full((1, dim), jnp.nan),
-            reparam=None,
-        )
-
-
-def test_marginal_particle_gibbs_consumes_initial_latent_trajectories():
-    spec = _make_aux_kalman_mcmc_smoke_spec()
-    model = SSMModel(spec)
-    observations, times = _small_kalman_observations_and_times()
-    n_steps = int(observations.shape[0])
-    n_latent = int(numeric.n_states(spec))
-    options: MarginalParticleGibbsOptions = {
-        "num_warmup": 1,
-        "num_samples": 1,
-        "num_chains": 1,
-        "seed": 43,
-        "n_particles": 3,
-        "n_parameter_particles": 2,
-        "latent_smoother": "dsmc",
-        "dsmc_leaf_proposal": "amala_exact",
-        "param_step_size": 0.001,
-        "parameter_proposal": "random_walk",
-        "init_method": "random",
-        "auto_preconditioner_method": "none",
-        "init_scale": 0.0,
-        "retain_latent_paths": True,
-    }
-
-    # A non-finite supplied trajectory must trip the init fail-fast, proving the
-    # supplied path is what seeds the reference trajectory.
-    options["initial_latent_trajectories"] = jnp.full(
-        (1, n_steps, n_latent),
-        jnp.nan,
-    )
-    with pytest.raises(ValueError, match="non-finite for chain"):
-        fit(
-            model,
-            observations=observations,
-            times=times,
-            method="marginal_particle_gibbs",
-            reparam=None,
-            **options,
-        )
-
-    options["initial_latent_trajectories"] = jnp.zeros((1, n_steps, n_latent))
-    result = fit(
-        model,
-        observations=observations,
-        times=times,
-        method="marginal_particle_gibbs",
-        reparam=None,
-        **options,
-    )
-    _assert_small_particle_mcmc_result(
-        result,
-        method="marginal_particle_gibbs",
-        num_samples=1,
-    )
-
-
-def test_marginal_particle_gibbs_rejects_unknown_parameter_proposal():
-    from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.kernel import (
-        build_marginal_particle_gibbs_kernel,
-    )
-
-    # Configuration validation fires before any target access.
-    with pytest.raises(ValueError, match="parameter_proposal"):
-        build_marginal_particle_gibbs_kernel(
-            cast("ParticleRuntime", {}),
-            num_particles=2,
-            num_parameter_particles=2,
-            param_step_size=0.1,
-            target_accept=0.3,
-            parameter_proposal="bogus",
-        )
-
-
-def test_marginal_particle_gibbs_rejects_unknown_latent_smoother():
-    from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.kernel import (
-        build_marginal_particle_gibbs_kernel,
-    )
-
-    with pytest.raises(ValueError, match="latent_smoother"):
-        build_marginal_particle_gibbs_kernel(
-            cast("ParticleRuntime", {}),
-            num_particles=2,
-            num_parameter_particles=2,
-            param_step_size=0.1,
-            target_accept=0.3,
-            latent_smoother="bogus",
-        )
-
-
-def test_marginal_particle_gibbs_rejects_unknown_adaptation_scheme():
-    # adaptation_scheme is validated early in fit, before the bundle build.
-    spec = _make_aux_kalman_mcmc_smoke_spec()
-    model = SSMModel(spec)
-    observations, times = _small_kalman_observations_and_times()
-    with pytest.raises(ValueError, match="adaptation_scheme"):
-        fit(
-            model,
-            observations=observations,
-            times=times,
-            method="marginal_particle_gibbs",
-            num_warmup=1,
-            num_samples=1,
-            num_chains=1,
-            seed=0,
-            adaptation_scheme=cast("Literal['simple', 'dual_averaging']", "bogus"),
-        )
-
-
-def test_marginal_particle_gibbs_dual_averaging_adaptation_scheme_runs():
-    # dual_averaging is no longer the m-PGibbs default (it scatters the per-chain
-    # step on the noisy ensemble move-rate), but it stays selectable -- keep the
-    # branch covered. num_warmup=1 exercises one DA update plus the freeze.
-    spec = _make_aux_kalman_mcmc_smoke_spec()
-    model = SSMModel(spec)
-    observations, times = _small_kalman_observations_and_times()
+    monkeypatch.setattr(latent_init, "compute_ieks_latent_paths", _unexpected_ieks)
     result = fit(
         model,
         observations=observations,
@@ -2134,17 +1124,36 @@ def test_marginal_particle_gibbs_dual_averaging_adaptation_scheme_runs():
         seed=23,
         n_particles=3,
         n_parameter_particles=2,
+        latent_smoother="dsmc",
+        dsmc_leaf_proposal="amala_exact",
         param_step_size=0.001,
         parameter_proposal="random_walk",
-        adaptation_scheme="dual_averaging",
+        adaptation_scheme="simple",
+        latent_sign_flip_moves=True,
         init_method="random",
         auto_preconditioner_method="none",
         init_scale=0.0,
+        initial_latent_trajectories=jnp.zeros((1, 3, 1), dtype=jnp.float32),
         retain_latent_paths=True,
         reparam=None,
     )
+
     _assert_small_particle_mcmc_result(result, method="marginal_particle_gibbs", num_samples=2)
-    assert result.diagnostics["marginal_particle_gibbs"]["adaptation_scheme"] == "dual_averaging"
+    diag = result.diagnostics["marginal_particle_gibbs"]
+    assert diag["parameter_kernel"] == "m_pgibbs_random_walk"
+    assert diag["parameter_proposal"] == "random_walk"
+    assert diag["adaptation_scheme"] == "simple"
+    assert diag["param_target_accept"] == pytest.approx(0.35)
+    assert diag["latent_smoother"] == "dsmc"
+    assert diag["dsmc_leaf_proposal"] == "amala_exact"
+    assert diag["latent_transition_kind"] == "euler_maruyama"
+    assert diag["latent_sign_flip_moves"] is True
+    frozen_fraction = diag["latent_frozen_fraction"]
+    assert isinstance(frozen_fraction, int | float)
+    assert 0.0 <= frozen_fraction <= 1.0
+    flip_accept_rate = diag["sign_flip_accept_rate"]
+    assert isinstance(flip_accept_rate, int | float)
+    assert 0.0 <= flip_accept_rate <= 1.0
 
 
 def test_support_aware_step_halving_search_backtracks_to_improving_step():
@@ -2166,821 +1175,6 @@ def test_support_aware_step_halving_search_backtracks_to_improving_step():
     np.testing.assert_allclose(np.asarray(z_next), np.array([1.5], dtype=np.float32), atol=1e-6)
     assert float(alpha) == pytest.approx(0.5)
     assert float(objective_next) > float(objective_fn(z_start))
-
-
-def test_map_support_aware_uses_exact_gradient_outer_optimizer(monkeypatch):
-    observations = jnp.array([[0.0], [1.0]], dtype=jnp.float32)
-    times = jnp.array([0.0, 1.0], dtype=jnp.float32)
-    flat_example = jnp.array([0.25, -0.5], dtype=jnp.float32)
-    captured: dict[str, Any] = {}
-
-    class _FakeModel:
-        observation_support = SimpleNamespace(requires_interval_summary_handling=True)
-        spec = None
-        _parameter_layout = None
-
-        def get_cached_artifact(self, _cache_key, _factory):
-            return SimpleNamespace()
-
-    def fake_build_bundle(_model, _observations, _times, _trace_key, _backend, _reparam):
-        def log_lik_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
-            del runtime_observations, runtime_times, latent_mode_init
-            return -jnp.sum((z - jnp.array([1.0, -2.0], dtype=z.dtype)) ** 2)
-
-        def log_prior_unc_fn(z):
-            return -0.1 * jnp.sum(z**2)
-
-        def log_posterior_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
-            return log_lik_fn(
-                z,
-                runtime_observations,
-                runtime_times,
-                latent_mode_init=latent_mode_init,
-            ) + log_prior_unc_fn(z)
-
-        def neg_log_posterior_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
-            return -log_posterior_fn(
-                z,
-                runtime_observations,
-                runtime_times,
-                latent_mode_init=latent_mode_init,
-            )
-
-        def neg_log_posterior_with_aux_fn(
-            z,
-            runtime_observations,
-            runtime_times,
-            latent_mode_init=None,
-        ):
-            del latent_mode_init
-            return neg_log_posterior_fn(z, runtime_observations, runtime_times), {
-                "log_posterior": log_posterior_fn(z, runtime_observations, runtime_times),
-                "log_likelihood": log_lik_fn(z, runtime_observations, runtime_times),
-                "log_prior": log_prior_unc_fn(z),
-                "inner": {
-                    "solver_kind": jnp.asarray(1, dtype=jnp.int32),
-                    "n_iterations": jnp.asarray(2, dtype=jnp.int32),
-                    "n_accepted_steps": jnp.asarray(2, dtype=jnp.int32),
-                    "init_log_joint": jnp.asarray(-3.0, dtype=jnp.float32),
-                    "final_log_joint": jnp.asarray(-1.0, dtype=jnp.float32),
-                    "final_rel_change": jnp.asarray(1e-3, dtype=jnp.float32),
-                    "final_damping": jnp.asarray(1e-4, dtype=jnp.float32),
-                    "final_step_alpha": jnp.asarray(1.0, dtype=jnp.float32),
-                    "final_step_norm": jnp.asarray(0.1, dtype=jnp.float32),
-                    "laplace_logdet": jnp.asarray(2.0, dtype=jnp.float32),
-                    "min_chol_diag": jnp.asarray(0.5, dtype=jnp.float32),
-                },
-                "latent_mode": jnp.asarray([[z[0], z[1]]], dtype=jnp.float32),
-            }
-
-        def forbidden_batch(_candidates):
-            raise AssertionError("support-aware MAP should not batch-score init candidates")
-
-        return {
-            "dim": 2,
-            "flat_example": flat_example,
-            "site_info": {"theta": object()},
-            "unravel_fn": lambda z: {"theta": z},
-            "parameters": object(),
-            "public_sites": set(),
-            "log_lik_fn": log_lik_fn,
-            "log_prior_unc_fn": log_prior_unc_fn,
-            "log_posterior_fn": log_posterior_fn,
-            "neg_log_posterior_fn": neg_log_posterior_fn,
-            "neg_log_posterior_with_aux_fn": neg_log_posterior_with_aux_fn,
-            "batch_log_posterior_jit": forbidden_batch,
-        }
-
-    def forbidden_draw(*_args, **_kwargs):
-        raise AssertionError("support-aware MAP should not draw init candidates")
-
-    def fake_gradient_minimize(fun, x0, jac, method, tol, options, callback):
-        captured["method"] = method
-        captured["x0"] = np.asarray(x0)
-        captured["tol"] = tol
-        captured["options"] = dict(options)
-        captured["fun_at_x0"] = float(fun(np.asarray(x0)))
-        captured["jac_at_x0"] = np.asarray(jac(np.asarray(x0)))
-        optimum = np.array([1.0 / 1.1, -2.0 / 1.1], dtype=np.float64)
-        callback(optimum)
-        return SimpleNamespace(
-            x=optimum,
-            fun=float(fun(optimum)),
-            nit=3,
-            nfev=5,
-            status=0,
-            success=True,
-        )
-
-    def fake_sample_posterior(
-        _rng_key,
-        z_mode,
-        _neg_log_posterior_fn,
-        _observations,
-        _times,
-        *,
-        num_samples,
-        hessian_jitter,
-    ):
-        del hessian_jitter
-        unc_samples = jnp.broadcast_to(z_mode, (num_samples, z_mode.shape[0]))
-        covariance = jnp.eye(z_mode.shape[0], dtype=z_mode.dtype)
-        eigvals = jnp.ones((z_mode.shape[0],), dtype=z_mode.dtype)
-        return unc_samples, covariance, eigvals
-
-    monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.warmup.map._build_map_laplace_bundle",
-        fake_build_bundle,
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.warmup.map._draw_laplace_init_candidates",
-        forbidden_draw,
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.warmup.map.spo.minimize",
-        fake_gradient_minimize,
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.warmup.map._sample_laplace_parameter_posterior",
-        fake_sample_posterior,
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.warmup.map.extract_constrained_samples",
-        lambda unc_samples, *_args, **_kwargs: {"theta": unc_samples},
-    )
-
-    result = fit_map(
-        _FakeModel(),
-        observations,
-        times,
-        num_samples=3,
-        n_ieks_iters=2,
-        maxiter=9,
-        tol=1e-3,
-        parameter_covariance_method="exact_hessian",
-        seed=0,
-    )
-
-    assert result.method == "map"
-    assert result.diagnostics["optimizer"] == "L-BFGS-B"
-    np.testing.assert_allclose(captured["x0"], np.asarray(flat_example))
-    assert captured["method"] == "L-BFGS-B"
-    assert captured["tol"] == 1e-3
-    assert captured["options"]["maxiter"] == 9
-    np.testing.assert_allclose(
-        captured["jac_at_x0"],
-        np.array([-1.45, 2.9], dtype=np.float64),
-        atol=1e-6,
-    )
-    assert result.diagnostics["n_function_evals"] == 5
-    assert result.get_samples()["theta"].shape == (3, 2)
-
-
-def test_map_generic_path_uses_multistart_lbfgsb(monkeypatch):
-    observations = jnp.array([[0.0], [1.0]], dtype=jnp.float32)
-    times = jnp.array([0.0, 1.0], dtype=jnp.float32)
-    flat_example = jnp.array([0.25, -0.5], dtype=jnp.float32)
-    captured: dict[str, Any] = {}
-
-    class _FakeModel:
-        observation_support = None
-        spec = None
-        _parameter_layout = None
-
-        def get_cached_artifact(self, _cache_key, _factory):
-            return SimpleNamespace()
-
-    def fake_build_bundle(_model, _observations, _times, _trace_key, _backend, _reparam):
-        def log_lik_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
-            del runtime_observations, runtime_times, latent_mode_init
-            return -jnp.sum((z - jnp.array([1.0, -2.0], dtype=z.dtype)) ** 2)
-
-        def log_prior_unc_fn(z):
-            return -0.1 * jnp.sum(z**2)
-
-        def log_posterior_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
-            return log_lik_fn(
-                z,
-                runtime_observations,
-                runtime_times,
-                latent_mode_init=latent_mode_init,
-            ) + log_prior_unc_fn(z)
-
-        def neg_log_posterior_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
-            return -log_posterior_fn(
-                z,
-                runtime_observations,
-                runtime_times,
-                latent_mode_init=latent_mode_init,
-            )
-
-        def neg_log_posterior_with_aux_fn(
-            z,
-            runtime_observations,
-            runtime_times,
-            latent_mode_init=None,
-        ):
-            del latent_mode_init
-            return neg_log_posterior_fn(z, runtime_observations, runtime_times), {
-                "log_posterior": log_posterior_fn(z, runtime_observations, runtime_times),
-                "log_likelihood": log_lik_fn(z, runtime_observations, runtime_times),
-                "log_prior": log_prior_unc_fn(z),
-                "inner": {
-                    "solver_kind": jnp.asarray(1, dtype=jnp.int32),
-                    "n_iterations": jnp.asarray(3, dtype=jnp.int32),
-                    "n_accepted_steps": jnp.asarray(3, dtype=jnp.int32),
-                    "init_log_joint": jnp.asarray(-4.0, dtype=jnp.float32),
-                    "final_log_joint": jnp.asarray(-1.0, dtype=jnp.float32),
-                    "final_rel_change": jnp.asarray(5e-4, dtype=jnp.float32),
-                    "final_damping": jnp.asarray(1e-5, dtype=jnp.float32),
-                    "final_step_alpha": jnp.asarray(1.0, dtype=jnp.float32),
-                    "final_step_norm": jnp.asarray(0.05, dtype=jnp.float32),
-                    "laplace_logdet": jnp.asarray(1.5, dtype=jnp.float32),
-                    "min_chol_diag": jnp.asarray(0.4, dtype=jnp.float32),
-                },
-                "latent_mode": jnp.asarray([[z[0], z[1]]], dtype=jnp.float32),
-            }
-
-        def batch_log_posterior_jit(candidates):
-            return jnp.asarray([-50.0, -10.0, -1.0], dtype=jnp.float32)
-
-        return {
-            "dim": 2,
-            "flat_example": flat_example,
-            "site_info": {"theta": object()},
-            "unravel_fn": lambda z: {"theta": z},
-            "parameters": object(),
-            "public_sites": set(),
-            "log_lik_fn": log_lik_fn,
-            "log_prior_unc_fn": log_prior_unc_fn,
-            "log_posterior_fn": log_posterior_fn,
-            "neg_log_posterior_fn": neg_log_posterior_fn,
-            "neg_log_posterior_with_aux_fn": neg_log_posterior_with_aux_fn,
-            "batch_log_posterior_jit": batch_log_posterior_jit,
-        }
-
-    def fake_draw_candidates(_key, _site_info, *, dim, n_candidates, dtype):
-        del dim, n_candidates, dtype
-        return random.PRNGKey(123), jnp.array(
-            [
-                [0.0, 0.0],
-                [4.0, 4.0],
-                [1.0, -2.0],
-            ],
-            dtype=jnp.float32,
-        )
-
-    def fake_gradient_minimize(fun, x0, jac, method, tol, options, callback):
-        captured["method"] = method
-        captured["x0"] = np.asarray(x0)
-        captured["tol"] = tol
-        captured["options"] = dict(options)
-        captured["fun_at_x0"] = float(fun(np.asarray(x0)))
-        captured["jac_at_x0"] = np.asarray(jac(np.asarray(x0)))
-        optimum = np.array([1.0 / 1.1, -2.0 / 1.1], dtype=np.float64)
-        callback(optimum)
-        return SimpleNamespace(
-            x=optimum,
-            fun=float(fun(optimum)),
-            nit=4,
-            nfev=6,
-            status=0,
-            success=True,
-        )
-
-    def fake_sample_posterior(
-        _rng_key,
-        z_mode,
-        _neg_log_posterior_fn,
-        _observations,
-        _times,
-        *,
-        num_samples,
-        hessian_jitter,
-    ):
-        del hessian_jitter
-        unc_samples = jnp.broadcast_to(z_mode, (num_samples, z_mode.shape[0]))
-        covariance = jnp.eye(z_mode.shape[0], dtype=z_mode.dtype)
-        eigvals = jnp.ones((z_mode.shape[0],), dtype=z_mode.dtype)
-        return unc_samples, covariance, eigvals
-
-    monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.warmup.map._build_map_laplace_bundle",
-        fake_build_bundle,
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.warmup.map._draw_laplace_init_candidates",
-        fake_draw_candidates,
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.warmup.map.spo.minimize",
-        fake_gradient_minimize,
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.warmup.map._sample_laplace_parameter_posterior",
-        fake_sample_posterior,
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.warmup.map.extract_constrained_samples",
-        lambda unc_samples, *_args, **_kwargs: {"theta": unc_samples},
-    )
-
-    result = fit_map(
-        _FakeModel(),
-        observations,
-        times,
-        num_samples=3,
-        n_ieks_iters=2,
-        maxiter=9,
-        tol=1e-3,
-        n_init_samples=2,
-        parameter_covariance_method="exact_hessian",
-        seed=0,
-    )
-
-    assert result.method == "map"
-    assert result.diagnostics["optimizer"] == "L-BFGS-B"
-    np.testing.assert_allclose(captured["x0"], np.array([1.0, -2.0], dtype=np.float64))
-    assert captured["method"] == "L-BFGS-B"
-    assert captured["tol"] == 1e-3
-    assert captured["options"]["maxiter"] == 9
-    np.testing.assert_allclose(
-        captured["jac_at_x0"],
-        np.array([0.2, -0.4], dtype=np.float64),
-        atol=1e-6,
-    )
-    assert result.diagnostics["n_function_evals"] == 6
-
-
-def test_map_emits_prefect_progress_logs(monkeypatch, caplog):
-    observations = jnp.array([[0.0], [1.0]], dtype=jnp.float32)
-    times = jnp.array([0.0, 1.0], dtype=jnp.float32)
-    flat_example = jnp.array([0.25, -0.5], dtype=jnp.float32)
-
-    class _FakeModel:
-        observation_support = None
-        spec = None
-        _parameter_layout = None
-
-        def get_cached_artifact(self, _cache_key, _factory):
-            return SimpleNamespace()
-
-    def fake_build_bundle(_model, _observations, _times, _trace_key, _backend, _reparam):
-        def log_lik_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
-            del runtime_observations, runtime_times, latent_mode_init
-            return -jnp.sum((z - jnp.array([1.0, -2.0], dtype=z.dtype)) ** 2)
-
-        def log_prior_unc_fn(z):
-            return -0.1 * jnp.sum(z**2)
-
-        def log_posterior_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
-            return log_lik_fn(
-                z,
-                runtime_observations,
-                runtime_times,
-                latent_mode_init=latent_mode_init,
-            ) + log_prior_unc_fn(z)
-
-        def neg_log_posterior_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
-            return -log_posterior_fn(
-                z,
-                runtime_observations,
-                runtime_times,
-                latent_mode_init=latent_mode_init,
-            )
-
-        def neg_log_posterior_with_aux_fn(
-            z,
-            runtime_observations,
-            runtime_times,
-            latent_mode_init=None,
-        ):
-            del latent_mode_init
-            return neg_log_posterior_fn(z, runtime_observations, runtime_times), {
-                "log_posterior": log_posterior_fn(z, runtime_observations, runtime_times),
-                "log_likelihood": log_lik_fn(z, runtime_observations, runtime_times),
-                "log_prior": log_prior_unc_fn(z),
-                "inner": {
-                    "solver_kind": jnp.asarray(1, dtype=jnp.int32),
-                    "n_iterations": jnp.asarray(3, dtype=jnp.int32),
-                    "n_accepted_steps": jnp.asarray(2, dtype=jnp.int32),
-                    "init_log_joint": jnp.asarray(-4.0, dtype=jnp.float32),
-                    "final_log_joint": jnp.asarray(-1.5, dtype=jnp.float32),
-                    "final_rel_change": jnp.asarray(2e-4, dtype=jnp.float32),
-                    "final_damping": jnp.asarray(1e-5, dtype=jnp.float32),
-                    "final_step_alpha": jnp.asarray(1.0, dtype=jnp.float32),
-                    "final_step_norm": jnp.asarray(0.05, dtype=jnp.float32),
-                    "laplace_logdet": jnp.asarray(1.25, dtype=jnp.float32),
-                    "min_chol_diag": jnp.asarray(0.35, dtype=jnp.float32),
-                },
-                "latent_mode": jnp.asarray([[z[0], z[1]]], dtype=jnp.float32),
-            }
-
-        return {
-            "dim": 2,
-            "flat_example": flat_example,
-            "site_info": {"theta": object()},
-            "unravel_fn": lambda z: {"theta": z},
-            "parameters": object(),
-            "public_sites": set(),
-            "log_lik_fn": log_lik_fn,
-            "log_prior_unc_fn": log_prior_unc_fn,
-            "log_posterior_fn": log_posterior_fn,
-            "neg_log_posterior_fn": neg_log_posterior_fn,
-            "neg_log_posterior_with_aux_fn": neg_log_posterior_with_aux_fn,
-            "batch_log_posterior_jit": lambda _candidates: jnp.array(
-                [-10.0, -1.0], dtype=jnp.float32
-            ),
-        }
-
-    def fake_draw_candidates(_key, _site_info, *, dim, n_candidates, dtype):
-        del dim, n_candidates, dtype
-        return random.PRNGKey(123), jnp.array(
-            [
-                [0.0, 0.0],
-                [1.0, -2.0],
-            ],
-            dtype=jnp.float32,
-        )
-
-    def fake_gradient_minimize(fun, x0, jac, method, tol, options, callback):
-        del jac, method, tol, options
-        mid = np.array([0.8, -1.6], dtype=np.float64)
-        callback(mid)
-        optimum = np.array([1.0 / 1.1, -2.0 / 1.1], dtype=np.float64)
-        callback(optimum)
-        return SimpleNamespace(
-            x=optimum,
-            fun=float(fun(optimum)),
-            nit=2,
-            nfev=4,
-            status=0,
-            success=True,
-        )
-
-    def fake_sample_posterior(
-        _rng_key,
-        z_mode,
-        _neg_log_posterior_fn,
-        _observations,
-        _times,
-        *,
-        num_samples,
-        hessian_jitter,
-    ):
-        del hessian_jitter
-        unc_samples = jnp.broadcast_to(z_mode, (num_samples, z_mode.shape[0]))
-        covariance = jnp.eye(z_mode.shape[0], dtype=z_mode.dtype)
-        eigvals = jnp.array([0.25, 2.0], dtype=z_mode.dtype)
-        return unc_samples, covariance, eigvals
-
-    monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.warmup.map._build_map_laplace_bundle",
-        fake_build_bundle,
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.warmup.map._draw_laplace_init_candidates",
-        fake_draw_candidates,
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.warmup.map.spo.minimize",
-        fake_gradient_minimize,
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.warmup.map._sample_laplace_parameter_posterior",
-        fake_sample_posterior,
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.warmup.map.extract_constrained_samples",
-        lambda unc_samples, *_args, **_kwargs: {"theta": unc_samples},
-    )
-
-    with caplog.at_level(
-        logging.INFO,
-        logger="nof1_causal_lab.models.ssm.inference.warmup.map",
-    ):
-        fit_map(
-            _FakeModel(),
-            observations,
-            times,
-            num_samples=3,
-            n_ieks_iters=2,
-            maxiter=9,
-            tol=1e-3,
-            parameter_covariance_method="exact_hessian",
-            seed=0,
-        )
-
-    assert "MAP phase start: phase=build_likelihood_backend" in caplog.text
-    assert "MAP phase complete: phase=build_bundle" in caplog.text
-    assert "MAP outer init:" in caplog.text
-    assert "MAP outer iter 1:" in caplog.text
-    assert "MAP inner iter 1:" in caplog.text
-    assert "MAP outer mode:" in caplog.text
-    assert "MAP parameter curvature exact_hessian:" in caplog.text
-
-
-def test_map_can_skip_parameter_hessian(monkeypatch):
-    observations = jnp.array([[0.0], [1.0]], dtype=jnp.float32)
-    times = jnp.array([0.0, 1.0], dtype=jnp.float32)
-    flat_example = jnp.array([0.25, -0.5], dtype=jnp.float32)
-
-    class _FakeModel:
-        observation_support = None
-        spec = None
-        _parameter_layout = None
-
-        def get_cached_artifact(self, _cache_key, _factory):
-            return SimpleNamespace()
-
-    def fake_build_bundle(_model, _observations, _times, _trace_key, _backend, _reparam):
-        def log_lik_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
-            del runtime_observations, runtime_times, latent_mode_init
-            return -jnp.sum((z - jnp.array([1.0, -2.0], dtype=z.dtype)) ** 2)
-
-        def log_prior_unc_fn(z):
-            return -0.1 * jnp.sum(z**2)
-
-        def log_posterior_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
-            return log_lik_fn(
-                z,
-                runtime_observations,
-                runtime_times,
-                latent_mode_init=latent_mode_init,
-            ) + log_prior_unc_fn(z)
-
-        def neg_log_posterior_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
-            return -log_posterior_fn(
-                z,
-                runtime_observations,
-                runtime_times,
-                latent_mode_init=latent_mode_init,
-            )
-
-        def neg_log_posterior_with_aux_fn(
-            z,
-            runtime_observations,
-            runtime_times,
-            latent_mode_init=None,
-        ):
-            del latent_mode_init
-            return neg_log_posterior_fn(z, runtime_observations, runtime_times), {
-                "log_posterior": log_posterior_fn(z, runtime_observations, runtime_times),
-                "log_likelihood": log_lik_fn(z, runtime_observations, runtime_times),
-                "log_prior": log_prior_unc_fn(z),
-                "inner": {
-                    "solver_kind": jnp.asarray(1, dtype=jnp.int32),
-                    "n_iterations": jnp.asarray(1, dtype=jnp.int32),
-                    "n_accepted_steps": jnp.asarray(1, dtype=jnp.int32),
-                    "init_log_joint": jnp.asarray(-2.0, dtype=jnp.float32),
-                    "final_log_joint": jnp.asarray(-1.0, dtype=jnp.float32),
-                    "final_rel_change": jnp.asarray(1e-2, dtype=jnp.float32),
-                    "final_damping": jnp.asarray(1e-3, dtype=jnp.float32),
-                    "final_step_alpha": jnp.asarray(0.5, dtype=jnp.float32),
-                    "final_step_norm": jnp.asarray(0.2, dtype=jnp.float32),
-                    "laplace_logdet": jnp.asarray(1.0, dtype=jnp.float32),
-                    "min_chol_diag": jnp.asarray(0.25, dtype=jnp.float32),
-                },
-                "latent_mode": jnp.asarray([[z[0], z[1]]], dtype=jnp.float32),
-            }
-
-        return {
-            "dim": 2,
-            "flat_example": flat_example,
-            "site_info": {"theta": object()},
-            "unravel_fn": lambda z: {"theta": z},
-            "parameters": object(),
-            "public_sites": set(),
-            "log_lik_fn": log_lik_fn,
-            "log_prior_unc_fn": log_prior_unc_fn,
-            "log_posterior_fn": log_posterior_fn,
-            "neg_log_posterior_fn": neg_log_posterior_fn,
-            "neg_log_posterior_with_aux_fn": neg_log_posterior_with_aux_fn,
-            "batch_log_posterior_jit": lambda _candidates: jnp.array(
-                [-10.0, -1.0], dtype=jnp.float32
-            ),
-        }
-
-    def fake_draw_candidates(_key, _site_info, *, dim, n_candidates, dtype):
-        del dim, n_candidates, dtype
-        return random.PRNGKey(123), jnp.array(
-            [
-                [0.0, 0.0],
-                [1.0, -2.0],
-            ],
-            dtype=jnp.float32,
-        )
-
-    def fake_gradient_minimize(fun, x0, jac, method, tol, options, callback):
-        del fun, jac, method, tol, options
-        callback(np.asarray(x0, dtype=np.float64))
-        return SimpleNamespace(
-            x=np.asarray(x0, dtype=np.float64),
-            fun=0.0,
-            nit=1,
-            nfev=1,
-            status=0,
-            success=True,
-        )
-
-    monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.warmup.map._build_map_laplace_bundle",
-        fake_build_bundle,
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.warmup.map._draw_laplace_init_candidates",
-        fake_draw_candidates,
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.warmup.map.spo.minimize",
-        fake_gradient_minimize,
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.warmup.map._sample_laplace_parameter_posterior",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("parameter hessian path should be skipped")
-        ),
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.warmup.map.extract_constrained_samples",
-        lambda unc_samples, *_args, **_kwargs: {"theta": unc_samples},
-    )
-
-    result = fit_map(
-        _FakeModel(),
-        observations,
-        times,
-        num_samples=4,
-        compute_parameter_hessian=False,
-        seed=0,
-    )
-
-    assert result.method == "map"
-    assert result.diagnostics["compute_parameter_hessian"] is False
-    assert result.diagnostics["parameter_posterior_strategy"] == "mode_only"
-    assert result.diagnostics["hessian_condition_number"] is None
-    np.testing.assert_allclose(
-        np.asarray(result.diagnostics["covariance_diag"]),
-        np.zeros((2,), dtype=np.float32),
-    )
-    np.testing.assert_allclose(
-        np.asarray(result.get_samples()["theta"]),
-        np.broadcast_to(np.array([1.0, -2.0], dtype=np.float32), (4, 2)),
-    )
-
-
-def test_map_can_use_optimizer_hess_inv_covariance(monkeypatch):
-    observations = jnp.array([[0.0], [1.0]], dtype=jnp.float32)
-    times = jnp.array([0.0, 1.0], dtype=jnp.float32)
-    flat_example = jnp.array([0.25, -0.5], dtype=jnp.float32)
-
-    class _FakeModel:
-        observation_support = None
-        spec = None
-        _parameter_layout = None
-
-        def get_cached_artifact(self, _cache_key, _factory):
-            return SimpleNamespace()
-
-    def fake_build_bundle(_model, _observations, _times, _trace_key, _backend, _reparam):
-        def log_lik_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
-            del runtime_observations, runtime_times, latent_mode_init
-            return -jnp.sum((z - jnp.array([1.0, -2.0], dtype=z.dtype)) ** 2)
-
-        def log_prior_unc_fn(z):
-            return -0.1 * jnp.sum(z**2)
-
-        def log_posterior_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
-            return log_lik_fn(
-                z,
-                runtime_observations,
-                runtime_times,
-                latent_mode_init=latent_mode_init,
-            ) + log_prior_unc_fn(z)
-
-        def neg_log_posterior_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
-            return -log_posterior_fn(
-                z,
-                runtime_observations,
-                runtime_times,
-                latent_mode_init=latent_mode_init,
-            )
-
-        def neg_log_posterior_with_aux_fn(
-            z,
-            runtime_observations,
-            runtime_times,
-            latent_mode_init=None,
-        ):
-            del latent_mode_init
-            return neg_log_posterior_fn(z, runtime_observations, runtime_times), {
-                "log_posterior": log_posterior_fn(z, runtime_observations, runtime_times),
-                "log_likelihood": log_lik_fn(z, runtime_observations, runtime_times),
-                "log_prior": log_prior_unc_fn(z),
-                "inner": {
-                    "solver_kind": jnp.asarray(1, dtype=jnp.int32),
-                    "n_iterations": jnp.asarray(1, dtype=jnp.int32),
-                    "n_accepted_steps": jnp.asarray(1, dtype=jnp.int32),
-                    "init_log_joint": jnp.asarray(-2.0, dtype=jnp.float32),
-                    "final_log_joint": jnp.asarray(-1.0, dtype=jnp.float32),
-                    "final_rel_change": jnp.asarray(1e-2, dtype=jnp.float32),
-                    "final_damping": jnp.asarray(1e-3, dtype=jnp.float32),
-                    "final_step_alpha": jnp.asarray(0.5, dtype=jnp.float32),
-                    "final_step_norm": jnp.asarray(0.2, dtype=jnp.float32),
-                    "laplace_logdet": jnp.asarray(1.0, dtype=jnp.float32),
-                    "min_chol_diag": jnp.asarray(0.25, dtype=jnp.float32),
-                },
-                "latent_mode": jnp.asarray([[z[0], z[1]]], dtype=jnp.float32),
-            }
-
-        return {
-            "dim": 2,
-            "flat_example": flat_example,
-            "site_info": {"theta": object()},
-            "unravel_fn": lambda z: {"theta": z},
-            "parameters": object(),
-            "public_sites": set(),
-            "log_lik_fn": log_lik_fn,
-            "log_prior_unc_fn": log_prior_unc_fn,
-            "log_posterior_fn": log_posterior_fn,
-            "neg_log_posterior_fn": neg_log_posterior_fn,
-            "neg_log_posterior_with_aux_fn": neg_log_posterior_with_aux_fn,
-            "batch_log_posterior_jit": lambda _candidates: jnp.array(
-                [-10.0, -1.0], dtype=jnp.float32
-            ),
-        }
-
-    def fake_draw_candidates(_key, _site_info, *, dim, n_candidates, dtype):
-        del dim, n_candidates, dtype
-        return random.PRNGKey(123), jnp.array(
-            [
-                [0.0, 0.0],
-                [1.0, -2.0],
-            ],
-            dtype=jnp.float32,
-        )
-
-    class _FakeInvHess:
-        def todense(self):
-            return np.array([[2.0, 0.0], [0.0, 0.5]], dtype=np.float64)
-
-    def fake_gradient_minimize(fun, x0, jac, method, tol, options, callback):
-        del fun, jac, method, tol, options
-        callback(np.asarray(x0, dtype=np.float64))
-        return SimpleNamespace(
-            x=np.asarray(x0, dtype=np.float64),
-            fun=0.0,
-            nit=1,
-            nfev=1,
-            status=0,
-            success=True,
-            hess_inv=_FakeInvHess(),
-        )
-
-    monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.warmup.map._build_map_laplace_bundle",
-        fake_build_bundle,
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.warmup.map._draw_laplace_init_candidates",
-        fake_draw_candidates,
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.warmup.map.spo.minimize",
-        fake_gradient_minimize,
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.warmup.map._sample_laplace_parameter_posterior",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("exact parameter Hessian path should be skipped")
-        ),
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.warmup.map.extract_constrained_samples",
-        lambda unc_samples, *_args, **_kwargs: {"theta": unc_samples},
-    )
-
-    result = fit_map(
-        _FakeModel(),
-        observations,
-        times,
-        num_samples=4,
-        compute_parameter_hessian=True,
-        parameter_covariance_method="optimizer_hess_inv",
-        seed=0,
-    )
-
-    assert result.method == "map"
-    assert result.diagnostics["compute_parameter_hessian"] is True
-    assert result.diagnostics["parameter_posterior_strategy"] == "laplace_gaussian"
-    assert result.diagnostics["parameter_covariance_method"] == "optimizer_hess_inv"
-    assert result.diagnostics["hessian_condition_number"] is None
-    np.testing.assert_allclose(
-        np.asarray(result.diagnostics["covariance_diag"]),
-        np.array([2.0001, 0.5001], dtype=np.float32),
-        atol=1e-5,
-    )
-    assert result.get_samples()["theta"].shape == (4, 2)
 
 
 def test_map_bundle_reuses_runtime_objectives_across_same_shape_datasets(monkeypatch):

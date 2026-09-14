@@ -44,7 +44,7 @@ def load_model_spec_compile_cache_metadata(workspace_id: str) -> UncheckedJsonOb
 
 def model_spec_fingerprint(model_spec: ModelSpec) -> str:
     """Hash the topology-defining portion of a compiled SSM artifact."""
-    spec_payload = model_spec.model_dump(mode="json")
+    spec_payload = {"model": model_spec.model_dump(mode="json"), "states": model_spec.state_order}
     return hashlib.sha256(
         json.dumps(spec_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()

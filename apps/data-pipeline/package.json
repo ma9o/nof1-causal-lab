@@ -21,7 +21,7 @@
     "format:check": "uv run ruff format --check src/ tests/ evaluation/ notebooks/",
     "type-check": "uv run ty check",
     "test": "uv run pytest tests/",
-    "test:all": "uv run pytest tests/ -m ''",
+    "test:all": "bun run test -m=",
     "duplicates": "uv run python scripts/find_duplicates.py",
 
     "docs:distribution": "uv run python scripts/export_distribution_docs.py",

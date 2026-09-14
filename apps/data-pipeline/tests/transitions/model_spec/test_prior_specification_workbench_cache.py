@@ -4,6 +4,7 @@ import numpyro.distributions as dist
 import polars as pl
 from notebooks import prior_specification_support as support
 
+from nof1_causal_lab.models.model_distributions import with_parameter_distributions
 from nof1_causal_lab.models.ssm.construct_admission import ConstructAdmissionReport
 from nof1_causal_lab.models.ssm.reachability import CheckResult
 from tests.helpers import complete_test_model, make_model
@@ -68,6 +69,7 @@ def test_workbench_replay_reuses_cached_evaluation_and_invalidates_semantic_inpu
         "construct": model.constructs[0].model_dump(mode="json"),
         "edges": [],
         "parameters": [p.model_dump(mode="json") for p in model.parameters],
+        "distributions": model.model_dump(mode="json")["distributions"],
     }
     panel = pl.DataFrame({"value": [1.0]})
 
@@ -96,12 +98,9 @@ def test_workbench_replay_reuses_cached_evaluation_and_invalidates_semantic_inpu
 
     changed_proposal = {
         **proposal,
-        "parameters": [
-            p.model_copy(update={"distribution": dist.Beta(5, 2)}).model_dump(mode="json")
-            if p.name == "rho_sleep"
-            else p.model_dump(mode="json")
-            for p in model.parameters
-        ],
+        "distributions": with_parameter_distributions(
+            model, {p.id: dist.Beta(5, 2) for p in model.parameters if p.name == "rho_sleep"}
+        ).model_dump(mode="json")["distributions"],
     }
     support.run_authored_proposals(
         cache_workspace_id="workbench-test",

@@ -25,7 +25,6 @@ from nof1_causal_lab.machine.store import (
     utc_now_iso,
 )
 from nof1_causal_lab.machine.sweep import collect_completed_runs
-from nof1_causal_lab.machine.temporal.baseline_report_activities import BASELINE_REPORT_ACTIVITIES
 from nof1_causal_lab.machine.temporal.latent_structure_activities import LATENT_STRUCTURE_ACTIVITIES
 from nof1_causal_lab.machine.temporal.llm_subroutine_activities import LLM_SUBROUTINE_ACTIVITIES
 from nof1_causal_lab.machine.temporal.measurement_activities import MEASUREMENT_ACTIVITIES
@@ -127,6 +126,5 @@ ALL_ACTIVITIES = [
     *LLM_SUBROUTINE_ACTIVITIES,
     *LATENT_STRUCTURE_ACTIVITIES,
     *MEASUREMENT_STRUCTURE_ACTIVITIES,
-    *BASELINE_REPORT_ACTIVITIES,
     *STATISTICAL_MODEL_SPEC_ACTIVITIES,
 ]

@@ -1,11 +1,7 @@
-"""Tests for DAG-to-SSM constraint propagation (Fixes 1-3).
+"""Causal structure, measurement masks, and authored priors in executable models.
 
-Tests that:
-1. dynamics_support constrains off-diagonal sampling to causal edges only
-2. lambda_support + template constrains factor loadings to measurement structure
-3. Per-element priors align with mask positions
-4. Builder constructs structural support from ModelSpec
-5. Pipeline threading passes scientific_model through
+Parameter traces use the prior-only backend; likelihood numerics are exercised
+by the inference tests.
 """
 
 from typing import Any, cast
@@ -23,7 +19,7 @@ from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import PriorAuthoringTransform, SiteKind, SupportClass
 from nof1_causal_lab.distributions import DistributionFamily, PriorDistributionFamily
 from nof1_causal_lab.models.ssm import numerics as numeric
-from nof1_causal_lab.models.ssm.inference.backend_factory import get_laplace_backend
+from nof1_causal_lab.models.ssm.inference.utils import _DummyLikelihoodBackend
 from nof1_causal_lab.models.ssm.model import SSMModel
 from nof1_causal_lab.models.ssm.parameterization import (
     SiteDescriptor,
@@ -88,7 +84,7 @@ def _make_3latent_spec(
 def _model_payload() -> dict[str, Any]:
     """Minimal ModelSpec dict: X→Y, Y→Z, 4 indicators."""
     return {
-        "default_outcome": {"kind": "construct", "id": "construct:d90c52e59b79004188dc"},
+        "default_outcome": "construct:d90c52e59b79004188dc",
         "edges": [
             {
                 "cause": {
@@ -179,7 +175,6 @@ def _make_model() -> ModelSpec:
 class TestDynamicsMask:
     """Test that component translation constrains linear edge sampling."""
 
-    @pytest.mark.cpu_expensive
     def test_dynamics_support_zeros_non_edges(self):
         """Dynamics entries where mask is False should be zero."""
         offdiag_support = np.zeros((3, 3), dtype=bool)
@@ -191,23 +186,21 @@ class TestDynamicsMask:
 
         rng = random.PRNGKey(42)
         trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
-            observations=jnp.zeros((10, 4)),
-            times=jnp.arange(10, dtype=jnp.float32),
-            likelihood_backend=get_laplace_backend(model, 6),
+            observations=jnp.zeros((2, 4)),
+            times=jnp.arange(2, dtype=jnp.float32),
+            likelihood_backend=_DummyLikelihoodBackend(),
         )
 
-        weight_sites = sorted(
-            name for name in trace if name.startswith("vf_") and name.endswith("_weight")
-        )
+        weight_sites = [
+            site for site in build_site_registry(spec) if site.site_kind == SiteKind.DYNAMICS_WEIGHT
+        ]
         assert len(weight_sites) == 2
-        assert {
-            site.positions[0] for site in build_site_registry(spec) if site.name in weight_sites
-        } == {
+        assert all(site.name in trace for site in weight_sites)
+        assert {site.positions[0] for site in weight_sites} == {
             (1, 0),
             (2, 1),
         }
 
-    @pytest.mark.cpu_expensive
     def test_no_mask_fully_free(self):
         """Default dynamics mask expands to a fully free dynamics structure."""
         spec = _make_3latent_spec()
@@ -215,17 +208,17 @@ class TestDynamicsMask:
 
         rng = random.PRNGKey(0)
         trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
-            observations=jnp.zeros((10, 4)),
-            times=jnp.arange(10, dtype=jnp.float32),
-            likelihood_backend=get_laplace_backend(model, 6),
+            observations=jnp.zeros((2, 4)),
+            times=jnp.arange(2, dtype=jnp.float32),
+            likelihood_backend=_DummyLikelihoodBackend(),
         )
 
         weight_sites = [
-            name for name in trace if name.startswith("vf_") and name.endswith("_weight")
+            site for site in build_site_registry(spec) if site.site_kind == SiteKind.DYNAMICS_WEIGHT
         ]
         assert len(weight_sites) == 6
+        assert all(site.name in trace for site in weight_sites)
 
-    @pytest.mark.cpu_expensive
     def test_dynamics_support_single_latent(self):
         """Single latent: no off-diagonal, mask should be identity."""
         spec = model_fixture(
@@ -244,12 +237,16 @@ class TestDynamicsMask:
 
         rng = random.PRNGKey(0)
         trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
-            observations=jnp.zeros((5, 1)),
-            times=jnp.arange(5, dtype=jnp.float32),
-            likelihood_backend=get_laplace_backend(model, 6),
+            observations=jnp.zeros((2, 1)),
+            times=jnp.arange(2, dtype=jnp.float32),
+            likelihood_backend=_DummyLikelihoodBackend(),
         )
 
-        assert not any(name.startswith("vf_") and name.endswith("_weight") for name in trace)
+        dynamics_sites = [
+            site for site in build_site_registry(spec) if site.assembly_group == "dynamics"
+        ]
+        assert [site.site_kind for site in dynamics_sites] == [SiteKind.DYNAMICS_DECAY]
+        assert dynamics_sites[0].name in trace
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -260,7 +257,6 @@ class TestDynamicsMask:
 class TestLambdaMask:
     """Test that lambda_support constrains factor loadings."""
 
-    @pytest.mark.cpu_expensive
     def test_lambda_template_plus_mask(self):
         """Template+mask mode: fixed reference + free additional loadings."""
         # X has 2 indicators (x1 ref, x2 free), Y has 1, Z has 1
@@ -291,9 +287,9 @@ class TestLambdaMask:
 
         rng = random.PRNGKey(0)
         trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
-            observations=jnp.zeros((10, 4)),
-            times=jnp.arange(10, dtype=jnp.float32),
-            likelihood_backend=get_laplace_backend(model, 6),
+            observations=jnp.zeros((2, 4)),
+            times=jnp.arange(2, dtype=jnp.float32),
+            likelihood_backend=_DummyLikelihoodBackend(),
         )
 
         # Only 1 free loading sampled
@@ -306,10 +302,12 @@ class TestLambdaMask:
         assert float(lam[3, 2]) == 1.0  # Fixed reference
         assert float(lam[1, 0]) != 0.0  # Free loading was sampled
 
-    @pytest.mark.cpu_expensive
     def test_lambda_no_mask_returns_fixed(self):
         """Array lambda_mat with default zero free-mask is returned as-is."""
-        lambda_mat = jnp.eye(4, 3)
+        # Both x indicators belong to X; fixed loadings must follow that ownership.
+        lambda_mat = jnp.array(
+            [[1.0, 0.0, 0.0], [0.75, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+        )
         spec = _make_3latent_spec(
             lambda_block=SparseMatrixBlockSpec(
                 n_rows=4,
@@ -329,9 +327,9 @@ class TestLambdaMask:
 
         rng = random.PRNGKey(0)
         trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
-            observations=jnp.zeros((10, 4)),
-            times=jnp.arange(10, dtype=jnp.float32),
-            likelihood_backend=get_laplace_backend(model, 6),
+            observations=jnp.zeros((2, 4)),
+            times=jnp.arange(2, dtype=jnp.float32),
+            likelihood_backend=_DummyLikelihoodBackend(),
         )
 
         # No lambda_free sampled
@@ -422,7 +420,6 @@ class TestPerElementPriors:
         with pytest.raises(ValueError, match="broadcast"):
             resolve_site_priors([site], priors)
 
-    @pytest.mark.cpu_expensive
     def test_per_element_prior_in_model(self):
         """Per-element dynamics priors are used in sampling."""
         offdiag_support = np.zeros((2, 2), dtype=bool)
@@ -445,7 +442,7 @@ class TestPerElementPriors:
 
         # Per-element prior: single off-diagonal has mu=2.0
         priors = {
-            "vf_1_weight": distribution_from_params(
+            "vf_2_p0": distribution_from_params(
                 PriorDistributionFamily.NORMAL,
                 {"mu": 2.0, "sigma": 0.1},
             )
@@ -454,14 +451,15 @@ class TestPerElementPriors:
 
         rng = random.PRNGKey(0)
         trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
-            observations=jnp.zeros((5, 2)),
-            times=jnp.arange(5, dtype=jnp.float32),
-            likelihood_backend=get_laplace_backend(model, 6),
+            observations=jnp.zeros((2, 2)),
+            times=jnp.arange(2, dtype=jnp.float32),
+            likelihood_backend=_DummyLikelihoodBackend(),
         )
 
-        # The off-diagonal value should be near 2.0 (tight prior)
-        weight = float(trace["vf_1_weight"]["value"])
-        assert abs(weight - 2.0) < 1.0, f"Expected ~2.0, got {weight}"
+        # Verify the authored law, independently of one lucky prior draw.
+        prior = trace["vf_2_p0"]["fn"]
+        assert float(prior.mean) == pytest.approx(2.0)
+        assert float(prior.variance) == pytest.approx(0.01)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -485,7 +483,6 @@ class TestRuntimeStructuralSupport:
 
         (
             dynamics_support,
-            _input_effect_support,
             lambda_mat,
             lambda_support,
             _cat,
@@ -520,83 +517,6 @@ class TestRuntimeStructuralSupport:
         assert lambda_support[1, 0]  # x2→X is free
         assert not lambda_support[0, 0]  # x1→X is fixed
         assert not lambda_support[2, 1]  # y1→Y is fixed
-
-    def test_known_input_edge_compiles_to_input_effect_support(self):
-        """Known inputs are transition drivers, not latent dynamics columns."""
-        from nof1_causal_lab.models.ssm.compile.inputs import (
-            build_structural_support_from_model,
-        )
-
-        scientific_model = {
-            "default_outcome": {"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"},
-            "edges": [
-                {
-                    "cause": {
-                        "id": "construct:16176a18c25802dee8a1",
-                        "name": "dose",
-                        "description": "Medication dose",
-                        "role": "exogenous",
-                        "temporal_status": "time_varying",
-                        "indicators": [
-                            {
-                                "id": "indicator:5806a6a8417abd85897f",
-                                "name": "dose_mg",
-                                "construct_polarity": "positive",
-                                "how_to_measure": "record dose",
-                                "measurement_dtype": "continuous",
-                                "aggregation": "sum",
-                            }
-                        ],
-                        "usage": {
-                            "kind": "known_input",
-                            "source_indicator_id": "indicator:5806a6a8417abd85897f",
-                            "scale": 10.0,
-                            "missing_policy": "zero",
-                        },
-                    },
-                    "effect": {
-                        "id": "construct:bbc87212909e45b9e6c3",
-                        "name": "mood",
-                        "description": "Mood state",
-                        "role": "endogenous",
-                        "temporal_status": "time_varying",
-                        "indicators": [
-                            {
-                                "id": "indicator:e05e217de7f4442abdc5",
-                                "name": "mood_rating",
-                                "construct_polarity": "positive",
-                                "how_to_measure": "record mood",
-                                "measurement_dtype": "continuous",
-                                "aggregation": "mean",
-                            }
-                        ],
-                    },
-                    "id": "edge:3d7176b256a26799c7c4",
-                    "description": "Dose affects mood",
-                    "lagged": True,
-                }
-            ],
-            "measurement_clock": "1d",
-        }
-
-        model = ModelSpec.model_validate(scientific_model)
-
-        dynamics_support, input_effect_support, lambda_mat, lambda_support, _cat, edge_lag_days = (
-            build_structural_support_from_model(
-                ["mood"],
-                ["mood_rating"],
-                1,
-                1,
-                manifest_dists=[DistributionFamily.GAUSSIAN],
-                model=model,
-            )
-        )
-
-        np.testing.assert_array_equal(dynamics_support, np.array([[True]]))
-        np.testing.assert_array_equal(input_effect_support, np.array([[True]]))
-        np.testing.assert_array_equal(lambda_mat, np.array([[1.0]]))
-        np.testing.assert_array_equal(lambda_support, np.array([[False]]))
-        assert edge_lag_days == {}
 
     def test_model_build_accepts_only_already_compiled_ssm_spec(self):
         """Runtime construction consumes an ModelSpec without structural authoring inputs."""
@@ -640,10 +560,7 @@ class TestRuntimeStructuralSupport:
         model = complete_test_model(
             ModelSpec.model_validate(
                 {
-                    "default_outcome": {
-                        "kind": "construct",
-                        "id": "construct:cdc0b2958a9512b2abad",
-                    },
+                    "default_outcome": "construct:cdc0b2958a9512b2abad",
                     "edges": [
                         {
                             "cause": {
@@ -718,7 +635,7 @@ class TestRuntimeStructuralSupport:
                 )
             )
             # Equivalent marginalized roots reference one aggregate scale, not two draws.
-            assert second.initial_state.scale == source.initial_state.scale
+            assert second.coefficient("initial_scale") == source.coefficient("initial_scale")
         model.check_execution()
         (model).require_execution_structure()
         spec, _ = (model, numeric.edge_lag_days(model))
@@ -767,12 +684,11 @@ class TestRuntimeStructuralSupport:
             description="Unsupported pairwise initial correlation",
             distribution_transform=PriorAuthoringTransform.INITIAL_STATE_CORRELATION,
         )
-        from nof1_causal_lab.artifacts.coefficient import ParameterCoefficient
         from tests.slot_fixtures import attach_test_coefficients
 
         model = attach_test_coefficients(
             model,
-            [(SiteKind.T0_VAR_LOWER, owners, ParameterCoefficient(parameter_id=parameter.id))],
+            [(SiteKind.T0_VAR_LOWER, owners, parameter.id)],
             parameters=(parameter,),
         )
         with pytest.raises(
@@ -793,18 +709,14 @@ class TestRuntimeStructuralSupport:
             description="Unsupported pairwise initial correlation",
             distribution_transform=PriorAuthoringTransform.INITIAL_STATE_CORRELATION,
         )
-        from nof1_causal_lab.artifacts.coefficient import ParameterCoefficient
         from tests.slot_fixtures import attach_test_coefficients
 
-        model = attach_test_coefficients(
-            model,
-            [(SiteKind.T0_VAR_LOWER, owners, ParameterCoefficient(parameter_id=parameter.id))],
-            parameters=(parameter,),
-        )
-        with pytest.raises(
-            ValueError, match=r"explicit latent confounder|two distinct state owners"
-        ):
-            numeric.validate_execution(model)
+        with pytest.raises(ValueError, match="Joint coefficients require one other construct"):
+            attach_test_coefficients(
+                model,
+                [(SiteKind.T0_VAR_LOWER, owners, parameter.id)],
+                parameters=(parameter,),
+            )
 
     def test_model_build_end_to_end(self):
         from nof1_causal_lab.models.model_checks import check_execution
@@ -928,62 +840,6 @@ class TestSiteRegistryMasks:
 # ═══════════════════════════════════════════════════════════════════════
 
 
-class TestTraceVerification:
-    """Verify parameter shapes via numpyro.handlers.trace."""
-
-    @pytest.mark.cpu_expensive
-    def test_masked_model_trace(self):
-        """Full model trace with component edge sites."""
-        offdiag_support = np.zeros((3, 3), dtype=bool)
-        offdiag_support[1, 0] = True  # X→Y
-        offdiag_support[2, 1] = True  # Y→Z
-
-        lambda_mat = jnp.zeros((4, 3))
-        lambda_mat = lambda_mat.at[0, 0].set(1.0)
-        lambda_mat = lambda_mat.at[2, 1].set(1.0)
-        lambda_mat = lambda_mat.at[3, 2].set(1.0)
-
-        lambda_support = np.zeros((4, 3), dtype=bool)
-        lambda_support[1, 0] = True
-
-        spec = _make_3latent_spec(
-            edge_support=offdiag_support,
-            lambda_block=SparseMatrixBlockSpec(
-                n_rows=4,
-                n_cols=3,
-                free_support=lambda_support,
-                template=lambda_mat,
-                free_site_name="lambda_free",
-                det_site_name="lambda",
-                support=SupportClass.REAL,
-                site_kind=SiteKind.LOADING,
-                assembly_group="lambda",
-                fixed_spec_field="lambda_mat",
-                priors_field="lambda_free",
-            ),
-        )
-        model = SSMModel(spec)
-
-        rng = random.PRNGKey(123)
-        trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
-            observations=jnp.zeros((10, 4)),
-            times=jnp.arange(10, dtype=jnp.float32),
-            likelihood_backend=get_laplace_backend(model, 6),
-        )
-
-        assert trace["vf_0_decay"]["value"].shape == (3,)
-        weight_sites = [
-            name for name in trace if name.startswith("vf_") and name.endswith("_weight")
-        ]
-        assert len(weight_sites) == 2
-
-        # Lambda: 1 free loading
-        assert trace["lambda_free"]["value"].shape == (1,)
-
-        # Deterministic lambda should be 4x3
-        assert trace["lambda"]["value"].shape == (4, 3)
-
-
 # ═══════════════════════════════════════════════════════════════════════
 # Gradual-build surface: self-limiting quartic + Hill (saturating) edges
 # ═══════════════════════════════════════════════════════════════════════
@@ -994,23 +850,22 @@ class TestGradualBuildComponents:
 
     def test_quartic_freed_only_for_self_limiting_construct(self):
 
-        from nof1_causal_lab.artifacts.coefficient import FixedCoefficient, ParameterCoefficient
         from nof1_causal_lab.artifacts.expressions import expression_coefficients
 
         model = _make_model()
         model = complete_test_model(model, self_limiting=(model.state_order[1],))
         quartics = {
             component.target: next(
-                operand.coefficient
+                operand.value
                 for operand in expression_coefficients(component.expression)
                 if operand.role == "quartic"
             )
             for component in numeric.dynamics_expressions(model)
             if not component.edge_owned
         }
-        assert isinstance(quartics[1], ParameterCoefficient)
-        assert quartics[0] == FixedCoefficient(value=0)
-        assert quartics[2] == FixedCoefficient(value=0)
+        assert isinstance(quartics[1], str)
+        assert quartics[0] == 0
+        assert quartics[2] == 0
 
     def test_hill_edge_emitted_for_saturating_edge(self):
         from nof1_causal_lab.artifacts.expressions import hill_applications
@@ -1024,7 +879,6 @@ class TestGradualBuildComponents:
         assert (1, 2) in [(item.source, item.target) for item in linear]
         assert (0, 1) not in [(item.source, item.target) for item in linear]
 
-    @pytest.mark.cpu_expensive
     def test_freed_quartic_and_hill_sites_sample_finite(self):
 
         plan = _make_model()
@@ -1034,12 +888,15 @@ class TestGradualBuildComponents:
         spec, _ = (science, numeric.edge_lag_days(science))
         model = SSMModel(spec)
         trace = handlers.trace(handlers.seed(model.model, random.PRNGKey(0))).get_trace(
-            observations=jnp.zeros((8, 4)),
-            times=jnp.arange(8, dtype=jnp.float32),
-            likelihood_backend=get_laplace_backend(model, 6),
+            observations=jnp.zeros((2, 4)),
+            times=jnp.arange(2, dtype=jnp.float32),
+            likelihood_backend=_DummyLikelihoodBackend(),
         )
-        quartic_sites = [n for n in trace if n.startswith("vf_") and n.endswith("_quartic")]
-        emax_sites = [n for n in trace if n.startswith("vf_") and n.endswith("_Emax")]
+        registry = build_site_registry(spec)
+        quartic_sites = [
+            site.name for site in registry if site.site_kind == SiteKind.DYNAMICS_POTENTIAL_QUARTIC
+        ]
+        emax_sites = [site.name for site in registry if site.site_kind == SiteKind.HILL_EMAX]
         assert len(quartic_sites) == 1
         assert len(emax_sites) == 1
         for name in quartic_sites + emax_sites:

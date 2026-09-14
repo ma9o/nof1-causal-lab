@@ -3,20 +3,20 @@
 import pytest
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
-from nof1_causal_lab.artifacts.identity import ConstructRef
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.flows.transitions.measurement_structure.grounding import (
     measurement_structure_grounding,
 )
 from nof1_causal_lab.models.identification import identify_model
-from nof1_causal_lab.utils.model_structure import get_edges, get_known_inputs, get_state_names
+from nof1_causal_lab.models.model_structure import StructuralCompilationError
+from nof1_causal_lab.utils.model_structure import get_edges, get_state_names
 from tests.helpers import fixture_entity_id, graph_constructs, make_model
 
 
 @pytest.fixture
 def measured_model():
     model = make_model(["Treatment", "Outcome"], [("Treatment", "Outcome")])
-    return model.revised(default_outcome=ConstructRef(id=model.constructs[1].id))
+    return model.revised(default_outcome=model.constructs[1].id)
 
 
 def test_valid_measurement_preserves_whole_model(measured_model):
@@ -56,28 +56,17 @@ def test_semantic_collision_returns_error(measured_model):
     assert "Semantic collision" in feedback
 
 
-def test_known_input_is_owned_by_its_construct(measured_model):
-    payload = measured_model.model_dump(mode="json")
-    treatment = graph_constructs(payload)[0]
-    treatment["usage"] = {
-        "kind": "known_input",
-        "source_indicator_id": treatment["indicators"][0]["id"],
-    }
-    output, feedback = measurement_structure_grounding(payload)
+def test_measurements_retain_both_constructs(measured_model):
+    output, feedback = measurement_structure_grounding(measured_model.model_dump(mode="json"))
     assert feedback == "VALID"
     model = ModelSpec.model_validate(output)
-    plan = model
-    assert get_state_names(plan) == ["Outcome"]
-    [known_input] = get_known_inputs(plan)
-    assert known_input["construct_id"] == treatment["id"]
-    assert known_input["source_indicator_id"] == treatment["usage"]["source_indicator_id"]
-    assert known_input["scale"] == 1.0
-    assert [(edge["cause"], edge["effect"]) for edge in get_edges(plan)] == [
+    assert get_state_names(model) == ["Treatment", "Outcome"]
+    assert [(edge["cause"], edge["effect"]) for edge in get_edges(model)] == [
         ("Treatment", "Outcome")
     ]
 
 
-def test_known_input_cannot_borrow_another_constructs_indicator(measured_model):
+def test_removed_usage_is_rejected(measured_model):
     payload = measured_model.model_dump(mode="json")
     graph_constructs(payload)[0]["usage"] = {
         "kind": "known_input",
@@ -85,7 +74,7 @@ def test_known_input_cannot_borrow_another_constructs_indicator(measured_model):
     }
     output, feedback = measurement_structure_grounding(payload)
     assert output is None
-    assert "indicator" in feedback.lower()
+    assert "usage" in feedback.lower()
 
 
 def test_unknown_usage_is_rejected(measured_model):
@@ -103,8 +92,8 @@ def test_identification_is_a_separate_derived_finding(measured_model):
     report = identify_model(model)
     assert model.default_outcome is not None
     assert output is not None
-    assert report.outcome == model.default_outcome.id
-    assert model.constructs[0].id in report.status.identifiable_treatments
+    assert report.outcome == model.default_outcome
+    assert model.constructs[0].id in report.estimable_treatments
     assert "identifiability" not in output
 
 
@@ -114,7 +103,7 @@ def test_unobserved_static_confounder_survives_measurement_authoring():
         [("Sleep", "Mood"), ("Chronotype", "Sleep"), ("Chronotype", "Mood")],
     )
     payload = model.model_dump(mode="json")
-    payload["default_outcome"] = {"kind": "construct", "id": model.constructs[1].id}
+    payload["default_outcome"] = model.constructs[1].id
     graph_constructs(payload)[2].update(
         role="exogenous", temporal_status="time_invariant", indicators=[]
     )
@@ -124,8 +113,10 @@ def test_unobserved_static_confounder_survives_measurement_authoring():
     assert feedback == "VALID"
     scientific_model = ModelSpec.model_validate(output)
     assert len(scientific_model.constructs) == 3
+    with pytest.raises(StructuralCompilationError, match="Required unmeasured constructs"):
+        scientific_model.require_execution_structure()
     report = identify_model(scientific_model)
-    sleep = report.status.non_identifiable_treatments[model.constructs[0].id]
+    sleep = report.non_identifiable[model.constructs[0].id]
     assert sleep.confounders == [model.constructs[2].id]
 
 
@@ -148,7 +139,7 @@ def test_unmeasured_mediator_remains_scientific_but_not_an_executable_state():
                 for item in model.constructs
             ),
         ),
-        default_outcome=ConstructRef(id=fixture_entity_id("construct", "Outcome")),
+        default_outcome=fixture_entity_id("construct", "Outcome"),
     )
     plan = model
     assert get_state_names(plan) == ["Treatment", "Outcome"]

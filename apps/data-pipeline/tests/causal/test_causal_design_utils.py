@@ -32,7 +32,7 @@ def _full_spec():
     """Minimal valid CausalDesign dict."""
     return {
         "latent": {
-            "default_outcome": {"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"},
+            "default_outcome": "construct:bbc87212909e45b9e6c3",
             "constructs": [
                 {"id": "construct:6b04dc42c531e7091eb8", "name": "stress", "role": "exogenous"},
                 {
@@ -187,7 +187,7 @@ class TestGetOutcomeName:
         assert (
             get_outcome_name(
                 {
-                    "default_outcome": {"kind": "construct", "id": "construct:Y"},
+                    "default_outcome": "construct:Y",
                     "constructs": [
                         {"id": "construct:X", "name": "X"},
                         {"id": "construct:Y", "name": "Y"},
@@ -221,7 +221,7 @@ class TestGetAllTreatments:
     def test_chain_treatments(self):
         treatments = get_all_treatments(
             {
-                "default_outcome": {"kind": "construct", "id": "construct:Y"},
+                "default_outcome": "construct:Y",
                 "constructs": [
                     {"id": "construct:A", "name": "A"},
                     {"id": "construct:B", "name": "B"},
@@ -238,7 +238,7 @@ class TestGetAllTreatments:
     def test_disconnected_not_treatment(self):
         treatments = get_all_treatments(
             {
-                "default_outcome": {"kind": "construct", "id": "construct:Y"},
+                "default_outcome": "construct:Y",
                 "constructs": [
                     {"id": "construct:X", "name": "X"},
                     {"id": "construct:Y", "name": "Y"},
@@ -266,7 +266,7 @@ class TestGetAllTreatments:
     def test_sorted_output(self):
         treatments = get_all_treatments(
             {
-                "default_outcome": {"kind": "construct", "id": "construct:Outcome"},
+                "default_outcome": "construct:Outcome",
                 "constructs": [
                     {"id": "construct:Zebra", "name": "Zebra"},
                     {"id": "construct:Apple", "name": "Apple"},
@@ -283,7 +283,7 @@ class TestGetAllTreatments:
     def test_fork_topology(self):
         treatments = get_all_treatments(
             {
-                "default_outcome": {"kind": "construct", "id": "construct:Y"},
+                "default_outcome": "construct:Y",
                 "constructs": [
                     {"id": "construct:X", "name": "X"},
                     {"id": "construct:Y", "name": "Y"},
@@ -300,7 +300,7 @@ class TestGetAllTreatments:
     def test_diamond_all_treatments(self):
         treatments = get_all_treatments(
             {
-                "default_outcome": {"kind": "construct", "id": "construct:D"},
+                "default_outcome": "construct:D",
                 "constructs": [
                     {"id": "construct:A", "name": "A"},
                     {"id": "construct:B", "name": "B"},
@@ -324,7 +324,7 @@ class TestGetAllTreatments:
         assert (
             get_all_treatments(
                 {
-                    "default_outcome": {"kind": "construct", "id": "construct:Y"},
+                    "default_outcome": "construct:Y",
                     "constructs": [{"id": "construct:Y", "name": "Y"}],
                     "edges": [],
                 }
@@ -352,12 +352,12 @@ class TestGetMarginalizedScales:
                 for source in dependency["source_confounders"]
             }
         )
-        from nof1_causal_lab.artifacts.construct import CausalEdge, Construct
+        from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
         from tests.helpers import fixture_entity_id, make_model
 
         model = make_model(state_names or ["observed"])
         confounders = tuple(
-            Construct(
+            ConstructSpec(
                 id=fixture_entity_id("construct", name),
                 name=name,
                 description="Latent root",
@@ -385,7 +385,7 @@ class TestGetMarginalizedScales:
             edges=replace_constructs(
                 model.edges
                 + tuple(
-                    CausalEdge(
+                    CausalEdgeSpec(
                         id=fixture_entity_id("edge", source + "->" + child),
                         cause=next(item for item in confounders if item.name == source),
                         effect=model.get_construct(fixture_entity_id("construct", child)),

@@ -9,7 +9,7 @@ Most cases share the same shape: build a latent + measurement structure, call
 ``check_identifiability``, then assert facts about the result. They are
 expressed as a data table driving a single parametrized test
 (``test_identification``). Tests using other entry points
-(``analyze_unobserved_constructs``, ``unroll_temporal_dag``, ``dag_to_admg``,
+(``ModelSpec.marginalized_construct_ids``, ``unroll_temporal_dag``, ``dag_to_admg``,
 ``find_blocking_confounders``) live below as small parametrized or standalone
 tests.
 
@@ -23,13 +23,16 @@ from typing import Any
 
 import pytest
 
+from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.models.identification import identify_model
+from nof1_causal_lab.models.model_structure import unsupported_construct_ids
 from nof1_causal_lab.utils.identifiability import (
-    analyze_unobserved_constructs,
     check_identifiability,
     dag_to_admg,
     find_blocking_confounders,
     unroll_temporal_dag,
 )
+from tests.helpers import fixture_entity_id, make_model
 
 # =============================================================================
 # HELPERS
@@ -171,7 +174,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     # ---- 1. Classic Pearl Graphs ------------------------------------------
     # Bow graph: X->Y, U->X, U->Y. Simplest non-identifiable structure.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "pearl_bow_non_identifiable",
         "constructs": [{"name": "X"}, {"name": "Y"}, {"name": "U"}],
         "edges": [
@@ -184,7 +187,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # Chain with confounding at every step. Front-door fails (M confounded with Y).
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "pearl_confounded_chain_non_identifiable",
         "constructs": [
             {"name": "X"},
@@ -206,7 +209,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # Verma-constraint graph: W->X->Y->Z with U1 confounding X-Z. W identifies X.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "pearl_verma_constraint",
         "constructs": [
             {"name": "W", "role": "exogenous"},
@@ -227,7 +230,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # ---- 2. Backdoor Criterion --------------------------------------------
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "backdoor_observed_confounder",
         "constructs": [
             {"name": "Z", "role": "exogenous"},
@@ -243,7 +246,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "checks": [("identifiable", "X"), ("identifiable", "Z")],
     },
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "backdoor_multiple_confounders_all_observed",
         "constructs": [
             {"name": "Z1", "role": "exogenous"},
@@ -262,7 +265,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # Z1 is an IV candidate; it cannot identify X without extra assumptions.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "backdoor_unobserved_but_iv_available",
         "constructs": [
             {"name": "Z1", "role": "exogenous"},
@@ -281,7 +284,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # Z -> W, W -> {X, Y}; adjusting for W blocks the backdoor.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "backdoor_chain_of_confounders",
         "constructs": [
             {"name": "Z", "role": "exogenous"},
@@ -301,7 +304,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     # ---- 3. Front-Door Criterion ------------------------------------------
     # Classic front-door: X->M->Y with U->X, U->Y.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "frontdoor_classic",
         "constructs": [
             {"name": "X"},
@@ -320,7 +323,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # U -> M breaks front-door condition.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "frontdoor_fails_if_mediator_confounded",
         "constructs": [
             {"name": "X"},
@@ -339,7 +342,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "checks": [("not_identifiable", "X")],
     },
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "frontdoor_with_multiple_mediators",
         "constructs": [
             {"name": "X"},
@@ -362,7 +365,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     # ---- 4. Instrumental Variables ----------------------------------------
     # Classic IV: Z -> X -> Y, U -> X, U -> Y. IV identification under linearity.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "iv_classic",
         "constructs": [
             {"name": "Z", "role": "exogenous"},
@@ -384,7 +387,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # U -> Z breaks IV exogeneity.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "iv_fails_if_instrument_confounded",
         "constructs": [
             {"name": "Z", "role": "exogenous"},
@@ -404,7 +407,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # Z -> Y violates IV exclusion. Z's own effect on Y is still identifiable.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "iv_fails_if_direct_path_to_outcome",
         "constructs": [
             {"name": "Z", "role": "exogenous"},
@@ -424,7 +427,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # ---- 5. Temporal Dynamics (AR(1) under A3a) ---------------------------
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "temporal_lagged_confounding_blocks_id",
         "constructs": [
             {"name": "X", "temporal_status": "time_varying"},
@@ -440,7 +443,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "checks": [("not_identifiable", "X"), ("blocked_by", "X", "U")],
     },
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "temporal_contemporaneous_confounding",
         "constructs": [
             {"name": "X", "temporal_status": "time_varying"},
@@ -457,7 +460,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # AR(1) enables identification: conditioning on X_{t-1} blocks U_{t-1}->X_{t-1}->X_t.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "temporal_ar1_enables_id_via_lagged_adjustment",
         "constructs": [
             {"name": "X", "temporal_status": "time_varying"},
@@ -474,7 +477,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # Staggered: U_{t-1}->X_t, U_t->Y_t. Lagged adjustment still works.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "temporal_staggered_id_via_lagged_adjustment",
         "constructs": [
             {"name": "X", "temporal_status": "time_varying"},
@@ -490,7 +493,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "checks": [("identifiable", "X")],
     },
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "temporal_lagged_treatment_observed",
         "constructs": [
             {"name": "X", "temporal_status": "time_varying"},
@@ -501,7 +504,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "checks": [("identifiable", "X")],
     },
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "temporal_mixed_lagged_and_contemporaneous",
         "constructs": [
             {"name": "X", "temporal_status": "time_varying"},
@@ -516,7 +519,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # X_t->Y_t with Y_{t-1}->X_t (acyclic when unrolled).
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "temporal_feedback_loop",
         "constructs": [
             {"name": "X", "temporal_status": "time_varying"},
@@ -531,7 +534,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # ---- 6. Time-Invariant Constructs -------------------------------------
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "tinv_confounder_observed",
         "constructs": [
             {
@@ -552,7 +555,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "checks": [("identifiable", "X")],
     },
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "tinv_confounder_unobserved",
         "constructs": [
             {
@@ -573,7 +576,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "checks": [("not_identifiable", "X"), ("blocked_by", "X", "Trait")],
     },
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "tinv_treatment",
         "constructs": [
             {"name": "Treatment", "temporal_status": "time_invariant"},
@@ -584,7 +587,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "checks": [("identifiable", "Treatment")],
     },
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "tinv_mixed_status_chain",
         "constructs": [
             {
@@ -606,7 +609,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     # ---- 7. Complex Confounding Patterns ----------------------------------
     # Diamond X -> {A, B} -> Y, all observed.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "complex_diamond_all_observed",
         "constructs": [
             {"name": "X"},
@@ -625,7 +628,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # U1 -> U2; U2 -> {X, Y}. Confounder is U2 (not U1).
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "complex_chain_of_unobserved",
         "constructs": [
             {"name": "U1"},
@@ -644,7 +647,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # M-bias structure: pre-treatment A and B, no direct X-Y backdoor.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "complex_m_bias_structure",
         "constructs": [
             {"name": "U1"},
@@ -666,7 +669,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # M-bias with U3 confounding X-Y; an IV candidate does not remove that obstruction.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "complex_m_bias_with_iv_available",
         "constructs": [
             {"name": "U1"},
@@ -691,7 +694,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # Two independent unobserved confounders.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "complex_multiple_disjoint_confounders",
         "constructs": [
             {"name": "U1"},
@@ -715,7 +718,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     # ---- 8. Collider Structures -------------------------------------------
     # X -> C <- Y collider; X is independent of Y through C.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "collider_simple",
         "constructs": [
             {"name": "X"},
@@ -732,7 +735,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # Collider with descendant: X -> C <- U -> Y, C -> D. Path blocked at collider.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "collider_with_descendant",
         "constructs": [
             {"name": "X"},
@@ -753,7 +756,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # ---- 9. Multiple Treatments -------------------------------------------
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "multi_treatments_all_identifiable",
         "constructs": [
             {"name": "X1"},
@@ -768,7 +771,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "checks": [("identifiable", "X1"), ("identifiable", "X2")],
     },
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "multi_treatments_some_identifiable",
         "constructs": [
             {"name": "X1"},
@@ -786,7 +789,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "checks": [("identifiable", "X1"), ("not_identifiable", "X2")],
     },
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "multi_treatment_chain",
         "constructs": [
             {"name": "X1"},
@@ -802,7 +805,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # ---- 10. Edge Cases ---------------------------------------------------
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "edge_outcome_only_no_treatments",
         "constructs": [{"name": "Y"}],
         "edges": [],
@@ -810,7 +813,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "checks": [("no_treatments_at_all",)],
     },
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "edge_unobserved_outcome",
         "constructs": [{"name": "X"}, {"name": "Y"}],
         "edges": [{"cause": "X", "effect": "Y"}],
@@ -818,7 +821,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "checks": [("no_identifiable_treatments",)],
     },
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "edge_all_unobserved_except_outcome",
         "constructs": [{"name": "X"}, {"name": "Y"}],
         "edges": [{"cause": "X", "effect": "Y"}],
@@ -826,7 +829,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "checks": [("treatment_absent", "X")],
     },
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "edge_long_causal_chain",
         "constructs": [
             {"name": "A"},
@@ -853,7 +856,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         ],
     },
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "edge_isolated_construct",
         "constructs": [
             {"name": "X"},
@@ -865,7 +868,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "checks": [("treatment_absent", "Isolated"), ("identifiable", "X")],
     },
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "edge_no_path_to_outcome",
         "constructs": [
             {"name": "X"},
@@ -882,7 +885,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     # ---- 14. Complex Hedge Structures -------------------------------------
     # Napkin-like: collider W2 blocks the backdoor.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "hedge_napkin_like_identifiable",
         "constructs": [
             {"name": "X"},
@@ -905,7 +908,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # Kite: confounding triangle on chain breaks front-door.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "hedge_kite_graph",
         "constructs": [
             {"name": "X"},
@@ -927,7 +930,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # Two stacked bow graphs.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "hedge_double_bow",
         "constructs": [
             {"name": "X"},
@@ -949,7 +952,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # W-structure: Z is a collider between U1 and U2 paths.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "hedge_w_structure",
         "constructs": [
             {"name": "X"},
@@ -970,7 +973,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # Verma extended; W can serve as IV/adjustment for X.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "hedge_verma_extended",
         "constructs": [
             {"name": "V", "role": "exogenous"},
@@ -994,7 +997,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     # ---- 15. Conditional / Complex IV Scenarios ---------------------------
     # Conditional IV (C is needed) — y0 doesn't find it. Documents the limit.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "iv_conditional_not_supported",
         "constructs": [
             {"name": "Z", "role": "exogenous"},
@@ -1019,7 +1022,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         ],
     },
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "iv_multiple_instruments",
         "constructs": [
             {"name": "Z1", "role": "exogenous"},
@@ -1040,7 +1043,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # W is an IV candidate, but U2 still prevents nonparametric identification of X.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "iv_weak_instrument_chain",
         "constructs": [
             {"name": "Z", "role": "exogenous"},
@@ -1064,7 +1067,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # ---- 16. Temporal Complexity (panel data) -----------------------------
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "tcomplex_cross_lagged_panel_no_confounding",
         "constructs": [
             {"name": "X", "temporal_status": "time_varying"},
@@ -1080,7 +1083,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # CLPM with unobserved trait confounding (RI-CLPM motivation).
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "tcomplex_cross_lagged_with_trait_confounding",
         "constructs": [
             {
@@ -1104,7 +1107,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # Front-door with temporal carry-over from M.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "tcomplex_temporal_front_door",
         "constructs": [
             {"name": "X", "temporal_status": "time_varying"},
@@ -1123,7 +1126,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "checks": [("identifiable", "X")],
     },
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "tcomplex_bidirectional_contemporaneous_confounded",
         "constructs": [
             {"name": "X", "temporal_status": "time_varying"},
@@ -1140,7 +1143,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "checks": [("not_identifiable", "X")],
     },
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "tcomplex_lagged_instrument_temporal",
         "constructs": [
             {"name": "Z", "temporal_status": "time_varying"},
@@ -1160,7 +1163,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     # ---- 17. Overlapping Confounders --------------------------------------
     # U1 -> {X, M}, U2 -> {M, Y}, X -> M -> Y.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "overlap_partial_confounding_coverage",
         "constructs": [
             {"name": "X"},
@@ -1182,7 +1185,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # Triangle with three confounders, every pair confounded.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "overlap_triangle_confounding",
         "constructs": [
             {"name": "X"},
@@ -1207,7 +1210,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # Dense pairwise confounding A->B->C->D.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:D"},
+        "default_outcome": "construct:D",
         "id": "overlap_four_node_complete_confounding",
         "constructs": [
             {"name": "A"},
@@ -1237,7 +1240,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # A -> B -> C -> D with U -> {B, C}; A and C are identifiable.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:D"},
+        "default_outcome": "construct:D",
         "id": "overlap_selective_some_identifiable",
         "constructs": [
             {"name": "A"},
@@ -1258,7 +1261,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # ---- 18. Mediator-Collider Duality ------------------------------------
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "mediator_collider_simple",
         "constructs": [
             {"name": "A"},
@@ -1275,7 +1278,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "checks": [("identifiable", "A"), ("identifiable", "B")],
     },
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "mediator_collider_with_confounding",
         "constructs": [
             {"name": "A"},
@@ -1295,7 +1298,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     # ---- 19. Nested / Hierarchical ----------------------------------------
     # Nested overlapping confounders along X -> M1 -> M2 -> Y.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "nested_front_door_blocked",
         "constructs": [
             {"name": "X"},
@@ -1321,7 +1324,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "checks": [("not_identifiable", "X")],
     },
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "nested_hierarchical_treatment",
         "constructs": [
             {"name": "X"},
@@ -1346,7 +1349,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     # ---- 20. Measurement Coverage -----------------------------------------
     # Z->X->M->Y, U->X, U->Y. Coverage variations affect ID strategy.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "coverage_with_iv_observed",
         "constructs": [
             {"name": "Z", "role": "exogenous"},
@@ -1366,7 +1369,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "checks": [("identifiable", "X")],
     },
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "coverage_without_iv_uses_front_door",
         "constructs": [
             {"name": "Z", "role": "exogenous"},
@@ -1387,7 +1390,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # Same Z->X->M1->M2->Y, U->X, U->Y latent structure with three coverage choices.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "coverage_minimal_xy_only_temporal",
         "constructs": [
             {"name": "Z", "role": "exogenous"},
@@ -1409,7 +1412,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "checks": [("identifiable", "X")],
     },
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "coverage_minimal_with_z",
         "constructs": [
             {"name": "Z", "role": "exogenous"},
@@ -1431,7 +1434,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "checks": [("identifiable", "X")],
     },
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "coverage_minimal_with_m1",
         "constructs": [
             {"name": "Z", "role": "exogenous"},
@@ -1455,7 +1458,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     # ---- 21. Special IV Structures ----------------------------------------
     # These DAGs alone do not declare the extra assumptions needed by IV designs.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "special_iv_regression_discontinuity_like",
         "constructs": [
             {"name": "R", "role": "exogenous"},
@@ -1473,7 +1476,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "checks": [("not_identifiable", "D"), ("identifiable", "R")],
     },
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "special_iv_mendelian_randomization",
         "constructs": [
             {"name": "G", "role": "exogenous"},
@@ -1492,7 +1495,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     },
     # ---- 22. Temporal Unrolling Edge Cases --------------------------------
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "tedge_only_lagged_no_contemporaneous",
         "constructs": [
             {"name": "X", "temporal_status": "time_varying"},
@@ -1503,7 +1506,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "checks": [("identifiable", "X")],
     },
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "tedge_time_invariant_only",
         "constructs": [
             {"name": "X", "temporal_status": "time_invariant"},
@@ -1514,7 +1517,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "checks": [("identifiable", "X")],
     },
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "tedge_mixed_with_iv_via_trait",
         "constructs": [
             {
@@ -1540,7 +1543,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         ],
     },
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "tedge_mixed_no_instrument",
         "constructs": [
             {"name": "State", "temporal_status": "time_varying"},
@@ -1556,7 +1559,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "checks": [("not_identifiable", "X"), ("blocked_by", "X", "State")],
     },
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "tedge_lagged_confounding_with_lagged_treatment",
         "constructs": [
             {"name": "X", "temporal_status": "time_varying"},
@@ -1588,7 +1591,7 @@ def test_identification(case):
 # =============================================================================
 # MARGINALIZATION ANALYSIS CASES
 #
-# Each case calls check_identifiability + analyze_unobserved_constructs and
+# Each case derives the canonical model's execution selection and
 # asserts which unobserved constructs can be marginalized vs which need modeling.
 # Check kinds:
 #   ("can_marginalize", name)
@@ -1600,7 +1603,7 @@ def test_identification(case):
 MARGINALIZATION_CASES: list[dict[str, Any]] = [
     # U has only one observed child (X) — can be marginalized.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "marg_single_child_confounder",
         "constructs": [
             {"name": "U"},
@@ -1619,7 +1622,7 @@ MARGINALIZATION_CASES: list[dict[str, Any]] = [
     },
     # Bow graph U: blocks X, needs modeling.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "marg_needs_modeling_blocking_confounder",
         "constructs": [
             {"name": "U"},
@@ -1639,7 +1642,7 @@ MARGINALIZATION_CASES: list[dict[str, Any]] = [
     },
     # Front-door handles U; U can be marginalized.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "marg_front_door_handled",
         "constructs": [
             {"name": "X"},
@@ -1658,7 +1661,7 @@ MARGINALIZATION_CASES: list[dict[str, Any]] = [
     },
     # Mixed: U1 marginalize, U2 model.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "marg_mixed",
         "constructs": [
             {"name": "U1"},
@@ -1680,7 +1683,7 @@ MARGINALIZATION_CASES: list[dict[str, Any]] = [
     },
     # Chain U1 -> U2 -> {X, Y}: U1 marginalize, U2 model.
     {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "id": "marg_chain_of_unobserved",
         "constructs": [
             {"name": "U1"},
@@ -1705,34 +1708,58 @@ MARGINALIZATION_CASES: list[dict[str, Any]] = [
 
 @pytest.mark.parametrize("case", MARGINALIZATION_CASES, ids=lambda c: c["id"])
 def test_marginalization(case):
-    """Run analyze_unobserved_constructs and assert classification of each unobserved."""
-    latent_structure = make_latent_structure(
-        case["constructs"], case["edges"], case.get("default_outcome")
+    """Check projection and unsupported dependencies on the scientific model."""
+    model = make_model(
+        [construct["name"] for construct in case["constructs"]],
+        [(edge["cause"], edge["effect"]) for edge in case["edges"]],
     )
-    measurement_structure = make_measurement_structure(case["observed"])
-    id_result = check_identifiability(latent_structure, measurement_structure)
-    analysis = analyze_unobserved_constructs(latent_structure, measurement_structure, id_result)
+    children = {edge["effect"] for edge in case["edges"]}
+    model = model.revised(
+        edges=replace_constructs(
+            tuple(edge.model_copy(update={"lagged": False}) for edge in model.edges),
+            tuple(
+                construct.model_copy(
+                    update={
+                        "role": "endogenous" if construct.name in children else "exogenous",
+                        "temporal_status": "time_invariant",
+                        "indicators": construct.indicators
+                        if construct.name in case["observed"]
+                        else (),
+                    }
+                )
+                for construct in model.constructs
+            ),
+        ),
+        default_outcome=fixture_entity_id(
+            "construct", case["default_outcome"].removeprefix("construct:")
+        ),
+    )
+    report = identify_model(model)
+    marginalized = model.marginalized_construct_ids
+    unsupported = unsupported_construct_ids(model)
 
     for check in case["checks"]:
         kind = check[0]
+        identity = fixture_entity_id("construct", check[1])
         if kind == "can_marginalize":
-            (_, name) = check
-            assert name in analysis["can_marginalize"], (
-                f"{name} should be marginalizable. Analysis: {analysis}"
-            )
+            assert identity in marginalized
         elif kind == "needs_modeling":
-            (_, name, expected_targets) = check
-            assert name in analysis["blocking_details"], (
-                f"{name} should be in blocking_details. Analysis: {analysis}"
-            )
+            (_, _name, expected_targets) = check
+            assert identity in unsupported
             if expected_targets is not None:
-                assert analysis["blocking_details"][name] == expected_targets
+                assert (
+                    sorted(
+                        model.get_construct(treatment).name
+                        for treatment, finding in report.non_identifiable.items()
+                        if identity in finding.confounders
+                        and model.get_construct(treatment).indicators
+                    )
+                    == expected_targets
+                )
         elif kind == "not_blocking":
-            (_, name) = check
-            assert name not in analysis["blocking_details"]
+            assert identity not in unsupported
         elif kind == "not_marginalizable":
-            (_, name) = check
-            assert name not in analysis["can_marginalize"]
+            assert identity not in marginalized
         else:
             raise AssertionError(f"Unknown marginalization check kind: {kind}")
 

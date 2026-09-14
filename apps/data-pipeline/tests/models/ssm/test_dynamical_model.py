@@ -1,6 +1,5 @@
 """Small model-boundary checks; no fitting or trajectory simulation."""
 
-from nof1_causal_lab.artifacts.coefficient import FixedCoefficient
 from dataclasses import replace
 from importlib import import_module
 from types import SimpleNamespace
@@ -29,7 +28,6 @@ def runtime(monkeypatch):
     from nof1_causal_lab.models.ssm.execution.parameters import assemble_model_matrices
     from nof1_causal_lab.models.ssm.structure import DiffusionBlockSpec
     from tests.model_fixtures import (
-        default_input_effect_block,
         default_lambda_block,
         default_manifest_chol_block,
         default_t0_chol_block,
@@ -46,12 +44,11 @@ def runtime(monkeypatch):
                 potential_term(
                     target=0,
                     center=None,
-                    stiffness=FixedCoefficient(value=0.4),
-                    quartic=FixedCoefficient(value=0.2),
+                    stiffness=0.4,
+                    quartic=0.2,
                 ),
             ),
         ),
-        input_names=["forcing"],
         manifest_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.POISSON],
         manifest_links=[LinkFunction.IDENTITY, LinkFunction.LOG],
         diffusion_block=DiffusionBlockSpec(
@@ -73,17 +70,10 @@ def runtime(monkeypatch):
             diag_support=np.zeros(1, dtype=bool),
             template=jnp.sqrt(jnp.array([[0.8]])),
         ),
-        input_effect_block=replace(
-            default_input_effect_block(1),
-            n_cols=1,
-            free_support=np.zeros((1, 1), dtype=bool),
-            template=jnp.array([[0.5]]),
-        ),
     )
     model = SimpleNamespace(
         spec=spec,
         observation_support=None,
-        transition_inputs=jnp.array([[99.0], [2.0], [-1.0]]),
     )
 
     def constrain(z):
@@ -122,11 +112,10 @@ def test_sampler_context_is_a_dynestyx_model_pytree(runtime):
 
 
 @pytest.mark.parametrize("supplied_path", [False, True])
-def test_warmup_gaussian_view_traces_with_scalar_state_and_known_inputs(runtime, supplied_path):
+def test_warmup_gaussian_view_traces_with_scalar_state(runtime, supplied_path):
     """Trace the real library discretizer without executing matrix exponentials."""
     context = runtime.context(runtime.initial_position, runtime.times)
     continuous = context[0].state_evolution
-    schedule = runtime.schedule(context)
     init_mean = jnp.array([0.7])
     intervals = jnp.array([1e-4, 0.1, 0.25])
 
@@ -135,7 +124,6 @@ def test_warmup_gaussian_view_traces_with_scalar_state_and_known_inputs(runtime,
             continuous,
             intervals,
             init_mean,
-            transition_inputs=schedule.transition_controls,
             z_init=path if supplied_path else None,
             dtype=path.dtype,
         )
@@ -149,19 +137,16 @@ def test_warmup_gaussian_view_traces_with_scalar_state_and_known_inputs(runtime,
     assert bias.shape == (3, 1)
 
 
-def test_model_keeps_nonlinear_drift_and_destination_indexed_controls(runtime):
+def test_model_keeps_nonlinear_drift(runtime):
     context = runtime.context(runtime.initial_position, runtime.times)
     declared = runtime.model(context)
     state = jnp.array([0.8])
-    schedule = runtime.schedule(context)
     # Inspect a single distribution, without invoking a solver or sampler.
     with jax.disable_jit():
-        law = declared.state_evolution(
-            state, schedule.transition_controls[1], runtime.times[0], runtime.times[1]
-        )
+        law = declared.state_evolution(state, None, runtime.times[0], runtime.times[1])
     displacement = np.asarray(state) - 0.2
     dt = float(runtime.times[1] - runtime.times[0])
-    expected_drift = -0.4 * displacement - 0.2 * displacement**3 + 0.5 * 2.0
+    expected_drift = -0.4 * displacement - 0.2 * displacement**3
     np.testing.assert_allclose(law.mean, state + dt * expected_drift, atol=1e-6)
     np.testing.assert_allclose(law.covariance_matrix, [[dt * 0.3 + 1e-8]], atol=1e-7)
     np.testing.assert_allclose(declared.initial_condition.mean, [0.7])
@@ -199,7 +184,7 @@ def test_parameter_gradient_remains_dynamic_after_model_partition(runtime):
         gradient = jax.grad(transition)(runtime.initial_position)
     dt = float(runtime.times[1] - runtime.times[0])
     displacement = 0.8 - 0.2
-    mean = 0.8 + dt * (-0.4 * displacement - 0.2 * displacement**3 + 1.0)
+    mean = 0.8 + dt * (-0.4 * displacement - 0.2 * displacement**3)
     mean_gradient = dt * (0.4 + 0.6 * displacement**2)
     expected = (0.9 - mean) * mean_gradient / (dt * 0.3 + 1e-8)
     np.testing.assert_allclose(gradient, [expected], rtol=1e-5, atol=1e-6)
@@ -243,11 +228,18 @@ def test_native_discrete_law_samples_categories_from_predictors():
 def test_forward_simulation_passes_the_declared_model_to_the_ode_solver(monkeypatch):
     simulator = import_module("nof1_causal_lab.models.ssm.dynamics.simulator")
     from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec, compile_dynamics
-    
 
     field = compile_dynamics(
         DynamicsSpec(
-            1, (potential_term(0, center=FixedCoefficient(value=0), stiffness=FixedCoefficient(value=0.4), quartic=FixedCoefficient(value=0.2)),)
+            1,
+            (
+                potential_term(
+                    0,
+                    center=0,
+                    stiffness=0.4,
+                    quartic=0.2,
+                ),
+            ),
         )
     ).vector_field
     params = ({},)
@@ -256,7 +248,14 @@ def test_forward_simulation_passes_the_declared_model_to_the_ode_solver(monkeypa
     paths = jnp.zeros((3, 1))
 
     def solve(
-        model, *, initial_state, t0, path_times, ctrl_times, ctrl_values, diffeqsolve_settings
+        model,
+        *,
+        initial_state,
+        t0,
+        path_times,
+        diffeqsolve_settings,
+        ctrl_times=None,
+        ctrl_values=None,
     ):
         assert isinstance(model, dsx.DynamicalModel)
         assert ctrl_times is None
@@ -280,11 +279,18 @@ def test_forward_simulation_passes_the_declared_model_to_the_ode_solver(monkeypa
 def test_indexed_sde_keeps_its_brownian_path_and_uses_dynestyx_evolution(monkeypatch):
     simulator = import_module("nof1_causal_lab.models.ssm.dynamics.simulator")
     from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec, compile_dynamics
-    
 
     field = compile_dynamics(
         DynamicsSpec(
-            1, (potential_term(0, center=FixedCoefficient(value=0), stiffness=FixedCoefficient(value=0.4), quartic=FixedCoefficient(value=0.2)),)
+            1,
+            (
+                potential_term(
+                    0,
+                    center=0,
+                    stiffness=0.4,
+                    quartic=0.2,
+                ),
+            ),
         )
     ).vector_field
     params = ({},)
@@ -295,7 +301,7 @@ def test_indexed_sde_keeps_its_brownian_path_and_uses_dynestyx_evolution(monkeyp
     paths = jnp.zeros((3, 1))
 
     def solve(terms, _solver, **settings):
-        evolution = settings["args"][0]
+        evolution = settings["args"]
         assert isinstance(evolution, dsx.StochasticContinuousTimeStateEvolution)
         brownian = terms.terms[1].control
         assert isinstance(brownian, simulator._IndexedBrownianPath)
@@ -306,9 +312,9 @@ def test_indexed_sde_keeps_its_brownian_path_and_uses_dynestyx_evolution(monkeyp
             atol=1e-7,
         )
         base_drift = -0.4 * initial - 0.2 * initial**3
-        for time, forcing in [(grid[0], 1.0), (grid[1], -0.5), (grid[-1], -0.5)]:
+        for time in grid:
             np.testing.assert_allclose(
-                terms.terms[0].vf(time, initial, settings["args"]), base_drift + forcing
+                terms.terms[0].vf(time, initial, settings["args"]), base_drift
             )
         assert float(settings["dt0"]) == pytest.approx(0.01)
         assert isinstance(settings["adjoint"], simulator.dfx.ForwardMode)
@@ -324,7 +330,5 @@ def test_indexed_sde_keeps_its_brownian_path_and_uses_dynestyx_evolution(monkeyp
         config=simulator.SimulationConfig(sde_dt=0.01, use_indexed_brownian_path=True),
         key=key,
         diffusion_cov=covariance,
-        input_effect=jnp.array([[0.5]]),
-        transition_inputs=jnp.array([[99.0], [2.0], [-1.0]]),
     )
     assert actual is paths

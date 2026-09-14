@@ -328,7 +328,7 @@ def emit_model_spec_admission_event(
     ``event`` is the sub-name (``plan`` / ``construct_started`` / ``construct_checking`` /
     ``construct_report`` / ``done`` / ``failed``); the web UI reduces the stream into the live
     construct-admission view. Payloads are assembled by the admission flow, which owns the
-    translation of ``AdmissionReport``/``ConstructContribution`` into the UI contract.
+    translation of ``ConstructAdmissionReport``/``ConstructContribution`` into the UI contract.
     """
     emit_event(
         workspace_id,

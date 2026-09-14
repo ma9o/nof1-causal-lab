@@ -19,7 +19,6 @@ import jax.numpy as jnp
 import jax.random as random
 import numpy as np
 
-from nof1_causal_lab.artifacts.coefficient import FixedCoefficient
 from nof1_causal_lab.artifacts.expressions import expression_coefficients
 from nof1_causal_lab.artifacts.likelihood import DistributionFamily
 from nof1_causal_lab.artifacts.parameter import SiteKind
@@ -146,7 +145,6 @@ def _prior_predictive_latent_cache_key(
     vf_params: Any,
     samples: dict[str, jnp.ndarray],
     times: jnp.ndarray,
-    transition_inputs: jnp.ndarray | None,
     rng_key: jax.Array,
 ) -> str:
     """Fingerprint only inputs that can change the latent trajectories."""
@@ -162,13 +160,9 @@ def _prior_predictive_latent_cache_key(
     digest.update(jax.default_backend().encode())
     for leaf_index, leaf in enumerate(jax.tree.leaves(vf_params)):
         _update_array_digest(digest, f"vf:{leaf_index}", leaf)
-    for name in ("t0_cov", "t0_means", "diffusion", "input_effect"):
+    for name in ("t0_cov", "t0_means", "diffusion"):
         _update_array_digest(digest, name, samples[name])
     _update_array_digest(digest, "times", times)
-    if transition_inputs is None:
-        digest.update(b"transition-inputs:none")
-    else:
-        _update_array_digest(digest, "transition-inputs", transition_inputs)
     _update_array_digest(digest, "rng-key", rng_key)
     return digest.hexdigest()
 
@@ -201,10 +195,10 @@ def _predictive_max_rates(
     ]
     for component in compiled.spec.components:
         rates.extend(
-            jnp.full(n_draws, operand.coefficient.value)
+            jnp.full(n_draws, operand.value)
             for operand in expression_coefficients(component.expression)
             if operand.meaning.quantity == SiteKind.DYNAMICS_DECAY
-            and isinstance(operand.coefficient, FixedCoefficient)
+            and isinstance(operand.value, (int, float))
         )
     return jnp.max(jnp.stack(rates), axis=0) if rates else jnp.zeros(n_draws)
 
@@ -245,7 +239,6 @@ def _predictive_draw_order(max_rates: jnp.ndarray, span: float) -> tuple[jnp.nda
 def _simulate_model_predictive_latent_draw(
     model: dsx.DynamicalModel,
     times: jnp.ndarray,
-    transition_inputs: jnp.ndarray | None,
     key: jnp.ndarray,
     span: float,
     max_rate: jnp.ndarray,
@@ -258,14 +251,12 @@ def _simulate_model_predictive_latent_draw(
         times,
         config=_predictive_sde_config(max_rate, span),
         key=key_latent,
-        transition_inputs=transition_inputs,
     )
 
 
 def _simulate_model_predictive_draws_microbatched(
     models: dsx.DynamicalModel,
     times: jnp.ndarray,
-    transition_inputs: jnp.ndarray | None,
     keys: jnp.ndarray,
     span: float,
     max_rates: jnp.ndarray,
@@ -277,7 +268,6 @@ def _simulate_model_predictive_draws_microbatched(
         return _simulate_model_predictive_latent_draw(
             eqx.combine(model_arrays, structure),
             times,
-            transition_inputs,
             key,
             span,
             max_rate,
@@ -298,7 +288,6 @@ def _simulate_vector_field_predictive_latents(
     samples: dict[str, jnp.ndarray],
     times: jnp.ndarray,
     *,
-    transition_inputs: jnp.ndarray | None,
     rng_key: jax.Array,
     dynamics: DynamicsSpec | None = None,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
@@ -314,7 +303,6 @@ def _simulate_vector_field_predictive_latents(
         models.state_evolution,
         samples,
         times,
-        transition_inputs,
         rng_key,
     )
     latents = _cached_latents(cache_key)
@@ -327,7 +315,6 @@ def _simulate_vector_field_predictive_latents(
         sorted_latents = _simulate_model_predictive_draws(
             sorted_models,
             times,
-            transition_inputs,
             draw_keys[order],
             span,
             max_rates[order],
@@ -380,7 +367,6 @@ def simulate_prior_predictive_latents(
     samples: dict[str, jnp.ndarray],
     times: jnp.ndarray,
     *,
-    transition_inputs: jnp.ndarray | None,
     rng_key: jax.Array,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Simulate exact nonlinear latent paths and their linear predictors."""
@@ -388,7 +374,6 @@ def simulate_prior_predictive_latents(
         spec,
         samples,
         times,
-        transition_inputs=transition_inputs,
         rng_key=rng_key,
     )
 
@@ -428,7 +413,6 @@ def sample_prior_predictive_from_runtime(
     *,
     observation_support=None,
     observation_mask: jnp.ndarray | None = None,
-    transition_inputs: jnp.ndarray | None = None,
     num_samples: int = 100,
     seed: int = 0,
 ) -> dict[str, jnp.ndarray]:
@@ -447,7 +431,6 @@ def sample_prior_predictive_from_runtime(
         spec,
         samples,
         times,
-        transition_inputs=transition_inputs,
         rng_key=keys.latents,
     )
     observations, observations_mask, expected_observations = sample_prior_predictive_emissions(
@@ -475,7 +458,6 @@ def simulate_posterior_predictive_observations(
     *,
     observation_support=None,
     observation_mask: jnp.ndarray | None = None,
-    transition_inputs: jnp.ndarray | None = None,
     n_subsample: int = 50,
     seed: int = 42,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
@@ -504,7 +486,6 @@ def simulate_posterior_predictive_observations(
         spec,
         sub,
         times,
-        transition_inputs=transition_inputs,
         rng_key=keys.latents,
     )
     observations, effective_mask, _expected = sample_model_observations(

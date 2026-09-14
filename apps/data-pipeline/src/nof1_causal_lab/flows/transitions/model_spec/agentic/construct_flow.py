@@ -22,7 +22,11 @@ import jax.numpy as jnp
 import numpy as np
 from pydantic import TypeAdapter
 
-from nof1_causal_lab.artifacts.construct import CausalEdge, Construct, endpoint_validation_scope
+from nof1_causal_lab.artifacts.construct import (
+    CausalEdgeSpec,
+    ConstructSpec,
+    endpoint_validation_scope,
+)
 from nof1_causal_lab.artifacts.expressions import hill_applications
 from nof1_causal_lab.artifacts.parameter_spec import (
     ParameterConstraint,
@@ -54,6 +58,7 @@ if TYPE_CHECKING:
 
     import polars as pl
 
+    from nof1_causal_lab.artifacts.identity import ParameterId
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
     from .parameter_candidates import ParameterMetadata
@@ -84,7 +89,7 @@ class ParamCatalog:
     roles: Mapping[str, tuple[ParameterRole, ParameterConstraint]]
     by_construct: Mapping[str, tuple[str, ...]]
     global_params: frozenset[str]
-    parameter_ids: Mapping[str, str]
+    parameter_ids: Mapping[str, ParameterId]
     metadata: Mapping[str, ParameterMetadata]
 
     model: ModelSpec
@@ -276,7 +281,7 @@ def _closing_edge_effects(
 
 def _closed_loop_target(
     member: ConstructContribution,
-    edges: Sequence[CausalEdge],
+    edges: Sequence[CausalEdgeSpec],
 ) -> ConstructContribution:
     """The incoming mechanisms included in the closed-loop model's checks."""
     incoming = [edge for edge in edges if edge.effect.id == member.construct.id and edge.mechanisms]
@@ -304,15 +309,21 @@ def contribution_from_payload(
     Dynamics are declared in the same mechanism types persisted by the model.
     The referenced free coefficients determine the dynamics parameter catalog.
     """
-    construct = Construct.model_validate(payload["construct"])
+    construct = ConstructSpec.model_validate(payload["construct"])
     with endpoint_validation_scope(payload["edges"], endpoints=(*model.constructs, construct)):
-        edges = TypeAdapter(tuple[CausalEdge, ...]).validate_python(payload["edges"])
-    proposed = TypeAdapter(tuple[ParameterSpec, ...]).validate_python(payload["parameters"])
-    parameters = proposed
+        edges = TypeAdapter(tuple[CausalEdgeSpec, ...]).validate_python(payload["edges"])
+    from nof1_causal_lab.artifacts.identity import DistributionId
+    from nof1_causal_lab.numpyro_json import NumPyroDistribution
+
+    parameters = TypeAdapter(tuple[ParameterSpec, ...]).validate_python(payload["parameters"])
+    distributions = TypeAdapter(dict[DistributionId, NumPyroDistribution]).validate_python(
+        payload["distributions"]
+    )
     contribution = ConstructContribution(
         construct=construct,
         edges=edges,
         parameters=parameters,
+        distributions=distributions,
     )
     return _closed_loop_target(contribution, edges)
 
@@ -364,7 +375,6 @@ def _design_for_state(
     check_execution(model_spec)
 
     indicator_ids = list(model_spec.manifest_indicator_order)
-    indicator_ids.extend(item.source_indicator_id for item in model_spec.known_inputs.values())
     trial_data = data_for_model.filter(pl.col("indicator_id").is_in(indicator_ids))
     runtime = prepare_model_runtime(trial_data, model_spec=model_spec)
 
@@ -388,7 +398,6 @@ def _design_for_state(
         n_draws=n_draws,
         seed=seed,
         observation_support=runtime.observation_support,
-        transition_inputs=runtime.transition_inputs,
     )
 
 
@@ -485,6 +494,9 @@ def _admission_report_payload(
         "results": [_check_result_payload(r) for r in report.results],
         "timings": [_timing_payload(timing) for timing in report.timings],
         "parameters": _admission_parameters_payload(contribution),
+        "distributions": TypeAdapter(ConstructContribution).dump_python(contribution, mode="json")[
+            "distributions"
+        ],
     }
     if coupled_recheck is not None:
         payload["coupled_recheck"] = coupled_recheck
@@ -573,13 +585,14 @@ class ConstructBuildState:
         construct: Mapping[str, Any],
         edges: Sequence[Mapping[str, Any]],
         parameters: Sequence[Mapping[str, Any]],
+        distributions: Mapping[str, Any],
         accept: Sequence[Mapping[str, Any]] | None = None,
     ) -> str:
         self.submission_made = True
         expected = self.current_construct
         if expected is None:
             return "All constructs are already admitted; no further submission is needed."
-        entity = Construct.model_validate(construct)
+        entity = ConstructSpec.model_validate(construct)
         expected_entity = next(item for item in self.model.constructs if item.name == expected)
         if entity.id != expected_entity.id:
             return f"Out-of-order submission: the active construct is {expected_entity.id!r}."
@@ -590,6 +603,7 @@ class ConstructBuildState:
             "construct": entity.model_dump(mode="json"),
             "edges": list(edges),
             "parameters": list(parameters),
+            "distributions": dict(distributions),
         }
         try:
             contribution = contribution_from_payload(self.model, payload)
@@ -752,7 +766,7 @@ SUBMIT_CONSTRUCT_SCHEMA["properties"]["accept"] = {
         "additionalProperties": False,
     },
 }
-SUBMIT_CONSTRUCT_SCHEMA["required"] = ["construct", "edges", "parameters"]
+SUBMIT_CONSTRUCT_SCHEMA["required"] = ["construct", "edges", "parameters", "distributions"]
 SUBMIT_CONSTRUCT_SCHEMA["additionalProperties"] = False
 
 

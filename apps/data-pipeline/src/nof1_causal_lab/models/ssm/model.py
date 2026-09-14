@@ -98,7 +98,6 @@ class SSMModel:
         self._parameter_layout = SSMParameterLayout.from_spec(spec)
         self._artifact_cache: dict[tuple[object, ...], object] = {}
         self.observation_support: ObservationSupportRuntime | None = None
-        self.transition_inputs: jnp.ndarray | None = None
         self._prior_runtime_bundle = prior_runtime_bundle
         self._prior_site_index = (
             {site.name: site for site in prior_runtime_bundle.registry}
@@ -127,11 +126,6 @@ class SSMModel:
             if not (isinstance(key, tuple) and key and key[0] == "backend")
         }
 
-    def set_transition_inputs(self, transition_inputs: jnp.ndarray | None) -> None:
-        """Attach prepared known-input trajectories aligned to transition intervals."""
-        self.transition_inputs = transition_inputs
-
-    @property
     def vector_field(self):
         """Unified dynamics representation as a :class:`VectorField`.
 
@@ -201,7 +195,7 @@ class SSMModel:
         )
         for name, value in matrices.items():
             # Empty input/static-factor blocks have no public deterministic site.
-            if name not in {"input_effect", "static_state_sds"} or value.size:
+            if name != "static_state_sds" or value.size:
                 numpyro.deterministic(name, value)
         numpyro.factor(
             "t0_correlation_positive_definite",
@@ -216,7 +210,6 @@ class SSMModel:
     def _sample_runtime_dynamics(
         self,
         diffusion_cov: jnp.ndarray,
-        input_effect: jnp.ndarray,
     ) -> StochasticContinuousTimeStateEvolution:
         """Sample vector-field parameters inside the NumPyro trace."""
         from nof1_causal_lab.models.ssm.dynamics.spec import compile_dynamics
@@ -226,7 +219,6 @@ class SSMModel:
             vector_field=compiled.vector_field,
             vf_params=compiled.sample_params(self._prior_distribution),
             diffusion_cov=diffusion_cov,
-            input_effect=input_effect,
         )
 
     def model(
@@ -252,7 +244,6 @@ class SSMModel:
         sampled = self._sample_parameters()
 
         diffusion_chol = sampled["diffusion"]
-        input_effect = sampled["input_effect"]
         lambda_mat = sampled["lambda"]
         manifest_means = sampled["manifest_means"]
         t0_means = sampled["t0_means"]
@@ -261,7 +252,9 @@ class SSMModel:
         manifest_cov = sampled["manifest_cov"]
         t0_cov = sampled["t0_cov"]
         extra_params = self._sample_likelihood_extra_params(spec)
-        dynamics = self._sample_runtime_dynamics(diffusion_cov, input_effect)
+        dynamics = self._sample_runtime_dynamics(
+            diffusion_cov,
+        )
 
         meas_params = MeasurementParams(
             lambda_mat=lambda_mat,
@@ -280,7 +273,6 @@ class SSMModel:
             observations,
             time_intervals,
             extra_params=extra_params or None,
-            transition_inputs=self.transition_inputs,
         )
 
         # lnc is (T,) cumulative log-normalizing constants from the filter.

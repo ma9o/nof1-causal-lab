@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from nof1_causal_lab.artifacts.coefficient import FixedCoefficient
 from nof1_causal_lab.artifacts.execution import AnchorCertificate
 from nof1_causal_lab.artifacts.expressions import StateExpression, restoring_coefficients
 from nof1_causal_lab.artifacts.likelihood import DistributionFamily
@@ -72,7 +71,7 @@ def compile_anchor_certificates(
         for operand in restoring_coefficients(
             component.expression, state_ids[component.target], kind=component.kind
         )
-        if operand.role == "center" and isinstance(operand.coefficient, FixedCoefficient)
+        if operand.role == "center" and isinstance(operand.value, (int, float))
     }
 
     errors: list[str] = []

@@ -6,11 +6,11 @@ import jax.numpy as jnp
 import pytest
 
 from nof1_causal_lab.artifacts.identification import (
-    IdentifiabilityStatus,
     IdentificationReport,
     IdentifiedTreatmentStatus,
+    NonIdentifiableTreatmentStatus,
 )
-from nof1_causal_lab.artifacts.identity import ConstructRef, ModelRevision
+from nof1_causal_lab.artifacts.identity import ModelRevision
 from nof1_causal_lab.models.causal_proofs import (
     CertifiedCausalAnalysis,
     certify_identified_estimand,
@@ -26,20 +26,18 @@ def _design():
     from tests.helpers import complete_test_model, make_model
 
     model = complete_test_model(make_model(["treatment", "outcome"], [("treatment", "outcome")]))
-    return model.revised(default_outcome=ConstructRef(id=model.constructs[1].id))
+    return model.revised(default_outcome=model.constructs[1].id)
 
 
 def _identification():
     model = _design()
     return IdentificationReport(
         outcome=model.constructs[1].id,
-        status=IdentifiabilityStatus(
-            identifiable_treatments={
-                model.constructs[0].id: IdentifiedTreatmentStatus(
-                    method="do_calculus", estimand="E[outcome | do(treatment)]"
-                )
-            }
-        ),
+        treatments={
+            model.constructs[0].id: IdentifiedTreatmentStatus(
+                method="do_calculus", estimand="E[outcome | do(treatment)]"
+            )
+        },
     )
 
 
@@ -76,19 +74,27 @@ def test_identification_contract_rejects_linear_iv_evidence_for_nonlinear_models
     from pydantic import ValidationError
 
     payload = _identification().model_dump(mode="json")
-    finding = next(iter(payload["status"]["identifiable_treatments"].values()))
+    finding = next(iter(payload["treatments"].values()))
     finding.update(method="instrumental_variable", estimand="IV(Z) [requires linearity]")
     with pytest.raises(ValidationError, match="do_calculus"):
         IdentificationReport.model_validate(payload)
 
 
-def test_identification_proof_rejects_unidentified_treatment() -> None:
+@pytest.mark.parametrize("explicit_finding", [False, True])
+def test_identification_proof_rejects_unidentified_treatment(explicit_finding) -> None:
+    model = _design()
+    report = IdentificationReport(
+        outcome=model.constructs[1].id,
+        treatments={model.constructs[0].id: NonIdentifiableTreatmentStatus(notes="Unidentified")}
+        if explicit_finding
+        else {},
+    )
     with pytest.raises(ValueError, match="is not identified"):
         certify_identified_estimand(
-            _design(),
-            _identification(),
+            model,
+            report,
             model_revision=ModelRevision(workspace_id="workspace", version=1),
-            treatment="outcome",
+            treatment="treatment",
             outcome="outcome",
         )
 

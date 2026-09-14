@@ -295,7 +295,6 @@ def test_execute_llm_tool_calls_activity_persists_raw_data_submit_table(
                 pins={},
                 context_ref=context_ref,
                 result_ref=result_ref,
-                trace_ref="",
             )
         )
     )
@@ -689,84 +688,6 @@ def test_extraction_chunk_workflow_runs_shared_llm_subroutine(monkeypatch, tmp_p
     assert trace.usage.input_tokens == 3
 
 
-def test_llm_subroutine_workflow_runs_openrouter_without_tool(monkeypatch, tmp_path):
-    from temporalio.testing import WorkflowEnvironment
-
-    import nof1_causal_lab.utils.openrouter_client as openrouter_client
-    from nof1_causal_lab.machine.temporal.client import pydantic_data_converter
-    from nof1_causal_lab.machine.temporal.worker import build_openrouter_worker, build_worker
-    from nof1_causal_lab.utils import data as data_module
-
-    monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
-
-    async def fake_call_model(model_name, messages, tools=None, config=None, log_label=None):
-        del messages, config, log_label
-        assert tools is None
-        return {
-            "message": {"role": "assistant", "content": "Summary text.", "tool_calls": []},
-            "completion": "Summary text.",
-            "usage": {"input_tokens": 7, "output_tokens": 4, "reasoning_tokens": None},
-            "model": model_name,
-            "time": 0.1,
-            "stop_reason": "end_turn",
-        }
-
-    monkeypatch.setattr(openrouter_client, "call_model", fake_call_model)
-
-    workspace_id = f"ws-{uuid.uuid4().hex[:8]}"
-    context_ref = str(tmp_path / "analysis-context.json")
-    storage.write_text(
-        context_ref,
-        json.dumps(
-            {
-                "system_prompt": "Write concise analysis commentary.",
-                "user_messages": ["Summarize the result."],
-            }
-        ),
-    )
-
-    async def scenario():
-        env = await WorkflowEnvironment.start_local(data_converter=pydantic_data_converter)
-        try:
-            async with (
-                build_worker(env.client, task_queue="test-episodes"),
-                build_openrouter_worker(env.client),
-            ):
-                result = await env.client.execute_workflow(
-                    LLMSubroutineWorkflow.run,
-                    LLMSubroutineInput(
-                        workspace_id=workspace_id,
-                        run_id="seq-000001",
-                        subroutine_id="analysis-commentary",
-                        context_kind="analysis_commentary",
-                        context_ref=context_ref,
-                        llm=LLMBackendConfig(
-                            harness="none",
-                            model="openrouter/mock-analysis",
-                            timeout=120,
-                        ),
-                        max_tool_turns=1,
-                        require_result=False,
-                    ),
-                    id=f"analysis-commentary-{workspace_id}",
-                    task_queue="test-episodes",
-                )
-        finally:
-            await env.shutdown()
-        return result
-
-    result = run_async(scenario())
-
-    assert result.result_ref is None
-    assert result.n_llm_calls == 1
-    assert result.trace_ref is not None
-    from nof1_causal_lab.utils.llm import LLMTrace
-
-    trace = LLMTrace.model_validate(storage.read_json(result.trace_ref))
-    assert trace.model == "openrouter/mock-analysis"
-    assert trace.messages[-1].content == "Summary text."
-
-
 @pytest.mark.parametrize(
     ("harness", "model"),
     [
@@ -798,7 +719,7 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
     valid_structure = {
-        "default_outcome": {"kind": "construct", "id": "construct:cdc0b2958a9512b2abad"},
+        "default_outcome": "construct:cdc0b2958a9512b2abad",
         "edges": [
             {
                 "cause": {

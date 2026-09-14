@@ -14,10 +14,12 @@ from dynestyx.inference.particle_runtime import (
     ParticleSchedule,
 )
 
-from nof1_causal_lab.distributions import DistributionFamily
-from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.covariance_utils import CHOL_JITTER
 from nof1_causal_lab.models.ssm.execution.dynamical_model import build_dynamical_model
+from nof1_causal_lab.models.ssm.inference.conditioning import (
+    ExactStateConstraints,
+    compile_exact_state_constraints,
+)
 from nof1_causal_lab.models.ssm.inference.utils import (
     prepare_model_parameters,
 )
@@ -42,24 +44,14 @@ class ParticleProblem:
     site_info: SiteInfo
     public_sites: set[str]
     latent_transition_kind: str
+    exact_constraints: ExactStateConstraints | None = None
 
 
 def build_particle_problem(model, observations, times, *, scheme, trace_key, reparam):
     """Prepare the application model; Dynestyx owns posterior composition."""
     if scheme != LATENT_TRANSITION_EULER_MARUYAMA:
         raise ValueError(f"Particle inference requires 'euler_maruyama'; got {scheme!r}.")
-    exact_indicators = [
-        indicator.name
-        for indicator in numeric.observed_indicators(model.spec)
-        if indicator.likelihood is not None
-        and indicator.likelihood.law.family == DistributionFamily.DELTA
-    ]
-    if exact_indicators:
-        raise ValueError(
-            f"Delta observations {exact_indicators} require constraint-preserving particle "
-            "proposals, which are not implemented. Continuous proposals cannot condition on "
-            "exact equalities."
-        )
+    exact_constraints = compile_exact_state_constraints(model.spec, observations)
     if has_student_t_diffusion(model.spec):
         raise ValueError(
             "Particle inference currently requires Gaussian latent diffusion for every state."
@@ -92,11 +84,7 @@ def build_particle_problem(model, observations, times, *, scheme, trace_key, rep
         )
 
     def schedule(context):
-        runtime_times = context[1]
-        controls = model.transition_inputs
-        if controls is not None:
-            controls = controls[: runtime_times.shape[0]]
-        return ParticleSchedule(runtime_times, None, controls)
+        return ParticleSchedule(context[1], None, None)
 
     runtime = ParticleRuntime(
         parameters,
@@ -107,4 +95,6 @@ def build_particle_problem(model, observations, times, *, scheme, trace_key, rep
         times,
         marginalize_missing=False,
     )
-    return ParticleProblem(runtime, site_info, public_sites, LATENT_TRANSITION_EULER_MARUYAMA)
+    return ParticleProblem(
+        runtime, site_info, public_sites, LATENT_TRANSITION_EULER_MARUYAMA, exact_constraints
+    )

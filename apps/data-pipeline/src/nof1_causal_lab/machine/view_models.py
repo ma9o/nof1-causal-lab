@@ -4,13 +4,12 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
-from nof1_causal_lab.artifacts.admission import AdmissionReport
-from nof1_causal_lab.artifacts.baseline_report import BaselineReportArtifact
 from nof1_causal_lab.artifacts.effects import HistogramBin  # noqa: TC001
 from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId, ParameterId  # noqa: TC001
 from nof1_causal_lab.artifacts.measurements import ObservationRecord  # noqa: TC001
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.posterior import InferenceReport
+from nof1_causal_lab.artifacts.prior_predictive import PriorPredictiveResult
 from nof1_causal_lab.artifacts.validation_report import (
     IndicatorEmpiricalProfile,
     ValidationReportArtifact,
@@ -96,10 +95,9 @@ class ArtifactViews(ViewValue):
     model: ModelSpec | None = None
     measurements: MeasurementsData | None = None
     validation_report: ValidationReportArtifact | None = None
-    admission_report: AdmissionReport | None = None
+    prior_predictive: PriorPredictiveResult | None = None
     model_diagnostics: ModelDiagnostics | None = None
     inference_report: InferenceReport | None = None
-    baseline_report: BaselineReportArtifact | None = None
 
 
 class ArtifactViewResponse(
@@ -108,10 +106,9 @@ class ArtifactViewResponse(
         | ModelSpec
         | MeasurementsData
         | ValidationReportArtifact
-        | AdmissionReport
+        | PriorPredictiveResult
         | ModelDiagnostics
         | InferenceReport
-        | BaselineReportArtifact
     ]
 ):
     """One available artifact projection returned by the model view endpoint."""

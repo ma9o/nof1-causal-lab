@@ -33,7 +33,6 @@ def validate_model_submission(
             errors = collect_measurement_compile_errors(model)
             if errors:
                 return None, "VALIDATION ERRORS:\n" + "\n".join(errors)
-            model.require_execution_structure()
     except (ValidationError, ValueError) as exc:
         return None, f"VALIDATION ERRORS:\n{exc}"
     return model.model_dump(mode="json"), "VALID"

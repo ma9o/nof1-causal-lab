@@ -13,19 +13,20 @@ import json
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from nof1_causal_lab.artifacts.construct import (
-    CausalEdge,
-    Construct,
+    CausalEdgeSpec,
+    ConstructSpec,
     serialize_edge_references,
 )
-from nof1_causal_lab.artifacts.identity import ArtifactId  # noqa: TC001
+from nof1_causal_lab.artifacts.identity import ArtifactId, DistributionId
 from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec  # noqa: TC001
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.derivations import read_model
 from nof1_causal_lab.machine.moves import RunOperation
 from nof1_causal_lab.machine.store import EpisodeJournal, utc_now_iso
+from nof1_causal_lab.numpyro_json import NumPyroDistribution
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
 
@@ -35,7 +36,7 @@ if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 CHECKPOINT_REF_PREFIX = "model-spec-checkpoint:"
-CHECKPOINT_SCHEMA_VERSION = 4
+CHECKPOINT_SCHEMA_VERSION = 5
 ADMISSION_EVALUATION_SCHEMA_VERSION = 1
 ADMISSION_ENGINE_VERSION = 3
 
@@ -46,9 +47,10 @@ class AcceptedConstructCheckpoint(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     submission_id: str
-    entity: Construct
-    edges: tuple[CausalEdge, ...]
+    entity: ConstructSpec
+    edges: tuple[CausalEdgeSpec, ...]
     parameters: tuple[ParameterSpec, ...]
+    distributions: dict[DistributionId, NumPyroDistribution]
     accept: list[dict[str, str]] = Field(default_factory=list)
     annotations: list[str] = Field(default_factory=list)
     results: list[UncheckedJsonObject] = Field(default_factory=list)
@@ -77,7 +79,7 @@ class ModelSpecCheckpoint(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    schema_version: Literal[4] = CHECKPOINT_SCHEMA_VERSION
+    schema_version: Literal[5] = CHECKPOINT_SCHEMA_VERSION
     workspace_id: str
     run_id: str
     seq: int
@@ -129,9 +131,10 @@ def model_spec_admission_evaluation_key(
     accepted_constructs: Sequence[AcceptedConstructCheckpoint],
     ancestor_constructs: set[str],
     construct_name: str,
-    construct: Construct,
-    edges: Sequence[CausalEdge],
+    construct: ConstructSpec,
+    edges: Sequence[CausalEdgeSpec],
     parameters: Sequence[ParameterSpec],
+    distributions: Mapping[DistributionId, NumPyroDistribution],
     accept: list[dict[str, str]],
     n_draws: int,
     seed: int,
@@ -143,6 +146,7 @@ def model_spec_admission_evaluation_key(
             "construct": item.entity.model_dump(mode="json"),
             "edges": serialize_edge_references(item.edges),
             "parameters": [parameter.model_dump(mode="json") for parameter in item.parameters],
+            "distributions": item.model_dump(mode="json")["distributions"],
         }
         for item in accepted_constructs
         if item.construct_name in ancestor_constructs
@@ -157,6 +161,9 @@ def model_spec_admission_evaluation_key(
             "construct": construct.model_dump(mode="json"),
             "edges": serialize_edge_references(edges),
             "parameters": [parameter.model_dump(mode="json") for parameter in parameters],
+            "distributions": TypeAdapter(dict[DistributionId, NumPyroDistribution]).dump_python(
+                dict(distributions), mode="json"
+            ),
             "accept": sorted(
                 accept,
                 key=lambda value: json.dumps(value, sort_keys=True, separators=(",", ":")),
@@ -240,7 +247,7 @@ def _write_checkpoint(path: str, checkpoint: ModelSpecCheckpoint) -> str:
     if storage.exists(path):
         existing = ModelSpecCheckpoint.model_validate(storage.read_json(path))
         expected = checkpoint.model_copy(update={"created_at": existing.created_at})
-        if existing != expected:
+        if existing.model_dump(mode="json") != expected.model_dump(mode="json"):
             raise ValueError(f"Checkpoint path collision at {path}")
         return ref
     storage.write_text(path, checkpoint.model_dump_json())
@@ -475,6 +482,7 @@ def restore_construct_state(
                 "construct": saved.entity.model_dump(mode="json"),
                 "edges": serialize_edge_references(saved.edges),
                 "parameters": [parameter.model_dump(mode="json") for parameter in saved.parameters],
+                "distributions": saved.model_dump(mode="json")["distributions"],
             },
         )
         trial = trial_admission_state(state.admission, contribution)
@@ -600,6 +608,7 @@ def rebase_accepted_constructs(
                 construct=saved.entity.model_dump(mode="json"),
                 edges=serialize_edge_references(saved.edges),
                 parameters=[parameter.model_dump(mode="json") for parameter in saved.parameters],
+                distributions=saved.model_dump(mode="json")["distributions"],
                 accept=saved.accept,
             )
         except (

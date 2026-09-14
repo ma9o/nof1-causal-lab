@@ -1,6 +1,6 @@
 """Tests for causal design schema computed properties and utility functions.
 
-Object-level construction validation (Construct, ModelSpec, Indicator,
+Object-level construction validation (ConstructSpec, ModelSpec, IndicatorSpec,
 MeasurementStructure) is covered by test_schema_validators.py via dict validators.
 This file tests CausalDesign composition, computed properties, and utility
 functions that are not exercised through dict validation.
@@ -12,15 +12,23 @@ import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from nof1_causal_lab.artifacts.construct import (
-    CausalEdge,
-    Construct,
+    CausalEdgeSpec,
+    ConstructSpec,
     Role,
     TemporalStatus,
     replace_constructs,
 )
 from nof1_causal_lab.artifacts.duration import parse_duration_to_hours
-from nof1_causal_lab.artifacts.identity import ConstructRef
-from nof1_causal_lab.artifacts.indicator import Indicator as IndicatorModel
+from nof1_causal_lab.artifacts.identity import (
+    ConstructId,
+    DistributionId,
+    EdgeId,
+    IndicatorId,
+    MechanismId,
+    ParameterElementId,
+    ParameterId,
+)
+from nof1_causal_lab.artifacts.indicator import IndicatorSpec as IndicatorModel
 from nof1_causal_lab.artifacts.indicator import WindowExpression, check_semantic_collisions
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.utils.observation_semantics import (
@@ -32,27 +40,27 @@ from nof1_causal_lab.utils.observation_semantics import (
 from tests.helpers import graph_constructs, make_model
 
 
-def Indicator(**kwargs: Any) -> IndicatorModel:
+def IndicatorSpec(**kwargs: Any) -> IndicatorModel:
     """Build test indicators with the current required schema defaults."""
     kwargs.setdefault("construct_polarity", "positive")
     return IndicatorModel(**kwargs)
 
 
 class TestConstruct:
-    """Tests for Construct validation."""
+    """Tests for ConstructSpec validation."""
 
     def test_outcome_is_not_an_intrinsic_construct_property(self, construct_factory):
         construct = construct_factory("mood")
         assert "is_outcome" not in construct.model_dump()
         with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
-            Construct.model_validate({**construct.model_dump(), "is_outcome": True})
+            ConstructSpec.model_validate({**construct.model_dump(), "is_outcome": True})
 
 
 class TestModel:
     """Scientific membership follows the endpoints of one connected graph."""
 
     def test_valid_simple_structure(self, construct_factory):
-        edge = CausalEdge(
+        edge = CausalEdgeSpec(
             id="edge:stress-mood",
             cause=construct_factory("stress", Role.EXOGENOUS),
             effect=construct_factory("mood"),
@@ -74,7 +82,7 @@ class TestModel:
         with pytest.raises(ValueError, match="Exogenous construct 'weather' cannot be an effect"):
             ModelSpec(
                 edges=(
-                    CausalEdge(
+                    CausalEdgeSpec(
                         id="edge:mood-weather",
                         cause=construct_factory("mood"),
                         effect=construct_factory("weather", Role.EXOGENOUS),
@@ -87,7 +95,7 @@ class TestModel:
         with pytest.raises(ValueError, match="cannot be a cause of time-invariant construct"):
             ModelSpec(
                 edges=(
-                    CausalEdge(
+                    CausalEdgeSpec(
                         id="edge:habit-trait",
                         cause=construct_factory("habit"),
                         effect=construct_factory(
@@ -100,39 +108,39 @@ class TestModel:
 
     def test_default_query_outcome_does_not_require_incoming_edges(self):
         model = make_model(["mood", "sleep"], [("mood", "sleep")])
-        reference = ConstructRef(id=model.edges[0].cause.id)
-        assert model.revised(default_outcome=reference).default_outcome == reference
+        identity = model.edges[0].cause.id
+        assert model.revised(default_outcome=identity).default_outcome == identity
 
     def test_structure_can_precede_outcome_selection(self):
         assert make_model(["stress", "mood"], [("stress", "mood")]).default_outcome is None
 
     def test_default_query_outcome_must_exist(self):
         with pytest.raises(ValueError, match="unknown construct"):
-            make_model(["mood"]).revised(default_outcome=ConstructRef(id="construct:unknown"))
+            make_model(["mood"]).revised(default_outcome="construct:unknown")
 
     def test_default_query_outcome_must_be_endogenous(self, construct_factory):
         target = construct_factory("weather", Role.EXOGENOUS)
         with pytest.raises(ValueError, match="endogenous"):
             ModelSpec(
                 edges=(
-                    CausalEdge(
+                    CausalEdgeSpec(
                         id="edge:weather-mood",
                         cause=target,
                         effect=construct_factory("mood"),
                         description="Weather affects mood",
                     ),
                 ),
-                default_outcome=ConstructRef(id=target.id),
+                default_outcome=target.id,
             )
 
 
 class TestIndicator:
-    """Tests for Indicator validation."""
+    """Tests for IndicatorSpec validation."""
 
     def test_invalid_aggregation(self):
         """Invalid aggregation is rejected."""
         with pytest.raises(ValueError, match="aggregation"):
-            Indicator(
+            IndicatorSpec(
                 id="indicator:e05e217de7f4442abdc5",
                 name="mood_rating",
                 how_to_measure="Extract mood",
@@ -143,7 +151,7 @@ class TestIndicator:
     def test_invalid_measurement_dtype(self):
         """Invalid measurement_dtype is rejected."""
         with pytest.raises(ValueError, match="measurement_dtype"):
-            Indicator(
+            IndicatorSpec(
                 id="indicator:e05e217de7f4442abdc5",
                 name="mood_rating",
                 how_to_measure="Extract mood",
@@ -154,7 +162,7 @@ class TestIndicator:
     def test_ordinal_requires_levels(self):
         """Ordinal dtype without ordinal_levels is rejected."""
         with pytest.raises(ValueError, match="ordinal_levels is required"):
-            Indicator(
+            IndicatorSpec(
                 id="indicator:036fd134b9ad32d7a2ca",
                 name="pain",
                 how_to_measure="Extract pain level",
@@ -165,7 +173,7 @@ class TestIndicator:
     def test_ordinal_needs_at_least_two_levels(self):
         """Ordinal with only one level is rejected."""
         with pytest.raises(ValueError, match="at least 2 items"):
-            Indicator(
+            IndicatorSpec(
                 id="indicator:036fd134b9ad32d7a2ca",
                 name="pain",
                 how_to_measure="Extract pain level",
@@ -177,7 +185,7 @@ class TestIndicator:
     def test_ordinal_no_duplicate_levels(self):
         """Ordinal with duplicate levels is rejected."""
         with pytest.raises(ValueError, match="duplicate labels"):
-            Indicator(
+            IndicatorSpec(
                 id="indicator:036fd134b9ad32d7a2ca",
                 name="pain",
                 how_to_measure="Extract pain level",
@@ -188,7 +196,7 @@ class TestIndicator:
 
     def test_ordinal_valid_levels(self):
         """Ordinal with valid levels passes."""
-        ind = Indicator(
+        ind = IndicatorSpec(
             id="indicator:036fd134b9ad32d7a2ca",
             name="pain",
             how_to_measure="Extract pain level",
@@ -200,7 +208,7 @@ class TestIndicator:
 
     def test_categorical_requires_levels(self):
         with pytest.raises(ValueError, match="categorical_levels is required"):
-            Indicator(
+            IndicatorSpec(
                 id="indicator:73fed6c52a41057ef02f",
                 name="location",
                 how_to_measure="Extract location",
@@ -210,7 +218,7 @@ class TestIndicator:
 
     def test_categorical_needs_at_least_two_levels(self):
         with pytest.raises(ValueError, match="at least 2 items"):
-            Indicator(
+            IndicatorSpec(
                 id="indicator:73fed6c52a41057ef02f",
                 name="location",
                 how_to_measure="Extract location",
@@ -221,7 +229,7 @@ class TestIndicator:
 
     def test_categorical_rejects_duplicate_levels(self):
         with pytest.raises(ValueError, match="duplicate labels"):
-            Indicator(
+            IndicatorSpec(
                 id="indicator:73fed6c52a41057ef02f",
                 name="location",
                 how_to_measure="Extract location",
@@ -232,7 +240,7 @@ class TestIndicator:
 
     def test_non_ordinal_ignores_levels(self):
         """Non-ordinal dtype doesn't require ordinal_levels."""
-        ind = Indicator(
+        ind = IndicatorSpec(
             id="indicator:c5b118ae552981435d7b",
             name="weight",
             how_to_measure="Extract weight",
@@ -243,7 +251,7 @@ class TestIndicator:
 
     def test_semantic_default(self):
         """Extraction mode defaults to 'semantic'."""
-        ind = Indicator(
+        ind = IndicatorSpec(
             id="indicator:e05e217de7f4442abdc5",
             name="mood_rating",
             how_to_measure="Extract mood",
@@ -255,7 +263,7 @@ class TestIndicator:
     def test_invalid_extraction_mode(self):
         """Invalid extraction_mode is rejected."""
         with pytest.raises(ValueError, match="extraction_mode"):
-            Indicator(
+            IndicatorSpec(
                 id="indicator:e05e217de7f4442abdc5",
                 name="mood_rating",
                 how_to_measure="Extract mood",
@@ -266,7 +274,7 @@ class TestIndicator:
 
     def test_computed_valid(self):
         """Computed indicator with single source column and continuous dtype passes."""
-        ind = Indicator(
+        ind = IndicatorSpec(
             id="indicator:aa573b5cc0c0a1837e05",
             name="avg_heart_rate",
             how_to_measure="Use heart_rate column directly",
@@ -279,7 +287,7 @@ class TestIndicator:
 
     def test_computed_count_dtype(self):
         """Computed indicator with count dtype passes."""
-        ind = Indicator(
+        ind = IndicatorSpec(
             id="indicator:a0ce08437c19d06aafd1",
             name="total_steps",
             how_to_measure="Use steps column directly",
@@ -292,7 +300,7 @@ class TestIndicator:
 
     def test_computed_binary_point_dtype(self):
         """Computed indicator with binary dtype passes for direct point aggregation."""
-        ind = Indicator(
+        ind = IndicatorSpec(
             id="indicator:58ba7e8b022133d4764f",
             name="alarm_state",
             how_to_measure="Use the last observed alarm_state value directly",
@@ -305,7 +313,7 @@ class TestIndicator:
 
     def test_computed_ordinal_point_dtype(self):
         """Computed indicator with ordinal dtype passes for direct point aggregation."""
-        ind = Indicator(
+        ind = IndicatorSpec(
             id="indicator:745132edf4775f59f221",
             name="mood_label",
             how_to_measure="Use the last observed mood_label value directly",
@@ -319,7 +327,7 @@ class TestIndicator:
 
     def test_computed_categorical_point_dtype(self):
         """Computed indicator with categorical dtype passes for direct point aggregation."""
-        ind = Indicator(
+        ind = IndicatorSpec(
             id="indicator:42f1f2a7a4c92ee606b6",
             name="care_setting",
             how_to_measure="Use the first observed care_setting value directly",
@@ -334,7 +342,7 @@ class TestIndicator:
     def test_computed_requires_single_source_column(self):
         """Direct computed indicators with 0 or 2+ source_columns are rejected."""
         with pytest.raises(ValueError, match="exactly 1 direct source_column"):
-            Indicator(
+            IndicatorSpec(
                 id="indicator:c21b43949b3712e734c8",
                 name="avg_hr",
                 how_to_measure="Use heart_rate",
@@ -344,7 +352,7 @@ class TestIndicator:
                 extraction_mode="computed",
             )
         with pytest.raises(ValueError, match="exactly 1 direct source_column"):
-            Indicator(
+            IndicatorSpec(
                 id="indicator:c21b43949b3712e734c8",
                 name="avg_hr",
                 how_to_measure="Compute from systolic and diastolic",
@@ -356,7 +364,7 @@ class TestIndicator:
 
     def test_computed_rule_allows_multi_source_deterministic_formula(self):
         """Computed rules can reference multiple source columns deterministically."""
-        ind = Indicator(
+        ind = IndicatorSpec(
             id="indicator:e33fbf156ca312595e47",
             name="mean_arterial_pressure",
             how_to_measure="Compute deterministically from systolic and diastolic blood pressure",
@@ -372,7 +380,7 @@ class TestIndicator:
     def test_computed_rule_rejects_semantic_mode(self):
         """computed_rule is only valid when extraction_mode='computed'."""
         with pytest.raises(ValueError, match="computed_rule but extraction_mode is 'semantic'"):
-            Indicator(
+            IndicatorSpec(
                 id="indicator:86e4453f8f098e1007ef",
                 name="low_spo2",
                 how_to_measure="Deterministically compute low SpO2 from spo2_pct",
@@ -386,7 +394,7 @@ class TestIndicator:
     def test_computed_rule_rejects_undeclared_source_column(self):
         """computed_rule must reference only declared source_columns."""
         with pytest.raises(ValueError, match="references undeclared source_columns"):
-            Indicator(
+            IndicatorSpec(
                 id="indicator:0c111e9b74f243fbc086",
                 name="glucose_out_of_range",
                 how_to_measure="Count out-of-range glucose values deterministically",
@@ -400,7 +408,7 @@ class TestIndicator:
     def test_computed_rule_requires_source_reference(self):
         """computed_rule must actually use at least one declared source column."""
         with pytest.raises(ValueError, match="does not reference any source_columns"):
-            Indicator(
+            IndicatorSpec(
                 id="indicator:4aa7a5f09fd3489f4f2e",
                 name="constant_flag",
                 how_to_measure="Always emit a constant flag",
@@ -416,7 +424,7 @@ class TestIndicator:
         with pytest.raises(
             ValueError, match="aggregation 'mean' requires measurement_dtype='continuous'"
         ):
-            Indicator(
+            IndicatorSpec(
                 id="indicator:58ba7e8b022133d4764f",
                 name="alarm_state",
                 how_to_measure="Use alarm_state directly",
@@ -453,14 +461,14 @@ class TestModelContainment:
         )
         assert result.get_construct(latent.id).indicators == ()
 
-    def test_usage_is_one_choice_and_requires_its_own_indicator(self):
+    def test_construct_usage_is_not_an_authored_field(self):
         model = make_model(["X", "Y"], [("X", "Y")])
         data = model.model_dump(mode="json")
         graph_constructs(data)[0]["usage"] = {
             "kind": "known_input",
             "source_indicator_id": model.constructs[1].indicators[0].id,
         }
-        with pytest.raises(ValueError, match="same construct"):
+        with pytest.raises(ValueError, match="Extra inputs are not permitted"):
             ModelSpec.model_validate(data)
         graph_constructs(data)[0]["usage"] = [{"kind": "scientific_only", "reason": "context"}]
         with pytest.raises(ValidationError):
@@ -590,7 +598,7 @@ class TestSemanticCollisions:
 
 
 class TestIndicatorObservationSemantics:
-    """Tests for Indicator computed observation semantics."""
+    """Tests for IndicatorSpec computed observation semantics."""
 
     def test_interval_indicator_serializes_semantics(self, indicator_factory):
         ind = indicator_factory("steps", aggregation="sum", dtype="count")
@@ -625,7 +633,7 @@ class TestIndicatorObservationSemantics:
 
 class TestIndicatorObservationWindow:
     def test_valid_observation_window(self):
-        indicator = Indicator(
+        indicator = IndicatorSpec(
             id="indicator:b41c85c254676b4bc588",
             name="monthly_mood",
             how_to_measure="Average mood over the last month",
@@ -638,7 +646,7 @@ class TestIndicatorObservationWindow:
 
     def test_invalid_observation_window(self):
         with pytest.raises(ValueError, match="Invalid duration"):
-            Indicator(
+            IndicatorSpec(
                 id="indicator:b41c85c254676b4bc588",
                 name="monthly_mood",
                 how_to_measure="Average mood over the last month",
@@ -661,3 +669,25 @@ def test_window_expression_serializes_without_a_wrapper():
     adapter = TypeAdapter(WindowExpression)
     expression = adapter.validate_python("mean(values)")
     assert adapter.dump_json(expression) == b'"mean(values)"'
+
+
+@pytest.mark.parametrize(
+    ("id_type", "prefix"),
+    [
+        (ConstructId, "construct"),
+        (EdgeId, "edge"),
+        (IndicatorId, "indicator"),
+        (MechanismId, "mechanism"),
+        (DistributionId, "distribution"),
+        (ParameterId, "parameter"),
+        (ParameterElementId, "element"),
+    ],
+)
+def test_nominal_ids_validate_and_serialize_as_strings(id_type, prefix):
+    adapter = TypeAdapter(id_type)
+    identity = f"{prefix}:{'a' * 64}"
+    restored = adapter.validate_json(f'"{identity}"')
+    assert restored == identity
+    assert adapter.dump_json(restored) == f'"{identity}"'.encode()
+    with pytest.raises(ValidationError, match="String should match pattern"):
+        adapter.validate_python("unrelated:" + "a" * 64)

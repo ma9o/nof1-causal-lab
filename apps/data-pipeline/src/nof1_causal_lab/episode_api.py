@@ -23,9 +23,9 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, Query, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 
-from nof1_causal_lab.artifacts.construct import CausalEdge, Construct
+from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
 from nof1_causal_lab.artifacts.identity import ArtifactId, OperationId  # noqa: TC001
-from nof1_causal_lab.artifacts.indicator import Indicator
+from nof1_causal_lab.artifacts.indicator import IndicatorSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 from nof1_causal_lab.artifacts.posterior import InferenceReport
@@ -166,17 +166,13 @@ def get_capabilities() -> CapabilitiesResponse:
 
 
 def _workspace_question(workspace_id: str) -> str | None:
-    from nof1_causal_lab.machine.artifact_files import json_filename
+    from nof1_causal_lab.machine.derivations import read_model
     from nof1_causal_lab.machine.store import ArtifactStore
 
-    info = derive_current_state(workspace_id).get("question")
+    info = derive_current_state(workspace_id).get("model")
     if info is None:
         return None
-    payload = ArtifactStore(workspace_id).read_json_file(
-        "question", info.version, json_filename("question", "question")
-    )
-    text = payload.get("text")
-    return text.strip() if isinstance(text, str) and text.strip() else None
+    return read_model(ArtifactStore(workspace_id), info.version).question
 
 
 @workspaces_router.get("/workspaces", response_model=WorkspaceList)
@@ -497,19 +493,19 @@ def get_model_inference_report(reader: Annotated[ModelReader, Depends(model_read
     return reader.inference_report()
 
 
-@router.get("/{workspace_id}/model/constructs", response_model=tuple[Construct, ...])
+@router.get("/{workspace_id}/model/constructs", response_model=tuple[ConstructSpec, ...])
 def get_model_constructs(reader: Annotated[ModelReader, Depends(model_reader)]):
     """Authored constructs, using their canonical domain type."""
     return reader.constructs()
 
 
-@router.get("/{workspace_id}/model/edges", response_model=tuple[CausalEdge, ...])
+@router.get("/{workspace_id}/model/edges", response_model=tuple[CausalEdgeSpec, ...])
 def get_model_edges(reader: Annotated[ModelReader, Depends(model_reader)]):
     """Authored edges, using their canonical domain type."""
     return reader.edges()
 
 
-@router.get("/{workspace_id}/model/indicators", response_model=tuple[Indicator, ...])
+@router.get("/{workspace_id}/model/indicators", response_model=tuple[IndicatorSpec, ...])
 def get_model_indicators(reader: Annotated[ModelReader, Depends(model_reader)]):
     """Authored indicators whose owners survive at the selected revision."""
     return reader.indicators()
@@ -746,7 +742,7 @@ def get_artifact_file(
 
 
 class StartEpisodeResponse(EpisodeStatus):
-    """Starting an episode returns its current status and any question-write outcome."""
+    """Starting an episode returns its current status and any model-write outcome."""
 
     ok: Literal[True] = True
     outcome: MoveOutcome | None
@@ -762,10 +758,10 @@ class AutoRunResponse(BaseModel):
 
 @router.post("", response_model=StartEpisodeResponse)
 async def start_episode(body: StartEpisodeBody) -> UncheckedJsonObject:
-    """Ensure the episode workflow exists; optionally seed the `question` root.
+    """Ensure the episode workflow exists; optionally author its model's question.
 
     Idempotent: attaches to an existing episode or starts a fresh one. Passing
-    `question` writes the `question` root artifact with `human` provenance.
+    `question` creates or revises the Model with `human` provenance.
     Upload raw data at `POST /api/upload` before running the `raw_data`
     transition. Returns the same shape as
     `GET /api/episodes/{id}`.
@@ -774,11 +770,25 @@ async def start_episode(body: StartEpisodeBody) -> UncheckedJsonObject:
     await _episode_handle(body.workspace_id)
     outcome = None
     if body.question is not None:
+        from nof1_causal_lab.machine.derivations import read_model
+        from nof1_causal_lab.machine.store import ArtifactStore
+
+        current = derive_current_state(body.workspace_id).get("model")
+        payload = (
+            read_model(ArtifactStore(body.workspace_id), current.version).model_dump(mode="json")
+            if current is not None
+            else {}
+        )
+        payload["question"] = body.question
         outcome = await _propose(
             body.workspace_id,
             MoveBody(
-                move=WriteArtifact(artifact_id="question", provenance="human"),
-                payload={"text": body.question},
+                move=WriteArtifact(
+                    artifact_id="model",
+                    provenance="human",
+                    expected_model_version=current.version if current is not None else 0,
+                ),
+                payload=payload,
             ),
         )
     return {"ok": True, "outcome": outcome, **_episode_status(body.workspace_id)}
@@ -817,6 +827,8 @@ def _needs_run(
     spec: Transition,
     model: ModelSpec | None,
     extraction: TransitionRecord | None = None,
+    *,
+    specification_current: bool = False,
 ) -> bool:
     """Missing required outputs, or any existing output gone stale.
 
@@ -826,21 +838,22 @@ def _needs_run(
     """
     from nof1_causal_lab.machine.inference import inference_is_current
 
-    if spec.operation_id == "posterior":
-        return bool(model and model.execution_readiness.ready and not inference_is_current(state))
-    if spec.operation_id == "statistical_model_spec" and inference_is_current(state):
-        return False
+    if spec.operation_id in {"posterior", "statistical_model_spec"}:
+        from nof1_causal_lab.compilation_errors import AggregatedCompileError, IncompleteModelError
+
+        if inference_is_current(state):
+            return False
+        if model is None:
+            return spec.operation_id == "statistical_model_spec"
+        try:
+            model.check_execution()
+        except (IncompleteModelError, AggregatedCompileError):
+            return spec.operation_id == "statistical_model_spec"
+        return spec.operation_id == "posterior" or not specification_current
     if spec.operation_id == "latent_structure":
         return model is None or not model.constructs
     if spec.operation_id == "measurement_structure":
         return model is None or model.measurement_clock is None or not model.indicators
-    if spec.operation_id == "statistical_model_spec":
-        return (
-            model is None
-            or not model.execution_readiness.ready
-            or not state.has("admission_report")
-            or is_stale(state, "admission_report")
-        )
     if spec.operation_id == "measurements" and not state.has("panel"):
         if extraction is None:
             return True
@@ -858,17 +871,20 @@ def _needs_run(
 
 def _next_auto_move(workspace_id: str, state: EpisodeState) -> RunOperation | None:
     from nof1_causal_lab.machine.derivations import read_model
+    from nof1_causal_lab.machine.model_spec_results import model_spec_is_current, model_spec_record
     from nof1_causal_lab.machine.store import ArtifactStore
 
-    model = (
-        read_model(ArtifactStore(workspace_id), state.current["model"].version)
-        if state.has("model")
-        else None
+    store = ArtifactStore(workspace_id)
+    model = read_model(store, state.current["model"].version) if state.has("model") else None
+    records = EpisodeJournal(workspace_id).read_all()
+    specification = model_spec_record(records)
+    specification_current = specification is not None and model_spec_is_current(
+        specification, state, store
     )
     extraction = next(
         (
             record
-            for record in reversed(EpisodeJournal(workspace_id).read_all())
+            for record in reversed(records)
             if record.status == "applied"
             and isinstance(record.move, RunOperation)
             and record.move.operation_id == "measurements"
@@ -879,7 +895,9 @@ def _next_auto_move(workspace_id: str, state: EpisodeState) -> RunOperation | No
     for artifact_id in topological_transition_order():
         spec = specs[artifact_id]
         move = RunOperation(operation_id=artifact_id)
-        if validate_move(state, move) is None and _needs_run(state, spec, model, extraction):
+        if validate_move(state, move) is None and _needs_run(
+            state, spec, model, extraction, specification_current=specification_current
+        ):
             return move
     return None
 

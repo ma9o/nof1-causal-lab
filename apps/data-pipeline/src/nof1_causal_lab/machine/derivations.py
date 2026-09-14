@@ -49,11 +49,6 @@ def complete_derivation_cascade(
     }
 
     try:
-        from nof1_causal_lab.models.model_checks import execution_readiness
-
-        for info in produced:
-            if info.artifact_id == "model":
-                execution_readiness(read_model(store, info.version))
         for spec in topological_derivation_order():
             parents = _current_parent_versions(next_state, spec)
             if parents is None:
@@ -201,9 +196,7 @@ def _derive_validation_report(
         )
 
     indicator_issues = [
-        issue
-        for audit in audit_result.get("indicators", {}).values()
-        for issue in audit.get("validation", {}).get("issues", [])
+        issue for audit in audit_result.get("indicators", {}).values() for issue in audit["issues"]
     ]
     dataset_issues = audit_result.get("dataset_issues", [])
     status = derive_validation_status([*indicator_issues, *dataset_issues])

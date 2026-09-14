@@ -131,6 +131,7 @@ def test_submit_construct_adapter_persists_tool_feedback(
         "construct": make_model(["early_life_adversity"]).constructs[0].model_dump(mode="json"),
         "edges": [],
         "parameters": [],
+        "distributions": {},
     }
 
     if raises:
@@ -166,6 +167,7 @@ def test_model_spec_submission_runs_off_the_async_worker_loop(monkeypatch):
                 "construct": make_model(["X"]).constructs[0].model_dump(mode="json"),
                 "edges": [],
                 "parameters": [],
+                "distributions": {},
             },
             result_ref="result.json",
             request_id="submission-1",
@@ -243,6 +245,7 @@ def test_admitted_submission_persists_and_returns_the_new_checkpoint(monkeypatch
             "construct": make_model(["sleep"]).constructs[0].model_dump(mode="json"),
             "edges": [],
             "parameters": [],
+            "distributions": {},
         },
         "submission-1",
     )
@@ -318,6 +321,7 @@ def test_semantically_identical_submissions_reuse_admission_evaluation(monkeypat
         "construct": make_model(["sleep"]).constructs[0].model_dump(mode="json"),
         "edges": [],
         "parameters": [],
+        "distributions": {},
     }
 
     first = llm_tool_adapters._execute_model_spec_submit_construct(

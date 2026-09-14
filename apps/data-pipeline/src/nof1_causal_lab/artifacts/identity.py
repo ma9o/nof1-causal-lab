@@ -4,69 +4,116 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Annotated, Literal, get_args
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Annotated, Literal, NewType, cast, get_args, overload
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler
 
-type ConstructId = Annotated[
-    str,
-    Field(
-        pattern=r"^construct:[A-Za-z0-9_.-]+$",
-        json_schema_extra={"tsType": "`construct:${string}`"},
-    ),
-]
-type EdgeId = Annotated[
-    str,
-    Field(pattern=r"^edge:[A-Za-z0-9_.-]+$", json_schema_extra={"tsType": "`edge:${string}`"}),
-]
-type IndicatorId = Annotated[
-    str,
-    Field(
-        pattern=r"^indicator:[A-Za-z0-9_.-]+$",
-        json_schema_extra={"tsType": "`indicator:${string}`"},
-    ),
-]
-
-type MechanismId = Annotated[
-    str,
-    Field(
-        pattern=r"^mechanism:[A-Za-z0-9_.-]+$",
-        json_schema_extra={"tsType": "`mechanism:${string}`"},
-    ),
-]
-
-type DistributionId = Annotated[
-    str,
-    Field(
-        pattern=r"^distribution:[A-Za-z0-9_.-]+$",
-        description="A shared native law whose membership is defined by the model's scientific quantities.",
-        json_schema_extra={"tsType": "`distribution:${string}`"},
-    ),
-]
+if TYPE_CHECKING:
+    from pydantic_core import core_schema
 
 
-type ParameterId = Annotated[
-    str,
-    Field(
-        pattern=r"^parameter:[0-9a-f]{64}$", json_schema_extra={"tsType": "`parameter:${string}`"}
-    ),
-]
+@dataclass(frozen=True)
+class _IdentitySchema:
+    """Keep nominal string IDs named in JSON Schema and generated clients."""
 
-type ParameterElementId = Annotated[
-    str,
-    Field(pattern=r"^element:[0-9a-f]{64}$", json_schema_extra={"tsType": "`element:${string}`"}),
-]
+    name: str
+
+    def __get_pydantic_core_schema__(
+        self, source: type[str], handler: GetCoreSchemaHandler
+    ) -> core_schema.CoreSchema:
+        schema = cast("core_schema.StringSchema", handler(source))
+        schema["ref"] = self.name
+        return schema
+
+
+ConstructId = NewType(
+    "ConstructId",
+    Annotated[
+        str,
+        Field(
+            pattern=r"^construct:[A-Za-z0-9_.-]+$",
+            json_schema_extra={"tsType": "`construct:${string}`"},
+        ),
+        _IdentitySchema("ConstructId"),
+    ],
+)
+EdgeId = NewType(
+    "EdgeId",
+    Annotated[
+        str,
+        Field(pattern=r"^edge:[A-Za-z0-9_.-]+$", json_schema_extra={"tsType": "`edge:${string}`"}),
+        _IdentitySchema("EdgeId"),
+    ],
+)
+IndicatorId = NewType(
+    "IndicatorId",
+    Annotated[
+        str,
+        Field(
+            pattern=r"^indicator:[A-Za-z0-9_.-]+$",
+            json_schema_extra={"tsType": "`indicator:${string}`"},
+        ),
+        _IdentitySchema("IndicatorId"),
+    ],
+)
+
+MechanismId = NewType(
+    "MechanismId",
+    Annotated[
+        str,
+        Field(
+            pattern=r"^mechanism:[A-Za-z0-9_.-]+$",
+            json_schema_extra={"tsType": "`mechanism:${string}`"},
+        ),
+        _IdentitySchema("MechanismId"),
+    ],
+)
+
+DistributionId = NewType(
+    "DistributionId",
+    Annotated[
+        str,
+        Field(
+            pattern=r"^distribution:[A-Za-z0-9_.-]+$",
+            description="A native law whose membership is defined by the model's scientific quantities.",
+            json_schema_extra={"tsType": "`distribution:${string}`"},
+        ),
+        _IdentitySchema("DistributionId"),
+    ],
+)
+
+
+ParameterId = NewType(
+    "ParameterId",
+    Annotated[
+        str,
+        Field(
+            pattern=r"^parameter:[0-9a-f]{64}$",
+            json_schema_extra={"tsType": "`parameter:${string}`"},
+        ),
+        _IdentitySchema("ParameterId"),
+    ],
+)
+
+ParameterElementId = NewType(
+    "ParameterElementId",
+    Annotated[
+        str,
+        Field(
+            pattern=r"^element:[0-9a-f]{64}$", json_schema_extra={"tsType": "`element:${string}`"}
+        ),
+        _IdentitySchema("ParameterElementId"),
+    ],
+)
 
 
 type ArtifactId = Literal[
-    "question",
     "raw_data",
     "model",
     "identification_report",
     "panel",
     "validation_report",
-    "admission_report",
-    "baseline_report",
 ]
 
 # Operations name work; several operations can enrich the same model artifact.
@@ -77,7 +124,6 @@ type OperationId = Literal[
     "measurements",
     "statistical_model_spec",
     "posterior",
-    "baseline_report",
 ]
 
 ARTIFACT_IDS: tuple[ArtifactId, ...] = get_args(ArtifactId.__value__)
@@ -94,13 +140,6 @@ class ModelRevision(IdentityRef):
 
     workspace_id: str = Field(min_length=1)
     version: int = Field(ge=1)
-
-
-class ModelRef(IdentityRef):
-    """A model reference identifies the workspace that owns the scientific model."""
-
-    kind: Literal["model"] = "model"
-    id: str = Field(min_length=1)
 
 
 class ConstructRef(IdentityRef):
@@ -154,6 +193,38 @@ class ParameterRef(IdentityRef):
 type EntityRef = Annotated[
     ConstructRef | EdgeRef | IndicatorRef | MechanismRef, Field(discriminator="kind")
 ]
+
+
+@overload
+def scientific_id(prefix: Literal["construct"], payload: object) -> ConstructId: ...
+
+
+@overload
+def scientific_id(prefix: Literal["edge"], payload: object) -> EdgeId: ...
+
+
+@overload
+def scientific_id(prefix: Literal["indicator"], payload: object) -> IndicatorId: ...
+
+
+@overload
+def scientific_id(prefix: Literal["mechanism"], payload: object) -> MechanismId: ...
+
+
+@overload
+def scientific_id(prefix: Literal["distribution"], payload: object) -> DistributionId: ...
+
+
+@overload
+def scientific_id(prefix: Literal["parameter"], payload: object) -> ParameterId: ...
+
+
+@overload
+def scientific_id(prefix: Literal["element"], payload: object) -> ParameterElementId: ...
+
+
+@overload
+def scientific_id(prefix: str, payload: object) -> str: ...
 
 
 def scientific_id(prefix: str, payload: object) -> str:

@@ -185,15 +185,14 @@ class SparseVectorBlockSpec:
 
 
 # ---------------------------------------------------------------------------
-# Sparse-matrix block: a rectangular-shape parameter (loadings, input_effect)
+# Sparse-matrix block: a rectangular-shape parameter (loadings)
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, eq=False)
 class SparseMatrixBlockSpec:
     """Generic sparse-matrix block: free entries on a 2-D rectangular support
-    substituted into a template. Used for ``lambda_mat`` (loading
-    matrix) and ``input_effect``.
+    substituted into a template. Used for the loading matrix.
     """
 
     n_rows: int

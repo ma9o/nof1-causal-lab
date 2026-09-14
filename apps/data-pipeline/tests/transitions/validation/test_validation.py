@@ -11,7 +11,7 @@ from typing import Any
 import polars as pl
 import pytest
 
-from nof1_causal_lab.artifacts.construct import CausalEdge, Construct, replace_constructs
+from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec, replace_constructs
 from nof1_causal_lab.flows.transitions.validation.flow import (
     derive_validation_status,
     validate_extraction,
@@ -26,7 +26,7 @@ def simple_causal_design():
     return stress.revised(
         edges=replace_constructs(
             (
-                CausalEdge(
+                CausalEdgeSpec(
                     id=fixture_entity_id("edge", "stress->sleep"),
                     cause=stress.constructs[0],
                     effect=sleep.constructs[0],
@@ -50,9 +50,7 @@ def _create_worker_dfs(records: list[dict[str, Any]]) -> list[pl.DataFrame]:
 
 def _all_issues(result: dict[str, Any]) -> list[dict[str, Any]]:
     indicator_issues = [
-        issue
-        for audit in result.get("indicators", {}).values()
-        for issue in audit.get("validation", {}).get("issues", [])
+        issue for audit in result.get("indicators", {}).values() for issue in audit["issues"]
     ]
     return [*indicator_issues, *result.get("dataset_issues", [])]
 
@@ -61,7 +59,7 @@ def _issues_for_indicator(
     result: dict[str, Any],
     indicator: str,
 ) -> list[dict[str, Any]]:
-    return result["indicators"][indicator]["validation"]["issues"]
+    return result["indicators"][indicator]["issues"]
 
 
 def _make_spec(
@@ -92,7 +90,7 @@ def _make_spec(
         indicator.setdefault("how_to_measure", "Read the value")
         indicator.setdefault("aggregation", "last")
     model = make_model([construct_name])
-    construct = Construct.model_validate(
+    construct = ConstructSpec.model_validate(
         {
             "id": fixture_entity_id("construct", construct_name),
             "name": construct_name,
@@ -196,7 +194,7 @@ class TestValidateExtraction:
 
         # Should have warning for missing sleep_hours
         missing_issues = [i for i in _all_issues(result) if i["issue_type"] == "missing"]
-        assert any(i["subject"]["id"] == "indicator:9866c549bd1c25f0a5d7" for i in missing_issues)
+        assert any(i["indicator_id"] == "indicator:9866c549bd1c25f0a5d7" for i in missing_issues)
 
     def test_zero_variance_is_error(self, simple_causal_design):
         """Constant values (zero variance) returns error."""
@@ -224,7 +222,7 @@ class TestValidateExtraction:
 
         error_issues = [i for i in _all_issues(result) if i["severity"] == "error"]
         assert len(error_issues) == 1
-        assert error_issues[0]["subject"]["id"] == "indicator:3696aef3ff6f446744e5"
+        assert error_issues[0]["indicator_id"] == "indicator:3696aef3ff6f446744e5"
         assert error_issues[0]["issue_type"] == "no_variance"
 
     def test_time_invariant_skips_variance(self):
@@ -951,6 +949,12 @@ class TestCheckConstructCorrelations:
         ]
         assert len(corr_issues) == 1
         assert corr_issues[0]["severity"] == "warning"
+        assert corr_issues[0]["indicator_id"] is None
+        assert "construct:6b04dc42c531e7091eb8" in corr_issues[0]["message"]
+        from nof1_causal_lab.artifacts.validation_report import ValidationReportArtifact
+
+        report = ValidationReportArtifact.model_validate(result)
+        assert report.dataset_issues[0].indicator_id is None
 
     def test_single_indicator_skipped(self):
         """Constructs with only one indicator skip correlation check."""

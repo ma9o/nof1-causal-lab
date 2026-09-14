@@ -1,24 +1,8 @@
-"""Vector field runtime built from dynamics components.
+"""Bind additive scientific terms and causal interventions to Dynestyx evolution.
 
-``VectorField`` owns a tuple of ``VectorFieldComponent``s (see ``edges.py``);
-each component contributes to the derivative vector. The dense linear case
-(the existing posterior posterior shape) is one component (``DenseLinear``);
-the non-linear pharmacology case is many components (``DiagonalDecay`` +
-``Intercept`` + per-edge Linear / Hill / Multiplicative).
-
-The vector field is responsible for:
-
-- Building the ``(n_target, n_source)`` ``eta_per_edge`` matrix with
-  edge-input overrides applied once.
-- Iterating over components and accumulating their contributions into
-  the derivative.
-- Translating ``VariableOverride``s into the right semantics for the
-  simulator (derivative component set to ``du/dt``) and the steady-state
-  root finder (residual set to ``eta − u(0)`` so the root pins the
-  intervened latent exactly).
-
-``args.params`` is a tuple matching the components tuple by position;
-each component reads its own slice and never sees others'.
+Directed terms read the state through per-edge input overrides. Node potentials
+supply scalar energies for Dynestyx's negative-gradient drift. Hard interventions
+replace the owning derivative and remove its natural potential contribution.
 """
 
 from typing import TYPE_CHECKING, cast
@@ -89,26 +73,22 @@ def _apply_variable_overrides_to_derivative(
 
 
 class VectorField(eqx.Module):
-    """Vector field as a sum of ``VectorFieldComponent`` contributions.
+    """Exact additive field with node energies and explicit intervention ownership.
 
-    Equivalent dense-matrix dynamics: a single ``DenseLinear`` component
-    with parameter slice ``{"drift": A, "cint": c}`` reproduces the
-    classic ``f(t, η) = A·η + c`` form exactly (and uses one matmul, not
-    n² scatter-adds).
-
-    Component primitive dynamics: typically one ``DiagonalDecay`` + one
-    ``Intercept`` + per-edge ``LinearEdge`` / ``HillEdge`` /
-    ``MultiplicativeEdge``. Each component reads its slice of
-    ``args.params`` by position.
+    ``args.params`` has one slice per component. Production terms are bound
+    scalar expressions; linear numerical components share the same protocol.
     """
 
     n_latent: int = eqx.field(static=True)
     components: tuple[VectorFieldComponent, ...]
     potential_indices: tuple[int, ...] = eqx.field(static=True, default=())
 
-    def evolution(self, args: VectorFieldArgs, input_effect=None, diffusion=None):
+    def evolution(self, args: VectorFieldArgs, diffusion=None):
         """Bind scientific terms to Dynestyx's drift and native negative-gradient potential."""
-        drift = StructuralDrift(self, args, input_effect)
+        drift = StructuralDrift(
+            self,
+            args,
+        )
         potential = StructuralPotential(self, args) if self.potential_indices else None
         if diffusion is None:
             return dsx.DeterministicContinuousTimeStateEvolution(
@@ -160,13 +140,11 @@ class StructuralDrift(eqx.Module):
 
     vector_field: VectorField
     args: VectorFieldArgs
-    input_effect: Array | None = None
 
     def __call__(self, x, u, t):
+        del u
         t = jnp.asarray(t)
         value = self.vector_field._natural_derivative(t, x, self.args)
-        if self.input_effect is not None and self.input_effect.shape[1]:
-            value = value + self.input_effect @ u
         return _apply_variable_overrides_to_derivative(value, t, self.args.intervention)
 
 

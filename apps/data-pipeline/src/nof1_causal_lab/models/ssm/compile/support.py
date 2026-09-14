@@ -17,7 +17,6 @@ from nof1_causal_lab.utils.model_structure import (
     get_constructs,
     get_edges,
     get_indicators,
-    get_known_inputs,
     get_model_clock,
     get_reference_indicator_lookup,
     get_reference_indicator_polarities,
@@ -41,43 +40,6 @@ def get_construct_dt_days(
     return parse_duration_to_hours(get_model_clock(model)) / 24.0
 
 
-def get_structural_input_layout(
-    model: ModelSpec,
-) -> tuple[
-    list[str],
-    list[str],
-    list[float],
-    list[str],
-    list[bool],
-]:
-    """Build canonical known-input ordering and source metadata."""
-    known_inputs = get_known_inputs(model)
-    estimation_edges = get_edges(model)
-    input_lagged: list[bool] = []
-    for item in known_inputs:
-        name = str(item["construct"])
-        edge_lags = {bool(edge["lagged"]) for edge in estimation_edges if edge.get("cause") == name}
-        if not edge_lags:
-            raise NumericalSupportError(
-                [f"Known input {name!r} has no outgoing edge into a retained state"]
-            )
-        if len(edge_lags) > 1:
-            raise NumericalSupportError(
-                [
-                    f"Known input {name!r} has mixed contemporaneous and lagged outgoing "
-                    "edges; one input trajectory must use a consistent alignment"
-                ]
-            )
-        input_lagged.append(edge_lags.pop())
-    return (
-        [str(item["construct"]) for item in known_inputs],
-        [str(item["source_indicator"]) for item in known_inputs],
-        [float(item.get("scale", 1.0)) for item in known_inputs],
-        [str(item.get("missing_policy", "zero")) for item in known_inputs],
-        input_lagged,
-    )
-
-
 def build_structural_support_from_model(
     latent_names: list[str],
     manifest_cols: list[str],
@@ -87,7 +49,6 @@ def build_structural_support_from_model(
     manifest_dists: list[DistributionFamily],
     model: ModelSpec,
 ) -> tuple[
-    np.ndarray,
     np.ndarray,
     np.ndarray,
     np.ndarray,
@@ -116,12 +77,7 @@ def build_structural_support_from_model(
         )
 
     latent_idx = {name: idx for idx, name in enumerate(latent_names)}
-    input_names, _input_sources, _input_scales, _input_policies, _input_lagged = (
-        get_structural_input_layout(model)
-    )
-    input_idx = {name: idx for idx, name in enumerate(input_names)}
     state_dynamics_support = np.zeros((n_latent, n_latent), dtype=bool)
-    input_effect_support = np.zeros((n_latent, len(input_names)), dtype=bool)
     for latent_name, latent_idx_value in latent_idx.items():
         construct = latent_construct_lookup.get(latent_name) or {}
         if construct.get("temporal_status") != "time_invariant":
@@ -141,9 +97,6 @@ def build_structural_support_from_model(
             )
             continue
         effect_idx = latent_idx[effect]
-        if cause in input_idx:
-            input_effect_support[effect_idx, input_idx[cause]] = True
-            continue
         if cause not in latent_idx:
             continue
         cause_idx = latent_idx[cause]
@@ -229,7 +182,6 @@ def build_structural_support_from_model(
 
     return (
         state_dynamics_support,
-        input_effect_support,
         lambda_mat,
         lambda_support,
         manifest_cat_anchor,
@@ -391,7 +343,6 @@ def _build_static_factor_structure(
     model: ModelSpec, latent_names: list[str]
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[str]]:
     """Derive baseline-factor incidence and fixed loadings from explicit common causes."""
-    from nof1_causal_lab.artifacts.coefficient import FixedCoefficient
     from nof1_causal_lab.artifacts.expressions import linear_coefficient
     from nof1_causal_lab.models.model_parameters import baseline_factor_groups, coefficient_value
 
@@ -403,8 +354,9 @@ def _build_static_factor_structure(
         sources = {construct.id for construct in group}
         for source in sources:
             construct = model.get_construct(source)
-            assert construct.initial_state is not None
-            if coefficient_value(model, construct.initial_state.mean) != 0.0:
+            initial_mean = construct.coefficient("initial_mean")
+            assert initial_mean is not None
+            if coefficient_value(model, initial_mean) != 0.0:
                 raise ValueError("Marginalized baseline factors require a fixed zero initial mean")
             if (
                 construct.indicators
@@ -424,11 +376,11 @@ def _build_static_factor_structure(
                             "A marginalized factor loading requires one fixed linear coefficient"
                         )
                     coefficient = linear_coefficient(edge.mechanisms[0].expression, source)
-                    if not isinstance(coefficient, FixedCoefficient):
+                    if not isinstance(coefficient, (int, float)):
                         raise ValueError(
                             "A marginalized factor loading requires one fixed linear coefficient"
                         )
-                    weight = coefficient.value
+                    weight = coefficient
                 loadings[state_index[edge.effect.id], index] = weight
         if not np.any(loadings[:, index]):
             raise ValueError("A baseline factor must affect a retained state")

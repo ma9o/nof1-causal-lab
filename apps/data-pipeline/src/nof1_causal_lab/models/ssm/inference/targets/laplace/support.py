@@ -843,7 +843,6 @@ def _support_dynamic_transition_ieks_laplace(
     window_derivatives: tuple[Any, ...],
     n_ieks_iters: int,
     *,
-    transition_inputs: jnp.ndarray | None = None,
     z_init: jnp.ndarray | None = None,
     factor_block_cholesky_fn=_factor_block_banded_cholesky,
     solve_block_from_cholesky_fn=_solve_block_banded_from_cholesky,
@@ -858,7 +857,6 @@ def _support_dynamic_transition_ieks_laplace(
         dynamics,
         time_intervals,
         init_mean,
-        transition_inputs=transition_inputs,
         z_init=z_init,
         dtype=observations.dtype,
     )

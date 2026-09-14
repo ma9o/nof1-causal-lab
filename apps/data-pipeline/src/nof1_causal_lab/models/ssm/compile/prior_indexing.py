@@ -12,9 +12,10 @@ from nof1_causal_lab.models.ssm.parameterization import build_site_registry
 from nof1_causal_lab.models.ssm.structure.sites import SemanticBinding
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from nof1_causal_lab.artifacts.identity import ParameterId
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
     from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor, SitePosition
 
 
@@ -31,19 +32,13 @@ class SemanticBindingRegistry:
     by_parameter: dict[ParameterId, SemanticBinding] = field(default_factory=dict)
 
 
-def _axis(ids: list[str] | None, size: int, label: str) -> dict[str, int]:
+def _axis(ids: Sequence[str] | None, size: int, label: str) -> dict[str, int]:
     if ids is None or len(ids) != size or len(set(ids)) != size:
         raise ValueError(f"Scientific prior binding requires {size} explicit unique {label} IDs")
     return {key: index for index, key in enumerate(ids)}
 
 
-def _owners(model: ModelSpec, parameter: ParameterSpec, kind: str) -> set[str]:
-    return {
-        owner.id for owner in model.parameter_context(parameter.id).owners if owner.kind == kind
-    }
-
-
-def _native_dynamics_bindings(model: ModelSpec) -> dict[str, SemanticBinding]:
+def _native_dynamics_bindings(model: ModelSpec) -> dict[ParameterId, SemanticBinding]:
     """Bind coefficient references within the native component emitted by their own term."""
     from nof1_causal_lab.models.ssm.compile.mechanisms import iter_mechanism_components
 
@@ -83,7 +78,6 @@ def build_semantic_prior_bindings(
     bindings = _native_dynamics_bindings(model)
     latent = _axis(numeric.state_ids(model), numeric.n_states(model), "latent")
     manifest = _axis(numeric.observation_ids(model), numeric.n_observations(model), "manifest")
-    inputs = _axis(numeric.input_ids(model), numeric.input_effect_block(model).n_cols, "input")
     sites = build_site_registry(model)
     errors: list[str] = []
     latent_names = numeric.state_names(model)
@@ -96,11 +90,11 @@ def build_semantic_prior_bindings(
             continue
         kind = model.parameter_context(parameter.id).quantity
         matches: list[tuple[SiteDescriptor, int]] = []
-        construct_ids = _owners(model, parameter, "construct")
-        indicator_ids = _owners(model, parameter, "indicator")
+        owners = model.parameter_context(parameter.id).owners
+        construct_ids = {owner.id for owner in owners if owner.kind == "construct"}
+        indicator_ids = {owner.id for owner in owners if owner.kind == "indicator"}
         state_indices = {latent[key] for key in construct_ids if key in latent}
         indicator_indices = {manifest[key] for key in indicator_ids if key in manifest}
-        input_indices = {inputs[key] for key in construct_ids if key in inputs}
         position: SitePosition | None = None
         transform = parameter.distribution_transform
         if kind in SHARED_OBSERVATION_FAMILIES or kind == SiteKind.PROC_DF:
@@ -126,9 +120,6 @@ def build_semantic_prior_bindings(
             elif kind == SiteKind.LOADING:
                 if len(indicator_indices) == 1 and len(state_indices) == 1:
                     position = (next(iter(indicator_indices)), next(iter(state_indices)))
-            elif kind == SiteKind.INPUT_EFFECT:
-                if len(state_indices) == 1 and len(input_indices) == 1:
-                    position = (next(iter(state_indices)), next(iter(input_indices)))
             elif kind in {SiteKind.DIFFUSION_LOWER, SiteKind.T0_VAR_LOWER}:
                 if len(state_indices) == 2:
                     position = (max(state_indices), min(state_indices))
@@ -162,10 +153,8 @@ def build_semantic_prior_bindings(
             flat_index=flat_index,
             site_kind=kind,
             transform=transform,
-            construct_names=tuple(latent_names[index] for index in sorted(state_indices))
-            + tuple((numeric.input_names(model) or [])[index] for index in sorted(input_indices)),
+            construct_names=tuple(latent_names[index] for index in sorted(state_indices)),
             indicator_names=tuple(manifest_names[index] for index in sorted(indicator_indices)),
-            effect_idx=next(iter(state_indices)) if kind == SiteKind.INPUT_EFFECT else None,
         )
     if errors:
         raise PriorIndexingError(errors)

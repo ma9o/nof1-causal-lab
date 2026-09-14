@@ -49,6 +49,7 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._contr
     MPGibbsLatentSmootherResult,
 )
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math import (
+    _masked_normal_log_prob,
     _normalize_log_probs,
     _observation_log_probs_by_param,
 )
@@ -92,33 +93,9 @@ def step(ctx, key, x_ref):
     if block_coords is not None and block_coords < latent_dim:
         chosen_coords = random.permutation(mask_key, latent_dim)[:block_coords]
         coord_mask = jnp.zeros((latent_dim,), dtype=bool).at[chosen_coords].set(True)
-        proposed_dim = int(block_coords)
+        proposal_mask = ctx.latent_free_mask & coord_mask[None, :]
     else:
-        coord_mask = None
-        proposed_dim = latent_dim
-
-    def _log_isotropic_density(
-        values: jnp.ndarray,
-        mean: jnp.ndarray,
-        proposal_var_t: jnp.ndarray,
-    ) -> jnp.ndarray:
-        diff = values - mean
-        squared = diff * diff
-        if coord_mask is not None:
-            squared = jnp.where(coord_mask, squared, jnp.zeros_like(squared))
-        quadratic = jnp.sum(squared, axis=-1) / proposal_var_t
-        return -0.5 * (proposed_dim * jnp.log(2.0 * jnp.pi * proposal_var_t) + quadratic)
-
-    def _log_diagonal_density(
-        values: jnp.ndarray,
-        mean_t: jnp.ndarray,
-        var_t: jnp.ndarray,
-    ) -> jnp.ndarray:
-        diff = values - mean_t
-        per_coord = -0.5 * (jnp.log(2.0 * jnp.pi * var_t) + diff * diff / var_t)
-        if coord_mask is not None:
-            per_coord = jnp.where(coord_mask, per_coord, jnp.zeros_like(per_coord))
-        return jnp.sum(per_coord, axis=-1)
+        proposal_mask = ctx.latent_free_mask
 
     def _clip_gradient(grad: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
         norm = jnp.linalg.norm(grad)
@@ -156,6 +133,9 @@ def step(ctx, key, x_ref):
     lin_pts = x_ref + proposal_scale_by_t[:, None] * random.normal(
         aux_key, x_ref.shape, dtype=latent_dtype
     )
+    # Auxiliary values obey the same time-varying coordinate restriction as the
+    # particles. Both normal densities below are paid only on that subspace.
+    lin_pts = jnp.where(proposal_mask, lin_pts, x_ref)
 
     if is_paid_mix:
         pilot_means = ctx.pilot_means
@@ -210,6 +190,7 @@ def step(ctx, key, x_ref):
         label_log_probs = _normalize_log_probs(logits)
         label_probs = jnp.exp(label_log_probs).astype(latent_dtype)
         grad = jnp.einsum("p,pd->d", label_probs, component_grad)
+        grad = jnp.where(proposal_mask[time_idx], grad, 0.0)
         clipped_grad, grad_norm = _clip_gradient(grad)
         drift = (proposal_kappa * proposal_var_by_t[time_idx] * clipped_grad).astype(latent_dtype)
         return (particle_t + drift).astype(latent_dtype), grad_norm
@@ -239,10 +220,9 @@ def step(ctx, key, x_ref):
             )
         else:
             free_particles = z_component
-        if coord_mask is not None:
-            free_particles = jnp.where(
-                coord_mask[None, :], free_particles, x_ref[time_idx][None, :]
-            )
+        free_particles = jnp.where(
+            proposal_mask[time_idx][None, :], free_particles, x_ref[time_idx][None, :]
+        )
         particles = jnp.concatenate([x_ref[time_idx][None, :], free_particles], axis=0)
         obs_lp = _observation_log_probs_by_param(
             contexts,
@@ -251,15 +231,18 @@ def step(ctx, key, x_ref):
             runtime_observations,
             obs_increment_fn,
         )
-        z_proposal_lp = _log_isotropic_density(
+        z_proposal_lp = _masked_normal_log_prob(
             particles,
             proposal_centers[time_idx],
             proposal_var_by_t[time_idx],
+            proposal_mask[time_idx],
         )
         if is_paid_mix:
-            pilot_lp = _log_diagonal_density(particles, pilot_means[time_idx], pilot_vars[time_idx])
-            wide_lp = _log_diagonal_density(
-                particles, pilot_means[time_idx], pilot_wide_vars[time_idx]
+            pilot_lp = _masked_normal_log_prob(
+                particles, pilot_means[time_idx], pilot_vars[time_idx], proposal_mask[time_idx]
+            )
+            wide_lp = _masked_normal_log_prob(
+                particles, pilot_means[time_idx], pilot_wide_vars[time_idx], proposal_mask[time_idx]
             )
             proposal_lp = jax.scipy.special.logsumexp(
                 jnp.stack(
@@ -282,7 +265,9 @@ def step(ctx, key, x_ref):
         # above, this is the exact target/proposal leaf weight; the pilot/wide
         # mixture components are reference-independent so the same payment covers
         # paid_mix.
-        aux_lp = _log_isotropic_density(particles, lin_pts[time_idx], proposal_var_by_t[time_idx])
+        aux_lp = _masked_normal_log_prob(
+            particles, lin_pts[time_idx], proposal_var_by_t[time_idx], proposal_mask[time_idx]
+        )
         tail_psi = obs_lp - proposal_lp[:, None] + aux_lp[:, None]
         initial_psi = init_prior_lp + tail_psi
         psi = jnp.where(time_idx == 0, initial_psi, tail_psi).astype(traj_dtype)

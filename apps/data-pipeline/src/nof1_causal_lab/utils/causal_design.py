@@ -89,6 +89,7 @@ _WORKER_INDICATOR_KEYS = (
     "how_to_measure",
     "source_columns",
     "aggregation",
+    "recording",
     "observation_window",
     "ordinal_levels",
 )
@@ -135,7 +136,7 @@ def get_outcome_construct(
     target = latent.get("default_outcome")
     if target is None:
         return None
-    return next((item for item in latent["constructs"] if item["id"] == target["id"]), None)
+    return next((item for item in latent["constructs"] if item["id"] == target), None)
 
 
 def get_outcome_name(graph_input: UncheckedJsonObject) -> str | None:

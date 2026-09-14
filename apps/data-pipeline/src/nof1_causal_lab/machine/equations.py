@@ -5,9 +5,9 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
-from nof1_causal_lab.artifacts.coefficient import FixedCoefficient
-from nof1_causal_lab.artifacts.construct import CausalEdge
+from nof1_causal_lab.artifacts.construct import CausalEdgeSpec
 from nof1_causal_lab.artifacts.expressions import fold_expression
+from nof1_causal_lab.artifacts.identity import ParameterId
 from nof1_causal_lab.artifacts.parameter import PriorAuthoringTransform
 from nof1_causal_lab.machine.expression_latex import (
     LatexValue,
@@ -18,9 +18,8 @@ from nof1_causal_lab.machine.expression_latex import (
 from nof1_causal_lab.machine.view_models import StateEquation
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.coefficient import Coefficient
     from nof1_causal_lab.artifacts.expressions import Expression
-    from nof1_causal_lab.artifacts.identity import IndicatorId
+    from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId, ParameterId
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 
@@ -40,8 +39,8 @@ def _text(label: str) -> str:
     return r"\text{" + "".join(escapes.get(character, character) for character in label) + "}"
 
 
-def _state_latex(model: ModelSpec, key: str) -> str:
-    symbol = "u" if key in model.known_inputs else r"\eta"
+def _state_latex(model: ModelSpec, key: ConstructId) -> str:
+    symbol = r"\eta"
     return symbol + "_{" + _text(model.get_construct(key).name) + "}(t)"
 
 
@@ -49,10 +48,10 @@ def _expression_latex(model: ModelSpec, expression: Expression) -> str:
     """Interpret the scientific tree, using authored parameter labels as its legend."""
     parameters = {parameter.id: parameter for parameter in model.parameters}
 
-    def coefficient(value: Coefficient) -> str:
-        if isinstance(value, FixedCoefficient):
-            return f"{value.value:g}"
-        parameter = parameters[value.parameter_id]
+    def coefficient(value: float | ParameterId) -> str:
+        if isinstance(value, (int, float)):
+            return f"{value:g}"
+        parameter = parameters[value]
         if parameter.value is not None:
             return f"{parameter.value:g}"
         symbol = r"\theta_{" + _text(parameter.name) + "}"
@@ -65,12 +64,12 @@ def _expression_latex(model: ModelSpec, expression: Expression) -> str:
                 return symbol
 
     def rendered_coefficient(operand):
-        reference = operand.coefficient
+        reference = operand.value
         if reference is None:
             return LatexValue(r"\underbrace{?}_{\text{" + operand.role.replace("_", " ") + "}}")
-        if isinstance(reference, FixedCoefficient):
-            return literal_latex(reference.value)
-        value = parameters[reference.parameter_id].value
+        if isinstance(reference, (int, float)):
+            return literal_latex(reference)
+        value = parameters[reference].value
         return literal_latex(value) if value is not None else LatexValue(coefficient(reference))
 
     return fold_expression(
@@ -102,9 +101,9 @@ def observation_equations(model: ModelSpec) -> dict[IndicatorId, str]:
 
 def state_equations(model: ModelSpec) -> list[StateEquation]:
     """Render actual drift, explicitly converting interval-authored parameters to rates."""
-    terms: dict[str, list[str]] = defaultdict(list)
+    terms: dict[ConstructId, list[str]] = defaultdict(list)
     for owner, mechanism in model.iter_mechanisms():
-        target = owner.effect.id if isinstance(owner, CausalEdge) else owner.id
+        target = owner.effect.id if isinstance(owner, CausalEdgeSpec) else owner.id
         expression = _expression_latex(model, mechanism.expression)
         if mechanism.kind == "potential":
             expression = (
@@ -137,7 +136,7 @@ def state_equations(model: ModelSpec) -> list[StateEquation]:
 
 def confounder_equations(model: ModelSpec) -> list[StateEquation]:
     """Label the shared-noise dependencies derived from the scientific DAG."""
-    groups: dict[str, set[str]] = defaultdict(set)
+    groups: dict[ConstructId, set[ConstructId]] = defaultdict(set)
     for (first, second, kind), sources in model.induced_dependencies.items():
         if kind == "innovation_correlation":
             for owner in sources:

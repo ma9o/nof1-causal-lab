@@ -1,8 +1,7 @@
 """Comprehensive tests for AutoReparam: automatic reparameterization strategies.
 
-Test design inspired by:
-- pyro-ppl/pyro: tests/infer/reparam/test_strategies.py (trace structure verification)
-- pyro-ppl/numpyro: test/infer/test_reparam.py (moment/gradient preservation)
+Check project strategy selection, trace structure, and exact location-scale
+reconstruction with deterministic standardized variates.
 """
 
 import functools
@@ -24,8 +23,8 @@ from nof1_causal_lab.models.ssm.autoreparam import (
     _minimal_reparam,
 )
 from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
-from nof1_causal_lab.models.ssm.inference.backend_factory import get_laplace_backend
 from nof1_causal_lab.models.ssm.inference.problem import build_particle_problem
+from nof1_causal_lab.models.ssm.inference.utils import _DummyLikelihoodBackend
 from nof1_causal_lab.models.ssm.priors import PriorDistributionFamily
 from nof1_causal_lab.models.ssm.transition_kinds import LATENT_TRANSITION_EULER_MARUYAMA
 from nof1_causal_lab.prior_distributions import distribution_from_params
@@ -33,7 +32,6 @@ from tests.dynamics_fixtures import decay_term, hill_term
 from tests.model_fixtures import (
     MinimalReparam,
     default_diffusion_block,
-    default_input_effect_block,
     default_lambda_block,
     default_manifest_chol_block,
     default_manifest_means_block,
@@ -46,21 +44,8 @@ from tests.model_fixtures import (
 from tests.models.ssm._support import simple_normal_model
 
 # ---------------------------------------------------------------------------
-# Helpers (ported from NumPyro's test_reparam.py)
+# Helpers
 # ---------------------------------------------------------------------------
-
-
-def get_moments(x):
-    """Extract first four central moments from samples."""
-    m1 = jnp.mean(x, axis=0)
-    x = x - m1
-    xx = x * x
-    xxx = x * xx
-    xxxx = xx * xx
-    m2 = jnp.mean(xx, axis=0)
-    m3 = jnp.mean(xxx, axis=0) / m2**1.5
-    m4 = jnp.mean(xxxx, axis=0) / m2**2
-    return jnp.stack([m1, m2, m3, m4])
 
 
 def trace_name_type(model_fn, *args, **kwargs):
@@ -357,77 +342,53 @@ class TestTraceStructure:
 
 
 # ---------------------------------------------------------------------------
-# III. Moment + gradient preservation (NumPyro-style)
+# III. Exact reconstruction and gradients
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.cpu_expensive
-class TestMomentPreservation:
-    """Verify reparameterized samples have the same distribution.
-
-    Ported from NumPyro's test_reparam.py::test_loc_scale pattern.
-    """
+class TestLocScalePreservation:
+    """Exercise AutoReparam without Monte Carlo error or large random draws."""
 
     @pytest.mark.parametrize("shape", [(), (4,), (3, 2)], ids=str)
     @pytest.mark.parametrize("centered", [0.0, 0.6, 1.0, None])
     @pytest.mark.parametrize("dist_type", ["Normal", "StudentT"])
-    def test_loc_scale_moments(self, dist_type, centered, shape):
+    def test_reconstruction_and_gradients(self, dist_type, centered, shape):
         rng = np.random.default_rng(0)
-        loc = rng.uniform(-1.0, 1.0, shape)
-        scale = rng.uniform(0.5, 1.5, shape)
+        loc = jnp.asarray(rng.uniform(-1.0, 1.0, shape), dtype=jnp.float32)
+        scale = jnp.asarray(rng.uniform(0.5, 1.5, shape), dtype=jnp.float32)
+        noise = jnp.asarray(rng.normal(size=shape), dtype=jnp.float32)
 
         def model(loc, scale):
-            with numpyro.plate_stack("plates", shape), numpyro.plate("particles", 100_000):
+            with numpyro.plate_stack("plates", shape):
                 if dist_type == "Normal":
                     numpyro.sample("x", dist.Normal(loc, scale))
                 else:
                     numpyro.sample("x", dist.StudentT(10.0, loc, scale))
 
-        def get_expected(loc, scale):
-            with handlers.trace() as tr:
-                handlers.seed(model, 0)(loc, scale)
-            return get_moments(tr["x"]["value"])
+        def standardized_value(msg):
+            if msg["type"] == "sample":
+                law = msg["fn"]
+                assert isinstance(law, dist.Normal if dist_type == "Normal" else dist.StudentT)
+                # Fix the standardized variate while retaining the selected law.
+                # This couples both parameterizations without relying on RNG keys.
+                if dist_type == "StudentT":
+                    assert_allclose(law.df, 10.0)
+                return law.loc + law.scale * noise
+            return None
 
-        shape_params = ["df"] if dist_type == "StudentT" else []
-        reparam_config = {"x": LocScaleReparam(centered, shape_params=shape_params)}
+        def reconstruct(loc, scale):
+            strategy = AutoReparam(centered=centered)
+            with handlers.substitute(substitute_fn=standardized_value):
+                trace = handlers.trace(strategy(model)).get_trace(loc, scale)
+            assert isinstance(strategy.config["x"], LocScaleReparam)
+            assert trace["x"]["type"] == ("sample" if centered == 1.0 else "deterministic")
+            return trace["x"]["value"]
 
-        def get_actual(loc, scale):
-            with handlers.trace() as tr, handlers.reparam(config=reparam_config):
-                handlers.seed(model, 0)(loc, scale)
-            return get_moments(tr["x"]["value"])
-
-        expected = get_expected(loc, scale)
-        actual = get_actual(loc, scale)
-        # StudentT has heavier tails → higher-variance moment estimates.
-        tol = 0.35 if dist_type == "StudentT" else 0.1
-        assert_allclose(actual, expected, atol=tol)
-
-    @pytest.mark.parametrize("shape", [(), (4,)], ids=str)
-    @pytest.mark.parametrize("centered", [0.0, 1.0])
-    def test_loc_scale_gradients(self, centered, shape):
-        """Gradients through reparameterized model should match original."""
-        rng = np.random.default_rng(0)
-        loc = rng.uniform(-1.0, 1.0, shape)
-        scale = rng.uniform(0.5, 1.5, shape)
-
-        def model(loc, scale):
-            with numpyro.plate_stack("plates", shape), numpyro.plate("particles", 100_000):
-                numpyro.sample("x", dist.Normal(loc, scale))
-
-        def get_expected(loc, scale):
-            with handlers.trace() as tr:
-                handlers.seed(model, 0)(loc, scale)
-            return get_moments(tr["x"]["value"])
-
-        def get_actual(loc, scale):
-            with handlers.trace() as tr, handlers.reparam(config={"x": LocScaleReparam(centered)}):
-                handlers.seed(model, 0)(loc, scale)
-            return get_moments(tr["x"]["value"])
-
-        expected_grad = jax.jacobian(get_expected, argnums=(0, 1))(loc, scale)
-        actual_grad = jax.jacobian(get_actual, argnums=(0, 1))(loc, scale)
-        assert_allclose(actual_grad[0], expected_grad[0], atol=0.05)
-        assert_allclose(actual_grad[1], expected_grad[1], atol=0.05)
+        assert_allclose(reconstruct(loc, scale), loc + scale * noise, atol=1e-6)
+        loc_grad, scale_grad = jax.jacfwd(reconstruct, argnums=(0, 1))(loc, scale)
+        identity = np.eye(loc.size).reshape(shape + shape)
+        assert_allclose(loc_grad, identity, atol=1e-6)
+        assert_allclose(scale_grad, identity * np.asarray(noise), atol=1e-6)
 
 
 # ---------------------------------------------------------------------------
@@ -472,7 +433,6 @@ class TestSyntax:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.cpu_expensive
 class TestAutoReparamSSM:
     """Test AutoReparam with the actual SSM model."""
 
@@ -489,7 +449,6 @@ class TestAutoReparamSSM:
             manifest_chol_block=default_manifest_chol_block(2),
             t0_means_block=default_t0_means_block(2),
             t0_chol_block=default_t0_chol_block(2),
-            input_effect_block=default_input_effect_block(2),
             static_state_sd_block=default_static_state_sd_block(),
         )
         return SSMModel(spec=spec)
@@ -499,10 +458,10 @@ class TestAutoReparamSSM:
         model = self._make_simple_ssm()
         strategy = AutoReparam(centered=0.0)
 
-        model_fn = functools.partial(model.model, likelihood_backend=get_laplace_backend(model, 6))
+        model_fn = functools.partial(model.model, likelihood_backend=_DummyLikelihoodBackend())
         reparam_model = handlers.reparam(model_fn, config=strategy)
 
-        T = 10
+        T = 2
         observations = jnp.zeros((T, 2))
         times = jnp.linspace(0, 1, T)
 
@@ -510,20 +469,20 @@ class TestAutoReparamSSM:
             trace = handlers.trace(reparam_model).get_trace(observations, times)
 
         # Normal sites (loc-scale, real support) → LocScaleReparam
-        for site in ["vf_1_weight", "t0_means_free"]:
-            if site in strategy.config:
-                assert isinstance(strategy.config[site], LocScaleReparam), (
-                    f"{site} should be LocScaleReparam"
-                )
+        for site in ["vf_2_p0", "t0_means_free"]:
+            assert isinstance(strategy.config[site], LocScaleReparam), (
+                f"{site} should be LocScaleReparam"
+            )
 
         # Positive-support sites → None
         for site in [
-            "vf_0_decay",
+            "vf_0_p0",
             "diffusion_diag_free",
             "manifest_var_diag_free",
             "t0_var_diag_free",
         ]:
-            assert strategy.config.get(site) is None, f"{site} should NOT be reparameterized"
+            assert site in trace
+            assert strategy.config[site] is None, f"{site} should NOT be reparameterized"
 
         # All values finite
         for name, site in trace.items():
@@ -546,12 +505,13 @@ class TestAutoReparamSSM:
         particles = jnp.stack([parameters.initial_position, parameters.initial_position + 0.05])
         samples = extract_constrained_samples(particles, parameters, public_sites)
 
-        assert "vf_0_decay" in samples
+        assert "vf_0_p0" in samples
         assert "diffusion_diag_free" in samples
         assert all("_decentered" not in name for name in samples)
-        assert samples["vf_0_decay"].shape[0] == 2
+        assert samples["vf_0_p0"].shape[0] == 2
         assert samples["diffusion_diag_free"].shape[0] == 2
 
+    @pytest.mark.inference
     def test_particle_runtime_reconstructs_log_normal_hill_sites(self):
         """Nested TransformReparam + LocScaleReparam restores the public Hill site."""
         from nof1_causal_lab.models.ssm.model import SSMModel
@@ -572,11 +532,10 @@ class TestAutoReparamSSM:
             manifest_chol_block=default_manifest_chol_block(2),
             t0_means_block=default_t0_means_block(2),
             t0_chol_block=default_t0_chol_block(2),
-            input_effect_block=default_input_effect_block(2),
             static_state_sd_block=default_static_state_sd_block(),
         )
         priors = {
-            "vf_1_Emax": distribution_from_params(
+            "vf_2_p0": distribution_from_params(
                 PriorDistributionFamily.LOG_NORMAL,
                 {"mu": -0.2, "sigma": 0.3},
             )
@@ -595,6 +554,10 @@ class TestAutoReparamSSM:
         )
         context = bundle.runtime.context(bundle.runtime.initial_position, times)
 
-        assert "vf_1_Emax_base_decentered" in bundle.site_info
-        assert set(context.vf_params[1]) == {"Emax", "EC50", "n"}
-        assert bool(jnp.all(jnp.isfinite(jnp.stack(tuple(context.vf_params[1].values())))))
+        assert "vf_2_p0_base_decentered" in bundle.site_info
+        from nof1_causal_lab.models.ssm import numerics as numeric
+
+        hill = numeric.dynamics_components(spec).components[2]
+        params = context[0].state_evolution.drift.args.params[2]
+        assert set(params) == dict(hill.parameter_sites("vf_2")).keys()
+        assert bool(jnp.all(jnp.isfinite(jnp.stack(tuple(params.values())))))

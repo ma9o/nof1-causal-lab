@@ -1,9 +1,4 @@
-"""Tests for the Diffrax/Optimistix counterfactual API.
-
-Covers: dense-linear VectorField + Intervention DSL, simulate / simulate_pair,
-compute_steady_state, summarize_draws / summarize_temporal_effect,
-compute_interventions.
-"""
+"""Numerical contracts for exact nonlinear simulation and posterior summaries."""
 
 from __future__ import annotations
 
@@ -11,10 +6,7 @@ import jax.numpy as jnp
 import pytest
 
 from nof1_causal_lab.models.ssm.counterfactual import (
-    build_time_grid,
-    compute_interventions,
     summarize_draws,
-    summarize_temporal_effect,
 )
 from nof1_causal_lab.models.ssm.dynamics import (
     EdgeInputOverride,
@@ -27,7 +19,6 @@ from nof1_causal_lab.models.ssm.dynamics import (
     constant_value,
     linear_ramp,
     simulate,
-    simulate_pair,
 )
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
 
@@ -140,7 +131,7 @@ class TestDenseLinearRuntime:
 # =============================================================================
 
 
-@pytest.mark.cpu_expensive
+@pytest.mark.simulation
 class TestComputeSteadyState:
     def test_matches_inverse_for_diagonal_dynamics(self):
         vf = _dense_matrix_vector_field(n_latent=2)
@@ -173,11 +164,11 @@ class TestComputeSteadyState:
 
 
 # =============================================================================
-# simulate / simulate_pair
+# simulate
 # =============================================================================
 
 
-@pytest.mark.cpu_expensive
+@pytest.mark.simulation
 class TestSimulate:
     def test_no_coupling_no_propagation(self):
         vf = _dense_matrix_vector_field(n_latent=2)
@@ -187,9 +178,9 @@ class TestSimulate:
             overrides=(VariableOverride(index=0, value_fn=constant_value(jnp.asarray(0.0))),)
         )
         baseline = compute_steady_state(vf, params, Intervention.none())
-        _, _action, effect = simulate_pair(
-            vf, params, Intervention.none(), intervention, baseline, time_grid
-        )
+        reference = simulate(vf, params, Intervention.none(), baseline, time_grid)
+        action = simulate(vf, params, intervention, baseline, time_grid)
+        effect = action - reference
         assert jnp.all(jnp.abs(effect[:, 1]) < 1e-3)
 
     def test_positive_coupling_yields_positive_effect(self):
@@ -207,9 +198,9 @@ class TestSimulate:
                 VariableOverride(index=0, value_fn=constant_value(baseline[0] + jnp.asarray(1.0))),
             )
         )
-        _, _, effect = simulate_pair(
-            vf, params, Intervention.none(), intervention, baseline, time_grid
-        )
+        reference = simulate(vf, params, Intervention.none(), baseline, time_grid)
+        action = simulate(vf, params, intervention, baseline, time_grid)
+        effect = action - reference
         assert float(effect[-1, 1]) > 0
 
     def test_clamped_state_tracks_constant(self):
@@ -226,53 +217,6 @@ class TestSimulate:
 # =============================================================================
 # Estimand helpers
 # =============================================================================
-
-
-class TestSummarizeTemporalEffect:
-    def test_arbitrary_horizons_interpolate_from_elapsed_start(self):
-        time_grid = jnp.array([10.0, 12.0, 15.0])
-        traj = jnp.array([0.0, 4.0, 10.0])
-        result = summarize_temporal_effect(traj, time_grid, horizons_days=[0.5, 2.25, 5.0])
-        assert [point.day for point in result.horizons] == [0.5, 2.25, 5.0]
-        assert [point.effect for point in result.horizons] == pytest.approx([1.0, 4.5, 10.0])
-        assert result.peak_effect == pytest.approx(10.0)
-        assert result.time_to_peak_days == pytest.approx(5.0)
-
-    def test_constant_trajectory(self):
-        time_grid = jnp.linspace(0.0, 10.0, 101)
-        traj = jnp.ones(101) * 2.5
-        result = summarize_temporal_effect(traj, time_grid, horizons_days=[1.0, 7.0])
-        assert [point.effect for point in result.horizons] == pytest.approx([2.5, 2.5])
-        assert result.peak_effect == pytest.approx(2.5)
-
-    def test_negative_absolute_peak_is_preserved(self):
-        result = summarize_temporal_effect(
-            jnp.array([0.0, -5.0, 2.0]), jnp.array([0.0, 1.0, 2.0]), horizons_days=[0.5, 2.0]
-        )
-        assert result.peak_effect == pytest.approx(-5.0)
-        assert result.time_to_peak_days == pytest.approx(1.0)
-
-    @pytest.mark.parametrize(
-        "horizons", [[], [-1.0], [3.0], [float("nan")], [1.0, 1.0], [2.0, 1.0]]
-    )
-    def test_rejects_invalid_or_unsimulated_horizons(self, horizons):
-        with pytest.raises(ValueError, match="horizon"):
-            summarize_temporal_effect(
-                jnp.array([0.0, 4.0]), jnp.array([0.0, 2.0]), horizons_days=horizons
-            )
-
-    @pytest.mark.parametrize(
-        ("trajectory", "times"),
-        [
-            ([], []),
-            ([1.0], [0.0, 1.0]),
-            ([1.0, 2.0], [1.0, 0.0]),
-            ([0.0, float("nan")], [0.0, 1.0]),
-        ],
-    )
-    def test_rejects_invalid_simulation_grid(self, trajectory, times):
-        with pytest.raises(ValueError, match="Temporal effect"):
-            summarize_temporal_effect(jnp.array(trajectory), jnp.array(times), horizons_days=[1.0])
 
 
 class TestSummarizeDraws:
@@ -314,137 +258,11 @@ class TestLinearRamp:
         assert float(ramp(jnp.asarray(2.0))) == pytest.approx(5.0, abs=1e-6)
 
 
-class TestBuildTimeGrid:
-    def test_inclusive_uniform_grid(self):
-        grid = build_time_grid(0.0, 10.0, 1.0)
-        assert float(grid[0]) == 0.0
-        assert float(grid[-1]) == pytest.approx(10.0)
-        assert len(grid) == 11
-
-
 # =============================================================================
-# compute_interventions orchestrator
 # =============================================================================
 
 
-@pytest.mark.cpu_expensive
-class TestComputeInterventions:
-    def _make_samples(self, n_draws=4, n_latent=3):
-        dynamics = jnp.broadcast_to(-jnp.eye(n_latent), (n_draws, n_latent, n_latent))
-        cint = jnp.broadcast_to(jnp.ones(n_latent), (n_draws, n_latent))
-        return [({"drift": d, "cint": c},) for d, c in zip(dynamics, cint, strict=True)]
-
-    def test_diagonal_dynamics_yields_zero_effects(self):
-        samples = self._make_samples()
-        results = compute_interventions(
-            samples,
-            _dense_matrix_vector_field(n_latent=3),
-            treatments=["A", "B"],
-            outcome="C",
-            latent_names=["A", "B", "C"],
-        )
-        assert len(results) == 2
-        for r in results:
-            assert "treatment" in r
-            assert r["posterior_draws"] is not None
-            mean_effect = sum(r["posterior_draws"]) / len(r["posterior_draws"])
-            assert abs(mean_effect) < 1e-3, (
-                f"{r['treatment']} should have ~zero effect with diagonal dynamics"
-            )
-
-    def test_outcome_not_in_latent_names(self):
-        samples = self._make_samples()
-        results = compute_interventions(
-            samples,
-            _dense_matrix_vector_field(n_latent=3),
-            treatments=["A"],
-            outcome="MISSING",
-            latent_names=["A", "B", "C"],
-        )
-        assert len(results) == 1
-        assert results[0].get("posterior_draws") is None
-
-    def test_treatment_not_in_latent_names(self):
-        samples = self._make_samples()
-        results = compute_interventions(
-            samples,
-            _dense_matrix_vector_field(n_latent=3),
-            treatments=["UNKNOWN"],
-            outcome="C",
-            latent_names=["A", "B", "C"],
-        )
-        assert results[0].get("posterior_draws") is None
-
-    def test_no_dynamics_samples(self):
-        results = compute_interventions(
-            [],
-            _dense_matrix_vector_field(n_latent=3),
-            treatments=["A"],
-            outcome="C",
-            latent_names=["A", "B", "C"],
-        )
-        assert results[0].get("posterior_draws") is None
-
-    def test_sorted_by_abs_effect(self):
-        n = 4
-        A = jnp.array([[-1.0, 0.0, 0.0], [0.8, -1.0, 0.0], [0.1, 0.0, -1.0]])
-        samples = [({"drift": A, "cint": jnp.ones(3)},) for _ in range(n)]
-        results = compute_interventions(
-            samples,
-            _dense_matrix_vector_field(n_latent=3),
-            treatments=["A", "B"],
-            outcome="C",
-            latent_names=["A", "B", "C"],
-        )
-        means = [
-            abs(sum(r["posterior_draws"]) / len(r["posterior_draws"]))
-            for r in results
-            if r.get("posterior_draws")
-        ]
-        assert means == sorted(means, reverse=True)
-
-    def test_parameter_samples_are_required(self):
-        results = compute_interventions(
-            [],
-            _dense_matrix_vector_field(n_latent=2),
-            treatments=["A"],
-            outcome="B",
-            latent_names=["A", "B"],
-        )
-        assert results[0].get("posterior_draws") is None
-
-    def test_manifest_effects_include_interval_supported_outcome_indicators(self):
-        n = 3
-        dynamics = jnp.broadcast_to(
-            jnp.array([[-1.0, 0.0], [0.5, -1.0]]),
-            (n, 2, 2),
-        )
-        cint = jnp.broadcast_to(jnp.zeros(2), (n, 2))
-        lambda_draws = jnp.broadcast_to(
-            jnp.array([[0.0, -1.0]]),
-            (n, 1, 2),
-        )
-        results = compute_interventions(
-            [({"drift": d, "cint": c},) for d, c in zip(dynamics, cint, strict=True)],
-            _dense_matrix_vector_field(n_latent=2),
-            treatments=["A"],
-            outcome="B",
-            latent_names=["A", "B"],
-            measurement_clock="1d",
-            manifest_names=["sleep_problem_search_count"],
-            lambda_mean=jnp.mean(lambda_draws, axis=0),
-        )
-
-        manifest_effects = results[0].get("manifest_effects")
-        assert manifest_effects is not None
-        assert "sleep_problem_search_count" in manifest_effects
-        mean_effect = sum(results[0]["posterior_draws"]) / len(results[0]["posterior_draws"])
-        assert manifest_effects["sleep_problem_search_count"] == pytest.approx(
-            -1.0 * mean_effect, abs=1e-4
-        )
-
-
-@pytest.mark.cpu_expensive
+@pytest.mark.simulation
 class TestNumericalCorrectness:
     """Regression tests pinning the numerical Diffrax+Optimistix paths to the
     closed-form linear math they replace. Catches solver-tolerance or step-size

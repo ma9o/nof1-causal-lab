@@ -76,10 +76,6 @@ def subroutine_context_messages(
             ],
         )
 
-    if context_kind == "analysis_commentary":
-        context = read_subroutine_json(context_ref)
-        return context["system_prompt"], list(context["user_messages"]), []
-
     if context_kind == "raw_data_ingestion":
         from nof1_causal_lab.flows.transitions.ingestion.flow import SYSTEM_PROMPT, USER_PROMPT
 

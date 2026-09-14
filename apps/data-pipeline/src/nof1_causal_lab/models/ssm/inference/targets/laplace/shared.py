@@ -101,7 +101,6 @@ def _prepare_linearized_path(
     time_intervals: jnp.ndarray,
     init_mean: jnp.ndarray,
     *,
-    transition_inputs: jnp.ndarray | None,
     z_init: jnp.ndarray | None,
     dtype: jnp.dtype,
 ) -> tuple[
@@ -115,7 +114,6 @@ def _prepare_linearized_path(
             dynamics,
             time_intervals,
             linearization_states=_transition_start_linearization_states(path, init_mean),
-            transition_inputs=transition_inputs,
         )
         return transitions.A, transitions.cov, jnp.asarray(transitions.bias, dtype=dtype)
 

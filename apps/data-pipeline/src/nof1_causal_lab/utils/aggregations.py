@@ -414,7 +414,7 @@ def compute_indicators(
     if not indicators:
         return pl.DataFrame(schema=output_schema)
 
-    df = ensure_datetime_column(raw_df, time_col)
+    df = ensure_datetime_column(raw_df, time_col).sort(time_col)
 
     frames: list[pl.DataFrame] = []
     for ind in indicators:
@@ -424,6 +424,7 @@ def compute_indicators(
         observation_window = ind.get("observation_window") or model_clock
         source_columns = list(ind.get("source_columns", []))
         computed_rule = ind.get("computed_rule")
+        recording = ind.get("recording", "samples")
 
         if not source_columns:
             logger.warning(
@@ -453,7 +454,8 @@ def compute_indicators(
                 _compile_computed_rule_expr(
                     computed_rule,
                     allowed_names=set(source_columns),
-                )
+                ),
+                empty_value=0 if recording == "events" else None,
             )
             agg_df = prepared.group_by("__tick__", maintain_order=True).agg(expr)
         else:
@@ -483,8 +485,12 @@ def compute_indicators(
                 )
             else:
                 expr = _build_dense_agg_expr(agg_name, "__value__")
+                if recording == "events":
+                    expr = _missing_window_guard(expr, empty_value=0)
                 agg_df = prepared.group_by("__tick__", maintain_order=True).agg(expr)
 
+        if recording == "changes":
+            agg_df = agg_df.sort("__tick__").with_columns(pl.col("value").forward_fill())
         agg_df = agg_df.select(
             pl.lit(ind["id"]).alias("indicator_id"),
             pl.col("value").cast(pl.Utf8).alias("value"),
@@ -498,12 +504,12 @@ def compute_indicators(
     return pl.concat(frames, how="vertical").sort("timestamp", "indicator_id")
 
 
-def _missing_window_guard(expr: pl.Expr) -> pl.Expr:
-    """Return null for synthetic windows with no raw rows."""
+def _missing_window_guard(expr: pl.Expr, *, empty_value: int | None = None) -> pl.Expr:
+    """Apply the declared empty-window value only where no source row exists."""
     return (
         pl.when(pl.col("__observed_row__").fill_null(False).any())
         .then(expr)
-        .otherwise(None)
+        .otherwise(empty_value)
         .alias("value")
     )
 
@@ -547,7 +553,7 @@ def _with_dense_support_rows(prepared: pl.DataFrame, tick_frame: pl.DataFrame) -
     if tick_frame.is_empty():
         return prepared.with_columns(pl.lit(True).alias("__observed_row__"))
     observed = prepared.with_columns(pl.lit(True).alias("__observed_row__"))
-    return tick_frame.join(observed, on="__tick__", how="left")
+    return tick_frame.join(observed, on="__tick__", how="left", maintain_order="left_right")
 
 
 def _prepare_computed_rule_frame(

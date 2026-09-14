@@ -11,7 +11,6 @@ import jax
 import jax.numpy as jnp
 import numpyro
 
-from nof1_causal_lab.artifacts.coefficient import FixedCoefficient, ParameterCoefficient
 from nof1_causal_lab.artifacts.expressions import (
     CoefficientExpression,
     Expression,
@@ -28,6 +27,7 @@ if TYPE_CHECKING:
 
     from jax import Array
 
+    from nof1_causal_lab.artifacts.identity import ConstructId, ParameterId
     from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
 
     from .spec import PriorFn
@@ -62,18 +62,18 @@ class ExpressionComponent(eqx.Module):
     target: int = eqx.field(static=True)
     edge_owned: bool = eqx.field(static=True)
     expression: Expression = eqx.field(static=True)
-    state_ids: tuple[str, ...] = eqx.field(static=True)
+    state_ids: tuple[ConstructId, ...] = eqx.field(static=True)
 
     def evaluate(self, values, params):
         def coefficient(operand):
-            reference = operand.coefficient
+            reference = operand.value
             if reference is None:
                 from nof1_causal_lab.compilation_errors import IncompleteModelError
 
                 raise IncompleteModelError(f"Expression requires its {operand.role} coefficient")
-            if isinstance(reference, FixedCoefficient):
-                return jnp.asarray(reference.value)
-            return params[reference.parameter_id]
+            if isinstance(reference, (int, float)):
+                return jnp.asarray(reference)
+            return params[reference]
 
         return fold_expression(
             self.expression,
@@ -95,7 +95,7 @@ class ExpressionComponentSpec:
 
     expression: Expression
     target: int
-    state_ids: tuple[str, ...]
+    state_ids: tuple[ConstructId, ...]
     source: int | None
     kind: Literal["drift", "potential"] = "drift"
 
@@ -116,7 +116,7 @@ class ExpressionComponentSpec:
         return tuple(
             operand
             for operand in expression_coefficients(self.expression)
-            if isinstance(operand.coefficient, ParameterCoefficient)
+            if isinstance(operand.value, str)
         )
 
     def build(self) -> ExpressionComponent:
@@ -127,7 +127,7 @@ class ExpressionComponentSpec:
             state_ids=self.state_ids,
         )
 
-    def parameter_sites(self, prefix: str) -> Iterator[tuple[str, SiteDescriptor]]:
+    def parameter_sites(self, prefix: str) -> Iterator[tuple[ParameterId, SiteDescriptor]]:
         positions = (
             ((self.target, self.source, *sorted(self.sources - {self.source})),)
             if self.source is not None

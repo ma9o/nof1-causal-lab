@@ -3,20 +3,16 @@
 import numpyro.distributions as dist
 import pytest
 
-from nof1_causal_lab.artifacts.coefficient import FixedCoefficient, ParameterCoefficient
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.expressions import (
     hill as expr_hill,
-)
-from nof1_causal_lab.artifacts.expressions import (
-    linear_effect,
 )
 from nof1_causal_lab.artifacts.expressions import (
     state as expr_state,
 )
 from nof1_causal_lab.artifacts.identity import ConstructRef, EdgeRef, MechanismRef
 from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec
-from nof1_causal_lab.artifacts.mechanism import DynamicsMechanism
+from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 from nof1_causal_lab.flows.transitions.inference.subjects import reference_posterior_findings
@@ -198,13 +194,7 @@ def test_student_innovation_tail_is_explicit_and_shared_through_completion():
             edges=replace_constructs(
                 model.edges,
                 tuple(
-                    construct.model_copy(
-                        update={
-                            "innovation": construct.innovation.model_copy(
-                                update={"distribution": "student_t"}
-                            )
-                        }
-                    )
+                    construct.model_copy(update={"innovation_family": "student_t"})
                     for construct in model.constructs
                 ),
             )
@@ -212,19 +202,19 @@ def test_student_innovation_tail_is_explicit_and_shared_through_completion():
     )
     parameter = next(p for p in model.parameters if p.name == "proc_df")
     for construct in model.constructs:
-        assert construct.innovation is not None
-        assert parameter.id in referenced_parameter_ids(construct.innovation)
+        assert parameter.id in referenced_parameter_ids(*construct.coefficients)
     model.check_execution()
     first, second = model.constructs
-    assert first.innovation is not None
     candidate = model.revised(
         edges=replace_constructs(
             model.edges,
             (
                 first.model_copy(
                     update={
-                        "innovation": first.innovation.model_copy(
-                            update={"degrees_of_freedom": None}
+                        "coefficients": tuple(
+                            operand
+                            for operand in first.coefficients
+                            if operand.role != "process_degrees_of_freedom"
                         )
                     }
                 ),
@@ -236,17 +226,30 @@ def test_student_innovation_tail_is_explicit_and_shared_through_completion():
         candidate.check_execution()
     completed = complete_model(candidate)
     assert completed.parameter(parameter.id) == parameter
-    assert completed.get_construct(first.id).innovation == first.innovation
+    assert completed.get_construct(first.id).coefficients == first.coefficients
 
 
-def test_initial_state_defaults_are_authored_before_compilation():
+@pytest.mark.parametrize("retained_role", [None, "initial_mean", "initial_scale"])
+def test_initial_state_defaults_are_authored_before_compilation(retained_role):
     _, model, _ = _compile(_model())
     from nof1_causal_lab.models.parameter_planning import complete_component_slots
 
     free = model.revised(
         edges=replace_constructs(
             model.edges,
-            tuple(c.model_copy(update={"initial_state": None}) for c in model.constructs),
+            tuple(
+                c.model_copy(
+                    update={
+                        "coefficients": tuple(
+                            operand
+                            for operand in c.coefficients
+                            if not operand.role.startswith("initial_")
+                            or operand.role == retained_role
+                        )
+                    }
+                )
+                for c in model.constructs
+            ),
         )
     )
     with pytest.raises(ValueError, match="initial-state coefficients"):
@@ -297,21 +300,23 @@ def test_additive_hill_and_linear_terms_survive_parameter_renaming():
         id=fixture_parameter_id(SiteKind.HILL_EMAX, owners),
         name="Peak effect",
         description="Test nonlinear contribution",
-        distribution=dist.HalfNormal(1.0),
     )
-    hill = DynamicsMechanism(
+    hill = DynamicsMechanismSpec(
         id="mechanism:test-hill",
         expression=expr_hill(
             expr_state(edge.cause.id),
-            emax=ParameterCoefficient(parameter_id=peak.id),
-            ec50=FixedCoefficient(value=1.0),
-            n=FixedCoefficient(value=2.0),
+            emax=peak.id,
+            ec50=1.0,
+            n=2.0,
         ),
     )
     additive = model.revised(
         edges=(edge.model_copy(update={"mechanisms": (*edge.mechanisms, hill)}),),
         parameters=(*model.parameters, peak),
     )
+    from nof1_causal_lab.models.model_distributions import with_parameter_distributions
+
+    additive = with_parameter_distributions(additive, {peak.id: dist.HalfNormal(1.0)})
     before = check_execution(additive)
     renamed = additive.revised(
         parameters=tuple(
@@ -326,53 +331,6 @@ def test_additive_hill_and_linear_terms_survive_parameter_renaming():
     assert isinstance(components, tuple)
     assert isinstance(original_components, tuple)
     assert len(components) == len(original_components) + 1
-
-
-def test_known_input_mechanism_cannot_silently_double_its_effect():
-    from nof1_causal_lab.artifacts.construct import KnownInput
-
-    model = _model(edges=(("A", "B"),))
-    first, second = model.constructs
-    first = first.model_copy(
-        update={
-            "role": "exogenous",
-            "usage": KnownInput(source_indicator_id=first.indicators[0].id),
-        }
-    )
-    _, model, _plan = _compile(
-        model.revised(edges=replace_constructs(model.edges, (first, second)))
-    )
-    edge = model.edges[0]
-    first = edge.mechanisms[0]
-    weight = next(p for p in model.parameters_for(first.id))
-    owners = (
-        *(
-            owner
-            for owner in model.parameter_context(weight.id).owners
-            if owner.kind != "mechanism"
-        ),
-        MechanismRef(id="mechanism:second-input-effect"),
-    )
-    second_weight = weight.model_copy(
-        update={"id": fixture_parameter_id(model.parameter_context(weight.id).quantity, owners)}
-    )
-    second = first.model_copy(
-        update={
-            "id": "mechanism:second-input-effect",
-            "expression": linear_effect(
-                edge.cause.id, ParameterCoefficient(parameter_id=second_weight.id)
-            ),
-        }
-    )
-    duplicated = model.revised(
-        edges=(edge.model_copy(update={"mechanisms": (first, second)}),),
-        parameters=(*model.parameters, second_weight),
-    )
-    with pytest.raises(
-        ValueError,
-        match=r"Multiple scientific definitions|one linear expression per input matrix cell",
-    ):
-        check_execution(duplicated)
 
 
 def _assert_same_prior_laws(first, second):

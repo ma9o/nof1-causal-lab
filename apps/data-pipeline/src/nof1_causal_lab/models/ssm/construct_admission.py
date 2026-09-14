@@ -22,7 +22,7 @@ stage_outcome`; there is no status enum stored on any artifact.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from statistics import NormalDist
 from time import perf_counter_ns
 from typing import TYPE_CHECKING, Any
@@ -32,10 +32,9 @@ import jax.numpy as jnp
 import networkx as nx
 import numpy as np
 
-from nof1_causal_lab.artifacts.coefficient import FixedCoefficient
 from nof1_causal_lab.artifacts.construct import (
-    CausalEdge,
-    Construct,
+    CausalEdgeSpec,
+    ConstructSpec,
     replace_constructs,
 )
 from nof1_causal_lab.artifacts.expressions import (
@@ -46,6 +45,7 @@ from nof1_causal_lab.artifacts.expressions import (
     hill_applications,
     restoring_coefficients,
 )
+from nof1_causal_lab.artifacts.identity import DistributionId  # noqa: TC001
 from nof1_causal_lab.artifacts.likelihood import LinkFunction
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec  # noqa: TC001
@@ -77,6 +77,7 @@ from nof1_causal_lab.models.ssm.reachability import (
     check_transmission,
     stage_outcome,
 )
+from nof1_causal_lab.numpyro_json import NumPyroDistribution  # noqa: TC001
 from nof1_causal_lab.utils.model_structure import (
     get_edges,
     get_state_names,
@@ -98,9 +99,10 @@ if TYPE_CHECKING:
 class ConstructContribution:
     """A bounded authoring update containing canonical scientific entities."""
 
-    construct: Construct
-    edges: tuple[CausalEdge, ...] = ()
+    construct: ConstructSpec
+    edges: tuple[CausalEdgeSpec, ...] = ()
     parameters: tuple[ParameterSpec, ...] = ()
+    distributions: dict[DistributionId, NumPyroDistribution] = field(default_factory=dict)
     edge_parents: tuple[str, ...] = ()
     hill_parents: tuple[str, ...] = ()
 
@@ -417,10 +419,9 @@ class DesignInfo:
     Real longitudinal data is irregular and per-indicator, so observations are
     indexed per indicator: ``obs_index_by_indicator`` maps each indicator to the
     ``t_grid`` indices where it was actually observed, and ``values_by_indicator``
-    holds the aligned observed values. ``observation_support`` and
-    ``transition_inputs`` are threaded to the exact prior-predictive sampler and the
-    edge-off re-simulation when present (real data); synthetic tests leave them
-    ``None`` and share a single index across indicators.
+    holds the aligned observed values. ``observation_support`` is passed to the
+    exact prior-predictive sampler and edge-off re-simulation when present;
+    synthetic tests use a shared index across indicators.
 
     ``c1b_growth_ratio`` / ``c1b_max_explosive_frac`` calibrate C1b confinement: a
     draw explodes when its late-window amplitude exceeds ``c1b_growth_ratio`` times
@@ -440,7 +441,6 @@ class DesignInfo:
     c1b_growth_ratio: float = C1B_GROWTH_RATIO
     c1b_max_explosive_frac: float = C1B_MAX_EXPLOSIVE_FRAC
     observation_support: Any = None
-    transition_inputs: Any = None
 
     @property
     def pooled_obs_index(self) -> np.ndarray:
@@ -472,7 +472,6 @@ class DesignInfo:
 class _EdgeOffTarget:
     """One compiled edge coordinate to disable under the same predictive draws."""
 
-    input_effect_cells: tuple[tuple[int, int], ...] = ()
     components: tuple[int, ...] = ()
 
 
@@ -501,11 +500,19 @@ def trial_admission_state(
     )
     if extra:
         raise ValueError(f"Parameters are not referenced by model components: {sorted(extra)}")
+    retained_parameters = tuple(
+        parameter for parameter in parameters.values() if parameter.id in referenced
+    )
+    law_references = {item.distribution for item in (*constructs, *retained_parameters)}
     candidate = state.model.revised(
         edges=candidate_edges,
-        parameters=tuple(
-            parameter for parameter in parameters.values() if parameter.id in referenced
-        ),
+        parameters=retained_parameters,
+        distributions={
+            identity: law
+            for identity, law in state.model.distributions.items()
+            if identity in law_references
+        }
+        | contribution.distributions,
     )
     return AdmissionState(
         model=candidate,
@@ -568,7 +575,6 @@ def _sample_partial(
         bundle,
         design.t_grid,
         observation_support=design.observation_support,
-        transition_inputs=design.transition_inputs,
         num_samples=design.n_draws,
         seed=design.seed,
     )
@@ -609,8 +615,8 @@ def _compile_and_sample_admission_state(
 
 
 def _coefficient_draws(operand, component, pred: Mapping[str, Any], prefix: str) -> np.ndarray:
-    if isinstance(operand.coefficient, FixedCoefficient):
-        return np.full(np.shape(pred["latents"])[0], operand.coefficient.value)
+    if isinstance(operand.value, (int, float)):
+        return np.full(np.shape(pred["latents"])[0], operand.value)
     sites = dict(component.parameter_sites(prefix))
     return np.asarray(pred[sites[coefficient_key(operand)].name])
 
@@ -702,7 +708,11 @@ def _run_battery(
             spec, replace(target, edge_parents=(parent,)), latent_names, d
         )
         x_off = _resimulate_edge_off(
-            spec, pred, design.t_grid, edge_target, design.seed, design.transition_inputs
+            spec,
+            pred,
+            design.t_grid,
+            edge_target,
+            design.seed,
         )[:, :, d]
         edge_label = f"{parent}->{target.name}"
         phase_results = list(
@@ -901,22 +911,18 @@ def _incoming_edge_off_target(
     latent_names: list[str],
     target: int,
 ) -> _EdgeOffTarget:
-    """Compiled vector-field sites or input-effect cells for incoming edges."""
+    """Compiled vector-field components for incoming edges."""
     components: set[int] = set()
-    input_cells: list[tuple[int, int]] = []
-    input_names = list(numeric.input_names(spec) or [])
     for parent in contribution.edge_parents:
         if parent in latent_names:
             p_idx = latent_names.index(parent)
             components.update(index for index, _ in _edge_components(spec, p_idx, target))
-        elif parent in input_names:
-            input_cells.append((target, input_names.index(parent)))
-    if contribution.edge_parents and not input_cells and not components:
+    if contribution.edge_parents and not components:
         raise ValueError(
             "Could not resolve an edge-off coordinate for incoming parents "
             f"{list(contribution.edge_parents)!r}"
         )
-    return _EdgeOffTarget(tuple(input_cells), tuple(sorted(components)))
+    return _EdgeOffTarget(tuple(sorted(components)))
 
 
 def _resimulate_edge_off(
@@ -925,14 +931,12 @@ def _resimulate_edge_off(
     t_grid: jnp.ndarray,
     edge_target: _EdgeOffTarget,
     seed: int,
-    transition_inputs: Any = None,
 ) -> jnp.ndarray:
     """Re-simulate the latents with the given edge contributions zeroed, all else fixed.
 
     Reuses the exact param draws (and Brownian path via ``seed``) from ``pred`` so
     the only difference from the edge-on trajectory is the zeroed edge — the
-    same-noise contrast :func:`reachability.check_edge_share` expects. The design's
-    ``transition_inputs`` are held identical to the edge-on run.
+    same-noise contrast :func:`reachability.check_edge_share` expects.
     """
     from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
         _simulate_vector_field_predictive_latents,
@@ -949,18 +953,10 @@ def _resimulate_edge_off(
             for index, component in enumerate(natural)
         ),
     )
-    if edge_target.input_effect_cells:
-        input_effect = jnp.asarray(samples["input_effect"])
-        if input_effect.ndim != 3:
-            raise ValueError("predictive input_effect must have shape draws x states x inputs")
-        for target_idx, input_idx in edge_target.input_effect_cells:
-            input_effect = input_effect.at[:, target_idx, input_idx].set(0.0)
-        samples["input_effect"] = input_effect
     latents, _linear_predictors = _simulate_vector_field_predictive_latents(
         spec,
         samples,
         t_grid,
-        transition_inputs=transition_inputs,
         rng_key=predictive_keys(seed).latents,
         dynamics=intervention_dynamics,
     )

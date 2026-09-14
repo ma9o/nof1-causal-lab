@@ -86,6 +86,7 @@ class MPGibbsStatic(NamedTuple):
     trajectory_log_prob_fn: TrajectoryLogProbRuntimeFn
     runtime_observations: jnp.ndarray
     runtime_times: jnp.ndarray
+    latent_free_mask: jnp.ndarray
     num_particles: int
     num_parameter_particles: int
     latent_delta: float
@@ -129,6 +130,7 @@ class SmootherContext(NamedTuple):
     traj_dtype: DTypeLike
     obs_increment_fn: ObservationIncrementLogProbRuntimeFn
     runtime_observations: jnp.ndarray
+    latent_free_mask: jnp.ndarray
     amala_delta: Float[Array, " D"]
     amala_kappa: float
     amala_grad_clip: float

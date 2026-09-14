@@ -920,7 +920,6 @@ def _point_dynamic_transition_ieks_laplace(
     *,
     n_ieks_iters: int,
     z_init: jnp.ndarray | None = None,
-    transition_inputs: jnp.ndarray | None = None,
     solver_kind: int = LIKELIHOOD_SOLVER_KIND_POINT_IEKS,
 ) -> tuple[jnp.ndarray, jnp.ndarray, dict[str, jnp.ndarray]]:
     """Point IEKS/Laplace path with per-iteration local dynamics linearization."""
@@ -930,7 +929,6 @@ def _point_dynamic_transition_ieks_laplace(
         dynamics,
         time_intervals,
         init_mean,
-        transition_inputs=transition_inputs,
         z_init=z_init,
         dtype=observations.dtype,
     )
@@ -1208,14 +1206,18 @@ def _dense_support_laplace_log_lik(
             # Backtracking: halve the step until the objective improves or
             # the step is too small.  Prevents the Newton iterate from
             # overshooting into numerically unstable regions.
+            z_next = z_flat
+            neg_next = best_neg
             alpha = 1.0
             for _bt in range(6):
                 z_cand = z_flat - alpha * step
                 neg_cand = _neg_log_prob(z_cand)
-                improved = jnp.isfinite(neg_cand) & (neg_cand < best_neg + 1.0)
-                z_flat = jnp.where(improved, z_cand, z_flat)
-                best_neg = jnp.where(improved, neg_cand, best_neg)
+                improved = jnp.isfinite(neg_cand) & (neg_cand < neg_next)
+                z_next = jnp.where(improved, z_cand, z_next)
+                neg_next = jnp.where(improved, neg_cand, neg_next)
                 alpha *= 0.5
+            z_flat = z_next
+            best_neg = neg_next
             best_z = jnp.where(
                 jnp.isfinite(best_neg) & (best_neg <= _neg_log_prob(best_z)),
                 z_flat,
@@ -1263,7 +1265,6 @@ def _dense_dynamic_support_laplace_log_lik(
     observation_support,
     n_newton_iters: int,
     *,
-    transition_inputs: jnp.ndarray | None = None,
     z_init: jnp.ndarray | None = None,
 ) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
     """Dense interval-support Laplace path with local dynamics linearization."""
@@ -1303,7 +1304,6 @@ def _dense_dynamic_support_laplace_log_lik(
             dynamics,
             time_intervals,
             init_mean,
-            transition_inputs=transition_inputs,
             z_init=z_init,
             dtype=observations.dtype,
         )

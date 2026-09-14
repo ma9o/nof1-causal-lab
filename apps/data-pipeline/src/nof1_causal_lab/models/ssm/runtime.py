@@ -83,7 +83,6 @@ class PreparedModelRuntime:
     inference_structure: InferenceStructurePlan
     observations: jnp.ndarray
     times: jnp.ndarray
-    transition_inputs: jnp.ndarray | None
 
     @property
     def spec(self) -> ModelSpec:
@@ -137,47 +136,6 @@ def prepare_fit_inputs(
     return observations, times, manifest_cols, standardized_data
 
 
-def prepare_transition_inputs(spec: ModelSpec, wide_data: pl.DataFrame) -> jnp.ndarray | None:
-    """Extract known inputs in compiled input order and align them to transitions."""
-    input_names = list(numeric.input_names(spec) or [])
-    if not input_names:
-        return None
-
-    source_indicators = list(numeric.input_sources(spec) or [])
-    scales = [float(scale) for scale in (numeric.input_scales(spec) or [])]
-    policies = list(numeric.input_missing_policies(spec) or [])
-    lagged_flags = list(numeric.input_lagged(spec))
-    missing_sources = [name for name in source_indicators if name not in wide_data.columns]
-    if missing_sources:
-        raise ValueError(
-            f"Known input source indicators are absent from the model data: {missing_sources}"
-        )
-
-    columns: list[jnp.ndarray] = []
-    for source_indicator, scale, policy, lagged in zip(
-        source_indicators,
-        scales,
-        policies,
-        lagged_flags,
-        strict=True,
-    ):
-        expr = pl.col(source_indicator).cast(pl.Float64, strict=False)
-        if policy == "zero":
-            filled = wide_data.select(expr.fill_null(0.0).alias(source_indicator))
-        elif policy == "forward_fill":
-            filled = wide_data.select(
-                expr.fill_null(strategy="forward").fill_null(0.0).alias(source_indicator)
-            )
-        else:
-            raise ValueError(f"Unsupported known-input missing policy: {policy!r}")
-        values = jnp.asarray(filled[source_indicator].to_numpy(), dtype=jnp.float32) / scale
-        if lagged and values.shape[0] > 1:
-            values = jnp.concatenate([values[:1], values[:-1]], axis=0)
-        columns.append(values)
-
-    return jnp.stack(columns, axis=1)
-
-
 def prepare_wide_model_runtime(
     wide_data: pl.DataFrame,
     *,
@@ -199,14 +157,12 @@ def prepare_wide_model_runtime(
         manifest_names,
     )
     observations, times, manifest_names, wide_data = prepare_fit_inputs(spec, wide_data)
-    transition_inputs = prepare_transition_inputs(spec, wide_data)
     observation_support = compile_observation_support_runtime(
         observation_data,
         wide_data,
         manifest_names,
     )
     model.set_observation_support(observation_support)
-    model.set_transition_inputs(transition_inputs)
     inference_structure = plan_inference_structure(
         spec,
         observation_support=observation_support,
@@ -237,7 +193,6 @@ def prepare_wide_model_runtime(
         inference_structure=inference_structure,
         observations=observations,
         times=times,
-        transition_inputs=transition_inputs,
     )
 
 
@@ -275,7 +230,6 @@ def sample_prior_predictive(
     times: jnp.ndarray | None = None,
     observation_support: ObservationSupportRuntime | None = None,
     observation_mask: jnp.ndarray | None = None,
-    transition_inputs: jnp.ndarray | None = None,
 ) -> dict[str, jnp.ndarray]:
     """Sample prior predictive draws from a live model and optional prepared schedule."""
     from nof1_causal_lab.models.ssm.execution.observation_families import (
@@ -303,6 +257,5 @@ def sample_prior_predictive(
         times,
         observation_support=observation_support,
         observation_mask=observation_mask,
-        transition_inputs=transition_inputs,
         num_samples=samples,
     )

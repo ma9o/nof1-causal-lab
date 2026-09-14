@@ -16,6 +16,4 @@ MODEL_INPUTS: dict[ArtifactId, str] = {
     "panel": "extraction",
     "identification_report": "identification",
     "validation_report": "identification",
-    "admission_report": "belief",
-    "baseline_report": "belief",
 }

@@ -24,7 +24,6 @@ from nof1_causal_lab.models.ssm.structure import (
 )
 from tests.model_fixtures import (
     default_diffusion_block,
-    default_input_effect_block,
     default_lambda_block,
     default_manifest_chol_block,
     default_manifest_means_block,
@@ -51,14 +50,12 @@ def _full_default_spec(n_latent: int = 2, n_manifest: int = 2) -> ModelSpec:
         manifest_chol_block=default_manifest_chol_block(n_manifest),
         t0_means_block=default_t0_means_block(n_latent),
         t0_chol_block=default_t0_chol_block(n_latent),
-        input_effect_block=default_input_effect_block(n_latent),
         static_state_sd_block=default_static_state_sd_block(),
     )
 
 
-def _sparse_spec_with_inputs_and_static(n_latent: int = 3) -> ModelSpec:
+def _sparse_spec_with_static(n_latent: int = 3) -> ModelSpec:
     n_manifest = 4
-    n_input = 2
     n_static = 1
     return model_fixture(
         n_latent=n_latent,
@@ -100,19 +97,6 @@ def _sparse_spec_with_inputs_and_static(n_latent: int = 3) -> ModelSpec:
         manifest_chol_block=default_manifest_chol_block(n_manifest),
         t0_means_block=default_t0_means_block(n_latent),
         t0_chol_block=default_t0_chol_block(n_latent),
-        input_effect_block=SparseMatrixBlockSpec(
-            n_rows=n_latent,
-            n_cols=n_input,
-            free_support=np.ones((n_latent, n_input), dtype=bool),
-            template=jnp.zeros((n_latent, n_input)),
-            free_site_name="input_effect_free",
-            det_site_name="input_effect",
-            support=SupportClass.REAL,
-            site_kind=SiteKind.INPUT_EFFECT,
-            assembly_group="input_effect",
-            fixed_spec_field="input_effect",
-            priors_field="input_effect",
-        ),
         static_state_sd_block=SparseVectorBlockSpec(
             n=n_static,
             free_support=np.ones(n_static, dtype=bool),
@@ -126,11 +110,6 @@ def _sparse_spec_with_inputs_and_static(n_latent: int = 3) -> ModelSpec:
             priors_field="static_state_sd",
         ),
         static_factor_loadings=jnp.ones((n_latent, n_static)),
-        input_names=[f"input_{i}" for i in range(n_input)],
-        input_source_indicators=[f"input_{i}" for i in range(n_input)],
-        input_scales=[1.0] * n_input,
-        input_missing_policies=["zero"] * n_input,
-        input_lagged=[True] * n_input,
         static_factor_names=[f"factor_{i}" for i in range(n_static)],
     )
 
@@ -201,7 +180,6 @@ def _all_fixed_spec(n_latent: int = 2) -> ModelSpec:
             correlation_support=np.zeros((n_latent, n_latent), dtype=bool),
             template=jnp.eye(n_latent),
         ),
-        input_effect_block=default_input_effect_block(n_latent),
         static_state_sd_block=default_static_state_sd_block(),
     )
 
@@ -245,8 +223,8 @@ def test_full_default_3x3_equivalence():
     _compare_block_owned_with_registry(_full_default_spec(n_latent=3, n_manifest=4))
 
 
-def test_sparse_spec_with_inputs_and_static_equivalence():
-    _compare_block_owned_with_registry(_sparse_spec_with_inputs_and_static())
+def test_sparse_spec_with_static_equivalence():
+    _compare_block_owned_with_registry(_sparse_spec_with_static())
 
 
 def test_all_fixed_spec_yields_no_sites():

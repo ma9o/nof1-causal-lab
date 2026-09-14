@@ -10,10 +10,7 @@ Phase 1 tests:
 - First-order DT→CT→DT roundtrip consistency
 - Prior predictive produces finite, stable samples
 
-Phase 2 tests:
-- Exact matrix logarithm DT→CT conversion
-- Embeddability conditions for the transition matrix
-- First-order vs exact approximation error bounds
+Compilation also preserves factorized priors and checks causal edge-lag metadata.
 """
 
 import math
@@ -149,7 +146,7 @@ def two_construct_structure() -> ModelSpec:
     """
     return _compile_structure(
         {
-            "default_outcome": {"kind": "construct", "id": "construct:bbc87212909e45b9e6c3"},
+            "default_outcome": "construct:bbc87212909e45b9e6c3",
             "edges": [
                 {
                     "cause": {
@@ -378,7 +375,7 @@ class TestE2ESpecToDiscretization:
         target["expression"] = {
             "kind": "coefficient",
             "role": "decay",
-            "coefficient": {"kind": "parameter", "parameter_id": "parameter:foreign"},
+            "value": "parameter:foreign",
         }
         with pytest.raises(ValueError, match="parameter"):
             ModelSpec.model_validate(payload)
@@ -639,12 +636,12 @@ class TestE2ESpecToDiscretization:
 
         # NOTE: F[mood,stress] ≠ β_DT because the matrix exponential mixes terms.
         # For different diagonal entries, this is not simply A[mood,stress]*dt.
-        # The exact DT→CT→DT roundtrip requires the matrix logarithm (Phase 2).
+        # The exact DT→CT→DT roundtrip requires the matrix logarithm.
         #
         # What we CAN verify at first order:
         # 1. The CT rate was computed correctly (tested in test_dt_to_ct_uses_reference_interval_days)
         # 2. The coupling direction is preserved (F[mood,stress] > 0).
-        # 3. The exact logm(F)/dt recovers the original A (tested in Phase 2 tests)
+        # 3. The exact logm(F)/dt recovers the original A.
         recovered_coupling = float(F_weekly[1, 0])
         assert recovered_coupling > 0, (
             f"Coupling direction should be positive (stress→mood), got {recovered_coupling:.4f}"
@@ -703,7 +700,7 @@ class TestE2ESpecToDiscretization:
         assert c is not None, "c should not be None when cint is provided"
         assert jnp.all(jnp.isfinite(c)), "c contains NaN/Inf"
 
-    @pytest.mark.cpu_expensive
+    @pytest.mark.predictive
     def test_prior_predictive_produces_finite_samples(
         self,
         two_construct_structure,
@@ -814,224 +811,12 @@ class TestE2ESpecToDiscretization:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# PHASE 2: Exact Matrix Logarithm DT→CT
+# Prior factorization and edge-lag metadata
 # ═══════════════════════════════════════════════════════════════════════
 
 
-class TestExactMatrixLogConversion:
-    """Phase 2: Exact A = logm(Φ)/dt conversion and embeddability checks.
-
-    These tests validate the mathematical properties independently of
-    the pipeline, operating directly on transition matrices.
-    """
-
-    def test_scalar_logm_matches_first_order(self):
-        """For a 1D system, logm(Phi)/dt gives the same dynamics magnitude.
-
-        logm([[rho]]) = [[ln(rho)]] (negative for rho < 1).
-        Our pipeline stores baseline decay as a positive magnitude. So:
-          decay_rate_mu = -ln(rho)/dt  (positive)
-          actual_dynamics  = -decay_rate_mu = ln(rho)/dt  (negative without coupling)
-          logm(Phi)/dt  = ln(rho)/dt  (negative, matches actual_dynamics)
-        """
-        rho = 0.7
-        dt = 1.0
-        Phi = np.array([[rho]])
-
-        # Pipeline convention: positive magnitude (gets negated by model)
-        dynamics_mag = -math.log(rho) / dt  # positive
-
-        # Exact (logm): gives the actual (negative) dynamics
-        from scipy.linalg import logm
-
-        A_exact = logm(Phi).real / dt
-
-        # logm gives ln(rho)/dt which equals -dynamics_mag
-        assert abs(A_exact[0, 0] - (-dynamics_mag)) < 1e-10
-
-    def test_exact_roundtrip_2d_system(self):
-        """Exact logm roundtrip: A → Φ = exp(A*dt) → logm(Φ)/dt → A.
-
-        Build a known 2D CT dynamics, discretize, then recover via logm.
-        """
-        from scipy.linalg import expm, logm
-
-        # Known stable dynamics
-        A = np.array(
-            [
-                [-0.5, 0.1],
-                [-0.2, -0.8],
-            ]
-        )
-        dt = 1.0
-
-        # Forward: CT → DT
-        Phi = expm(A * dt)
-
-        # Backward: DT → CT (exact)
-        A_recovered = logm(Phi).real / dt
-
-        np.testing.assert_allclose(A_recovered, A, atol=1e-10)
-
-    def test_first_order_error_grows_with_dt(self):
-        """First-order β/dt approximation error grows with observation interval.
-
-        For a triangular system, the relative error of the first-order
-        off-diagonal recovery depends on the eigenvalue spread and dt,
-        NOT on the coupling magnitude itself.
-
-        Longer observation intervals → more eigenvalue mixing → larger error.
-        """
-        from scipy.linalg import expm, logm
-
-        # Fixed system
-        A = np.array([[-0.3, 0.15], [-0.1, -0.5]])
-
-        # Short interval (dt=0.5): first-order should be decent
-        dt_short = 0.5
-        Phi_short = expm(A * dt_short)
-        A_first_short = np.zeros_like(A)
-        A_first_short[0, 0] = -math.log(abs(Phi_short[0, 0])) / dt_short
-        A_first_short[1, 1] = -math.log(abs(Phi_short[1, 1])) / dt_short
-        A_first_short[0, 1] = Phi_short[0, 1] / dt_short
-        A_first_short[1, 0] = Phi_short[1, 0] / dt_short
-        error_short = np.linalg.norm(A_first_short - A) / np.linalg.norm(A)
-
-        # Long interval (dt=7): first-order should be much worse
-        dt_long = 7.0
-        Phi_long = expm(A * dt_long)
-        A_first_long = np.zeros_like(A)
-        A_first_long[0, 0] = -math.log(abs(Phi_long[0, 0])) / dt_long
-        A_first_long[1, 1] = -math.log(abs(Phi_long[1, 1])) / dt_long
-        A_first_long[0, 1] = Phi_long[0, 1] / dt_long
-        A_first_long[1, 0] = Phi_long[1, 0] / dt_long
-        error_long = np.linalg.norm(A_first_long - A) / np.linalg.norm(A)
-
-        # Error should be larger for longer intervals
-        assert error_long > error_short, (
-            f"First-order error should grow with dt: "
-            f"short(dt={dt_short})={error_short:.4f}, long(dt={dt_long})={error_long:.4f}"
-        )
-
-        # Exact logm should have near-zero error for both
-        A_exact_short = logm(Phi_short).real / dt_short
-        A_exact_long = logm(Phi_long).real / dt_long
-        np.testing.assert_allclose(A_exact_short, A, atol=1e-8)
-        np.testing.assert_allclose(A_exact_long, A, atol=1e-8)
-
-    def test_embeddability_positive_eigenvalues(self):
-        """A DT transition matrix Φ is embeddable iff all eigenvalues are positive real.
-
-        Ref: Higham (2008), Ch. 11 — principal matrix logarithm exists when
-        Φ has no eigenvalues on the closed negative real axis.
-        """
-        from scipy.linalg import logm
-
-        # Embeddable: stable 2D system with positive eigenvalues
-        Phi_good = np.array(
-            [
-                [0.8, 0.1],
-                [0.05, 0.7],
-            ]
-        )
-        eigs = np.linalg.eigvals(Phi_good)
-        assert np.all(np.real(eigs) > 0), "Expected positive real eigenvalues"
-
-        A_good = logm(Phi_good).real
-        # Recovered A should be stable (negative diagonal)
-        assert np.all(np.diag(A_good) < 0), (
-            f"Recovered dynamics should be stable, got diagonal: {np.diag(A_good)}"
-        )
-
-        # Non-embeddable: negative eigenvalue
-        Phi_bad = np.array(
-            [
-                [-0.5, 0.0],
-                [0.0, 0.8],
-            ]
-        )
-        eigs_bad = np.linalg.eigvals(Phi_bad)
-        has_negative = np.any(np.real(eigs_bad) <= 0)
-        assert has_negative, "This matrix should have a non-positive eigenvalue"
-
-        # logm of non-embeddable matrix produces complex result
-        A_bad = logm(Phi_bad)
-        has_complex = np.any(np.abs(np.imag(A_bad)) > 1e-10)
-        assert has_complex, "logm of non-embeddable Φ should have imaginary components"
-
-    def test_exact_logm_recovers_cross_lag_better_than_first_order(self):
-        """For a realistic 2-construct system, logm recovers cross-lag
-        more accurately than the first-order β/dt approximation.
-
-        This is the core Phase 2 improvement.
-        """
-        from scipy.linalg import expm, logm
-
-        # True CT system: stress → mood with moderate coupling
-        A_true = np.array(
-            [
-                [-0.3, 0.15],  # mood: AR dynamics -0.3, stress coupling 0.15
-                [0.0, -0.5],  # stress: AR dynamics -0.5, no reverse coupling
-            ]
-        )
-        dt = 7.0  # weekly observation interval
-
-        # Generate "observed" DT transition matrix
-        Phi = expm(A_true * dt)
-
-        # First-order recovery
-        A_first = np.zeros_like(A_true)
-        A_first[0, 0] = -math.log(Phi[0, 0]) / dt
-        A_first[1, 1] = -math.log(Phi[1, 1]) / dt
-        A_first[0, 1] = Phi[0, 1] / dt  # β/dt approximation
-        error_first = np.linalg.norm(A_first - A_true) / np.linalg.norm(A_true)
-
-        # Exact logm recovery
-        A_exact = logm(Phi).real / dt
-        error_exact = np.linalg.norm(A_exact - A_true) / np.linalg.norm(A_true)
-
-        # Exact should be much better
-        assert error_exact < error_first, (
-            f"logm error ({error_exact:.6f}) should be less than "
-            f"first-order error ({error_first:.6f})"
-        )
-        # logm should be essentially perfect
-        assert error_exact < 1e-8, f"logm error unexpectedly large: {error_exact}"
-
-    def test_discretize_at_multiple_intervals(self):
-        """Discretizing at different intervals from the same CT dynamics
-        produces different but consistent DT parameters.
-
-        Key property: F(dt1) * F(dt2) == F(dt1 + dt2) (semi-group property).
-        """
-        # Stable 2D dynamics
-        dynamics = jnp.array(
-            [
-                [-0.3, 0.05],
-                [-0.1, -0.5],
-            ]
-        )
-        diffusion_cov = jnp.eye(2) * 0.1
-
-        # Discretize at dt=1 and dt=2
-        F1 = affine_test_evolution(dynamics, diffusion_cov).params_at(0.0, 1.0).A
-        F2 = affine_test_evolution(dynamics, diffusion_cov).params_at(0.0, 2.0).A
-
-        # Semi-group property: F(2) == F(1) @ F(1)
-        F1_squared = F1 @ F1
-        np.testing.assert_allclose(
-            np.array(F2),
-            np.array(F1_squared),
-            atol=1e-5,
-            err_msg="Semi-group property F(2dt) = F(dt)^2 violated",
-        )
-
-        # F(1) should have larger eigenvalues than F(2) — less decay at shorter interval
-        eigs_1 = jnp.abs(jnp.linalg.eigvals(F1))
-        eigs_2 = jnp.abs(jnp.linalg.eigvals(F2))
-        assert jnp.all(eigs_1 > eigs_2), (
-            f"Shorter interval should have less decay: |eigs(F1)|={eigs_1}, |eigs(F2)|={eigs_2}"
-        )
+class TestPriorCompilationMetadata:
+    """Compiler-owned prior factorization and edge-lag contracts."""
 
     def test_compile_keeps_elementwise_priors_when_intervals_match(self, two_construct_structure):
         """Compilation keeps factorized DT→CT priors even when dt values match."""
@@ -1076,7 +861,7 @@ class TestExactMatrixLogConversion:
             build_structural_support_from_model,
         )
 
-        _dm, _input_mask, _lm, _lmask, _cat, edge_lag_days = build_structural_support_from_model(
+        _dm, _lm, _lmask, _cat, edge_lag_days = build_structural_support_from_model(
             ["mood", "stress"],
             ["mood_rating", "stress_self_report"],
             2,
@@ -1111,7 +896,7 @@ class TestExactMatrixLogConversion:
             build_structural_support_from_model,
         )
 
-        _dm, _input_mask, _lm, _lmask, _cat, edge_lag_days = build_structural_support_from_model(
+        _dm, _lm, _lmask, _cat, edge_lag_days = build_structural_support_from_model(
             ["mood", "stress"],
             ["mood_rating", "stress_self_report"],
             2,

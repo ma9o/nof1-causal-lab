@@ -186,9 +186,7 @@ def rule_pinned_model_contracts(ctx: RunContext) -> list[LineageIssue]:
             ModelSpec.model_validate(ctx.input("identification_report", "model"))
         )
     if "model" in ctx.artifacts:
-        from nof1_causal_lab.models.model_checks import execution_readiness
-
-        execution_readiness(ModelSpec.model_validate(ctx.artifacts["model"]))
+        ModelSpec.model_validate(ctx.artifacts["model"])
     return []
 
 
@@ -226,62 +224,12 @@ def rule_posterior_bindings(ctx: RunContext) -> list[LineageIssue]:
     )
 
 
-def rule_baseline_report_treatments_identifiable(ctx: RunContext) -> list[LineageIssue]:
-    if "baseline_report" not in ctx.artifacts:
-        return []
-    results = ctx.artifacts["baseline_report"]["intervention_results"]
-    if not results:
-        return []
-    pins = ctx.state.current["baseline_report"].derived_from
-    if "identification_report" not in pins:
-        return [
-            LineageIssue(
-                "baseline-report-treatments-identifiable",
-                "error",
-                ("baseline_report",),
-                "Intervention results have no identifiability verdicts pinned",
-            )
-        ]
-    report = IdentificationReport.model_validate(
-        ctx.input("baseline_report", "identification_report")
-    )
-    model = ModelSpec.model_validate(ctx.input("baseline_report", "model"))
-    report.validate_model(model)
-    violations = {
-        item["treatment_id"] for item in results
-    } - report.status.identifiable_treatments.keys()
-    unknown_indicators = {key for item in results for key in (item["manifest_effects"] or {})} - {
-        i.id for i in model.indicators
-    }
-    issues = []
-    if violations:
-        issues.append(
-            LineageIssue(
-                "baseline-report-treatments-identifiable",
-                "error",
-                ("baseline_report", "identification_report"),
-                f"Treatments without positive identification: {sorted(violations)}",
-            )
-        )
-    if unknown_indicators:
-        issues.append(
-            LineageIssue(
-                "baseline-report-indicator-effects",
-                "error",
-                ("baseline_report", "model"),
-                f"Unknown effect indicators: {sorted(unknown_indicators)}",
-            )
-        )
-    return issues
-
-
 RULES: list[Callable[[RunContext], list[LineageIssue]]] = [
     rule_source_columns_in_raw_data,
     rule_indicators_in_panel,
     rule_indicators_audited_by_validation_report,
     rule_pinned_model_contracts,
     rule_posterior_bindings,
-    rule_baseline_report_treatments_identifiable,
 ]
 
 

@@ -243,19 +243,20 @@ def _serialize_effect_trajectory(
     ]
 
 
-def _serialize_node_trajectories(
-    state_paths: jnp.ndarray,
-    latent_names: list[str],
-) -> dict[str, list[float]]:
-    mean_paths = jnp.mean(state_paths, axis=0)
+def _serialize_trajectories(
+    construct_ids: list[str],
+    reference_paths: jnp.ndarray,
+    action_paths: jnp.ndarray,
+) -> dict[str, dict[str, list[float]]]:
+    reference_mean = jnp.mean(reference_paths, axis=0)
+    action_mean = jnp.mean(action_paths, axis=0)
     return {
-        name: [float(value) for value in mean_paths[:, idx].tolist()]
-        for idx, name in enumerate(latent_names)
+        identity: {
+            "reference_mean": reference_mean[:, idx].tolist(),
+            "action_mean": action_mean[:, idx].tolist(),
+        }
+        for idx, identity in enumerate(construct_ids)
     }
-
-
-def _serialize_latent_state(state: jnp.ndarray, latent_names: list[str]) -> dict[str, float]:
-    return {name: float(value) for name, value in zip(latent_names, state.tolist(), strict=False)}
 
 
 def _resolve_counterfactual_start(
@@ -322,10 +323,12 @@ class _LoadedSimulation:
     def baseline_states(self):
         draws = self.dynamics.param_samples
         stacked = jax.tree.map(lambda *xs: jnp.stack(xs), *draws)
+        # Fixed drift coefficients leave no array leaves from which to infer the batch size.
         return jax.vmap(
             lambda params: compute_steady_state(
                 self.dynamics.vector_field, params, Intervention.none()
-            )
+            ),
+            axis_size=len(draws),
         )(stacked)
 
 
@@ -356,7 +359,7 @@ def _load_simulation(_data_root: str, workspace_id: str, model_version: int) -> 
     return _LoadedSimulation(model, record, runtime)
 
 
-def _build_ranking_context(workspace_id: str) -> UncheckedJsonObject:
+def _build_analysis_context(workspace_id: str) -> UncheckedJsonObject:
     """Reuse pinned numerical inputs while checking current serving provenance."""
     from nof1_causal_lab.machine.moves import freshness_report
     from nof1_causal_lab.machine.store import ArtifactStore, derive_current_state
@@ -388,16 +391,6 @@ def _build_ranking_context(workspace_id: str) -> UncheckedJsonObject:
     loaded = _load_simulation(data_root(), workspace_id, model_info.version)
     model = loaded.model
     model_revision = ModelRevision(workspace_id=workspace_id, version=model_info.version)
-    ranking_info = state.get("baseline_report")
-    baseline_report = (
-        store.read_json_file(
-            "baseline_report",
-            ranking_info.version,
-            json_filename("baseline_report", "baseline_report"),
-        )
-        if ranking_info is not None
-        else {}
-    )
     identification_report_info = state.get("identification_report")
     if identification_report_info is None:
         raise HTTPException(404, f"No identification_report for workspace {workspace_id}")
@@ -438,7 +431,6 @@ def _build_ranking_context(workspace_id: str) -> UncheckedJsonObject:
         "model": model.model_dump(mode="json"),
         "identification_report": identification_report.model_dump(mode="json"),
         "inference_report": loaded.inference.diagnostics["report"],
-        "baseline_report": baseline_report,
         "_causal_analysis": causal_analysis,
         "_prepared_runtime": loaded.runtime,
         "_simulation": loaded,
@@ -469,7 +461,6 @@ class AnalysisSimulationSetup:
 class AnalysisEffectOutputs:
     summary: dict[str, float]
     effect_trajectory: list[dict[str, float]] | None
-    visualization: UncheckedJsonObject | None
     manifest_effects: dict[str, float] | None
 
 
@@ -492,7 +483,7 @@ def _prepare_analysis_simulation(
     samples = ctx["_simulation"].draws.parameters
 
     model = causal_analysis.model
-    outcome_id = request.outcome.id
+    outcome_id = request.outcome
     constructs = {item.id: item for item in model.constructs}
     if outcome_id not in constructs:
         return None, _tool_error_result("Outcome is absent from the fitted model.")
@@ -510,13 +501,13 @@ def _prepare_analysis_simulation(
     identifiable = causal_analysis.treatments
     clamps: list[ClampSpec] = []
     for clamp in request.clamps:
-        target_id = clamp.target.id
+        target_id = clamp.target
         if target_id not in constructs:
             return None, _tool_error_result("Clamp target is absent from the fitted model.")
         variable = constructs[target_id].name
         if variable not in identifiable:
             return None, _tool_error_result(
-                f"Clamp target '{variable}' is not an identifiable ranking target.",
+                f"Clamp target '{variable}' is not an identifiable treatment.",
                 identifiable_treatments=identifiable,
             )
         index = name_to_idx.get(variable)
@@ -566,56 +557,12 @@ def _prepare_analysis_simulation(
     )
 
 
-def _build_visualization_payload(
-    latent_names: list[str],
-    *,
-    reference_node_paths: jnp.ndarray | None = None,
-    action_node_paths: jnp.ndarray | None = None,
-    node_effect_paths: jnp.ndarray | None = None,
-    start_state: dict[str, float] | None = None,
-) -> UncheckedJsonObject | None:
-    reference_node_trajectories = (
-        _serialize_node_trajectories(reference_node_paths[:, 1:], latent_names)
-        if reference_node_paths is not None
-        else None
-    )
-    action_node_trajectories = (
-        _serialize_node_trajectories(action_node_paths[:, 1:], latent_names)
-        if action_node_paths is not None
-        else None
-    )
-    node_effect_trajectories = (
-        _serialize_node_trajectories(node_effect_paths[:, 1:], latent_names)
-        if node_effect_paths is not None
-        else None
-    )
-    if (
-        reference_node_trajectories is None
-        and action_node_trajectories is None
-        and node_effect_trajectories is None
-        and start_state is None
-    ):
-        return None
-    return {
-        "reference_node_trajectories": reference_node_trajectories,
-        "action_node_trajectories": action_node_trajectories,
-        "node_effect_trajectories": node_effect_trajectories,
-        "start_state": start_state,
-    }
-
-
 def _build_effect_outputs(
     setup: AnalysisSimulationSetup,
     *,
-    effect_draws: jnp.ndarray | None = None,
-    effect_paths: jnp.ndarray | None = None,
-    reference_node_paths: jnp.ndarray | None = None,
-    action_node_paths: jnp.ndarray | None = None,
-    node_effect_paths: jnp.ndarray | None = None,
-    start_state: dict[str, float] | None = None,
+    effect_paths: jnp.ndarray,
 ) -> AnalysisEffectOutputs:
-    if effect_paths is not None:
-        effect_draws = effect_paths[:, -1]
+    if setup.readout.estimand == "trajectory":
         mean_effect_trajectory = jnp.mean(effect_paths, axis=0)
         effect_trajectory = _serialize_effect_trajectory(
             mean_effect_trajectory[1:], setup.time_grid[1:]
@@ -623,10 +570,7 @@ def _build_effect_outputs(
     else:
         effect_trajectory = None
 
-    if effect_draws is None:
-        raise ValueError("Either effect_draws or effect_paths must be provided.")
-
-    summary = summarize_draws(effect_draws).model_dump(mode="json")
+    summary = summarize_draws(effect_paths[:, -1]).model_dump(mode="json")
     manifest_effects = None
     if setup.readout.projection in {"manifest", "both"}:
         manifest_effects = _manifest_effects(
@@ -636,19 +580,9 @@ def _build_effect_outputs(
             setup.manifest_names,
         )
 
-    construct_ids = {item.name: item.id for item in setup.causal_analysis.model.constructs}
     return AnalysisEffectOutputs(
         summary=summary,
         effect_trajectory=effect_trajectory,
-        visualization=_build_visualization_payload(
-            [construct_ids[name] for name in setup.latent_names],
-            reference_node_paths=reference_node_paths,
-            action_node_paths=action_node_paths,
-            node_effect_paths=node_effect_paths,
-            start_state={construct_ids[name]: value for name, value in start_state.items()}
-            if start_state is not None
-            else None,
-        ),
         manifest_effects=manifest_effects,
     )
 
@@ -663,7 +597,7 @@ def _collect_analysis_warnings(
     warnings: list[str] = []
     if include_diagnostic_warnings and treatments:
         posterior = ctx.get("posterior", {})
-        for item in posterior["assessment"].get("ppc", {}).get("per_variable_warnings", []) or []:
+        for item in posterior.get("ppc", {}).get("per_variable_warnings", []) or []:
             message = item.get("message")
             if message:
                 warnings.append(str(message))
@@ -730,7 +664,6 @@ def _build_model_info_payload(
     focused = {str(name) for name in (args.get("names") or [])}
     model = ModelSpec.model_validate(ctx["model"])
     posterior = ctx.get("posterior", {})
-    baseline_report = ctx.get("baseline_report", {})
     runtime = ctx["_prepared_runtime"]
     retained_state_names = set(get_state_names(model))
     constructs = [
@@ -799,34 +732,18 @@ def _build_model_info_payload(
     if "identifiability" in sections:
         payload["identifiability"] = {
             "identifiable_treatments": ctx["_identifiable_treatments"],
-            "non_identifiable_treatments": (
-                ctx["identification_report"]["status"]["non_identifiable_treatments"] or {}
-            ),
+            "non_identifiable_treatments": {
+                identity: finding
+                for identity, finding in ctx["identification_report"]["treatments"].items()
+                if finding["status"] == "not_identified"
+            },
         }
     if "diagnostics" in sections:
         payload["diagnostics"] = {
             "ppc_warning_count": len(
-                (posterior["assessment"].get("ppc") or {}).get("per_variable_warnings", []) or []
+                (posterior.get("ppc") or {}).get("per_variable_warnings", []) or []
             ),
         }
-    if "baseline_effects" in sections:
-        baseline = list(baseline_report.get("intervention_results", []) or [])
-        if focused:
-            baseline = [entry for entry in baseline if entry.get("treatment") in focused]
-
-        def _draws_summary(draws):
-            if not draws:
-                return None, None
-            return sum(draws) / len(draws), sum(1 for d in draws if d > 0) / len(draws)
-
-        payload["baseline_effects"] = [
-            {
-                "treatment": entry.get("treatment"),
-                "effect_size": _draws_summary(entry.get("posterior_draws"))[0],
-                "prob_positive": _draws_summary(entry.get("posterior_draws"))[1],
-            }
-            for entry in baseline[:10]
-        ]
     if "capabilities" in sections:
         payload["capabilities"] = {
             "simulate": {
@@ -860,8 +777,6 @@ def _execute_simulate(ctx: UncheckedJsonObject, args: UncheckedJsonObject) -> Un
     assert setup is not None
     assert setup.param_samples is not None
 
-    estimand = setup.readout.estimand
-
     if request.start.kind == "abducted":
         latent_paths = ctx["_simulation"].draws.latent_paths
         if latent_paths is None:
@@ -885,8 +800,6 @@ def _execute_simulate(ctx: UncheckedJsonObject, args: UncheckedJsonObject) -> Un
 
     config = SimulationConfig()
 
-    start_state = _serialize_latent_state(jnp.mean(initial_states, axis=0), setup.latent_names)
-
     baseline_state_paths, action_state_paths, effect_state_paths = vmap_simulate_clamps_from_state(
         setup.vector_field,
         setup.param_samples,
@@ -898,34 +811,17 @@ def _execute_simulate(ctx: UncheckedJsonObject, args: UncheckedJsonObject) -> Un
     outcome_effect = effect_state_paths[:, :, setup.outcome_idx]
     reference_mean = float(jnp.mean(baseline_state_paths[:, -1, setup.outcome_idx]))
 
-    common_viz: UncheckedJsonObject = {
-        "reference_node_paths": baseline_state_paths,
-        "action_node_paths": action_state_paths,
-        "node_effect_paths": effect_state_paths,
-        "start_state": start_state,
-    }
-    if estimand == "trajectory":
-        outputs = _build_effect_outputs(setup, effect_paths=outcome_effect, **common_viz)
-    else:
-        outputs = _build_effect_outputs(setup, effect_draws=outcome_effect[:, -1], **common_viz)
-
+    outputs = _build_effect_outputs(setup, effect_paths=outcome_effect)
+    construct_ids = {item.name: item.id for item in setup.causal_analysis.model.constructs}
     clamp_variables = [setup.latent_names[clamp.index] for clamp in setup.clamps]
 
     return {
         "result": {
             "request": request.model_dump(mode="json"),
-            "provenance": {
-                "model": setup.causal_analysis.model_revision.model_dump(mode="json"),
-                "engine": "nonlinear_drift_v1",
-                "solver": "Tsit5",
-                "rtol": config.rtol,
-                "atol": config.atol,
-                "max_steps": config.max_steps,
-                "draw_count": len(setup.param_samples),
-                "time_grid_days": setup.time_grid.tolist(),
-                "start_time_index": start_index,
-                "start_time": start_time,
-            },
+            "model": setup.causal_analysis.model_revision.model_dump(mode="json"),
+            "time_grid_days": setup.time_grid.tolist(),
+            "start_time_index": start_index,
+            "start_time": start_time,
             "labels": {item.id: item.name for item in setup.causal_analysis.model.constructs},
             "summary": outputs.summary,
             "effect_trajectory": outputs.effect_trajectory,
@@ -934,7 +830,11 @@ def _execute_simulate(ctx: UncheckedJsonObject, args: UncheckedJsonObject) -> Un
             )
             if outputs.effect_trajectory
             else None,
-            "visualization": outputs.visualization,
+            "trajectories": _serialize_trajectories(
+                [construct_ids[name] for name in setup.latent_names],
+                baseline_state_paths,
+                action_state_paths,
+            ),
             "manifest_effects": outputs.manifest_effects,
             "reference_mean": reference_mean,
             "warnings": _collect_analysis_warnings(
@@ -955,8 +855,8 @@ _TOOL_IMPLS: dict[tuple[str, str], ToolImplementation] = {
     ): _execute_validate_measurement_structure,
     ("measurement", "validate_extractions"): _execute_validate_extractions,
     ("statistical-model-spec", "search_literature"): _execute_search_literature,
-    ("ranking", "get_model_info"): _execute_get_model_info,
-    ("ranking", "simulate"): _execute_simulate,
+    ("analysis", "get_model_info"): _execute_get_model_info,
+    ("analysis", "simulate"): _execute_simulate,
 }
 
 # Upstream dependencies: which context results need to be loaded for execution.
@@ -965,7 +865,7 @@ _CONTEXT_DEPS: dict[str, list[str]] = {
     "measurement-structure": ["model"],
     "measurement": [],
     "statistical-model-spec": ["model"],
-    "ranking": [],
+    "analysis": [],
 }
 
 
@@ -984,8 +884,8 @@ def _load_context_result(workspace_id: str, artifact_id: str) -> UncheckedJsonOb
 
 def _build_context(workspace_id: str, context_id: str) -> UncheckedJsonObject:
     """Load upstream results needed for tool execution context."""
-    if context_id == "ranking":
-        return _build_ranking_context(workspace_id)
+    if context_id == "analysis":
+        return _build_analysis_context(workspace_id)
     ctx: UncheckedJsonObject = {"_workspace_id": workspace_id}
     for artifact_id in _CONTEXT_DEPS.get(context_id, []):
         ctx[artifact_id] = _load_context_result(workspace_id, artifact_id)
@@ -1014,7 +914,7 @@ def get_tool_schemas(context_id: str) -> list[UncheckedJsonObject]:
     Each entry is `{name, description, parameters, result}` where `parameters`
     and `result` are JSON Schemas. Fetch this first to learn a tool's argument
     shape, then call `POST /api/tools/{context_id}/{tool_name}`. Examples:
-    ranking `simulate` / `get_model_info`, statistical-model-spec `search_literature`.
+    analysis `simulate` / `get_model_info`, statistical-model-spec `search_literature`.
     """
     contracts = CONTEXT_TOOLS.get(context_id)
     if contracts is None:

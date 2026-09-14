@@ -1,15 +1,15 @@
 """Map numerical expectations in test recipes to explicit scientific component slots."""
 
-from nof1_causal_lab.artifacts.coefficient import FixedCoefficient
 from nof1_causal_lab.artifacts.construct import replace_constructs
-from nof1_causal_lab.artifacts.expressions import COEFFICIENT_MEANINGS, CoefficientExpression, state
+from nof1_causal_lab.artifacts.expressions import (
+    COEFFICIENT_MEANINGS,
+    CONSTRUCT_COEFFICIENT_ROLES,
+    CoefficientExpression,
+    CoefficientRole,
+    state,
+)
 from nof1_causal_lab.artifacts.expressions import coefficient as expression_coefficient
 from nof1_causal_lab.artifacts.parameter import SiteKind
-from nof1_causal_lab.artifacts.state_distribution import (
-    InitialStateSpec,
-    InnovationSpec,
-    StateCoupling,
-)
 from nof1_causal_lab.models.likelihoods import revise_law
 
 
@@ -18,7 +18,7 @@ def with_likelihood_coefficients(likelihood, values):
     return revise_law(
         likelihood,
         lambda node: (
-            node.model_copy(update={"coefficient": values[node.role]})
+            node.model_copy(update={"value": values[node.role]})
             if isinstance(node, CoefficientExpression) and node.role in values
             else node
         ),
@@ -40,6 +40,7 @@ def attach_test_coefficients(model, recipes, *, parameters=()):
         for role, meaning in COEFFICIENT_MEANINGS.items()
         if role
         not in {"center", "decay", "quartic", "intercept", "weight", "emax", "ec50", "exponent"}
+        | CONSTRUCT_COEFFICIENT_ROLES
     }
     for kind, owners, coefficient in recipes:
         construct_ids = [owner.id for owner in owners if owner.kind == "construct"]
@@ -78,21 +79,23 @@ def attach_test_coefficients(model, recipes, *, parameters=()):
         elif kind in {SiteKind.DIFFUSION_DIAG, SiteKind.DIFFUSION_LOWER, SiteKind.PROC_DF}:
             construct_ids.sort(key=list(constructs).index)
             owner = constructs[construct_ids[-1]]
-            noise = owner.innovation or InnovationSpec(scale=FixedCoefficient(value=0))
-            if kind == SiteKind.DIFFUSION_DIAG:
-                noise = noise.model_copy(update={"scale": coefficient})
-            elif kind == SiteKind.PROC_DF:
-                noise = noise.model_copy(update={"degrees_of_freedom": coefficient})
-            else:
-                noise = noise.model_copy(
-                    update={
-                        "loadings": (
-                            *noise.loadings,
-                            StateCoupling(other_id=construct_ids[0], coefficient=coefficient),
-                        )
-                    }
+            if owner.coefficient("diffusion_scale") is None:
+                owner = owner.with_coefficients(expression_coefficient(0, "diffusion_scale"))
+            diffusion_roles: dict[SiteKind, CoefficientRole] = {
+                SiteKind.DIFFUSION_DIAG: "diffusion_scale",
+                SiteKind.DIFFUSION_LOWER: "diffusion_loading",
+                SiteKind.PROC_DF: "process_degrees_of_freedom",
+            }
+            role = diffusion_roles[kind]
+            if kind == SiteKind.PROC_DF:
+                owner = owner.model_copy(update={"innovation_family": "student_t"})
+            constructs[owner.id] = owner.with_coefficients(
+                expression_coefficient(
+                    coefficient,
+                    role,
+                    construct_ids=(construct_ids[0],) if kind == SiteKind.DIFFUSION_LOWER else (),
                 )
-            constructs[owner.id] = owner.model_copy(update={"innovation": noise})
+            )
         elif kind in {
             SiteKind.T0_MEANS,
             SiteKind.T0_VAR_DIAG,
@@ -103,23 +106,23 @@ def attach_test_coefficients(model, recipes, *, parameters=()):
             targets = construct_ids if kind == SiteKind.STATIC_STATE_SD else [construct_ids[-1]]
             for identity in targets:
                 owner = constructs[identity]
-                initial = owner.initial_state or InitialStateSpec(
-                    mean=FixedCoefficient(value=0), scale=FixedCoefficient(value=1)
+                for role, value in (("initial_mean", 0), ("initial_scale", 1)):
+                    if owner.coefficient(role) is None:
+                        owner = owner.with_coefficients(expression_coefficient(value, role))
+                role = (
+                    "initial_mean"
+                    if kind == SiteKind.T0_MEANS
+                    else "initial_correlation"
+                    if kind == SiteKind.T0_VAR_LOWER
+                    else "initial_scale"
                 )
-                if kind == SiteKind.T0_MEANS:
-                    initial = initial.model_copy(update={"mean": coefficient})
-                elif kind == SiteKind.T0_VAR_LOWER:
-                    initial = initial.model_copy(
-                        update={
-                            "correlations": (
-                                *initial.correlations,
-                                StateCoupling(other_id=construct_ids[0], coefficient=coefficient),
-                            )
-                        }
+                constructs[identity] = owner.with_coefficients(
+                    expression_coefficient(
+                        coefficient,
+                        role,
+                        construct_ids=(construct_ids[0],) if kind == SiteKind.T0_VAR_LOWER else (),
                     )
-                else:
-                    initial = initial.model_copy(update={"scale": coefficient})
-                constructs[identity] = owner.model_copy(update={"initial_state": initial})
+                )
     return model.revised(
         edges=replace_constructs(model.edges, tuple(constructs.values())),
         parameters=(*model.parameters, *parameters),
@@ -128,7 +131,7 @@ def attach_test_coefficients(model, recipes, *, parameters=()):
 
 def flat_catalogue_payload(model):
     """Construct the retired schema explicitly for offline migration tests."""
-    from nof1_causal_lab.artifacts.construct import CausalEdge
+    from nof1_causal_lab.artifacts.construct import CausalEdgeSpec
     from nof1_causal_lab.artifacts.expressions import linear_coefficient, restoring_coefficients
 
     value = model.model_dump(mode="json")
@@ -144,27 +147,29 @@ def flat_catalogue_payload(model):
 
     def encoded_coefficient(reference):
         assert reference is not None
-        return reference.model_dump(mode="json")
+        if isinstance(reference, str):
+            return {"kind": "parameter", "parameter_id": reference}
+        return {"kind": "fixed", "value": reference}
 
     retired_terms = {}
     for owner, mechanism in model.iter_mechanisms():
-        if isinstance(owner, CausalEdge):
+        if isinstance(owner, CausalEdgeSpec):
             retired_terms[mechanism.id] = {
                 "id": mechanism.id,
                 "kind": "linear",
-                "weight": linear_coefficient(mechanism.expression, owner.cause.id).model_dump(
-                    mode="json"
+                "weight": encoded_coefficient(
+                    linear_coefficient(mechanism.expression, owner.cause.id)
                 ),
             }
         else:
-            operands = restoring_coefficients(mechanism.expression, owner.id)
+            operands = restoring_coefficients(mechanism.expression, owner.id, kind=mechanism.kind)
             assert {operand.role for operand in operands} == {"center", "decay", "quartic"}
             retired_terms[mechanism.id] = {
                 "id": mechanism.id,
                 "kind": "node_potential",
                 **{
                     "stiffness" if operand.role == "decay" else operand.role: encoded_coefficient(
-                        operand.coefficient
+                        operand.value
                     )
                     for operand in operands
                 },
@@ -178,9 +183,7 @@ def flat_catalogue_payload(model):
         parameter["quantity"] = context.quantity.value
         parameter["owners"] = [owner.model_dump(mode="json") for owner in context.owners]
     for construct in value["constructs"]:
-        noise = construct.pop("innovation")
-        construct["innovation_family"] = noise["distribution"] if noise else "gaussian"
-        construct.pop("initial_state")
+        construct.pop("coefficients")
         for indicator in construct["indicators"]:
             if indicator["likelihood"] is not None:
                 likelihood = model.indicator(indicator["id"]).likelihood

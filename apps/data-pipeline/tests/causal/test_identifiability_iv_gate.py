@@ -18,7 +18,7 @@ def _iv_structure_latent_structure():
     no other path to Y) is a valid instrument *under linearity*.
     """
     return {
-        "default_outcome": {"kind": "construct", "id": "construct:Y"},
+        "default_outcome": "construct:Y",
         "constructs": [
             {
                 "id": "construct:X",
@@ -96,7 +96,7 @@ class TestIVAllowedFalse:
         be unchanged when IV is disabled — IV is a fallback, not a primary."""
         # Simpler DAG: X → Y, no confounders. Backdoor trivially identifiable.
         latent_structure = {
-            "default_outcome": {"kind": "construct", "id": "construct:Y"},
+            "default_outcome": "construct:Y",
             "constructs": [
                 {
                     "id": "construct:X",
@@ -136,7 +136,6 @@ class TestIVAllowedFalse:
 
 def test_model_reporting_keeps_nonparametric_findings_without_linear_iv_assumptions():
     from nof1_causal_lab.artifacts.construct import TemporalStatus
-    from nof1_causal_lab.artifacts.identity import ConstructRef
     from nof1_causal_lab.models.identification import identify_model
     from tests.helpers import make_model
 
@@ -156,7 +155,7 @@ def test_model_reporting_keeps_nonparametric_findings_without_linear_iv_assumpti
                 for construct in model.constructs
             ),
         ),
-        default_outcome=ConstructRef(id=y_id),
+        default_outcome=y_id,
     )
     report = identify_model(model)
     assert x_id not in report.estimable_treatments
@@ -164,4 +163,6 @@ def test_model_reporting_keeps_nonparametric_findings_without_linear_iv_assumpti
 
     unconfounded = model.revised(edges=tuple(edge for edge in model.edges if edge.cause.id != u_id))
     identified = identify_model(unconfounded)
-    assert identified.status.identifiable_treatments[x_id].method == "do_calculus"
+    finding = identified.treatments[x_id]
+    assert finding.status == "identified"
+    assert finding.method == "do_calculus"

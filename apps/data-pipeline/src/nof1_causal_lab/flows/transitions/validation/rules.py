@@ -34,7 +34,7 @@ type RawIssue = UncheckedJsonObject
 
 @dataclass(frozen=True)
 class Issue:
-    indicator: str
+    indicator: str | None
     issue_type: str
     severity: str
     message: str
@@ -106,9 +106,7 @@ class ValidationRule:
 
 def issue_payload(issue: Issue) -> JsonObject:
     return {
-        "subject": {"kind": "indicator", "id": issue.indicator}
-        if issue.indicator is not None
-        else None,
+        "indicator_id": issue.indicator,
         "issue_type": issue.issue_type,
         "severity": issue.severity,
         "message": issue.message,
@@ -117,7 +115,7 @@ def issue_payload(issue: Issue) -> JsonObject:
 
 def issue_from_raw(raw_issue: UncheckedJsonObject, *, cell_key: str) -> Issue:
     return Issue(
-        raw_issue["subject"]["id"],
+        raw_issue["indicator_id"],
         raw_issue["issue_type"],
         raw_issue["severity"],
         raw_issue["message"],
@@ -507,7 +505,7 @@ def build_indicator_audits(
 ) -> dict[str, UncheckedJsonObject]:
     issues_by_indicator: dict[str, list[UncheckedJsonObject]] = {name: [] for name in indicator_ids}
     for issue in indicator_issues:
-        issue_indicator = issue["subject"]["id"] if issue["subject"] else None
+        issue_indicator = issue["indicator_id"]
         if issue_indicator in issues_by_indicator:
             issues_by_indicator[issue_indicator].append(issue)
 
@@ -521,10 +519,8 @@ def build_indicator_audits(
                 indicator_lookup,
                 health_metrics,
             ),
-            "validation": {
-                "issues": issues_by_indicator.get(indicator_id, []),
-                "checks": dict(health_metrics.get("cell_statuses", {})),
-            },
+            "issues": issues_by_indicator.get(indicator_id, []),
+            "checks": dict(health_metrics.get("cell_statuses", {})),
         }
     return audits
 

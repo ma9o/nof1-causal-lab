@@ -8,7 +8,6 @@ from pydantic import ValidationError
 
 from nof1_causal_lab.sampler_config import SamplerConfig, validate_sampler_config
 from nof1_causal_lab.utils.config import (
-    AnalysisCommentaryConfig,
     ClaudeCodeDefaults,
     CodexDefaults,
     EmbeddedLLMDefaults,
@@ -146,10 +145,6 @@ class TestToSamplerConfig:
 
 
 MINIMAL_CONFIG = textwrap.dedent("""\
-    analysis_commentary:
-      llm:
-        harness: none
-        model: openrouter/gpt-4
     ingestion:
       llm:
         harness: none
@@ -193,10 +188,6 @@ FULL_CONFIG = textwrap.dedent("""\
         harness: none
         model: openrouter/claude-3
 
-    analysis_commentary:
-      llm:
-        harness: none
-        model: openrouter/claude-3
 
     structure_proposal:
       sample_chunks: 5
@@ -276,7 +267,6 @@ class TestLoadConfig:
         assert cfg.extraction_workers.max_tool_turns == 40
         assert cfg.prior_elicitation.llm.model == "openrouter/gpt-4"
         assert cfg.prior_elicitation.max_tool_turns == 40
-        assert cfg.analysis_commentary.llm.model == "openrouter/gpt-4"
         # Defaults for optional sections
         assert cfg.inference.method == "marginal_particle_gibbs"
         assert cfg.llm.embedded.max_tokens == 65536
@@ -305,7 +295,6 @@ class TestLoadConfig:
         assert cfg.extraction_workers.max_tool_turns == 45
         assert cfg.prior_elicitation.max_tool_turns == 100
         assert cfg.prior_elicitation.literature_search.enabled is False
-        assert cfg.analysis_commentary.llm.model == "openrouter/claude-3"
         assert cfg.inference.method == "marginal_particle_gibbs"
         assert cfg.inference.num_warmup == 500
         assert cfg.inference.num_samples == 2000
@@ -372,7 +361,6 @@ def _make_pipeline_config(**profile_llm_overrides) -> PipelineConfig:
         "structure_proposal": LLMProfileConfig(harness="none", model="openrouter/x"),
         "extraction_workers": LLMProfileConfig(harness="none", model="openrouter/x"),
         "prior_elicitation": LLMProfileConfig(harness="none", model="openrouter/x"),
-        "analysis_commentary": LLMProfileConfig(harness="none", model="openrouter/x"),
     }
     defaults.update(profile_llm_overrides)
     return PipelineConfig(
@@ -380,7 +368,6 @@ def _make_pipeline_config(**profile_llm_overrides) -> PipelineConfig:
         structure_proposal=StructureProposalConfig(llm=defaults["structure_proposal"]),
         extraction_workers=ExtractionWorkersConfig(llm=defaults["extraction_workers"]),
         prior_elicitation=PriorElicitationConfig(llm=defaults["prior_elicitation"]),
-        analysis_commentary=AnalysisCommentaryConfig(llm=defaults["analysis_commentary"]),
         inference=InferenceConfig(),
         llm=LLMDefaults(
             embedded=EmbeddedLLMDefaults(),
@@ -499,10 +486,6 @@ class TestValidateConfig:
 
     def test_load_config_raises_on_stage2_harness_violation(self, tmp_path, monkeypatch):
         bad_config = textwrap.dedent("""\
-            analysis_commentary:
-              llm:
-                harness: none
-                model: openrouter/gpt-4
             ingestion:
               llm:
                 harness: none

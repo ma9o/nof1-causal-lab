@@ -32,7 +32,7 @@ pytestmark = pytest.mark.timeout(240)
 
 def _valid_latent_structure() -> dict[str, Any]:
     return {
-        "default_outcome": {"kind": "construct", "id": "construct:cdc0b2958a9512b2abad"},
+        "default_outcome": "construct:cdc0b2958a9512b2abad",
         "edges": [
             {
                 "cause": {
@@ -210,7 +210,7 @@ def test_latest_seq_reads_max_journal_entry(resume_env):
             TransitionRecord(
                 seq=seq,
                 ts="2026-01-01T00:00:00Z",
-                move=WriteArtifact(artifact_id="question"),
+                move=WriteArtifact(artifact_id="model", expected_model_version=0),
                 status="applied",
                 trace_ids=[],
                 resume=None,
@@ -248,7 +248,11 @@ def test_workflow_resumes_from_seeded_init(resume_env):
                     id=f"episode-{workspace_id}",
                     task_queue="test-episodes",
                 )
-                await propose(first, WriteArtifact(artifact_id="question"), payload={"text": "q?"})
+                await propose(
+                    first,
+                    WriteArtifact(artifact_id="model", expected_model_version=0),
+                    payload={"question": "q?"},
+                )
                 stage0 = await propose(first, RunOperation(operation_id="raw_data"))
                 assert stage0.status == "applied"
                 await first.terminate()
@@ -257,7 +261,7 @@ def test_workflow_resumes_from_seeded_init(resume_env):
                 journal = EpisodeJournal(workspace_id)
                 seed_state = derive_current_state(workspace_id)
                 seed_seq = journal.latest_seq()
-                assert seed_state.has("question")
+                assert seed_state.has("model")
                 assert seed_state.has("raw_data")
                 assert seed_seq == stage0.seq
 
@@ -275,7 +279,7 @@ def test_workflow_resumes_from_seeded_init(resume_env):
                 status = await resumed.query(EpisodeWorkflow.get_status)
                 assert status.seq == seed_seq
                 present = {a.artifact_id for a in status.artifacts if a.exists}
-                assert {"question", "raw_data"} <= present
+                assert {"model", "raw_data"} <= present
 
                 # Downstream continues from the rehydrated state, numbering onward.
                 stage1a = await propose(resumed, RunOperation(operation_id="latent_structure"))

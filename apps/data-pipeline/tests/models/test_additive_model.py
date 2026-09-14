@@ -4,16 +4,15 @@ import numpyro.distributions as dist
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from nof1_causal_lab.artifacts.coefficient import FixedCoefficient, ParameterCoefficient
 from nof1_causal_lab.artifacts.construct import (
-    CausalEdge,
+    CausalEdgeSpec,
     endpoint_validation_scope,
     replace_constructs,
     serialize_edge_references,
 )
 from nof1_causal_lab.artifacts.expressions import hill, linear_effect, state
-from nof1_causal_lab.artifacts.identity import scientific_id
-from nof1_causal_lab.artifacts.mechanism import DynamicsMechanism
+from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId, scientific_id
+from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.likelihoods import observation_law
 from tests.helpers import graph_constructs
@@ -61,19 +60,17 @@ def _model():
                     },
                     "description": "X influences Y",
                     "mechanisms": [
-                        DynamicsMechanism(
+                        DynamicsMechanismSpec(
                             id="mechanism:linear",
-                            expression=linear_effect(
-                                "construct:x", ParameterCoefficient(parameter_id=weight["id"])
-                            ),
+                            expression=linear_effect(ConstructId("construct:x"), weight["id"]),
                         ).model_dump(mode="json"),
-                        DynamicsMechanism(
+                        DynamicsMechanismSpec(
                             id="mechanism:hill",
                             expression=hill(
-                                state("construct:x"),
-                                emax=ParameterCoefficient(parameter_id=emax["id"]),
-                                ec50=FixedCoefficient(value=1),
-                                n=FixedCoefficient(value=2),
+                                state(ConstructId("construct:x")),
+                                emax=emax["id"],
+                                ec50=1,
+                                n=2,
                             ),
                         ).model_dump(mode="json"),
                     ],
@@ -88,22 +85,31 @@ def test_entities_gain_detail_with_one_owner_and_native_prior():
     before = _model()
     payload = before.model_dump(mode="python")
     graph_constructs(payload)[1]["indicators"][0]["likelihood"] = {
-        "law": observation_law("construct:y", "gaussian", "identity").model_dump(mode="json"),
+        "law": observation_law(ConstructId("construct:y"), "gaussian", "identity").model_dump(
+            mode="json"
+        ),
         "reasoning": "Continuous measurement",
     }
-    payload["parameters"][0]["distribution"] = dist.Normal(0.0, 0.1)
-    after = ModelSpec.model_validate(payload)
-    assert after.indicator_owner("indicator:y") is after.get_construct("construct:y")
-    assert after.indicator("indicator:y").id == before.indicator("indicator:y").id
-    assert after.indicator("indicator:y").likelihood is not None
+    from nof1_causal_lab.models.model_distributions import with_parameter_distributions
+
+    after = with_parameter_distributions(
+        ModelSpec.model_validate(payload), {before.parameters[0].id: dist.Normal(0.0, 0.1)}
+    )
+    assert after.indicator_owner(IndicatorId("indicator:y")) is after.get_construct(
+        ConstructId("construct:y")
+    )
+    assert after.indicator(IndicatorId("indicator:y")).id == before.indicator("indicator:y").id
+    assert after.indicator(IndicatorId("indicator:y")).likelihood is not None
     assert before.indicator("indicator:y").likelihood is None
     assert after.parameters[0].id == before.parameters[0].id
-    assert isinstance(after.parameters[0].distribution, dist.Normal)
+    assert isinstance(after.distribution_for(after.parameters[0].id), dist.Normal)
     assert before.parameters[0].distribution is None
     encoded = after.model_dump(mode="json")
     assert "construct_id" not in graph_constructs(encoded)[1]["indicators"][0]
     assert "indicator_id" not in graph_constructs(encoded)[1]["indicators"][0]["likelihood"]
-    assert all(set(term) == {"id", "expression"} for term in encoded["edges"][0]["mechanisms"])
+    assert all(
+        set(term) == {"id", "kind", "expression"} for term in encoded["edges"][0]["mechanisms"]
+    )
     assert all("edge_id" not in term for term in encoded["edges"][0]["mechanisms"])
     assert after.edges[0].id == before.edges[0].id
     assert after.edges[0].mechanisms == before.edges[0].mechanisms
@@ -112,8 +118,12 @@ def test_entities_gain_detail_with_one_owner_and_native_prior():
 
 
 def test_partial_model_is_valid_but_operation_requirements_are_explicit():
-    with pytest.raises(ValidationError, match="edges"):
-        ModelSpec.model_validate({})
+    initial = ModelSpec(question="  Does X change Y?  ")
+    assert initial.question == "Does X change Y?"
+    assert initial.edges == initial.constructs == ()
+    assert ModelSpec.model_validate({}).edges == ()
+    with pytest.raises(ValueError, match="clock"):
+        initial.check_execution()
     partial = _model()
     with pytest.raises(ValueError, match="clock"):
         partial.require_measurements()
@@ -146,7 +156,7 @@ def test_inconsistent_enrichment_is_rejected(change):
         graph_constructs(payload)[0]["indicators"] = graph_constructs(payload)[1]["indicators"]
     else:
         graph_constructs(payload)[1]["indicators"][0]["likelihood"] = {
-            "law": observation_law("construct:y", "bernoulli", "logit"),
+            "law": observation_law(ConstructId("construct:y"), "bernoulli", "logit"),
             "reasoning": "Wrong type",
         }
     with pytest.raises(ValidationError):
@@ -177,7 +187,7 @@ def test_shared_endpoints_round_trip_once_and_resolve_forward_references():
     # Incremental submissions carry edge references and one separately authored endpoint.
     references = serialize_edge_references(model.edges)
     with endpoint_validation_scope(references, endpoints=changed.constructs):
-        submitted = TypeAdapter(tuple[CausalEdge, ...]).validate_python(references)
+        submitted = TypeAdapter(tuple[CausalEdgeSpec, ...]).validate_python(references)
     assert submitted[0].effect is changed.edges[0].effect
     assert submitted[1].effect is submitted[0].effect
 
@@ -198,8 +208,7 @@ def test_graph_membership_follows_edges_and_revisions_preserve_connectivity():
     model = make_model(["A", "B", "C", "D"], [("A", "B"), ("B", "C"), ("C", "D")])
     with pytest.raises(ValidationError, match="connected causal graph"):
         model.revised(edges=(model.edges[0], model.edges[2]))
-    with pytest.raises(ValidationError, match="at least 1 item"):
-        model.revised(edges=())
+    assert model.revised(edges=()).constructs == ()
     shortened = model.revised(edges=model.edges[:-1])
     assert [construct.name for construct in shortened.constructs] == ["A", "B", "C"]
     assert [construct.name for construct in model.constructs] == ["A", "B", "C", "D"]

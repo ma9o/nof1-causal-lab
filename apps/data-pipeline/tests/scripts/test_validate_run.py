@@ -4,11 +4,9 @@ from dataclasses import replace
 
 import polars as pl
 
-from nof1_causal_lab.artifacts.identity import ConstructRef
 from nof1_causal_lab.artifacts.raw_data import with_column_descriptions
 from nof1_causal_lab.machine.artifacts import ArtifactVersionInfo, EpisodeState
 from nof1_causal_lab.machine.store import ArtifactStore
-from nof1_causal_lab.models.identification import identify_model
 from nof1_causal_lab.models.model_checks import check_execution
 from scripts import validate_run
 from tests.helpers import complete_test_model, graph_constructs, make_model
@@ -42,41 +40,6 @@ def test_source_columns_use_raw_parquet_columns():
     [issue] = validate_run.rule_source_columns_in_raw_data(bad)
     assert issue.rule == "source-columns-in-raw-data"
     assert "value" in issue.message
-
-
-def test_baseline_treatments_require_positive_identification():
-    model = make_model(
-        ["Treatment", "Outcome", "Unclassified"],
-        [("Treatment", "Outcome"), ("Outcome", "Unclassified")],
-    )
-    model = model.revised(default_outcome=ConstructRef(id=model.constructs[1].id))
-    identification = identify_model(model)
-    report = {
-        "intervention_results": [
-            {"treatment_id": c.id, "manifest_effects": None}
-            for c in (model.constructs[0], model.constructs[2])
-        ]
-    }
-    ctx = _context(
-        {
-            "model": model.model_dump(mode="json"),
-            "identification_report": identification.model_dump(mode="json"),
-            "baseline_report": report,
-        },
-        pins={"baseline_report": {"model": 1, "identification_report": 1}},
-    )
-    [issue] = validate_run.rule_baseline_report_treatments_identifiable(ctx)
-    assert issue.rule == "baseline-report-treatments-identifiable"
-    assert model.constructs[2].id in issue.message
-    assert model.constructs[0].id not in issue.message
-
-
-def test_baseline_results_fail_without_identification_pin():
-    ctx = _context(
-        {"baseline_report": {"intervention_results": [{"treatment_id": "construct:treatment"}]}}
-    )
-    [issue] = validate_run.rule_baseline_report_treatments_identifiable(ctx)
-    assert "no identifiability verdicts" in issue.message
 
 
 def test_panel_coverage_requires_a_panel_and_uses_its_model_pin():
@@ -139,7 +102,7 @@ def test_loading_cutoff_does_not_open_downstream_panels(monkeypatch, tmp_path):
     assert "Missing description" in issue.message
 
 
-def test_current_model_readiness_allows_incomplete_scientific_revisions(monkeypatch, tmp_path):
+def test_current_model_contract_allows_incomplete_scientific_revisions(monkeypatch, tmp_path):
     from nof1_causal_lab.utils import data as data_module
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
@@ -171,4 +134,3 @@ def test_current_model_readiness_allows_incomplete_scientific_revisions(monkeypa
         None,
     )
     assert validate_run.rule_pinned_model_contracts(ctx) == []
-    assert not make_model(["other"]).execution_readiness.ready

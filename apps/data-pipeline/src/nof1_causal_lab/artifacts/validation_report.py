@@ -2,10 +2,10 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from .base import ArtifactPayload
-from .identity import EntityRef, IndicatorId
+from .identity import IndicatorId
 
 
 class ValidationIssue(BaseModel):
@@ -15,7 +15,9 @@ class ValidationIssue(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    subject: EntityRef | None = None
+    indicator_id: IndicatorId | None = Field(
+        default=None, description="Affected indicator; null for a dataset-wide issue."
+    )
     issue_type: str
     severity: Literal["error", "warning", "info"]
     message: str
@@ -51,17 +53,6 @@ class IndicatorEmpiricalProfile(BaseModel):
     variance_to_mean_ratio: float | None = None
 
 
-class IndicatorValidation(BaseModel):
-    """Indicator validation records the outcomes and issues from checks on one extracted
-    indicator.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    issues: list[ValidationIssue]
-    checks: dict[str, Literal["ok", "warning", "error"]]
-
-
 class IndicatorAudit(BaseModel):
     """An indicator audit combines its empirical data profile with the results of validation
     checks.
@@ -70,7 +61,8 @@ class IndicatorAudit(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     profile: IndicatorEmpiricalProfile | None = None
-    validation: IndicatorValidation
+    issues: list[ValidationIssue]
+    checks: dict[str, Literal["ok", "warning", "error"]]
 
 
 class ValidationReportArtifact(ArtifactPayload):

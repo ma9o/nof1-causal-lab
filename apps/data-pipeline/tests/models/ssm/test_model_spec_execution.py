@@ -1,6 +1,5 @@
 """ModelSpec execution and stored identity checks without inference or simulation."""
 
-from nof1_causal_lab.artifacts.coefficient import FixedCoefficient
 import dynestyx as dsx
 import jax
 import jax.numpy as jnp
@@ -67,7 +66,7 @@ def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
     )
     assert type(conditioned) is ModelSpec
     assert model.time_points == ()
-    assert not model.distributions
+    assert len(model.distributions) == len(model.parameters)
     assert len(conditioned.distributions) == 1
     assert all(
         p.distribution == next(iter(conditioned.distributions))
@@ -131,9 +130,7 @@ def test_predictive_runtime_uses_native_initial_and_observation_laws(model):
     samples.update(assemble_deterministics_from_registry(samples, model))
     times = jnp.array([2.0])
     key = jax.random.PRNGKey(14)
-    latents, predictors = simulate_prior_predictive_latents(
-        model, samples, times, transition_inputs=None, rng_key=key
-    )
+    latents, predictors = simulate_prior_predictive_latents(model, samples, times, rng_key=key)
     native = build_dynamical_model(
         model, {name: values[0] for name, values in samples.items()}, t0=times[0]
     )
@@ -195,13 +192,13 @@ def test_predictive_edge_off_reaches_the_native_state_evolution(model, monkeypat
         model,
         samples,
         jnp.array([3.0]),
-        transition_inputs=None,
         rng_key=jax.random.PRNGKey(21),
         dynamics=dynamics,
     )
     natural = build_dynamical_model(
         model, {name: values[0] for name, values in samples.items()}, t0=jnp.array(3.0)
     )
+    assert isinstance(natural.state_evolution, dsx.StochasticContinuousTimeStateEvolution)
     # This model's Hill edge vanishes at zero source, while the target's own
     # nonlinear restoring dynamics stay the same.
     source_zero = state.at[edge.source].set(0.0)
@@ -251,36 +248,28 @@ def test_nonlinear_fixture_declares_the_same_drift_and_measurements():
             ]
         ),
         manifest_var_diag_free=jnp.asarray(fixture.TRUE_MANIFEST_SD)[
-            numeric.observation_noise_block(source).diag_support
+            numeric.observation_noise_block(source).diag_support[:-2]
         ],
         manifest_means_free=jnp.asarray(fixture.TRUE_MANIFEST_MEANS)[
-            numeric.observation_mean_block(source).free_support
+            numeric.observation_mean_block(source).free_support[:-2]
         ],
-        input_effect_free=jnp.asarray(
-            [
-                fixture.TRUE_INPUT_EFFECT[row, col]
-                for row, col in fixture.TRUE_INPUT_EFFECT_POSITIONS
-            ]
-        ),
     )
     matrices, _ = assemble_model_matrices(source, samples)
-    np.testing.assert_allclose(matrices["lambda"], fixture.TRUE_LOADINGS)
-    np.testing.assert_allclose(matrices["manifest_means"], fixture.TRUE_MANIFEST_MEANS)
-    np.testing.assert_allclose(matrices["input_effect"], fixture.TRUE_INPUT_EFFECT)
+    np.testing.assert_allclose(matrices["lambda"][:-2, :-2], fixture.TRUE_LOADINGS)
+    np.testing.assert_allclose(matrices["manifest_means"][:-2], fixture.TRUE_MANIFEST_MEANS)
     native = build_dynamical_model(source, {**samples, **matrices}, t0=jnp.asarray(0.0))
     assert isinstance(native.state_evolution, dsx.StochasticContinuousTimeStateEvolution)
     assert native.state_evolution.drift is not None
     state = jnp.asarray([0.8, 0.5, 1.2])
     controls = jnp.asarray([0.2, -0.4])
     np.testing.assert_allclose(
-        native.state_evolution.drift(state, controls, 0.0),
+        native.state_evolution.drift(jnp.concatenate([state, controls]), None, 0.0)[:3],
         fixture._synthetic_nonlinear_drift(np.asarray(state), np.asarray(controls)),
         atol=1e-7,
     )
 
 
 def test_fixed_quantities_and_interactions_remain_effective_in_edge_off_checks(monkeypatch):
-    from nof1_causal_lab.artifacts.coefficient import FixedCoefficient
     from nof1_causal_lab.artifacts.expressions import LiteralExpression, linear_coefficient
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.parameter import SiteKind
@@ -291,7 +280,6 @@ def test_fixed_quantities_and_interactions_remain_effective_in_edge_off_checks(m
     )
     from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
     from nof1_causal_lab.models.ssm.predictive import registry_runtime
-    
     from tests.model_fixtures import model_fixture, parameter_draws
 
     source = model_fixture(
@@ -302,23 +290,31 @@ def test_fixed_quantities_and_interactions_remain_effective_in_edge_off_checks(m
             (
                 *(decay_term(target=i) for i in range(3)),
                 linear_term(0, 2),
-                interaction_term(0, 1, 2, FixedCoefficient(value=0.8)),
+                interaction_term(0, 1, 2, 0.8),
             ),
         ),
     )
     source = source.revised(
+        distributions={
+            k: v
+            for k, v in source.distributions.items()
+            if k
+            not in {
+                p.distribution
+                for p in source.parameters
+                if source.parameter_context(p.id).quantity == SiteKind.DYNAMICS_WEIGHT
+            }
+        },
         parameters=tuple(
             p.model_copy(update={"value": 0.7, "distribution": None})
             if source.parameter_context(p.id).quantity == SiteKind.DYNAMICS_WEIGHT
             else p
             for p in source.parameters
-        )
+        ),
     )
     source = ModelSpec.model_validate_json(source.model_dump_json())
     terms = numeric.dynamics_expressions(source)
-    assert linear_coefficient(terms[3].expression, source.state_order[0]) == FixedCoefficient(
-        value=0.7
-    )
+    assert linear_coefficient(terms[3].expression, source.state_order[0]) == 0.7
     assert not terms[3].parameters
     target = _incoming_edge_off_target(
         source,

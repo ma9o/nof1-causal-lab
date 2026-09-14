@@ -44,19 +44,17 @@ class Root:
 
 ARTIFACT_GRAPH: tuple[Transition, ...] = (
     Transition("raw_data", (), ("raw_data",), "batch_llm"),
-    Transition(
-        "latent_structure", ("question",), ("model",), "judgment", optional_consumes=("model",)
-    ),
+    Transition("latent_structure", ("model",), ("model",), "judgment"),
     Transition(
         "measurement_structure",
-        ("question", "raw_data", "model"),
+        ("raw_data", "model"),
         ("model",),
         "judgment",
         after=("raw_data", "latent_structure"),
     ),
     Transition(
         "measurements",
-        ("question", "raw_data", "model"),
+        ("raw_data", "model"),
         (),
         "batch_llm",
         produces_optional=("panel",),
@@ -65,7 +63,6 @@ ARTIFACT_GRAPH: tuple[Transition, ...] = (
     Transition(
         "statistical_model_spec",
         (
-            "question",
             "model",
             "identification_report",
             "panel",
@@ -73,7 +70,6 @@ ARTIFACT_GRAPH: tuple[Transition, ...] = (
         ),
         ("model",),
         "judgment",
-        produces_optional=("admission_report",),
         after=("measurements",),
     ),
     Transition(
@@ -83,20 +79,12 @@ ARTIFACT_GRAPH: tuple[Transition, ...] = (
         "deterministic",
         after=("statistical_model_spec",),
     ),
-    Transition(
-        "baseline_report",
-        ("model", "panel", "identification_report"),
-        ("baseline_report",),
-        "judgment",
-        after=("posterior",),
-        writable=True,
-    ),
 )
 DERIVATIONS: tuple[Derivation, ...] = (
     Derivation("identification_report", ("model",)),
     Derivation("validation_report", ("panel", "model")),
 )
-ROOTS: tuple[Root, ...] = (Root("question"), Root("model"))
+ROOTS: tuple[Root, ...] = (Root("model"),)
 ROOT_ARTIFACTS = tuple(root.artifact_id for root in ROOTS)
 WRITABLE_ARTIFACTS = ROOT_ARTIFACTS + tuple(
     artifact for spec in ARTIFACT_GRAPH if spec.writable for artifact in spec.produces

@@ -41,7 +41,7 @@ Time-invariant constructs may have time-invariant causes, but they cannot have
 time-varying parents.
 
 ## Default Query Outcome
-Set the top-level `default_outcome` to the construct reference for the primary outcome Y implied by the question. This is the workspace's default query target. Only endogenous constructs can be selected; outcome status is not a construct field.
+Set the top-level `default_outcome` to the construct ID for the primary outcome Y implied by the question. This is the workspace's default query target. Only endogenous constructs can be selected; outcome status is not a construct field.
 
 ## Causal Edges
 
@@ -67,7 +67,7 @@ Contemporaneous edges must form a DAG within each time slice (A4). Feedback loop
 
 ## Output Schema
 
-Submit the full candidate Model in the tool's `model_json` argument. Constructs and edges keep their identities as they later gain indicators, dynamics, mechanisms, and priors. When revising a current Model, preserve all retained details and repair any affected references in the same submission. This example illustrates the first contribution to a Model; it is not a separate scientific catalog.
+Submit the full candidate Model in the tool's `model_json` argument. Preserve its `question` while developing the graph. Constructs and edges keep their identities as they later gain indicators, dynamics, mechanisms, and priors. When revising a current Model, preserve all retained details and repair any affected references in the same submission. This example illustrates the first graph contribution to a Model.
 
 
 Give each new construct and edge a unique persistent `id`, prefixed with
@@ -79,7 +79,8 @@ There is no top-level construct list. Display names belong to the endpoint defin
 
 ```json
 {
-  "default_outcome": {"kind": "construct", "id": "construct:c2"},
+  "question": "How does cause_construct affect outcome_construct?",
+  "default_outcome": "construct:c2",
   "edges": [
     {
       "id": "edge:e1",

@@ -15,8 +15,11 @@ from .expressions import (
 from .identity import MechanismId  # noqa: TC001
 
 
-class DynamicsMechanism(BaseModel):
-    """An additive drift term or node potential whose negative gradient enters the drift."""
+class DynamicsMechanismSpec(BaseModel):
+    """A symbolic specification of an additive drift term or a node potential.
+
+    A node potential contributes its negative gradient to the drift.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
 
@@ -25,7 +28,7 @@ class DynamicsMechanism(BaseModel):
     expression: Expression
 
     @model_validator(mode="after")
-    def validate_drift_operands(self) -> DynamicsMechanism:
+    def validate_drift_operands(self) -> DynamicsMechanismSpec:
         for node in walk_expression(self.expression):
             if isinstance(node, CoefficientExpression):
                 if node.role not in {
@@ -41,7 +44,7 @@ class DynamicsMechanism(BaseModel):
                     raise ValueError(
                         f"{node.role} is an observation coefficient, not a drift operand"
                     )
-                if node.coefficient is None:
+                if node.value is None:
                     raise ValueError("A declared drift contribution requires assigned coefficients")
             if isinstance(node, CallExpression) and node.function in {
                 "ordered_cutpoints",

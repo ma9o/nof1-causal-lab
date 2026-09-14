@@ -19,7 +19,7 @@ from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.utils.histograms import histogram_draws
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
@@ -39,7 +39,7 @@ import jax.numpy as jnp
 def _check_calibration(
     y_sim: jnp.ndarray,
     observations: jnp.ndarray,
-    indicator_ids: list[str],
+    indicator_ids: Sequence[str],
     low_threshold: float = 0.70,
     high_threshold: float = 0.98,
 ) -> list[PPCWarning]:
@@ -103,7 +103,7 @@ def _check_calibration(
 def _check_residual_autocorrelation(
     y_sim: jnp.ndarray,
     observations: jnp.ndarray,
-    indicator_ids: list[str],
+    indicator_ids: Sequence[str],
     threshold: float = 0.3,
 ) -> list[PPCWarning]:
     """Check lag-1 autocorrelation of residuals (obs - posterior predictive mean).
@@ -161,7 +161,7 @@ def _check_residual_autocorrelation(
 def _check_variance_ratio(
     y_sim: jnp.ndarray,
     observations: jnp.ndarray,
-    indicator_ids: list[str],
+    indicator_ids: Sequence[str],
     high_ratio: float = 3.0,
     low_ratio: float = 1.0 / 3.0,
 ) -> list[PPCWarning]:
@@ -236,7 +236,7 @@ def _check_variance_ratio(
 def _compute_overlays(
     y_sim: jnp.ndarray,
     observations: jnp.ndarray,
-    indicator_ids: list[str],
+    indicator_ids: Sequence[str],
     n_spaghetti: int = 20,
 ) -> list[PPCOverlay]:
     """Compute per-variable quantile bands and spaghetti draws for PPC plots.
@@ -287,7 +287,7 @@ def _compute_overlays(
 def _compute_test_stats(
     y_sim: jnp.ndarray,
     observations: jnp.ndarray,
-    indicator_ids: list[str],
+    indicator_ids: Sequence[str],
 ) -> list[PPCTestStat]:
     """Compute test statistic distributions across y_rep draws.
 
@@ -355,12 +355,11 @@ def run_posterior_predictive_checks(
     samples: dict[str, jnp.ndarray],
     observations: jnp.ndarray,
     times: jnp.ndarray,
-    indicator_ids: list[str],
+    indicator_ids: Sequence[str],
     spec: ModelSpec,
     *,
     observation_support: ObservationSupportRuntime | None = None,
     observation_mask: jnp.ndarray | None = None,
-    transition_inputs: jnp.ndarray | None = None,
     n_subsample: int = 50,
     rng_seed: int = 42,
 ) -> PosteriorPredictiveChecks:
@@ -378,7 +377,6 @@ def run_posterior_predictive_checks(
         spec: compiled SSM spec — provides the vector field and emission families
         observation_support: optional compiled interval-summary semantics
         observation_mask: optional boolean observation schedule mask
-        transition_inputs: optional exogenous input schedule (input-driven models)
         n_subsample: number of posterior draws to forward-simulate
         rng_seed: random seed
 
@@ -400,7 +398,6 @@ def run_posterior_predictive_checks(
         times,
         observation_support=observation_support,
         observation_mask=observation_mask,
-        transition_inputs=transition_inputs,
         n_subsample=n_subsample,
         seed=rng_seed,
     )

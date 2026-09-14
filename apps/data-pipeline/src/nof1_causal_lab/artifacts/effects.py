@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from itertools import pairwise
 from math import isfinite
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class EffectSummary(BaseModel):
@@ -45,18 +45,3 @@ def validate_effect_horizons(days: Sequence[float]) -> None:
         raise ValueError("Effect horizons must be nonempty, finite, and nonnegative")
     if any(right <= left for left, right in pairwise(days)):
         raise ValueError("Effect horizons must be unique and increasing")
-
-
-class TemporalEffect(BaseModel):
-    """A temporal effect summarizes a trajectory at requested horizons and its absolute peak."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True, allow_inf_nan=False)
-
-    horizons: list[EffectTrajectoryPoint] = Field(min_length=1)
-    peak_effect: float
-    time_to_peak_days: float = Field(ge=0)
-
-    @model_validator(mode="after")
-    def validate_horizons(self) -> "TemporalEffect":
-        validate_effect_horizons([point.day for point in self.horizons])
-        return self

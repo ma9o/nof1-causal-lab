@@ -12,7 +12,7 @@ from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.machine.artifact_files import artifact_file_spec
 from nof1_causal_lab.machine.artifacts import EpisodeState
-from nof1_causal_lab.machine.moves import RunOperation
+from nof1_causal_lab.machine.moves import RunOperation, WriteArtifact
 from nof1_causal_lab.machine.snapshots import ModelReader
 from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal, TransitionRecord
 from nof1_causal_lab.machine.views import read_artifact_views
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 FIXTURE = Path(__file__).resolve().parents[4] / "data/DEMO/fixture/artifacts"
 
 
-def test_inference_log_keeps_findings_across_admission_republication_and_tracks_changed_data(
+def test_inference_log_keeps_findings_across_authoring_log_updates_and_tracks_changed_data(
     monkeypatch, tmp_path
 ):
     from nof1_causal_lab.utils import data as data_module
@@ -60,7 +60,10 @@ def test_inference_log_keeps_findings_across_admission_republication_and_tracks_
             TransitionRecord(
                 seq=seq,
                 ts="2026-07-08T12:00:00Z",
-                move=RunOperation(operation_id="statistical_model_spec"),
+                move=WriteArtifact(
+                    artifact_id=aid,
+                    expected_model_version=info.version - 1 if aid == "model" else None,
+                ),
                 status="applied",
                 produced=[info],
                 trace_ids=[],
@@ -84,19 +87,12 @@ def test_inference_log_keeps_findings_across_admission_republication_and_tracks_
     assert historical.value.report.posterior_marginals
     assert historical.source.ref.model_dump() == {"seq": 5}
     assert historical.source.validity == "fresh"
-    admission = store.write_version(
-        "admission_report",
-        provenance="computed",
-        derived_from={"model": 1},
-        produced_by="run:statistical_model_spec",
-        json_files={"admission_report.json": {}},
-    )
     journal.append(
         record.model_copy(
             update={
                 "seq": 6,
-                "produced": [admission],
-                "diagnostics": {},
+                "produced": [],
+                "diagnostics": {"search_queries": {"parameter:test": "Research query"}},
                 "move": RunOperation(operation_id="statistical_model_spec"),
             }
         )
@@ -125,7 +121,8 @@ def test_inference_log_keeps_findings_across_admission_republication_and_tracks_
     assert (
         current.value.report.inference_diagnostics == historical.value.report.inference_diagnostics
     )
-    assert current.value.report.assessment == historical.value.report.assessment
+    assert current.value.report.ppc == historical.value.report.ppc
+    assert current.value.report.loo_diagnostics == historical.value.report.loo_diagnostics
     assert ModelReader("BINDINGS", at_seq=5).fit() == historical
 
 
@@ -206,17 +203,22 @@ def test_likelihood_plot_preserves_prior_mass_and_requires_its_pinned_panel(
             "validation_report.json": {"is_valid": True, "indicators": {}, "dataset_issues": []}
         },
     )
-    report = store.write_version(
-        "admission_report",
-        provenance="computed",
-        derived_from={"model": 1, "panel": 1},
-        produced_by="run:statistical_model_spec",
-        json_files={"admission_report.json": {"prior_predictive_samples": {indicator.id: prior}}},
+    EpisodeJournal("PLOTS").append(
+        TransitionRecord(
+            seq=1,
+            ts="2026-09-14T12:00:00Z",
+            move=RunOperation(operation_id="statistical_model_spec"),
+            status="applied",
+            produced=[model.model_copy(update={"derived_from": {"panel": 1}})],
+            diagnostics={"prior_predictive": {"samples": {indicator.id: prior}, "diagnostics": []}},
+            trace_ids=[],
+            resume=None,
+        )
     )
-    state = EpisodeState().with_versions([panel, validation, model, report])
+    state = EpisodeState().with_versions([panel, validation, model])
     view = read_artifact_views(store, state).model_diagnostics
     assert view is not None
-    diagnostic = view.likelihood_diagnostics["indicator:8ab0e6245f029d222a9a"]
+    diagnostic = view.likelihood_diagnostics[indicator.id]
     assert sum(bin.count for bin in diagnostic.histogram) == len(observed)
     assert diagnostic.prior_counts == pytest.approx(expected_counts)
     assert diagnostic.prior_outside_fraction == pytest.approx(expected_outside)

@@ -7,8 +7,7 @@ import numpyro.distributions as dist
 import pytest
 from numpyro import handlers
 
-from nof1_causal_lab.artifacts.coefficient import FixedCoefficient, ParameterCoefficient
-from nof1_causal_lab.artifacts.construct import CausalEdge, Construct, replace_constructs
+from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec, replace_constructs
 from nof1_causal_lab.artifacts.expressions import (
     CoefficientExpression,
     coefficient,
@@ -21,8 +20,8 @@ from nof1_causal_lab.artifacts.expressions import (
     restoring_potential,
     state,
 )
-from nof1_causal_lab.artifacts.identity import scientific_id
-from nof1_causal_lab.artifacts.mechanism import DynamicsMechanism
+from nof1_causal_lab.artifacts.identity import ConstructId, scientific_id
+from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.ssm.dynamics.expression import ExpressionComponentSpec
 from nof1_causal_lab.models.ssm.dynamics.intervention import (
@@ -39,31 +38,54 @@ from nof1_causal_lab.models.ssm.dynamics.spec import (
 from nof1_causal_lab.models.ssm.dynamics.vector_field import VectorFieldArgs
 
 
-def _fixed(value):
-    return FixedCoefficient(value=value)
-
-
 def _component(value, *, source=None):
     return ExpressionComponentSpec(
         expression=value,
         target=1,
-        state_ids=("construct:x", "construct:y", "construct:z"),
+        state_ids=tuple(ConstructId(f"construct:{name}") for name in ("x", "y", "z")),
         source=source,
     )
 
 
+def test_direct_values_preserve_fixed_zero_shared_identity_and_partial_authoring():
+    from scripts.migrate_coefficient_values import convert_payload
+
+    identity = scientific_id("parameter", "shared")
+    old = [
+        {"kind": "coefficient", "role": "weight", "coefficient": value}
+        for value in (
+            {"kind": "fixed", "value": 0},
+            {"kind": "parameter", "parameter_id": identity},
+            None,
+        )
+    ]
+    converted = convert_payload(old)
+    operands = [CoefficientExpression.model_validate(value) for value in converted]
+    assert [operand.value for operand in operands] == [0, identity, None]
+    assert convert_payload(converted) == converted
+    assert "coefficient" in old[0]
+    for operand in operands:
+        assert CoefficientExpression.model_validate_json(operand.model_dump_json()) == operand
+    with pytest.raises(ValueError, match="extra_forbidden"):
+        CoefficientExpression.model_validate(old[0])
+    for invalid in (float("inf"), float("nan"), "not-a-parameter-id"):
+        with pytest.raises(ValueError, match=r"finite_number|string_pattern_mismatch"):
+            CoefficientExpression(role="weight", value=invalid)
+
+
 def test_existing_functions_and_composition_preserve_drift_and_intervention_inputs():
-    restoring = restoring_force(
-        "construct:y", center=_fixed(0.3), stiffness=_fixed(0.7), quartic=_fixed(0.2)
-    )
-    saturation = hill(state("construct:x"), emax=_fixed(2), ec50=_fixed(1.5), n=_fixed(2))
+    restoring = restoring_force(ConstructId("construct:y"), center=0.3, stiffness=0.7, quartic=0.2)
+    saturation = hill(state(ConstructId("construct:x")), emax=2, ec50=1.5, n=2)
     components = (
         _component(restoring),
-        _component(coefficient(_fixed(0.4), "intercept")),
-        _component(linear_effect("construct:x", _fixed(0.6)), source=0),
-        _component(linear_effect("construct:x", _fixed(0.5)) * state("construct:z"), source=0),
+        _component(coefficient(0.4, "intercept")),
+        _component(linear_effect(ConstructId("construct:x"), 0.6), source=0),
+        _component(
+            linear_effect(ConstructId("construct:x"), 0.5) * state(ConstructId("construct:z")),
+            source=0,
+        ),
         _component(saturation, source=0),
-        _component(saturation * state("construct:z"), source=0),
+        _component(saturation * state(ConstructId("construct:z")), source=0),
     )
     native = compile_dynamics(DynamicsSpec(n_latent=3, components=components))
     params = tuple({} for _ in components)
@@ -101,17 +123,17 @@ def test_existing_functions_and_composition_preserve_drift_and_intervention_inpu
 
 
 def test_multiple_same_role_operands_bind_directly_and_repeated_references_sample_once():
-    first = ParameterCoefficient(parameter_id=scientific_id("parameter", "first"))
-    second = ParameterCoefficient(parameter_id=scientific_id("parameter", "second"))
-    value = linear_effect("construct:x", first) + linear_effect(
-        "construct:x", second
+    first = scientific_id("parameter", "first")
+    second = scientific_id("parameter", "second")
+    value = linear_effect(ConstructId("construct:x"), first) + linear_effect(
+        ConstructId("construct:x"), second
     ) * coefficient(first, "weight")
     component = _component(value, source=0)
     native = compile_dynamics(DynamicsSpec(n_latent=3, components=(component,)))
     assert expression_states(value) == {"construct:x"}
     assert len(expression_coefficients(value)) == 2
     sites = dict(component.parameter_sites("vf_0"))
-    assert sites.keys() == {first.parameter_id, second.parameter_id}
+    assert sites.keys() == {first, second}
     assert len({site.name for site in sites.values()}) == 2
 
     def draw():
@@ -124,13 +146,13 @@ def test_multiple_same_role_operands_bind_directly_and_repeated_references_sampl
     packed = pack_component_params_from_samples(native.spec, sampled)
     assert packed[0].keys() == sites.keys()
     assert native.spec.components[0] is component
-    mechanism = DynamicsMechanism(id="mechanism:sum", expression=value)
-    assert DynamicsMechanism.model_validate_json(mechanism.model_dump_json()) == mechanism
+    mechanism = DynamicsMechanismSpec(id="mechanism:sum", expression=value)
+    assert DynamicsMechanismSpec.model_validate_json(mechanism.model_dump_json()) == mechanism
 
 
 def _model(expression):
     nodes = {
-        name: Construct(
+        name: ConstructSpec(
             id=f"construct:{name}",
             name=name,
             description=name,
@@ -141,14 +163,14 @@ def _model(expression):
     }
     return ModelSpec(
         edges=(
-            CausalEdge(
+            CausalEdgeSpec(
                 id="edge:xy",
                 cause=nodes["x"],
                 effect=nodes["y"],
                 description="x affects y",
-                mechanisms=(DynamicsMechanism(id="mechanism:effect", expression=expression),),
+                mechanisms=(DynamicsMechanismSpec(id="mechanism:effect", expression=expression),),
             ),
-            CausalEdge(
+            CausalEdgeSpec(
                 id="edge:xz", cause=nodes["x"], effect=nodes["z"], description="x affects z"
             ),
         )
@@ -156,19 +178,19 @@ def _model(expression):
 
 
 def test_composition_requires_all_causal_dependencies_and_valid_parameter_references():
-    base = _model(linear_effect("construct:x", _fixed(1)))
-    compound = hill(state("construct:x"), emax=_fixed(1), ec50=_fixed(1), n=_fixed(2)) * state(
-        "construct:z"
+    base = _model(linear_effect(ConstructId("construct:x"), 1))
+    compound = hill(state(ConstructId("construct:x")), emax=1, ec50=1, n=2) * state(
+        ConstructId("construct:z")
     )
     edge = base.edges[0].model_copy(
-        update={"mechanisms": (DynamicsMechanism(id="mechanism:effect", expression=compound),)}
+        update={"mechanisms": (DynamicsMechanismSpec(id="mechanism:effect", expression=compound),)}
     )
     with pytest.raises(ValueError, match="explicit causal edges"):
         base.revised(edges=(edge, *base.edges[1:]))
     extended = base.revised(
         edges=(
             edge,
-            CausalEdge(
+            CausalEdgeSpec(
                 id="edge:zy",
                 cause=base.get_construct("construct:z"),
                 effect=base.get_construct("construct:y"),
@@ -181,12 +203,12 @@ def test_composition_requires_all_causal_dependencies_and_valid_parameter_refere
         "construct:z",
     }
     with pytest.raises(ValueError, match="unknown constructs"):
-        _model(linear_effect("construct:missing", _fixed(1)))
+        _model(linear_effect(ConstructId("construct:missing"), 1))
     with pytest.raises(ValueError, match="undeclared parameter"):
         _model(
             linear_effect(
-                "construct:x",
-                ParameterCoefficient(parameter_id=scientific_id("parameter", "missing")),
+                ConstructId("construct:x"),
+                scientific_id("parameter", "missing"),
             )
         )
     with pytest.raises(ValueError, match="owning construct"):
@@ -197,8 +219,9 @@ def test_composition_requires_all_causal_dependencies_and_valid_parameter_refere
                     base.constructs[0].model_copy(
                         update={
                             "dynamics": (
-                                DynamicsMechanism(
-                                    id="mechanism:intrinsic", expression=state("construct:y")
+                                DynamicsMechanismSpec(
+                                    id="mechanism:intrinsic",
+                                    expression=state(ConstructId("construct:y")),
                                 ),
                             )
                         }
@@ -215,26 +238,29 @@ def test_composition_requires_all_causal_dependencies_and_valid_parameter_refere
 def test_restoring_anchor_requires_the_complete_function_and_supported_coefficients(
     kind, constructor
 ):
-    value = constructor("construct:y", center=_fixed(0), stiffness=_fixed(1), quartic=_fixed(0))
+    value = constructor("construct:y", center=0, stiffness=1, quartic=0)
     assert {
-        operand.role for operand in restoring_coefficients(value, "construct:y", kind=kind)
+        operand.role
+        for operand in restoring_coefficients(value, ConstructId("construct:y"), kind=kind)
     } == {
         "center",
         "decay",
         "quartic",
     }
     assert not restoring_coefficients(
-        coefficient(_fixed(0), "center") + state("construct:y"), "construct:y", kind=kind
+        coefficient(0, "center") + state(ConstructId("construct:y")),
+        ConstructId("construct:y"),
+        kind=kind,
     )
     assert not restoring_coefficients(
-        value, "construct:y", kind="potential" if kind == "drift" else "drift"
+        value, ConstructId("construct:y"), kind="potential" if kind == "drift" else "drift"
     )
     with pytest.raises(ValueError, match="decay must be positive"):
-        restoring_force("construct:y", center=_fixed(0), stiffness=_fixed(0), quartic=_fixed(0))
+        restoring_force(ConstructId("construct:y"), center=0, stiffness=0, quartic=0)
     with pytest.raises(ValueError, match="exponent must be positive"):
-        CoefficientExpression(role="exponent", coefficient=_fixed(-1))
+        CoefficientExpression(role="exponent", value=-1)
     with pytest.raises(ValueError, match="literal_error"):
-        DynamicsMechanism.model_validate(
+        DynamicsMechanismSpec.model_validate(
             {
                 "id": "mechanism:unknown",
                 "expression": {
@@ -254,14 +280,12 @@ def test_solver_steps_follow_coefficient_meanings_including_fixed_rates():
         _predictive_sde_config,
     )
 
-    rate = ParameterCoefficient(parameter_id=scientific_id("parameter", "relaxation"))
+    rate = scientific_id("parameter", "relaxation")
     components = (
         _component(
-            restoring_force("construct:y", center=_fixed(0), stiffness=rate, quartic=_fixed(0))
+            restoring_force(ConstructId("construct:y"), center=0, stiffness=rate, quartic=0)
         ),
-        _component(
-            restoring_force("construct:y", center=_fixed(0), stiffness=_fixed(4), quartic=_fixed(0))
-        ),
+        _component(restoring_force(ConstructId("construct:y"), center=0, stiffness=4, quartic=0)),
     )
     compiled = compile_dynamics(DynamicsSpec(3, components))
     site = next(iter(components[0].parameter_sites("vf_0")))[1]

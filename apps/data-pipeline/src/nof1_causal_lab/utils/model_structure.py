@@ -9,10 +9,11 @@ from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.models.model_structure import dependency_id
 
 if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.identity import ConstructId
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 
-def get_state_ids(model: ModelSpec) -> list[str]:
+def get_state_ids(model: ModelSpec) -> list[ConstructId]:
     return list(model.state_order)
 
 
@@ -83,20 +84,6 @@ def get_edges(model: ModelSpec) -> list[UncheckedJsonObject]:
             }
         )
     return result
-
-
-def get_known_inputs(model: ModelSpec) -> list[UncheckedJsonObject]:
-    return [
-        {
-            "construct_id": identity,
-            "source_indicator_id": usage.source_indicator_id,
-            "construct": model.get_construct(identity).name,
-            "source_indicator": model.indicator(usage.source_indicator_id).name,
-            "scale": usage.scale,
-            "missing_policy": usage.missing_policy,
-        }
-        for identity, usage in model.known_inputs.items()
-    ]
 
 
 def get_induced_dependencies(model: ModelSpec) -> list[UncheckedJsonObject]:

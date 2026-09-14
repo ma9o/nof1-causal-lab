@@ -42,7 +42,7 @@ def test_declared_discrete_levels_reject_out_of_range_code():
 
 
 def test_missing_declared_levels_are_rejected_in_the_scientific_definition():
-    from nof1_causal_lab.artifacts.indicator import Indicator
+    from nof1_causal_lab.artifacts.indicator import IndicatorSpec
 
     indicator = next(
         item
@@ -50,4 +50,4 @@ def test_missing_declared_levels_are_rejected_in_the_scientific_definition():
         if item.measurement_dtype == "ordinal"
     )
     with pytest.raises(ValueError, match="ordinal_levels"):
-        Indicator.model_validate({**indicator.model_dump(), "ordinal_levels": None})
+        IndicatorSpec.model_validate({**indicator.model_dump(), "ordinal_levels": None})

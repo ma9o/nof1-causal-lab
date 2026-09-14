@@ -11,9 +11,8 @@ from datetime import datetime
 from typing import Any
 
 import numpy as np
-import numpyro.distributions as dist
 import polars as pl
-from notebooks.prior_specification_support import parameter_with_prior
+from notebooks.prior_specification_support import model_with_prior_payloads
 
 from nof1_causal_lab.artifacts.construct import replace_constructs, serialize_edge_references
 from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LikelihoodSpec, LinkFunction
@@ -56,14 +55,9 @@ def _normal(mu: float, sigma: float) -> dict[str, Any]:
 
 
 def _parameter_with_prior(parameter, payload, plan=None):
-    catalog = ParamCatalog.from_model(plan or _typed_structure())
-    metadata = catalog.metadata_for(parameter)
-    return parameter_with_prior(
-        ParameterSpec.model_validate(
-            {key: value for key, value in metadata.items() if key in ParameterSpec.model_fields}
-        ),
-        payload,
-    )
+    model = _completed(plan or _typed_structure())
+    target = next(p for p in model.parameters if p.name == parameter)
+    return model_with_prior_payloads(model, {target.id: payload}).parameter(target.id)
 
 
 def _model_definition():
@@ -169,6 +163,11 @@ def _payload(plan, name, *, edge_pairs=None, hill_pairs=(), self_limiting=False)
         "construct": construct.model_dump(mode="json"),
         "edges": serialize_edge_references(edges),
         "parameters": [p.model_dump(mode="json") for p in parameters],
+        "distributions": {
+            p.distribution: model.model_dump(mode="json")["distributions"][p.distribution]
+            for p in parameters
+            if p.distribution is not None
+        },
     }
 
 
@@ -236,7 +235,6 @@ def test_submit_construct_rejects_intercept_inactive_for_locked_likelihood():
         id=scientific_id("parameter", "unused intercept"),
         name="unused",
         description="Unused intercept",
-        distribution=dist.Normal(0.0, 1.0),
     )
     payload["parameters"].append(intercept.model_dump(mode="json"))
     feedback = state.submit_construct(**payload)
@@ -366,24 +364,21 @@ def test_submit_construct_rejects_out_of_order():
 
 
 def test_native_diffusion_site_accepts_different_authored_families():
-    from notebooks.prior_specification_support import parameter_with_prior
+    from notebooks.prior_specification_support import model_with_prior_payloads
 
     from nof1_causal_lab.models.ssm.compile.inputs import compile_ssm_inputs_from_model
 
     model = _completed(_typed_structure())
-    model = model.revised(
-        parameters=tuple(
-            parameter_with_prior(
-                p,
-                {
-                    "distribution": "TruncatedNormal",
-                    "params": {"mu": 0.5, "sigma": 0.1, "lower": 0.1, "upper": 1.0},
-                },
-            )
-            if p.name == "sigma_X"
-            else p
+    model = model_with_prior_payloads(
+        model,
+        {
+            p.id: {
+                "distribution": "TruncatedNormal",
+                "params": {"mu": 0.5, "sigma": 0.1, "lower": 0.1, "upper": 1.0},
+            }
             for p in model.parameters
-        )
+            if p.name == "sigma_X"
+        },
     )
     priors, _, _, _, _ = compile_ssm_inputs_from_model(model)
     law = priors["diffusion_diag_free"]
@@ -719,29 +714,25 @@ def test_build_construct_messages_renders_concern_local_semantic_context():
         "indicators": {
             fixture_entity_id("indicator", "y1"): {
                 "profile": profile,
-                "validation": {
-                    "issues": [
-                        {
-                            "severity": "error",
-                            "issue_type": "no_variance",
-                            "message": "Zero variance (constant value = 0.0)",
-                        }
-                    ],
-                    "checks": {"variance": "error"},
-                },
+                "issues": [
+                    {
+                        "severity": "error",
+                        "issue_type": "no_variance",
+                        "message": "Zero variance (constant value = 0.0)",
+                    }
+                ],
+                "checks": {"variance": "error"},
             },
             fixture_entity_id("indicator", "x1"): {
                 "profile": {"n_obs": 1, "mean": 999.0},
-                "validation": {
-                    "issues": [
-                        {
-                            "severity": "warning",
-                            "issue_type": "sibling",
-                            "message": "SIBLING_SENTINEL",
-                        }
-                    ],
-                    "checks": {},
-                },
+                "issues": [
+                    {
+                        "severity": "warning",
+                        "issue_type": "sibling",
+                        "message": "SIBLING_SENTINEL",
+                    }
+                ],
+                "checks": {},
             },
         },
     }
@@ -793,7 +784,8 @@ def test_build_construct_messages_handles_null_empirical_profile():
             "indicators": {
                 fixture_entity_id("indicator", "x1"): {
                     "profile": None,
-                    "validation": {"issues": [], "checks": {}},
+                    "issues": [],
+                    "checks": {},
                 }
             }
         },
@@ -802,31 +794,9 @@ def test_build_construct_messages_handles_null_empirical_profile():
     assert "Raw empirical profile: unavailable (no numeric observations)" in user
 
 
-def test_build_construct_messages_renders_incoming_known_input_without_hill_option():
-    payload = _model_definition()
-    _construct(payload, "X")["usage"] = {
-        "kind": "known_input",
-        "source_indicator_id": _indicator(payload, "x1")["id"],
-        "scale": 10.0,
-        "missing_policy": "forward_fill",
-    }
-    spec = _typed_structure(payload)
-    state = ConstructBuildState(
-        model=spec,
-        data_for_model=pl.DataFrame(
-            {
-                "indicator_id": [
-                    "indicator:0f93ce57e1f1d1c96f5c",
-                    "indicator:0f93ce57e1f1d1c96f5c",
-                    "indicator:0f93ce57e1f1d1c96f5c",
-                    "indicator:0f93ce57e1f1d1c96f5c",
-                ],
-                "value": [0.0, 10.0, 10.0, 20.0],
-            }
-        ),
-        order=["Y", "Z"],
-    )
-
+def test_build_construct_messages_keeps_exactness_out_of_execution_selection():
+    spec = _typed_structure(_model_definition())
+    state = ConstructBuildState(model=spec, data_for_model=pl.DataFrame(), order=["X", "Y", "Z"])
     _system, user = build_construct_messages(
         state=state,
         construct="Y",
@@ -834,23 +804,20 @@ def test_build_construct_messages_renders_incoming_known_input_without_hill_opti
         model=spec,
         validation_report={"indicators": {}},
     )
-
-    assert "`X` — **known transition input**, lagged" in user
-    assert "source indicator=`x1`" in user
-    assert "scale divisor=10" in user
-    assert "missing policy=`forward_fill`" in user
-    assert "Source data before scaling: n=4; distinct=3; mean=10; sd=7.071" in user
-    assert "Compiler input at observed source rows: mean=1; sd=0.7071; range=[0, 2]" in user
-    assert "`beta_X_Y`" in user
-    assert "Known-input effects are linear-only" in user
-    assert "hill_emax_X_Y" not in user
+    assert "known transition input" not in user
+    assert "Known-input effects are linear-only" not in user
 
 
 def test_submit_construct_schema_is_well_formed():
     props = SUBMIT_CONSTRUCT_SCHEMA["properties"]
-    assert set(SUBMIT_CONSTRUCT_SCHEMA["required"]) == {"construct", "edges", "parameters"}
+    assert set(SUBMIT_CONSTRUCT_SCHEMA["required"]) == {
+        "construct",
+        "edges",
+        "parameters",
+        "distributions",
+    }
     assert SUBMIT_CONSTRUCT_SCHEMA["additionalProperties"] is False
-    assert props["construct"]["$ref"] == "#/$defs/Construct"
+    assert props["construct"]["$ref"] == "#/$defs/ConstructSpec"
     assert props["parameters"]["items"]["$ref"] == "#/$defs/ParameterSpec"
-    construct = SUBMIT_CONSTRUCT_SCHEMA["$defs"]["Construct"]
+    construct = SUBMIT_CONSTRUCT_SCHEMA["$defs"]["ConstructSpec"]
     assert {"indicators", "dynamics"} <= construct["properties"].keys()

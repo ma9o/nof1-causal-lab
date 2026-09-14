@@ -12,7 +12,6 @@ from nof1_causal_lab.models.ssm.structure.blocks import (
     SparseVectorBlockSpec,
     T0CholBlockSpec,
 )
-
 from nof1_causal_lab.models.ssm.structure.sites import SemanticBinding, SiteDescriptor
 
 __all__ = [

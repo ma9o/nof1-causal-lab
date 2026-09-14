@@ -24,7 +24,7 @@ from nof1_causal_lab.artifacts.expressions import (
 from nof1_causal_lab.artifacts.expressions import (
     state as expr_state,
 )
-from nof1_causal_lab.artifacts.mechanism import DynamicsMechanism
+from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
 from nof1_causal_lab.distributions import DistributionFamily
@@ -164,22 +164,6 @@ def default_t0_chol_block(n_latent: int) -> T0CholBlockSpec:
         diag_support=np.ones(n_latent, dtype=bool),
         correlation_support=np.tri(n_latent, k=-1, dtype=bool),
         template=jnp.eye(n_latent),
-    )
-
-
-def default_input_effect_block(n_latent: int) -> SparseMatrixBlockSpec:
-    return SparseMatrixBlockSpec(
-        n_rows=n_latent,
-        n_cols=0,
-        free_support=np.zeros((n_latent, 0), dtype=bool),
-        template=jnp.zeros((n_latent, 0)),
-        free_site_name="input_effect_free",
-        det_site_name="input_effect",
-        support=SupportClass.REAL,
-        site_kind=SiteKind.INPUT_EFFECT,
-        assembly_group="input_effect",
-        fixed_spec_field="input_effect",
-        priors_field="input_effect",
     )
 
 
@@ -361,7 +345,6 @@ def make_lgss_data(
             correlation_support=np.zeros((n_latent, n_latent), dtype=bool),
             template=jnp.eye(n_latent),
         ),
-        input_effect_block=default_input_effect_block(n_latent),
         static_state_sd_block=default_static_state_sd_block(),
     )
 
@@ -387,7 +370,6 @@ def model_fixture(
     manifest_chol_block: ManifestCholBlockSpec | None = None,
     t0_means_block: SparseVectorBlockSpec | None = None,
     t0_chol_block: T0CholBlockSpec | None = None,
-    input_effect_block: SparseMatrixBlockSpec | None = None,
     static_state_sd_block: SparseVectorBlockSpec | None = None,
     static_factor_loadings: jnp.ndarray | None = None,
     **metadata: Any,
@@ -397,10 +379,9 @@ def model_fixture(
     Blocks are fixture inputs only. The returned value contains scientific
     entities, coefficient references, priors and constants, with no native spec.
     """
-    from nof1_causal_lab.artifacts.coefficient import FixedCoefficient, ParameterCoefficient
-    from nof1_causal_lab.artifacts.construct import CausalEdge, Construct, KnownInput
+    from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
     from nof1_causal_lab.artifacts.identity import ConstructRef, EdgeRef, IndicatorRef, MechanismRef
-    from nof1_causal_lab.artifacts.indicator import Indicator
+    from nof1_causal_lab.artifacts.indicator import IndicatorSpec
     from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec
     from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
     from nof1_causal_lab.models.prior_planning import complete_model
@@ -442,7 +423,7 @@ def model_fixture(
         }.get(family.value, "continuous")
         levels = tuple(str(level) for level in range(counts[i]))
         indicators.append(
-            Indicator(
+            IndicatorSpec(
                 id=identity,
                 name=name,
                 how_to_measure="Read the fixture value",
@@ -461,7 +442,7 @@ def model_fixture(
             )
         )
     constructs = [
-        Construct(
+        ConstructSpec(
             id=identity,
             name=name,
             description="Test state",
@@ -481,7 +462,7 @@ def model_fixture(
         pair = (cause, effect)
         if pair not in edges:
             identity = fixture_entity_id("edge", f"{cause}:{effect}")
-            edges[pair] = CausalEdge(
+            edges[pair] = CausalEdgeSpec(
                 id=identity,
                 cause=next(item for item in constructs if item.id == cause),
                 effect=next(item for item in constructs if item.id == effect),
@@ -491,7 +472,7 @@ def model_fixture(
             edge_terms[identity] = []
         return edges[pair]
 
-    outcome = Construct(
+    outcome = ConstructSpec(
         id="construct:numerical_test_outcome",
         name="numerical_test_outcome",
         description="Unmeasured downstream response joining the numerical test states.",
@@ -512,7 +493,7 @@ def model_fixture(
             description="Fixture quantity",
             value=value,
         )
-        reference = ParameterCoefficient(parameter_id=identity)
+        reference = identity
         coefficient_recipes.append((kind, refs, reference))
         return reference
 
@@ -535,16 +516,14 @@ def model_fixture(
         def bind(node, component=component, references=references, refs=refs):
             if isinstance(node, StateExpression):
                 return expr_state(ids[component.state_ids.index(node.construct_id)])
-            if isinstance(node, CoefficientExpression) and isinstance(
-                node.coefficient, ParameterCoefficient
-            ):
-                key = node.coefficient.parameter_id
+            if isinstance(node, CoefficientExpression) and isinstance(node.value, str):
+                key = node.value
                 if key not in references:
                     references[key] = quantity(node.meaning.quantity, refs)
                 return expr_coefficient(references[key], node.role)
             return node
 
-        term = DynamicsMechanism(
+        term = DynamicsMechanismSpec(
             id=mechanism_id,
             kind=component.kind,
             expression=map_expression(component.expression, bind),
@@ -553,76 +532,21 @@ def model_fixture(
     for identity in ids:
         if not node_terms[identity] and not static[ids.index(identity)]:
             node_terms[identity].append(
-                DynamicsMechanism(
+                DynamicsMechanismSpec(
                     id=fixture_entity_id("mechanism", identity + ":zero-drift"),
-                    expression=expr_coefficient(FixedCoefficient(value=0), "intercept"),
+                    expression=expr_coefficient(0, "intercept"),
                 )
             )
     constructs = [
         item.model_copy(update={"dynamics": tuple(node_terms[item.id])}) for item in constructs
     ]
 
-    effects = input_effect_block or default_input_effect_block(n_latent)
-    input_names = axes.pop("input_names", [f"input_{i}" for i in range(effects.n_cols)])
-    input_ids = axes.pop("input_ids") or [
-        fixture_entity_id("construct", name) for name in input_names
-    ]
-    input_sources = axes.pop("input_source_indicators", input_names)
-    input_scales = axes.pop("input_scales", [1.0] * len(input_names))
-    input_policies = axes.pop("input_missing_policies", ["zero"] * len(input_names))
-    input_lags = axes.pop("input_lagged", [False] * len(input_names))
-    for index, (name, identity) in enumerate(zip(input_names, input_ids, strict=True)):
-        indicator = Indicator(
-            id=fixture_entity_id("indicator", input_sources[index]),
-            name=input_sources[index],
-            how_to_measure="Read the driver",
-            construct_polarity="positive",
-            measurement_dtype="continuous",
-            aggregation="last",
-        )
-        constructs.append(
-            Construct(
-                id=identity,
-                name=name,
-                description="Fixture driver",
-                role="exogenous",
-                temporal_status="time_varying",
-                indicators=(indicator,),
-                usage=KnownInput(
-                    source_indicator_id=indicator.id,
-                    scale=input_scales[index],
-                    missing_policy=input_policies[index],
-                ),
-            )
-        )
-        for target in range(n_latent):
-            if effects.free_support[target, index] or float(effects.template[target, index]) != 0:
-                owner = edge(identity, ids[target], lagged=input_lags[index])
-                mechanism_id = fixture_entity_id("mechanism", owner.id)
-                refs = [
-                    ConstructRef(id=identity),
-                    ConstructRef(id=ids[target]),
-                    EdgeRef(id=owner.id),
-                    MechanismRef(id=mechanism_id),
-                ]
-                weight = quantity(
-                    SiteKind.INPUT_EFFECT,
-                    refs,
-                    value=None
-                    if effects.free_support[target, index]
-                    else float(effects.template[target, index]),
-                )
-                edge_terms[owner.id].append(
-                    DynamicsMechanism(
-                        id=mechanism_id, expression=linear_effect(owner.cause.id, weight)
-                    )
-                )
     assert not axes, f"Unexpected fixture metadata: {sorted(axes)}"
 
     def confounder(label, children, *, invariant, weights=None):
         identity = fixture_entity_id("construct", label)
         constructs.append(
-            Construct(
+            ConstructSpec(
                 id=identity,
                 name=label,
                 description="Explicit latent common cause",
@@ -634,11 +558,9 @@ def model_fixture(
             owner = edge(identity, child, lagged=False)
             if weights is not None:
                 edge_terms[owner.id].append(
-                    DynamicsMechanism(
+                    DynamicsMechanismSpec(
                         id=fixture_entity_id("mechanism", owner.id),
-                        expression=linear_effect(
-                            owner.cause.id, FixedCoefficient(value=weights[index])
-                        ),
+                        expression=linear_effect(owner.cause.id, weights[index]),
                     )
                 )
         return identity
@@ -757,13 +679,9 @@ def model_fixture(
             model.edges,
             tuple(
                 construct.model_copy(
-                    update={
-                        "innovation": construct.innovation.model_copy(
-                            update={"distribution": innovations[ids.index(construct.id)]}
-                        )
-                    }
+                    update={"innovation_family": innovations[ids.index(construct.id)]}
                 )
-                if construct.id in ids and construct.innovation is not None
+                if construct.id in ids
                 else construct
                 for construct in model.constructs
             ),

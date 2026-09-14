@@ -163,6 +163,17 @@ def test_loo_all_missing_rows_have_no_predictive_estimate():
     assert posterior.get_loo_diagnostics(observations=jnp.full((4, 2), jnp.nan)) is None
 
 
+def test_loo_cannot_reweight_away_an_exact_state_constraint():
+    posterior = ParticleMCMCPosterior(
+        draws=JointPosteriorDraws(parameters={}),
+        diagnostics={
+            "observation_log_probs": jnp.zeros((2, 3, 2)),
+            "exact_observation_rows": jnp.array([True, False]),
+        },
+    )
+    assert posterior.get_loo_diagnostics(observations=jnp.ones((2, 1))) is None
+
+
 def test_loo_requires_particle_evidence():
     posterior = ParticleMCMCPosterior(draws=JointPosteriorDraws(parameters={"beta": jnp.zeros(3)}))
     with pytest.raises(KeyError, match="observation_log_probs"):

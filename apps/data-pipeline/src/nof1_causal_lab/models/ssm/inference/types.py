@@ -62,6 +62,7 @@ class InferenceDiagnostics(TypedDict, total=False):
     public_sites: list[str]
     likelihood_backend: object
     observation_log_probs: jnp.ndarray
+    exact_observation_rows: jnp.ndarray
     latent_posterior_summary: dict[str, jnp.ndarray]
     warmup_latent_paths: jnp.ndarray
     all_latent_paths: jnp.ndarray
@@ -315,6 +316,15 @@ class ParticleMCMCPosterior:
         held-out row is interpolated using all other rows, including future
         measurements. This does not estimate leave-future-out forecast skill.
         """
+        exact_rows = self.diagnostics.get("exact_observation_rows")
+        if exact_rows is not None and bool(jnp.any(exact_rows)):
+            # Removing an equality increases the support dimension. Reweighting
+            # draws confined to that equality cannot recover the held-out target.
+            logger.info(
+                "PSIS-LOO is unavailable for exact observations: removing a Delta constraint "
+                "requires refitting or integrating out its fixed state coordinates."
+            )
+            return None
         from arviz_stats.loo import loo
 
         factors = self.diagnostics["observation_log_probs"]

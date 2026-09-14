@@ -85,7 +85,6 @@ def test_default_law(quantity, support, transform, polarity, expected):
         }
     )
     if quantity == SiteKind.LOADING:
-        from nof1_causal_lab.artifacts.coefficient import ParameterCoefficient
         from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec
 
         indicator = indicator.model_copy(
@@ -95,7 +94,7 @@ def test_default_law(quantity, support, transform, polarity, expected):
                         law=observation_law(construct.id, "gaussian", "identity"),
                         reasoning="Test",
                     ),
-                    {"loading": ParameterCoefficient(parameter_id=parameter.id)},
+                    {"loading": parameter.id},
                 )
             }
         )

@@ -1,6 +1,5 @@
 """Native node potentials preserve nonlinear drift, metadata, and causal interventions."""
 
-from nof1_causal_lab.artifacts.coefficient import FixedCoefficient
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -16,7 +15,6 @@ from nof1_causal_lab.models.ssm.dynamics import (
 )
 from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec, compile_dynamics
 from nof1_causal_lab.models.ssm.execution.dynamical_model import continuous_state_evolution
-
 from tests.dynamics_fixtures import linear_term, potential_term
 from tests.model_fixtures import model_fixture
 
@@ -25,7 +23,15 @@ from tests.model_fixtures import model_fixture
 def test_native_potential_matches_restoring_force_and_its_derivatives(quartic):
     compiled = compile_dynamics(
         DynamicsSpec(
-            2, (potential_term(1, center=FixedCoefficient(value=0.5), stiffness=FixedCoefficient(value=1.2), quartic=FixedCoefficient(value=quartic)),)
+            2,
+            (
+                potential_term(
+                    1,
+                    center=0.5,
+                    stiffness=1.2,
+                    quartic=quartic,
+                ),
+            ),
         )
     )
     args = VectorFieldArgs(({},), Intervention.none())
@@ -51,8 +57,13 @@ def test_clamp_removes_potential_input_forcing_and_process_noise():
         DynamicsSpec(
             2,
             (
-                potential_term(0, center=FixedCoefficient(value=0), stiffness=FixedCoefficient(value=1), quartic=FixedCoefficient(value=0.2)),
-                linear_term(0, 1, weight=FixedCoefficient(value=2)),
+                potential_term(
+                    0,
+                    center=0,
+                    stiffness=1,
+                    quartic=0.2,
+                ),
+                linear_term(0, 1, weight=2),
             ),
         )
     )
@@ -61,11 +72,10 @@ def test_clamp_removes_potential_input_forcing_and_process_noise():
         compiled.vector_field,
         ({}, {}),
         jnp.eye(2),
-        jnp.ones((2, 1)),
         intervention=intervention,
     )
     np.testing.assert_allclose(
-        evolution.total_drift(jnp.array([3.0, 0.0]), jnp.array([4.0]), jnp.array(0.0)), [0.0, 10.0]
+        evolution.total_drift(jnp.array([3.0, 0.0]), None, jnp.array(0.0)), [0.0, 6.0]
     )
     np.testing.assert_allclose(
         evolution.diffusion.as_matrix(x=jnp.ones(2), u=None, t=0.0, state_dim=2),
@@ -83,7 +93,7 @@ def test_potential_coefficients_keep_their_scientific_meanings():
     assert all(site.positions == (0,) for site in compiled.site_registry)
 
 
-@pytest.mark.parametrize("kwargs", [{"stiffness": FixedCoefficient(value=0)}, {"quartic": FixedCoefficient(value=-1)}])
+@pytest.mark.parametrize("kwargs", [{"stiffness": 0}, {"quartic": -1}])
 def test_invalid_potential_coefficients_are_rejected(kwargs):
     with pytest.raises(ValueError, match=r"(positive|non-negative)"):
         potential_term(0, **kwargs)

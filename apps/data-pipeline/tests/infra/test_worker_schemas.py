@@ -1,16 +1,10 @@
-"""Tests for worker schema validation.
-
-Covers: _check_dtype_match, validate_worker_output, WorkerOutput.to_dataframe.
-"""
+"""Worker output contracts: datatype validation, error collection, and frame conversion."""
 
 import polars as pl
+import pytest
+from polars.testing import assert_frame_equal
 
-from nof1_causal_lab.workers.schemas import (
-    WindowExtraction,
-    WorkerOutput,
-    _check_dtype_match,
-    validate_worker_output,
-)
+from nof1_causal_lab.workers.schemas import _check_dtype_match, validate_worker_output
 from tests.helpers import invalid_dict_payload
 
 
@@ -39,111 +33,82 @@ def _measurement_structure(*indicators):
     }
 
 
-# =============================================================================
-# _check_dtype_match
-# =============================================================================
+@pytest.mark.parametrize(
+    ("dtype", "accepted", "rejected"),
+    [
+        ("continuous", [None, 42, 3.14], ["hello"]),
+        (
+            "binary",
+            [None, True, False, 0, 1, "0", "1", "true", "false", "True", "False"],
+            ["maybe", 2],
+        ),
+        # The count dtype checks representation, not integer value range.
+        ("count", [None, 5, 0, 3.0, -1], [3.5]),
+        ("ordinal", [None, 3, 2.0], ["moderate", True, 1.5]),
+        ("categorical", [None, "category_a"], [42]),
+    ],
+)
+def test_dtype_acceptance_boundary(dtype, accepted, rejected):
+    for value in accepted:
+        assert _check_dtype_match(value, dtype), (dtype, value)
+    for value in rejected:
+        assert not _check_dtype_match(value, dtype), (dtype, value)
 
 
-class TestCheckDtypeMatch:
-    def test_none_always_valid(self):
-        assert _check_dtype_match(None, "continuous") is True
-        assert _check_dtype_match(None, "binary") is True
-        assert _check_dtype_match(None, "count") is True
-
-    def test_continuous_int(self):
-        assert _check_dtype_match(42, "continuous") is True
-
-    def test_continuous_float(self):
-        assert _check_dtype_match(3.14, "continuous") is True
-
-    def test_continuous_string_rejected(self):
-        assert _check_dtype_match("hello", "continuous") is False
-
-    def test_binary_bool(self):
-        assert _check_dtype_match(True, "binary") is True
-        assert _check_dtype_match(False, "binary") is True
-
-    def test_binary_int_01(self):
-        assert _check_dtype_match(0, "binary") is True
-        assert _check_dtype_match(1, "binary") is True
-
-    def test_binary_string_01(self):
-        assert _check_dtype_match("0", "binary") is True
-        assert _check_dtype_match("1", "binary") is True
-
-    def test_binary_string_true_false(self):
-        assert _check_dtype_match("true", "binary") is True
-        assert _check_dtype_match("false", "binary") is True
-        assert _check_dtype_match("True", "binary") is True
-        assert _check_dtype_match("False", "binary") is True
-
-    def test_binary_other_rejected(self):
-        assert _check_dtype_match("maybe", "binary") is False
-
-    def test_count_positive_int(self):
-        assert _check_dtype_match(5, "count") is True
-
-    def test_count_zero(self):
-        assert _check_dtype_match(0, "count") is True
-
-    def test_count_float_whole(self):
-        assert _check_dtype_match(3.0, "count") is True
-
-    def test_count_negative_int_accepted(self):
-        # dtype check validates type, not value range; -1 is still an int
-        assert _check_dtype_match(-1, "count") is True
-
-    def test_count_float_fractional_rejected(self):
-        assert _check_dtype_match(3.5, "count") is False
-
-    def test_ordinal_accepts_int(self):
-        assert _check_dtype_match(3, "ordinal") is True
-
-    def test_ordinal_rejects_string_label(self):
-        assert _check_dtype_match("moderate", "ordinal") is False
-
-    def test_categorical_string(self):
-        assert _check_dtype_match("category_a", "categorical") is True
-
-    def test_categorical_int_rejected(self):
-        assert _check_dtype_match(42, "categorical") is False
-
-    def test_unknown_dtype_always_valid(self):
-        assert _check_dtype_match("anything", "unknown_dtype") is True
+@pytest.mark.parametrize("payload", [{}, {"extractions": []}])
+def test_empty_output_keeps_typed_frame_columns(payload):
+    output, errors = validate_worker_output(payload, _measurement_structure(("mood", "continuous")))
+    assert errors == []
+    assert output is not None
+    assert_frame_equal(
+        output.to_dataframe(),
+        pl.DataFrame(
+            schema={"indicator_id": pl.String, "value": pl.String, "timestamp": pl.String}
+        ),
+    )
 
 
-# =============================================================================
-# validate_worker_output
-# =============================================================================
+def test_mixed_output_preserves_identity_windows_missingness_and_normalized_values():
+    spec = _measurement_structure(
+        ("mood", "continuous"),
+        ("smoking", "binary"),
+        ("steps", "count"),
+        ("severity", "ordinal"),
+        ("activity", "categorical"),
+    )
+    rows = [
+        ("mood", "2024-01-01", 7.5),
+        ("mood", "2024-01-02", None),
+        ("smoking", "2024-01-01", True),
+        ("smoking", "2024-01-02", False),
+        ("steps", "2024-01-01", 3),
+        ("severity", "2024-01-01", 2.0),
+        ("activity", "2024-01-01", "walking"),
+    ]
+    payload = {
+        "extractions": [
+            {"indicator_id": f"indicator:{name}", "window_start": window, "value": value}
+            for name, window, value in rows
+        ]
+    }
+    output, errors = validate_worker_output(
+        payload, spec, expected_window_starts=["2024-01-01", "2024-01-02"]
+    )
+    assert errors == []
+    assert output is not None
+    assert_frame_equal(
+        output.to_dataframe(),
+        pl.DataFrame(
+            {
+                "indicator_id": [f"indicator:{name}" for name, _, _ in rows],
+                "value": ["7.5", None, "True", "False", "3", "2", "walking"],
+                "timestamp": [window for _, window, _ in rows],
+            }
+        ),
+    )
 
 
 class TestValidateWorkerOutput:
-    def test_valid_single_extraction(self):
-        spec = _measurement_structure(("mood", "continuous"))
-        data = {
-            "extractions": [
-                {"window_start": "2024-01-01", "indicator_id": "indicator:mood", "value": 3.5}
-            ]
-        }
-        output, errors = validate_worker_output(data, spec)
-        assert output is not None
-        assert errors == []
-        assert len(output.extractions) == 1
-
-    def test_empty_extractions_valid(self):
-        spec = _measurement_structure(("mood", "continuous"))
-        data = {"extractions": []}
-        output, errors = validate_worker_output(data, spec)
-        assert output is not None
-        assert errors == []
-
-    def test_missing_extractions_defaults_empty(self):
-        spec = _measurement_structure(("mood", "continuous"))
-        data = {}
-        output, errors = validate_worker_output(data, spec)
-        assert output is not None
-        assert errors == []
-
     def test_not_dict_returns_error(self):
         spec = _measurement_structure(("mood", "continuous"))
         output, errors = validate_worker_output(invalid_dict_payload("not a dict"), spec)
@@ -208,61 +173,6 @@ class TestValidateWorkerOutput:
         assert output is None
         assert len(errors) >= 2
 
-    def test_window_start_preserved(self):
-        spec = _measurement_structure(("mood", "continuous"))
-        data = {
-            "extractions": [
-                {"window_start": "2024-01-01", "indicator_id": "indicator:mood", "value": 5.0}
-            ]
-        }
-        output, errors = validate_worker_output(data, spec)
-        assert output is not None
-        assert errors == []
-        assert output.extractions[0].window_start == "2024-01-01"
-
-    def test_null_value_accepted(self):
-        spec = _measurement_structure(("mood", "continuous"))
-        data = {
-            "extractions": [
-                {"window_start": "2024-01-01", "indicator_id": "indicator:mood", "value": None}
-            ]
-        }
-        output, errors = validate_worker_output(data, spec)
-        assert output is not None
-        assert errors == []
-
-    def test_binary_valid(self):
-        spec = _measurement_structure(("is_smoking", "binary"))
-        data = {
-            "extractions": [
-                {
-                    "window_start": "2024-01-01",
-                    "indicator_id": "indicator:is_smoking",
-                    "value": True,
-                }
-            ]
-        }
-        output, errors = validate_worker_output(data, spec)
-        assert output is not None
-        assert errors == []
-
-    def test_multiple_indicators(self):
-        spec = _measurement_structure(("mood", "continuous"), ("is_smoking", "binary"))
-        data = {
-            "extractions": [
-                {"window_start": "2024-01-01", "indicator_id": "indicator:mood", "value": 7.0},
-                {
-                    "window_start": "2024-01-01",
-                    "indicator_id": "indicator:is_smoking",
-                    "value": False,
-                },
-            ]
-        }
-        output, errors = validate_worker_output(data, spec)
-        assert output is not None
-        assert errors == []
-        assert len(output.extractions) == 2
-
     def test_duplicate_window_start_indicator_rejected(self):
         spec = _measurement_structure(("mood", "continuous"))
         data = {
@@ -313,79 +223,3 @@ class TestValidateWorkerOutput:
         output, errors = validate_worker_output(data, spec)
         assert output is None
         assert any("must be in 0..2" in e for e in errors)
-
-    def test_ordinal_value_normalized_to_int(self):
-        spec = _measurement_structure(("severity", "ordinal"))
-        data = {
-            "extractions": [
-                {"window_start": "2024-01-01", "indicator_id": "indicator:severity", "value": 2.0}
-            ]
-        }
-        output, errors = validate_worker_output(data, spec)
-        assert errors == []
-        assert output is not None
-        assert output.extractions[0].value == 2
-
-
-# =============================================================================
-# WorkerOutput.to_dataframe
-# =============================================================================
-
-
-class TestWorkerOutputToDataframe:
-    def test_empty_extractions(self):
-        output = WorkerOutput(extractions=[])
-        df = output.to_dataframe()
-        assert isinstance(df, pl.DataFrame)
-        assert len(df) == 0
-        assert set(df.columns) == {"indicator_id", "value", "timestamp"}
-
-    def test_basic_conversion(self):
-        output = WorkerOutput(
-            extractions=[
-                WindowExtraction(
-                    window_start="2024-01-01", indicator_id="indicator:mood", value=7.5
-                ),
-            ]
-        )
-        df = output.to_dataframe()
-        assert len(df) == 1
-        assert df["indicator_id"][0] == "indicator:mood"
-        assert df["value"][0] == "7.5"
-        assert df["timestamp"][0] == "2024-01-01"
-
-    def test_none_value_preserved(self):
-        output = WorkerOutput(
-            extractions=[
-                WindowExtraction(
-                    window_start="2024-01-01", indicator_id="indicator:mood", value=None
-                )
-            ]
-        )
-        df = output.to_dataframe()
-        assert df["value"][0] is None
-
-    def test_bool_converted_to_string(self):
-        output = WorkerOutput(
-            extractions=[
-                WindowExtraction(
-                    window_start="2024-01-01", indicator_id="indicator:smoke", value=True
-                )
-            ]
-        )
-        df = output.to_dataframe()
-        assert df["value"][0] == "True"
-
-    def test_multiple_rows(self):
-        output = WorkerOutput(
-            extractions=[
-                WindowExtraction(
-                    window_start="2024-01-01", indicator_id="indicator:mood", value=7.0
-                ),
-                WindowExtraction(
-                    window_start="2024-01-01", indicator_id="indicator:sleep", value=8.0
-                ),
-            ]
-        )
-        df = output.to_dataframe()
-        assert len(df) == 2

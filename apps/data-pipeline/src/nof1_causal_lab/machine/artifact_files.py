@@ -28,7 +28,6 @@ class ArtifactFileSpec:
 
 
 ARTIFACT_FILE_SPECS: dict[ArtifactId, ArtifactFileSpec] = {
-    "question": ArtifactFileSpec(json={"question": "question.json"}),
     "raw_data": ArtifactFileSpec(parquet={"raw": "raw.parquet"}),
     "model": ArtifactFileSpec(json={"model": "model.json"}),
     "identification_report": ArtifactFileSpec(
@@ -36,8 +35,6 @@ ARTIFACT_FILE_SPECS: dict[ArtifactId, ArtifactFileSpec] = {
     ),
     "panel": ArtifactFileSpec(parquet={"panel": "panel.parquet"}),
     "validation_report": ArtifactFileSpec(json={"validation_report": "validation_report.json"}),
-    "admission_report": ArtifactFileSpec(json={"admission_report": "admission_report.json"}),
-    "baseline_report": ArtifactFileSpec(json={"baseline_report": "baseline_report.json"}),
 }
 
 

@@ -6,7 +6,7 @@ from functools import cache, cached_property
 from typing import TYPE_CHECKING, Literal, cast
 
 from nof1_causal_lab.artifacts.identification import IdentificationReport  # noqa: TC001
-from nof1_causal_lab.artifacts.identity import ArtifactRef, ModelRef, TransitionRef
+from nof1_causal_lab.artifacts.identity import ArtifactRef, TransitionRef
 from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorEstimate
 from nof1_causal_lab.machine.moves import freshness_report, is_stale
@@ -24,18 +24,16 @@ from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal, replay_
 from nof1_causal_lab.machine.views import read_artifact_views, read_payload
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.admission import AdmissionReport
-    from nof1_causal_lab.artifacts.baseline_report import BaselineReportArtifact
-    from nof1_causal_lab.artifacts.construct import CausalEdge, Construct
+    from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
     from nof1_causal_lab.artifacts.execution import (
         StructuralItemDisposition,
     )
-    from nof1_causal_lab.artifacts.identity import ArtifactId, EntityRef
-    from nof1_causal_lab.artifacts.indicator import Indicator
+    from nof1_causal_lab.artifacts.identity import ArtifactId, ConstructId, EntityRef
+    from nof1_causal_lab.artifacts.indicator import IndicatorSpec
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
     from nof1_causal_lab.artifacts.posterior import InferenceReport
-    from nof1_causal_lab.artifacts.question import QuestionArtifact
+    from nof1_causal_lab.artifacts.prior_predictive import PriorPredictiveResult
 
 
 class SnapshotRevisionNotFound(ValueError):
@@ -77,7 +75,7 @@ class ModelReader:
             workspace_id, at_seq
         )
         self.store = ArtifactStore(workspace_id)
-        self.reference = ModelRef(id=workspace_id)
+        self.workspace_id = workspace_id
         self.selected = cache(self._selected)
 
     def _selected(self, artifact_id: ArtifactId):
@@ -104,13 +102,13 @@ class ModelReader:
     def model(self) -> ModelSpec | None:
         return cast("ModelSpec", self.selected("model")) if self.state.has("model") else None
 
-    def constructs(self) -> tuple[Construct, ...]:
+    def constructs(self) -> tuple[ConstructSpec, ...]:
         return self.model.constructs if self.model else ()
 
-    def edges(self) -> tuple[CausalEdge, ...]:
+    def edges(self) -> tuple[CausalEdgeSpec, ...]:
         return self.model.edges if self.model else ()
 
-    def indicators(self) -> tuple[Indicator, ...]:
+    def indicators(self) -> tuple[IndicatorSpec, ...]:
         return self.model.indicators if self.model else ()
 
     def parameters(self, owner: EntityRef | None = None) -> tuple[ParameterSpec, ...]:
@@ -158,6 +156,47 @@ class ModelReader:
             ),
         )
 
+    def prior_predictive(self) -> Sourced[PriorPredictiveResult] | None:
+        from nof1_causal_lab.artifacts.prior_predictive import PriorPredictiveResult
+        from nof1_causal_lab.machine.model_spec_results import (
+            model_spec_is_current,
+            model_spec_record,
+        )
+
+        if self.model is None:
+            return None
+        record = model_spec_record(
+            record
+            for record in EpisodeJournal(self.workspace_id).read_all()
+            if record.seq <= self.seq
+        )
+        if record is None or (payload := record.diagnostics.get("prior_predictive")) is None:
+            return None
+        result = PriorPredictiveResult.model_validate(payload)
+        return Sourced(
+            value=result.model_copy(
+                update={
+                    "samples": {
+                        iid: samples
+                        for iid, samples in result.samples.items()
+                        if iid in self._indicator_ids
+                    },
+                    "diagnostics": [
+                        item
+                        for item in result.diagnostics
+                        if item.construct_id in self._construct_ids
+                    ],
+                }
+            ),
+            source=FactSource(
+                ref=TransitionRef(seq=record.seq),
+                pointer="/diagnostics/prior_predictive",
+                validity=SourceValidity.FRESH
+                if model_spec_is_current(record, self.state, self.store)
+                else SourceValidity.STALE,
+            ),
+        )
+
     def identification(self) -> Sourced[IdentificationReport] | None:
         if not self.state.has("identification_report"):
             return None
@@ -172,7 +211,7 @@ class ModelReader:
             return None
         owners = self._construct_ids | self._indicator_ids | {item.id for item in self.edges()}
         return self.fact(
-            tuple(item for item in self.model.structural_dispositions if item.source_id in owners),
+            tuple(item for item in self.model.structural_dispositions if item.target.id in owners),
             "model",
             "",
         )
@@ -204,7 +243,7 @@ class ModelReader:
                     and owner.kind == "construct"
                 ):
                     decay_estimates[owner.id] = estimate
-        warnings = posterior.assessment.ppc.per_variable_warnings
+        warnings = posterior.ppc.per_variable_warnings
         return Sourced(
             value=FitSummary(
                 report=posterior,
@@ -223,21 +262,21 @@ class ModelReader:
         identification, dispositions = self.identification(), self.dispositions()
         blocking = set()
         if identification:
-            for cid, finding in identification.value.status.non_identifiable_treatments.items():
+            for cid, finding in identification.value.non_identifiable.items():
                 blocking.update([cid, *finding.confounders])
         disposition_by_id = (
-            {item.source_id: item for item in dispositions.value} if dispositions else {}
+            {item.target.id: item for item in dispositions.value} if dispositions else {}
         )
-        graph_status: dict[str, Literal["observed", "marginalized", "blocking"]] = {
+        graph_status: dict[ConstructId, Literal["observed", "marginalized", "blocking"]] = {
             cid: "blocking"
-            if cid in blocking
+            if cid in blocking or disposition_by_id[cid].disposition == "unsupported"
             else "observed"
-            if disposition_by_id[cid].disposition in {"retained_state", "known_input"}
+            if disposition_by_id[cid].disposition == "retained_state"
             else "marginalized"
             for cid in self._construct_ids
             if cid in disposition_by_id
         }
-        views = read_artifact_views(self.store, self.state)
+        views = read_artifact_views(self.store, self.state, at_seq=self.seq)
         measurements = views.measurements
         if measurements:
             measurements = measurements.model_copy(
@@ -260,45 +299,13 @@ class ModelReader:
                     },
                 }
             )
-        report = None
-        if self.state.has("baseline_report"):
-            selected_report = cast("BaselineReportArtifact", self.selected("baseline_report"))
-            report = self.fact(
-                selected_report.model_copy(
-                    update={
-                        "intervention_results": [
-                            item
-                            for item in selected_report.intervention_results
-                            if item.treatment_id in self._construct_ids
-                        ],
-                    }
-                ),
-                "baseline_report",
-                "",
-            )
-        admission = (
-            cast("AdmissionReport", self.selected("admission_report"))
-            if self.state.has("admission_report")
-            else None
-        )
-        if admission:
-            admission = admission.model_copy(
-                update={
-                    "prior_predictive_diagnostics": [
-                        item
-                        for item in admission.prior_predictive_diagnostics
-                        if item.construct_id in self._construct_ids
-                    ]
-                }
-            )
         return ModelSnapshot(
             model=self.fact(self.model, "model", "") if self.model else None,
             context=SnapshotContext(
-                workspace=self.reference,
+                workspace_id=self.workspace_id,
                 seq=self.seq,
                 can_simulate=bool(
                     self.model
-                    and self.model.execution_readiness.ready
                     and self.model.distributions
                     and self.model.time_points
                     and inference_is_current(self.state)
@@ -311,29 +318,18 @@ class ModelReader:
                 retracted=self.retracted,
             ),
             data=ModelData(
-                question=self.fact(
-                    cast("QuestionArtifact", self.selected("question")), "question", ""
-                )
-                if self.state.has("question")
-                else None,
                 raw_data=self.fact(views.raw_data, "raw_data", "") if views.raw_data else None,
                 measurements=self.fact(measurements, "panel", "") if measurements else None,
             ),
             findings=ModelFindings(
                 identification=identification,
-                execution=self.fact(self.model.execution_readiness, "model", "")
-                if self.model
-                else None,
                 dispositions=dispositions,
                 graph_status=graph_status,
                 validation_report=self.fact(validation, "validation_report", "")
                 if validation
                 else None,
-                admission_report=self.fact(admission, "admission_report", "")
-                if admission
-                else None,
+                prior_predictive=self.prior_predictive(),
                 diagnostics=views.model_diagnostics,
                 fit=self.fit(),
-                baseline_report=report,
             ),
         )

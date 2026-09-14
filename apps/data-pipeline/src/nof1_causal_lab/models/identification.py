@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from nof1_causal_lab.artifacts.identification import (
-    IdentifiabilityStatus,
     IdentificationReport,
     IdentifiedTreatmentStatus,
     NonIdentifiableTreatmentStatus,
@@ -19,30 +18,32 @@ if TYPE_CHECKING:
 
 def identify_model(model: ModelSpec) -> IdentificationReport:
     if model.default_outcome is None:
-        return IdentificationReport(outcome=None, status=IdentifiabilityStatus())
+        return IdentificationReport(outcome=None)
     inputs = identification_input(model)
     # ModelSpec permits nonlinear dynamics; a linear-IV argument cannot establish
     # identification for this model, including during partial authoring.
     result = check_identifiability(inputs["graph"], inputs["observations"], iv_allowed=False)
     by_name = {construct.name: construct.id for construct in model.constructs}
-    status = IdentifiabilityStatus(
-        identifiable_treatments={
-            by_name[name]: IdentifiedTreatmentStatus(
-                method=finding["method"],
-                estimand=finding["estimand"],
-                marginalized_confounders=[
-                    by_name[item] for item in finding.get("marginalized_confounders", [])
-                ],
-                instruments=[by_name[item] for item in finding.get("instruments", [])],
-            )
-            for name, finding in result["identifiable_treatments"].items()
-        },
-        non_identifiable_treatments={
-            by_name[name]: NonIdentifiableTreatmentStatus(
-                confounders=[by_name[item] for item in finding["confounders"]],
-                notes=finding.get("notes"),
-            )
-            for name, finding in result["non_identifiable_treatments"].items()
+    return IdentificationReport(
+        outcome=model.default_outcome,
+        treatments={
+            **{
+                by_name[name]: IdentifiedTreatmentStatus(
+                    method=finding["method"],
+                    estimand=finding["estimand"],
+                    marginalized_confounders=[
+                        by_name[item] for item in finding.get("marginalized_confounders", [])
+                    ],
+                    instruments=[by_name[item] for item in finding.get("instruments", [])],
+                )
+                for name, finding in result["identifiable_treatments"].items()
+            },
+            **{
+                by_name[name]: NonIdentifiableTreatmentStatus(
+                    confounders=[by_name[item] for item in finding["confounders"]],
+                    notes=finding.get("notes"),
+                )
+                for name, finding in result["non_identifiable_treatments"].items()
+            },
         },
     )
-    return IdentificationReport(outcome=model.default_outcome.id, status=status)

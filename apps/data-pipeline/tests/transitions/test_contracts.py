@@ -44,40 +44,20 @@ def valid_artifact_payloads() -> dict[str, dict[str, Any]]:
                         "looks_integer_valued": True,
                         "variance_to_mean_ratio": 0.375,
                     },
-                    "validation": {
-                        "issues": [],
-                        "checks": {
-                            "n_obs": "ok",
-                            "variance": "ok",
-                            "n_unparseable_timestamps": "ok",
-                            "time_coverage_ratio": "ok",
-                            "max_gap_ratio": "ok",
-                            "dtype_violations": "ok",
-                            "duplicate_pct": "ok",
-                            "arithmetic_sequence_detected": "ok",
-                        },
+                    "issues": [],
+                    "checks": {
+                        "n_obs": "ok",
+                        "variance": "ok",
+                        "n_unparseable_timestamps": "ok",
+                        "time_coverage_ratio": "ok",
+                        "max_gap_ratio": "ok",
+                        "dtype_violations": "ok",
+                        "duplicate_pct": "ok",
+                        "arithmetic_sequence_detected": "ok",
                     },
                 }
             },
             "dataset_issues": [],
-        },
-        "baseline_report": {
-            "intervention_results": [
-                {
-                    "treatment": "Stress",
-                    "treatment_id": "construct:stress",
-                    "posterior_draws": [0.08, 0.11, 0.14, 0.09, 0.15, 0.12, 0.10, 0.13],
-                    "summary": {
-                        "mean": 0.115,
-                        "median": 0.115,
-                        "lower_95": 0.08175,
-                        "upper_95": 0.14825,
-                        "prob_positive": 1.0,
-                    },
-                }
-            ],
-            "simulation_results": [],
-            "final_summary": "Stress reduction remains the dominant actionable lever.",
         },
         "model": make_model(["Stress", "Perf"], [("Stress", "Perf")]).model_dump(mode="json"),
     }
@@ -93,7 +73,7 @@ def test_tool_server_registry_matches_served_tool_contracts() -> None:
         "measurement-structure",
         "measurement",
         "statistical-model-spec",
-        "ranking",
+        "analysis",
     }
 
     for context_id in served_context_ids:
@@ -131,21 +111,11 @@ def test_validate_artifact_payload_rejects_missing_required_fields(
         validate_artifact_payload("validation_report", bad)
 
 
-def test_known_input_declaration_requires_an_owned_source_indicator(valid_artifact_payloads):
+def test_removed_usage_is_rejected(valid_artifact_payloads):
     bad = deepcopy(valid_artifact_payloads["model"])
     graph_constructs(bad)[0]["usage"] = {"kind": "known_input"}
     with pytest.raises(ValidationError):
         validate_artifact_payload("model", bad)
-
-
-def test_baseline_report_rejects_extra_fields(
-    valid_artifact_payloads: dict[str, dict[str, Any]],
-):
-    """Extra fields on intervention results should be rejected (extra=forbid)."""
-    bad = deepcopy(valid_artifact_payloads["baseline_report"])
-    bad["intervention_results"][0]["unknown_field"] = 42
-    with pytest.raises(ValidationError):
-        validate_artifact_payload("baseline_report", bad)
 
 
 def test_outcome_enum_no_longer_exists(

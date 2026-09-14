@@ -7,6 +7,21 @@ from jaxtyping import Array, Float, Int
 FloatScalar = Float[Array, ""]
 
 
+def _masked_normal_log_prob(values, mean, variance, free_mask):
+    """Density with respect to the free coordinates, including its normalization."""
+    per_coordinate = -0.5 * (
+        jnp.log(2.0 * jnp.pi * variance) + jnp.square(values - mean) / variance
+    )
+    return jnp.sum(jnp.where(free_mask, per_coordinate, 0.0), axis=-1)
+
+
+def _masked_mean(values, mask, *, axis=None):
+    """Average diagnostics over sampled coordinates; an empty selection contributes zero."""
+    return jnp.sum(jnp.where(mask, values, 0.0), axis=axis) / jnp.maximum(
+        jnp.sum(mask, axis=axis), 1
+    )
+
+
 def _normalize_log_probs(
     logits: Float[Array, "*shape"], *, axis: int = -1
 ) -> Float[Array, "*shape"]:

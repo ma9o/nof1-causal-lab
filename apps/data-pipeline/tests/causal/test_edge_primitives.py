@@ -2,26 +2,38 @@
 
 Three layers:
 
-1. Individual primitives (LinearEdge, HillEdge, MultiplicativeEdge,
+1. Individual primitives (LinearEdge, Hill expressions, interaction expressions,
    DenseLinear, DiagonalDecay, Intercept) — each in isolation, checking
    their per-component contribution to the dynamics.
 2. VectorField equivalence — a single ``DenseLinear`` component
    reproduces ``f(t, η) = A·η + c`` exactly (proves the unified path
    subsumes the previous ``dense-linear VectorField`` regime).
 3. SSRI chain integration: ``dose × adherence → C_p → C_e → Hill →
-   affective`` exercises MultiplicativeEdge, LinearEdge-as-effect-
-   compartment, HillEdge, plus DiagonalDecay and Intercept components.
+   affective`` exercises interaction expressions, LinearEdge-as-effect-
+   compartment, Hill expressions, plus DiagonalDecay and Intercept components.
 """
 
-from nof1_causal_lab.artifacts.identity import scientific_id
-from tests.dynamics_fixtures import hill_term, interaction_term
 from __future__ import annotations
 
 import jax.numpy as jnp
 import pytest
 
-from nof1_causal_lab.models.ssm.dynamics import DiagonalDecay, EdgeInputOverride, Intercept, Intervention, LinearEdge, VariableOverride, VectorField, VectorFieldArgs, compute_steady_state, constant_value, simulate
+from nof1_causal_lab.artifacts.identity import scientific_id
+from nof1_causal_lab.models.ssm.dynamics import (
+    DiagonalDecay,
+    EdgeInputOverride,
+    Intercept,
+    Intervention,
+    LinearEdge,
+    VariableOverride,
+    VectorField,
+    VectorFieldArgs,
+    compute_steady_state,
+    constant_value,
+    simulate,
+)
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
+from tests.dynamics_fixtures import hill_term, interaction_term
 
 
 def _dense_matrix_vector_field(n_latent: int) -> VectorField:
@@ -49,12 +61,16 @@ class TestLinearEdge:
         assert float(out[0]) == pytest.approx(0.0)
 
 
-class TestHillEdge:
+class TestHillExpression:
     def test_zero_at_zero(self):
         edge = hill_term(source=0, target=1).build()
         dynamics = jnp.zeros(2)
         eta_per_edge = jnp.zeros((2, 2))
-        params = {scientific_id("parameter", "emax"): jnp.asarray(2.0), scientific_id("parameter", "ec50"): jnp.asarray(1.0), scientific_id("parameter", "exponent"): jnp.asarray(2.0)}
+        params = {
+            scientific_id("parameter", "emax"): jnp.asarray(2.0),
+            scientific_id("parameter", "ec50"): jnp.asarray(1.0),
+            scientific_id("parameter", "exponent"): jnp.asarray(2.0),
+        }
         out = edge.contribute(dynamics, jnp.zeros(2), eta_per_edge, jnp.asarray(0.0), params)
         assert float(out[1]) == pytest.approx(0.0, abs=1e-10)
 
@@ -62,7 +78,11 @@ class TestHillEdge:
         edge = hill_term(source=0, target=1).build()
         dynamics = jnp.zeros(2)
         eta_per_edge = jnp.array([[0.0, 0.0], [1.0, 0.0]])  # source-as-seen-by-1 == EC50
-        params = {scientific_id("parameter", "emax"): jnp.asarray(2.0), scientific_id("parameter", "ec50"): jnp.asarray(1.0), scientific_id("parameter", "exponent"): jnp.asarray(2.0)}
+        params = {
+            scientific_id("parameter", "emax"): jnp.asarray(2.0),
+            scientific_id("parameter", "ec50"): jnp.asarray(1.0),
+            scientific_id("parameter", "exponent"): jnp.asarray(2.0),
+        }
         out = edge.contribute(dynamics, jnp.zeros(2), eta_per_edge, jnp.asarray(0.0), params)
         assert float(out[1]) == pytest.approx(1.0, abs=1e-6)
 
@@ -70,7 +90,11 @@ class TestHillEdge:
         edge = hill_term(source=0, target=1).build()
         dynamics = jnp.zeros(2)
         eta_per_edge = jnp.array([[0.0, 0.0], [1000.0, 0.0]])
-        params = {scientific_id("parameter", "emax"): jnp.asarray(2.0), scientific_id("parameter", "ec50"): jnp.asarray(1.0), scientific_id("parameter", "exponent"): jnp.asarray(2.0)}
+        params = {
+            scientific_id("parameter", "emax"): jnp.asarray(2.0),
+            scientific_id("parameter", "ec50"): jnp.asarray(1.0),
+            scientific_id("parameter", "exponent"): jnp.asarray(2.0),
+        }
         out = edge.contribute(dynamics, jnp.zeros(2), eta_per_edge, jnp.asarray(0.0), params)
         assert float(out[1]) == pytest.approx(2.0, abs=1e-4)
 
@@ -78,12 +102,16 @@ class TestHillEdge:
         edge = hill_term(source=0, target=1).build()
         dynamics = jnp.zeros(2)
         eta_per_edge = jnp.array([[0.0, 0.0], [-5.0, 0.0]])
-        params = {scientific_id("parameter", "emax"): jnp.asarray(2.0), scientific_id("parameter", "ec50"): jnp.asarray(1.0), scientific_id("parameter", "exponent"): jnp.asarray(2.0)}
+        params = {
+            scientific_id("parameter", "emax"): jnp.asarray(2.0),
+            scientific_id("parameter", "ec50"): jnp.asarray(1.0),
+            scientific_id("parameter", "exponent"): jnp.asarray(2.0),
+        }
         out = edge.contribute(dynamics, jnp.zeros(2), eta_per_edge, jnp.asarray(0.0), params)
         assert float(out[1]) == pytest.approx(0.0, abs=1e-10)
 
 
-class TestMultiplicativeEdge:
+class TestInteractionExpression:
     def test_product_of_two_sources(self):
         edge = interaction_term(source_a=0, source_b=1, target=2).build()
         dynamics = jnp.zeros(3)
@@ -158,7 +186,7 @@ class TestVectorFieldEquivalence:
         assert jnp.allclose(factory_dynamics, expected, atol=1e-6)
 
 
-@pytest.mark.cpu_expensive
+@pytest.mark.simulation
 class TestVectorFieldInterventions:
     """Override semantics on vector fields."""
 
@@ -222,7 +250,7 @@ class TestVectorFieldInterventions:
 # =============================================================================
 
 
-@pytest.mark.cpu_expensive
+@pytest.mark.simulation
 class TestEffectCompartment:
     """LinearEdge with weight matching the target's DiagonalDecay rate
     implements first-order lag ``dC_e/dt = k_e0 · (C_p − C_e)``. At
@@ -277,7 +305,7 @@ class TestEffectCompartment:
 # =============================================================================
 
 
-@pytest.mark.cpu_expensive
+@pytest.mark.simulation
 class TestSSRIChain:
     """Full pharmacological chain — multiplicative coupling, effect
     compartment, Hill saturation in series. ``do(dose = 2)`` produces a
@@ -295,7 +323,9 @@ class TestSSRIChain:
             components=(
                 DiagonalDecay(),
                 Intercept(),
-                interaction_term(source_a=self.DOSE, source_b=self.ADHERENCE, target=self.C_P).build(),
+                interaction_term(
+                    source_a=self.DOSE, source_b=self.ADHERENCE, target=self.C_P
+                ).build(),
                 LinearEdge(source=self.C_P, target=self.C_E),
                 hill_term(source=self.C_E, target=self.AFFECTIVE).build(),
             ),

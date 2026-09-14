@@ -42,25 +42,22 @@ def default_parameter_prior(
 
 def complete_parameter_priors(model: ModelSpec) -> ModelSpec:
     """Apply the explicit default policy using the native sites of this scientific model."""
+    from nof1_causal_lab.models.model_distributions import with_parameter_distributions
     from nof1_causal_lab.models.ssm.compile.prior_indexing import build_semantic_prior_bindings
     from nof1_causal_lab.models.ssm.parameterization import build_site_registry
 
     model.require_execution_structure()
     bindings = build_semantic_prior_bindings(model).by_parameter
     sites = {site.name: site for site in build_site_registry(model)}
-    return model.revised(
-        parameters=tuple(
-            parameter
-            if parameter.distribution is not None or parameter.value is not None
-            else parameter.model_copy(
-                update={
-                    "distribution": default_parameter_prior(
-                        parameter, model, sites[bindings[parameter.id].site_name]
-                    ),
-                }
+    return with_parameter_distributions(
+        model,
+        {
+            parameter.id: default_parameter_prior(
+                parameter, model, sites[bindings[parameter.id].site_name]
             )
             for parameter in model.parameters
-        )
+            if parameter.distribution is None and parameter.value is None
+        },
     )
 
 

@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
-from nof1_causal_lab.artifacts.identity import ConstructRef, IndicatorRef
+from nof1_causal_lab.artifacts.identity import ConstructRef, IndicatorId, IndicatorRef
 from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LikelihoodSpec, LinkFunction
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
@@ -64,7 +64,7 @@ def _structure(
     *,
     time_invariant: set[str] | None = None,
 ) -> ModelSpec:
-    from nof1_causal_lab.artifacts.indicator import Indicator
+    from nof1_causal_lab.artifacts.indicator import IndicatorSpec
 
     model = make_model(construct_names)
     return model.revised(
@@ -77,7 +77,7 @@ def _structure(
                         if construct.name in (time_invariant or set())
                         else "time_varying",
                         "indicators": tuple(
-                            Indicator.model_validate(
+                            IndicatorSpec.model_validate(
                                 {key: value for key, value in row.items() if key != "construct_id"}
                             )
                             for row in indicators
@@ -104,7 +104,7 @@ def _likelihood(variable: str, dtype: str):
 
 
 def _with_likelihoods(
-    likelihoods: list[tuple[str, tuple[DistributionFamily, LinkFunction]]],
+    likelihoods: list[tuple[IndicatorId, tuple[DistributionFamily, LinkFunction]]],
     parameters: list[ParameterSpec] | None = None,
     *,
     plan: ModelSpec,
@@ -152,7 +152,6 @@ def _with_likelihoods(
             ),
         )
     )
-    from nof1_causal_lab.artifacts.coefficient import ParameterCoefficient
     from nof1_causal_lab.models.parameter_planning import complete_component_slots
 
     declared = declare_test_dynamics(model, centered_states=centered_states)
@@ -169,11 +168,7 @@ def _with_likelihoods(
                     update={
                         "likelihood": with_likelihood_coefficients(
                             indicator.likelihood,
-                            {
-                                "observation_intercept": ParameterCoefficient(
-                                    parameter_id=parameter.id
-                                )
-                            },
+                            {"observation_intercept": parameter.id},
                         )
                     }
                 )
@@ -540,7 +535,6 @@ class TestAnchorSurfaces:
         assert numeric.loading_block(spec).free_support[ordinal_row, 0]
 
     def test_raw_gaussian_sum_authors_an_intercept_slot(self):
-        from nof1_causal_lab.artifacts.coefficient import ParameterCoefficient
         from nof1_causal_lab.models.parameter_planning import complete_component_slots
 
         plan = _structure(["dose"], [_indicator("fill_quantity", "dose", "continuous")])
@@ -563,4 +557,4 @@ class TestAnchorSurfaces:
         completed = complete_component_slots(model)
         likelihood = completed.indicators[0].likelihood
         assert likelihood is not None
-        assert isinstance(likelihood.terms.intercept.coefficient, ParameterCoefficient)
+        assert isinstance(likelihood.terms.intercept.value, str)

@@ -52,8 +52,8 @@ OBSERVATION_CONSTRUCTORS = {
 }
 
 
-class ObservationLaw(BaseModel):
-    """A native probability constructor applied to model-dependent expressions."""
+class ObservationLawSpec(BaseModel):
+    """A symbolic specification of an indicator's conditional observation distribution."""
 
     model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
 
@@ -72,7 +72,7 @@ class ObservationLaw(BaseModel):
     arguments: dict[str, Expression]
 
     @model_validator(mode="after")
-    def validate_constructor(self) -> ObservationLaw:
+    def validate_constructor(self) -> ObservationLawSpec:
         _, signatures = OBSERVATION_CONSTRUCTORS[self.distribution]
         if set(self.arguments) not in signatures:
             expected = " or ".join(str(sorted(signature)) for signature in signatures)
@@ -89,7 +89,7 @@ class LikelihoodSpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
 
-    law: ObservationLaw
+    law: ObservationLawSpec
     standardized: bool = Field(
         default=False,
         description="Whether observations are mean-centered and scaled before fitting.",

@@ -26,7 +26,7 @@ def finalize_model_revision(
         input.state,
         storage.read_json(input.result_ref),
         provenance="computed",
-        expected_model_version=input.pins.get("model", 0),
+        expected_model_version=input.pins["model"],
         derived_from=input.pins,
         produced_by=f"run:{operation_id}",
     )

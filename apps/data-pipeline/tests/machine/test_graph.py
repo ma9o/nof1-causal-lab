@@ -14,7 +14,7 @@ from nof1_causal_lab.machine.graph import (
 
 
 def test_model_is_one_root_with_several_authoring_operations():
-    assert set(ROOT_ARTIFACTS) == {"question", "model"}
+    assert set(ROOT_ARTIFACTS) == {"model"}
     writers = [s.operation_id for s in ARTIFACT_GRAPH if "model" in s.produces]
     assert writers == [
         "latent_structure",
@@ -24,6 +24,8 @@ def test_model_is_one_root_with_several_authoring_operations():
     ]
     assert len({s.operation_id for s in ARTIFACT_GRAPH}) == len(ARTIFACT_GRAPH)
     assert set(topological_artifact_order()) == set(ARTIFACT_IDS)
+    assert topological_transition_order()[-1] == "posterior"
+    assert "baseline_report" not in ARTIFACT_IDS
 
 
 def test_topological_order_respects_operation_prerequisites():
@@ -45,12 +47,13 @@ def test_derived_outputs_depend_on_the_canonical_definition():
 
 def test_scientific_gates_are_declared():
     assert "identification_report" in transition_spec("statistical_model_spec").consumes
-    assert "identification_report" in transition_spec("baseline_report").consumes
     assert "panel" in transition_spec("posterior").consumes
     assert transition_spec("measurements").produces_optional == ("panel",)
 
 
-@pytest.mark.parametrize("key", ["model", "identification_report", "validation_report"])
+@pytest.mark.parametrize(
+    "key", ["model", "identification_report", "validation_report", "baseline_report"]
+)
 def test_artifacts_are_not_operation_names(key):
     with pytest.raises(KeyError, match="Unknown operation"):
         transition_spec(key)

@@ -114,7 +114,7 @@ CONTEXTS: tuple[ContextSpec, ...] = (
         layer="delegated",
         label="Model/prior reducer",
         parent_id="episode-machine",
-        owns=("model", "admission_report"),
+        owns=("model",),
         allowed_tools=("search_literature", "submit_construct"),
         runtime_state=(
             "deterministic_skeleton",
@@ -135,11 +135,10 @@ CONTEXTS: tuple[ContextSpec, ...] = (
         runtime_state=("sampler_config", "diagnostics", "conditioned_model"),
     ),
     ContextSpec(
-        context_id="ranking",
-        layer="delegated",
-        label="Baseline causal ranking",
+        context_id="analysis",
+        layer="tool",
+        label="Runtime causal queries",
         parent_id="episode-machine",
-        owns=("baseline_report",),
         allowed_tools=("get_model_info", "simulate"),
         runtime_state=("identified_treatments", "effect_summaries"),
     ),
@@ -247,8 +246,8 @@ ACTIONS: tuple[ActionSpec, ...] = (
         kind="produce",
         mode="direct",
         context_id="navigator",
-        produces=("question",),
-        move=WriteArtifact(artifact_id="question"),
+        produces=("model",),
+        move=WriteArtifact(artifact_id="model", expected_model_version=0),
     ),
     ActionSpec(
         action_id="episode.attach_data",
@@ -345,14 +344,6 @@ ACTIONS: tuple[ActionSpec, ...] = (
         context_id="navigator",
         consumes=("model",),
     ),
-    _run_action(
-        "analyze.rank",
-        "analyze",
-        "rank",
-        "baseline_report",
-        mode="delegated",
-        lower_context_id="ranking",
-    ),
     ActionSpec(
         action_id="analyze.simulate",
         namespace="analyze",
@@ -361,7 +352,7 @@ ACTIONS: tuple[ActionSpec, ...] = (
         mode="direct",
         context_id="navigator",
         consumes=("model", "panel", "identification_report"),
-        query=ToolQuerySpec(context_id="ranking", tool_name="simulate"),
+        query=ToolQuerySpec(context_id="analysis", tool_name="simulate"),
     ),
     ActionSpec(
         action_id="analyze.counterfactual",
@@ -371,7 +362,7 @@ ACTIONS: tuple[ActionSpec, ...] = (
         mode="direct",
         context_id="navigator",
         consumes=("model", "panel", "identification_report"),
-        query=ToolQuerySpec(context_id="ranking", tool_name="simulate"),
+        query=ToolQuerySpec(context_id="analysis", tool_name="simulate"),
     ),
     ActionSpec(
         action_id="analyze.ppc",

@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from nof1_causal_lab import episode_api
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.machine.moves import RunOperation, WriteArtifact, validate_move
 from nof1_causal_lab.machine.store import (
     ArtifactStore,
@@ -51,7 +52,11 @@ def model_api(monkeypatch, tmp_path):
                 resume=None,
             )
         )
-        return {"status": "applied", "seq": seq}
+        return {
+            "status": "applied",
+            "seq": seq,
+            "state": derive_current_state(workspace).model_dump(mode="json"),
+        }
 
     monkeypatch.setattr(episode_api, "_propose", local_propose)
     return TestClient(create_read_facade_app()), calls
@@ -64,12 +69,15 @@ def test_model_put_validates_identity_and_expected_revision_before_publication(m
         url,
         json={
             "expected_version": 0,
-            "model": make_model(["X", "Y"], [("X", "Y")]).model_dump(mode="json"),
+            "model": {"question": "  Does X change Y?  "},
         },
     )
     assert first.status_code == 200
     assert first.json()["model"]["source"]["ref"]["version"] == 1
     assert first.json()["context"]["seq"] == 1
+    initial = first.json()["model"]["value"]
+    assert initial["question"] == "Does X change Y?"
+    assert initial["edges"] == []
     stale = client.put(
         url,
         json={
@@ -84,23 +92,26 @@ def test_model_put_validates_identity_and_expected_revision_before_publication(m
             "expected_version": 1,
             "model": {
                 **make_model(["X", "Y"], [("X", "Y")]).model_dump(mode="json"),
-                "default_outcome": {"kind": "construct", "id": "construct:absent"},
+                "default_outcome": "construct:absent",
             },
         },
     )
     assert invalid.status_code == 422
     assert len(calls) == 2
     assert ArtifactStore("API").list_versions("model") == [1]
+    enriched = make_model(["X", "Y"], [("X", "Y")]).revised(question=initial["question"])
     second = client.put(
         url,
         json={
             "expected_version": 1,
-            "model": make_model(["X", "Y"], [("X", "Y")]).model_dump(mode="json"),
+            "model": enriched.model_dump(mode="json"),
         },
     )
     assert second.status_code == 200
     assert second.json()["model"]["source"]["ref"]["version"] == 2
     assert client.get(url, params={"at_seq": 1}).json()["model"]["source"]["ref"]["version"] == 1
+    assert ModelSpec.model_validate(second.json()["model"]["value"]) == enriched
+    assert client.get(url, params={"at_seq": 1}).json()["model"]["value"] == initial
 
 
 def test_operation_trace_index_retains_each_authoring_operation(model_api):
@@ -153,3 +164,38 @@ def test_operation_trace_index_retains_each_authoring_operation(model_api):
     empty = client.get("/api/episodes/TRACES/operations/measurements/traces")
     assert empty.status_code == 200
     assert empty.json() == {"workspace_id": "TRACES", "seq": 4, "trace_ids": ["empty-extraction"]}
+
+
+def test_episode_question_creates_and_revises_the_model(model_api, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    client, calls = model_api
+    monkeypatch.setattr(episode_api, "_episode_handle", AsyncMock())
+    response = client.post(
+        "/api/episodes", json={"workspace_id": "QUESTION", "question": "Does X change Y?"}
+    )
+    assert response.status_code == 200
+    assert calls[-1].move == WriteArtifact(artifact_id="model", expected_model_version=0)
+    initial = client.get("/api/episodes/QUESTION/model").json()
+    assert initial["model"]["value"]["question"] == "Does X change Y?"
+    assert initial["model"]["value"]["edges"] == []
+    graph = make_model(["X", "Y"], [("X", "Y")]).revised(question="Does X change Y?")
+    assert (
+        client.put(
+            "/api/episodes/QUESTION/model",
+            json={"expected_version": 1, "model": graph.model_dump(mode="json")},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            "/api/episodes", json={"workspace_id": "QUESTION", "question": "How does X change Y?"}
+        ).status_code
+        == 200
+    )
+    revised = client.get("/api/episodes/QUESTION/model").json()["model"]
+    assert calls[-1].move.expected_model_version == 2
+    assert revised["source"]["ref"]["version"] == 3
+    assert revised["value"]["question"] == "How does X change Y?"
+    assert revised["value"]["edges"] == graph.model_dump(mode="json")["edges"]
+    assert client.get("/api/episodes/QUESTION/model?at_seq=1").json() == initial

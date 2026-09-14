@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from nof1_causal_lab.artifacts.coefficient import FixedCoefficient
 from nof1_causal_lab.artifacts.expressions import (
     BinaryExpression,
     CallExpression,
@@ -20,7 +19,7 @@ from nof1_causal_lab.artifacts.likelihood import (
     VALID_LINKS_FOR_DISTRIBUTION,
     LikelihoodSpec,
     LinkFunction,
-    ObservationLaw,
+    ObservationLawSpec,
 )
 from nof1_causal_lab.distributions import DistributionFamily
 
@@ -78,8 +77,8 @@ def _affine_terms(
 ) -> tuple[CoefficientExpression, dict[ConstructId, CoefficientExpression]]:
     if isinstance(predictor, StateExpression):
         return (
-            coefficient(FixedCoefficient(value=0), "observation_intercept"),
-            {predictor.construct_id: coefficient(FixedCoefficient(value=1), "loading")},
+            coefficient(0, "observation_intercept"),
+            {predictor.construct_id: coefficient(1, "loading")},
         )
     intercepts: list[CoefficientExpression] = []
     loadings: dict[ConstructId, CoefficientExpression] = {}
@@ -131,7 +130,7 @@ def _response(
     raise ValueError("Observation response is outside the supported expression grammar")
 
 
-def likelihood_terms(law: ObservationLaw) -> LikelihoodTerms:
+def likelihood_terms(law: ObservationLawSpec) -> LikelihoodTerms:
     args = law.arguments
     auxiliary: list[CoefficientExpression] = []
     family = law.family
@@ -194,13 +193,13 @@ def observation_law(
     construct_id: ConstructId,
     family: DistributionFamily | str,
     link: LinkFunction | str,
-) -> ObservationLaw:
+) -> ObservationLawSpec:
     """Construct an editable scientific formula with explicit unassigned operands."""
     family, link = DistributionFamily(family), LinkFunction(link)
     if link not in VALID_LINKS_FOR_DISTRIBUTION[family]:
         raise ValueError(f"link {link.value!r} is invalid for {family.value}")
     if family == DistributionFamily.DELTA:
-        return ObservationLaw(distribution="Delta", arguments={"v": state(construct_id)})
+        return ObservationLawSpec(distribution="Delta", arguments={"v": state(construct_id)})
     predictor = coefficient(None, "observation_intercept") + coefficient(None, "loading") * state(
         construct_id
     )
@@ -278,14 +277,14 @@ def observation_law(
                     )
                 },
             )
-    return ObservationLaw(distribution=name, arguments=arguments)
+    return ObservationLawSpec(distribution=name, arguments=arguments)
 
 
 def revise_law(
     likelihood: LikelihoodSpec, transform: Callable[[Expression], Expression]
 ) -> LikelihoodSpec:
     """Revise scientific operands while preserving the conditional formula."""
-    law = ObservationLaw(
+    law = ObservationLawSpec(
         distribution=likelihood.law.distribution,
         arguments={
             name: map_expression(value, transform)

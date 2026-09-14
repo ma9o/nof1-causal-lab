@@ -1,6 +1,5 @@
 """Scientific expression compilation, free parameters, and surgical interventions."""
 
-from nof1_causal_lab.artifacts.coefficient import FixedCoefficient
 import jax.numpy as jnp
 import numpy as np
 import numpyro.distributions as dist
@@ -17,7 +16,6 @@ from nof1_causal_lab.models.ssm.dynamics.spec import (
     compile_dynamics,
     pack_component_params_from_samples,
 )
-
 from tests.dynamics_fixtures import decay_term, hill_term, interaction_term, linear_term
 
 
@@ -26,9 +24,15 @@ def test_composed_expression_field_preserves_nonlinearity_and_edge_surgery():
         5,
         (
             *(decay_term(i) for i in range(5)),
-            interaction_term(0, 1, 2, weight=FixedCoefficient(value=0.5)),
-            linear_term(2, 3, weight=FixedCoefficient(value=0.7)),
-            hill_term(3, 4, emax=FixedCoefficient(value=2), ec50=FixedCoefficient(value=1), n=FixedCoefficient(value=2)),
+            interaction_term(0, 1, 2, weight=0.5),
+            linear_term(2, 3, weight=0.7),
+            hill_term(
+                3,
+                4,
+                emax=2,
+                ec50=1,
+                n=2,
+            ),
         ),
     )
     compiled = compile_dynamics(spec)
@@ -42,7 +46,13 @@ def test_composed_expression_field_preserves_nonlinearity_and_edge_surgery():
 
 
 def test_free_operands_sample_once_and_pack_without_resampling():
-    spec = DynamicsSpec(2, (decay_term(0), hill_term(0, 1, ec50=FixedCoefficient(value=2), n=FixedCoefficient(value=1))))
+    spec = DynamicsSpec(
+        2,
+        (
+            decay_term(0),
+            hill_term(0, 1, ec50=2, n=1),
+        ),
+    )
     compiled = compile_dynamics(spec, prefix="mechanism")
 
     def model():

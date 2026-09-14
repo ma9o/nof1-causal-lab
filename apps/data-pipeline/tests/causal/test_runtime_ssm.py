@@ -8,17 +8,19 @@ import numpyro.distributions as dist
 import numpyro.distributions as ndist
 from dynestyx import StochasticContinuousTimeStateEvolution
 
+from nof1_causal_lab.artifacts.identity import scientific_id
 from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
 from nof1_causal_lab.models.ssm.dynamics import (
     DynamicsSpec,
     Intervention,
+    StateDecay,
+    VectorField,
     VectorFieldArgs,
     compile_dynamics,
     infer_linearisation,
 )
 from tests.dynamics_fixtures import decay_term, hill_term, intercept_term, linear_term
 from tests.model_fixtures import (
-    default_input_effect_block,
     default_manifest_means_block,
     default_static_state_sd_block,
     model_fixture,
@@ -27,17 +29,16 @@ from tests.model_fixtures import (
 
 class TestInferLinearisation:
     def test_state_decay_only_is_constant(self):
-        spec = DynamicsSpec(
+        field = VectorField(
             n_latent=2,
             components=(
-                decay_term(target=0),
-                decay_term(target=1),
+                StateDecay(target=0),
+                StateDecay(target=1),
             ),
         )
-        compiled = compile_dynamics(spec)
-        assert infer_linearisation(compiled.vector_field) == "constant"
+        assert infer_linearisation(field) == "constant"
 
-    def test_diagonal_decay_plus_linear_edge_is_constant(self):
+    def test_expression_terms_use_trajectory_initialization(self):
         spec = DynamicsSpec(
             n_latent=2,
             components=(
@@ -46,7 +47,9 @@ class TestInferLinearisation:
             ),
         )
         compiled = compile_dynamics(spec)
-        assert infer_linearisation(compiled.vector_field) == "constant"
+        # Generic expressions take the local initialization path; exact execution
+        # never substitutes a linear drift based on their scientific role labels.
+        assert infer_linearisation(compiled.vector_field) == "trajectory"
 
     def test_hill_makes_it_trajectory(self):
         spec = DynamicsSpec(
@@ -71,8 +74,6 @@ class TestSSMModelDynamicsDispatch:
         from numpyro import handlers
 
         from nof1_causal_lab.models.ssm import SSMModel
-
-        pass
         from nof1_causal_lab.models.ssm.structure import (
             DiffusionBlockSpec,
             ManifestCholBlockSpec,
@@ -152,7 +153,6 @@ class TestSSMModelDynamicsDispatch:
                 correlation_support=np.zeros((2, 2), dtype=bool),
                 template=jnp.eye(2) * 0.3,
             ),
-            input_effect_block=default_input_effect_block(2),
             static_state_sd_block=default_static_state_sd_block(),
         )
         model = SSMModel(spec, priors={"vf_0_p0": dist.Delta(0.3), "vf_1_p0": dist.Delta(0.5)})
@@ -189,12 +189,12 @@ class TestComponentNativeLinearDynamics:
         )
         compiled = compile_dynamics(spec)
         sample_values = {
-            "vf_0_decay": jnp.asarray(0.3),
-            "vf_1_decay": jnp.asarray(0.5),
-            "vf_2_decay": jnp.asarray(0.7),
-            "vf_3_weight": jnp.asarray(0.2),
-            "vf_4_weight": jnp.asarray(-0.1),
-            "vf_5_weight": jnp.asarray(0.4),
+            "vf_0_p0": jnp.asarray(0.3),
+            "vf_1_p0": jnp.asarray(0.5),
+            "vf_2_p0": jnp.asarray(0.7),
+            "vf_3_p0": jnp.asarray(0.2),
+            "vf_4_p0": jnp.asarray(-0.1),
+            "vf_5_p0": jnp.asarray(0.4),
         }
         with (
             seed(rng_seed=0),
@@ -228,8 +228,9 @@ class TestComponentNativeLinearDynamics:
         with seed(rng_seed=0):
             params = compiled.sample_params(lambda _: ndist.Delta(jnp.asarray(0.4)))
 
-        assert params[0]["decay"].shape == ()
-        np.testing.assert_allclose(params[0]["decay"], 0.4, atol=1e-12)
+        decay = params[0][scientific_id("parameter", "decay")]
+        assert decay.shape == ()
+        np.testing.assert_allclose(decay, 0.4, atol=1e-12)
 
     def test_state_intercepts_add_to_selected_targets(self):
         from numpyro.handlers import condition, seed
@@ -243,8 +244,8 @@ class TestComponentNativeLinearDynamics:
         )
         compiled = compile_dynamics(spec)
         sample_values = {
-            "vf_0_cint": jnp.asarray(0.1),
-            "vf_1_cint": jnp.asarray(-0.2),
+            "vf_0_p0": jnp.asarray(0.1),
+            "vf_1_p0": jnp.asarray(-0.2),
         }
         with (
             seed(rng_seed=0),

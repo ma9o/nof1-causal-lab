@@ -156,6 +156,7 @@ def build_smoother_context(
         traj_dtype=traj_dtype,
         obs_increment_fn=obs_increment_fn,
         runtime_observations=runtime_observations,
+        latent_free_mask=static.latent_free_mask,
         amala_delta=jnp.asarray(state.latent_delta, dtype=latent_dtype),
         amala_kappa=static.amala_kappa,
         amala_grad_clip=static.amala_grad_clip,

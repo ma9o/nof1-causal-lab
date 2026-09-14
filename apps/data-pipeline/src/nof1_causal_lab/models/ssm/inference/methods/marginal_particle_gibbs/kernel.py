@@ -53,6 +53,7 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._contr
     _resolve_latent_smoother,
 )
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math import (
+    _masked_mean,
     _select_pytree,
 )
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.diagnostics import (
@@ -67,6 +68,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from dynestyx.inference.particle_runtime import ParticleRuntime
+
+    from nof1_causal_lab.models.ssm.inference.conditioning import ExactStateConstraints
 
 
 class SignFlipSpec(NamedTuple):
@@ -135,6 +138,7 @@ class MarginalParticleGibbsKernel(NamedTuple):
     dsmc_leaf_proposal: DSMCLeafProposal
     latent_block_coords: int | None
     diagnostic_metrics: frozenset[str]
+    exact_constraints: ExactStateConstraints | None
 
 
 def build_marginal_particle_gibbs_kernel(
@@ -170,6 +174,7 @@ def build_marginal_particle_gibbs_kernel(
     pilot_wide_vars: jnp.ndarray | None = None,
     sign_flip_spec: SignFlipSpec | None = None,
     parameter_reference_path: jnp.ndarray | None = None,
+    exact_constraints: ExactStateConstraints | None = None,
     diagnostic_metrics_all: bool = False,
     diagnostic_metrics: tuple[str, ...] | list[str] | None = None,
 ) -> MarginalParticleGibbsKernel:
@@ -281,6 +286,13 @@ def build_marginal_particle_gibbs_kernel(
         if parameter_reference_path is None
         else jnp.asarray(parameter_reference_path)
     )
+    if exact_constraints is not None:
+        fixed_path = exact_constraints.project(fixed_path)
+    latent_free_mask = (
+        jnp.ones(fixed_path.shape, dtype=bool)
+        if exact_constraints is None
+        else exact_constraints.free_mask
+    )
 
     def _theta_logpost_grad(z: jnp.ndarray) -> jnp.ndarray:
         # q(u | theta) uses a theta-only oracle, fixed for every kernel call.
@@ -369,6 +381,7 @@ def build_marginal_particle_gibbs_kernel(
         trajectory_log_prob_fn=trajectory_log_prob_fn,
         runtime_observations=runtime_observations,
         runtime_times=runtime_times,
+        latent_free_mask=latent_free_mask,
         num_particles=num_particles,
         num_parameter_particles=num_parameter_particles,
         latent_delta=latent_delta,
@@ -498,11 +511,15 @@ def build_marginal_particle_gibbs_kernel(
                 }
 
             latent_move = latent_path - x_ref
-            latent_move_rms_per_t = jnp.sqrt(jnp.mean(latent_move * latent_move, axis=-1))
-            latent_move_rms = jnp.sqrt(jnp.mean(latent_move * latent_move))
+            latent_move_rms_per_t = jnp.sqrt(
+                _masked_mean(latent_move * latent_move, latent_free_mask, axis=-1)
+            )
+            latent_move_rms = jnp.sqrt(_masked_mean(latent_move * latent_move, latent_free_mask))
             latent_move_max_abs = jnp.max(jnp.abs(latent_move))
             parameter_accepted = (selected_label != 0).astype(state.position.dtype)
-            latent_updated = (origin_path != 0).astype(state.position.dtype)
+            latent_updated = ((origin_path != 0) & jnp.any(latent_free_mask, axis=-1)).astype(
+                state.position.dtype
+            )
             # Per-(t, d) exact-equality freeze indicator. A completely stuck chain has
             # zero autocovariance at every lag and therefore reports PERFECT ESS under
             # initial-positive-sequence estimators — this counter is the direct gauge
@@ -510,8 +527,8 @@ def build_marginal_particle_gibbs_kernel(
             # proposals it also resolves per-coordinate freezing that the per-t
             # `latent_accepted` trace cannot see.
             latent_frozen = (latent_path == x_ref).astype(state.position.dtype)
-            latent_frozen_frac = jnp.mean(latent_frozen)
-            latent_frozen_frac_by_d = jnp.mean(latent_frozen, axis=0)
+            latent_frozen_frac = _masked_mean(latent_frozen, latent_free_mask)
+            latent_frozen_frac_by_d = _masked_mean(latent_frozen, latent_free_mask, axis=0)
 
             step_info = {
                 "parameter_accepted": parameter_accepted,
@@ -586,4 +603,5 @@ def build_marginal_particle_gibbs_kernel(
         dsmc_leaf_proposal=dsmc_leaf_proposal,
         latent_block_coords=latent_block_coords,
         diagnostic_metrics=resolved_diagnostic_metrics,
+        exact_constraints=exact_constraints,
     )

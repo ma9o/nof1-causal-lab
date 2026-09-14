@@ -28,7 +28,6 @@ ModelInfoSection = Literal[
     "measurement",
     "identifiability",
     "diagnostics",
-    "baseline_effects",
     "capabilities",
 ]
 
@@ -66,7 +65,7 @@ ANALYSIS_TOOL_CONTRACTS: list[ToolDefinition] = [
         name="get_model_info",
         description=(
             "Return a read-only summary of the fitted model, variables with persistent IDs, identifiability status, "
-            "diagnostics, and baseline effects."
+            "and diagnostics."
         ),
         input_schema=GetModelInfoInput,
     ),
@@ -77,7 +76,7 @@ ANALYSIS_TOOL_CONTRACTS: list[ToolDefinition] = [
             "deterministic baseline equilibrium (interventional) or an abducted fitted latent state "
             "(counterfactual), apply one or more timed latent clamps (do-operators), and read the "
             "effect on an outcome over a horizon. Targets and outcome use persistent construct IDs. "
-            "The result is ephemeral unless explicitly included in a report, which retains its request and provenance."
+            "The result is ephemeral and includes its request, fitted model revision, and trajectory coordinates."
         ),
         input_schema=ScenarioRequest,
         output_schema=SimulateScenarioToolResult,

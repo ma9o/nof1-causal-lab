@@ -29,9 +29,7 @@ def graph_input(model: ModelSpec) -> ScientificInput:
             }
             for item in model.edges
         ],
-        "default_outcome": model.default_outcome.model_dump(mode="json")
-        if model.default_outcome
-        else None,
+        "default_outcome": model.default_outcome,
     }
 
 
@@ -57,6 +55,7 @@ def compilation_input(model: ModelSpec) -> ScientificInput:
         **model.model_dump(
             mode="json",
             exclude={
+                "question": True,
                 "edges": True,
                 "distributions": True,
                 "time_points": True,
@@ -85,10 +84,10 @@ def input_fingerprints(model: ModelSpec) -> dict[str, str]:
     from nof1_causal_lab.artifacts.identity import scientific_id
 
     values = {
-        "extraction": observation_input(model),
+        "extraction": {"question": model.question, **observation_input(model)},
         "identification": identification_input(model),
         "compilation": compilation_input(model),
-        "belief": model.model_dump(mode="json"),
+        "belief": model.model_dump(mode="json", exclude={"question"}),
     }
     return {
         purpose: scientific_id("input", ["additive-model-v1", value])

@@ -32,5 +32,5 @@ CONTEXT_TOOLS: dict[str, list[ToolDefinition]] = {
     "measurement-structure": MEASUREMENT_STRUCTURE_TOOL_CONTRACTS,
     "measurement": EXTRACTION_TOOL_CONTRACTS,
     "statistical-model-spec": MODEL_SPEC_TOOL_CONTRACTS,
-    "ranking": ANALYSIS_TOOL_CONTRACTS,
+    "analysis": ANALYSIS_TOOL_CONTRACTS,
 }

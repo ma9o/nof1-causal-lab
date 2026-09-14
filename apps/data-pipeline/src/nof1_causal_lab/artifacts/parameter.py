@@ -27,7 +27,6 @@ class SiteKind(Enum):
     HILL_N = "hill_n"
     DIFFUSION_DIAG = "diffusion_diag"
     DIFFUSION_LOWER = "diffusion_lower"
-    INPUT_EFFECT = "input_effect"
     STATIC_STATE_SD = "static_state_sd"
     LOADING = "loading"
     MANIFEST_MEANS = "manifest_means"

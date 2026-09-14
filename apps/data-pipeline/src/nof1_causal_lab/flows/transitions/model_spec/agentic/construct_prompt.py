@@ -30,8 +30,6 @@ from nof1_causal_lab.utils.causal_design import (
 from nof1_causal_lab.utils.model_structure import (
     get_constructs,
     get_edges,
-    get_indicators,
-    get_known_inputs,
     get_manifest_indicators,
     get_model_clock,
     get_state_names,
@@ -87,7 +85,7 @@ observation cadence and within the study span.
 
 You must finish by invoking the registered MCP tool `submit_construct`; writing
 or describing a `submit_construct(...)` call in text does not execute it and
-fails the attempt. Follow the tool schema exactly (`construct`, `edges`, and `parameters`, not
+fails the attempt. Follow the tool schema exactly (`construct`, `edges`, `parameters`, and `distributions`, not
 `emissions`). Do not inspect the filesystem or use shell commands: this prompt
 and the registered tool schema contain everything required for the submission."""
 
@@ -178,7 +176,7 @@ def _active_construct_frame(model: ModelSpec, construct: str) -> list[str]:
 
 
 def _incoming_driver_context(
-    state: ConstructBuildState,
+    _state: ConstructBuildState,
     model: ModelSpec,
     construct: str,
     compiler_prior_names: set[str],
@@ -186,11 +184,6 @@ def _incoming_driver_context(
     """Render executable incoming causes, separated by estimation role."""
     edges = [edge for edge in get_edges(model) if edge.get("effect") == construct]
     state_names = set(get_state_names(model))
-    known_input_by_name = {
-        str(item.get("construct") or item.get("construct_name")): item
-        for item in get_known_inputs(model)
-        if item.get("construct") or item.get("construct_name")
-    }
     lines = ["## Incoming drivers"]
     if not edges:
         lines.append("- None — this is an executable root/source.")
@@ -201,23 +194,7 @@ def _incoming_driver_context(
         timing = "lagged" if edge.get("lagged", True) else "contemporaneous"
         description = str(edge.get("description") or "").strip()
         suffix = f"; {description}" if description else ""
-        if cause in known_input_by_name:
-            known_input = known_input_by_name[cause]
-            lines.append(
-                f"- `{cause}` — **known transition input**, {timing}; "
-                f"source indicator=`{known_input.get('source_indicator')}`, "
-                f"scale divisor={_format_number(known_input.get('scale', 1.0))}, "
-                f"missing policy=`{known_input.get('missing_policy', 'zero')}`{suffix}"
-            )
-            lines.extend(
-                _known_input_profile_lines(
-                    state.data_for_model,
-                    model,
-                    source_indicator=str(known_input["source_indicator"]),
-                    scale=float(known_input.get("scale", 1.0)),
-                )
-            )
-        elif cause in state_names:
+        if cause in state_names:
             status = (
                 "materialized in the current restricted compile and authorable now"
                 if f"beta_{cause}_{construct}" in compiler_prior_names
@@ -260,41 +237,6 @@ def _ordinal_occupancy(indicator: UncheckedJsonObject, values: list[float]) -> s
     if invalid:
         entries.append(f"invalid/out-of-range ({invalid})")
     return ", ".join(entries)
-
-
-def _known_input_profile_lines(
-    data_for_model: pl.DataFrame,
-    model: ModelSpec,
-    *,
-    source_indicator: str,
-    scale: float,
-) -> list[str]:
-    """Render the empirical source scale needed to author a known-input effect."""
-    indicator = next(item for item in get_indicators(model) if item["name"] == source_indicator)
-    values = _observed_values(data_for_model, indicator["id"])
-    if not values:
-        return ["  - Source data: 0 observed numeric values."]
-
-    mean_value = sum(values) / len(values)
-    variance = sum((value - mean_value) ** 2 for value in values) / len(values)
-    scaled_values = [value / scale for value in values]
-    scaled_mean = mean_value / scale
-    scaled_variance = variance / (scale**2)
-    lines = [
-        "  - Source data before scaling: "
-        f"n={len(values)}; distinct={len(set(values))}; "
-        f"mean={_format_number(mean_value)}; sd={_format_number(math.sqrt(variance))}; "
-        f"range=[{_format_number(min(values))}, {_format_number(max(values))}].",
-        "  - Compiler input at observed source rows: "
-        f"mean={_format_number(scaled_mean)}; "
-        f"sd={_format_number(math.sqrt(scaled_variance))}; "
-        f"range=[{_format_number(min(scaled_values))}, "
-        f"{_format_number(max(scaled_values))}] after the scale divisor.",
-    ]
-    occupancy = _ordinal_occupancy(indicator, values)
-    if occupancy is not None:
-        lines.append(f"  - Observed ordinal occupancy: {occupancy}.")
-    return lines
 
 
 def _schedule_context(
@@ -445,7 +387,7 @@ def _indicator_card(
     if occupancy := _ordinal_occupancy(indicator, values):
         lines.append("  - Observed ordinal occupancy: " + occupancy)
 
-    issues = (audit.get("validation") or {}).get("issues") or []
+    issues = audit.get("issues") or []
     if issues:
         lines.append("  - Validation issues:")
         for issue in issues:
@@ -554,7 +496,7 @@ def build_construct_messages(
         "Each prior's support must lie within the stated domain. "
         "Use the exact value shape "
         '`{"distribution": "Normal", "params": {"loc": 0, "scale": 1}}` '
-        "in the canonical parameter's distribution field. Record elicitation reasoning in the transition trace.",
+        "in the submission's distributions map, keyed by the parameter's distribution ID. Record elicitation reasoning in the transition trace.",
         "",
     ]
     for n in param_names:
@@ -588,13 +530,10 @@ def build_construct_messages(
             "- Saturating effects are available only for these admitted latent parents: "
             + ", ".join(f"`{parent}`" for parent in saturating_parents)
             + ". Replace the corresponding linear `beta` with its `hill_emax`, "
-            "`hill_ec50`, and `hill_n` coefficients in an explicit Hill mechanism. Known-input effects are linear-only."
+            "`hill_ec50`, and `hill_n` coefficients in an explicit Hill mechanism."
         )
     else:
-        structural_lines.append(
-            "- No saturating parent effect is authorable on this turn. Known-input effects "
-            "are linear-only."
-        )
+        structural_lines.append("- No saturating parent effect is authorable on this turn.")
     for name in sorted(inventory.structural_prior_names):
         metadata = catalog.metadata_for(name)
         structural_lines.append(f"- `{name}`: parameter ID `{metadata['id']}`")
@@ -605,12 +544,30 @@ def build_construct_messages(
     default_edges = [
         edge for edge in defaults.edges if edge.mechanisms and edge.id not in admitted_edges
     ]
+    parameter_definitions = [
+        ParameterSpec.model_validate(
+            {
+                key: value
+                for key, value in catalog.metadata_for(name).items()
+                if key in ParameterSpec.model_fields
+            }
+        ).model_dump(mode="json")
+        for name in sorted(
+            inventory.prior_names(
+                {parameter.name for parameter in state.admission.model.parameters}
+            )
+        )
+    ]
+    available_laws = {
+        **defaults.model_dump(mode="json")["distributions"],
+        **state.admission.model.model_dump(mode="json")["distributions"],
+    }
     lines += [
         *structural_lines,
         "",
         "## Canonical entities for this submission",
         'Edge cause and effect use references {"kind": "construct", "id": "construct:..."} to the existing graph. The submitted construct supplies its updated definition; other endpoint definitions come from the current model.',
-        "Enrich this construct: keep its identity and measurement recipes, attach each likelihood to its indicator, and put intrinsic terms in dynamics. Edges own additive mechanisms; linear and Hill terms can coexist. Preserve each mechanism's ID through revisions and reordering. Additional terms need distinct mechanism IDs. Their coefficient slots establish parameter meaning and ownership. Preserve each referenced parameter ID. Fixed coefficients use {kind: fixed, value: ...} on the continuous-time model scale and need no prior.",
+        "Enrich this construct: keep its identity and measurement recipes, attach each likelihood to its indicator, and put intrinsic terms in dynamics. Edges own additive mechanisms; linear and Hill terms can coexist. Preserve each mechanism's ID through revisions and reordering. Additional terms need distinct mechanism IDs. Each coefficient expression carries its scientific role and a value: a finite number, a persistent parameter ID, or null while unassigned. Preserve each referenced parameter ID. Fixed values use the continuous-time model scale and need no prior.",
         "```json",
         json.dumps(
             {
@@ -620,28 +577,22 @@ def build_construct_messages(
             indent=2,
         ),
         "```",
-        "Include canonical ParameterSpec values for the active quantities you author. Put the native law on parameter.distribution, e.g. {distribution: Normal, params: {loc: 0.0, scale: 0.5}}. Record elicitation evidence in the transition trace. Set reference_interval_days when rescaling an interval effect. Use NumPyro constructor argument names.",
-        "Parameter definitions referenced by the default components (attach priors):",
+        "Include canonical ParameterSpec values for the active quantities you author. Set parameter.distribution to its law ID and put the native constructor under that ID in distributions, e.g. {distribution: Normal, params: {loc: 0.0, scale: 0.5}}. Each independent parameter prior has its own law ID; keep these IDs through revisions. Record elicitation evidence in the transition trace. Set reference_interval_days when rescaling an interval effect. Use NumPyro constructor argument names.",
+        "Parameter definitions and available laws for the default components (supply every missing law):",
         "```json",
         json.dumps(
-            [
-                ParameterSpec.model_validate(
-                    {
-                        key: value
-                        for key, value in catalog.metadata_for(name).items()
-                        if key in ParameterSpec.model_fields
-                    }
-                ).model_dump(mode="json")
-                for name in sorted(
-                    inventory.prior_names(
-                        {parameter.name for parameter in state.admission.model.parameters}
-                    )
-                )
-            ],
+            {
+                "parameters": parameter_definitions,
+                "distributions": {
+                    parameter["distribution"]: available_laws[parameter["distribution"]]
+                    for parameter in parameter_definitions
+                    if parameter["distribution"] in available_laws
+                },
+            },
             indent=2,
         ),
         "```",
-        "Call submit_construct with the canonical construct object, edges, and parameters. The complete candidate ModelSpec is validated before the admission check.",
+        "Call submit_construct with the canonical construct object, edges, parameters, and distributions. The complete candidate ModelSpec is validated before the admission check.",
         "",
     ]
 

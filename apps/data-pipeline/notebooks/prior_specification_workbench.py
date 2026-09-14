@@ -25,7 +25,6 @@ def imports():
     from nof1_causal_lab.utils.model_structure import (
         get_constructs,
         get_indicators,
-        get_known_inputs,
         get_manifest_indicators,
     )
 
@@ -34,7 +33,6 @@ def imports():
         ModelSpec,
         build_construct_units,
         cs,
-        get_known_inputs,
         get_manifest_indicators,
         get_constructs,
         get_indicators,
@@ -118,7 +116,6 @@ def input_audit(
     build_construct_units,
     model,
     data_for_model,
-    get_known_inputs,
     get_constructs,
     get_indicators,
     mo,
@@ -148,7 +145,6 @@ def input_audit(
         | indicators | {_indicator_count} |
         | admission units | {len(_units)} |
         | feedback components | {_feedback_summary} |
-        | known transition inputs | {len(get_known_inputs(model))} |
         | validation status | `{validation_report["is_valid"]}` |
         | indicator-level validation errors | {len(_errors)} |
 
@@ -2435,10 +2431,9 @@ def new_trial_issue_ledger(mo):
     vectorized runtime sites, so each indicator can express its own threshold geometry without
     changing the sampling topology.
 
-    The stored DEMO snapshot's empty `known_inputs` declaration remains a documented upstream
-    defect. This trial explicitly compiles its observed time-invariant quantities—including
-    CYP2C19 capacity—as known inputs, so static-target chains are reduced before SSM lowering and
-    every retained structural item receives a source-ID binding in the compiled artifact.
+    Exact measurements belong to indicator Delta laws. Required static-target chains
+    remain unsupported and must be revised before this model can execute; removing a
+    construct from the state vector is no longer an authored workaround.
 
     The first inference smoke on the nine admitted constructs exposed two runtime bugs and one
     unresolved capability gap. First, fit preflight read hydrated descriptor defaults instead of

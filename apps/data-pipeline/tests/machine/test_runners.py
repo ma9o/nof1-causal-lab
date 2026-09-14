@@ -16,7 +16,6 @@ from tests.helpers import run_async
         "measurement_structure",
         "measurements",
         "statistical_model_spec",
-        "baseline_report",
     ],
 )
 def test_temporal_only_transitions_reject_local_execution(monkeypatch, tmp_path, artifact_id):

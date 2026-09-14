@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Literal, override
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, model_validator
-
-from nof1_causal_lab.numpyro_json import NumPyroDistribution  # noqa: TC001
 
 from .identity import DistributionId, ParameterId  # noqa: TC001
 from .parameter import PriorAuthoringTransform
@@ -64,18 +62,11 @@ class ParameterSpec(BaseModel):
         default=None,
         description="Known constant on the model quantity scale, exclusive with a distribution.",
     )
-    distribution: NumPyroDistribution | DistributionId | None = Field(
+    distribution: DistributionId | None = Field(
         default=None,
-        description="Native law or a reference to a shared joint law in ModelSpec.distributions.",
+        description="Membership in a native law in ModelSpec.distributions; may be joint.",
     )
     reference_interval_days: float | None = Field(default=None, gt=0)
-
-    @override
-    def __eq__(self, other: object) -> bool:
-        """Compare native distributions by their exact persisted constructor trees."""
-        return isinstance(other, ParameterSpec) and self.model_dump(
-            mode="json"
-        ) == other.model_dump(mode="json")
 
     @model_validator(mode="after")
     def validate_definition(self) -> ParameterSpec:

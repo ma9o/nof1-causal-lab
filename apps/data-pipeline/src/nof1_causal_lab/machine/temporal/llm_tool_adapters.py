@@ -19,13 +19,15 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import TypeAdapter
 
-from nof1_causal_lab.artifacts.construct import CausalEdge, Construct
+from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
+from nof1_causal_lab.artifacts.identity import DistributionId
 from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.temporal.llm_subroutine_storage import (
     read_subroutine_json,
     write_subroutine_json,
 )
+from nof1_causal_lab.numpyro_json import NumPyroDistribution
 from nof1_causal_lab.utils import storage
 
 logger = logging.getLogger(__name__)
@@ -405,7 +407,7 @@ def _execute_model_spec_submit_construct(
             ModelSpecSubmissionResult.model_validate(read_subroutine_json(submission_result_ref))
         )
 
-    entity = Construct.model_validate(args["construct"])
+    entity = ConstructSpec.model_validate(args["construct"])
     construct = entity.name
     parent, state = load_checkpoint_construct_state(
         workspace_id,
@@ -428,8 +430,11 @@ def _execute_model_spec_submit_construct(
         write_subroutine_json(submission_result_ref, result.model_dump(mode="json"))
         return _return_saved(result)
 
-    edges = TypeAdapter(tuple[CausalEdge, ...]).validate_python(args["edges"])
+    edges = TypeAdapter(tuple[CausalEdgeSpec, ...]).validate_python(args["edges"])
     parameters = TypeAdapter(tuple[ParameterSpec, ...]).validate_python(args["parameters"])
+    distributions = TypeAdapter(dict[DistributionId, NumPyroDistribution]).validate_python(
+        args["distributions"]
+    )
     accept = list(args.get("accept") or [])
     state.attempt = int(context["attempt"])
     state.search_queries = dict(search_state["search_queries"])
@@ -442,6 +447,7 @@ def _execute_model_spec_submit_construct(
         construct=entity,
         edges=edges,
         parameters=parameters,
+        distributions=distributions,
         accept=accept,
         n_draws=state.n_draws,
         seed=state.seed,
@@ -458,6 +464,7 @@ def _execute_model_spec_submit_construct(
                 entity=entity,
                 edges=edges,
                 parameters=parameters,
+                distributions=distributions,
                 accept=accept,
                 annotations=evaluation.annotations,
                 results=evaluation.results,
@@ -504,6 +511,7 @@ def _execute_model_spec_submit_construct(
             construct=entity.model_dump(mode="json"),
             edges=[edge.model_dump(mode="json") for edge in edges],
             parameters=[parameter.model_dump(mode="json") for parameter in parameters],
+            distributions=args["distributions"],
             accept=accept,
         )
     except _MODEL_SPEC_SUBMISSION_ERRORS as exc:

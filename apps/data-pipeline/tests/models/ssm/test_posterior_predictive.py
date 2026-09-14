@@ -14,14 +14,15 @@ from nof1_causal_lab.models.posterior_predictive import (
 )
 from nof1_causal_lab.models.predictive_simulation import (
     PredictiveObservationMeanOverflow,
-    sample_predictive_observations_from_linear_predictors,
 )
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.execution.observation_families import (
     get_posterior_predictive_switch_index,
 )
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
-from tests.models.ssm._support import complex_mixed_runtime_spec
+from tests.model_fixtures import full_dense_matrix_dynamics_spec, model_fixture
+from tests.models.ssm._support import complex_mixed_family_config
+from tests.predictive_fixtures import sample_observation_fixture
 
 
 def get_relevant_manifest_variables(
@@ -66,7 +67,6 @@ def _make_lp_and_samples(
     return linear_predictors, samples
 
 
-@pytest.mark.cpu_expensive
 class TestForwardSimulation:
     """Tests for shared predictive observation simulation."""
 
@@ -97,30 +97,60 @@ class TestForwardSimulation:
         with pytest.raises(ValueError, match="invalid for observation family 'gaussian'"):
             get_posterior_predictive_switch_index("gaussian", link="log")
 
-    def test_forward_simulate_shape(self):
-        """Output shape is (n_subsample, T, n_manifest)."""
-        n_draws, T, n_manifest = 10, 20, 3
-        lp, samples = _make_lp_and_samples(n_draws, T, n_manifest)
-        times = jnp.arange(T, dtype=float)
-
-        y_sim, _, _ = sample_predictive_observations_from_linear_predictors(
-            lp, samples, times, n_subsample=n_draws
+    @pytest.mark.predictive
+    def test_mixed_families_preserve_means_and_sample_domains(self):
+        families, links, levels, _ = complex_mixed_family_config()
+        families += ["bernoulli", "gamma"]
+        links += ["probit", "inverse"]
+        levels += [0, 0]
+        predictors, samples = _make_lp_and_samples(
+            2,
+            3,
+            12,
+            obs_df=jnp.array(6.0),
+            obs_shape=jnp.array(3.0),
+            obs_r=jnp.array(8.0),
+            obs_concentration=jnp.array(14.0),
+            obs_ordered_cutpoints=jnp.broadcast_to(jnp.array([-1.0, 0.0, 1.0]), (2, 12, 3)),
+            obs_cat_intercepts=jnp.zeros((2, 12, 3)),
+            obs_cat_slopes=jnp.zeros((2, 12, 3)),
+        )
+        # Equal nonzero predictors distinguish probit from logit. The final
+        # inverse-link predictor is invalid and must remain NaN through sampling.
+        predictors = predictors.at[..., 1].set(1.0).at[..., 10].set(1.0)
+        predictors = predictors.at[..., 11].set(2.0).at[:, -1, 11].set(-1.0)
+        draws, mask, expected = sample_observation_fixture(
+            predictors,
+            samples,
+            jnp.arange(3, dtype=jnp.float32),
+            manifest_dists=families,
+            manifest_links=links,
+            manifest_level_counts=levels,
+            n_subsample=2,
         )
 
-        assert y_sim.shape == (n_draws, T, n_manifest)
-        assert jnp.all(jnp.isfinite(y_sim))
+        assert draws.shape == (2, 3, 12)
+        assert bool(mask.all())
+        means = np.broadcast_to(
+            [0.0, 0.731058579, 1.0, 0.0, 1.0, 0.5, 1.5, 1.5, 1.0, 0.0, 0.841344746, 0.5],
+            (2, 3, 12),
+        ).copy()
+        means[:, -1, 11] = np.nan
+        np.testing.assert_allclose(expected, means, atol=1e-6, equal_nan=True)
+        np.testing.assert_array_equal(jnp.isfinite(draws), np.isfinite(means))
+        assert bool(jnp.isnan(draws[:, -1, 11]).all())
+        assert bool((draws[:, :-1, 11] > 0).all())
+        binary = draws[..., [1, 10]]
+        assert bool(((binary == 0) | (binary == 1)).all())
+        counts = draws[..., [2, 8]]
+        assert bool(((counts >= 0) & (counts == jnp.floor(counts))).all())
+        assert bool((draws[..., 4] > 0).all())
+        assert bool(((draws[..., 5] >= 0) & (draws[..., 5] <= 1)).all())
+        categories = draws[..., [6, 7]]
+        assert bool(((categories >= 0) & (categories <= 3)).all())
+        np.testing.assert_array_equal(categories, jnp.floor(categories))
 
-    def test_forward_simulate_subsample(self):
-        """Subsampling returns fewer draws than total."""
-        lp, samples = _make_lp_and_samples(50, 15, 2)
-        times = jnp.arange(15, dtype=float)
-
-        y_sim, _, _ = sample_predictive_observations_from_linear_predictors(
-            lp, samples, times, n_subsample=10
-        )
-
-        assert y_sim.shape[0] == 10
-
+    @pytest.mark.predictive
     def test_forward_simulate_support_aware_window_average_respects_emission_schedule(self):
         """Interval-summary PPC emits only on anchor rows and uses aggregated means."""
         # Latent held at 1.0, so the observation linear predictor is 1.0 every row.
@@ -129,7 +159,7 @@ class TestForwardSimulation:
         times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
         obs_mask = jnp.array([[False], [False], [True]])
 
-        y_sim, _, expected = sample_predictive_observations_from_linear_predictors(
+        y_sim, _, expected = sample_observation_fixture(
             lp,
             samples,
             times,
@@ -148,43 +178,6 @@ class TestForwardSimulation:
         assert jnp.isnan(expected[0, 1, 0])
         assert float(expected[0, 2, 0]) == pytest.approx(1.0)
 
-    def test_forward_simulate_poisson(self):
-        """Poisson noise family produces non-negative observations."""
-        lp, samples = _make_lp_and_samples(10, 15, 2, obs_sd=0.1)
-        times = jnp.arange(15, dtype=float)
-
-        y_sim, _, _ = sample_predictive_observations_from_linear_predictors(
-            lp, samples, times, manifest_dists=["poisson", "poisson"], n_subsample=10
-        )
-
-        assert y_sim.shape == (10, 15, 2)
-        # Poisson samples are non-negative integers
-        assert jnp.all(y_sim >= 0)
-
-    def test_forward_simulate_student_t(self):
-        """Student-t noise family produces finite values with heavier tails."""
-        lp, samples = _make_lp_and_samples(10, 15, 2, obs_sd=0.5, obs_df=jnp.array(3.0))
-        times = jnp.arange(15, dtype=float)
-
-        y_sim, _, _ = sample_predictive_observations_from_linear_predictors(
-            lp, samples, times, manifest_dists=["student_t", "student_t"], n_subsample=10
-        )
-
-        assert y_sim.shape == (10, 15, 2)
-        assert jnp.all(jnp.isfinite(y_sim))
-
-    def test_forward_simulate_gamma(self):
-        """Gamma noise family produces positive observations."""
-        lp, samples = _make_lp_and_samples(10, 15, 2, obs_shape=jnp.array(2.0))
-        times = jnp.arange(15, dtype=float)
-
-        y_sim, _, _ = sample_predictive_observations_from_linear_predictors(
-            lp, samples, times, manifest_dists=["gamma", "gamma"], n_subsample=10
-        )
-
-        assert y_sim.shape == (10, 15, 2)
-        assert jnp.all(y_sim > 0)
-
     def test_forward_simulate_raises_on_log_link_mean_overflow(self):
         """Overflowing log-link means fail before observation sampling."""
         lp, samples = _make_lp_and_samples(
@@ -193,7 +186,7 @@ class TestForwardSimulation:
         times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
 
         with pytest.raises(PredictiveObservationMeanOverflow, match="log-link mean overflow"):
-            sample_predictive_observations_from_linear_predictors(
+            sample_observation_fixture(
                 lp,
                 samples,
                 times,
@@ -203,30 +196,6 @@ class TestForwardSimulation:
                 rng_key=random.PRNGKey(0),
             )
 
-    def test_forward_simulate_ordered_logistic(self):
-        """Ordered-logistic simulation returns encoded category indices."""
-        lp, samples = _make_lp_and_samples(
-            10,
-            15,
-            2,
-            obs_ordered_cutpoints=jnp.array([[-1.0, 1.0, 0.0], [-1.5, 0.0, 1.5]]),
-        )
-        times = jnp.arange(15, dtype=float)
-
-        y_sim, _, _ = sample_predictive_observations_from_linear_predictors(
-            lp,
-            samples,
-            times,
-            manifest_dists=["ordered_logistic", "ordered_logistic"],
-            manifest_level_counts=[3, 4],
-            n_subsample=10,
-        )
-
-        assert y_sim.shape == (10, 15, 2)
-        assert jnp.all(jnp.isfinite(y_sim))
-        assert jnp.all((y_sim[:, :, 0] >= 0) & (y_sim[:, :, 0] <= 2))
-        assert jnp.all((y_sim[:, :, 1] >= 0) & (y_sim[:, :, 1] <= 3))
-
     def test_posterior_runtime_assembles_ordered_cutpoints_from_sample_sites(self, monkeypatch):
         """Posterior PPC derives cutpoints from sampled threshold bases and gaps."""
         from nof1_causal_lab.models.ssm.parameterization import (
@@ -235,23 +204,23 @@ class TestForwardSimulation:
         )
         from nof1_causal_lab.models.ssm.predictive import registry_runtime
 
-        spec = complex_mixed_runtime_spec()
+        spec = model_fixture(
+            n_latent=1,
+            n_manifest=2,
+            dynamics_spec=full_dense_matrix_dynamics_spec(1),
+            manifest_dists=["gaussian", "ordered_logistic"],
+            manifest_level_counts=[0, 3],
+        )
         n_draws = 2
-        ordered_base = jnp.zeros((n_draws, 10), dtype=jnp.float32)
-        ordered_base = ordered_base.at[:, 6].set(-1.0)
+        ordered_base = jnp.zeros((n_draws, 2), dtype=jnp.float32)
+        ordered_base = ordered_base.at[:, 1].set(-1.0)
         samples = {
             **{
                 site.name: jnp.full((n_draws, *site.shape), 0.5)
                 for site in build_site_registry(spec)
             },
-            "obs_df": jnp.full((n_draws,), 6.0),
-            "obs_shape": jnp.full((n_draws,), 3.0),
-            "obs_r": jnp.full((n_draws,), 8.0),
-            "obs_concentration": jnp.full((n_draws,), 14.0),
             "obs_ordered_base": ordered_base,
-            "obs_ordered_gaps": jnp.ones((n_draws, 10, 2), dtype=jnp.float32),
-            "obs_cat_intercepts": jnp.zeros((n_draws, 10, 3), dtype=jnp.float32),
-            "obs_cat_slopes": jnp.zeros((n_draws, 10, 3), dtype=jnp.float32),
+            "obs_ordered_gaps": jnp.ones((n_draws, 2, 1), dtype=jnp.float32),
         }
         samples.update(assemble_deterministics_from_registry(samples, spec))
         captured = {}
@@ -286,159 +255,90 @@ class TestForwardSimulation:
         )
 
         np.testing.assert_allclose(
-            np.asarray(captured["obs_ordered_cutpoints"][:, 6]),
-            np.array([[-1.0, 0.0, 1.0], [-1.0, 0.0, 1.0]]),
+            np.asarray(captured["obs_ordered_cutpoints"][:, 1]),
+            np.array([[-1.0, 0.0], [-1.0, 0.0]]),
         )
-
-    def test_forward_simulate_categorical(self):
-        """Categorical simulation returns encoded category indices."""
-        lp, samples = _make_lp_and_samples(
-            10,
-            15,
-            2,
-            obs_cat_intercepts=jnp.array([[-1.0, 0.5], [0.2, -0.3]]),
-            obs_cat_slopes=jnp.array([[0.2, -0.4], [0.5, 0.1]]),
-        )
-        times = jnp.arange(15, dtype=float)
-
-        y_sim, _, _ = sample_predictive_observations_from_linear_predictors(
-            lp,
-            samples,
-            times,
-            manifest_dists=["categorical", "categorical"],
-            manifest_level_counts=[3, 3],
-            n_subsample=10,
-        )
-
-        assert y_sim.shape == (10, 15, 2)
-        assert jnp.all(jnp.isfinite(y_sim))
-        assert jnp.all((y_sim >= 0) & (y_sim <= 2))
 
 
 class TestDiagnosticChecks:
-    """Tests for individual diagnostic checks."""
+    """Known arrays separate diagnostic decisions from observation simulation."""
 
-    def test_calibration_well_specified(self):
-        """Data generated from same model should have good calibration."""
-        n_draws, T, n_manifest = 100, 50, 2
-        lp = random.normal(random.PRNGKey(0), (n_draws, T, n_manifest)) * 0.5
-        samples = {
-            "manifest_cov": jnp.broadcast_to(
-                jnp.eye(n_manifest) * 0.25, (n_draws, n_manifest, n_manifest)
-            )
-        }
-        times = jnp.arange(T, dtype=float)
+    @pytest.mark.parametrize(
+        ("thresholds", "passed"),
+        [
+            ({}, [False, True, False]),
+            ({"low_threshold": 0.5, "high_threshold": 0.9}, [True, True, False]),
+        ],
+        ids=["defaults", "inclusive-boundaries"],
+    )
+    def test_calibration_reports_exact_coverage_and_ignores_missing_rows(self, thresholds, passed):
+        names = [
+            "indicator:under",
+            "indicator:calibrated",
+            "indicator:over",
+            "indicator:short",
+            "indicator:missing",
+        ]
+        y_sim = jnp.broadcast_to(jnp.array([-1.0, 1.0])[:, None, None], (2, 10, 5))
+        observations = np.zeros((10, 5))
+        observations[5:, 0] = 2.0
+        observations[[0, 5], 0] = np.nan  # Four of eight observed values are covered.
+        observations[-1, 1] = 2.0
+        observations[1:, 3] = np.nan
+        observations[:, 4] = np.nan
 
-        y_sim, _, _ = sample_predictive_observations_from_linear_predictors(
-            lp, samples, times, n_subsample=n_draws, rng_key=random.PRNGKey(0)
+        warnings = _check_calibration(y_sim, jnp.asarray(observations), names, **thresholds)
+
+        assert [warning.indicator_id for warning in warnings] == names[:3]
+        assert [warning.check_type for warning in warnings] == ["calibration"] * 3
+        np.testing.assert_allclose([warning.value for warning in warnings], [0.5, 0.9, 1.0])
+        assert [warning.passed for warning in warnings] == passed
+
+    def test_autocorrelation_uses_residuals_and_detects_both_signs(self):
+        names: list[str] = [
+            f"indicator:{name}"
+            for name in ("trend", "alternating", "uncorrelated", "constant", "short", "missing")
+        ]
+        mean = np.broadcast_to(np.arange(10)[:, None] * 2.0, (10, 6))
+        y_sim = jnp.asarray(np.stack([mean - 0.5, mean + 0.5]))
+        observations = mean.copy()
+        observations[1:9, 0] += np.arange(8)
+        observations[1:9, 1] += [-1, 1] * 4
+        observations[1:9, 2] += [1, -1, -1, 1] * 2
+        observations[[0, 9], :] = np.nan
+        observations[5:, 4] = np.nan
+        observations[:, 5] = np.nan
+
+        warnings = _check_residual_autocorrelation(y_sim, jnp.asarray(observations), names)
+
+        assert [warning.indicator_id for warning in warnings] == names[:3]
+        assert [warning.check_type for warning in warnings] == ["autocorrelation"] * 3
+        np.testing.assert_allclose(
+            [warning.value for warning in warnings], [5 / 7, -1, -1 / 7], atol=1e-6
         )
-        # Use one draw as "observed data" — should be well-calibrated
-        obs_idx = int(random.randint(random.PRNGKey(99), (), 0, n_draws))
-        observations = y_sim[obs_idx]  # (T, m)
+        assert [warning.passed for warning in warnings] == [False, False, True]
 
-        warnings = _check_calibration(
-            y_sim, observations, [f"indicator:var_{j}" for j in range(n_manifest)]
+    def test_variance_ratio_uses_temporal_variation_within_each_draw(self):
+        names: list[str] = [
+            f"indicator:{name}" for name in ("low", "matched", "high", "short", "constant")
+        ]
+        base = np.asarray([-1.0, 1.0] * 4)[:, None]
+        temporal = base * np.asarray([0.1, 1.0, 10.0, 1.0, 1.0])
+        # Between-draw level shifts must not count as temporal variation.
+        y_sim = jnp.asarray(np.stack([temporal - 10.0, temporal + 10.0]))
+        observations = np.broadcast_to(base, (8, 5)).copy()
+        observations[:2, 0] = np.nan
+        observations[2:, 3] = np.nan
+        observations[:, 4] = 0.0
+
+        warnings = _check_variance_ratio(y_sim, jnp.asarray(observations), names)
+
+        assert [warning.indicator_id for warning in warnings] == names[:3]
+        assert [warning.check_type for warning in warnings] == ["variance"] * 3
+        np.testing.assert_allclose(
+            [warning.value for warning in warnings], [0.1, 1.0, 10.0], atol=1e-6
         )
-
-        # Well-specified: no undercoverage warnings (overcoverage OK since
-        # using one of the draws as "observed" biases coverage upward)
-        undercoverage = [w for w in warnings if "Undercoverage" in w.message]
-        assert len(undercoverage) == 0
-
-    def test_calibration_misspecified(self):
-        """Wrong parameters should trigger calibration warning."""
-        T, n_manifest = 50, 2
-        manifest_names = [f"indicator:var_{j}" for j in range(n_manifest)]
-
-        # Simulate from one model
-        lp = random.normal(random.PRNGKey(0), (100, T, n_manifest)) * 0.5
-        samples_true = {
-            "manifest_cov": jnp.broadcast_to(
-                jnp.eye(n_manifest) * 0.25, (100, n_manifest, n_manifest)
-            )
-        }
-        times = jnp.arange(T, dtype=float)
-        y_sim_true, _, _ = sample_predictive_observations_from_linear_predictors(
-            lp, samples_true, times, n_subsample=100, rng_key=random.PRNGKey(0)
-        )
-
-        # Observations from a very different model (large shift)
-        observations = jnp.ones((T, n_manifest)) * 100.0  # way outside PPC range
-
-        warnings = _check_calibration(y_sim_true, observations, manifest_names)
-
-        # Should flag at least one variable
-        assert len(warnings) > 0
-        assert any(w.check_type == "calibration" for w in warnings)
-
-    def test_autocorrelation_detection(self):
-        """Correlated residuals should be flagged."""
-        T, n_manifest = 100, 1
-        manifest_names = ["indicator:y"]
-
-        # Create simulated data with zero-mean
-        key = random.PRNGKey(42)
-        y_sim = random.normal(key, (50, T, n_manifest)) * 0.5
-
-        # Create observations with strong autocorrelation in residuals
-        pp_mean = jnp.mean(y_sim, axis=0)  # (T, 1)
-        # AR(1) residuals with rho=0.8
-        key2 = random.PRNGKey(123)
-        noise = random.normal(key2, (T,)) * 0.1
-        resid = jnp.zeros(T)
-        for t in range(1, T):
-            resid = resid.at[t].set(0.8 * resid[t - 1] + noise[t])
-        observations = pp_mean + resid[:, None]
-
-        warnings = _check_residual_autocorrelation(y_sim, observations, manifest_names)
-
-        assert len(warnings) > 0
-        assert any(w.check_type == "autocorrelation" for w in warnings)
-
-    def test_variance_ratio_detection(self):
-        """Scale mismatch should be flagged."""
-        T, n_manifest = 50, 1
-        manifest_names = ["indicator:y"]
-
-        # Simulated data with small variance
-        key = random.PRNGKey(0)
-        y_sim = random.normal(key, (50, T, n_manifest)) * 0.1
-
-        # Observations with much larger variance
-        key2 = random.PRNGKey(1)
-        observations = random.normal(key2, (T, n_manifest)) * 10.0
-
-        warnings = _check_variance_ratio(y_sim, observations, manifest_names)
-
-        assert len(warnings) > 0
-        assert any(w.check_type == "variance" for w in warnings)
-
-    def test_nan_handling(self):
-        """NaN observations should be skipped without errors and produce valid warnings."""
-        T, n_manifest = 30, 2
-        manifest_names = ["indicator:x", "indicator:y"]
-
-        key = random.PRNGKey(0)
-        y_sim = random.normal(key, (20, T, n_manifest))
-
-        # Observations with some NaNs
-        key2 = random.PRNGKey(1)
-        observations = random.normal(key2, (T, n_manifest))
-        observations = observations.at[:5, 0].set(jnp.nan)  # first 5 timepoints of var 0
-        observations = observations.at[10:15, 1].set(jnp.nan)
-
-        cal_warnings = _check_calibration(y_sim, observations, manifest_names)
-        ac_warnings = _check_residual_autocorrelation(y_sim, observations, manifest_names)
-        vr_warnings = _check_variance_ratio(y_sim, observations, manifest_names)
-
-        # All should return PPCWarning lists with valid variable references
-        all_warnings = cal_warnings + ac_warnings + vr_warnings
-        for w in all_warnings:
-            assert w.indicator_id in manifest_names, (
-                f"Warning references unknown variable: {w.indicator_id}"
-            )
-            assert len(w.message) > 0
-            assert np.isfinite(w.value), f"Warning value should be finite, got {w.value}"
+        assert [warning.passed for warning in warnings] == [False, True, False]
 
 
 class TestGetRelevantManifestVariables:
@@ -492,103 +392,6 @@ class TestGetRelevantManifestVariables:
 
         result = get_relevant_manifest_variables(lambda_mat, None, None, names)
         assert result == set()
-
-
-@pytest.mark.cpu_expensive
-class TestLinkFunctionSimulation:
-    """Tests for forward simulation with non-default link functions."""
-
-    def test_forward_simulate_bernoulli_probit(self):
-        """Probit Bernoulli produces valid binary-range observations."""
-        lp, samples = _make_lp_and_samples(10, 15, 2, obs_sd=0.1)
-        times = jnp.arange(15, dtype=float)
-
-        y_sim, _, _ = sample_predictive_observations_from_linear_predictors(
-            lp,
-            samples,
-            times,
-            manifest_dists=["bernoulli", "bernoulli"],
-            manifest_links=["probit", "probit"],
-            n_subsample=10,
-        )
-
-        assert y_sim.shape == (10, 15, 2)
-        assert jnp.all(jnp.isfinite(y_sim))
-        # Bernoulli samples should be 0 or 1
-        assert jnp.all((y_sim == 0) | (y_sim == 1))
-
-    def test_forward_simulate_gamma_inverse(self):
-        """Inverse Gamma produces positive observations."""
-        lp, samples = _make_lp_and_samples(10, 15, 2, lp=2.0, obs_shape=jnp.array(2.0))
-        times = jnp.arange(15, dtype=float)
-
-        y_sim, _, _ = sample_predictive_observations_from_linear_predictors(
-            lp,
-            samples,
-            times,
-            manifest_dists=["gamma", "gamma"],
-            manifest_links=["inverse", "inverse"],
-            n_subsample=10,
-        )
-
-        assert y_sim.shape == (10, 15, 2)
-        assert jnp.all(jnp.isfinite(y_sim))
-        assert jnp.all(y_sim > 0)
-
-    def test_forward_simulate_gamma_inverse_invalid_predictor_surfaces_nan(self):
-        """Inverse Gamma PPC leaves invalid inverse-link draws as NaN."""
-        lp, samples = _make_lp_and_samples(10, 15, 2, lp=-1.0, obs_shape=jnp.array(2.0))
-        times = jnp.arange(15, dtype=float)
-
-        y_sim, _, _ = sample_predictive_observations_from_linear_predictors(
-            lp,
-            samples,
-            times,
-            manifest_dists=["gamma", "gamma"],
-            manifest_links=["inverse", "inverse"],
-            n_subsample=10,
-        )
-
-        assert y_sim.shape == (10, 15, 2)
-        assert jnp.all(jnp.isnan(y_sim))
-
-    def test_forward_simulate_beta_probit(self):
-        """Probit Beta produces observations in (0, 1)."""
-        lp, samples = _make_lp_and_samples(10, 15, 2, obs_sd=0.1)
-        times = jnp.arange(15, dtype=float)
-
-        y_sim, _, _ = sample_predictive_observations_from_linear_predictors(
-            lp,
-            samples,
-            times,
-            manifest_dists=["beta", "beta"],
-            manifest_links=["probit", "probit"],
-            n_subsample=10,
-        )
-
-        assert y_sim.shape == (10, 15, 2)
-        assert jnp.all(jnp.isfinite(y_sim))
-        # Beta samples should be in [0, 1] (clipping may produce boundary values)
-        assert jnp.all((y_sim >= 0) & (y_sim <= 1))
-
-    def test_mixed_links_dispatch(self):
-        """Mixed distribution with non-default links uses correct dispatch."""
-        lp, samples = _make_lp_and_samples(10, 10, 2, obs_sd=0.1)
-        times = jnp.arange(10, dtype=float)
-
-        # Channel 0: Bernoulli probit, Channel 1: Bernoulli logit (default)
-        y_sim, _, _ = sample_predictive_observations_from_linear_predictors(
-            lp,
-            samples,
-            times,
-            manifest_dists=["bernoulli", "bernoulli"],
-            manifest_links=["probit", "logit"],
-            n_subsample=10,
-        )
-
-        assert y_sim.shape == (10, 10, 2)
-        assert jnp.all(jnp.isfinite(y_sim))
-        assert jnp.all((y_sim == 0) | (y_sim == 1))
 
 
 # =============================================================================

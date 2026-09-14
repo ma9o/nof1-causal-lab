@@ -5,7 +5,9 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from .identity import ConstructRef, EdgeRef, IndicatorRef  # noqa: TC001
 
 
 class StructuralDisposition(StrEnum):
@@ -14,14 +16,13 @@ class StructuralDisposition(StrEnum):
     """
 
     RETAINED_STATE = "retained_state"
-    KNOWN_INPUT = "known_input"
     MARGINALIZED = "marginalized"
     IDENTIFICATION_ONLY = "identification_only"
     RETAINED_EDGE = "retained_edge"
     PROJECTED_EDGE = "projected_edge"
     MANIFEST = "manifest"
-    KNOWN_INPUT_SOURCE = "known_input_source"
     EXCLUDED_INDICATOR = "excluded_indicator"
+    UNSUPPORTED = "unsupported"
 
 
 class StructuralItemDisposition(BaseModel):
@@ -31,8 +32,7 @@ class StructuralItemDisposition(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    source_id: str
-    source_kind: Literal["construct", "edge", "indicator"]
+    target: ConstructRef | EdgeRef | IndicatorRef = Field(discriminator="kind")
     disposition: StructuralDisposition
     reason: str
 
@@ -41,18 +41,21 @@ class StructuralItemDisposition(BaseModel):
         allowed = {
             "construct": {
                 StructuralDisposition.RETAINED_STATE,
-                StructuralDisposition.KNOWN_INPUT,
+                StructuralDisposition.UNSUPPORTED,
                 StructuralDisposition.MARGINALIZED,
                 StructuralDisposition.IDENTIFICATION_ONLY,
             },
-            "edge": {StructuralDisposition.RETAINED_EDGE, StructuralDisposition.PROJECTED_EDGE},
+            "edge": {
+                StructuralDisposition.RETAINED_EDGE,
+                StructuralDisposition.PROJECTED_EDGE,
+                StructuralDisposition.UNSUPPORTED,
+            },
             "indicator": {
                 StructuralDisposition.MANIFEST,
-                StructuralDisposition.KNOWN_INPUT_SOURCE,
                 StructuralDisposition.EXCLUDED_INDICATOR,
             },
         }
-        if self.disposition not in allowed[self.source_kind]:
+        if self.disposition not in allowed[self.target.kind]:
             raise ValueError("Structural disposition does not apply to its owner kind")
         return self
 
@@ -73,21 +76,3 @@ class AnchorCertificate(BaseModel):
     location_source_id: str | None = None
     scale_anchor: Literal["fixed_manifest_loading", "categorical_slope_pin"]
     scale_source_id: str
-
-
-class ExecutionReadiness(BaseModel):
-    """Current model requirements and latent anchors, computed without a stored receipt."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-    unmet_requirements: tuple[str, ...] = ()
-    anchor_certificates: tuple[AnchorCertificate, ...] = ()
-
-    @property
-    def ready(self) -> bool:
-        return not self.unmet_requirements
-
-    @model_validator(mode="after")
-    def validate_findings(self) -> ExecutionReadiness:
-        if self.unmet_requirements and self.anchor_certificates:
-            raise ValueError("Incomplete execution checks cannot certify latent anchors")
-        return self

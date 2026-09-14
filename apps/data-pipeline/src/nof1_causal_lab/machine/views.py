@@ -9,11 +9,11 @@ import numpy as np
 import polars as pl
 from pydantic import TypeAdapter
 
-from nof1_causal_lab.artifacts.admission import AdmissionReport  # noqa: TC001
 from nof1_causal_lab.artifacts.catalog import ARTIFACT_CONTRACTS
 from nof1_causal_lab.artifacts.effects import HistogramBin
 from nof1_causal_lab.artifacts.identity import ArtifactRef
 from nof1_causal_lab.artifacts.model_spec import ModelSpec  # noqa: TC001
+from nof1_causal_lab.artifacts.prior_predictive import PriorPredictiveResult
 from nof1_causal_lab.artifacts.raw_data import column_descriptions
 from nof1_causal_lab.artifacts.validation_report import ValidationReportArtifact  # noqa: TC001
 from nof1_causal_lab.machine.artifact_files import artifact_file_spec, parquet_filename
@@ -22,7 +22,6 @@ from nof1_causal_lab.machine.equations import (
     observation_equations,
     state_equations,
 )
-from nof1_causal_lab.machine.moves import is_stale
 from nof1_causal_lab.machine.prior_views import prior_density
 from nof1_causal_lab.machine.view_models import (
     ArtifactViews,
@@ -104,7 +103,9 @@ def observed_histogram(values: np.ndarray, *, discrete: bool) -> list[HistogramB
     return histogram_draws(values, max_bins=15)
 
 
-def read_artifact_views(store: ArtifactStore, state: EpisodeState) -> ArtifactViews:
+def read_artifact_views(
+    store: ArtifactStore, state: EpisodeState, *, at_seq: int | None = None
+) -> ArtifactViews:
     """Project only compatible selected artifacts; every join checks its input pins."""
     payloads = {
         aid: read_payload(store, ArtifactRef(artifact_id=aid, version=info.version))
@@ -116,9 +117,7 @@ def read_artifact_views(store: ArtifactStore, state: EpisodeState) -> ArtifactVi
         aid: payloads[aid]
         for aid in (
             "model",
-            "admission_report",
             "validation_report",
-            "baseline_report",
         )
         if aid in payloads
     }
@@ -128,16 +127,35 @@ def read_artifact_views(store: ArtifactStore, state: EpisodeState) -> ArtifactVi
                 "raw_data", state.current["raw_data"].version, parquet_filename("raw_data", "raw")
             ),
         )
+    predictive = None
+    predictive_current = False
     if state.has("model"):
         from nof1_causal_lab.artifacts.posterior import InferenceReport
         from nof1_causal_lab.machine.inference import inference_report_record
+        from nof1_causal_lab.machine.model_spec_results import (
+            model_spec_is_current,
+            model_spec_record,
+        )
         from nof1_causal_lab.machine.store import EpisodeJournal
 
-        record = inference_report_record(EpisodeJournal(store.workspace_id).read_all(), state)
+        records = [
+            record
+            for record in EpisodeJournal(store.workspace_id).read_all()
+            if at_seq is None or record.seq <= at_seq
+        ]
+        record = inference_report_record(records, state)
         if record is not None:
             values["inference_report"] = InferenceReport.model_validate(
                 record.diagnostics["report"]
             )
+        authoring = model_spec_record(records)
+        if (
+            authoring is not None
+            and (payload := authoring.diagnostics.get("prior_predictive")) is not None
+        ):
+            predictive = PriorPredictiveResult.model_validate(payload)
+            values["prior_predictive"] = predictive
+            predictive_current = model_spec_is_current(authoring, state, store)
     panel = None
     if state.has("panel"):
         panel = store.read_parquet_file(
@@ -162,11 +180,6 @@ def read_artifact_views(store: ArtifactStore, state: EpisodeState) -> ArtifactVi
         )
     if "model" in payloads:
         model = cast("ModelSpec", payloads["model"])
-        admission = (
-            cast("AdmissionReport", payloads["admission_report"])
-            if "admission_report" in payloads
-            else None
-        )
         diagnostics = {}
         if panel is not None and state.matches_inputs("validation_report", "panel", "model"):
             audits = cast("ValidationReportArtifact", payloads["validation_report"]).indicators
@@ -183,8 +196,8 @@ def read_artifact_views(store: ArtifactStore, state: EpisodeState) -> ArtifactVi
                 }
                 bins = observed_histogram(numeric, discrete=discrete)
                 prior = (
-                    (admission.prior_predictive_samples or {}).get(indicator.id)
-                    if admission is not None and not is_stale(state, "admission_report")
+                    predictive.samples.get(indicator.id)
+                    if predictive is not None and predictive_current
                     else None
                 )
                 prior_counts = None
@@ -228,10 +241,11 @@ def read_artifact_views(store: ArtifactStore, state: EpisodeState) -> ArtifactVi
                 )
         values["model_diagnostics"] = ModelDiagnostics(
             prior_densities={
-                parameter.id: prior_density(parameter.distribution)
+                parameter.id: prior_density(law)
                 for parameter in model.parameters
-                if parameter.distribution is not None
-                and not isinstance(parameter.distribution, str)
+                if (law := model.distribution_for(parameter.id)) is not None
+                and not law.batch_shape
+                and not law.event_shape
             },
             confounder_equations=confounder_equations(model)
             if model.measurement_clock is not None and model.indicators

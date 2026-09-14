@@ -285,7 +285,6 @@ def run_ppc(
             spec=spec,
             observation_support=runtime.observation_support,
             observation_mask=~jnp.isnan(runtime.observations),
-            transition_inputs=getattr(runtime, "transition_inputs", None),
         )
         logger.info(
             "Posterior predictive checks complete in %.1fs: warnings=%d",

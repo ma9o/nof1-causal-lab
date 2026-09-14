@@ -19,7 +19,6 @@ def build_discrete_transitions(
     time_intervals: Float[Array, " T"],
     *,
     linearization_states: Array | None = None,
-    transition_inputs: Array | None = None,
 ) -> dsx.LinearGaussianParams:
     """Ask Dynestyx for the local Gaussian model used to initialize particles.
 
@@ -43,25 +42,14 @@ def build_discrete_transitions(
         if states.shape != shape:
             raise ValueError(f"linearization_states must have shape {shape}, got {states.shape}")
 
-    controls = None
-    if drift.input_effect is not None and drift.input_effect.shape[1]:
-        if transition_inputs is None:
-            raise ValueError("SSM has known input effects but transition_inputs was not provided.")
-        controls = jnp.asarray(transition_inputs, dtype=drift.input_effect.dtype)
-        expected = (time_intervals.shape[0], drift.input_effect.shape[1])
-        if controls.shape != expected:
-            raise ValueError(f"transition_inputs must have shape {expected}, got {controls.shape}")
-
-    def at_interval(state, dt, control):
+    def at_interval(state, dt):
         return dsx.linearized_transition_parameters(
             dynamics,
             LocalLinearizationConfig(covariance_jitter=0.0),
             linearization_state=state,
-            previous_control=control,
+            previous_control=None,
             previous_time=0.0,
             time=dt,
         )
 
-    return jax.vmap(at_interval, in_axes=(0, 0, None if controls is None else 0))(
-        states, time_intervals, controls
-    )
+    return jax.vmap(at_interval)(states, time_intervals)

@@ -262,6 +262,9 @@ def fit_marginal_particle_gibbs(
                     "initial_latent_trajectories must have shape "
                     f"{expected_shape}; got {ieks_paths.shape}."
                 )
+        if bundle.exact_constraints is not None:
+            ieks_paths = bundle.exact_constraints.project(ieks_paths)
+            initial_latent_trajectories = ieks_paths
         pilot_means = jnp.mean(ieks_paths, axis=0)
         temporal_var = jnp.var(pilot_means, axis=0)
         cross_chain_var = jnp.var(ieks_paths, axis=0)
@@ -282,6 +285,7 @@ def fit_marginal_particle_gibbs(
     logger.info("phase 3/4: building marginalized Particle Gibbs joint kernel...")
     kernel = build_marginal_particle_gibbs_kernel(
         bundle.runtime,
+        exact_constraints=bundle.exact_constraints,
         num_particles=n_particles,
         num_parameter_particles=n_parameter_particles,
         param_step_size=param_step_size,
@@ -481,6 +485,10 @@ def fit_marginal_particle_gibbs(
     }
     if run_result["latent_posterior_summary"] is not None:
         diagnostics["latent_posterior_summary"] = run_result["latent_posterior_summary"]
+    if bundle.exact_constraints is not None:
+        diagnostics["exact_observation_rows"] = jnp.any(
+            ~bundle.exact_constraints.free_mask, axis=-1
+        )
     if run_result["warmup_latent_paths"] is not None:
         diagnostics["warmup_latent_paths"] = run_result["warmup_latent_paths"]
     if run_result["all_latent_paths"] is not None:

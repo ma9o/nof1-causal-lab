@@ -250,9 +250,13 @@ replace-imports-with-any = [
 ]
 
 [tool.pytest.ini_options]
-addopts = "-n 0 -m 'not slow and not cpu_expensive and not gpu' --tb=short -ra --instafail --timeout=300 --durations=10 --jaxtyping-packages=nof1_causal_lab.models.ssm.covariance_utils,nof1_causal_lab.models.ssm.dynamics.steady_state,nof1_causal_lab.models.ssm.dynamics.vector_field,nof1_causal_lab.models.ssm.execution.emissions,nof1_causal_lab.models.ssm.execution.observation_kernel_helpers,nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math,nof1_causal_lab.models.ssm.inference.targets.transitions,beartype.beartype"
+addopts = "-n auto -m 'not (inference or warmup or simulation or predictive or recovery or admission or workflow)' --strict-markers --tb=short -ra --instafail --timeout=300 --durations=10 --jaxtyping-packages=nof1_causal_lab.models.ssm.covariance_utils,nof1_causal_lab.models.ssm.dynamics.steady_state,nof1_causal_lab.models.ssm.dynamics.vector_field,nof1_causal_lab.models.ssm.execution.emissions,nof1_causal_lab.models.ssm.execution.observation_kernel_helpers,nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math,nof1_causal_lab.models.ssm.inference.targets.transitions,beartype.beartype"
 markers = [
-    "cpu_expensive: numerical compilation, model fitting, or simulation batches; opt-in on any device",
-    "gpu: requires GPU hardware; opt-in",
-    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "inference: particle runtimes, exact likelihood targets, and posterior sampling",
+    "warmup: Laplace initialization, local linearization, and numerical solver/gradient references",
+    "simulation: deterministic/stochastic trajectories, steady states, and interventions",
+    "predictive: prior/posterior predictive generation and observation sampling",
+    "recovery: fitted parameter accuracy and uncertainty against known generating values",
+    "admission: complete construct and edge admission batteries",
+    "workflow: complete Temporal episode journeys",
 ]

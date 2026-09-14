@@ -11,8 +11,8 @@ from nof1_causal_lab.utils import data as data_module
 
 def _seed_workspace(root):
     files = {
-        "store/question/v1/meta.json": {"artifact_id": "question", "version": 1},
-        "store/question/v1/question.json": {"text": "does X cause Y?"},
+        "store/model/v1/meta.json": {"artifact_id": "model", "version": 1},
+        "store/model/v1/question.json": {"text": "does X cause Y?"},
         "store/raw_data/v1/meta.json": {"artifact_id": "raw_data", "version": 1},
         "episode/journal/000001.json": {"seq": 1},
         "cache/model-spec-jax-cache-metadata.json": {"schema_version": 1},
@@ -44,7 +44,7 @@ def test_publish_excludes_and_is_idempotent(monkeypatch, tmp_path, memory_dest):
 
     counts = publish.publish_workspace("WS-PUB", ["raw_data", "input"])
     assert counts == {"uploaded": 3, "skipped": 0, "excluded": 5}
-    assert memory_dest.exists("pub/data/WS-PUB/store/question/v1/question.json")
+    assert memory_dest.exists("pub/data/WS-PUB/store/model/v1/question.json")
     assert not memory_dest.exists("pub/data/WS-PUB/store/raw_data/v1/meta.json")
     assert not memory_dest.exists("pub/data/WS-PUB/input/MyActivity.json")
     assert not memory_dest.exists("pub/data/WS-PUB/sources/unpacked-private.csv")

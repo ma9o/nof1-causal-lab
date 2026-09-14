@@ -21,6 +21,7 @@ from nof1_causal_lab.models.ssm.inference.mcmc_state import (
     _stack_chain_states,
     _stack_sample_history,
 )
+from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math import _masked_mean
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.diagnostics import (
     build_mpgibbs_diagnostic_flags,
 )
@@ -28,6 +29,7 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.diagno
 if TYPE_CHECKING:
     from dynestyx.inference.particle_runtime import ParticleRuntime
 
+    from nof1_causal_lab.models.ssm.inference.conditioning import ExactStateConstraints
     from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.kernel import (
         MarginalParticleGibbsKernel,
     )
@@ -69,6 +71,7 @@ def _initialize_chain_state(
     param_max_scale: float,
     param_target_accept: float,
     initial_latent_trajectory: jnp.ndarray | None,
+    exact_constraints: ExactStateConstraints | None = None,
 ) -> TrajectoryMCMCState:
     context = target.context(init_position, times)
     latent_trajectory = (
@@ -76,6 +79,8 @@ def _initialize_chain_state(
         if initial_latent_trajectory is None
         else jnp.asarray(initial_latent_trajectory, dtype=target.initial_moments(context)[0].dtype)
     )
+    if exact_constraints is not None:
+        latent_trajectory = exact_constraints.project(latent_trajectory)
     complete_lp, trajectory_lp = target.log_posterior_from_context(
         init_position,
         context,
@@ -157,6 +162,11 @@ def run_marginal_particle_gibbs(
         raise ValueError("marginal_particle_gibbs requires at least one MCMC step.")
     observations = target.observations
     times = target.times
+    latent_active = (
+        jnp.ones(times.shape, dtype=bool)
+        if kernel.exact_constraints is None
+        else jnp.any(kernel.exact_constraints.free_mask, axis=-1)
+    )
     num_steps = int(observations.shape[0])
     base_key = random.PRNGKey(seed)
     init_key, chain_key = random.split(base_key)
@@ -204,6 +214,7 @@ def run_marginal_particle_gibbs(
                 times=times,
                 target=target,
                 initial_latent_delta=initial_latent_delta,
+                exact_constraints=kernel.exact_constraints,
                 param_step_size=kernel.initial_param_step_size,
                 param_min_scale=kernel.min_scale,
                 param_max_scale=kernel.max_scale,
@@ -334,7 +345,9 @@ def run_marginal_particle_gibbs(
                 or step_idx + 1 == total_steps
             ):
                 param_accept_now = jax.device_get(jnp.mean(step_info["parameter_accepted"]))
-                latent_accept_now = jax.device_get(jnp.mean(step_info["latent_accepted"]))
+                latent_accept_now = jax.device_get(
+                    jnp.mean(_masked_mean(step_info["latent_accepted"], latent_active, axis=-1))
+                )
                 param_step_now = jax.device_get(states.param_step_size)
                 latent_delta_now = jax.device_get(states.latent_delta)
                 complete_lp_now = jax.device_get(states.complete_log_posterior)
@@ -374,7 +387,9 @@ def run_marginal_particle_gibbs(
                 )
             position_history.append(states.position)
             parameter_accept_history.append(step_info["parameter_accepted"])
-            latent_accept_history.append(jnp.mean(step_info["latent_accepted"], axis=-1))
+            latent_accept_history.append(
+                _masked_mean(step_info["latent_accepted"], latent_active, axis=-1)
+            )
             complete_lp_history.append(states.complete_log_posterior)
             selected_label_history.append(step_info["selected_label"])
             final_particle_history.append(step_info["final_particle"])
@@ -461,6 +476,7 @@ def run_marginal_particle_gibbs(
                     should_adapt_latent_delta = should_adapt_latent_delta & (
                         (step_idx + 1) > int(kernel.amala_adaptation_window)
                     )
+                    should_adapt_latent_delta = should_adapt_latent_delta & latent_active
                     next_latent_delta = jnp.where(
                         should_adapt_latent_delta,
                         states.latent_delta + delta_update,

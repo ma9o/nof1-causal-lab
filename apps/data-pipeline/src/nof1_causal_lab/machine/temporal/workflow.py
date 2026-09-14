@@ -67,7 +67,6 @@ _SINGLE_LLM_TRANSITIONS: frozenset[SingleLLMTransitionId] = frozenset(
         "raw_data",
         "latent_structure",
         "measurement_structure",
-        "baseline_report",
     }
 )
 

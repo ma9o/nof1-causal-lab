@@ -45,7 +45,6 @@ def continuous_state_evolution(
     vector_field: VectorField,
     vf_params: tuple[dict[str, jax.Array], ...],
     diffusion_cov: jax.Array,
-    input_effect: jax.Array | None = None,
     *,
     intervention: Intervention | None = None,
 ) -> dsx.StochasticContinuousTimeStateEvolution:
@@ -56,7 +55,6 @@ def continuous_state_evolution(
         diffusion = diffusion.at[clamp.index].set(0.0)
     return vector_field.evolution(
         VectorFieldArgs(params=vf_params, intervention=intervention),
-        input_effect=input_effect,
         diffusion=dsx.FullDiffusion(diffusion),
     )
 
@@ -152,11 +150,10 @@ def assemble_likelihood_inputs(
     dynamics_spec = numeric.dynamics_components(spec) if dynamics is None else dynamics
     compiled = compile_dynamics(dynamics_spec)
     diffusion_chol = samples["diffusion"]
-    dynamics = continuous_state_evolution(
+    evolution = continuous_state_evolution(
         vector_field=compiled.vector_field,
         vf_params=pack_component_params_from_samples(dynamics_spec, samples),
         diffusion_cov=diffusion_chol @ diffusion_chol.T,
-        input_effect=samples["input_effect"] if numeric.input_effect_block(spec).n_cols else None,
     )
     measurement = MeasurementParams(
         lambda_mat=samples["lambda"],
@@ -165,7 +162,7 @@ def assemble_likelihood_inputs(
     )
     initial = MultivariateNormal(samples["t0_means"], covariance_matrix=samples["t0_cov"])
     extra = assemble_extra_params_from_registry(spec, samples, registry)
-    return dynamics, measurement, initial, extra or None
+    return evolution, measurement, initial, extra or None
 
 
 def build_dynamical_model(
@@ -195,6 +192,5 @@ def build_dynamical_model(
             tuple(numeric.observation_links(model_spec)),
             extra_params,
         ),
-        control_dim=len(numeric.input_ids(model_spec)),
         t0=t0,
     )

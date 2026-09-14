@@ -174,7 +174,7 @@ _PATTERN_HINTS = (
 
 
 def render_report(title, report):
-    """Render one :class:`AdmissionReport` as a marimo table + evidence figures."""
+    """Render one :class:`ConstructAdmissionReport` as a marimo table + evidence figures."""
     results = report.results
     rows = "\n".join(
         f"| {r.check} | {CHECK_MODES[r.check]} | {r.target} | {r.value} | {r.band} | "

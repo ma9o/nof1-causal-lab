@@ -1,4 +1,4 @@
-"""Live simulation requests and responses, optionally retained together in a report."""
+"""Runtime-only simulation requests and responses for a fitted model."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .effects import EffectSummary, EffectTrajectoryPoint  # noqa: TC001
 from .identity import (  # noqa: TC001
     ConstructId,
-    ConstructRef,
     ModelRevision,
 )
 
@@ -63,7 +62,7 @@ class ScenarioClamp(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    target: ConstructRef = Field(description="Persistent identity of the construct to clamp.")
+    target: ConstructId = Field(description="Persistent ID of the construct to clamp.")
     mode: Literal["set", "shift", "ramp", "trajectory"] = Field(
         description="How the clamped value is specified over the window."
     )
@@ -132,68 +131,27 @@ class ScenarioRequest(BaseModel):
     clamps: list[ScenarioClamp] = Field(
         min_length=1, description="One or more timed latent clamps composing the scenario."
     )
-    outcome: ConstructRef = Field(description="Persistent identity of the requested outcome.")
+    outcome: ConstructId = Field(description="Persistent ID of the requested outcome.")
     readout: ScenarioQueryInput = Field(default_factory=ScenarioQueryInput)
 
 
-class BaselineReportVisualization(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    reference_node_trajectories: dict[ConstructId, list[float]] | None = Field(
-        default=None,
-        description=(
-            "Per-construct latent trajectories for the reference (no-clamp) path aligned to "
-            "effect_trajectory days."
-        ),
-    )
-    action_node_trajectories: dict[ConstructId, list[float]] | None = Field(
-        default=None,
-        description=(
-            "Per-construct latent trajectories under the composed clamps aligned to "
-            "effect_trajectory days."
-        ),
-    )
-    node_effect_trajectories: dict[ConstructId, list[float]] | None = Field(
-        default=None,
-        description=(
-            "Per-construct latent effect trajectories aligned to effect_trajectory days. "
-            "Values are causal deltas relative to the reference path."
-        ),
-    )
-    start_state: dict[ConstructId, float] | None = Field(
-        default=None,
-        description="Posterior mean latent state the rollout started from.",
-    )
-
-
-class SimulationProvenance(BaseModel):
-    """The retained fit and actual numerical settings used by this response."""
+class SimulationTrajectory(BaseModel):
+    """One construct's mean reference and intervention paths across simulated draws."""
 
     model_config = ConfigDict(extra="forbid", frozen=True, allow_inf_nan=False)
 
-    model: ModelRevision
-    engine: Literal["nonlinear_drift_v1", "illustrative_fixture"] = "nonlinear_drift_v1"
-    solver: Literal["Tsit5"] = "Tsit5"
-    rtol: float = Field(gt=0)
-    atol: float = Field(gt=0)
-    max_steps: int = Field(ge=1)
-    draw_count: int = Field(ge=1)
-    time_grid_days: list[float] = Field(min_length=2)
-    start_time_index: int | None = Field(default=None, ge=0)
-    start_time: str | None = None
-
-    @model_validator(mode="after")
-    def validate_basis(self) -> SimulationProvenance:
-        from .effects import validate_effect_horizons
-
-        validate_effect_horizons(self.time_grid_days)
-        if self.time_grid_days[0] != 0:
-            raise ValueError("A simulation time grid starts at zero")
-        return self
+    reference_mean: list[float] = Field(
+        min_length=2,
+        description="Mean no-clamp latent path on the result's time_grid_days, including day zero.",
+    )
+    action_mean: list[float] = Field(
+        min_length=2,
+        description="Mean latent path under the requested clamps on the same full time grid.",
+    )
 
 
 class SimulationResult(BaseModel):
-    """Ephemeral response, retained only when explicitly included in a report.
+    """Ephemeral response to a runtime simulation request.
 
     This engine integrates the true nonlinear drift for each posterior draw.
     It does not include future process noise or claim the mean of the SDE.
@@ -202,27 +160,54 @@ class SimulationResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, allow_inf_nan=False)
 
     request: ScenarioRequest
-    provenance: SimulationProvenance
+    model: ModelRevision = Field(description="Exact fitted model revision used by this response.")
+    time_grid_days: list[float] = Field(
+        min_length=2,
+        description="Shared elapsed-day coordinates for all trajectories, including day zero.",
+    )
+    start_time_index: int | None = Field(
+        default=None,
+        ge=0,
+        description="Resolved fitted-state index for an abducted start; null for a baseline start.",
+    )
+    start_time: str | None = Field(
+        default=None,
+        description="Observed timestamp of the resolved abducted start, when available.",
+    )
     labels: dict[ConstructId, str]
     summary: EffectSummary
     effect_trajectory: list[EffectTrajectoryPoint] | None = None
     trajectory_peak: EffectTrajectoryPoint | None = None
-    visualization: BaselineReportVisualization | None = None
+    trajectories: dict[ConstructId, SimulationTrajectory] = Field(
+        description="Reference and action means for each simulated construct on time_grid_days.",
+    )
     manifest_effects: dict[str, float] | None = None
     reference_mean: float
     warnings: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_request_basis(self) -> SimulationResult:
-        targets = {self.request.outcome.id, *(clamp.target.id for clamp in self.request.clamps)}
+        from .effects import validate_effect_horizons
+
+        validate_effect_horizons(self.time_grid_days)
+        if self.time_grid_days[0] != 0:
+            raise ValueError("A simulation time grid starts at zero")
+        targets = {self.request.outcome, *(clamp.target for clamp in self.request.clamps)}
         if not targets <= self.labels.keys():
             raise ValueError("Simulation labels must describe the requested constructs")
+        if not targets <= self.trajectories.keys():
+            raise ValueError("Simulation trajectories must include the requested constructs")
+        if not self.trajectories.keys() <= self.labels.keys():
+            raise ValueError("Simulation trajectories must have construct labels")
+        n_times = len(self.time_grid_days)
+        for identity, trajectory in self.trajectories.items():
+            if len(trajectory.reference_mean) != n_times or len(trajectory.action_mean) != n_times:
+                raise ValueError(
+                    f"Simulation trajectories for {identity} must align with time_grid_days"
+                )
         if self.request.start.kind == "baseline":
-            if (
-                self.provenance.start_time_index is not None
-                or self.provenance.start_time is not None
-            ):
+            if self.start_time_index is not None or self.start_time is not None:
                 raise ValueError("A baseline simulation has no observed start time")
-        elif self.provenance.start_time_index is None:
+        elif self.start_time_index is None:
             raise ValueError("An abducted simulation must record the resolved observed start")
         return self

@@ -25,26 +25,26 @@ class TestArtifactStore:
     def test_versions_are_append_only_and_monotonic(self, workspace):
         store = ArtifactStore(workspace)
         first = store.write_version(
-            "question",
+            "model",
             provenance="human",
             derived_from={},
             produced_by=None,
-            json_files={"question.json": {"text": "does exercise improve sleep?"}},
+            json_files={"model.json": {"question": "does exercise improve sleep?"}},
         )
         second = store.write_version(
-            "question",
+            "model",
             provenance="human",
             derived_from={},
             produced_by=None,
-            json_files={"question.json": {"text": "does caffeine harm sleep?"}},
+            json_files={"model.json": {"question": "does caffeine harm sleep?"}},
         )
         assert (first.version, second.version) == (1, 2)
-        assert store.list_versions("question") == [1, 2]
+        assert store.list_versions("model") == [1, 2]
         # Old version stays readable — nothing is overwritten.
-        assert store.read_json_file("question", 1, "question.json")["text"].startswith(
+        assert store.read_json_file("model", 1, "model.json")["question"].startswith(
             "does exercise"
         )
-        assert store.read_json_file("question", 2, "question.json")["text"].startswith(
+        assert store.read_json_file("model", 2, "model.json")["question"].startswith(
             "does caffeine"
         )
 
@@ -53,7 +53,7 @@ class TestArtifactStore:
         info = store.write_version(
             "model",
             provenance="computed",
-            derived_from={"question": 1, "raw_data": 2},
+            derived_from={"raw_data": 2},
             produced_by="run:measurement_structure",
             json_files={"model.json": make_model(["X", "Y"], [("X", "Y")]).model_dump(mode="json")},
         )
@@ -95,7 +95,9 @@ class TestEpisodeJournal:
 
     def test_append_and_read_back_in_order(self, workspace):
         journal = EpisodeJournal(workspace)
-        journal.append(self._record(1, WriteArtifact(artifact_id="question")))
+        journal.append(
+            self._record(1, WriteArtifact(artifact_id="model", expected_model_version=0))
+        )
         journal.append(
             self._record(
                 2,
@@ -131,21 +133,25 @@ class TestEpisodeJournal:
 
     def test_identical_duplicate_seq_is_idempotent(self, workspace):
         journal = EpisodeJournal(workspace)
-        record = self._record(1, WriteArtifact(artifact_id="question"))
+        record = self._record(1, WriteArtifact(artifact_id="model", expected_model_version=0))
         journal.append(record)
         journal.append(record)
         assert journal.read_all() == [record]
 
     def test_different_duplicate_seq_refused(self, workspace):
         journal = EpisodeJournal(workspace)
-        journal.append(self._record(1, WriteArtifact(artifact_id="question")))
+        journal.append(
+            self._record(1, WriteArtifact(artifact_id="model", expected_model_version=0))
+        )
         with pytest.raises(FileExistsError):
             journal.append(self._record(1, RunOperation(operation_id="raw_data")))
 
     def test_latest_seq_reads_max_entry_without_state_manifest(self, workspace):
         journal = EpisodeJournal(workspace)
         assert journal.latest_seq() == 0
-        journal.append(self._record(3, WriteArtifact(artifact_id="question")))
+        journal.append(
+            self._record(3, WriteArtifact(artifact_id="model", expected_model_version=0))
+        )
         assert journal.latest_seq() == 3
 
 
@@ -167,47 +173,47 @@ class TestDerivedCurrentState:
     def test_current_state_replays_only_applied_versions(self, workspace):
         store = ArtifactStore(workspace)
         first = store.write_version(
-            "question",
+            "model",
             provenance="human",
             derived_from={},
             produced_by=None,
-            json_files={"question.json": {"text": "first"}},
+            json_files={"model.json": {"question": "first"}},
         )
         self._append(
             workspace,
             1,
-            WriteArtifact(artifact_id="question"),
+            WriteArtifact(artifact_id="model", expected_model_version=0),
             produced=[first],
         )
         second = store.write_version(
-            "question",
+            "model",
             provenance="human",
             derived_from={},
             produced_by=None,
-            json_files={"question.json": {"text": "second"}},
+            json_files={"model.json": {"question": "second"}},
         )
 
         # Persisting a version is not the commit boundary. Until an applied
         # transition records it, readers continue to see the prior state.
-        assert derive_current_state(workspace).get("question") == first
+        assert derive_current_state(workspace).get("model") == first
 
         self._append(
             workspace,
             2,
-            WriteArtifact(artifact_id="question"),
+            WriteArtifact(artifact_id="model", expected_model_version=0),
             produced=[second],
         )
 
-        assert derive_current_state(workspace).get("question") == second
+        assert derive_current_state(workspace).get("model") == second
 
     def test_rejected_and_raised_effects_are_not_current(self, workspace):
         store = ArtifactStore(workspace)
         rejected = store.write_version(
-            "question",
+            "model",
             provenance="human",
             derived_from={},
             produced_by=None,
-            json_files={"question.json": {"text": "rejected"}},
+            json_files={"model.json": {"question": "rejected"}},
         )
         raised = store.write_version(
             "raw_data",
@@ -218,7 +224,7 @@ class TestDerivedCurrentState:
         self._append(
             workspace,
             1,
-            WriteArtifact(artifact_id="question"),
+            WriteArtifact(artifact_id="model", expected_model_version=0),
             produced=[rejected],
             status="rejected",
         )

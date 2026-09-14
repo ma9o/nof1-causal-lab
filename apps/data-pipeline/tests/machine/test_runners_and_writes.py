@@ -6,8 +6,7 @@ import json
 import polars as pl
 import pytest
 
-from nof1_causal_lab.artifacts.construct import KnownInput, replace_constructs
-from nof1_causal_lab.artifacts.identity import ConstructRef
+from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.machine.artifacts import EpisodeState
 from nof1_causal_lab.machine.errors import ArtifactWriteRejected
@@ -30,24 +29,29 @@ def workspace(monkeypatch, tmp_path):
 
 def _model():
     model = make_model(["Stress", "Perf"], [("Stress", "Perf")])
-    return model.revised(default_outcome=ConstructRef(id=model.constructs[1].id))
+    return model.revised(
+        question="does stress hurt performance?", default_outcome=model.constructs[1].id
+    )
 
 
-def _known_input(model):
+def _exact_measurement(model):
+    from nof1_causal_lab.artifacts.expressions import state
+    from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec, ObservationLawSpec
+
     owner = model.constructs[0]
+    indicator = owner.indicators[0].model_copy(
+        update={
+            "likelihood": LikelihoodSpec(
+                law=ObservationLawSpec(distribution="Delta", arguments={"v": state(owner.id)}),
+                reasoning="An exact observation of the construct",
+            )
+        }
+    )
     return model.revised(
         edges=replace_constructs(
             model.edges,
             (
-                owner.model_copy(
-                    update={
-                        "usage": KnownInput(
-                            source_indicator_id=owner.indicators[0].id,
-                            scale=2.0,
-                            missing_policy="forward_fill",
-                        )
-                    }
-                ),
+                owner.model_copy(update={"indicators": (indicator,)}),
                 *model.constructs[1:],
             ),
         )
@@ -105,7 +109,6 @@ def test_extraction_optional_panel(workspace, tmp_path, nonempty):
     model = _model()
     state = EpisodeState().with_versions(
         [
-            _write(store, "question", {"text": "does stress hurt performance?"}),
             store.write_version(
                 "raw_data", provenance="computed", derived_from={}, produced_by="run:raw_data"
             ),
@@ -205,7 +208,7 @@ def test_extraction_optional_panel(workspace, tmp_path, nonempty):
         assert _next_auto_move(workspace, changed) == RunOperation(operation_id="measurements")
     if nonempty:
         panel = next(info for info in effects.produced if info.artifact_id == "panel")
-        assert panel.derived_from == {"question": 1, "raw_data": 1, "model": 1}
+        assert panel.derived_from == {"raw_data": 1, "model": 1}
 
 
 def test_model_write_cascades_without_parallel_scientific_catalogs(workspace):
@@ -230,11 +233,10 @@ def test_model_write_cascades_without_parallel_scientific_catalogs(workspace):
     assert next(info for info in effects.produced if info.artifact_id == "model").derived_from == {}
 
 
-def test_owned_known_input_controls_execution_layout(workspace):
-    from nof1_causal_lab.models.ssm.compile.support import get_structural_input_layout
+def test_exact_measurement_preserves_execution_layout(workspace):
     from nof1_causal_lab.utils.model_structure import get_state_names
 
-    model = _known_input(_model())
+    model = _exact_measurement(_model())
     effects = execute_write(
         workspace,
         "model",
@@ -247,14 +249,9 @@ def test_owned_known_input_controls_execution_layout(workspace):
     info = next(info for info in effects.produced if info.artifact_id == "model")
     payload = store.read_json_file("model", info.version, "model.json")
     plan = ModelSpec.model_validate(payload)
-    assert get_state_names(plan) == ["Perf"]
-    assert get_structural_input_layout(plan) == (
-        ["Stress"],
-        ["Stress_obs"],
-        [2.0],
-        ["forward_fill"],
-        [True],
-    )
+    assert get_state_names(plan) == ["Stress", "Perf"]
+    assert plan.indicators[0].likelihood is not None
+    assert plan.indicators[0].likelihood.law.family == "delta"
 
 
 @pytest.mark.parametrize("operation", ["latent_structure", "measurement_structure"])
@@ -264,18 +261,18 @@ def test_authoring_finalizer_commits_canonical_revision(workspace, tmp_path, ope
 
     store = ArtifactStore(workspace)
     initial = _model()
-    infos = [_write(store, "question", {"text": "does stress hurt performance?"})]
+    base = initial if operation == "measurement_structure" else ModelSpec(question=initial.question)
+    infos = [_write(store, "model", base.model_dump(mode="json"))]
     if operation == "measurement_structure":
         infos.extend(
             [
                 store.write_version(
                     "raw_data", provenance="computed", derived_from={}, produced_by="run:raw_data"
                 ),
-                _write(store, "model", initial.model_dump(mode="json")),
             ]
         )
     state = EpisodeState().with_versions(infos)
-    candidate = _known_input(initial)
+    candidate = _exact_measurement(initial)
     path = tmp_path / "model-result.json"
     path.write_text(candidate.model_dump_json())
     pins = input_pins(state, transition_spec(operation))
@@ -287,7 +284,6 @@ def test_authoring_finalizer_commits_canonical_revision(workspace, tmp_path, ope
             pins=pins,
             context_ref="unused-context.json",
             result_ref=str(path),
-            trace_ref="trace://authoring",
         ),
         operation,
     )
@@ -389,7 +385,14 @@ def test_partial_version_files_removed_on_write_failure(workspace, monkeypatch):
 
 def test_question_write_requires_text(workspace):
     with pytest.raises(ArtifactWriteRejected):
-        execute_write(workspace, "question", {"text": "   "}, "human", EpisodeState())
+        execute_write(
+            workspace,
+            "model",
+            {"question": "   "},
+            "human",
+            EpisodeState(),
+            expected_model_version=0,
+        )
 
 
 def test_binary_artifacts_not_directly_writable(workspace):

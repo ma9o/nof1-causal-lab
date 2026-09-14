@@ -174,13 +174,6 @@ class PriorElicitationConfig:
     literature_search: LiteratureSearchConfig = field(default_factory=LiteratureSearchConfig)
 
 
-@dataclass(frozen=True)
-class AnalysisCommentaryConfig:
-    """analysis: Narrative commentary over intervention results and fit diagnostics."""
-
-    llm: LLMProfileConfig
-
-
 # ---------------------------------------------------------------------------
 # Inference
 # ---------------------------------------------------------------------------
@@ -310,7 +303,6 @@ class PipelineConfig:
     structure_proposal: StructureProposalConfig
     extraction_workers: ExtractionWorkersConfig
     prior_elicitation: PriorElicitationConfig
-    analysis_commentary: AnalysisCommentaryConfig
     inference: InferenceConfig = field(default_factory=InferenceConfig)
     llm: LLMDefaults = field(default_factory=LLMDefaults)
     pipeline: PipelineBehaviorConfig = field(default_factory=PipelineBehaviorConfig)
@@ -430,11 +422,6 @@ def load_config(config_path: Path | None = None) -> PipelineConfig:
         else LiteratureSearchConfig(),
     )
 
-    commentary_raw = raw.get("analysis_commentary", {}) or {}
-    commentary_config = AnalysisCommentaryConfig(
-        llm=_parse_profile_llm(commentary_raw["llm"], "analysis_commentary")
-    )
-
     pipeline_raw = raw.get("pipeline", {}) or {}
     pipeline_config = (
         PipelineBehaviorConfig(**pipeline_raw) if pipeline_raw else PipelineBehaviorConfig()
@@ -445,7 +432,6 @@ def load_config(config_path: Path | None = None) -> PipelineConfig:
         structure_proposal=structure_config,
         extraction_workers=extraction_config,
         prior_elicitation=prior_config,
-        analysis_commentary=commentary_config,
         inference=inference_config,
         llm=llm_defaults,
         pipeline=pipeline_config,
@@ -475,7 +461,6 @@ def _iter_profile_llms(config: PipelineConfig) -> list[tuple[str, LLMProfileConf
         ("structure_proposal", config.structure_proposal.llm),
         ("extraction_workers", config.extraction_workers.llm),
         ("prior_elicitation", config.prior_elicitation.llm),
-        ("analysis_commentary", config.analysis_commentary.llm),
     ]
 
 

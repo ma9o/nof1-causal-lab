@@ -89,8 +89,6 @@ def simulate(
     *,
     key: Array | None = None,
     diffusion_cov: Array | None = None,
-    input_effect: Array | None = None,
-    transition_inputs: Array | None = None,
 ) -> Array:
     """Bind a causal intervention, then simulate its declared Dynestyx evolution."""
     from nof1_causal_lab.models.ssm.execution.dynamical_model import continuous_state_evolution
@@ -100,17 +98,18 @@ def simulate(
     args = VectorFieldArgs(params=params, intervention=intervention)
     initial_state = vector_field.initial_condition(initial_state, args, time_grid[0])
     evolution = (
-        vector_field.evolution(args, input_effect=input_effect)
+        vector_field.evolution(
+            args,
+        )
         if diffusion_cov is None
         else continuous_state_evolution(
-            vector_field, params, diffusion_cov, input_effect, intervention=intervention
+            vector_field, params, diffusion_cov, intervention=intervention
         )
     )
     model = dsx.DynamicalModel(
         initial_condition=dist.Delta(initial_state, event_dim=1),
         state_evolution=evolution,
         observation_model=_latent_observation,
-        control_dim=0 if input_effect is None else input_effect.shape[1],
         t0=time_grid[0],
     )
     return simulate_model_path(
@@ -119,7 +118,6 @@ def simulate(
         time_grid,
         config=config,
         key=key,
-        transition_inputs=transition_inputs,
     )
 
 
@@ -130,9 +128,8 @@ def simulate_model_path(
     config: SimulationConfig | None = None,
     *,
     key: Array | None = None,
-    transition_inputs: Array | None = None,
 ) -> Array:
-    """Execute a declared model, preserving indexed Brownian replay and input timing.
+    """Execute a declared model, preserving indexed Brownian replay.
 
     Both inference and prediction supply the same nonlinear state evolution.
     ODE paths use Dynestyx's solver. SDE paths use Diffrax directly because the
@@ -146,14 +143,6 @@ def simulate_model_path(
     y0 = initial_state
     t0, t1 = time_grid[0], time_grid[-1]
     n_latent = model.state_dim
-    controls = None
-    if model.control_dim:
-        if transition_inputs is None:
-            raise ValueError("SSM has known input effects but transition_inputs was not provided.")
-        controls = jnp.asarray(transition_inputs, dtype=y0.dtype)
-        expected = (time_grid.shape[0], model.control_dim)
-        if controls.shape != expected:
-            raise ValueError(f"transition_inputs must have shape {expected}, got {controls.shape}")
     if time_grid.shape[0] == 1:
         return y0[None, :]
     if not stochastic:
@@ -162,11 +151,6 @@ def simulate_model_path(
             initial_state=y0,
             t0=t0,
             path_times=time_grid,
-            ctrl_times=None if controls is None else time_grid,
-            # Known inputs index destination states; library controls index interval starts.
-            ctrl_values=None
-            if controls is None
-            else jnp.concatenate([controls[1:], controls[-1:]]),
             diffeqsolve_settings={
                 "solver": dfx.Tsit5(),
                 "stepsize_controller": dfx.PIDController(rtol=cfg.rtol, atol=cfg.atol),
@@ -199,16 +183,11 @@ def simulate_model_path(
         adjoint = dfx.RecursiveCheckpointAdjoint()
 
     def drift_at(t, y, runtime):
-        active_evolution, grid, inputs = runtime
-        control = None
-        if inputs is not None:
-            index = jnp.clip(jnp.searchsorted(grid, t, side="right"), 1, grid.shape[0] - 1)
-            control = inputs[index]
-        return active_evolution.total_drift(x=y, u=control, t=t)
+        return runtime.total_drift(x=y, u=None, t=t)
 
     ode_term = dfx.ODETerm(drift_at)
     diffusion_term = dfx.ControlTerm(
-        lambda t, y, a: a[0].diffusion.as_matrix(x=y, u=None, t=t, state_dim=n_latent), brownian
+        lambda t, y, a: a.diffusion.as_matrix(x=y, u=None, t=t, state_dim=n_latent), brownian
     )
     term = dfx.MultiTerm(ode_term, diffusion_term)
     solver = dfx.Heun()
@@ -220,7 +199,7 @@ def simulate_model_path(
         t1=t1,
         dt0=dt0,
         y0=y0,
-        args=(evolution, time_grid, controls),
+        args=evolution,
         saveat=dfx.SaveAt(ts=time_grid),
         max_steps=cfg.max_steps,
         throw=False,
@@ -232,37 +211,3 @@ def simulate_model_path(
 def _latent_observation(x, u, t):
     del u, t
     return dist.Delta(x, event_dim=1)
-
-
-def simulate_pair(
-    vector_field: VectorField,
-    params: tuple[dict[str, Array], ...],
-    baseline_intervention: Intervention,
-    action_intervention: Intervention,
-    initial_state: Array,
-    time_grid: Array,
-    config: SimulationConfig | None = None,
-) -> tuple[Array, Array, Array]:
-    """Simulate baseline and action paths and return ``(baseline, action,
-    effect)`` where ``effect = action - baseline``.
-
-    Sharing ``initial_state`` and ``time_grid`` between the two integrations
-    makes the contrast a pure subtraction at matching grid points.
-    """
-    baseline = simulate(
-        vector_field,
-        params,
-        baseline_intervention,
-        initial_state,
-        time_grid,
-        config,
-    )
-    action = simulate(
-        vector_field,
-        params,
-        action_intervention,
-        initial_state,
-        time_grid,
-        config,
-    )
-    return baseline, action, action - baseline

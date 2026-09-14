@@ -1,21 +1,22 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
 import jax.numpy as jnp
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
 import nof1_causal_lab.tool_server as tool_server
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.identification import (
-    IdentifiabilityStatus,
     IdentificationReport,
     IdentifiedTreatmentStatus,
 )
-from nof1_causal_lab.artifacts.identity import ConstructRef, ModelRevision
+from nof1_causal_lab.artifacts.identity import ModelRevision
 from nof1_causal_lab.artifacts.scenarios import SimulationResult
 from nof1_causal_lab.models.causal_proofs import (
     CertifiedCausalAnalysis,
@@ -25,29 +26,32 @@ from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior
 from nof1_causal_lab.models.ssm.inference.persistence import condition_model
 from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
-from tests.dynamics_fixtures import decay_term, hill_term
+from tests.dynamics_fixtures import decay_term, hill_term, potential_term
 from tests.helpers import fixture_entity_id
 from tests.inference_fixtures import inference_log
-from tests.model_fixtures import model_fixture, parameter_draws
+from tests.model_fixtures import (
+    default_t0_chol_block,
+    diagonal_diffusion_block,
+    model_fixture,
+    parameter_draws,
+)
 
 
 def _identification(treatment: str, outcome: str) -> IdentificationReport:
     return IdentificationReport(
         outcome=fixture_entity_id("construct", outcome),
-        status=IdentifiabilityStatus(
-            identifiable_treatments={
-                fixture_entity_id("construct", treatment): IdentifiedTreatmentStatus(
-                    method="do_calculus",
-                    estimand=f"E[{outcome} | do({treatment})]",
-                )
-            }
-        ),
+        treatments={
+            fixture_entity_id("construct", treatment): IdentifiedTreatmentStatus(
+                method="do_calculus",
+                estimand=f"E[{outcome} | do({treatment})]",
+            )
+        },
     )
 
 
 def _certified_simulation_context(
     *,
-    samples: dict[str, jnp.ndarray],
+    n_draws: int,
     spec: Any,
     runtime: Any,
     treatment: str,
@@ -55,21 +59,18 @@ def _certified_simulation_context(
     latent_paths: jnp.ndarray | None = None,
     timestamps: list[datetime] | None = None,
 ) -> dict[str, Any]:
-    design = spec.revised(default_outcome=ConstructRef(id=fixture_entity_id("construct", outcome)))
+    design = spec.revised(default_outcome=fixture_entity_id("construct", outcome))
     design_ref = ModelRevision(workspace_id="test-workspace", version=2)
     design = condition_model(
         design,
         ParticleMCMCPosterior(
             draws=JointPosteriorDraws(
-                parameters={
-                    **parameter_draws(design, next(iter(samples.values())).shape[0]),
-                    **samples,
-                },
+                parameters=parameter_draws(design, n_draws),
                 latent_paths=latent_paths
                 if latent_paths is not None
                 else jnp.zeros(
                     (
-                        next(iter(samples.values())).shape[0],
+                        n_draws,
                         len(runtime.times),
                         numeric.n_states(design),
                     )
@@ -108,8 +109,7 @@ def _certified_simulation_context(
         "_outcome_name": outcome,
         "_observation_timestamps": timestamps or [],
         "causal_design": {"causal_design": design.model_dump(mode="json")},
-        "baseline_report": {},
-        "posterior": {"assessment": {"ppc": {"per_variable_warnings": []}}},
+        "posterior": {"ppc": {"per_variable_warnings": []}},
     }
 
 
@@ -163,7 +163,7 @@ def test_execute_tool_surfaces_unexpected_exception_detail(monkeypatch):
     }
 
 
-def test_build_ranking_context_rehydrates_runtime_from_persisted_spec(monkeypatch, tmp_path):
+def test_build_analysis_context_rehydrates_runtime_from_persisted_spec(monkeypatch, tmp_path):
     import polars as pl
 
     from nof1_causal_lab.artifacts.posterior import InferenceReport
@@ -177,9 +177,7 @@ def test_build_ranking_context_rehydrates_runtime_from_persisted_spec(monkeypatc
     design = complete_test_model(
         make_model(["screen_time", "sleep_quality"], [("screen_time", "sleep_quality")])
     )
-    design = design.revised(
-        default_outcome=ConstructRef(id=fixture_entity_id("construct", "sleep_quality"))
-    )
+    design = design.revised(default_outcome=fixture_entity_id("construct", "sleep_quality"))
     check_execution(design)
     conditioned = condition_model(
         design,
@@ -275,7 +273,7 @@ def test_build_ranking_context_rehydrates_runtime_from_persisted_spec(monkeypatc
 
     monkeypatch.setattr(tool_server, "prepare_model_runtime", fake_prepare_model_runtime)
 
-    ctx = tool_server._build_ranking_context("user-123")
+    ctx = tool_server._build_analysis_context("user-123")
 
     assert isinstance(captured["model"], tool_server.SSMModel)
     # The runtime uses the model revision and panel pinned by the posterior.
@@ -287,7 +285,7 @@ def test_build_ranking_context_rehydrates_runtime_from_persisted_spec(monkeypatc
     assert ctx["inference_report"] == report
     assert ctx["_outcome_name"] == "sleep_quality"
     assert ctx["_identifiable_treatments"] == ["screen_time"]
-    again = tool_server._build_ranking_context("user-123")
+    again = tool_server._build_analysis_context("user-123")
     assert again["_simulation"] is ctx["_simulation"]
     assert loads == 1
     new_panel = store.write_version(
@@ -305,7 +303,7 @@ def test_build_ranking_context_rehydrates_runtime_from_persisted_spec(monkeypatc
         )
     )
     with pytest.raises(tool_server.HTTPException, match="conditioned model") as stale:
-        tool_server._build_ranking_context("user-123")
+        tool_server._build_analysis_context("user-123")
     assert stale.value.status_code == 409
     assert loads == 1
     tool_server._load_simulation.cache_clear()
@@ -325,13 +323,6 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
         ),
     )
     n_draws = 2
-    samples = {
-        "vf_0_decay": jnp.full((n_draws,), 0.5),
-        "vf_1_decay": jnp.full((n_draws,), 0.5),
-        "vf_2_Emax": jnp.full((n_draws,), 1.5),
-        "vf_2_EC50": jnp.full((n_draws,), 1.0),
-        "vf_2_n": jnp.full((n_draws,), 2.0),
-    }
     captured_initial_states: list[jnp.ndarray] = []
 
     def fake_vmap_simulate(
@@ -359,12 +350,21 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
     monkeypatch.setattr(tool_server, "vmap_simulate_clamps_from_state", fake_vmap_simulate)
 
     runtime = SimpleNamespace(
-        observations=jnp.zeros((3, 1)),
+        observations=jnp.zeros((3, 2)),
         times=jnp.array([0.0, 1.0, 2.0]),
     )
     ctx = _certified_simulation_context(
-        samples=samples,
-        spec=model_fixture(n_latent=2, dynamics_spec=spec, latent_names=["treat", "outcome"]),
+        n_draws=n_draws,
+        spec=model_fixture(
+            n_latent=2,
+            n_manifest=2,
+            dynamics_spec=spec,
+            latent_names=["treat", "outcome"],
+            diffusion_block=diagonal_diffusion_block(2),
+            t0_chol_block=replace(
+                default_t0_chol_block(2), correlation_support=np.zeros((2, 2), dtype=bool)
+            ),
+        ),
         runtime=runtime,
         treatment="treat",
         outcome="outcome",
@@ -382,10 +382,10 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
     )
     args = {
         "start": {"kind": "abducted"},
-        "outcome": {"id": fixture_entity_id("construct", "outcome")},
+        "outcome": fixture_entity_id("construct", "outcome"),
         "clamps": [
             {
-                "target": {"id": fixture_entity_id("construct", "treat")},
+                "target": fixture_entity_id("construct", "treat"),
                 "mode": "shift",
                 "amount": 1.0,
             }
@@ -393,22 +393,14 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
         "readout": {"horizon_days": 3},
     }
 
-    expected_visualization = {
-        "reference_node_trajectories": {
-            fixture_entity_id("construct", "treat"): [0.5, 0.5, 0.5],
-            fixture_entity_id("construct", "outcome"): [5.0, 5.0, 5.0],
+    expected_trajectories = {
+        fixture_entity_id("construct", "treat"): {
+            "reference_mean": [0.5, 0.5, 0.5, 0.5],
+            "action_mean": [2.0, 2.0, 2.0, 2.0],
         },
-        "action_node_trajectories": {
-            fixture_entity_id("construct", "treat"): [2.0, 2.0, 2.0],
-            fixture_entity_id("construct", "outcome"): [8.0, 8.0, 8.0],
-        },
-        "node_effect_trajectories": {
-            fixture_entity_id("construct", "treat"): [1.5, 1.5, 1.5],
-            fixture_entity_id("construct", "outcome"): [3.0, 3.0, 3.0],
-        },
-        "start_state": {
-            fixture_entity_id("construct", "treat"): 4.0,
-            fixture_entity_id("construct", "outcome"): 5.0,
+        fixture_entity_id("construct", "outcome"): {
+            "reference_mean": [5.0, 5.0, 5.0, 5.0],
+            "action_mean": [8.0, 8.0, 8.0, 8.0],
         },
     }
     expected_start = {
@@ -432,16 +424,18 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
     assert end_state["reference_mean"] == pytest.approx(5.0)
     assert end_state["effect_trajectory"] is None
     assert "rung" not in end_state
-    assert end_state["provenance"]["start_time_index"] == expected_start["time_index"]
-    assert end_state["provenance"]["start_time"] == expected_start["time"]
+    assert "provenance" not in end_state
+    assert end_state["start_time_index"] == expected_start["time_index"]
+    assert end_state["start_time"] == expected_start["time"]
     assert end_state["request"]["start"] == {"kind": "abducted", "time_index": None, "time": None}
     SimulationResult.model_validate(end_state)
     SimulationResult.model_validate(trajectory)
     clamp = end_state["request"]["clamps"][0]
     assert clamp["mode"] == "shift"
     assert clamp["amount"] == 1.0
-    assert clamp["target"]["id"] == fixture_entity_id("construct", "treat")
-    assert end_state["visualization"] == expected_visualization
+    assert clamp["target"] == fixture_entity_id("construct", "treat")
+    assert end_state["trajectories"] == expected_trajectories
+    assert end_state["time_grid_days"] == [0.0, 1.0, 2.0, 3.0]
     assert all(
         jnp.array_equal(initial_states, jnp.array([[2.0, 3.0], [6.0, 7.0]]))
         for initial_states in captured_initial_states
@@ -455,42 +449,44 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
         {"day": 2.0, "effect": 3.0},
         {"day": 3.0, "effect": 3.0},
     ]
-    assert trajectory["provenance"]["start_time_index"] == expected_start["time_index"]
-    assert trajectory["visualization"] == expected_visualization
+    assert trajectory["start_time_index"] == expected_start["time_index"]
+    assert trajectory["trajectories"] == expected_trajectories
 
 
-@pytest.mark.cpu_expensive
-def test_simulate_intervention_dispatches_to_vector_field_path():
-    """A particle posterior drives the true nonlinear baseline-start simulation."""
+@pytest.mark.simulation
+def test_simulate_intervention_matches_nonlinear_hill_response():
+    """Conditioned scientific parameters reach the nonlinear simulation and readout."""
 
     from nof1_causal_lab.models.ssm.dynamics import DynamicsSpec
 
     spec = DynamicsSpec(
         n_latent=2,
         components=(
-            *(decay_term(target=i) for i in range(2)),
+            *(potential_term(target=i, center=0, stiffness=0.5) for i in range(2)),
             hill_term(
                 source=0,
                 target=1,
+                emax=1.5,
+                ec50=1,
+                n=2,
             ),
         ),
     )
-    n_draws = 4
-    samples = {
-        "vf_0_decay": jnp.full((n_draws,), 0.5),
-        "vf_1_decay": jnp.full((n_draws,), 0.5),
-        "vf_2_Emax": jnp.full((n_draws,), 1.5),
-        "vf_2_EC50": jnp.full((n_draws,), 1.0),
-        "vf_2_n": jnp.full((n_draws,), 2.0),
-    }
-
     runtime = SimpleNamespace(
-        observations=jnp.zeros((3, 1)),
+        observations=jnp.zeros((3, 2)),
         times=jnp.array([0.0, 1.0, 2.0]),
     )
     ctx = _certified_simulation_context(
-        samples=samples,
-        spec=model_fixture(n_latent=2, dynamics_spec=spec, latent_names=["src", "tgt"]),
+        n_draws=2,
+        spec=model_fixture(
+            n_latent=2,
+            dynamics_spec=spec,
+            latent_names=["src", "tgt"],
+            diffusion_block=diagonal_diffusion_block(2),
+            t0_chol_block=replace(
+                default_t0_chol_block(2), correlation_support=np.zeros((2, 2), dtype=bool)
+            ),
+        ),
         runtime=runtime,
         treatment="src",
         outcome="tgt",
@@ -502,10 +498,10 @@ def test_simulate_intervention_dispatches_to_vector_field_path():
     )
     args = {
         "start": {"kind": "baseline"},
-        "outcome": {"id": fixture_entity_id("construct", "tgt")},
+        "outcome": fixture_entity_id("construct", "tgt"),
         "clamps": [
             {
-                "target": {"id": fixture_entity_id("construct", "src")},
+                "target": fixture_entity_id("construct", "src"),
                 "mode": "shift",
                 "amount": 0.5,
             }
@@ -515,86 +511,24 @@ def test_simulate_intervention_dispatches_to_vector_field_path():
 
     response = tool_server._execute_simulate(ctx, args)
     result = response["result"]
-    assert "error" not in result, f"vector-field dispatch failed: {result}"
+    SimulationResult.model_validate(result)
     assert result["request"]["start"]["kind"] == "baseline"
     assert result["request"]["readout"]["estimand"] == "end_state"
-    # Effect on tgt from shifting src up should be positive (Hill saturates).
-    summary = result["summary"]
-    assert summary["mean"] > 0
-    # Almost-certainly-positive contrast — Hill is monotonic in src
-    assert summary["prob_positive"] == pytest.approx(1.0)
-
-
-@pytest.mark.cpu_expensive
-def test_simulate_counterfactual_dispatches_to_vector_field_path():
-    """Rung-3 on vector-field starts from retained fitted trajectory draws."""
-
-    from nof1_causal_lab.models.ssm.dynamics import DynamicsSpec
-
-    spec = DynamicsSpec(
-        n_latent=2,
-        components=(
-            *(decay_term(target=i) for i in range(2)),
-            hill_term(
-                source=0,
-                target=1,
-            ),
-        ),
-    )
-    n_draws = 3
-    samples = {
-        "vf_0_decay": jnp.full((n_draws,), 0.5),
-        "vf_1_decay": jnp.full((n_draws,), 0.5),
-        "vf_2_Emax": jnp.full((n_draws,), 1.5),
-        "vf_2_EC50": jnp.full((n_draws,), 1.0),
-        "vf_2_n": jnp.full((n_draws,), 2.0),
-    }
-    latent_paths = jnp.tile(jnp.array([[1.0, 0.5], [0.9, 0.6], [0.8, 0.7]]), (n_draws, 1, 1))
-    runtime = SimpleNamespace(
-        observations=jnp.zeros((3, 1)),
-        times=jnp.array([0.0, 1.0, 2.0]),
-    )
-    ctx = _certified_simulation_context(
-        samples=samples,
-        spec=model_fixture(n_latent=2, dynamics_spec=spec, latent_names=["src", "tgt"]),
-        runtime=runtime,
-        treatment="src",
-        outcome="tgt",
-        latent_paths=latent_paths,
-        timestamps=[
-            datetime(2024, 1, 1, tzinfo=UTC),
-            datetime(2024, 1, 2, tzinfo=UTC),
-            datetime(2024, 1, 3, tzinfo=UTC),
-        ],
-    )
-    args = {
-        "start": {"kind": "abducted"},
-        "outcome": {"id": fixture_entity_id("construct", "tgt")},
-        "clamps": [
-            {
-                "target": {"id": fixture_entity_id("construct", "src")},
-                "mode": "shift",
-                "amount": 0.5,
-            }
-        ],
-        "readout": {"horizon_days": 3, "estimand": "end_state"},
-    }
-
-    response = tool_server._execute_simulate(ctx, args)
-    result = response["result"]
-    assert "error" not in result, f"vector-field abducted start failed: {result}"
-    assert result["request"]["readout"]["estimand"] == "end_state"
-    assert result["request"]["start"]["kind"] == "abducted"
-    assert result["provenance"]["start_time_index"] == 2
-    assert result["provenance"]["start_time"] == "2024-01-03T00:00:00+00:00"
-    # Shift on src should produce a positive effect on tgt via the Hill chain
-    assert result["summary"]["mean"] > 0
+    # src is held at 0.5, so Hill(src) = 1.5 * 0.5² / (1 + 0.5²) = 0.3.
+    # tgt' = -0.5*tgt + 0.3, with tgt(0) = 0: tgt(t) = 0.6*(1-exp(-0.5*t)).
+    times = np.arange(4.0)
+    expected = 0.6 * (1.0 - np.exp(-0.5 * times))
+    assert result["summary"]["mean"] == pytest.approx(expected[-1], abs=1e-4)
+    assert result["summary"]["prob_positive"] == pytest.approx(1.0)
+    assert result["reference_mean"] == pytest.approx(0.0, abs=1e-5)
+    trajectory = result["trajectories"][fixture_entity_id("construct", "tgt")]
+    np.testing.assert_allclose(trajectory["action_mean"], expected, atol=1e-4)
 
 
 def test_get_tool_schemas_exposes_declared_result_schema():
     client = TestClient(tool_server.app)
 
-    response = client.get("/api/tools/ranking")
+    response = client.get("/api/tools/analysis")
 
     assert response.status_code == 200
     tools = {tool["name"]: tool for tool in response.json()}
@@ -644,14 +578,13 @@ def test_get_model_info_uses_structure_for_variables_and_treatments():
                 )
             ),
         ),
-        default_outcome=ConstructRef(id=model.constructs[1].id),
+        default_outcome=model.constructs[1].id,
     )
     model = complete_test_model(model)
     spec = model
     ctx = {
         "model": model.model_dump(mode="json"),
         "posterior": {"inference_metadata": {"method": "marginal_particle_gibbs"}},
-        "baseline_report": {},
         "_prepared_runtime": SimpleNamespace(spec=spec),
         "_fitted_artifact": SimpleNamespace(spec=spec),
         "_identifiable_treatments": ["screen_time"],

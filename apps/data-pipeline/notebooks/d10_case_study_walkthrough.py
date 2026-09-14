@@ -402,7 +402,7 @@ def elicitation(
     math,
     np,
 ):
-    from prior_specification_support import parameter_with_prior as _parameter_with_prior
+    from prior_specification_support import model_with_prior_payloads as _model_with_prior_payloads
 
     from nof1_causal_lab.artifacts.construct import replace_constructs as _replace_constructs
     from nof1_causal_lab.models.likelihoods import observation_law as _observation_law
@@ -475,7 +475,7 @@ def elicitation(
             # blows the prior-predictive width up through the link (C5b).
             _bscale = edge_base * _relax * _anchor / max(anchor_for(_p, data), 0.25)
             priors[f"beta_{_p}_{c}"] = _normal(0.0, _bscale)
-        _entity = _template.get_construct(f"construct:{c}")
+        _entity = next(_item for _item in _template.constructs if _item.name == c)
         if c in _emission:
             _ind, _fam, _link = _emission[c]
             _likelihood = LikelihoodSpec(
@@ -509,19 +509,26 @@ def elicitation(
             )
         )
         _proposal = _complete_slots(_proposal)
+        _proposal = _model_with_prior_payloads(
+            _proposal,
+            {
+                _p.id: {**priors[_p.name], "reference_interval_days": DT}
+                for _p in _proposal.parameters
+                if _p.name in priors
+            },
+        )
         _entity = _proposal.get_construct(_entity.id)
         _edges = tuple(edge for edge in _proposal.edges if edge.effect.id == _entity.id)
         _referenced = _parameter_ids(_entity, *_edges)
         return ConstructContribution(
             construct=_entity,
             edges=_edges,
-            parameters=tuple(
-                _parameter_with_prior(_p, {**priors[_p.name], "reference_interval_days": DT})
-                if _p.name in priors
-                else _p
+            parameters=tuple(_p for _p in _proposal.parameters if _p.id in _referenced),
+            distributions={
+                _p.distribution: _proposal.distributions[_p.distribution]
                 for _p in _proposal.parameters
-                if _p.id in _referenced
-            ),
+                if _p.id in _referenced and _p.distribution is not None
+            },
             edge_parents=tuple(_parents[c]),
         )
 
@@ -673,7 +680,7 @@ def summary_md(mo):
     mo.md(r"""
     ## 5. Outcome
 
-    The board below is read straight off the live `AdmissionReport` objects — every verdict is
+    The board below is read straight off the live `ConstructAdmissionReport` objects — every verdict is
     the production battery's, not a narrated recollection.
     """)
     return

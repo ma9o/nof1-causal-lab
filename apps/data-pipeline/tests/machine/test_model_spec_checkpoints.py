@@ -11,8 +11,8 @@ from nof1_causal_lab.artifacts.expressions import (
 from nof1_causal_lab.artifacts.expressions import (
     state as expr_state,
 )
-from nof1_causal_lab.artifacts.identity import ConstructRef
-from nof1_causal_lab.artifacts.mechanism import DynamicsMechanism
+from nof1_causal_lab.artifacts.identity import ConstructId, ConstructRef
+from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
@@ -33,6 +33,7 @@ from nof1_causal_lab.machine.temporal.model_spec_checkpoints import (
     write_initial_model_spec_checkpoint,
     write_model_spec_admission_evaluation,
 )
+from nof1_causal_lab.models.model_distributions import parameter_distribution_id
 from tests.helpers import make_model
 from tests.slot_fixtures import fixture_parameter_id
 
@@ -41,26 +42,29 @@ if TYPE_CHECKING:
 
 
 def _entity(name):
-    from nof1_causal_lab.artifacts.coefficient import ParameterCoefficient
-    from nof1_causal_lab.artifacts.state_distribution import InnovationSpec
+    from nof1_causal_lab.artifacts.expressions import coefficient
 
     construct = make_model([name]).constructs[0]
-    reference = ParameterCoefficient(
-        parameter_id=fixture_parameter_id(SiteKind.DIFFUSION_DIAG, [ConstructRef(id=construct.id)])
-    )
-    return construct.model_copy(update={"innovation": InnovationSpec(scale=reference)})
+    reference = fixture_parameter_id(SiteKind.DIFFUSION_DIAG, [ConstructRef(id=construct.id)])
+    return construct.with_coefficients(coefficient(reference, "diffusion_scale"))
 
 
-def _parameters(name, scale):
+def _parameters(name):
     owner = ConstructRef(id=_entity(name).id)
     return (
         ParameterSpec(
             id=fixture_parameter_id(SiteKind.DIFFUSION_DIAG, [owner]),
             name=f"sigma_{name}",
             description="Test diffusion",
-            distribution=dist.HalfNormal(scale),
+            distribution=parameter_distribution_id(
+                fixture_parameter_id(SiteKind.DIFFUSION_DIAG, [owner])
+            ),
         ),
     )
+
+
+def _distributions(name, scale):
+    return {_parameters(name)[0].distribution: dist.HalfNormal(scale)}
 
 
 def _workspace(monkeypatch, tmp_path) -> str:
@@ -73,7 +77,6 @@ def _workspace(monkeypatch, tmp_path) -> str:
 def test_accepted_checkpoint_is_immutable_and_idempotent(monkeypatch, tmp_path):
     workspace_id = _workspace(monkeypatch, tmp_path)
     pins: dict[ArtifactId, int] = {
-        "question": 1,
         "identification_report": 2,
         "panel": 3,
         "validation_report": 3,
@@ -95,7 +98,8 @@ def test_accepted_checkpoint_is_immutable_and_idempotent(monkeypatch, tmp_path):
         edges=(),
         submission_id="tool-call-1",
         entity=_entity("sleep"),
-        parameters=_parameters("sleep", 0.5),
+        parameters=_parameters("sleep"),
+        distributions=_distributions("sleep", 0.5),
         results=[
             {
                 "check": "C2 latent scale",
@@ -142,7 +146,8 @@ def test_admission_evaluation_key_is_scoped_to_causal_ancestors(monkeypatch, tmp
         edges=(),
         submission_id="submission-a",
         entity=_entity("A"),
-        parameters=_parameters("A", 0.2),
+        parameters=_parameters("A"),
+        distributions=_distributions("A", 0.2),
         outcome="ADMITTED",
         feedback="accepted",
     )
@@ -150,7 +155,8 @@ def test_admission_evaluation_key_is_scoped_to_causal_ancestors(monkeypatch, tmp
         edges=(),
         submission_id="submission-b",
         entity=_entity("B"),
-        parameters=_parameters("B", 0.3),
+        parameters=_parameters("B"),
+        distributions=_distributions("B", 0.3),
         outcome="ADMITTED",
         feedback="accepted",
     )
@@ -168,7 +174,8 @@ def test_admission_evaluation_key_is_scoped_to_causal_ancestors(monkeypatch, tmp
         "construct": _entity("X"),
         "edges": (),
         "construct_name": "X",
-        "parameters": _parameters("X", 0.5),
+        "parameters": _parameters("X"),
+        "distributions": _distributions("X", 0.5),
         "accept": [],
         "n_draws": 200,
         "seed": 0,
@@ -183,14 +190,14 @@ def test_admission_evaluation_key_is_scoped_to_causal_ancestors(monkeypatch, tmp
         update={
             "accepted_constructs": [
                 accepted_a,
-                accepted_b.model_copy(update={"parameters": _parameters("B", 99.0)}),
+                accepted_b.model_copy(update={"distributions": _distributions("B", 99.0)}),
             ]
         }
     )
     changed_ancestor = checkpoint.model_copy(
         update={
             "accepted_constructs": [
-                accepted_a.model_copy(update={"parameters": _parameters("A", 99.0)}),
+                accepted_a.model_copy(update={"distributions": _distributions("A", 99.0)}),
                 accepted_b,
             ]
         }
@@ -331,6 +338,7 @@ def test_target_restore_uses_only_its_causal_ancestor_closure(monkeypatch):
                 submission_id=f"submission-{name}",
                 entity=_entity(name),
                 parameters=(),
+                distributions={},
                 outcome="ADMITTED",
                 feedback="accepted",
             )
@@ -412,6 +420,7 @@ def test_rebase_retains_independent_branch_and_reopens_failed_descendants(monkey
             submission_id=f"submission-{name}",
             entity=_entity(name),
             parameters=(),
+            distributions={},
             outcome="ADMITTED",
             feedback="accepted",
         )
@@ -423,7 +432,6 @@ def test_rebase_retains_independent_branch_and_reopens_failed_descendants(monkey
         seq=1,
         checkpoint_index=3,
         input_pins={
-            "question": 1,
             "identification_report": 1,
             "panel": 1,
             "validation_report": 1,
@@ -444,15 +452,14 @@ def test_rebase_retains_independent_branch_and_reopens_failed_descendants(monkey
 
 
 def test_admission_evaluation_key_tracks_fixed_mechanism_choices():
-    from nof1_causal_lab.artifacts.coefficient import FixedCoefficient
 
-    mechanism = DynamicsMechanism(
+    mechanism = DynamicsMechanismSpec(
         id="mechanism:checkpoint-hill",
         expression=expr_hill(
-            expr_state("construct:A"),
-            emax=FixedCoefficient(value=1),
-            ec50=FixedCoefficient(value=1),
-            n=FixedCoefficient(value=2),
+            expr_state(ConstructId("construct:A")),
+            emax=1,
+            ec50=1,
+            n=2,
         ),
     )
 
@@ -464,6 +471,7 @@ def test_admission_evaluation_key_tracks_fixed_mechanism_choices():
             construct_name="B",
             construct=_entity("B"),
             parameters=(),
+            distributions={},
             edges=(
                 make_model(["A", "B"], [("A", "B")])
                 .edges[0]
@@ -479,7 +487,7 @@ def test_admission_evaluation_key_tracks_fixed_mechanism_choices():
     changed = map_expression(
         mechanism.expression,
         lambda node: (
-            CoefficientExpression(role="exponent", coefficient=FixedCoefficient(value=3))
+            CoefficientExpression(role="exponent", value=3)
             if isinstance(node, CoefficientExpression) and node.role == "exponent"
             else node
         ),

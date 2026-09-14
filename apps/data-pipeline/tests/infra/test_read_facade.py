@@ -44,39 +44,39 @@ def test_artifact_endpoint_serves_pinned_versions(monkeypatch, tmp_path):
     monkeypatch.setenv("EPISODE_FACADE_READ_ONLY", "1")
     store = ArtifactStore("WS-ART")
     question = store.write_version(
-        "question",
+        "model",
         provenance="human",
         derived_from={},
         produced_by=None,
-        json_files={"question.json": {"text": "does X cause Y?"}},
+        json_files={"model.json": {"question": "does X cause Y?"}},
     )
     client = TestClient(create_read_facade_app())
 
-    pinned = client.get("/api/episodes/WS-ART/artifacts/question", params={"version": 1})
+    pinned = client.get("/api/episodes/WS-ART/artifacts/model", params={"version": 1})
     assert pinned.status_code == 200
     body = pinned.json()
-    assert body["payload"]["question.json"] == {"text": "does X cause Y?"}
+    assert body["payload"]["model.json"] == {"question": "does X cause Y?"}
     assert body["meta"]["provenance"] == "human"
     assert body["binary_files"] == []
 
     # Explicit version reads can inspect an uncommitted artifact, but it does
     # not become the current version until an applied move records the effect.
-    assert client.get("/api/episodes/WS-ART/artifacts/question").status_code == 404
+    assert client.get("/api/episodes/WS-ART/artifacts/model").status_code == 404
     EpisodeJournal("WS-ART").append(
         TransitionRecord(
             seq=1,
             ts="2026-07-09T00:00:00+00:00",
-            move=WriteArtifact(artifact_id="question"),
+            move=WriteArtifact(artifact_id="model", expected_model_version=0),
             status="applied",
             produced=[question],
             trace_ids=[],
             resume=None,
         )
     )
-    current = client.get("/api/episodes/WS-ART/artifacts/question")
+    current = client.get("/api/episodes/WS-ART/artifacts/model")
     assert current.status_code == 200
-    assert current.json()["payload"]["question.json"] == {"text": "does X cause Y?"}
-    missing = client.get("/api/episodes/WS-ART/artifacts/question", params={"version": 7})
+    assert current.json()["payload"]["model.json"] == {"question": "does X cause Y?"}
+    missing = client.get("/api/episodes/WS-ART/artifacts/model", params={"version": 7})
     assert missing.status_code == 404
 
 
@@ -169,17 +169,17 @@ def test_workspaces_endpoint_lists_episode_questions(monkeypatch, tmp_path):
 
     store = ArtifactStore("WS-LIST")
     question = store.write_version(
-        "question",
+        "model",
         provenance="human",
         derived_from={},
         produced_by=None,
-        json_files={"question.json": {"text": "does X cause Y?"}},
+        json_files={"model.json": {"question": "does X cause Y?"}},
     )
     EpisodeJournal("WS-LIST").append(
         TransitionRecord(
             seq=1,
             ts="2026-07-09T00:00:00+00:00",
-            move=WriteArtifact(artifact_id="question"),
+            move=WriteArtifact(artifact_id="model", expected_model_version=0),
             status="applied",
             produced=[question],
             trace_ids=[],

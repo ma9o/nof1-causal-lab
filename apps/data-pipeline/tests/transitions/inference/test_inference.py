@@ -16,7 +16,6 @@ from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRun
 from nof1_causal_lab.models.ssm.runtime import PreparedModelRuntime
 from tests.model_fixtures import (
     default_diffusion_block,
-    default_input_effect_block,
     default_lambda_block,
     default_manifest_chol_block,
     default_manifest_means_block,
@@ -72,7 +71,6 @@ def _make_fake_model() -> SSMModel:
             manifest_chol_block=default_manifest_chol_block(2),
             t0_means_block=default_t0_means_block(1),
             t0_chol_block=default_t0_chol_block(1),
-            input_effect_block=default_input_effect_block(1),
             static_state_sd_block=default_static_state_sd_block(),
             latent_names=["sleep_state"],
         )
@@ -134,7 +132,6 @@ def _make_runtime(model: SSMModel) -> PreparedModelRuntime:
         ),
         observations=jnp.array([[0.2, 0.8], [jnp.nan, 0.5]], dtype=jnp.float32),
         times=jnp.array([0.0, 1.5], dtype=jnp.float32),
-        transition_inputs=None,
     )
 
 

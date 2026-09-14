@@ -9,6 +9,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 
+from nof1_causal_lab.artifacts.identity import ConstructId
 from nof1_causal_lab.artifacts.likelihood import LinkFunction
 from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.likelihoods import observation_law
@@ -22,7 +23,9 @@ from tests.model_fixtures import full_dense_matrix_dynamics_spec, model_fixture
 class TestBuildObservationKernel:
     def test_likelihood_constructor_rejects_invalid_family_link_pair(self):
         with pytest.raises(ValueError, match="invalid for gaussian"):
-            observation_law("construct:x", DistributionFamily.GAUSSIAN, LinkFunction.LOG)
+            observation_law(
+                ConstructId("construct:x"), DistributionFamily.GAUSSIAN, LinkFunction.LOG
+            )
 
     def test_direct_ssm_spec_rejects_invalid_family_link_pair(self):
         with pytest.raises(ValueError, match="invalid for observation family 'gaussian'"):
@@ -33,7 +36,7 @@ class TestBuildObservationKernel:
                 manifest_links=[LinkFunction.LOG],
             )
 
-    @pytest.mark.cpu_expensive
+    @pytest.mark.predictive
     def test_compiled_model_shares_predictor_semantics_for_likelihood_and_sampling(self):
         manifest_cov = jnp.eye(1)
         model = compile_observation_model(

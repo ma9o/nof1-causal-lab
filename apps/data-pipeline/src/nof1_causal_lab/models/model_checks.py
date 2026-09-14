@@ -6,9 +6,7 @@ import logging
 from collections import Counter, defaultdict
 from typing import TYPE_CHECKING
 
-from nof1_causal_lab.artifacts.execution import ExecutionReadiness
 from nof1_causal_lab.artifacts.indicator import check_semantic_collisions
-from nof1_causal_lab.compilation_errors import IncompleteModelError
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +14,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from nof1_causal_lab.artifacts.execution import AnchorCertificate
+    from nof1_causal_lab.artifacts.identity import ConstructId
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 
@@ -38,14 +37,14 @@ def collect_measurement_compile_errors(
     outcomes = [
         construct
         for construct in model.constructs
-        if model.default_outcome is not None and construct.id == model.default_outcome.id
+        if model.default_outcome is not None and construct.id == model.default_outcome
     ]
     for outcome in outcomes:
         if not outcome.indicators:
             errors.append(f"Outcome construct '{outcome.name}' must have at least one indicator.")
 
-    duplicate_groups: dict[tuple[str, str, str, str, tuple[str, ...]], list[str]] = defaultdict(
-        list
+    duplicate_groups: dict[tuple[ConstructId, str, str, str, tuple[str, ...]], list[str]] = (
+        defaultdict(list)
     )
     for indicator in model.indicators:
         collisions = check_semantic_collisions(indicator.how_to_measure, indicator.aggregation)
@@ -154,12 +153,3 @@ def check_execution(
     numeric.validate_execution(model)
     parameter_bindings(model)
     return tuple(compile_anchor_certificates(model))
-
-
-def execution_readiness(model: ModelSpec) -> ExecutionReadiness:
-    """An incomplete scientific model is an expected finding; invalid choices still fail."""
-    try:
-        anchors = check_execution(model)
-    except IncompleteModelError as exc:
-        return ExecutionReadiness(unmet_requirements=(str(exc),))
-    return ExecutionReadiness(anchor_certificates=anchors)

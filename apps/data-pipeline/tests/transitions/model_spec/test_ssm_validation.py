@@ -18,6 +18,7 @@ from nof1_causal_lab.flows.transitions.model_spec.assembly import (
     validate_assembly,
 )
 from nof1_causal_lab.models.model_checks import check_execution
+from nof1_causal_lab.models.model_distributions import with_parameter_distributions
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.compile.inputs import compile_priors, compile_ssm_inputs_from_model
 from nof1_causal_lab.models.ssm.runtime import build_ssm_model
@@ -31,11 +32,13 @@ def mood_model():
 
 
 def _with_laws(model, laws, intervals=None):
+    model = with_parameter_distributions(
+        model, {p.id: laws[p.name] for p in model.parameters if p.name in laws}
+    )
     return model.revised(
         parameters=tuple(
             parameter.model_copy(
                 update={
-                    **({"distribution": laws[parameter.name]} if parameter.name in laws else {}),
                     **(
                         {"reference_interval_days": intervals[parameter.name]}
                         if intervals is not None and parameter.name in intervals
@@ -109,15 +112,15 @@ def test_materialization_retains_warnings_separately_from_science(mood_model):
             return_value={mood_model.indicators[0].id: [0.1, 0.2]},
         ),
     ):
-        result = materialize_model_spec_result(
+        model, predictive, diagnostics = materialize_model_spec_result(
             model=payload,
             data_for_model=pl.DataFrame(),
-            indicator_audits=None,
             validation=validation,
         )
-    assert result["model"] == payload
-    assert result["validation_warnings"] == [warning.issue]
-    assert result["prior_predictive_samples"] == {mood_model.indicators[0].id: [0.1, 0.2]}
+    assert model.model_dump(mode="json") == payload
+    assert diagnostics == [warning]
+    assert predictive.samples == {mood_model.indicators[0].id: [0.1, 0.2]}
+    assert set(predictive.model_dump()) == {"samples", "diagnostics"}
 
 
 def test_assembly_keeps_diagnostics_outside_the_scientific_model(mood_model):
@@ -255,17 +258,30 @@ def test_incomplete_model_requires_explicit_dynamics_before_compilation():
 def test_missing_scientific_quantity_is_not_invented_by_compiler(mood_model):
     with pytest.raises(ValueError, match="undeclared parameter"):
         mood_model.revised(
+            distributions={
+                k: v
+                for k, v in mood_model.distributions.items()
+                if k
+                not in {
+                    p.distribution
+                    for p in mood_model.parameters
+                    if mood_model.parameter_context(p.id).quantity.value == "diffusion_diag"
+                }
+            },
             parameters=tuple(
                 p
                 for p in mood_model.parameters
                 if mood_model.parameter_context(p.id).quantity.value != "diffusion_diag"
-            )
+            ),
         )
 
 
 def test_missing_prior_is_not_invented_by_compiler(mood_model):
     model = mood_model.revised(
-        parameters=tuple(p.model_copy(update={"distribution": None}) for p in mood_model.parameters)
+        distributions={},
+        parameters=tuple(
+            p.model_copy(update={"distribution": None}) for p in mood_model.parameters
+        ),
     )
     with pytest.raises(ValueError, match="prior"):
         check_execution(model)

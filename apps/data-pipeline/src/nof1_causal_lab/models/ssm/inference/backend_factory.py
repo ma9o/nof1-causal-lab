@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.ssm import numerics as numeric
 
 if TYPE_CHECKING:
@@ -24,10 +25,17 @@ def build_laplace_backend(
         get_per_channel_manifest,
     )
 
+    # Gaussian smoothing is an initialization view only. Its existing covariance
+    # regularization lets it seed exact observations; the particle initialization
+    # then substitutes their exact values and every retained draw uses Delta.
+    warmup_families = [
+        DistributionFamily.GAUSSIAN if family == DistributionFamily.DELTA else family
+        for family in get_per_channel_manifest(spec)
+    ]
     return LaplaceLikelihood(
         n_latent=numeric.n_states(spec),
         n_manifest=numeric.n_observations(spec),
-        manifest_dists=get_per_channel_manifest(spec),
+        manifest_dists=warmup_families,
         manifest_links=get_per_channel_links(spec),
         n_ieks_iters=n_ieks_iters,
         observation_support=observation_support,

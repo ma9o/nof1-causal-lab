@@ -1,46 +1,23 @@
-"""Counterfactual API — Pearl rung-2 / rung-3 estimands.
+"""Runtime interventional and counterfactual simulations over nonlinear dynamics.
 
-This module is a *consumer* of ``models/ssm/dynamics``. It uses the
-vector-field substrate to compute intervention effects (compute_interventions)
-and summarise effect distributions (summarize_draws and
-summarize_temporal_effect).
-
-Rung-3 abduction (recovering the latent state at the evidence boundary)
-is *not* done here: it reads the exact particle-smoother posterior latent
-paths produced by the fit, never a linearised Kalman/RTS smoother.
-
-The dynamics framework itself — vector fields, edges, intervention DSL,
-compilation, discretisation, priors, stability, simulators — lives one
-directory up in ``dynamics/``. Inference consumes from there directly,
-not via this module.
-
-Public API:
-
-- ``compute_interventions`` — Stage-6 orchestrator
-- ``summarize_draws``, ``summarize_temporal_effect``, ``build_time_grid`` —
-  estimand helpers
+Abducted starts use exact particle-smoother latent paths from the conditioned
+model. Timed clamps and forward simulation use the shared dynamics engine.
 """
 
 from __future__ import annotations
 
 from .estimands import (
-    build_time_grid,
     summarize_draws,
-    summarize_temporal_effect,
 )
 from .orchestration import (
     ClampSpec,
     build_segment_bounds,
-    compute_interventions,
     vmap_simulate_clamps_from_state,
 )
 
 __all__ = [
     "ClampSpec",
     "build_segment_bounds",
-    "build_time_grid",
-    "compute_interventions",
     "summarize_draws",
-    "summarize_temporal_effect",
     "vmap_simulate_clamps_from_state",
 ]

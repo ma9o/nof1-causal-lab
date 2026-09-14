@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from functools import cached_property
-from typing import TYPE_CHECKING, override
+from typing import TYPE_CHECKING, cast, override
 
 from pydantic import (
     BaseModel,
@@ -18,13 +18,10 @@ from pydantic import (
 from nof1_causal_lab.compilation_errors import IncompleteModelError
 from nof1_causal_lab.numpyro_json import NumPyroDistribution  # noqa: TC001
 
-from .coefficient import ParameterCoefficient
 from .construct import (
-    CausalEdge,
-    Construct,
-    KnownInput,
+    CausalEdgeSpec,
+    ConstructSpec,
     Role,
-    ScientificOnlyConstruct,
     TemporalStatus,
     _check_edge_constraint,
     _check_global_constraints,
@@ -35,14 +32,13 @@ from .duration import parse_duration_to_hours
 from .expressions import expression_coefficients, expression_states
 from .identity import (  # noqa: TC001
     ConstructId,
-    ConstructRef,
     DistributionId,
     EdgeId,
     IndicatorId,
     MechanismId,
     ParameterId,
 )
-from .indicator import Indicator  # noqa: TC001
+from .indicator import IndicatorSpec  # noqa: TC001
 from .parameter_spec import ParameterSpec  # noqa: TC001
 
 if TYPE_CHECKING:
@@ -50,29 +46,40 @@ if TYPE_CHECKING:
 
     from nof1_causal_lab.models.model_structure import DependencyKey
 
-    from .execution import AnchorCertificate, ExecutionReadiness, StructuralItemDisposition
+    from .execution import AnchorCertificate, StructuralItemDisposition
     from .likelihood import LikelihoodSpec
-    from .mechanism import DynamicsMechanism
+    from .mechanism import DynamicsMechanismSpec
 
 
 class ModelSpec(BaseModel):
-    """One connected causal graph whose endpoints and relationships gain scientific detail."""
+    """An evolving research question and connected causal graph with owned scientific detail."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    edges: tuple[CausalEdge, ...] = Field(min_length=1)
+    question: str | None = Field(default=None, min_length=1)
+    edges: tuple[CausalEdgeSpec, ...] = ()
     parameters: tuple[ParameterSpec, ...] = ()
     distributions: dict[DistributionId, NumPyroDistribution] = Field(
         default_factory=dict,
         description=(
-            "Shared joint laws. Members are the parameters and constructs referring to each ID. "
+            "All explicit probability laws. Members are the parameters and constructs referring to each ID. "
             "Event coordinates are parameters by ID and element ID, then constructs by ID "
-            "and time point. Inline scalar parameter laws apply independently to their elements."
+            "and time point. A scalar law belongs to one parameter and applies independently to its elements."
         ),
     )
     time_points: tuple[FiniteFloat, ...] = ()
     measurement_clock: str | None = None
-    default_outcome: ConstructRef | None = None
+    default_outcome: ConstructId | None = None
+
+    @field_validator("question")
+    @classmethod
+    def validate_question(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            raise ValueError("question text must be non-empty")
+        return value
 
     @field_validator("edges", mode="wrap")
     @classmethod
@@ -86,7 +93,7 @@ class ModelSpec(BaseModel):
             return handler(value)
 
     @property
-    def constructs(self) -> tuple[Construct, ...]:
+    def constructs(self) -> tuple[ConstructSpec, ...]:
         """Enumerate the graph's unique endpoints in first-occurrence order."""
         return tuple(self._constructs.values())
 
@@ -105,21 +112,21 @@ class ModelSpec(BaseModel):
         return value
 
     @cached_property
-    def _constructs(self) -> dict[ConstructId, Construct]:
+    def _constructs(self) -> dict[ConstructId, ConstructSpec]:
         return {
             endpoint.id: endpoint for edge in self.edges for endpoint in (edge.cause, edge.effect)
         }
 
     @cached_property
-    def _edges(self) -> dict[EdgeId, CausalEdge]:
+    def _edges(self) -> dict[EdgeId, CausalEdgeSpec]:
         return {item.id: item for item in self.edges}
 
     @cached_property
-    def _indicators(self) -> dict[IndicatorId, Indicator]:
+    def _indicators(self) -> dict[IndicatorId, IndicatorSpec]:
         return {item.id: item for _, item in self.iter_indicators()}
 
     @cached_property
-    def _indicator_owners(self) -> dict[IndicatorId, Construct]:
+    def _indicator_owners(self) -> dict[IndicatorId, ConstructSpec]:
         return {item.id: owner for owner, item in self.iter_indicators()}
 
     @cached_property
@@ -127,14 +134,14 @@ class ModelSpec(BaseModel):
         return {item.id: item for item in self.parameters}
 
     @cached_property
-    def _mechanisms(self) -> dict[MechanismId, DynamicsMechanism]:
+    def _mechanisms(self) -> dict[MechanismId, DynamicsMechanismSpec]:
         return {item.id: item for _, item in self.iter_mechanisms()}
 
     @cached_property
     def state_order(self) -> tuple[ConstructId, ...]:
         """Execution axes reference the existing measured constructs."""
         self.require_measurements()
-        retained = [item for item in self.constructs if item.indicators and item.usage is None]
+        retained = [item for item in self.constructs if item.indicators]
         return tuple(
             item.id
             for static in (False, True)
@@ -143,27 +150,17 @@ class ModelSpec(BaseModel):
         )
 
     @cached_property
-    def known_inputs(self) -> dict[ConstructId, KnownInput]:
-        return {
-            item.id: item.usage for item in self.constructs if isinstance(item.usage, KnownInput)
-        }
-
-    @cached_property
-    def execution_edges(self) -> tuple[CausalEdge, ...]:
+    def execution_edges(self) -> tuple[CausalEdgeSpec, ...]:
         states = set(self.state_order)
-        causes = states | self.known_inputs.keys()
         return tuple(
-            edge for edge in self.edges if edge.cause.id in causes and edge.effect.id in states
+            edge for edge in self.edges if edge.cause.id in states and edge.effect.id in states
         )
 
     @cached_property
     def manifest_indicator_order(self) -> tuple[IndicatorId, ...]:
         states = set(self.state_order)
-        input_sources = {usage.source_indicator_id for usage in self.known_inputs.values()}
         return tuple(
-            indicator.id
-            for owner, indicator in self.iter_indicators()
-            if owner.id in states and indicator.id not in input_sources
+            indicator.id for owner, indicator in self.iter_indicators() if owner.id in states
         )
 
     @cached_property
@@ -211,35 +208,48 @@ class ModelSpec(BaseModel):
     def parameter_context(self, identity: ParameterId):
         return self._parameter_contexts[identity]
 
-    def get_construct(self, identity: ConstructId) -> Construct:
+    def get_construct(self, identity: ConstructId) -> ConstructSpec:
         return self._constructs[identity]
 
-    def edge(self, identity: EdgeId) -> CausalEdge:
+    def distribution_for(self, identity: ParameterId | ConstructId) -> NumPyroDistribution | None:
+        """Resolve the law a quantity participates in, retaining its full joint dependence."""
+        quantity = (
+            self.parameter(cast("ParameterId", identity))
+            if identity.startswith("parameter:")
+            else self.get_construct(cast("ConstructId", identity))
+        )
+        return (
+            self.distributions[quantity.distribution] if quantity.distribution is not None else None
+        )
+
+    def edge(self, identity: EdgeId) -> CausalEdgeSpec:
         return self._edges[identity]
 
-    def indicator(self, identity: IndicatorId) -> Indicator:
+    def indicator(self, identity: IndicatorId) -> IndicatorSpec:
         return self._indicators[identity]
 
-    def indicator_owner(self, identity: IndicatorId) -> Construct:
+    def indicator_owner(self, identity: IndicatorId) -> ConstructSpec:
         return self._indicator_owners[identity]
 
     def parameter(self, identity: ParameterId) -> ParameterSpec:
         return self._parameters[identity]
 
-    def mechanism(self, identity: MechanismId) -> DynamicsMechanism:
+    def mechanism(self, identity: MechanismId) -> DynamicsMechanismSpec:
         return self._mechanisms[identity]
 
-    def iter_indicators(self) -> Iterator[tuple[Construct, Indicator]]:
+    def iter_indicators(self) -> Iterator[tuple[ConstructSpec, IndicatorSpec]]:
         for construct in self.constructs:
             for indicator in construct.indicators:
                 yield construct, indicator
 
-    def iter_likelihoods(self) -> Iterator[tuple[Indicator, LikelihoodSpec]]:
+    def iter_likelihoods(self) -> Iterator[tuple[IndicatorSpec, LikelihoodSpec]]:
         for _, indicator in self.iter_indicators():
             if indicator.likelihood is not None:
                 yield indicator, indicator.likelihood
 
-    def iter_mechanisms(self) -> Iterator[tuple[Construct | CausalEdge, DynamicsMechanism]]:
+    def iter_mechanisms(
+        self,
+    ) -> Iterator[tuple[ConstructSpec | CausalEdgeSpec, DynamicsMechanismSpec]]:
         for construct in self.constructs:
             for mechanism in construct.dynamics:
                 yield construct, mechanism
@@ -257,7 +267,7 @@ class ModelSpec(BaseModel):
         )
 
     @property
-    def indicators(self) -> tuple[Indicator, ...]:
+    def indicators(self) -> tuple[IndicatorSpec, ...]:
         return tuple(indicator for _, indicator in self.iter_indicators())
 
     @property
@@ -277,12 +287,10 @@ class ModelSpec(BaseModel):
         references = {
             entity.distribution
             for entity in (*self.parameters, *self.constructs)
-            if isinstance(entity.distribution, str)
+            if entity.distribution is not None
         }
         if references != self.distributions.keys():
-            raise ValueError(
-                "Shared distributions must be referenced and every reference must exist"
-            )
+            raise ValueError("Distributions must be referenced and every reference must exist")
         if any(b <= a for a, b in zip(self.time_points, self.time_points[1:], strict=False)):
             raise ValueError("Trajectory time points must be strictly increasing")
         if any(item.distribution is not None for item in self.constructs) and not self.time_points:
@@ -301,7 +309,7 @@ class ModelSpec(BaseModel):
             if len({item.name for item in items}) != len(items):
                 raise ValueError(f"Duplicate {label} names")
         if self.default_outcome is not None:
-            target = self._constructs.get(self.default_outcome.id)
+            target = self._constructs.get(self.default_outcome)
             if target is None:
                 raise ValueError("Default outcome references an unknown construct")
             if target.role != Role.ENDOGENOUS:
@@ -317,20 +325,11 @@ class ModelSpec(BaseModel):
         for construct in self.constructs:
             if construct.temporal_status == TemporalStatus.TIME_INVARIANT and construct.dynamics:
                 raise ValueError("Time-invariant constructs cannot have intrinsic drift")
-            if isinstance(construct.usage, KnownInput):
-                if construct.usage.source_indicator_id not in {
-                    item.id for item in construct.indicators
-                }:
-                    raise ValueError(
-                        "A known input must use an indicator owned by the same construct"
-                    )
-            elif isinstance(construct.usage, ScientificOnlyConstruct) and not construct.indicators:
-                raise ValueError("A scientific-only declaration requires measurement evidence")
         for owner, mechanism in self.iter_mechanisms():
             dependencies = expression_states(mechanism.expression)
             if unknown := dependencies - self._constructs.keys():
                 raise ValueError(f"Expression references unknown constructs: {sorted(unknown)}")
-            if isinstance(owner, CausalEdge):
+            if isinstance(owner, CausalEdgeSpec):
                 if mechanism.kind == "potential":
                     raise ValueError(
                         "Potentials belong to nodes; directed edges require drift terms"
@@ -347,12 +346,9 @@ class ModelSpec(BaseModel):
             elif dependencies - {owner.id}:
                 raise ValueError("Intrinsic dynamics may reference only their owning construct")
             for operand in expression_coefficients(mechanism.expression):
-                reference = operand.coefficient
-                if (
-                    isinstance(reference, ParameterCoefficient)
-                    and reference.parameter_id in self._parameters
-                ):
-                    value = self.parameter(reference.parameter_id).value
+                reference = operand.value
+                if isinstance(reference, str) and reference in self._parameters:
+                    value = self.parameter(reference).value
                     if value is not None:
                         operand.validate_value(value)
         for indicator, likelihood in self.iter_likelihoods():
@@ -365,6 +361,14 @@ class ModelSpec(BaseModel):
 
         from nof1_causal_lab.models.model_parameters import iter_coefficient_uses
 
+        for construct in self.constructs:
+            unknown = {
+                identity for operand in construct.coefficients for identity in operand.construct_ids
+            } - self._constructs.keys()
+            if unknown:
+                raise ValueError(
+                    f"Construct coefficients reference unknown constructs: {sorted(unknown)}"
+                )
         for use in iter_coefficient_uses(self):
             for owner in use.owners:
                 if owner.id not in {
@@ -374,10 +378,7 @@ class ModelSpec(BaseModel):
                     *self._mechanisms,
                 }:
                     raise ValueError(f"Coefficient {use.slot!r} references an unknown entity")
-            if (
-                isinstance(use.coefficient, ParameterCoefficient)
-                and use.coefficient.parameter_id not in self._parameters
-            ):
+            if isinstance(use.value, str) and use.value not in self._parameters:
                 raise ValueError(f"Coefficient {use.slot!r} references an undeclared parameter")
         if unused := self._parameters.keys() - self._parameter_contexts.keys():
             raise ValueError(f"Parameters are not referenced by component slots: {sorted(unused)}")
@@ -394,6 +395,11 @@ class ModelSpec(BaseModel):
 
             validate_distribution_memberships(self)
         return self
+
+    def require_question(self) -> str:
+        if self.question is None:
+            raise IncompleteModelError("Authoring and extraction require a research question")
+        return self.question
 
     def require_measurements(self) -> None:
         if self.measurement_clock is None or not self.indicators:
@@ -412,9 +418,3 @@ class ModelSpec(BaseModel):
         from nof1_causal_lab.models.model_checks import check_execution
 
         return check_execution(self)
-
-    @cached_property
-    def execution_readiness(self) -> ExecutionReadiness:
-        from nof1_causal_lab.models.model_checks import execution_readiness
-
-        return execution_readiness(self)

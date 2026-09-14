@@ -50,11 +50,9 @@ async def _run_posterior(
     panel = _panel_df(store, pins)
     from functools import cache
 
-    from nof1_causal_lab.machine.derivations import read_model
-    from nof1_causal_lab.machine.inference import inference_input_version
+    from nof1_causal_lab.machine.inference import read_prior_model
 
-    pins = {**pins, "model": inference_input_version(store, pins["model"])}
-    model_spec = read_model(store, pins["model"])
+    model_spec = read_prior_model(store, pins["model"])
     model_spec.check_execution()
 
     result = await asyncio.to_thread(
@@ -99,7 +97,6 @@ _TEMPORAL_ONLY_TRANSITIONS = frozenset(
         "measurement_structure",
         "measurements",
         "statistical_model_spec",
-        "baseline_report",
     }
 )
 

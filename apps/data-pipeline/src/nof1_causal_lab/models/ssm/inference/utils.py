@@ -151,13 +151,11 @@ def _build_eval_fns(
         when requested
     """
     runtime_registry = build_site_registry(model.spec)
-    bound_transition_inputs = model.transition_inputs
 
     def _evaluate_likelihood(
         z,
         eval_observations,
         eval_times,
-        transition_inputs,
         latent_mode_init,
         *,
         with_aux: bool,
@@ -180,7 +178,6 @@ def _build_eval_fns(
         )
         backend_kwargs = {
             "extra_params": extra_params,
-            "transition_inputs": transition_inputs,
         }
         if latent_mode_init is None:
             evaluated = backend_fn(
@@ -214,16 +211,10 @@ def _build_eval_fns(
         if runtime_observations_times:
 
             def _runtime(z, runtime_observations, runtime_times, latent_mode_init=None):
-                runtime_transition_inputs = (
-                    None
-                    if bound_transition_inputs is None
-                    else bound_transition_inputs[: runtime_times.shape[0]]
-                )
                 return _evaluate_likelihood(
                     z,
                     runtime_observations,
                     runtime_times,
-                    runtime_transition_inputs,
                     latent_mode_init,
                     with_aux=with_aux,
                 )
@@ -235,7 +226,6 @@ def _build_eval_fns(
                 z,
                 observations,
                 times,
-                bound_transition_inputs,
                 latent_mode_init,
                 with_aux=with_aux,
             )

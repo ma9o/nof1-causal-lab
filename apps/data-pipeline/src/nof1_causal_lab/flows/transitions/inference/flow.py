@@ -110,10 +110,8 @@ def run_inference_with_data(
         "engine_evidence": asdict(result.evidence),
         "inference_metadata": inference_metadata,
         "inference_diagnostics": fitted_result["inference_diagnostics"],
-        "assessment": {
-            "ppc": ppc_result,
-            "loo_diagnostics": fitted_result.get("loo_diagnostics"),
-        },
+        "ppc": ppc_result,
+        "loo_diagnostics": fitted_result.get("loo_diagnostics"),
         "posterior_marginals": fitted_result.get("posterior_marginals"),
         "posterior_pairs": fitted_result.get("posterior_pairs"),
     }

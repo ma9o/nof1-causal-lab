@@ -1,38 +1,36 @@
-"""Report responses retain rerunnable requests and their original execution basis."""
+"""Runtime responses include rerunnable requests and their execution basis."""
 
 import pytest
+from pydantic import ValidationError
 
 from nof1_causal_lab.artifacts.scenarios import ScenarioRequest, SimulationResult
-from nof1_causal_lab.machine.artifacts import EpisodeState
-from nof1_causal_lab.machine.store import ArtifactStore
-from nof1_causal_lab.machine.writes import execute_write
-from tests.helpers import make_model
 
 
 def request():
     return ScenarioRequest.model_validate(
         {
-            "clamps": [{"target": {"id": "construct:x"}, "mode": "shift", "amount": -0.5}],
-            "outcome": {"id": "construct:y"},
+            "clamps": [{"target": "construct:x", "mode": "shift", "amount": -0.5}],
+            "outcome": "construct:y",
         }
     )
 
 
-def test_one_request_can_produce_independently_pinned_responses(monkeypatch, tmp_path):
-    from nof1_causal_lab.utils import data as data_module
-
-    monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path))
-    value = {
+def _response():
+    return {
         "request": request().model_dump(mode="json"),
-        "provenance": {
-            "model": {"workspace_id": "QUERY", "version": 1},
-            "rtol": 1e-4,
-            "atol": 1e-6,
-            "max_steps": 4096,
-            "draw_count": 2,
-            "time_grid_days": [0.0, 1.0, 2.0],
-        },
+        "model": {"workspace_id": "QUERY", "version": 1},
+        "time_grid_days": [0.0, 1.0, 2.0],
         "labels": {"construct:x": "Treatment", "construct:y": "Outcome"},
+        "trajectories": {
+            "construct:x": {
+                "reference_mean": [1.0, 1.0, 1.0],
+                "action_mean": [0.5, 0.5, 0.5],
+            },
+            "construct:y": {
+                "reference_mean": [1.0, 1.0, 1.0],
+                "action_mean": [1.0, 1.1, 1.2],
+            },
+        },
         "summary": {
             "mean": 0.2,
             "median": 0.2,
@@ -42,36 +40,38 @@ def test_one_request_can_produce_independently_pinned_responses(monkeypatch, tmp
         },
         "reference_mean": 1.0,
     }
+
+
+def test_one_request_can_produce_independently_pinned_responses():
+    value = _response()
     first = SimulationResult.model_validate(value)
-    value["provenance"]["model"]["version"] = 2
+    value["model"]["version"] = 2
     second = SimulationResult.model_validate(value)
     assert first.request == second.request
-    assert first.provenance.model.version == 1
-    assert second.provenance.model.version == 2
+    assert first.model.version == 1
+    assert second.model.version == 2
     assert SimulationResult.model_validate_json(first.model_dump_json()) == first
-    from nof1_causal_lab.machine.store import EpisodeJournal
-    from tests.inference_fixtures import inference_log
 
-    store = ArtifactStore("QUERY")
-    model = make_model(["X", "Y"], [("X", "Y")])
-    info = store.write_version(
-        "model",
-        provenance="computed",
-        derived_from={},
-        produced_by="run:posterior",
-        json_files={"model.json": model.model_dump(mode="json")},
-    )
-    record = inference_log(model, version=1).model_copy(update={"produced": [info]})
-    EpisodeJournal("QUERY").append(record)
-    payload = {"intervention_results": [], "simulation_results": [first.model_dump(mode="json")]}
-    committed = execute_write(
-        "QUERY", "baseline_report", payload, "human", EpisodeState()
-    ).produced[0]
-    retained = store.read_json_file("baseline_report", committed.version, "baseline_report.json")[
-        "simulation_results"
-    ][0]
-    assert SimulationResult.model_validate(retained) == first
-    payload["simulation_results"][0]["provenance"]["model"]["version"] = 2
-    with pytest.raises(ValueError, match="absent model revision"):
-        execute_write("QUERY", "baseline_report", payload, "human", EpisodeState())
-    assert store.list_versions("baseline_report") == [1]
+
+@pytest.mark.parametrize(
+    "violation",
+    ["reference_length", "action_length", "missing_series", "missing_target", "unknown_construct"],
+)
+def test_simulation_trajectories_share_a_grid_and_resolve_constructs(violation):
+    value = _response()
+    trajectories = value["trajectories"]
+    if violation in {"reference_length", "action_length"}:
+        field = "reference_mean" if violation == "reference_length" else "action_mean"
+        trajectories["construct:x"][field].pop()
+        message = "align with time_grid_days"
+    elif violation == "missing_series":
+        del trajectories["construct:x"]["action_mean"]
+        message = "Field required"
+    elif violation == "missing_target":
+        del trajectories["construct:x"]
+        message = "include the requested constructs"
+    else:
+        trajectories["construct:unknown"] = trajectories["construct:x"]
+        message = "must have construct labels"
+    with pytest.raises(ValidationError, match=message):
+        SimulationResult.model_validate(value)

@@ -9,7 +9,7 @@ the jaxtyping imports resolvable for beartype).
 
 import jax.numpy as jnp
 
-from nof1_causal_lab.models.ssm.shapes import Array, Float, FloatScalar, Shaped
+from nof1_causal_lab.models.ssm.shapes import Array, Float, FloatScalar
 
 # Defined locally so the covariance core does not depend on execution contracts.
 CHOL_JITTER = 1e-8
@@ -30,9 +30,6 @@ def symmetrize_with_jitter(
     return symmetrize(M) + eye * jitter
 
 
-
-
-
 def stabilize_covariance_for_cholesky(
     cov: Float[Array, "N N"],
     *,
@@ -44,9 +41,6 @@ def stabilize_covariance_for_cholesky(
     jitter = jnp.maximum(min_eigenvalue - min_eig, 0.0) + min_eigenvalue
     eye = jnp.eye(cov.shape[0], dtype=cov.dtype)
     return cov_sym + jitter * eye, min_eig
-
-
-
 
 
 def logdet_from_cholesky(cholesky: Float[Array, "*batch N N"]) -> Float[Array, "*batch"]:

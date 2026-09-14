@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import ValidationError
 
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.prior_predictive import PriorPredictiveResult
 from nof1_causal_lab.compilation_errors import AggregatedCompileError
 from nof1_causal_lab.json_types import UncheckedJsonObject
 from nof1_causal_lab.models.ssm import numerics as numeric
@@ -15,6 +16,7 @@ from nof1_causal_lab.models.ssm import numerics as numeric
 if TYPE_CHECKING:
     import polars as pl
 
+    from nof1_causal_lab.artifacts.identity import IndicatorId
     from nof1_causal_lab.artifacts.prior import PriorValidationResult
 
 _RECOVERABLE_MODEL_SPEC_ASSEMBLY_ERRORS = (
@@ -133,7 +135,7 @@ def build_exact_prior_predictive_samples(
     data_for_model: pl.DataFrame,
     *,
     n_draws: int = 200,
-) -> dict[str, list[float]]:
+) -> dict[IndicatorId, list[float]]:
     """Simulate the admitted full model once for the persisted Data-vs-Prior view."""
     import jax.numpy as jnp
     import numpy as np
@@ -148,7 +150,6 @@ def build_exact_prior_predictive_samples(
         times=runtime.times,
         observation_support=runtime.observation_support,
         observation_mask=observation_mask,
-        transition_inputs=runtime.transition_inputs,
     )
     assert numeric.observation_ids(runtime.spec) is not None
     observations = np.asarray(predictive["observations"])
@@ -159,30 +160,17 @@ def build_exact_prior_predictive_samples(
     }
 
 
-def _collect_validation_warning_messages(validation: AssemblyValidation) -> list[str]:
-    """Flatten warning diagnostics into user-facing text."""
-    messages = [
-        result.issue
-        for result in validation.diagnostics
-        if result.severity == "warning" and result.issue
-    ]
-    return [message for message in messages if isinstance(message, str)]
-
-
 def materialize_model_spec_result(
     *,
     model: UncheckedJsonObject,
     data_for_model: pl.DataFrame,
-    indicator_audits: dict[str, UncheckedJsonObject] | None,
     validation: AssemblyValidation | None = None,
-    search_queries: dict[str, str] | None = None,
-) -> UncheckedJsonObject:
-    """Materialize the canonical model and separately sourced admission findings."""
+) -> tuple[ModelSpec, PriorPredictiveResult, list[PriorValidationResult]]:
+    """Return the scientific model, its prior-predictive result, and typed validation findings."""
 
     validation = validation or validate_assembly(
         model,
     )
-    del indicator_audits
     model = validation.model or model
     if not validation.is_valid:
         raise ValueError(validation.compile_error)
@@ -190,10 +178,8 @@ def materialize_model_spec_result(
     candidate.check_execution()
     prior_predictive_samples = build_exact_prior_predictive_samples(candidate, data_for_model)
 
-    return {
-        "model": model,
-        "search_queries": search_queries or None,
-        "validation_warnings": _collect_validation_warning_messages(validation) or None,
-        "prior_predictive_samples": prior_predictive_samples,
-        "prior_predictive_diagnostics": [],
-    }
+    return (
+        candidate,
+        PriorPredictiveResult(samples=prior_predictive_samples),
+        validation.diagnostics,
+    )

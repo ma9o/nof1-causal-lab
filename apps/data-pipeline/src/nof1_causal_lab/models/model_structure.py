@@ -3,22 +3,25 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from functools import cached_property
 from hashlib import sha256
 from itertools import combinations
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, override
+
+from pydantic import PrivateAttr
 
 from nof1_causal_lab.artifacts.construct import (
     Role,
-    ScientificOnlyConstruct,
     TemporalStatus,
     replace_constructs,
 )
 from nof1_causal_lab.artifacts.execution import StructuralDisposition, StructuralItemDisposition
+from nof1_causal_lab.artifacts.identity import ConstructRef, EdgeRef, IndicatorRef
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.compilation_errors import AggregatedCompileError
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.identity import ConstructId
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 type DependencyKey = tuple[
     ConstructId, ConstructId, Literal["innovation_correlation", "initial_state_correlation"]
@@ -34,21 +37,19 @@ class StructuralCompilationError(AggregatedCompileError):
 def marginalized_construct_ids(model: ModelSpec) -> frozenset[ConstructId]:
     """Identify eligible unobserved exogenous roots without changing the scientific DAG."""
     from nof1_causal_lab.models.identification import identify_model
-    from nof1_causal_lab.models.model_inputs import identification_input
-    from nof1_causal_lab.utils.identifiability import analyze_unobserved_constructs
 
-    inputs = identification_input(model)
-    analysis = analyze_unobserved_constructs(
-        inputs["graph"],
-        inputs["observations"],
-        identify_model(model).status.model_dump(mode="json"),
-    )
-    candidates = analysis["can_marginalize"]
+    observed = {construct.id for construct in model.constructs if construct.indicators}
+    blocked = {
+        confounder
+        for treatment, finding in identify_model(model).non_identifiable.items()
+        if treatment in observed
+        for confounder in finding.confounders
+    }
     children = {edge.effect.id for edge in model.edges}
     return frozenset(
         construct.id
         for construct in model.constructs
-        if construct.name in candidates
+        if construct.id not in observed | blocked
         and construct.role == Role.EXOGENOUS
         and construct.id not in children
     )
@@ -107,11 +108,23 @@ def dependency_id(key: DependencyKey, sources: tuple[ConstructId, ...]) -> str:
     return f"dependency:{digest}"
 
 
+def unsupported_construct_ids(model: ModelSpec) -> frozenset[ConstructId]:
+    """Required unmeasured parents without an executable marginalization rule."""
+    return frozenset(
+        {
+            edge.cause.id
+            for edge in model.edges
+            if edge.effect.id in model.state_order
+            and not edge.cause.indicators
+            and edge.cause.id not in model.marginalized_construct_ids
+        }
+    )
+
+
 def validate_execution_structure(model: ModelSpec) -> None:
     """Check executable capabilities after the model's intrinsic/reference validation."""
     model.require_measurements()
     states = set(model.state_order)
-    inputs = set(model.known_inputs)
     errors = []
     for edge in model.execution_edges:
         if edge.effect.temporal_status == TemporalStatus.TIME_INVARIANT:
@@ -119,15 +132,13 @@ def validate_execution_structure(model: ModelSpec) -> None:
                 f"Unsupported retained static-target edge {edge.id} "
                 f"({edge.cause.name!r} -> {edge.effect.name!r}). "
                 "The executable SSM has no baseline structural-equation semantics. "
-                "Convert observed baseline quantities to known inputs, reduce the static chain "
-                "before compilation, or retain the relation only in the scientific DAG."
+                "Supply supported baseline structural semantics before executing this relation."
             )
-    unused_inputs = inputs - {edge.cause.id for edge in model.execution_edges}
-    if unused_inputs:
+    unsupported = unsupported_construct_ids(model)
+    if unsupported:
         errors.append(
-            "Known inputs have no outgoing edge into a retained state: "
-            f"{sorted(model.get_construct(identity).name for identity in unused_inputs)}. "
-            "Mark scientific-context-only constructs explicitly instead of compiling unused transition inputs."
+            "Required unmeasured constructs cannot be projected: "
+            f"{sorted(unsupported)}. Supply measurements or supported marginalization semantics."
         )
     manifests = model.manifest_indicator_order
     uncovered = states - {model.indicator_owner(identity).id for identity in manifests}
@@ -147,67 +158,62 @@ def validate_execution_structure(model: ModelSpec) -> None:
 
 def structural_dispositions(model: ModelSpec) -> tuple[StructuralItemDisposition, ...]:
     """Explain the computational treatment of every scientific entity at this revision."""
-    validate_execution_structure(model)
+    model.require_measurements()
+    unsupported = unsupported_construct_ids(model)
     states = set(model.state_order)
-    inputs = set(model.known_inputs)
     edge_ids = {edge.id for edge in model.execution_edges}
     manifests = set(model.manifest_indicator_order)
-    input_indicators = {usage.source_indicator_id for usage in model.known_inputs.values()}
     findings = []
     for construct in model.constructs:
         if construct.id in states:
             disposition = StructuralDisposition.RETAINED_STATE
-            reason = "Measured construct retained as an executable latent state."
-        elif construct.id in inputs:
-            disposition = StructuralDisposition.KNOWN_INPUT
-            reason = "Observed construct compiled as a deterministic transition input."
+            reason = "Measured construct selected as a state; execution requirements are checked separately."
+        elif construct.id in unsupported:
+            disposition = StructuralDisposition.UNSUPPORTED
+            reason = "Required unmeasured cause has no supported marginalization semantics."
         elif construct.id in model.marginalized_construct_ids:
             disposition = StructuralDisposition.MARGINALIZED
             reason = "Safe unobserved exogenous root projected from the executable state vector."
-        elif isinstance(construct.usage, ScientificOnlyConstruct):
-            disposition = StructuralDisposition.IDENTIFICATION_ONLY
-            reason = (
-                "Author explicitly retained this measured construct for scientific context only."
-            )
         else:
             disposition = StructuralDisposition.IDENTIFICATION_ONLY
             reason = "Scientific-DAG construct not retained in the executable state."
         findings.append(
             StructuralItemDisposition(
-                source_id=construct.id,
-                source_kind="construct",
+                target=ConstructRef(id=construct.id),
                 disposition=disposition,
                 reason=reason,
             )
         )
     for edge in model.edges:
         retained = edge.id in edge_ids
+        unsupported_edge = edge.cause.id in unsupported or (
+            retained and edge.effect.temporal_status == TemporalStatus.TIME_INVARIANT
+        )
         findings.append(
             StructuralItemDisposition(
-                source_id=edge.id,
-                source_kind="edge",
-                disposition=StructuralDisposition.RETAINED_EDGE
+                target=EdgeRef(id=edge.id),
+                disposition=StructuralDisposition.UNSUPPORTED
+                if unsupported_edge
+                else StructuralDisposition.RETAINED_EDGE
                 if retained
                 else StructuralDisposition.PROJECTED_EDGE,
-                reason="Both endpoints survive the executable projection."
+                reason="Required relation lacks supported state or baseline semantics."
+                if unsupported_edge
+                else "Both endpoints survive the executable projection."
                 if retained
-                else "At least one endpoint is not an executable retained state or known input.",
+                else "At least one endpoint is not an executable retained state.",
             )
         )
     for indicator in model.indicators:
         if indicator.id in manifests:
             disposition = StructuralDisposition.MANIFEST
             reason = "Indicator retained as a manifest likelihood channel."
-        elif indicator.id in input_indicators:
-            disposition = StructuralDisposition.KNOWN_INPUT_SOURCE
-            reason = "Indicator supplies a deterministic known-input trajectory."
         else:
             disposition = StructuralDisposition.EXCLUDED_INDICATOR
             reason = "Indicator belongs to a construct outside the executable state vector."
         findings.append(
             StructuralItemDisposition(
-                source_id=indicator.id,
-                source_kind="indicator",
+                target=IndicatorRef(id=indicator.id),
                 disposition=disposition,
                 reason=reason,
             )
@@ -227,13 +233,7 @@ def model_for_constructs(model: ModelSpec, keep_names: set[str]) -> ModelSpec:
     edges = {
         edge.id
         for edge in model.execution_edges
-        if edge.effect.id in states
-        and (edge.cause.id in states or edge.cause.id in model.known_inputs)
-    }
-    inputs = {
-        edge.cause.id
-        for edge in model.edges
-        if edge.id in edges and edge.cause.id in model.known_inputs
+        if edge.effect.id in states and edge.cause.id in states
     }
     manifests = {
         identity
@@ -248,33 +248,18 @@ def model_for_constructs(model: ModelSpec, keep_names: set[str]) -> ModelSpec:
     }
     constructs = []
     for construct in model.constructs:
-        noise = construct.innovation if construct.id in states else None
-        initial = construct.initial_state if construct.id in states | confounders else None
-        if noise is not None:
-            noise = noise.model_copy(
-                update={
-                    "loadings": tuple(item for item in noise.loadings if item.other_id in states)
-                }
-            )
-        if initial is not None:
-            initial = initial.model_copy(
-                update={
-                    "correlations": tuple(
-                        item for item in initial.correlations if item.other_id in states
-                    )
-                }
-            )
+        coefficients = tuple(
+            operand
+            for operand in construct.coefficients
+            if construct.id
+            in (states | confounders if operand.role.startswith("initial_") else states)
+            and set(operand.construct_ids) <= states
+        )
         constructs.append(
             construct.model_copy(
                 update={
-                    "usage": ScientificOnlyConstruct(
-                        reason="Outside this cumulative admission scope."
-                    )
-                    if construct.indicators and construct.id not in states | inputs
-                    else construct.usage,
                     "dynamics": construct.dynamics if construct.id in states else (),
-                    "innovation": noise,
-                    "initial_state": initial,
+                    "coefficients": coefficients,
                     "indicators": tuple(
                         indicator.model_copy(
                             update={
@@ -294,7 +279,38 @@ def model_for_constructs(model: ModelSpec, keep_names: set[str]) -> ModelSpec:
     )
     selected_edges = replace_constructs(selected_edges, constructs)
     referenced = referenced_parameter_ids(*constructs, *selected_edges)
-    return model.revised(
+    parameters = tuple(parameter for parameter in model.parameters if parameter.id in referenced)
+    law_references = {item.distribution for item in (*constructs, *parameters)}
+    selected = model.revised(
         edges=selected_edges,
-        parameters=tuple(parameter for parameter in model.parameters if parameter.id in referenced),
+        parameters=parameters,
+        distributions={
+            identity: law
+            for identity, law in model.distributions.items()
+            if identity in law_references
+        },
     )
+    return _AdmissionModel.from_selection(
+        selected, tuple(key for key in model.state_order if key in states)
+    )
+
+
+class _AdmissionModel(ModelSpec):
+    """An operation-local projection; its scope is never authored or serialized."""
+
+    _selected_states: tuple[ConstructId, ...] = PrivateAttr()
+
+    @classmethod
+    def from_selection(cls, model: ModelSpec, states: tuple[ConstructId, ...]) -> _AdmissionModel:
+        selected = cls.model_validate(model.model_dump(mode="python"))
+        object.__setattr__(selected, "_selected_states", states)
+        return selected
+
+    @cached_property
+    @override
+    def state_order(self) -> tuple[ConstructId, ...]:
+        return self._selected_states
+
+    @override
+    def revised(self, **changes: object) -> ModelSpec:
+        return type(self).from_selection(super().revised(**changes), self._selected_states)

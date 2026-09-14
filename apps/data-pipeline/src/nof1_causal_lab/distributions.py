@@ -223,8 +223,8 @@ OBSERVATION_FAMILY_SPECS: Final[tuple[ObservationFamilyCatalogEntry, ...]] = (
         family=DistributionFamily.DELTA,
         summary=(
             "Exact observation of a state or its declared window summary, with no measurement "
-            "noise. Missing observations impose no constraint. Requires constrained inference, "
-            "which the particle backend does not yet support."
+            "noise. Missing observations impose no constraint. Particle inference supports "
+            "direct point bindings; affine and interval constraints are not yet supported."
         ),
         links=("identity",),
     ),

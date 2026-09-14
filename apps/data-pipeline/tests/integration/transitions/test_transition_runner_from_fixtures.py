@@ -89,7 +89,9 @@ def test_inference_advances_model_and_refitting_reuses_original_input(
         )
         info = next(info for info in effects.produced if info.artifact_id == "model")
         assert info.version == version
-        assert info.derived_from == {"model": 1, "panel": 1}
+        # Provenance follows the selected revision. The fitted-input assertion
+        # below checks that both runs recover the original, unconditioned prior.
+        assert info.derived_from == {"model": version - 1, "panel": 1}
         assert effects.diagnostics["input_pins"] == info.derived_from
         assert effects.diagnostics["report"]["inference_diagnostics"] == telemetry
         assert effects.diagnostics["report"]["inference_metadata"]["n_samples"] == 4

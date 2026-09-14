@@ -32,7 +32,6 @@ LLMSubroutineContextKind = Literal[
     "measurement_extraction",
     "latent_structure",
     "measurement_structure",
-    "analysis_commentary",
     "raw_data_ingestion",
     "model_spec_construct",
 ]
@@ -41,7 +40,6 @@ SingleLLMTransitionId = Literal[
     "raw_data",
     "latent_structure",
     "measurement_structure",
-    "baseline_report",
 ]
 TransitionRuntimeStatus = Literal["running", "completed", "failed"]
 
@@ -360,10 +358,6 @@ class SingleLLMTransitionFinalizeInput(BaseModel):
     pins: dict[ArtifactId, int]
     context_ref: str
     result_ref: str | None = None
-    # Finalized scratch trace path; consumed only by finalizers that read the
-    # conversation content (baseline report summary). Promotion to the ledger
-    # happens at journal time, not here.
-    trace_ref: str
 
 
 class StatisticalModelSpecWorkflowInput(BaseModel):

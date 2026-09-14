@@ -7,7 +7,7 @@ import pytest
 def stage1b_simple_latent():
     """Simple chain: Treatment -> Outcome (all observable)."""
     return {
-        "default_outcome": {"kind": "construct", "id": "construct:170504d1ef8631dda85d"},
+        "default_outcome": "construct:170504d1ef8631dda85d",
         "edges": [
             {
                 "cause": {
@@ -35,7 +35,7 @@ def stage1b_simple_latent():
 def stage1b_confounded_latent():
     """Confounded: Treatment -> Outcome, Confounder -> Treatment, Confounder -> Outcome."""
     return {
-        "default_outcome": {"kind": "construct", "id": "construct:170504d1ef8631dda85d"},
+        "default_outcome": "construct:170504d1ef8631dda85d",
         "edges": [
             {
                 "cause": {

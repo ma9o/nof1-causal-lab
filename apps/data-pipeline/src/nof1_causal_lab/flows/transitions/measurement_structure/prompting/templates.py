@@ -51,36 +51,25 @@ Each indicator needs:
 | **computed_rule** | Optional deterministic support-window expression used only when `extraction_mode="computed"` and direct single-column aggregation is not enough. |
 | **extraction_mode** | `"computed"` or `"semantic"` (default). See extraction_mode guidelines below. |
 
-## Known Transition Inputs
+## Exact measurements and source recording
 
-Some measured constructs should enter the state dynamics as observed trajectories rather than as latent states. Declare `construct.usage = {"kind": "known_input", ...}` on each such construct.
+Keep every measured construct in the scientific graph. Exact values belong in an
+indicator's Delta likelihood, with v referencing its construct. This fixes observed
+coordinates without removing the construct's initial law or dynamics. No construct
+usage or execution flag is authored. Required unsupported structure must be revised;
+in particular, the executable SSM cannot yet represent an edge targeting a static state.
 
-Use a known input only when one indicator supplies the realized construct trajectory that should be conditioned on directly. Declaring a known input removes that construct from the latent state vector, removes its source indicator from the measurement likelihood, and compiles its outgoing edges as transition-input effects.
+Set indicator.recording from the source evidence:
+- samples (default): absent readings remain unknown.
+- events: a complete computed event record over the raw dataset's time span; empty
+  sum/count windows are zero. Do not use this for gaps in a sensor or incomplete log.
+- changes: a complete computed change record; last aggregation persists the most recent
+  value across windows. Leading windows remain unknown until the first recorded value.
 
-Each known input needs:
-
-| Field | Description |
-|-------|-------------|
-| **Owner** | The containing construct supplies identity. |
-| **source_indicator_id** | Indicator supplying the trajectory. It must measure the same construct. |
-| **scale** | Positive divisor applied before inference. Use `1.0` unless a deliberate unit conversion is required. |
-| **missing_policy** | `"zero"` when missing means no input during that window, or `"forward_fill"` when the last observed value remains in force. |
-
-Do not declare a construct as a known input when its measurement uncertainty should be modeled as a latent state. Omit `usage` for ordinary latent constructs.
-
-The executable N-of-1 SSM has no baseline structural-equation block for edges
-whose target is time-invariant. When a measured time-invariant construct is a
-realized subject attribute (for example genotype, age, or baseline history),
-declare it as a known input. Otherwise list it under
-`construct.usage = {"kind": "scientific_only", "reason": "..."}`, leave it unmeasured, or revise the latent structure;
-the structural compiler rejects an
-unresolved retained static-target edge instead of dropping it.
-
-Use `construct.usage = {"kind": "scientific_only", "reason": "..."}` for measured constructs whose evidence should
-remain available for scientific interpretation or identification but which
-must not create a latent state or transition input. Each entry requires the
-construct name and a substantive reason. A construct cannot appear in both
-`construct.usage` and `construct.usage = {"kind": "scientific_only", "reason": "..."}`.
+first/last aggregation alone selects a point and does not establish persistence.
+Put unit conversion in computed_rule (for example last(dose_mg) / 10). A deterministic
+extraction recipe does not by itself establish measurement certainty. Sparse exact
+points also do not define a continuous trajectory between them.
 
 ### measurement_dtype
 
@@ -239,7 +228,7 @@ Supported units: `s` (seconds), `m` (minutes), `h` (hours), `d` (days), `w` (wee
 
 ## Output Schema
 
-Submit the FULL candidate Model using the tool's `model_json` argument. Keep all existing IDs and retained scientific details. Attach each indicator to its construct's `indicators` array. Set the root `measurement_clock`. A construct's optional `usage` is either a known-input declaration or a scientific-only declaration, never both. Do not add parallel measurement catalogs or repeated owner IDs.
+Submit the FULL candidate Model using the tool's `model_json` argument. Keep all existing IDs and retained scientific details. Attach each indicator to its construct's `indicators` array. Set the root `measurement_clock`. Do not add parallel measurement catalogs or repeated owner IDs.
 
 Example of an enriched construct at a `Model.edges` endpoint (`cause` or `effect`). Define it once; other endpoints with the same ID remain construct references:
 ```json
@@ -258,13 +247,7 @@ Example of an enriched construct at a `Model.edges` endpoint (`cause` or `effect
     "aggregation": "sum",
     "source_columns": ["steps"],
     "extraction_mode": "computed"
-  }],
-  "usage": {
-    "kind": "known_input",
-    "source_indicator_id": "indicator:i1",
-    "scale": 1.0,
-    "missing_policy": "zero"
-  }
+  }]
 }
 ```
 The full Model also retains `edges`, `parameters`, `default_outcome`, and `policies`. A correction or deletion must repair every affected reference in the same candidate. Do not add likelihoods or dynamics solely to satisfy missing fields: they can remain undeclared until the corresponding scientific decisions are made.
@@ -272,8 +255,10 @@ The full Model also retains `edges`, `parameters`, `default_outcome`, and `polic
 ## Validation Tool
 
 You have access to `validate_measurement_structure` tool. It checks:
-1. Schema and compiler-level measurement constraints
-2. Known-input/scientific-only references and the resulting execution structure
+1. Scientific schema and measurement constraints
+2. Source recording semantics
+
+Execution requirements are separate findings. Preserve unmeasured confounders and negative identification findings; do not invent measurements to force a model to execute.
 
 Keep validating until you get "VALID".
 
@@ -315,7 +300,7 @@ Operationalize constructs as indicators using the available data columns. Rememb
 - Multiple indicators per construct improve reliability
 - Choose appropriate dtypes and aggregation functions for each indicator
 - If cleanup leaves a construct with zero viable indicators, remove the construct instead of keeping an unmeasured latent
-- Declare `usage` only on constructs requiring a known-input or scientific-only choice
+- Declare source recording semantics on indicators; keep execution selection derived
 
 Think very hard.
 """
@@ -343,7 +328,7 @@ Review your proposed measurement structure for operationalization coherence.
 10. **Missingness semantics**: For `"semantic"` indicators, does `how_to_measure` clearly distinguish observed negative (`0` or equivalent) from no usable observation (`null`)?
 11. **Parsimony/stability**: Did you introduce a broader semantic proxy, a gratuitously renamed indicator, or a wider support window where a narrower deterministic operationalization would suffice?
 12. **Dead measurement cleanup**: Does any construct survive only via indicators that are unsupported, constant, or unusable? If so, remove those indicators; if nothing viable remains, remove the construct and its edges.
-13. **Known inputs**: Does every declaration have a direct source indicator for the same construct, with missingness semantics that justify `zero` or `forward_fill`? Should any declared input instead remain latent because its measurement uncertainty matters?
+13. **Source recording**: Is completeness justified for events/changes? Do missing sensor readings remain unknown? Exactness belongs in the Delta law, with dynamics retained.
 
 ## Red Flags
 

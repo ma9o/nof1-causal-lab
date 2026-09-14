@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from nof1_causal_lab.artifacts.coefficient import FixedCoefficient, ParameterCoefficient
-from nof1_causal_lab.artifacts.construct import CausalEdge, KnownInput
+from nof1_causal_lab.artifacts.construct import CausalEdgeSpec
 from nof1_causal_lab.artifacts.expressions import (
     CoefficientExpression,
     expression_states,
@@ -18,24 +17,21 @@ from nof1_causal_lab.models.ssm.dynamics.expression import ExpressionComponentSp
 if TYPE_CHECKING:
     from collections.abc import Collection, Iterator, Sequence
 
-    from nof1_causal_lab.artifacts.construct import Construct
-    from nof1_causal_lab.artifacts.mechanism import DynamicsMechanism
+    from nof1_causal_lab.artifacts.construct import ConstructSpec
+    from nof1_causal_lab.artifacts.identity import ConstructId
+    from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 
 def _is_projected_loading(
-    owner: Construct | CausalEdge,
-    mechanism: DynamicsMechanism,
+    owner: ConstructSpec | CausalEdgeSpec,
+    mechanism: DynamicsMechanismSpec,
     retained_states: Collection[str],
 ) -> bool:
-    if (
-        not isinstance(owner, CausalEdge)
-        or owner.cause.id in retained_states
-        or isinstance(owner.cause.usage, KnownInput)
-    ):
+    if not isinstance(owner, CausalEdgeSpec) or owner.cause.id in retained_states:
         return False
     weight = linear_coefficient(mechanism.expression, owner.cause.id)
-    if not isinstance(weight, FixedCoefficient):
+    if not isinstance(weight, (int, float)):
         raise ValueError("Marginalized confounders support fixed linear loadings")
     return True
 
@@ -49,7 +45,7 @@ def lower_mechanisms(model: ModelSpec) -> tuple[ExpressionComponentSpec, ...]:
     for owner, mechanism in model.iter_mechanisms():
         if _is_projected_loading(owner, mechanism, states):
             continue
-        if isinstance(owner, CausalEdge):
+        if isinstance(owner, CausalEdgeSpec):
             if owner.id not in retained_edges:
                 raise ValueError(f"Mechanism references unknown retained edge {owner.id!r}")
             dependencies = expression_states(mechanism.expression)
@@ -77,35 +73,22 @@ def lower_mechanisms(model: ModelSpec) -> tuple[ExpressionComponentSpec, ...]:
 
 
 def iter_mechanism_components(
-    model: ModelSpec, state_order: Sequence[str]
-) -> Iterator[tuple[DynamicsMechanism, ExpressionComponentSpec]]:
+    model: ModelSpec, state_order: Sequence[ConstructId]
+) -> Iterator[tuple[DynamicsMechanismSpec, ExpressionComponentSpec]]:
     """Emit a bound expression alongside the exact scientific term that produced it."""
     state_index = {key: index for index, key in enumerate(state_order)}
-    input_edges: set[str] = set()
 
     def resolve_constant(node):
-        if isinstance(node, CoefficientExpression) and isinstance(
-            node.coefficient, ParameterCoefficient
-        ):
-            value = model.parameter(node.coefficient.parameter_id).value
+        if isinstance(node, CoefficientExpression) and isinstance(node.value, str):
+            value = model.parameter(node.value).value
             if value is not None:
-                return CoefficientExpression(
-                    role=node.role, coefficient=FixedCoefficient(value=value)
-                )
+                return CoefficientExpression(role=node.role, value=value)
         return node
 
     for owner, mechanism in model.iter_mechanisms():
         if _is_projected_loading(owner, mechanism, state_index):
             continue
-        if isinstance(owner, CausalEdge):
-            if isinstance(owner.cause.usage, KnownInput):
-                linear_coefficient(mechanism.expression, owner.cause.id)
-                if owner.id in input_edges:
-                    raise ValueError(
-                        "Known-input edges support one linear expression per input matrix cell"
-                    )
-                input_edges.add(owner.id)
-                continue
+        if isinstance(owner, CausalEdgeSpec):
             target = state_index[owner.effect.id]
         else:
             target = state_index[owner.id]
@@ -115,7 +98,7 @@ def iter_mechanism_components(
                 expression=map_expression(mechanism.expression, resolve_constant),
                 target=target,
                 state_ids=tuple(state_order),
-                source=state_index[owner.cause.id] if isinstance(owner, CausalEdge) else None,
+                source=state_index[owner.cause.id] if isinstance(owner, CausalEdgeSpec) else None,
                 kind=mechanism.kind,
             ),
         )

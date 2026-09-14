@@ -83,14 +83,14 @@ def certify_identified_estimand(
         (
             construct.name
             for construct in model.constructs
-            if default_outcome is not None and construct.id == default_outcome.id
+            if default_outcome is not None and construct.id == default_outcome
         ),
         None,
     )
     if (
         default_outcome is None
         or outcome != declared_outcome
-        or identification.outcome != default_outcome.id
+        or identification.outcome != default_outcome
     ):
         raise ValueError(
             f"{outcome!r} does not match the outcome covered by the model identification"
@@ -98,8 +98,8 @@ def certify_identified_estimand(
     construct_ids = {construct.name: construct.id for construct in model.constructs}
     if treatment not in construct_ids:
         raise ValueError(f"{treatment!r} is not a construct in the model")
-    details = identification.status.identifiable_treatments.get(construct_ids[treatment])
-    if details is None:
+    details = identification.treatments.get(construct_ids[treatment])
+    if details is None or details.status != "identified":
         raise ValueError(f"effect of {treatment!r} on {outcome!r} is not identified")
     return IdentifiedEstimand(
         model=model_revision,

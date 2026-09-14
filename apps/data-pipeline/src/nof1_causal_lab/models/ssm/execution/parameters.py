@@ -68,6 +68,5 @@ def assemble_model_matrices(
         "manifest_cov": manifest_chol @ manifest_chol.T,
         "t0_means": numeric.initial_mean_block(spec).assemble(values.get("t0_means_free")),
         "t0_cov": initial_covariance,
-        "input_effect": numeric.input_effect_block(spec).assemble(values.get("input_effect_free")),
         "static_state_sds": static_sds,
     }, min_eigenvalue

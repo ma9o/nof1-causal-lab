@@ -166,8 +166,8 @@ class LaplaceLikelihood:
             return self._build_support_window_derivatives(observation_model)
 
         signature = (
-            observation_model.observation.families,
-            observation_model.observation.links,
+            observation_model.manifest_dists,
+            observation_model.manifest_links,
             tuple(batch.max_state_len for batch in self._support_window_batches),
             self.n_latent,
             self.n_manifest,
@@ -193,7 +193,6 @@ class LaplaceLikelihood:
         obs_mask: jnp.ndarray | None = None,
         extra_params: LikelihoodExtraParams | None = None,
         latent_mode_init: jnp.ndarray | None = None,
-        transition_inputs: jnp.ndarray | None = None,
         include_aux: bool,
         allow_stateful_cache: bool,
     ) -> tuple[jnp.ndarray, dict[str, jnp.ndarray] | None]:
@@ -218,7 +217,6 @@ class LaplaceLikelihood:
                 transitions = build_discrete_transitions(
                     dynamics,
                     time_intervals,
-                    transition_inputs=transition_inputs,
                 )
             return transitions.A, transitions.cov, jnp.asarray(transitions.bias)
 
@@ -270,7 +268,6 @@ class LaplaceLikelihood:
                             observation_model.mean_log_prob_fn,
                             self.observation_support,
                             self.n_ieks_iters,
-                            transition_inputs=transition_inputs,
                             z_init=support_mode_init,
                         )
                         if can_reuse_support_mode:
@@ -305,7 +302,6 @@ class LaplaceLikelihood:
                         self._support_row_lower_bandwidths,
                         window_derivatives,
                         self.n_ieks_iters,
-                        transition_inputs=transition_inputs,
                         z_init=support_mode_init,
                     )
                     if can_reuse_support_mode:
@@ -463,7 +459,6 @@ class LaplaceLikelihood:
                     obs_kernel,
                     n_ieks_iters=self.n_ieks_iters,
                     z_init=point_mode_init,
-                    transition_inputs=transition_inputs,
                 )
             else:
                 Ad, Qd, cd = _discretize_base_system()
@@ -499,7 +494,6 @@ class LaplaceLikelihood:
         obs_mask: jnp.ndarray | None = None,
         extra_params: LikelihoodExtraParams | None = None,
         latent_mode_init: jnp.ndarray | None = None,
-        transition_inputs: jnp.ndarray | None = None,
     ) -> jnp.ndarray:
         """Compute Laplace-approximated log-likelihood.
 
@@ -515,7 +509,6 @@ class LaplaceLikelihood:
             obs_mask=obs_mask,
             extra_params=extra_params,
             latent_mode_init=latent_mode_init,
-            transition_inputs=transition_inputs,
             include_aux=False,
             allow_stateful_cache=False,
         )
@@ -531,7 +524,6 @@ class LaplaceLikelihood:
         obs_mask: jnp.ndarray | None = None,
         extra_params: LikelihoodExtraParams | None = None,
         latent_mode_init: jnp.ndarray | None = None,
-        transition_inputs: jnp.ndarray | None = None,
     ) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
         """Compute Laplace-approximated log-likelihood plus host-log aux."""
         log_lik, inner_eval_aux = self._compute_log_likelihood_impl(
@@ -543,7 +535,6 @@ class LaplaceLikelihood:
             obs_mask=obs_mask,
             extra_params=extra_params,
             latent_mode_init=latent_mode_init,
-            transition_inputs=transition_inputs,
             include_aux=True,
             allow_stateful_cache=True,
         )

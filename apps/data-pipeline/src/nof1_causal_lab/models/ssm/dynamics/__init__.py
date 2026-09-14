@@ -11,9 +11,14 @@ Prior/predictive validation lives in ``ssm.predictive``.
 
 from __future__ import annotations
 
-
-
-from .edges import DiagonalDecay, Intercept, LinearEdge, StateDecay, StateIntercept, VectorFieldComponent
+from .edges import (
+    DiagonalDecay,
+    Intercept,
+    LinearEdge,
+    StateDecay,
+    StateIntercept,
+    VectorFieldComponent,
+)
 from .intervention import (
     EdgeInputOverride,
     Intervention,
@@ -34,7 +39,7 @@ from .posterior import (
 from .serialization import (
     dynamics_spec_to_dict,
 )
-from .simulator import SimulationConfig, simulate, simulate_pair
+from .simulator import SimulationConfig, simulate
 from .spec import (
     CompiledDynamics,
     DynamicsSpec,
@@ -75,5 +80,4 @@ __all__ = [
     "posterior_dynamics_from_samples",
     "precomputed_value",
     "simulate",
-    "simulate_pair",
 ]

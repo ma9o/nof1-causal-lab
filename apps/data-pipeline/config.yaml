@@ -80,12 +80,6 @@ prior_elicitation:
 
 # Inference — no LLM (NumPyro SSM)
 
-# analysis: Narrative Commentary
-analysis_commentary:
-  llm:
-    harness: codex
-    model: gpt-5.5
-
 # --- Inference -------------------------------------------------------------
 inference:
   method: marginal_particle_gibbs

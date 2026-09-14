@@ -151,8 +151,8 @@ type WindowExpression = Annotated[
 ]
 
 
-class Indicator(BaseModel):
-    """An indicator defines an observed measurement of a construct and how to extract it."""
+class IndicatorSpec(BaseModel):
+    """A specification of a construct's observed measurement and how to extract it."""
 
     model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
 
@@ -176,6 +176,16 @@ class Indicator(BaseModel):
             "Aggregation function applied when bucketing raw extractions within the "
             "indicator support window. Measurement-structure support is currently limited to: "
             f"{supported_summary_operators_text()}. Available parser operators: {', '.join(sorted(VALID_AGGREGATIONS))}"
+        ),
+    )
+    recording: Literal["samples", "events", "changes"] = Field(
+        default="samples",
+        description=(
+            "Source recording semantics within the raw dataset's covered time span. "
+            "samples: absent readings are unknown. events: a complete event record; "
+            "empty sum/count windows are zero. changes: a complete change record; "
+            "the last recorded value persists, with leading gaps unknown. "
+            "events and changes require computed extraction."
         ),
     )
     observation_window: str | None = Field(
@@ -228,6 +238,16 @@ class Indicator(BaseModel):
         ),
     )
 
+    @model_validator(mode="after")
+    def validate_recording(self) -> IndicatorSpec:
+        if self.recording != "samples" and self.extraction_mode != "computed":
+            raise ValueError("Complete event/change records require computed extraction")
+        if self.recording == "events" and self.aggregation not in {"sum", "count"}:
+            raise ValueError("Complete event records require sum/count aggregation")
+        if self.recording == "changes" and self.aggregation != "last":
+            raise ValueError("Change records require last aggregation")
+        return self
+
     @field_validator("observation_window")
     @classmethod
     def validate_observation_window(cls, value: str | None) -> str | None:
@@ -237,7 +257,7 @@ class Indicator(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def validate_discrete_levels(self) -> Indicator:
+    def validate_discrete_levels(self) -> IndicatorSpec:
         """Require at least two unique labels for ordinal and categorical indicators."""
         if self.measurement_dtype not in {"ordinal", "categorical"}:
             return self
@@ -261,7 +281,7 @@ class Indicator(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def warn_semantic_collisions(self) -> Indicator:
+    def warn_semantic_collisions(self) -> IndicatorSpec:
         """Log warnings when how_to_measure text conflicts with aggregation."""
         collisions = check_semantic_collisions(self.how_to_measure, self.aggregation)
         for warning in collisions:
@@ -269,7 +289,7 @@ class Indicator(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def validate_computed_mode(self) -> Indicator:
+    def validate_computed_mode(self) -> IndicatorSpec:
         """Enforce constraints when extraction_mode='computed'."""
         if self.computed_rule is not None and self.extraction_mode != "computed":
             raise ValueError(
@@ -306,7 +326,7 @@ class Indicator(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def validate_observation_semantics(self) -> Indicator:
+    def validate_observation_semantics(self) -> IndicatorSpec:
         """Reject aggregation/dtype combinations the measurement stack cannot model."""
         derive_indicator_observation_semantics(self.aggregation, self.measurement_dtype)
         return self
@@ -335,7 +355,7 @@ class Indicator(BaseModel):
         return self.support_kind == SupportKind.INTERVAL
 
     @model_validator(mode="after")
-    def validate_likelihood(self) -> Indicator:
+    def validate_likelihood(self) -> IndicatorSpec:
         if (
             self.likelihood is not None
             and self.likelihood.law.family

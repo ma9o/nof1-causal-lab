@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from nof1_causal_lab.artifacts.coefficient import FixedCoefficient, ParameterCoefficient
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.expressions import (
     hill as expr_hill,
@@ -17,7 +16,7 @@ from nof1_causal_lab.artifacts.expressions import (
     state as expr_state,
 )
 from nof1_causal_lab.artifacts.identity import scientific_id
-from nof1_causal_lab.artifacts.mechanism import DynamicsMechanism
+from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
 from nof1_causal_lab.artifacts.parameter import PriorAuthoringTransform
 from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 
@@ -53,7 +52,7 @@ def declare_dynamics(
                 distribution_transform=transform,
             ),
         )
-        return ParameterCoefficient(parameter_id=identity)
+        return identity
 
     states = set(model.state_order)
     edge_ids = {edge.id for edge in model.execution_edges}
@@ -73,14 +72,14 @@ def declare_dynamics(
             constructs.append(construct)
             continue
         term = default_mechanism_id(construct.id, "node_potential")
-        mechanism = DynamicsMechanism(
+        mechanism = DynamicsMechanismSpec(
             id=term,
             kind="potential",
             expression=restoring_potential(
                 construct.id,
                 center=coefficient(term, "center", f"cint_{construct.name}")
                 if construct.id in centered_states
-                else FixedCoefficient(value=0),
+                else 0,
                 stiffness=coefficient(
                     term,
                     "stiffness",
@@ -89,11 +88,10 @@ def declare_dynamics(
                 ),
                 quartic=coefficient(term, "quartic", f"self_limit_{construct.name}")
                 if construct.id in self_limiting
-                else FixedCoefficient(value=0),
+                else 0,
             ),
         )
         constructs.append(construct.model_copy(update={"dynamics": (mechanism,)}))
-    inputs = set(model.known_inputs)
     edges = []
     for edge in model.edges:
         if edge.id not in edge_ids or edge.mechanisms:
@@ -101,10 +99,8 @@ def declare_dynamics(
             continue
         cause, effect = edge.cause, edge.effect
         if edge.id in hill_edges:
-            if edge.cause.id in inputs:
-                raise ValueError("Known inputs currently support linear mechanisms")
             term = default_mechanism_id(edge.id, "hill")
-            mechanism = DynamicsMechanism(
+            mechanism = DynamicsMechanismSpec(
                 id=term,
                 expression=expr_hill(
                     expr_state(edge.cause.id),
@@ -116,7 +112,7 @@ def declare_dynamics(
             )
         else:
             term = default_mechanism_id(edge.id, "linear")
-            mechanism = DynamicsMechanism(
+            mechanism = DynamicsMechanismSpec(
                 id=term,
                 expression=linear_effect(
                     edge.cause.id,

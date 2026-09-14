@@ -1,16 +1,12 @@
-"""Stage-6 entry point: rank treatments by intervention effect."""
+"""Runtime orchestration for timed clamps on nonlinear posterior trajectories."""
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 from jax import Array
 
-from nof1_causal_lab.artifacts.effects import validate_effect_horizons
-from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.models.ssm.dynamics import (
     Intervention,
     SimulationConfig,
@@ -21,189 +17,7 @@ from nof1_causal_lab.models.ssm.dynamics import (
     linear_ramp,
     precomputed_value,
     simulate,
-    simulate_pair,
 )
-from nof1_causal_lab.utils.histograms import histogram_draws
-
-from .estimands import (
-    build_time_grid,
-    summarize_draws,
-    summarize_temporal_effect,
-)
-
-if TYPE_CHECKING:
-    from collections.abc import Sequence
-
-logger = logging.getLogger(__name__)
-
-
-def _steady_state_treatment_effect_canonical(
-    vector_field: VectorField,
-    params: tuple[dict[str, Array], ...],
-    treat_idx: int,
-    outcome_idx: int,
-    shift_size: float,
-) -> Array:
-    """Equilibrium contrast: ``effect = (do(treat = baseline+shift) - baseline)[outcome]``.
-
-    Canonical implementation: takes a per-component ``params`` tuple
-    directly. A dense affine component passes ``({"drift": A, "cint": c},)``;
-    component-owned vector fields pass the per-component tuple they already
-    have.
-    """
-    baseline = compute_steady_state(vector_field, params, Intervention.none())
-    do_value = baseline[treat_idx] + shift_size
-    intervention = Intervention(
-        overrides=(VariableOverride(index=treat_idx, value_fn=constant_value(do_value)),)
-    )
-    intervened = compute_steady_state(vector_field, params, intervention, initial_guess=baseline)
-    return intervened[outcome_idx] - baseline[outcome_idx]
-
-
-def _temporal_treatment_effect_canonical(
-    vector_field: VectorField,
-    params: tuple[dict[str, Array], ...],
-    treat_idx: int,
-    shift_size: float,
-    time_grid: Array,
-) -> Array:
-    """Per-time effect trajectory: ``(action - baseline)`` over ``time_grid``.
-
-    Canonical implementation: see :func:`_steady_state_treatment_effect_canonical`.
-    """
-    baseline_state = compute_steady_state(vector_field, params, Intervention.none())
-    do_value = baseline_state[treat_idx] + shift_size
-    action_intervention = Intervention(
-        overrides=(VariableOverride(index=treat_idx, value_fn=constant_value(do_value)),)
-    )
-    _, _, effect_path = simulate_pair(
-        vector_field,
-        params,
-        Intervention.none(),
-        action_intervention,
-        baseline_state,
-        time_grid,
-    )
-    return effect_path
-
-
-def compute_interventions(
-    param_samples: Sequence[tuple[dict[str, Array], ...]],
-    vector_field: VectorField,
-    treatments: list[str],
-    outcome: str,
-    latent_names: list[str],
-    measurement_clock: str | None = None,
-    manifest_names: list[str] | None = None,
-    times: jnp.ndarray | None = None,
-    shift_size: float = 1.0,
-    lambda_mean: Array | None = None,
-    horizons_days: Sequence[float] = (1.0, 7.0, 30.0),
-) -> list[UncheckedJsonObject]:
-    """Compute interventions from vector-field posterior parameter draws."""
-    validate_effect_horizons(horizons_days)
-    name_to_idx = {name: i for i, name in enumerate(latent_names)}
-    outcome_idx = name_to_idx.get(outcome)
-
-    def _skeleton(treatment_name: str) -> UncheckedJsonObject:
-        return {"treatment": treatment_name, "summary": None, "histogram": []}
-
-    if outcome_idx is None:
-        logger.warning("Outcome '%s' not found in latent names %s", outcome, latent_names)
-        return [_skeleton(t) for t in treatments]
-
-    if not param_samples:
-        logger.warning("No posterior parameter samples for vector-field intervention")
-        return [_skeleton(t) for t in treatments]
-
-    time_grid = _build_horizon_grid(measurement_clock, times, horizon_days=max(horizons_days))
-
-    results: list[UncheckedJsonObject] = []
-    for treatment_name in treatments:
-        treat_idx = name_to_idx.get(treatment_name)
-        if treat_idx is None:
-            logger.warning("'%s' not in latent structure — skipping", treatment_name)
-            results.append(_skeleton(treatment_name))
-            continue
-
-        effects = jnp.stack(
-            [
-                _steady_state_treatment_effect_canonical(
-                    vector_field, p, treat_idx, outcome_idx, shift_size
-                )
-                for p in param_samples
-            ]
-        )
-        summary = summarize_draws(effects)
-        entry: UncheckedJsonObject = {
-            "treatment": treatment_name,
-            "posterior_draws": effects.tolist(),
-            "summary": summary.model_dump(mode="json"),
-            "histogram": [item.model_dump(mode="json") for item in histogram_draws(effects)],
-        }
-        if time_grid is not None:
-            try:
-                trajectories = jnp.stack(
-                    [
-                        _temporal_treatment_effect_canonical(
-                            vector_field, p, treat_idx, shift_size, time_grid
-                        )
-                        for p in param_samples
-                    ]
-                )
-                mean_traj = jnp.mean(trajectories[:, :, outcome_idx], axis=0)
-                entry["temporal"] = summarize_temporal_effect(
-                    mean_traj, time_grid, horizons_days=horizons_days
-                ).model_dump(mode="json")
-
-                if lambda_mean is not None and lambda_mean.ndim == 2:
-                    m_names = manifest_names or []
-                    loadings = lambda_mean[:, outcome_idx]
-                    manifest_effects = {}
-                    for mi in range(len(loadings)):
-                        loading_val = float(loadings[mi])
-                        if abs(loading_val) > 1e-6:
-                            name = m_names[mi] if mi < len(m_names) else f"manifest_{mi}"
-                            manifest_effects[name] = loading_val * summary.mean
-                    if manifest_effects:
-                        entry["manifest_effects"] = manifest_effects
-            except (ValueError, RuntimeError, FloatingPointError):
-                logger.warning(
-                    "Vector-field simulation failed for '%s'; temporal effects unavailable",
-                    treatment_name,
-                    exc_info=True,
-                )
-        results.append(entry)
-
-    def _abs_mean(entry: UncheckedJsonObject) -> float:
-        summary = entry["summary"]
-        return abs(summary["mean"]) if summary is not None else 0.0
-
-    results.sort(key=_abs_mean, reverse=True)
-    return results
-
-
-def _build_horizon_grid(
-    measurement_clock: str | None,
-    times: jnp.ndarray | None,
-    horizon_days: float = 30.0,
-) -> Array | None:
-    """Derive a forward simulation grid from the measurement clock or
-    median observation spacing. Returns ``None`` when no usable step size
-    is available."""
-    dt_days: float | None = None
-    if measurement_clock:
-        from nof1_causal_lab.artifacts.duration import parse_duration_to_hours
-
-        dt_days = parse_duration_to_hours(measurement_clock) / 24.0
-    elif times is not None and len(times) > 1:
-        diffs = jnp.diff(times)
-        dt_days = float(jnp.median(diffs))
-
-    if dt_days is None or dt_days <= 0:
-        return None
-
-    return build_time_grid(0.0, horizon_days, dt_days)
 
 
 def _stack_dynamics_params(

@@ -1,7 +1,5 @@
 """Tests for vector-field transition construction."""
 
-from nof1_causal_lab.artifacts.identity import scientific_id
-from tests.dynamics_fixtures import hill_term
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -10,50 +8,40 @@ import pytest
 from dynestyx import (
     AffineDrift,
     StochasticContinuousTimeStateEvolution,
-    linearized_transition_parameters,
 )
-from dynestyx.inference.configs.discretizer import LocalLinearizationConfig
-from numpyro import handlers
 from numpyro.distributions import MultivariateNormal
 
+from nof1_causal_lab.artifacts.identity import scientific_id
 from nof1_causal_lab.artifacts.likelihood import LinkFunction
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
 from nof1_causal_lab.distributions import DistributionFamily
-from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear, DiagonalDecay, Intercept, LinearEdge, StateDecay, StateIntercept
-from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
+from nof1_causal_lab.models.ssm.dynamics.edges import (
+    DenseLinear,
+    DiagonalDecay,
+    Intercept,
+    LinearEdge,
+    StateDecay,
+    StateIntercept,
+)
 from nof1_causal_lab.models.ssm.dynamics.vector_field import (
     StructuralDrift,
     VectorField,
 )
 from nof1_causal_lab.models.ssm.execution.contracts import (
     LIKELIHOOD_SOLVER_KIND_DENSE_SUPPORT,
+    LIKELIHOOD_SOLVER_KIND_POINT_IEKS,
     LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS,
     MeasurementParams,
 )
 from nof1_causal_lab.models.ssm.execution.dynamical_model import (
     continuous_state_evolution,
 )
-from nof1_causal_lab.models.ssm.inference.backend_factory import get_laplace_backend
 from nof1_causal_lab.models.ssm.inference.targets.laplace import LaplaceLikelihood
 from nof1_causal_lab.models.ssm.inference.targets.laplace.shared import (
     _transition_start_linearization_states,
 )
 from nof1_causal_lab.models.ssm.inference.targets.transitions import build_discrete_transitions
-from nof1_causal_lab.models.ssm.inference.warmup.map import _build_map_laplace_bundle
-from nof1_causal_lab.models.ssm.model import SSMModel
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
-from nof1_causal_lab.models.ssm.structure import (
-    DiffusionBlockSpec,
-    ManifestCholBlockSpec,
-    SparseMatrixBlockSpec,
-    SparseVectorBlockSpec,
-    T0CholBlockSpec,
-)
-from tests.dynamics_fixtures import decay_term, hill_term
-from tests.model_fixtures import affine_test_evolution, model_fixture
-
-pytestmark = pytest.mark.cpu_expensive
+from tests.dynamics_fixtures import hill_term
 
 
 def _structural_drift(dynamics) -> StructuralDrift:
@@ -61,24 +49,14 @@ def _structural_drift(dynamics) -> StructuralDrift:
     return dynamics.drift
 
 
-def _diffusion_cov(dynamics):
-    return dynamics.diffusion.gram_matrix(
-        x=None, u=None, t=0, state_dim=_structural_drift(dynamics).vector_field.n_latent
-    )
-
-
-def _expected_affine_drift(input_effect=None):
+def _expected_affine_drift():
     return AffineDrift(
         A=jnp.array([[-0.50, 0.05, 0.0], [-0.10, -0.55, 0.02], [0.0, 0.0, -0.65]]),
         b=jnp.array([0.10, -0.04, 0.02]),
-        B=input_effect,
     )
 
 
-def _constant_runtime_dynamics(
-    *,
-    input_effect: jnp.ndarray | None = None,
-) -> StochasticContinuousTimeStateEvolution:
+def _constant_runtime_dynamics() -> StochasticContinuousTimeStateEvolution:
     drift = jnp.array(
         [
             [-0.30, 0.05, 0.00],
@@ -109,7 +87,6 @@ def _constant_runtime_dynamics(
             {"weight": jnp.array(-0.10, dtype=jnp.float32)},
         ),
         diffusion_cov=jnp.diag(jnp.array([0.08, 0.06, 0.04], dtype=jnp.float32)),
-        input_effect=input_effect,
     )
 
 
@@ -151,139 +128,10 @@ def _interval_mean_support_runtime() -> ObservationSupportRuntime:
     )
 
 
-def _long_interval_mean_support_runtime(n_time: int) -> ObservationSupportRuntime:
-    anchor_times = np.arange(n_time, dtype=np.float64)
-    support_start = np.full((n_time, 1), np.nan, dtype=np.float64)
-    support_end = np.full((n_time, 1), np.nan, dtype=np.float64)
-    interval_prev = np.zeros((n_time, 1, 1), dtype=np.float64)
-    interval_curr = np.zeros((n_time, 1, 1), dtype=np.float64)
-    interval_weights = np.zeros((n_time, 1, 1), dtype=np.float64)
-    emission_slots = np.full((n_time, 1), -1, dtype=np.int64)
-    support_start[1:, 0] = anchor_times[:-1]
-    support_end[1:, 0] = anchor_times[1:]
-    interval_prev[1:, 0, 0] = 0.5
-    interval_curr[1:, 0, 0] = 0.5
-    interval_weights[1:, 0, 0] = 1.0
-    emission_slots[1:, 0] = 0
-    return ObservationSupportRuntime(
-        anchor_times=anchor_times,
-        manifest_names=["mean_signal"],
-        support_kinds=["interval"],
-        summary_operators=["mean"],
-        anchor_policies=["support_end"],
-        observation_windows=["previous_interval"],
-        support_start_times=support_start,
-        support_end_times=support_end,
-        interval_prev_coeffs=interval_prev,
-        interval_curr_coeffs=interval_curr,
-        interval_weights=interval_weights,
-        emission_slot_indices=emission_slots,
-    )
-
-
-def _nonlinear_point_ssm_spec() -> ModelSpec:
-    n_latent = 2
-    n_manifest = 1
-    return model_fixture(
-        n_latent=n_latent,
-        n_manifest=n_manifest,
-        dynamics_spec=DynamicsSpec(
-            n_latent=n_latent,
-            components=(
-                *(decay_term(target=i) for i in range(n_latent)),
-                hill_term(
-                    source=0,
-                    target=1,
-                ),
-            ),
-        ),
-        diffusion_block=DiffusionBlockSpec(
-            n_latent=n_latent,
-            diffusion_chol_support=np.zeros((n_latent, n_latent), dtype=bool),
-            diffusion_chol_template=jnp.diag(jnp.array([0.22, 0.26], dtype=jnp.float32)),
-        ),
-        lambda_block=SparseMatrixBlockSpec(
-            n_rows=n_manifest,
-            n_cols=n_latent,
-            free_support=np.zeros((n_manifest, n_latent), dtype=bool),
-            template=jnp.array([[1.0, 0.25]], dtype=jnp.float32),
-            free_site_name="lambda_free",
-            det_site_name="lambda",
-            support=SupportClass.REAL,
-            site_kind=SiteKind.LOADING,
-            assembly_group="lambda",
-            fixed_spec_field="lambda_mat",
-            priors_field="lambda_free",
-        ),
-        manifest_means_block=SparseVectorBlockSpec(
-            n=n_manifest,
-            free_support=np.zeros(n_manifest, dtype=bool),
-            template=jnp.array([0.05], dtype=jnp.float32),
-            free_site_name="manifest_means_free",
-            det_site_name="manifest_means",
-            support=SupportClass.REAL,
-            site_kind=SiteKind.MANIFEST_MEANS,
-            assembly_group="manifest",
-            fixed_spec_field="manifest_means",
-            priors_field="manifest_means",
-        ),
-        manifest_chol_block=ManifestCholBlockSpec(
-            n_manifest=n_manifest,
-            diag_support=np.zeros(n_manifest, dtype=bool),
-            template=jnp.array([[0.45]], dtype=jnp.float32),
-        ),
-        t0_means_block=SparseVectorBlockSpec(
-            n=n_latent,
-            free_support=np.zeros(n_latent, dtype=bool),
-            template=jnp.array([0.20, -0.10], dtype=jnp.float32),
-            free_site_name="t0_means_free",
-            det_site_name="t0_means",
-            support=SupportClass.REAL,
-            site_kind=SiteKind.T0_MEANS,
-            assembly_group="t0",
-            fixed_spec_field="t0_means",
-            priors_field="t0_means",
-        ),
-        t0_chol_block=T0CholBlockSpec(
-            n_latent=n_latent,
-            diag_support=np.zeros(n_latent, dtype=bool),
-            correlation_support=np.zeros((n_latent, n_latent), dtype=bool),
-            template=jnp.diag(jnp.array([0.55, 0.65], dtype=jnp.float32)),
-        ),
-        input_effect_block=SparseMatrixBlockSpec(
-            n_rows=n_latent,
-            n_cols=0,
-            free_support=np.zeros((n_latent, 0), dtype=bool),
-            template=jnp.zeros((n_latent, 0), dtype=jnp.float32),
-            free_site_name="input_effect_free",
-            det_site_name="input_effect",
-            support=SupportClass.REAL,
-            site_kind=SiteKind.INPUT_EFFECT,
-            assembly_group="input_effect",
-            fixed_spec_field="input_effect",
-            priors_field="input_effect",
-        ),
-        static_state_sd_block=SparseVectorBlockSpec(
-            n=0,
-            free_support=np.zeros(0, dtype=bool),
-            template=jnp.zeros(0, dtype=jnp.float32),
-            free_site_name="static_state_sd_free",
-            det_site_name="static_state_sds",
-            support=SupportClass.POSITIVE,
-            site_kind=SiteKind.STATIC_STATE_SD,
-            assembly_group="t0",
-            fixed_spec_field="static_state_sds",
-            priors_field="static_state_sd",
-        ),
-        diffusion_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.GAUSSIAN],
-        manifest_dists=[DistributionFamily.GAUSSIAN],
-        manifest_links=[LinkFunction.IDENTITY],
-    )
-
-
+@pytest.mark.warmup
 def test_constant_vector_field_local_linearization_matches_affine_view():
     dynamics = _constant_runtime_dynamics()
-    affine = _expected_affine_drift(_structural_drift(dynamics).input_effect)
+    affine = _expected_affine_drift()
     x_lin = jnp.array([0.70, -0.20, 0.40], dtype=jnp.float32)
 
     args = _structural_drift(dynamics).args
@@ -296,148 +144,12 @@ def test_constant_vector_field_local_linearization_matches_affine_view():
     np.testing.assert_allclose(cint, affine.b, rtol=1e-6, atol=1e-6)
 
 
-def test_constant_vector_field_local_discretization_matches_affine_discretization():
-    dynamics = _constant_runtime_dynamics()
-    affine = _expected_affine_drift(_structural_drift(dynamics).input_effect)
-    time_intervals = jnp.array([0.20, 0.50, 1.10], dtype=jnp.float32)
-    linearization_states = jnp.array(
-        [
-            [0.70, -0.20, 0.40],
-            [0.20, 0.10, -0.30],
-            [1.10, -0.70, 0.05],
-        ],
-        dtype=jnp.float32,
-    )
-
-    local = build_discrete_transitions(
-        dynamics, time_intervals, linearization_states=linearization_states
-    )
-    local_Ad, local_Qd, local_cd = local.A, local.cov, local.bias
-    evolution = affine_test_evolution(affine.A, _diffusion_cov(dynamics), affine.b)
-    reference = jax.vmap(lambda dt: evolution.params_at(0.0, dt))(time_intervals)
-    affine_Ad, affine_Qd, affine_cd = reference.A, reference.cov, reference.bias
-
-    assert local_cd is not None
-    assert affine_cd is not None
-    np.testing.assert_allclose(local_Ad, affine_Ad, rtol=2e-5, atol=2e-5)
-    np.testing.assert_allclose(local_Qd, affine_Qd, rtol=2e-5, atol=2e-5)
-    np.testing.assert_allclose(local_cd, affine_cd, rtol=2e-5, atol=2e-5)
-
-
-def test_transition_builder_preserves_affine_input_discretization():
-    input_effect = jnp.array(
-        [
-            [0.10, -0.20],
-            [0.00, 0.30],
-            [-0.05, 0.02],
-        ],
-        dtype=jnp.float32,
-    )
-    dynamics = _constant_runtime_dynamics(input_effect=input_effect)
-    affine = _expected_affine_drift(_structural_drift(dynamics).input_effect)
-    time_intervals = jnp.array([0.20, 0.50, 1.10], dtype=jnp.float32)
-    transition_inputs = jnp.array(
-        [
-            [1.0, 0.0],
-            [0.5, -1.0],
-            [0.0, 0.25],
-        ],
-        dtype=jnp.float32,
-    )
-
-    transitions = build_discrete_transitions(
-        dynamics,
-        time_intervals,
-        transition_inputs=transition_inputs,
-    )
-    evolution = affine_test_evolution(affine.A, _diffusion_cov(dynamics), affine.b, affine.B)
-    reference = jax.vmap(lambda dt: evolution.params_at(0.0, dt))(time_intervals)
-    expected_Ad, expected_Qd = reference.A, reference.cov
-    expected_cd = reference.bias + jnp.einsum("tdi,ti->td", reference.B, transition_inputs)
-
-    np.testing.assert_allclose(transitions.A, expected_Ad, rtol=1e-6, atol=1e-6)
-    np.testing.assert_allclose(transitions.cov, expected_Qd, rtol=1e-6, atol=1e-6)
-    assert transitions.bias is not None
-    assert expected_cd is not None
-    np.testing.assert_allclose(transitions.bias, expected_cd, rtol=1e-6, atol=1e-6)
-
-
 def test_transition_builder_requires_states_for_trajectory_dependent_dynamics():
     dynamics = _trajectory_runtime_dynamics()
     time_intervals = jnp.array([0.20, 0.50, 1.10], dtype=jnp.float32)
 
     with pytest.raises(ValueError, match="linearization_states"):
         build_discrete_transitions(dynamics, time_intervals)
-
-
-def test_transition_builder_discretizes_trajectory_dependent_dynamics_at_states():
-    dynamics = _trajectory_runtime_dynamics()
-    time_intervals = jnp.array([0.20, 0.50, 1.10], dtype=jnp.float32)
-    linearization_states = jnp.array(
-        [
-            [0.30, 0.10],
-            [1.00, -0.20],
-            [1.60, 0.50],
-        ],
-        dtype=jnp.float32,
-    )
-
-    transitions = build_discrete_transitions(
-        dynamics,
-        time_intervals,
-        linearization_states=linearization_states,
-    )
-    reference = jax.vmap(
-        lambda state, dt: linearized_transition_parameters(
-            dynamics,
-            LocalLinearizationConfig(covariance_jitter=0.0),
-            linearization_state=state,
-            previous_control=None,
-            previous_time=0.0,
-            time=dt,
-        )
-    )(linearization_states, time_intervals)
-    expected_Ad, expected_Qd, expected_cd = reference.A, reference.cov, reference.bias
-
-    np.testing.assert_allclose(transitions.A, expected_Ad, rtol=1e-6, atol=1e-6)
-    np.testing.assert_allclose(transitions.cov, expected_Qd, rtol=1e-6, atol=1e-6)
-    assert transitions.bias is not None
-    assert expected_cd is not None
-    np.testing.assert_allclose(transitions.bias, expected_cd, rtol=1e-6, atol=1e-6)
-
-
-def test_laplace_point_backend_accepts_trajectory_dependent_dynamics():
-    dynamics = _trajectory_runtime_dynamics()
-    backend = LaplaceLikelihood(
-        n_latent=2,
-        n_manifest=1,
-        manifest_dists=[DistributionFamily.GAUSSIAN],
-        manifest_links=[LinkFunction.IDENTITY],
-        n_ieks_iters=2,
-    )
-    measurement_params = MeasurementParams(
-        lambda_mat=jnp.array([[1.0, 0.25]], dtype=jnp.float32),
-        manifest_means=jnp.array([0.05], dtype=jnp.float32),
-        manifest_cov=jnp.array([[0.20]], dtype=jnp.float32),
-    )
-    initial_state = MultivariateNormal(
-        loc=jnp.array([0.20, -0.10], dtype=jnp.float32),
-        covariance_matrix=jnp.diag(jnp.array([0.30, 0.40], dtype=jnp.float32)),
-    )
-    observations = jnp.array([[0.05], [0.20], [0.12]], dtype=jnp.float32)
-    time_intervals = jnp.array([0.01, 0.50, 0.75], dtype=jnp.float32)
-
-    log_lik, aux = backend.compute_log_likelihood_with_aux(
-        dynamics,
-        measurement_params,
-        initial_state,
-        observations,
-        time_intervals,
-    )
-
-    assert bool(jnp.isfinite(log_lik))
-    assert aux["latent_mode"].shape == (3, 2)
-    assert int(aux["n_iterations"]) == 2
 
 
 def test_point_dynamic_linearization_states_use_interval_starts():
@@ -464,7 +176,17 @@ def test_point_dynamic_linearization_states_use_interval_starts():
     np.testing.assert_array_equal(states, expected)
 
 
-def test_laplace_point_backend_differentiates_trajectory_dependent_dynamics():
+@pytest.mark.warmup
+@pytest.mark.parametrize("solver", ["point", "dense", "banded"])
+def test_nonlinear_laplace_backends_match_finite_difference(monkeypatch, solver):
+    """Check nonlinear parameter gradients and diagnostics at each solver boundary."""
+    from nof1_causal_lab.models.ssm.inference.targets import laplace
+
+    # Size-based routing has a separate contract; exercise banded algebra on the
+    # same small nonlinear path instead of allocating 81 anchors to reach it.
+    monkeypatch.setattr(
+        laplace, "_should_use_dense_support_laplace", lambda **_kwargs: solver == "dense"
+    )
     base_dynamics = _trajectory_runtime_dynamics()
     backend = LaplaceLikelihood(
         n_latent=2,
@@ -472,237 +194,49 @@ def test_laplace_point_backend_differentiates_trajectory_dependent_dynamics():
         manifest_dists=[DistributionFamily.GAUSSIAN],
         manifest_links=[LinkFunction.IDENTITY],
         n_ieks_iters=2,
+        observation_support=None if solver == "point" else _interval_mean_support_runtime(),
     )
-    measurement_params = MeasurementParams(
+    measurement = MeasurementParams(
         lambda_mat=jnp.array([[1.0, 0.25]], dtype=jnp.float32),
         manifest_means=jnp.array([0.05], dtype=jnp.float32),
         manifest_cov=jnp.array([[0.20]], dtype=jnp.float32),
     )
-    initial_state = MultivariateNormal(
+    initial = MultivariateNormal(
         loc=jnp.array([0.20, -0.10], dtype=jnp.float32),
         covariance_matrix=jnp.diag(jnp.array([0.30, 0.40], dtype=jnp.float32)),
     )
     observations = jnp.array([[0.05], [0.20], [0.12]], dtype=jnp.float32)
-    time_intervals = jnp.array([0.01, 0.50, 0.75], dtype=jnp.float32)
+    if solver != "point":
+        observations = observations.at[0, 0].set(jnp.nan)
+    intervals = jnp.array([0.01, 0.50, 0.75], dtype=jnp.float32)
 
-    def _objective(emax: jnp.ndarray) -> jnp.ndarray:
+    def _objective(emax):
         hill_params = dict(_structural_drift(base_dynamics).args.params[1])
-        hill_params["Emax"] = emax
+        hill_params[scientific_id("parameter", "emax")] = emax
         dynamics = eqx.tree_at(
             lambda model: _structural_drift(model).args.params,
             base_dynamics,
             (_structural_drift(base_dynamics).args.params[0], hill_params),
         )
-        return backend.compute_log_likelihood(
-            dynamics,
-            measurement_params,
-            initial_state,
-            observations,
-            time_intervals,
+        return backend.compute_log_likelihood_with_aux(
+            dynamics, measurement, initial, observations, intervals
         )
 
-    grad = jax.grad(_objective)(jnp.array(0.80, dtype=jnp.float32))
-
-    assert bool(jnp.isfinite(grad))
-
-
-def test_laplace_interval_support_accepts_trajectory_dependent_dynamics_dense():
-    dynamics = _trajectory_runtime_dynamics()
-    backend = LaplaceLikelihood(
-        n_latent=2,
-        n_manifest=1,
-        manifest_dists=[DistributionFamily.GAUSSIAN],
-        manifest_links=[LinkFunction.IDENTITY],
-        n_ieks_iters=2,
-        observation_support=_interval_mean_support_runtime(),
-    )
-    measurement_params = MeasurementParams(
-        lambda_mat=jnp.array([[1.0, 0.25]], dtype=jnp.float32),
-        manifest_means=jnp.array([0.05], dtype=jnp.float32),
-        manifest_cov=jnp.array([[0.20]], dtype=jnp.float32),
-    )
-    initial_state = MultivariateNormal(
-        loc=jnp.array([0.20, -0.10], dtype=jnp.float32),
-        covariance_matrix=jnp.diag(jnp.array([0.30, 0.40], dtype=jnp.float32)),
-    )
-    observations = jnp.array([[jnp.nan], [0.11], [0.18]], dtype=jnp.float32)
-    time_intervals = jnp.array([0.01, 0.50, 0.75], dtype=jnp.float32)
-
-    log_lik, aux = backend.compute_log_likelihood_with_aux(
-        dynamics,
-        measurement_params,
-        initial_state,
-        observations,
-        time_intervals,
-    )
-
-    assert bool(jnp.isfinite(log_lik))
+    evaluate = jax.jit(jax.value_and_grad(_objective, has_aux=True))
+    emax = jnp.array(0.8, dtype=jnp.float32)
+    (value, aux), gradient = evaluate(emax)
+    eps = 1e-2
+    (plus, _), _ = evaluate(emax + eps)
+    (minus, _), _ = evaluate(emax - eps)
+    assert np.isfinite(value)
     assert aux["latent_mode"].shape == (3, 2)
-    assert int(aux["solver_kind"]) == LIKELIHOOD_SOLVER_KIND_DENSE_SUPPORT
-
-
-def test_laplace_interval_support_differentiates_trajectory_dependent_dynamics_dense():
-    base_dynamics = _trajectory_runtime_dynamics()
-    backend = LaplaceLikelihood(
-        n_latent=2,
-        n_manifest=1,
-        manifest_dists=[DistributionFamily.GAUSSIAN],
-        manifest_links=[LinkFunction.IDENTITY],
-        n_ieks_iters=1,
-        observation_support=_interval_mean_support_runtime(),
+    assert (
+        int(aux["solver_kind"])
+        == {
+            "point": LIKELIHOOD_SOLVER_KIND_POINT_IEKS,
+            "dense": LIKELIHOOD_SOLVER_KIND_DENSE_SUPPORT,
+            "banded": LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS,
+        }[solver]
     )
-    measurement_params = MeasurementParams(
-        lambda_mat=jnp.array([[1.0, 0.25]], dtype=jnp.float32),
-        manifest_means=jnp.array([0.05], dtype=jnp.float32),
-        manifest_cov=jnp.array([[0.20]], dtype=jnp.float32),
-    )
-    initial_state = MultivariateNormal(
-        loc=jnp.array([0.20, -0.10], dtype=jnp.float32),
-        covariance_matrix=jnp.diag(jnp.array([0.30, 0.40], dtype=jnp.float32)),
-    )
-    observations = jnp.array([[jnp.nan], [0.11], [0.18]], dtype=jnp.float32)
-    time_intervals = jnp.array([0.01, 0.50, 0.75], dtype=jnp.float32)
-
-    def _objective(emax: jnp.ndarray) -> jnp.ndarray:
-        hill_params = dict(_structural_drift(base_dynamics).args.params[1])
-        hill_params["Emax"] = emax
-        dynamics = eqx.tree_at(
-            lambda model: _structural_drift(model).args.params,
-            base_dynamics,
-            (_structural_drift(base_dynamics).args.params[0], hill_params),
-        )
-        return backend.compute_log_likelihood(
-            dynamics,
-            measurement_params,
-            initial_state,
-            observations,
-            time_intervals,
-        )
-
-    grad = jax.grad(_objective)(jnp.array(0.80, dtype=jnp.float32))
-
-    assert bool(jnp.isfinite(grad))
-
-
-def test_laplace_interval_support_uses_banded_dynamic_path_for_large_problem():
-    base_dynamics = _trajectory_runtime_dynamics()
-    n_time = 81
-    backend = LaplaceLikelihood(
-        n_latent=2,
-        n_manifest=1,
-        manifest_dists=[DistributionFamily.GAUSSIAN],
-        manifest_links=[LinkFunction.IDENTITY],
-        n_ieks_iters=1,
-        observation_support=_long_interval_mean_support_runtime(n_time),
-    )
-    measurement_params = MeasurementParams(
-        lambda_mat=jnp.array([[1.0, 0.25]], dtype=jnp.float32),
-        manifest_means=jnp.array([0.05], dtype=jnp.float32),
-        manifest_cov=jnp.array([[0.20]], dtype=jnp.float32),
-    )
-    initial_state = MultivariateNormal(
-        loc=jnp.array([0.20, -0.10], dtype=jnp.float32),
-        covariance_matrix=jnp.diag(jnp.array([0.30, 0.40], dtype=jnp.float32)),
-    )
-    observations = jnp.linspace(0.05, 0.25, n_time, dtype=jnp.float32)[:, None]
-    observations = observations.at[0, 0].set(jnp.nan)
-    time_intervals = jnp.ones((n_time,), dtype=jnp.float32).at[0].set(0.01)
-
-    log_lik, aux = backend.compute_log_likelihood_with_aux(
-        base_dynamics,
-        measurement_params,
-        initial_state,
-        observations,
-        time_intervals,
-    )
-
-    def _objective(emax: jnp.ndarray) -> jnp.ndarray:
-        hill_params = dict(_structural_drift(base_dynamics).args.params[1])
-        hill_params["Emax"] = emax
-        dynamics = eqx.tree_at(
-            lambda model: _structural_drift(model).args.params,
-            base_dynamics,
-            (_structural_drift(base_dynamics).args.params[0], hill_params),
-        )
-        return backend.compute_log_likelihood(
-            dynamics,
-            measurement_params,
-            initial_state,
-            observations,
-            time_intervals,
-        )
-
-    grad = jax.grad(_objective)(jnp.array(0.80, dtype=jnp.float32))
-
-    assert bool(jnp.isfinite(log_lik))
-    assert bool(jnp.isfinite(grad))
-    assert aux["latent_mode"].shape == (n_time, 2)
-    assert int(aux["solver_kind"]) == LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS
-
-
-def test_ssm_model_laplace_path_accepts_nonlinear_point_dynamics():
-    model = SSMModel(_nonlinear_point_ssm_spec())
-    observations = jnp.array([[0.05], [0.20], [0.12]], dtype=jnp.float32)
-    times = jnp.array([0.0, 0.50, 1.25], dtype=jnp.float32)
-    backend = get_laplace_backend(model, n_ieks_iters=2)
-    condition_data = {
-        "vf_0_decay": jnp.array([0.35, 0.45], dtype=jnp.float32),
-        "vf_1_Emax": jnp.array(0.80, dtype=jnp.float32),
-        "vf_1_EC50": jnp.array(1.20, dtype=jnp.float32),
-        "vf_1_n": jnp.array(2.0, dtype=jnp.float32),
-    }
-
-    conditioned_model = handlers.condition(model.model, data=condition_data)
-    trace = handlers.trace(handlers.seed(conditioned_model, rng_seed=0)).get_trace(
-        observations,
-        times,
-        likelihood_backend=backend,
-    )
-
-    assert bool(jnp.isfinite(trace["log_likelihood"]["fn"].log_factor))
-
-
-def test_map_laplace_bundle_evaluates_nonlinear_point_model():
-    model = SSMModel(_nonlinear_point_ssm_spec())
-    observations = jnp.array([[0.05], [0.20], [0.12]], dtype=jnp.float32)
-    times = jnp.array([0.0, 0.50, 1.25], dtype=jnp.float32)
-    backend = get_laplace_backend(model, n_ieks_iters=2)
-
-    bundle = _build_map_laplace_bundle(
-        model,
-        observations,
-        times,
-        jax.random.PRNGKey(0),
-        backend,
-        reparam=None,
-    )
-    log_posterior = bundle["log_posterior_fn"](
-        bundle["flat_example"],
-        observations,
-        times,
-    )
-
-    assert bundle["dim"] > 0
-    assert bool(jnp.isfinite(log_posterior))
-
-
-def test_map_laplace_bundle_has_finite_gradient_for_nonlinear_point_model():
-    model = SSMModel(_nonlinear_point_ssm_spec())
-    observations = jnp.array([[0.05], [0.20], [0.12]], dtype=jnp.float32)
-    times = jnp.array([0.0, 0.50, 1.25], dtype=jnp.float32)
-    backend = get_laplace_backend(model, n_ieks_iters=2)
-
-    bundle = _build_map_laplace_bundle(
-        model,
-        observations,
-        times,
-        jax.random.PRNGKey(0),
-        backend,
-        reparam=None,
-    )
-    log_posterior, grad = jax.value_and_grad(
-        lambda z: bundle["log_posterior_fn"](z, observations, times)
-    )(bundle["flat_example"])
-
-    assert bool(jnp.isfinite(log_posterior))
-    assert bool(jnp.all(jnp.isfinite(grad)))
+    assert abs(float(gradient)) > 1e-4
+    np.testing.assert_allclose(gradient, (plus - minus) / (2 * eps), rtol=1e-2, atol=1e-4)

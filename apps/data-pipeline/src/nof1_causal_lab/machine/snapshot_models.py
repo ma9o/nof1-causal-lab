@@ -7,25 +7,19 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from nof1_causal_lab.artifacts.admission import AdmissionReport  # noqa: TC001
-from nof1_causal_lab.artifacts.baseline_report import BaselineReportArtifact  # noqa: TC001
-from nof1_causal_lab.artifacts.execution import (
-    ExecutionReadiness,  # noqa: TC001
-    StructuralItemDisposition,  # noqa: TC001
-)
+from nof1_causal_lab.artifacts.execution import StructuralItemDisposition  # noqa: TC001
 from nof1_causal_lab.artifacts.identification import IdentificationReport  # noqa: TC001
 from nof1_causal_lab.artifacts.identity import (
     ArtifactId,
     ArtifactRef,
     ConstructId,
     EdgeId,
-    ModelRef,
     TransitionRef,
 )
 from nof1_causal_lab.artifacts.model_spec import ModelSpec  # noqa: TC001
 from nof1_causal_lab.artifacts.posterior import InferenceReport  # noqa: TC001
 from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorEstimate  # noqa: TC001
-from nof1_causal_lab.artifacts.question import QuestionArtifact  # noqa: TC001
+from nof1_causal_lab.artifacts.prior_predictive import PriorPredictiveResult  # noqa: TC001
 from nof1_causal_lab.artifacts.validation_report import ValidationReportArtifact  # noqa: TC001
 from nof1_causal_lab.machine.artifacts import EpisodeState  # noqa: TC001
 from nof1_causal_lab.machine.moves import ArtifactFreshness, is_stale
@@ -77,7 +71,7 @@ class FitSummary(SnapshotValue):
 class SnapshotContext(SnapshotValue):
     """A snapshot context identifies the selected journal revision and its artifact versions."""
 
-    workspace: ModelRef
+    workspace_id: str = Field(min_length=1)
     seq: int = Field(ge=0)
     can_simulate: bool = False
     state: EpisodeState
@@ -87,9 +81,8 @@ class SnapshotContext(SnapshotValue):
 
 
 class ModelData(SnapshotValue):
-    """ModelSpec data pairs the causal question and observed evidence with their source versions."""
+    """Observed evidence paired with its source versions."""
 
-    question: Sourced[QuestionArtifact] | None = None
     raw_data: Sourced[RawDataData] | None = None
     measurements: Sourced[MeasurementsData] | None = None
 
@@ -98,16 +91,14 @@ class ModelFindings(SnapshotValue):
     """ModelSpec findings collect identification, validation, and fitted results with their provenance."""
 
     identification: Sourced[IdentificationReport] | None = None
-    execution: Sourced[ExecutionReadiness] | None = None
     dispositions: Sourced[tuple[StructuralItemDisposition, ...]] | None = None
     graph_status: dict[ConstructId, Literal["observed", "marginalized", "blocking"]] = Field(
         default_factory=dict
     )
     validation_report: Sourced[ValidationReportArtifact] | None = None
-    admission_report: Sourced[AdmissionReport] | None = None
+    prior_predictive: Sourced[PriorPredictiveResult] | None = None
     diagnostics: ModelDiagnostics | None = None
     fit: Sourced[FitSummary] | None = None
-    baseline_report: Sourced[BaselineReportArtifact] | None = None
 
 
 class ModelSnapshot(SnapshotValue):
@@ -122,16 +113,13 @@ class ModelSnapshot(SnapshotValue):
     def validate_ownership_and_sources(self) -> ModelSnapshot:
         for read, artifact_id in (
             (self.model, "model"),
-            (self.data.question, "question"),
             (self.findings.identification, "identification_report"),
             (self.findings.dispositions, "model"),
             (self.data.raw_data, "raw_data"),
             (self.data.measurements, "panel"),
             (self.findings.validation_report, "validation_report"),
-            (self.findings.admission_report, "admission_report"),
-            (self.findings.execution, "model"),
+            (self.findings.prior_predictive, "prior_predictive"),
             (self.findings.fit, "inference"),
-            (self.findings.baseline_report, "baseline_report"),
         ):
             if read is not None:
                 self._validate_source(read.source, artifact_id)
@@ -141,13 +129,8 @@ class ModelSnapshot(SnapshotValue):
         indicators = {item.id for item in model.indicators} if model else set()
         parameters = {item.id for item in model.parameters} if model else set()
         findings = self.findings
-        if findings.execution and any(
-            anchor.construct_id not in constructs
-            for anchor in findings.execution.value.anchor_certificates
-        ):
-            raise ValueError("Execution anchor owner does not exist in the snapshot")
         if findings.dispositions and any(
-            item.source_id not in constructs | edges | indicators
+            item.target.id not in constructs | edges | indicators
             for item in findings.dispositions.value
         ):
             raise ValueError("Disposition owner does not exist in the snapshot")
@@ -167,11 +150,14 @@ class ModelSnapshot(SnapshotValue):
             and not findings.validation_report.value.indicators.keys() <= indicators
         ):
             raise ValueError("Validation owner does not exist in the snapshot")
-        if findings.admission_report and any(
-            item.construct_id not in constructs
-            for item in findings.admission_report.value.prior_predictive_diagnostics
-        ):
-            raise ValueError("Admission owner does not exist in the snapshot")
+        if findings.prior_predictive:
+            predictive = findings.prior_predictive.value
+            if any(item.construct_id not in constructs for item in predictive.diagnostics):
+                raise ValueError("Prior-predictive check owner does not exist in the snapshot")
+            if not predictive.samples.keys() <= indicators:
+                raise ValueError(
+                    "Prior-predictive observation owner does not exist in the snapshot"
+                )
         if findings.fit:
             fit = findings.fit.value
             marginals = fit.report.posterior_marginals or []
@@ -189,9 +175,9 @@ class ModelSnapshot(SnapshotValue):
     def _validate_source(self, source: FactSource, artifact_id: str) -> None:
         ref = source.ref
         if isinstance(ref, TransitionRef):
-            if artifact_id != "inference" or ref.seq > self.context.seq:
+            if artifact_id not in {"inference", "prior_predictive"} or ref.seq > self.context.seq:
                 raise ValueError(
-                    "Inference findings must refer to a transition in this snapshot's history"
+                    "Operation findings must refer to a transition in this snapshot's history"
                 )
             return
         current = self.context.state.get(ref.artifact_id)

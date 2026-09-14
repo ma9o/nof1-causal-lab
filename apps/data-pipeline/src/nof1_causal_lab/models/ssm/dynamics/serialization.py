@@ -2,15 +2,28 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, TypedDict
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.json_types import UncheckedJsonObject
+    from nof1_causal_lab.json_types import JsonObject
 
     from .spec import DynamicsSpec
 
 
-def dynamics_spec_to_dict(spec: DynamicsSpec) -> UncheckedJsonObject:
+class ComponentDescription(TypedDict):
+    kind: Literal["drift", "potential"]
+    expression: JsonObject
+    target: int
+    source: int | None
+    state_ids: list[str]
+
+
+class DynamicsDescription(TypedDict):
+    n_latent: int
+    components: list[ComponentDescription]
+
+
+def dynamics_spec_to_dict(spec: DynamicsSpec) -> DynamicsDescription:
     """Describe bound expressions without persisting an executable model."""
     return {
         "n_latent": spec.n_latent,

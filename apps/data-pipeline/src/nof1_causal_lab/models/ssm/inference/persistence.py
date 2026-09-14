@@ -106,10 +106,9 @@ def _scientific_draws(model_spec: ModelSpec) -> JointPosteriorDraws:
         *[model_spec.parameter(binding.parameter_id) for binding in bindings],
         *[model_spec.get_construct(identity) for identity in states],
     ]
-    references = {member.distribution for member in members if isinstance(member.distribution, str)}
+    references = {member.distribution for member in members if member.distribution is not None}
     if len(references) != 1 or any(
-        not isinstance(member.distribution, str) or member.distribution not in references
-        for member in members
+        member.distribution is None or member.distribution not in references for member in members
     ):
         raise ValueError("Retained particle draws require all random quantities in one joint law")
     atoms = empirical_atoms(model_spec.distributions[next(iter(references))])

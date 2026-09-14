@@ -13,10 +13,7 @@ import jax.numpy as jnp
 import jaxtyping
 import pytest
 
-from nof1_causal_lab.models.ssm.covariance_utils import (
-    inflate_missing_variance,
-    symmetrize,
-)
+from nof1_causal_lab.models.ssm.covariance_utils import symmetrize
 
 
 def test_covariance_consistent_shapes_pass():
@@ -25,9 +22,9 @@ def test_covariance_consistent_shapes_pass():
 
 
 def test_covariance_named_axis_mismatch_raises():
-    # cov binds the "N" axis to 3; mask binds it to 2 -> inconsistent N.
+    # A covariance must use the same named axis for both matrix dimensions.
     with pytest.raises(jaxtyping.TypeCheckError):
-        inflate_missing_variance(jnp.eye(3), jnp.ones((2,)))
+        symmetrize(jnp.ones((3, 2)))
 
 
 def test_covariance_dtype_mismatch_raises():

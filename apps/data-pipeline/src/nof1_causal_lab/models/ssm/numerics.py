@@ -25,14 +25,15 @@ from nof1_causal_lab.models.ssm.structure import (
 )
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.indicator import Indicator
+    from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId
+    from nof1_causal_lab.artifacts.indicator import IndicatorSpec
     from nof1_causal_lab.artifacts.likelihood import LinkFunction
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.distributions import DistributionFamily
     from nof1_causal_lab.models.ssm.dynamics.expression import ExpressionComponentSpec
 
 
-def state_ids(model: ModelSpec) -> list[str]:
+def state_ids(model: ModelSpec) -> list[ConstructId]:
     return list(model.state_order)
 
 
@@ -44,11 +45,11 @@ def n_states(model: ModelSpec) -> int:
     return len(state_ids(model))
 
 
-def observed_indicators(model: ModelSpec) -> tuple[Indicator, ...]:
+def observed_indicators(model: ModelSpec) -> tuple[IndicatorSpec, ...]:
     return tuple(model.indicator(identity) for identity in model.manifest_indicator_order)
 
 
-def observation_ids(model: ModelSpec) -> list[str]:
+def observation_ids(model: ModelSpec) -> list[IndicatorId]:
     return [indicator.id for indicator in observed_indicators(model)]
 
 
@@ -90,32 +91,6 @@ def observation_standardized(model: ModelSpec) -> list[bool]:
     return [likelihood.standardized for likelihood in _likelihoods(model)]
 
 
-def input_ids(model: ModelSpec) -> list[str]:
-    return list(model.known_inputs)
-
-
-def input_names(model: ModelSpec) -> list[str]:
-    return [model.get_construct(identity).name for identity in input_ids(model)]
-
-
-def input_sources(model: ModelSpec) -> list[str]:
-    return [model.indicator(item.source_indicator_id).name for item in model.known_inputs.values()]
-
-
-def input_scales(model: ModelSpec) -> list[float]:
-    return [item.scale for item in model.known_inputs.values()]
-
-
-def input_missing_policies(model: ModelSpec) -> list[str]:
-    return [item.missing_policy for item in model.known_inputs.values()]
-
-
-def input_lagged(model: ModelSpec) -> list[bool]:
-    from nof1_causal_lab.models.ssm.compile.support import get_structural_input_layout
-
-    return get_structural_input_layout(model)[4]
-
-
 def _structural_support(model: ModelSpec):
     from nof1_causal_lab.models.ssm.compile.support import (
         build_structural_support_from_model,
@@ -132,18 +107,17 @@ def _structural_support(model: ModelSpec):
 
 
 def categorical_anchors(model: ModelSpec) -> list[bool]:
-    return _structural_support(model)[4].tolist()
+    return _structural_support(model)[3].tolist()
 
 
 def edge_lag_days(model: ModelSpec) -> dict[tuple[int, int], float]:
-    return _structural_support(model)[5]
+    return _structural_support(model)[4]
 
 
 def quantity_position(model: ModelSpec, parameter) -> tuple[int, ...]:
     """Locate a scientific scalar by its owners in the derived execution axes."""
     state = {key: i for i, key in enumerate(state_ids(model))}
     observation = {key: i for i, key in enumerate(observation_ids(model))}
-    inputs = {key: i for i, key in enumerate(input_ids(model))}
     owners = {owner.id for owner in parameter.owners}
 
     def one(axis):
@@ -155,8 +129,6 @@ def quantity_position(model: ModelSpec, parameter) -> tuple[int, ...]:
     kind = parameter.quantity
     if kind == SiteKind.LOADING:
         return (one(observation), one(state))
-    if kind == SiteKind.INPUT_EFFECT:
-        return (one(state), one(inputs))
     if kind in {SiteKind.DIFFUSION_LOWER, SiteKind.T0_VAR_LOWER}:
         pair = sorted(index for key, index in state.items() if key in owners)
         if len(pair) != 2:
@@ -193,11 +165,7 @@ def _quantity_values(model: ModelSpec, kind: SiteKind, template, support, *, dia
         ):
             continue
         position = quantity_position(model, parameter)
-        value = coefficient_value(model, parameter.coefficient)
-        if kind == SiteKind.INPUT_EFFECT:
-            cause, effect = input_ids(model)[position[1]], state_ids(model)[position[0]]
-            if not any(edge.cause.id == cause and edge.effect.id == effect for edge in model.edges):
-                raise ValueError("Input-effect quantities require an explicit causal edge")
+        value = coefficient_value(model, parameter.value)
         if (
             kind in {SiteKind.DIFFUSION_DIAG, SiteKind.DIFFUSION_LOWER}
             and any(time_invariant_mask(model)[index] for index in position)
@@ -230,11 +198,11 @@ def _quantity_values(model: ModelSpec, kind: SiteKind, template, support, *, dia
             and value < 0
         ):
             raise ValueError("A fixed standard deviation cannot be negative")
-        if kind == SiteKind.STATIC_STATE_SD and occupied.get(position) == parameter.coefficient:
+        if kind == SiteKind.STATIC_STATE_SD and occupied.get(position) == parameter.value:
             continue
         if position in occupied:
             raise ValueError(f"Multiple scientific definitions for {kind.value} at {position}")
-        occupied[position] = parameter.coefficient
+        occupied[position] = parameter.value
         index = (position[0], position[0]) if diagonal else position
         support_index = index if free.ndim == len(index) else position
         free[support_index] = value is None
@@ -244,7 +212,7 @@ def _quantity_values(model: ModelSpec, kind: SiteKind, template, support, *, dia
 
 
 def loading_block(model: ModelSpec) -> SparseMatrixBlockSpec:
-    _, _, template, support, _, _ = _structural_support(model)
+    _, template, support, _, _ = _structural_support(model)
     template, support = _quantity_values(model, SiteKind.LOADING, template, np.zeros_like(support))
     return SparseMatrixBlockSpec(
         n_rows=n_observations(model),
@@ -258,27 +226,6 @@ def loading_block(model: ModelSpec) -> SparseMatrixBlockSpec:
         assembly_group="lambda",
         fixed_spec_field="lambda_mat",
         priors_field="lambda_free",
-    )
-
-
-def input_effect_block(model: ModelSpec) -> SparseMatrixBlockSpec:
-    support = _structural_support(model)[1]
-    template = np.zeros(support.shape)
-    template, support = _quantity_values(
-        model, SiteKind.INPUT_EFFECT, template, np.zeros_like(support)
-    )
-    return SparseMatrixBlockSpec(
-        n_rows=n_states(model),
-        n_cols=len(input_ids(model)),
-        free_support=support,
-        template=jnp.asarray(template),
-        free_site_name="input_effect_free",
-        det_site_name="input_effect",
-        support=SupportClass.REAL,
-        site_kind=SiteKind.INPUT_EFFECT,
-        assembly_group="input_effect",
-        fixed_spec_field="input_effect",
-        priors_field="input_effect",
     )
 
 
@@ -338,14 +285,12 @@ def diffusion_families(model: ModelSpec) -> list[DistributionFamily]:
     result = []
     for identity in state_ids(model):
         construct = model.get_construct(identity)
-        if construct.innovation is None:
-            if construct.temporal_status != "time_invariant":
-                raise IncompleteModelError(
-                    f"Construct {identity!r} requires an innovation distribution"
-                )
+        if construct.temporal_status == "time_invariant":
             result.append(DistributionFamily.GAUSSIAN)
+        elif construct.coefficient("diffusion_scale") is None:
+            raise IncompleteModelError(f"Construct {identity!r} requires a diffusion scale")
         else:
-            result.append(construct.innovation.distribution)
+            result.append(construct.innovation_family)
     return result
 
 
@@ -409,24 +354,21 @@ def initial_covariance_block(model: ModelSpec) -> T0CholBlockSpec:
     )
 
 
-def static_factor_ids(model: ModelSpec) -> list[str]:
+def static_factor_ids(model: ModelSpec) -> list[ConstructId]:
     from nof1_causal_lab.models.model_parameters import baseline_factor_groups
 
     return [group[0].id for group in baseline_factor_groups(model)]
 
 
 def static_factor_names(model: ModelSpec) -> list[str]:
-    from nof1_causal_lab.artifacts.coefficient import ParameterCoefficient
 
     names = []
     for identity in static_factor_ids(model):
         construct = model.get_construct(identity)
-        assert construct.initial_state is not None
-        coefficient = construct.initial_state.scale
+        coefficient = construct.coefficient("initial_scale")
+        assert coefficient is not None
         names.append(
-            model.parameter(coefficient.parameter_id).name
-            if isinstance(coefficient, ParameterCoefficient)
-            else construct.name
+            model.parameter(coefficient).name if isinstance(coefficient, str) else construct.name
         )
     return names
 
@@ -476,7 +418,6 @@ def parameter_blocks(model: ModelSpec):
         observation_noise_block(model),
         initial_mean_block(model),
         initial_covariance_block(model),
-        input_effect_block(model),
         static_scale_block(model),
     )
 
@@ -491,7 +432,6 @@ def iter_sample_sites(model: ModelSpec):
 def validate_execution(model: ModelSpec) -> None:
     """Check that the scientific value supplies everything numerical execution needs."""
     model.require_execution_structure()
-    from nof1_causal_lab.artifacts.coefficient import ParameterCoefficient
     from nof1_causal_lab.distributions import DistributionFamily
     from nof1_causal_lab.models.ssm.compile.structural import compile_anchor_certificates
     from nof1_causal_lab.models.ssm.compile.support import (
@@ -503,9 +443,9 @@ def validate_execution(model: ModelSpec) -> None:
     )
 
     def require_hyperparameter(coefficient, label):
-        if not isinstance(coefficient, ParameterCoefficient):
+        if not isinstance(coefficient, str):
             raise IncompleteModelError(f"{label} requires a prior parameter")
-        if model.parameter(coefficient.parameter_id).value is not None:
+        if model.parameter(coefficient).value is not None:
             raise ValueError("Native distribution hyperparameters require prior laws")
 
     _, intercept_errors = _build_manifest_intercept_support(
@@ -515,18 +455,21 @@ def validate_execution(model: ModelSpec) -> None:
         raise NumericalSupportError(intercept_errors)
     for identity in state_ids(model):
         construct = model.get_construct(identity)
-        if construct.initial_state is None:
+        if any(construct.coefficient(role) is None for role in ("initial_mean", "initial_scale")):
             raise IncompleteModelError(
                 f"Construct {identity!r} requires initial-state coefficients"
             )
-        noise = construct.innovation
-        if construct.temporal_status == "time_varying" and noise is None:
+        if (
+            construct.temporal_status == "time_varying"
+            and construct.coefficient("diffusion_scale") is None
+        ):
             raise IncompleteModelError(
                 f"Construct {identity!r} requires an innovation distribution"
             )
-        if noise is not None and noise.distribution == DistributionFamily.STUDENT_T:
+        if construct.innovation_family == DistributionFamily.STUDENT_T:
             require_hyperparameter(
-                noise.degrees_of_freedom, f"{identity}.innovation.degrees_of_freedom"
+                construct.coefficient("process_degrees_of_freedom"),
+                f"{identity}.process_degrees_of_freedom",
             )
     supported = supported_distribution_families()
     for indicator in observed_indicators(model):
@@ -536,16 +479,14 @@ def validate_execution(model: ModelSpec) -> None:
         if likelihood.law.family not in supported:
             raise ValueError(f"Indicator {indicator.id!r} has no native emission function")
         terms = likelihood.terms
-        missing = [operand.role for operand in terms.operands if operand.coefficient is None]
+        missing = [operand.role for operand in terms.operands if operand.value is None]
         if missing:
             raise IncompleteModelError(
                 f"Indicator {indicator.id!r} requires explicit measurement coefficients: {missing}"
             )
         for operand in terms.auxiliary:
             if operand.role != "observation_scale":
-                require_hyperparameter(
-                    operand.coefficient, f"{indicator.id}.likelihood.{operand.role}"
-                )
+                require_hyperparameter(operand.value, f"{indicator.id}.likelihood.{operand.role}")
     observation_level_counts(model)
     parameter_blocks(model)
     dynamics_components(model)

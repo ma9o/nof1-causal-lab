@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any, cast
 from temporalio import activity
 
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
-from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
+from nof1_causal_lab.machine.artifact_files import parquet_filename
 from nof1_causal_lab.machine.derivations import complete_computed_transition
 from nof1_causal_lab.machine.graph import transition_spec
 from nof1_causal_lab.machine.moves import TransitionEffects, input_pins
@@ -133,11 +133,6 @@ async def plan_measurements_activity(input: MeasurementsWorkflowInput) -> Measur
     run_id = f"seq-{input.seq:06d}"
     root = _run_root(input.workspace_id, run_id)
 
-    question = store.read_json_file(
-        "question",
-        pins["question"],
-        json_filename("question", "question"),
-    )["text"]
     raw_table = store.read_parquet_table(
         "raw_data",
         pins["raw_data"],
@@ -148,6 +143,7 @@ async def plan_measurements_activity(input: MeasurementsWorkflowInput) -> Measur
     from nof1_causal_lab.models.model_inputs import observation_input
 
     model = read_model(store, pins["model"])
+    question = model.require_question()
     model.require_measurements()
     measurement_structure = observation_input(model)
 

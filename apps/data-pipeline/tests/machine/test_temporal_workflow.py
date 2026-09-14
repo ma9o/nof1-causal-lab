@@ -17,6 +17,7 @@ from typing import Any
 import pytest
 
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.machine.derivations import read_model
 from nof1_causal_lab.machine.moves import (
     RunOperation,
     WriteArtifact,
@@ -31,12 +32,14 @@ from nof1_causal_lab.machine.temporal.model_spec_checkpoints import (
 from nof1_causal_lab.machine.temporal.workflow import EpisodeWorkflow
 from tests.helpers import complete_test_model, graph_constructs
 
-pytestmark = [pytest.mark.slow, pytest.mark.timeout(240)]
+pytestmark = [pytest.mark.workflow, pytest.mark.timeout(240)]
+_QUESTION = "does exercise improve sleep?"
 
 
 def _proposed_model() -> dict[str, Any]:
     return {
-        "default_outcome": {"kind": "construct", "id": "construct:sleep"},
+        "question": _QUESTION,
+        "default_outcome": "construct:sleep",
         "edges": [
             {
                 "id": "edge:test-outcome-0",
@@ -84,13 +87,13 @@ def _statistical_submission() -> dict[str, Any]:
         "construct": graph_constructs(model)[0],
         "edges": model["edges"],
         "parameters": model["parameters"],
+        "distributions": model["distributions"],
     }
 
 
 @pytest.fixture
 def machine_env(monkeypatch, tmp_path):
     import nof1_causal_lab.flows.transitions.model_spec.agentic.construct_flow as construct_flow
-    import nof1_causal_lab.flows.transitions.model_spec.assembly as model_spec_assembly
     import nof1_causal_lab.models.ssm.construct_admission as construct_admission
     import nof1_causal_lab.utils.openrouter_client as openrouter_client
     from nof1_causal_lab.utils import config as config_module
@@ -126,15 +129,6 @@ def machine_env(monkeypatch, tmp_path):
         ),
     )
 
-    def fake_materialize_model_spec_result(**kwargs):
-        return {"model": kwargs["model"]}
-
-    monkeypatch.setattr(
-        model_spec_assembly,
-        "materialize_model_spec_result",
-        fake_materialize_model_spec_result,
-    )
-
     def fake_admit_construct(state, contribution, *_args, **_kwargs):
         admitted = construct_admission.trial_admission_state(state, contribution)
         report = construct_admission.ConstructAdmissionReport(
@@ -147,28 +141,15 @@ def machine_env(monkeypatch, tmp_path):
         )
         return admitted, report
 
-    def fake_validate_full_admission_state(state, targets, *_args, **_kwargs):
-        del state
-        return construct_admission.FullAdmissionValidation(
-            reports=tuple(
-                construct_admission.ConstructAdmissionReport(
-                    name=target.name,
-                    results=(),
-                    timings=(),
-                    outcome="ADMITTED",
-                    annotations=(),
-                    admitted=True,
-                )
-                for target in targets
-            ),
-            timings=(),
-        )
+    def fail_full_admission_validation(*_args, **_kwargs):
+        # Exercise the activity's typed error conversion and durable checkpoint.
+        raise ValueError("deliberate full-model validation failure")
 
     monkeypatch.setattr(construct_flow, "admit_construct", fake_admit_construct)
     monkeypatch.setattr(
         construct_admission,
         "validate_full_admission_state",
-        fake_validate_full_admission_state,
+        fail_full_admission_validation,
     )
 
     async def fake_call_model(model_name, messages, tools=None, config=None, log_label=None):
@@ -349,15 +330,15 @@ def test_episode_workflow_journey(machine_env):
                 # 1. Illegal move first: rejected AND journaled.
                 rejected = await propose(RunOperation(operation_id="measurement_structure"))
                 assert rejected.status == "rejected"
-                assert "question" in rejected.reason
+                assert "model" in rejected.reason
 
                 # 2. Root write enables downstream.
                 applied = await propose(
-                    WriteArtifact(artifact_id="question"),
-                    payload={"text": "does exercise improve sleep?"},
+                    WriteArtifact(artifact_id="model", expected_model_version=0),
+                    payload={"question": _QUESTION},
                 )
                 assert applied.status == "applied"
-                assert applied.state.has("question")
+                assert applied.state.has("model")
 
                 # 3. Free navigation through enabled transitions (stubs).
                 for artifact_id in (
@@ -374,23 +355,29 @@ def test_episode_workflow_journey(machine_env):
                 raised = await propose(RunOperation(operation_id="statistical_model_spec"))
                 assert raised.status == "raised"
                 assert raised.error_type == "ModelCompileError", raised.error_message
+                assert "deliberate full-model validation failure" in raised.error_message
                 assert "report" in raised.diagnostics
                 after = (await handle.query(EpisodeWorkflow.get_state)).current
                 assert after == before
 
-                # 5. Rewriting the question stales the whole derived chain.
+                # 5. A question revision invalidates extraction, preserving raw data.
                 status = await handle.query(EpisodeWorkflow.get_status)
                 stale_before = {a.artifact_id for a in status.artifacts if a.stale}
                 assert stale_before == set()
-                await propose(
-                    WriteArtifact(artifact_id="question"),
-                    payload={"text": "does caffeine harm sleep?"},
+                store = ArtifactStore(workspace_id)
+                model_version = before["model"].version
+                revised = read_model(store, model_version).model_dump(mode="json")
+                revised["question"] = "does caffeine harm sleep?"
+                rewritten = await propose(
+                    WriteArtifact(artifact_id="model", expected_model_version=model_version),
+                    payload=revised,
                 )
+                assert rewritten.status == "applied", rewritten
                 status = await handle.query(EpisodeWorkflow.get_status)
                 stale = {a.artifact_id for a in status.artifacts if a.stale}
-                assert "model" in stale
                 assert "panel" in stale
-                assert "raw_data" not in stale  # not derived from question
+                assert "model" not in stale
+                assert "raw_data" not in stale
 
                 # 6. Journal recorded every attempt, including the rejection
                 #    and the typed failure.
@@ -398,13 +385,13 @@ def test_episode_workflow_journey(machine_env):
                 statuses = [record.status for record in records]
                 assert statuses == [
                     "rejected",
-                    "applied",  # question
+                    "applied",  # initial model question
                     "applied",  # ingestion
                     "applied",  # latent-structure
                     "applied",  # measurement-structure
                     "applied",  # extraction
                     "raised",  # model-spec
-                    "applied",  # question rewrite
+                    "applied",  # model question revision
                 ]
                 assert records[-2].error_type == "ModelCompileError"
                 assert "report" in records[-2].diagnostics
@@ -414,8 +401,10 @@ def test_episode_workflow_journey(machine_env):
                 assert checkpoint_ref is not None
                 read_model_spec_checkpoint(workspace_id, checkpoint_ref)
 
-                # Store kept both question versions (append-only).
-                assert ArtifactStore(workspace_id).list_versions("question") == [1, 2]
+                # Model history keeps the original question and each subsequent revision.
+                assert store.list_versions("model") == list(range(1, model_version + 2))
+                assert read_model(store, 1).question == _QUESTION
+                assert read_model(store, model_version + 1).question == revised["question"]
         finally:
             await env.shutdown()
 

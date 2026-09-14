@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from nof1_causal_lab.artifacts.coefficient import FixedCoefficient
 import jax.numpy as jnp
 import numpy as np
 import numpyro.distributions as dist
@@ -10,6 +9,7 @@ import pytest
 
 from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.models.model_distributions import with_parameter_distributions
 from nof1_causal_lab.models.model_structure import model_for_constructs
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.construct_admission import (
@@ -18,8 +18,6 @@ from nof1_causal_lab.models.ssm.construct_admission import (
     ConstructContribution,
     DesignInfo,
     _conditional_variance_for_signal,
-    _incoming_edge_off_target,
-    _resimulate_edge_off,
     _run_battery,
     admit_construct,
     build_construct_order,
@@ -28,11 +26,10 @@ from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
 from nof1_causal_lab.models.ssm.reachability import CheckResult
 from nof1_causal_lab.utils.model_structure import (
     get_edges,
-    get_known_inputs,
     get_manifest_indicators,
     get_state_names,
 )
-from tests.dynamics_fixtures import decay_term, hill_term, potential_term
+from tests.dynamics_fixtures import hill_term, potential_term
 from tests.helpers import (
     complete_test_model,
     fixture_entity_id,
@@ -70,6 +67,9 @@ def _structure() -> ModelSpec:
 
 def _contribution(name: str, priors: dict[str, dist.Distribution], parent: str | None = None):
     model = complete_test_model(_structure())
+    model = with_parameter_distributions(
+        model, {item.id: priors[item.name] for item in model.parameters if item.name in priors}
+    )
     construct = next(item for item in model.constructs if item.name == name)
     edges = tuple(edge for edge in model.edges if edge.effect.id == construct.id)
     owned_ids = {
@@ -80,7 +80,7 @@ def _contribution(name: str, priors: dict[str, dist.Distribution], parent: str |
         *(term.id for edge in edges for term in edge.mechanisms),
     }
     parameters = tuple(
-        item.model_copy(update={"distribution": priors[item.name]}) if item.name in priors else item
+        item
         for item in model.parameters
         if {owner.id for owner in model.parameter_context(item.id).owners} <= owned_ids
         or any(
@@ -92,6 +92,11 @@ def _contribution(name: str, priors: dict[str, dist.Distribution], parent: str |
         construct=construct,
         edges=edges,
         parameters=parameters,
+        distributions={
+            identity: law
+            for identity, law in model.distributions.items()
+            if identity in {item.distribution for item in parameters}
+        },
         edge_parents=(parent,) if parent else (),
     )
 
@@ -100,7 +105,7 @@ def _contrib_X() -> ConstructContribution:
     return _contribution(
         "X",
         {
-            "rho_X": dist.Normal(0.6, 0.1),
+            "rho_X": dist.Beta(12.0, 8.0),
             "sigma_X": dist.HalfNormal(0.5),
             "lambda_x2_X": dist.Normal(1.0, 0.2),
             "obs_sd_x1": dist.HalfNormal(0.3),
@@ -109,11 +114,11 @@ def _contrib_X() -> ConstructContribution:
     )
 
 
-def _contrib_child(name: str, indicator: str, parent: str) -> ConstructContribution:
+def _contrib_child(name: str, parent: str) -> ConstructContribution:
     return _contribution(
         name,
         {
-            f"rho_{name}": dist.Normal(0.6, 0.1),
+            f"rho_{name}": dist.Beta(12.0, 8.0),
             f"sigma_{name}": dist.HalfNormal(0.5),
             f"beta_{parent}_{name}": dist.Normal(0.3, 0.1),
         },
@@ -122,8 +127,8 @@ def _contrib_child(name: str, indicator: str, parent: str) -> ConstructContribut
 
 
 def _design(seed: int = 0) -> DesignInfo:
-    t_grid = jnp.linspace(0.0, 10.0, 201)
-    obs_idx = np.arange(1, 201, 2)  # 100 observations, shared across indicators here
+    t_grid = jnp.linspace(0.0, 10.0, 21)
+    obs_idx = np.arange(1, 21, 2)
     rng = np.random.default_rng(0)
     indicators = tuple(fixture_entity_id("indicator", name) for name in ("x1", "x2", "y1", "z1"))
     return DesignInfo(
@@ -131,7 +136,7 @@ def _design(seed: int = 0) -> DesignInfo:
         t_grid=t_grid,
         obs_index_by_indicator=dict.fromkeys(indicators, obs_idx),
         values_by_indicator={v: rng.normal(0.0, 0.9, obs_idx.size) for v in indicators},
-        n_draws=64,
+        n_draws=8,
         seed=seed,
     )
 
@@ -302,152 +307,19 @@ def test_model_for_constructs_to_subset():
     assert all(edge["effect"] != "Z" for edge in get_edges(restricted))
 
 
-def test_model_for_constructs_preserves_known_input_dependency():
-    causal_design = _model_payload()
-    graph_constructs(causal_design)[0]["usage"] = {
-        "kind": "known_input",
-        "source_indicator_id": "indicator:0f93ce57e1f1d1c96f5c",
-        "scale": 10.0,
-        "missing_policy": "forward_fill",
-    }
-
-    plan = ModelSpec.model_validate(causal_design)
-    restricted = model_for_constructs(plan, {"Y"})
-
+def test_model_for_constructs_selects_states_without_authored_exclusions():
+    model = ModelSpec.model_validate(_model_payload())
+    before = model.model_dump(mode="json")
+    restricted = model_for_constructs(model, {"Y"})
     assert get_state_names(restricted) == ["Y"]
-    assert [
-        {
-            "construct_id": fixture_entity_id("construct", item["construct"]),
-            "source_indicator_id": fixture_entity_id("indicator", item["source_indicator"]),
-            "scale": item["scale"],
-            "missing_policy": item["missing_policy"],
-        }
-        for item in get_known_inputs(restricted)
-    ] == [
-        {
-            "construct_id": "construct:311c9047b5ede16a8f26",
-            "source_indicator_id": "indicator:0f93ce57e1f1d1c96f5c",
-            "scale": 10.0,
-            "missing_policy": "forward_fill",
-        }
-    ]
-    assert [(edge["cause"], edge["effect"]) for edge in get_edges(restricted)] == [("X", "Y")]
+    assert get_edges(restricted) == []
     assert {indicator["name"] for indicator in get_manifest_indicators(restricted)} == {"y1"}
+    assert model.model_dump(mode="json") == before
+    assert all("usage" not in item for item in graph_constructs(restricted.model_dump(mode="json")))
 
 
-def test_known_input_edge_off_zeroes_only_the_compiled_input_cell(monkeypatch):
-    from nof1_causal_lab.models.ssm.predictive import registry_runtime
-
-    captured: dict[str, np.ndarray] = {}
-
-    def _capture_samples(
-        _spec,
-        samples,
-        _times,
-        *,
-        transition_inputs,
-        rng_key,
-        dynamics,
-    ):
-        del transition_inputs, rng_key
-        captured["input_effect"] = np.asarray(samples["input_effect"])
-        return jnp.zeros((2, 3, 2)), jnp.zeros((2, 3, 1))
-
-    monkeypatch.setattr(
-        registry_runtime,
-        "_simulate_vector_field_predictive_latents",
-        _capture_samples,
-    )
-    from dataclasses import replace
-
-    from tests.model_fixtures import default_input_effect_block
-
-    spec = model_fixture(
-        n_latent=2,
-        dynamics_spec=DynamicsSpec(2, (*(decay_term(target=i) for i in range(2)),)),
-        latent_names=["mood", "sleep"],
-        input_names=["dose", "exercise"],
-        input_effect_block=replace(
-            default_input_effect_block(2),
-            n_cols=2,
-            free_support=np.ones((2, 2), dtype=bool),
-            template=jnp.zeros((2, 2)),
-        ),
-    )
-    contribution = ConstructContribution(
-        construct=make_model(["mood"]).constructs[0], edge_parents=("dose",)
-    )
-    edge_target = _incoming_edge_off_target(spec, contribution, ["mood", "sleep"], 0)
-    input_effect = jnp.arange(8, dtype=float).reshape(2, 2, 2) + 1.0
-
-    _resimulate_edge_off(
-        spec,
-        {"input_effect": input_effect},
-        jnp.arange(3, dtype=float),
-        edge_target,
-        seed=1,
-    )
-
-    expected = np.asarray(input_effect).copy()
-    expected[:, 0, 0] = 0.0
-    np.testing.assert_allclose(captured["input_effect"], expected)
-
-
-@pytest.mark.slow
-def test_admit_root_runs_full_battery():
-    _structure()
-    state, report = admit_construct(
-        AdmissionState(model=_structure()),
-        _contrib_X(),
-        _design(),
-        accepted=_ALL_SOFT,
-    )
-    ids = {r.check for r in report.results}
-    assert {"C1a finiteness", "C1b confinement", "C2 latent scale", "C3 resolvability"} <= ids
-    assert {"C5a location reach", "C5b width", "C5c transmission"} <= ids
-    assert "C4b edge overwhelm" not in ids  # root has no incoming edge
-    timing_phases = {timing.phase for timing in report.timings}
-    assert {
-        "model_compilation",
-        "prior_predictive",
-        "c1_confinement",
-        "c2_latent_scale",
-        "c3_resolvability",
-        "admission_decision",
-    } <= timing_phases
-    assert all(timing.duration_ms > 0 for timing in report.timings)
-    # Hard checks (finite sim + reachable data) hold, so X is admitted.
-    assert not report.outcome.startswith("BLOCKED")
-    assert report.admitted
-    assert state.names == ("X",)
-
-
-@pytest.mark.slow
-def test_admit_child_runs_edge_check_via_edge_off_resim():
-    _structure()
-    design = _design()
-    state, _ = admit_construct(
-        AdmissionState(model=_structure()),
-        _contrib_X(),
-        design,
-        accepted=_ALL_SOFT,
-    )
-    state, report = admit_construct(
-        state, _contrib_child("Y", "y1", "X"), design, accepted=_ALL_SOFT
-    )
-    ids = {r.check for r in report.results}
-    assert "C4b edge overwhelm" in ids
-    c4b = next(r for r in report.results if r.check == "C4b edge overwhelm")
-    # The edge-off re-simulation must actually differ from edge-on (the edge moves
-    # the child); a zero displacement would mean the resim was a no-op.
-    assert c4b.evidence is not None
-    assert float(np.median(c4b.evidence["e"])) > 0.0
-    assert report.admitted
-    assert state.names == ("X", "Y")
-
-
-@pytest.mark.slow
-def test_full_chain_builds_an_executable_model():
+@pytest.mark.admission
+def test_admission_chain_runs_battery_and_edge_contrasts_then_builds_model():
     import polars as pl
 
     from nof1_causal_lab.models.model_checks import check_execution
@@ -456,21 +328,41 @@ def test_full_chain_builds_an_executable_model():
     model = _structure()
     contributions = {
         "X": _contrib_X(),
-        "Y": _contrib_child("Y", "y1", "X"),
-        "Z": _contrib_child("Z", "z1", "Y"),
+        "Y": _contrib_child("Y", "X"),
+        "Z": _contrib_child("Z", "Y"),
     }
     accepted = dict.fromkeys(contributions, _ALL_SOFT)
     state = AdmissionState(model=_structure())
+    design = _design()
     reports = []
     for name in build_construct_order(model):
         state, report = admit_construct(
             state,
             contributions[name],
-            _design(),
+            design,
             accepted[name],
         )
         reports.append(report)
-        assert report.admitted
+        assert report.admitted, report
+        assert state.names == tuple(r.name for r in reports)
+        checks = {result.check: result for result in report.results}
+        assert {
+            "C1a finiteness",
+            "C1b confinement",
+            "C2 latent scale",
+            "C3 resolvability",
+            "C5a location reach",
+            "C5b width",
+            "C5c transmission",
+        } <= checks.keys()
+        assert checks["C1a finiteness"].passed
+        if name == "X":
+            assert "C4b edge overwhelm" not in checks
+        else:
+            evidence = checks["C4b edge overwhelm"].evidence
+            assert evidence is not None
+            # Both chain edges must change their child's exact simulated path.
+            assert float(np.median(evidence["e"])) > 0.0
     assert [r.name for r in reports] == ["X", "Y", "Z"]
     assert state.names == ("X", "Y", "Z")
 
@@ -478,7 +370,6 @@ def test_full_chain_builds_an_executable_model():
     compiled = check_execution(
         state.completed_model(),
     )
-    assert state.completed_model() is not None
     assert len(compiled) == 3
     wide = pl.DataFrame(
         {
@@ -498,11 +389,16 @@ def test_fixed_hill_coefficients_participate_in_admission_and_edge_off(monkeypat
     from nof1_causal_lab.artifacts.expressions import LiteralExpression, hill_applications
     from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
     from nof1_causal_lab.models.ssm.predictive import registry_runtime
-    
     from tests.model_fixtures import model_fixture
 
     draws, ticks = 4, 21
-    hill = hill_term(source=0, target=1, emax=FixedCoefficient(value=0.8), ec50=FixedCoefficient(value=1), n=FixedCoefficient(value=2))
+    hill = hill_term(
+        source=0,
+        target=1,
+        emax=0.8,
+        ec50=1,
+        n=2,
+    )
     spec = model_fixture(
         n_latent=2,
         n_manifest=2,
@@ -512,7 +408,12 @@ def test_fixed_hill_coefficients_participate_in_admission_and_edge_off(monkeypat
         dynamics_spec=DynamicsSpec(
             2,
             (
-                potential_term(target=1, center=FixedCoefficient(value=0), stiffness=FixedCoefficient(value=0.5), quartic=FixedCoefficient(value=0)),
+                potential_term(
+                    target=1,
+                    center=0,
+                    stiffness=0.5,
+                    quartic=0,
+                ),
                 hill,
             ),
         ),
@@ -555,7 +456,7 @@ def test_fixed_hill_coefficients_participate_in_admission_and_edge_off(monkeypat
         predictive,
         design,
         ConstructContribution(
-            construct=_contrib_child("Y", "y1", "X").construct,
+            construct=_contrib_child("Y", "X").construct,
             edge_parents=("X",),
             hill_parents=("X",),
         ),

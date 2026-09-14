@@ -35,7 +35,6 @@ def test_full_model_write_checks_base_before_writing(workspace):
     state = EpisodeState().with_versions(effects.produced)
     assert state.current["model"].version == 1
     assert state.has("identification_report")
-    assert not make_model(["X", "Y"], [("X", "Y")]).execution_readiness.ready
     with pytest.raises(ArtifactWriteRejected, match="conflict"):
         execute_write(
             workspace,
@@ -104,8 +103,13 @@ def test_statistical_enrichment_preserves_structural_and_measurement_inputs():
     for purpose in ("identification", "compilation"):
         assert changed[purpose] != before[purpose]
 
+    revised_question = input_fingerprints(measured.revised(question="Does X change Y?"))
+    assert revised_question["extraction"] != before["extraction"]
+    for purpose in ("identification", "compilation", "belief"):
+        assert revised_question[purpose] == before[purpose]
 
-@pytest.mark.parametrize("failed_artifact", ["admission_report", None])
+
+@pytest.mark.parametrize("failed_artifact", ["identification_report", None])
 def test_statistical_finalizer_commits_model_and_findings_together(
     workspace, monkeypatch, failed_artifact
 ):
@@ -114,7 +118,8 @@ def test_statistical_finalizer_commits_model_and_findings_together(
     import polars as pl
     from temporalio.exceptions import ApplicationError
 
-    from nof1_causal_lab.artifacts.admission import AdmissionReport
+    from nof1_causal_lab.artifacts.prior import PriorValidationResult
+    from nof1_causal_lab.artifacts.prior_predictive import PriorPredictiveResult
     from nof1_causal_lab.flows import runtime_events
     from nof1_causal_lab.flows.transitions.model_spec import assembly
     from nof1_causal_lab.machine.store import ArtifactStore
@@ -146,7 +151,7 @@ def test_statistical_finalizer_commits_model_and_findings_together(
         admission=AdmissionState(model=model, names=("X",)),
         model=plan,
         data_for_model=pl.DataFrame(),
-        search_queries={},
+        search_queries={"parameter:test": "prior calibration study"},
     )
     monkeypatch.setattr(activities, "read_model_spec_checkpoint", lambda *_: checkpoint)
     monkeypatch.setattr(
@@ -158,10 +163,20 @@ def test_statistical_finalizer_commits_model_and_findings_together(
     monkeypatch.setattr(
         assembly,
         "materialize_model_spec_result",
-        lambda **_: {
-            "model": model.model_dump(mode="json"),
-            **AdmissionReport().model_dump(mode="json"),
-        },
+        lambda **_: (
+            model,
+            PriorPredictiveResult(samples={}),
+            [
+                PriorValidationResult(
+                    parameter="parameter:test",
+                    is_valid=True,
+                    origin="compile",
+                    severity="warning",
+                    code="test_warning",
+                    issue="Check the timescale",
+                )
+            ],
+        ),
     )
     write = ArtifactStore.write_version
 
@@ -183,11 +198,15 @@ def test_statistical_finalizer_commits_model_and_findings_together(
         with pytest.raises(ApplicationError, match="injected final write failure"):
             run_async(activities.finalize_statistical_model_spec_activity(request))
         assert store.list_versions("model") == [1]
-        assert store.list_versions("admission_report") == []
+        assert store.list_versions("identification_report") == []
     else:
         effects = run_async(activities.finalize_statistical_model_spec_activity(request))
         outputs = {item.artifact_id: item for item in effects.produced}
         assert outputs["model"].version == 2
-        assert outputs["admission_report"].derived_from["model"] == 2
-        assert model.execution_readiness.ready
+        assert "admission_report" not in outputs
+        assert effects.diagnostics["prior_predictive"] == {"samples": {}, "diagnostics": []}
+        assert effects.diagnostics["search_queries"] == authoring.search_queries
+        assert effects.diagnostics["validation_diagnostics"][0]["code"] == "test_warning"
+        assert effects.diagnostics["validation_diagnostics"][0]["severity"] == "warning"
+        model.check_execution()
     assert state.current["model"] == original

@@ -1,6 +1,5 @@
 """Scientific serialization and expression bindings retain the execution semantics."""
 
-from nof1_causal_lab.artifacts.coefficient import FixedCoefficient
 import numpy as np
 import pytest
 
@@ -8,7 +7,6 @@ from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.dynamics.serialization import dynamics_spec_to_dict
 from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec, compile_dynamics
-
 from tests.dynamics_fixtures import decay_term, hill_term, potential_term
 from tests.model_fixtures import model_fixture
 
@@ -17,8 +15,13 @@ def test_description_retains_expression_constants_and_potential_semantics():
     spec = DynamicsSpec(
         2,
         (
-            potential_term(0, center=FixedCoefficient(value=0.5), stiffness=FixedCoefficient(value=1.2), quartic=FixedCoefficient(value=0.3)),
-            hill_term(0, 1, ec50=FixedCoefficient(value=2.0), n=FixedCoefficient(value=2.0)),
+            potential_term(
+                0,
+                center=0.5,
+                stiffness=1.2,
+                quartic=0.3,
+            ),
+            hill_term(0, 1, ec50=2.0, n=2.0),
         ),
     )
     description = dynamics_spec_to_dict(spec)

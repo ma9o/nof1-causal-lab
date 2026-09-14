@@ -557,9 +557,9 @@ def compile_priors(
 
     for param_name, parameter in parameters.items():
         try:
-            prior = parameter.distribution
+            prior = model.distribution_for(parameter.id)
             assert prior is not None
-            if isinstance(prior, str):
+            if prior.batch_shape or prior.event_shape:
                 raise ValueError(
                     "This compiler requires independent scalar input laws; shared laws remain intact in ModelSpec. Refit from the original input revision."
                 )
@@ -632,21 +632,7 @@ def compile_priors(
                     raise ValueError(
                         "Dynamics effect prior compilation requires a translated ModelSpec runtime."
                     )
-                if binding.site_kind == SiteKind.INPUT_EFFECT:
-                    ref_days = parameter.reference_interval_days
-                    resolved_ref_days = float(ref_days) if ref_days is not None else None
-                    if resolved_ref_days is not None and resolved_ref_days <= 0:
-                        errors.append(
-                            f"Known-input effect prior '{param_name}' reference_interval_days "
-                            f"must be positive, got {resolved_ref_days:.3g}"
-                        )
-                        continue
-                    dt = (
-                        resolved_ref_days
-                        if resolved_ref_days is not None
-                        else get_construct_dt_days(model)
-                    )
-                elif binding.effect_idx is not None and binding.cause_idx is not None:
+                if binding.effect_idx is not None and binding.cause_idx is not None:
                     dt = _resolve_cross_lag_interval_days(
                         param_name=param_name,
                         parameter=parameter,

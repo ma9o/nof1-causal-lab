@@ -9,6 +9,7 @@ from nof1_causal_lab.machine.moves import RunOperation, is_stale
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.machine.artifacts import EpisodeState
     from nof1_causal_lab.machine.store import ArtifactStore, TransitionRecord
 
@@ -82,9 +83,26 @@ def inference_report_is_current(record: TransitionRecord, state: EpisodeState) -
 def inference_input_version(store: ArtifactStore, model_version: int) -> int:
     """Refitting restarts from the input law, so observations are counted exactly once."""
     info = store.read_meta("model", model_version)
-    while info.produced_by == "run:posterior":
+    while info.produced_by == "run:posterior" or "model" in info.derived_from:
         parent = info.derived_from["model"]
         if parent >= info.version:
             raise ValueError("Inference input revisions must precede their output")
-        info = store.read_meta("model", parent)
+        previous = store.read_meta("model", parent)
+        if (
+            info.produced_by != "run:posterior"
+            and info.model_inputs["belief"] != previous.model_inputs["belief"]
+        ):
+            break
+        info = previous
     return info.version
+
+
+def read_prior_model(store: ArtifactStore, model_version: int) -> ModelSpec:
+    """Recover the unconditioned law while retaining the selected revision's research question."""
+    from nof1_causal_lab.machine.derivations import read_model
+
+    selected = read_model(store, model_version)
+    prior_version = inference_input_version(store, model_version)
+    if prior_version == model_version:
+        return selected
+    return read_model(store, prior_version).revised(question=selected.question)

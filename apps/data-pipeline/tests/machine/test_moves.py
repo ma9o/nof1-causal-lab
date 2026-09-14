@@ -44,8 +44,8 @@ class TestLegalMoves:
     def test_empty_state_enables_only_raw_data(self):
         assert _runnable(EpisodeState()) == {"raw_data"}
 
-    def test_question_write_enables_latent_structure(self):
-        state = _state(_version("question", provenance="human"))
+    def test_initial_model_enables_latent_structure(self):
+        state = _state(_version("model", provenance="human"))
         assert _runnable(state) == {"raw_data", "latent_structure"}
 
     def test_declared_writes_are_offered(self):
@@ -55,14 +55,12 @@ class TestLegalMoves:
             if isinstance(move, WriteArtifact)
         }
         assert offered == set(WRITABLE_ARTIFACTS)
-        assert "question" in offered
         assert "model" in offered
         assert "causal_design" not in offered
         assert "raw_data" not in offered
 
     def test_no_identification_report_disables_fit_chain(self):
         state = _state(
-            _version("question", provenance="human"),
             _version("raw_data"),
             _version("model"),
             _version("panel"),
@@ -74,7 +72,6 @@ class TestLegalMoves:
 
     def test_identification_report_enables_statistical_model_spec(self):
         state = _state(
-            _version("question", provenance="human"),
             _version("raw_data"),
             _version("model"),
             _version("identification_report"),
@@ -83,20 +80,11 @@ class TestLegalMoves:
         )
         assert "statistical_model_spec" in _runnable(state)
 
-    def test_baseline_report_does_not_require_question(self):
-        state = _state(
-            _version("model"),
-            _version("identification_report"),
-            _version("panel"),
-        )
-        assert "baseline_report" in _runnable(state)
-
 
 class TestValidateMove:
     def test_missing_inputs_rejected_with_names(self):
         reason = validate_move(EpisodeState(), RunOperation(operation_id="measurement_structure"))
         assert reason is not None
-        assert "question" in reason
         assert "model" in reason
 
     def test_unknown_transition_rejected(self):
@@ -106,7 +94,7 @@ class TestValidateMove:
     def test_computed_provenance_write_rejected(self):
         reason = validate_move(
             EpisodeState(),
-            WriteArtifact(artifact_id="question", provenance="computed"),
+            WriteArtifact(artifact_id="model", provenance="computed"),
         )
         assert reason is not None
 
@@ -171,9 +159,6 @@ class TestStaleness:
         dependents = [
             _version("identification_report", derived_from={"model": 1}),
             _version("panel", derived_from={"model": 1}),
-            _version(
-                "baseline_report", derived_from={"model": 2, "panel": 1, "identification_report": 1}
-            ),
         ]
         return _state(
             model,
@@ -192,7 +177,7 @@ class TestStaleness:
     def test_fresh_chain_is_not_stale(self):
         state = self._fitted_chain()
         assert inference_is_current(state)
-        assert not is_stale(state, "baseline_report")
+        assert not is_stale(state, "identification_report")
 
     def test_editing_model_stales_produced_descendants(self):
         state = apply_transition(
@@ -200,13 +185,11 @@ class TestStaleness:
         )
         assert not inference_is_current(state)
         assert is_stale(state, "panel")
-        assert is_stale(state, "baseline_report")
         assert not is_stale(state, "model")
 
-    def test_retracted_input_invalidates_fit_and_report(self):
+    def test_retracted_input_invalidates_fit(self):
         state = self._fitted_chain().without(["panel"])
         assert not inference_is_current(state)
-        assert is_stale(state, "baseline_report")
 
     def test_republishing_identification_preserves_conditioned_science(self):
         state = self._fitted_chain()
@@ -214,26 +197,25 @@ class TestStaleness:
             [state.current["identification_report"].model_copy(update={"version": 2})]
         )
         assert inference_is_current(current)
-        assert is_stale(current, "baseline_report")
 
     def test_absent_artifact_is_not_stale(self):
-        assert not is_stale(EpisodeState(), "baseline_report")
+        assert not is_stale(EpisodeState(), "identification_report")
 
 
 class TestInputPins:
     def test_pins_current_versions(self):
         state = _state(
-            _version("question", version=3, provenance="human"),
+            _version("model", version=3, provenance="human"),
         )
         pins = input_pins(state, transition_spec("latent_structure"))
-        assert pins == {"question": 3}
+        assert pins == {"model": 3}
 
 
 def test_freshness_report_shape():
-    state = _state(_version("question", provenance="human"))
+    state = _state(_version("model", provenance="human"))
     report = freshness_report(state)
     by_id = {status.artifact_id: status for status in report}
-    assert by_id["question"].exists
-    assert by_id["question"].provenance == "human"
-    assert not by_id["model"].exists
-    assert not by_id["model"].stale
+    assert by_id["model"].exists
+    assert by_id["model"].provenance == "human"
+    assert not by_id["panel"].exists
+    assert not by_id["panel"].stale

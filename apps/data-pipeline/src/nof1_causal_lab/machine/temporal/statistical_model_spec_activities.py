@@ -11,9 +11,8 @@ from temporalio.exceptions import ApplicationError
 
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
-from nof1_causal_lab.machine.derivations import complete_computed_transition, read_model
+from nof1_causal_lab.machine.derivations import complete_computed_transition
 from nof1_causal_lab.machine.graph import transition_spec
-from nof1_causal_lab.machine.model_contracts import project_model_fields
 from nof1_causal_lab.machine.moves import TransitionEffects, input_pins
 from nof1_causal_lab.machine.store import ArtifactStore
 from nof1_causal_lab.machine.temporal.activity_errors import (
@@ -101,13 +100,11 @@ def _load_model_spec_inputs(
     workspace_id: str,
     pins: dict[ArtifactId, int],
 ) -> tuple[str, ModelSpec, Any, UncheckedJsonObject]:
+    from nof1_causal_lab.machine.inference import read_prior_model
+
     store = ArtifactStore(workspace_id)
-    question = store.read_json_file(
-        "question",
-        pins["question"],
-        json_filename("question", "question"),
-    )["text"]
-    model = read_model(store, pins["model"])
+    model = read_prior_model(store, pins["model"])
+    question = model.require_question()
     data_for_model = store.read_parquet_file(
         "panel",
         pins["panel"],
@@ -613,7 +610,7 @@ async def finalize_statistical_model_spec_attempt_activity(
 async def finalize_statistical_model_spec_activity(
     input: StatisticalModelSpecFinalizeInput,
 ) -> TransitionEffects:
-    from nof1_causal_lab.artifacts.admission import AdmissionReport
+    from nof1_causal_lab.artifacts.prior_predictive import PriorPredictiveDiagnostic
     from nof1_causal_lab.flows.runtime_events import emit_model_spec_admission_event
     from nof1_causal_lab.flows.transitions.model_spec.assembly import (
         materialize_model_spec_result,
@@ -643,26 +640,23 @@ async def finalize_statistical_model_spec_activity(
             raise ValueError("model-spec full-model barrier has not passed")
         emit_model_spec_admission_event(input.workspace_id, "done", {})
 
-        metadata = _read_model_spec_json(input.context_ref)
         statistical_model_spec = state.admission.completed_model().model_dump(mode="json")
-        materialized = materialize_model_spec_result(
+        completed, predictive, validation_diagnostics = materialize_model_spec_result(
             model=statistical_model_spec,
             data_for_model=state.data_for_model,
-            indicator_audits=metadata["indicator_audits"],
-            validation=None,
-            search_queries=dict(state.search_queries),
         )
         construct_ids = {item.name: item.id for item in state.model._constructs.values()}
-        materialized["prior_predictive_diagnostics"] = [
-            {
-                **{key: value for key, value in result.items() if key != "target"},
-                "construct_id": construct_ids[accepted_construct.construct_name],
-            }
+        checks = [
+            PriorPredictiveDiagnostic.model_validate(
+                {
+                    **{key: value for key, value in result.items() if key != "target"},
+                    "construct_id": construct_ids[accepted_construct.construct_name],
+                }
+            )
             for accepted_construct in checkpoint.accepted_constructs
             for result in accepted_construct.results
         ]
-
-        report = project_model_fields(AdmissionReport, materialized)
+        predictive = predictive.model_copy(update={"diagnostics": checks})
 
         store = ArtifactStore(input.workspace_id)
         from nof1_causal_lab.machine.writes import write_model_revision
@@ -670,34 +664,29 @@ async def finalize_statistical_model_spec_activity(
         model_info = write_model_revision(
             store,
             input.state,
-            materialized["model"],
+            completed.model_dump(mode="json"),
             provenance="computed",
             expected_model_version=input.pins["model"],
             derived_from=input.pins,
             produced_by="run:statistical_model_spec",
         )
-        report_pins = dict(input.pins)
-        report_pins["model"] = model_info.version
-        produced = [model_info]
-        try:
-            produced.append(
-                store.write_version(
-                    "admission_report",
-                    provenance="computed",
-                    derived_from=report_pins,
-                    produced_by="run:statistical_model_spec",
-                    json_files={json_filename("admission_report", "admission_report"): report},
-                )
-            )
-        except Exception:
-            for info in reversed(produced):
-                store.delete_version(info.artifact_id, info.version)
-            raise
-        return complete_computed_transition(
+        effects = complete_computed_transition(
             store,
             input.state,
             "statistical_model_spec",
-            produced,
+            [model_info],
+        )
+        return effects.model_copy(
+            update={
+                "diagnostics": {
+                    "input_pins": input.pins,
+                    "search_queries": dict(state.search_queries),
+                    "validation_diagnostics": [
+                        item.model_dump(mode="json") for item in validation_diagnostics
+                    ],
+                    "prior_predictive": predictive.model_dump(mode="json"),
+                }
+            }
         )
     except Exception as exc:
         raise as_non_retryable_application_error(exc) from exc

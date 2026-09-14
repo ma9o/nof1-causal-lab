@@ -46,7 +46,7 @@ from nof1_causal_lab.workers.schemas_prior import PriorProposal
     _write_module(
         source_root,
         "models/ssm/runtime.py",
-        "from nof1_causal_lab.models.model_checks import check_execution\n",
+        "from nof1_causal_lab.models.ssm.compile.parameters import build_parameterization\n",
     )
     _write_module(
         source_root,

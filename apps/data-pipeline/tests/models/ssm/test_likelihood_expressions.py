@@ -10,7 +10,6 @@ import pytest
 from pydantic import ValidationError
 from scripts.migrate_likelihood_expressions import convert_likelihood, convert_payload
 
-from nof1_causal_lab.artifacts.coefficient import FixedCoefficient, ParameterCoefficient
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.expressions import (
     CoefficientExpression,
@@ -18,10 +17,11 @@ from nof1_causal_lab.artifacts.expressions import (
     fold_expression,
     state,
 )
-from nof1_causal_lab.artifacts.identity import scientific_id
-from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec, ObservationLaw
+from nof1_causal_lab.artifacts.identity import ConstructId, scientific_id
+from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec, ObservationLawSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
+from nof1_causal_lab.compilation_errors import IncompleteModelError
 from nof1_causal_lab.machine.equations import observation_equations
 from nof1_causal_lab.models.likelihoods import function, observation_law, revise_law
 from nof1_causal_lab.models.model_parameters import iter_coefficient_uses
@@ -51,18 +51,13 @@ CASES = [
 )
 def test_native_conditional_law_matches_exact_emission_lowering(family, link, observed):
     likelihood = LikelihoodSpec(
-        law=observation_law("construct:x", family, link), reasoning="Native density parity"
+        law=observation_law(ConstructId("construct:x"), family, link),
+        reasoning="Native density parity",
     )
     likelihood = revise_law(
         likelihood,
         lambda node: (
-            node.model_copy(
-                update={
-                    "coefficient": ParameterCoefficient(
-                        parameter_id=scientific_id("parameter", node.role)
-                    )
-                }
-            )
+            node.model_copy(update={"value": scientific_id("parameter", node.role)})
             if isinstance(node, CoefficientExpression)
             else node
         ),
@@ -159,10 +154,8 @@ def test_offline_conversion_preserves_authored_coefficient_identities(family, li
         "sources": [],
     }
     converted = LikelihoodSpec.model_validate(convert_likelihood(retired, "construct:x"))
-    assert converted.terms.loadings["construct:x"].coefficient == FixedCoefficient(value=-1)
-    assert converted.terms.intercept.coefficient == ParameterCoefficient(
-        parameter_id=scientific_id("parameter", "baseline")
-    )
+    assert converted.terms.loadings[ConstructId("construct:x")].value == -1
+    assert converted.terms.intercept.value == scientific_id("parameter", "baseline")
     assert (converted.terms.family, converted.terms.link) == (family, link)
     assert set(converted.model_dump()) == {"law", "standardized", "reasoning", "sources"}
     with pytest.raises(ValidationError, match="Extra inputs"):
@@ -175,7 +168,7 @@ def test_completion_binding_equations_and_migration_follow_the_same_cross_loadin
     indicator = owner.indicators[0]
     likelihood = indicator.likelihood
     predictor = likelihood.terms.predictor
-    extended = predictor + state(other.id) * coefficient(FixedCoefficient(value=0.25), "loading")
+    extended = predictor + state(other.id) * coefficient(0.25, "loading")
     revised = revise_law(likelihood, lambda node: extended if node == predictor else node)
     model = model.revised(
         edges=replace_constructs(
@@ -187,10 +180,10 @@ def test_completion_binding_equations_and_migration_follow_the_same_cross_loadin
             ),
         )
     )
-    assert model.execution_readiness.ready
+    model.check_execution()
     np.testing.assert_allclose(numeric.loading_block(model).template, [[1, 0.25], [0, 1]])
     uses = [use for use in iter_coefficient_uses(model) if use.quantity == SiteKind.LOADING]
-    cross = next(use for use in uses if use.coefficient == FixedCoefficient(value=0.25))
+    cross = next(use for use in uses if use.value == 0.25)
     assert {ref.id for ref in cross.owners} == {indicator.id, other.id}
     equation = observation_equations(model)[indicator.id]
     assert r"\operatorname{Normal}" in equation
@@ -206,12 +199,12 @@ def test_completion_binding_equations_and_migration_follow_the_same_cross_loadin
 
 def test_partial_law_is_explicit_and_unsupported_formulas_fail_before_execution():
     likelihood = LikelihoodSpec(
-        law=observation_law("construct:x", "gaussian", "identity"), reasoning="Partial"
+        law=observation_law(ConstructId("construct:x"), "gaussian", "identity"), reasoning="Partial"
     )
-    assert all(operand.coefficient is None for operand in likelihood.terms.operands)
+    assert all(operand.value is None for operand in likelihood.terms.operands)
     with pytest.raises(ValidationError, match="affine"):
         LikelihoodSpec(
-            law=ObservationLaw(
+            law=ObservationLawSpec(
                 distribution="Normal",
                 arguments={
                     "loc": function("exp", likelihood.terms.predictor),
@@ -221,9 +214,9 @@ def test_partial_law_is_explicit_and_unsupported_formulas_fail_before_execution(
             reasoning="Unsupported nonlinear observation predictor",
         )
     with pytest.raises(ValidationError, match="exactly"):
-        ObservationLaw(distribution="Normal", arguments={"rate": likelihood.terms.predictor})
+        ObservationLawSpec(distribution="Normal", arguments={"rate": likelihood.terms.predictor})
     with pytest.raises(ValidationError, match="non-negative"):
-        coefficient(FixedCoefficient(value=-1), "observation_scale")
+        coefficient(-1, "observation_scale")
 
     model = make_model(["X", "Y"], [("X", "Y")])
     owner = model.constructs[0]
@@ -245,9 +238,10 @@ def test_partial_law_is_explicit_and_unsupported_formulas_fail_before_execution(
         )
 
     unfinished = with_law(partial)
-    assert not unfinished.execution_readiness.ready
+    with pytest.raises(IncompleteModelError):
+        unfinished.check_execution()
     assert "?" in observation_equations(unfinished)[indicator.id]
-    assert complete_test_model(unfinished).execution_readiness.ready
+    complete_test_model(unfinished).check_execution()
     with pytest.raises(ValidationError, match="unknown constructs"):
         with_law(likelihood)
     wrong_owner = LikelihoodSpec(
