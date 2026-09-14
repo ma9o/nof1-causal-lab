@@ -16,7 +16,7 @@ describe("buildLayeredCausalGraph", () => {
         isSelf: false,
       });
     }
-    const outcome = constructs.find((item) => item.id === demoModel.default_outcome?.id)!;
+    const outcome = constructs.find((item) => item.id === demoModel.default_outcome)!;
     expect(built.edgeMeta.get(`self:${outcome.id}`)).toMatchObject({
       source: `${outcome.id}__p`,
       target: outcome.id,

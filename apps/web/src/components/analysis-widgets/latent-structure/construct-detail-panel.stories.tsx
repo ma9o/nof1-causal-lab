@@ -9,7 +9,7 @@ const data = demoModel as ModelSpec;
 const constructs = modelConstructs(data);
 const endogenous = constructs.find((c) => c.role === "endogenous")!;
 const exogenous = constructs.find((c) => c.role === "exogenous")!;
-const outcome = constructs.find((c) => c.id === data.default_outcome?.id)!;
+const outcome = constructs.find((c) => c.id === data.default_outcome)!;
 
 const meta = {
   title: "Pipeline/Outputs/Latent Structure/ConstructDetailPanel",

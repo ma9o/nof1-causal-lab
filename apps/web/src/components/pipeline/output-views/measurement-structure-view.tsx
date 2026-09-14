@@ -16,8 +16,9 @@ export default function MeasurementStructureView({ data }: { data: ModelSnapshot
   const names = new Map<string, string>(
     modelConstructs(spec).map((construct) => [construct.id, construct.name]),
   );
-  const nonId = data.findings.identification?.value.status.non_identifiable_treatments ?? {};
-  const nonIdEntries = Object.entries(nonId);
+  const nonIdEntries = Object.entries(data.findings.identification?.value.treatments ?? {}).flatMap(
+    ([id, finding]) => (finding.status === "not_identified" ? [[id, finding] as const] : []),
+  );
   const nodeStatuses = constructStatuses(data);
 
   return (
@@ -38,12 +39,12 @@ export default function MeasurementStructureView({ data }: { data: ModelSnapshot
                 <div key={id} className="flex flex-wrap items-center gap-1.5 text-sm">
                   <span className="font-medium">{names.get(id)}</span>
                   <span className="text-warning/70">&larr;</span>
-                  {status?.confounders.map((c) => (
+                  {status.confounders.map((c) => (
                     <Badge key={c} variant="warning" className="text-xs">
                       {names.get(c)}
                     </Badge>
                   ))}
-                  {status?.notes && (
+                  {status.notes && (
                     <span className="text-muted-foreground text-xs">({status.notes})</span>
                   )}
                 </div>
@@ -53,7 +54,7 @@ export default function MeasurementStructureView({ data }: { data: ModelSnapshot
         </Alert>
       )}
       <StructureDag
-        outcomeId={spec.default_outcome?.id}
+        outcomeId={spec.default_outcome ?? undefined}
         constructs={modelConstructs(spec)}
         edges={spec.edges}
         indicators={indicators}

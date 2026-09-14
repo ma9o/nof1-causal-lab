@@ -1,21 +1,12 @@
 "use client";
 
 import { ManifestProjection } from "@/components/analysis-widgets/posterior/treatment-effect-visuals";
-import { TreatmentRankingTable } from "@/components/analysis-widgets/posterior/treatment-ranking-table";
-import type { BaselineReportScenario } from "@/components/pipeline/output-views/baseline-report-scenarios";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
+import type { SimulationScenario } from "@/components/dag/simulation-results";
 import type {
-  CausalEdge,
-  Construct,
+  CausalEdgeSpec,
+  ConstructSpec,
   PosteriorEstimate,
-  Indicator,
-  KnownInput,
-  TreatmentEffect,
+  IndicatorSpec,
 } from "@nof1-causal-lab/api-types";
 import { Bot, TriangleAlert } from "lucide-react";
 import { useMemo } from "react";
@@ -27,10 +18,9 @@ import { ScenarioRail } from "./scenario-rail";
 import type { ConstructStatus } from "./structure-dag";
 
 export interface SimulationViewerGraph {
-  constructs: Construct[];
-  edges: CausalEdge[];
-  indicators?: Indicator[];
-  knownInputs?: KnownInput[];
+  constructs: ConstructSpec[];
+  edges: CausalEdgeSpec[];
+  indicators?: IndicatorSpec[];
   edgePosteriors?: Record<string, PosteriorEstimate>;
   persistencePosteriors?: Record<string, PosteriorEstimate>;
   identifiableTreatments?: string[];
@@ -39,12 +29,10 @@ export interface SimulationViewerGraph {
 }
 
 export interface SimulationViewerProps {
-  scenarios: BaselineReportScenario[];
+  scenarios: SimulationScenario[];
   graph: SimulationViewerGraph;
   selectedKey?: string | null;
   onSelect?: (key: string) => void;
-  /** Raw baseline ranking, surfaced as a collapsed dense comparison table. */
-  rankingResults?: TreatmentEffect[];
   /** Live simulate seam; when present, do() editing is enabled on the DAG. */
   onSimulate?: SimulateFn;
   onNodeClick?: (constructName: string) => void;
@@ -54,7 +42,7 @@ export interface SimulationViewerProps {
  * The LLM's explanation produced with the focused scenario — reasoning behind the
  * intervention and what the simulation shows. Sits directly under the carousel.
  */
-function ScenarioBlurb({ scenario }: { scenario: BaselineReportScenario }) {
+function ScenarioBlurb({ scenario }: { scenario: SimulationScenario }) {
   if (!scenario.blurb?.trim()) {
     return null;
   }
@@ -88,7 +76,7 @@ function ScenarioDetail({
   onSimulate,
   onNodeClick,
 }: {
-  scenario: BaselineReportScenario;
+  scenario: SimulationScenario;
   graph: SimulationViewerGraph;
   onSimulate?: SimulateFn;
   onNodeClick?: (constructName: string) => void;
@@ -131,7 +119,6 @@ export function SimulationViewer({
   graph,
   selectedKey,
   onSelect,
-  rankingResults,
   onSimulate,
   onNodeClick,
 }: SimulationViewerProps) {
@@ -164,18 +151,6 @@ export function SimulationViewer({
           ) : null}
         </>
       )}
-      {rankingResults && rankingResults.length > 0 ? (
-        <Accordion>
-          <AccordionItem value="all-treatments">
-            <AccordionTrigger className="text-sm">
-              All treatments (baseline ranking)
-            </AccordionTrigger>
-            <AccordionContent>
-              <TreatmentRankingTable results={rankingResults} />
-            </AccordionContent>
-          </AccordionItem>
-        </Accordion>
-      ) : null}
     </div>
   );
 }

@@ -62,10 +62,8 @@ export function normalizeValidationReportData(value: unknown): ValidationReportA
             looks_integer_valued: null,
             variance_to_mean_ratio: null,
           },
-          validation: {
-            issues: issues.filter((issue) => issue.indicator === profile.indicator),
-            checks: profile.cell_statuses,
-          },
+          issues: issues.filter((issue) => issue.indicator === profile.indicator),
+          checks: profile.cell_statuses,
         },
       ]),
     ),

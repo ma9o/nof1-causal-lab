@@ -1,7 +1,7 @@
 import type {
   ArtifactFreshness,
   ArtifactId,
-  LLMTrace,
+  SimulationResult,
   ModelSnapshot,
 } from "@nof1-causal-lab/api-types";
 import type { AssetSnapshot, JournalTick } from "@/lib/model-asset/journal";
@@ -21,7 +21,7 @@ export interface ScopeContext {
   question: string | undefined;
   queries: ModelQuery[];
   outcome: string | null;
-  analysisTrace: LLMTrace | undefined;
+  setSimulation: (key: string, result: SimulationResult) => void;
   select: (selection: ModelSelection) => void;
   viewAt: (seq: number | null) => void;
   focusConversation: (seq: number) => void;

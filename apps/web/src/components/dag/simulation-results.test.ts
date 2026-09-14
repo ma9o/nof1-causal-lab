@@ -3,10 +3,10 @@ import type { SimulationResult } from "@nof1-causal-lab/api-types";
 import type { UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
 import { demoModel, demoModelSnapshot } from "@/components/__fixtures__/demo-artifacts";
-import { demoBaselineTrace } from "@/components/dag/__fixtures__/baseline_report-materialized-fixture";
-import { buildBaselineReportScenarios, buildEdgePosteriors } from "./baseline-report-scenarios";
+import { demoSimulationTrace } from "@/components/dag/__fixtures__/simulation-fixture";
+import { buildSimulationScenarios, buildEdgePosteriors } from "@/components/dag/simulation-results";
 
-const fixtureScenarios = buildBaselineReportScenarios({ trace: demoBaselineTrace });
+const fixtureScenarios = buildSimulationScenarios({ trace: demoSimulationTrace });
 const interventionResult = fixtureScenarios.find((scenario) => scenario.key === "sim-5")?.result;
 const counterfactualResult = fixtureScenarios.find((scenario) => scenario.key === "sim-4")?.result;
 
@@ -38,9 +38,9 @@ function refinementSimMessage(
   };
 }
 
-describe("buildBaselineReportScenarios — interventions from a persisted trace", () => {
+describe("buildSimulationScenarios — interventions from a persisted trace", () => {
   it("recovers interventions from the trace where tool_result is a JSON string (reload path)", () => {
-    const scenarios = buildBaselineReportScenarios({ trace: demoBaselineTrace });
+    const scenarios = buildSimulationScenarios({ trace: demoSimulationTrace });
 
     expect(scenarios).toHaveLength(5);
     expect(scenarios.every((scenario) => scenario.provenance === "intervention")).toBe(true);
@@ -55,11 +55,11 @@ describe("buildBaselineReportScenarios — interventions from a persisted trace"
     expect(newest.blurb).toContain("Rapid taper");
     // String-coerced result round-trips to the structured object.
     expect(newest.result.summary.mean).toBe(interventionResult.summary.mean);
-    expect(newest.result.visualization?.node_effect_trajectories).toBeDefined();
+    expect(newest.result.trajectories[newest.result.request.outcome]).toBeDefined();
   });
 
   it("captures abducted counterfactual fields and manifest projection", () => {
-    const scenarios = buildBaselineReportScenarios({ trace: demoBaselineTrace });
+    const scenarios = buildSimulationScenarios({ trace: demoSimulationTrace });
 
     const counterfactual = scenarios.find(
       (scenario) => scenario.result.request.start.kind === "abducted",
@@ -73,15 +73,15 @@ describe("buildBaselineReportScenarios — interventions from a persisted trace"
   });
 });
 
-describe("buildBaselineReportScenarios — trace ∪ extra messages", () => {
+describe("buildSimulationScenarios — trace ∪ extra messages", () => {
   it("dedupes by tool-call id with the extra-message copy winning and ranked newest", () => {
     const edited: SimulationResult = {
       ...interventionResult,
       summary: { ...interventionResult.summary, mean: 0.99 },
     };
 
-    const scenarios = buildBaselineReportScenarios({
-      trace: demoBaselineTrace,
+    const scenarios = buildSimulationScenarios({
+      trace: demoSimulationTrace,
       extraMessages: [refinementSimMessage("sim-5", edited)],
     });
 
@@ -95,7 +95,7 @@ describe("buildBaselineReportScenarios — trace ∪ extra messages", () => {
   });
 
   it("orders production-valid interventions newest-first", () => {
-    const scenarios = buildBaselineReportScenarios({ trace: demoBaselineTrace });
+    const scenarios = buildSimulationScenarios({ trace: demoSimulationTrace });
 
     expect(scenarios.map((scenario) => scenario.key)).toEqual([
       "sim-5",

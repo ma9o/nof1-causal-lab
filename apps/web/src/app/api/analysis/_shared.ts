@@ -11,8 +11,8 @@ import {
   type MachineDescription,
   type TransitionRecord,
 } from "@/lib/server/episode-runs";
-import { ArtifactNotFoundError, readArtifactJson } from "@/lib/server/artifacts";
-import { TRANSITIONS, type PipelineSectionId } from "@nof1-causal-lab/api-types";
+import { readArtifactJson } from "@/lib/server/artifacts";
+import { TRANSITIONS, type ModelSpec, type PipelineSectionId } from "@nof1-causal-lab/api-types";
 
 function emptyTransitionRun(): AnalysisTransitionRun {
   return { execution: null };
@@ -41,19 +41,13 @@ async function readEpisodeQuestion(
   workspaceId: string,
   status: EpisodeStatus,
 ): Promise<string | undefined> {
-  if (status.state.current.question == null) {
+  const model = status.state.current.model;
+  if (model == null) {
     return undefined;
   }
 
-  try {
-    const parsed = await readArtifactJson<{ text?: unknown }>(workspaceId, "question", "question");
-    return typeof parsed.text === "string" && parsed.text.trim() ? parsed.text.trim() : undefined;
-  } catch (e: unknown) {
-    if (e instanceof ArtifactNotFoundError) {
-      return undefined;
-    }
-    throw e;
-  }
+  const parsed = await readArtifactJson<ModelSpec>(workspaceId, "model", "model", model.version);
+  return parsed.question ?? undefined;
 }
 
 /**

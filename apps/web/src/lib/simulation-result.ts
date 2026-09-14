@@ -15,8 +15,10 @@ export function parseSimulationResult(output: unknown): SimulationResult | null 
   return candidate.request != null &&
     Array.isArray(candidate.request.clamps) &&
     candidate.request.clamps.length > 0 &&
-    candidate.provenance?.model?.version != null &&
+    candidate.model?.version != null &&
+    Array.isArray(candidate.time_grid_days) &&
     candidate.labels != null &&
+    candidate.trajectories != null &&
     candidate.summary != null
     ? (value as SimulationResult)
     : null;

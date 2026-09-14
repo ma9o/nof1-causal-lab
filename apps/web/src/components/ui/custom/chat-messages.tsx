@@ -27,7 +27,7 @@ const SIMULATION_TOOLS = new Set(["simulate"]);
 
 function simulationHeadline(result: SimulationResult): string {
   const { mean } = result.summary;
-  return `${mean >= 0 ? "+" : ""}${mean.toFixed(2)} SD on ${result.labels[result.request.outcome.id]}`;
+  return `${mean >= 0 ? "+" : ""}${mean.toFixed(2)} SD on ${result.labels[result.request.outcome]}`;
 }
 
 const TextPart = memo(function TextPart({ text }: { text: string }) {

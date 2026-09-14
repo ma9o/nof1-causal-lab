@@ -1,11 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useState } from "react";
-import { buildBaselineReportScenarios } from "@/components/pipeline/output-views/baseline-report-scenarios";
+import { buildSimulationScenarios } from "@/components/dag/simulation-results";
 import { withContainer } from "@/components/story-decorators";
-import { demoBaselineTrace } from "./__fixtures__/baseline_report-materialized-fixture";
+import { demoSimulationTrace } from "@/components/dag/__fixtures__/simulation-fixture";
 import { ScenarioRail } from "./scenario-rail";
 
-const scenarios = buildBaselineReportScenarios({ trace: demoBaselineTrace });
+const scenarios = buildSimulationScenarios({ trace: demoSimulationTrace });
 
 function RailDemo() {
   const [selected, setSelected] = useState<string | null>(scenarios[0]?.key ?? null);
@@ -13,7 +13,7 @@ function RailDemo() {
 }
 
 const meta = {
-  title: "Pipeline/Outputs/Baseline Report/Scenario Rail",
+  title: "Analysis/Scenario Rail",
   component: ScenarioRail,
   decorators: [withContainer("max-w-4xl")],
 } satisfies Meta<typeof ScenarioRail>;

@@ -1,20 +1,12 @@
 import { Badge } from "@/components/ui/badge";
 import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
 import { formatNumber } from "@/lib/utils/format";
-import type {
-  CellStatus,
-  Indicator,
-  IndicatorAudit,
-  IndicatorEmpiricalProfile,
-  IndicatorValidation,
-} from "@nof1-causal-lab/api-types";
+import type { CellStatus, IndicatorSpec, IndicatorAudit } from "@nof1-causal-lab/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 import { type ReactNode, useMemo } from "react";
 
-type IndicatorAuditRow = {
+type IndicatorAuditRow = IndicatorAudit & {
   indicator: string;
-  profile: IndicatorEmpiricalProfile | null | undefined;
-  validation: IndicatorValidation;
 };
 
 const col = createColumnHelper<IndicatorAuditRow>();
@@ -48,7 +40,7 @@ const STATUS_FIELDS: StatusField[] = [
 ];
 
 function rowStatus(row: IndicatorAuditRow, field: StatusField): CellStatus | undefined {
-  return row.validation.checks?.[field];
+  return row.checks[field];
 }
 
 function computeColumnSummaries(
@@ -83,10 +75,10 @@ function IssueBadge({ summary }: { summary: ColumnIssueSummary | undefined }) {
   );
 }
 
-export function summarizeValidationIssues(validation: IndicatorValidation): ColumnIssueSummary {
+export function summarizeValidationIssues(audit: IndicatorAudit): ColumnIssueSummary {
   let count = 0;
   let hasError = false;
-  for (const issue of validation.issues ?? []) {
+  for (const issue of audit.issues) {
     if (issue.severity === "info") continue;
     count++;
     if (issue.severity === "error") {
@@ -97,22 +89,21 @@ export function summarizeValidationIssues(validation: IndicatorValidation): Colu
 }
 
 function rowIssueSummary(row: IndicatorAuditRow): ColumnIssueSummary {
-  return summarizeValidationIssues(row.validation);
+  return summarizeValidationIssues(row);
 }
 
 function buildRows(
-  audits: Record<string, IndicatorAudit | undefined>,
-  indicators: Indicator[],
+  audits: Record<string, IndicatorAudit>,
+  indicators: IndicatorSpec[],
 ): IndicatorAuditRow[] {
-  const definitions = new Map<string, Indicator>(
+  const definitions = new Map<string, IndicatorSpec>(
     indicators.map((indicator) => [indicator.id, indicator]),
   );
   return Object.entries(audits)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([indicator, audit]) => ({
+      ...audit,
       indicator: definitions.get(indicator)!.name,
-      profile: audit?.profile,
-      validation: audit?.validation ?? { issues: [], checks: {} },
     }));
 }
 
@@ -255,8 +246,8 @@ export function IndicatorHealthTable({
   audits,
   indicators,
 }: {
-  audits: Record<string, IndicatorAudit | undefined>;
-  indicators: Indicator[];
+  audits: Record<string, IndicatorAudit>;
+  indicators: IndicatorSpec[];
 }) {
   const rows = useMemo(() => buildRows(audits, indicators), [audits, indicators]);
   const summaries = useMemo(() => computeColumnSummaries(rows), [rows]);

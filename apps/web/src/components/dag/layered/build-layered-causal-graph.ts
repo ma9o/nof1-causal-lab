@@ -1,4 +1,9 @@
-import type { CausalEdge, Construct, ConstructId, EdgeId } from "@nof1-causal-lab/api-types";
+import type {
+  CausalEdgeSpec,
+  ConstructSpec,
+  ConstructId,
+  EdgeId,
+} from "@nof1-causal-lab/api-types";
 import type { DagGraphInput } from "@/lib/utils/dag-graph-layout";
 import { splitEdgesWithGlyphs, ghostId, isGhost } from "../unroll";
 
@@ -10,8 +15,8 @@ export const LAYERED_EDGE_SLOT_WIDTH = 78;
 export const LAYERED_EDGE_SLOT_HEIGHT = 32;
 
 export type LayeredGraphNodeMeta =
-  | { kind: "construct"; construct: Construct }
-  | { kind: "history"; construct: Construct }
+  | { kind: "construct"; construct: ConstructSpec }
+  | { kind: "history"; construct: ConstructSpec }
   | { kind: "edge_slot"; edgeId: string };
 
 export interface LayeredGraphEdgeMeta {
@@ -41,7 +46,7 @@ const partition = (value: 0 | 1 | 2): Record<string, string> => ({
   "elk.partitioning.partition": String(value),
 });
 
-function constructPartition(construct: Construct): 0 | 2 {
+function constructPartition(construct: ConstructSpec): 0 | 2 {
   return construct.temporal_status === "time_invariant" ? 0 : 2;
 }
 
@@ -50,8 +55,8 @@ function constructPartition(construct: Construct): 0 | 2 {
  * Every later artifact layer receives this same graph and can only decorate it.
  */
 export function buildLayeredCausalGraph(
-  constructs: Construct[],
-  edges: CausalEdge[],
+  constructs: ConstructSpec[],
+  edges: CausalEdgeSpec[],
 ): LayeredGraphBundle {
   const constructById = new Map(constructs.map((construct) => [construct.id, construct] as const));
   const historyById = new Map(constructs.map((construct) => [ghostId(construct.id), construct]));

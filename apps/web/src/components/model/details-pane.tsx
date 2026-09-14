@@ -83,7 +83,7 @@ function ScopeBody({ selection, context }: { selection: ModelSelection; context:
       const query = context.queries.find((candidate) => candidate.key === selection.key);
       return query ? (
         <QueryScope
-          key={`${context.model.context.workspace.id}:${query.key}:${JSON.stringify(query.request)}`}
+          key={`${context.model.context.workspace_id}:${query.key}:${JSON.stringify(query.request)}`}
           context={context}
           query={query}
         />

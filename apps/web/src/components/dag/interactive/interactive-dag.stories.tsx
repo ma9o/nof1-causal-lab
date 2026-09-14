@@ -1,16 +1,16 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import {
-  demoBaselineTrace,
+  demoSimulationTrace,
   edgePosteriors,
   identifiableTreatments,
   nodeStatuses,
   persistencePosteriors,
-} from "../__fixtures__/baseline_report-materialized-fixture";
+} from "@/components/dag/__fixtures__/simulation-fixture";
 import { constructs, edges, indicators } from "../__fixtures__/dag-base-fixtures";
-import { buildBaselineReportScenarios } from "../../pipeline/output-views/baseline-report-scenarios";
+import { buildSimulationScenarios } from "@/components/dag/simulation-results";
 import { InteractiveDag } from "./interactive-dag";
 
-const scenarios = buildBaselineReportScenarios({ trace: demoBaselineTrace });
+const scenarios = buildSimulationScenarios({ trace: demoSimulationTrace });
 const firstScenario = scenarios[0]?.result;
 const comparisonScenario = scenarios[scenarios.length - 1]?.result;
 

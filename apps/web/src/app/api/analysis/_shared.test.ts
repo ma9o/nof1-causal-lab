@@ -37,8 +37,8 @@ function statusWithQuestion(workspaceId: string, version = 1): EpisodeStatus {
     ...emptyStatus(workspaceId),
     state: {
       current: {
-        question: {
-          artifact_id: "question",
+        model: {
+          artifact_id: "model",
           version,
           provenance: "human",
           derived_from: {},
@@ -89,14 +89,14 @@ describe("buildAnalysisManifest", () => {
 
   it("builds transition executions from journal run transitions", async () => {
     vi.mocked(getEpisodeStatus).mockResolvedValue(statusWithQuestion("user-1"));
-    vi.mocked(readArtifactJson).mockResolvedValue({ text: "Does exercise help sleep?" });
+    vi.mocked(readArtifactJson).mockResolvedValue({ question: "Does exercise help sleep?" });
     vi.mocked(getEpisodeTimeline).mockResolvedValue({
       workspace_id: "user-1",
       transitions: [
         transition({
           seq: 1,
           ts: "2026-07-01T00:00:00+00:00",
-          move: { kind: "write", artifact_id: "question", provenance: "human" },
+          move: { kind: "write", artifact_id: "model", provenance: "human" },
           status: "applied",
         }),
         transition({
@@ -136,9 +136,8 @@ describe("buildAnalysisManifest", () => {
       "validation_report",
       "statistical_model_spec",
       "posterior",
-      "baseline_report",
     ]);
-    expect(vi.mocked(readArtifactJson)).toHaveBeenCalledWith("user-1", "question", "question");
+    expect(vi.mocked(readArtifactJson)).toHaveBeenCalledWith("user-1", "model", "model", 1);
     expect(manifest?.transitionRuns["raw_data"]).toEqual({
       execution: {
         stateType: "COMPLETED",

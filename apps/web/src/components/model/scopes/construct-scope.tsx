@@ -1,8 +1,6 @@
 import type { ConstructId } from "@nof1-causal-lab/api-types";
-import { signColor } from "@/components/dag/core/palette";
 import { Button } from "@/components/ui/button";
-import { formatPlain, formatSigned, humanize } from "../model-selection";
-import { rankingQueryKey } from "../queries";
+import { humanize } from "../model-selection";
 import {
   ArtifactChip,
   FactChip,
@@ -20,15 +18,14 @@ import { parametersForOwner, posteriorRows, priorRows } from "./parameters";
 import { chipFor, has, type ScopeContext } from "./scope-context";
 
 const DISPOSITION_LABEL: Record<string, string> = {
+  unsupported: "unsupported",
   retained_state: "retained state",
-  known_input: "known input",
   marginalized: "marginalized",
   identification_only: "identification-only",
   retained_edge: "retained edge",
   projected_edge: "projected edge",
   manifest: "manifest",
   excluded_indicator: "excluded indicator",
-  known_input_source: "known-input source",
 };
 
 export function dispositionLabel(disposition: string): string {
@@ -42,31 +39,22 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
   const inEdges = entities.edges.filter((edge) => edge.effect.id === id);
   const outEdges = entities.edges.filter((edge) => edge.cause.id === id);
   const indicators = construct.indicators;
-  const scientificOnly = construct.usage?.kind === "scientific_only" ? construct.usage : null;
   const disposition = context.model.findings.dispositions?.value.find(
-    (item) => item.source_id === id,
+    (item) => item.target.id === id,
   );
-  const finding =
-    model.findings.identification?.value.status.identifiable_treatments[id] ??
-    model.findings.identification?.value.status.non_identifiable_treatments[id];
+  const finding = model.findings.identification?.value.treatments[id];
   const identified = finding?.status === "identified" ? finding : null;
   const notIdentified = finding?.status === "not_identified" ? finding : null;
   const parameters = parametersForOwner(context.model.model?.value, id);
   const priorParameters = parametersForOwner(context.model.model?.value, id);
-  const priors = priorRows(priorParameters);
+  const priors = priorRows(priorParameters, context.model.model!.value.distributions);
   const admission =
-    model.findings.admission_report?.value.prior_predictive_diagnostics.filter(
-      (item) => item.construct_id === id,
-    ) ?? [];
+    model.findings.prior_predictive?.value.diagnostics.filter((item) => item.construct_id === id) ??
+    [];
   const fitted = posteriorRows(parameters, context.model.findings.fit?.value.report);
-  const rankingQuery = queries.find((query) => query.key === rankingQueryKey(id));
-  const effect = rankingQuery?.posterior ?? null;
-  const temporal = model.findings.baseline_report?.value.intervention_results.find(
-    (effect) => effect.treatment_id === id,
-  )?.temporal;
+  const query = queries.find((query) => query.treatmentId === id);
   const namesFor = (ids: ConstructId[]) =>
     ids.map((id) => entities.constructById.get(id)?.name ?? id).join(", ");
-  const effectStale = context.model.findings.baseline_report?.source.validity === "stale";
 
   return (
     <>
@@ -78,7 +66,7 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
             ["temporal", construct.temporal_status.replace("_", "-")],
             [
               "default query outcome",
-              model.model?.value.default_outcome?.id === construct.id ? "yes" : "no",
+              model.model?.value.default_outcome === construct.id ? "yes" : "no",
             ],
           ]}
         />
@@ -141,11 +129,6 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
           ) : (
             <Hint>No indicator declared.</Hint>
           )}
-          {scientificOnly ? (
-            <Hint>
-              <b>scientific-only:</b> {scientificOnly.reason}
-            </Hint>
-          ) : null}
         </Section>
       ) : null}
       {disposition ? (
@@ -167,13 +150,7 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
                 "disposition",
                 <Tag
                   key="disposition"
-                  tone={
-                    disposition.disposition === "retained_state"
-                      ? "success"
-                      : disposition.disposition === "known_input"
-                        ? "secondary"
-                        : "warning"
-                  }
+                  tone={disposition.disposition === "retained_state" ? "success" : "warning"}
                 >
                   {dispositionLabel(disposition.disposition)}
                 </Tag>,
@@ -218,53 +195,16 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
           <PosteriorTable rows={fitted} />
         </Section>
       ) : null}
-      {effect && rankingQuery ? (
-        <Section
-          title="Effect on the outcome"
-          chips={<ArtifactChip {...chipFor(context, "baseline_report")} />}
-        >
-          <Hint>
-            do(+1 latent unit) on this construct from the steady state
-            {context.outcome ? (
-              <>
-                {" "}
-                · outcome <b>{humanize(context.outcome)}</b>
-              </>
-            ) : null}
-          </Hint>
-          <div className={effectStale ? "opacity-55" : undefined}>
-            <div
-              className="font-mono text-[22px] font-semibold"
-              style={{ color: signColor(effect.mean) }}
-            >
-              {formatSigned(effect.mean, 3)}
-            </div>
-            <Hint>
-              {effect.mean > 0 ? "raises" : effect.mean < 0 ? "lowers" : "leaves"} the outcome at
-              the steady state · 95% [{formatPlain(effect.lower_95)}, {formatPlain(effect.upper_95)}
-              ] · P&gt;0 {Math.round(effect.prob_positive * 100)}% ·{" "}
-              {effectStale ? "posterior · stale" : "posterior"}
-            </Hint>
-          </div>
-          {temporal ? (
-            <Hint>
-              <span className="font-mono">
-                {temporal.horizons
-                  .map(({ day, effect }) => `${day} d ${formatSigned(effect)}`)
-                  .join(" · ")}
-                {" · "}peak {formatSigned(temporal.peak_effect)} at day {temporal.time_to_peak_days}
-              </span>
-            </Hint>
-          ) : null}
-          <div className="mt-1 flex flex-wrap gap-1.5">
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => context.select({ kind: "query", key: rankingQuery.key })}
-            >
-              Open the query
-            </Button>
-          </div>
+      {query ? (
+        <Section title="Intervention">
+          <Hint>Explore the effect of changing this construct on {humanize(query.outcome)}.</Hint>
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => context.select({ kind: "query", key: query.key })}
+          >
+            Open the query
+          </Button>
         </Section>
       ) : null}
     </>

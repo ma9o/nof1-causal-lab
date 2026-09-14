@@ -6,10 +6,8 @@ export const ARTIFACT_VIEW_IDS = [
   "model",
   "measurements",
   "validation_report",
-  "admission_report",
   "model_diagnostics",
   "inference_report",
-  "baseline_report",
 ] as const satisfies readonly (keyof import("./generated/models").ArtifactViews)[];
 export type ArtifactViewId = (typeof ARTIFACT_VIEW_IDS)[number];
 export type TransitionId = import("./generated/models").OperationId;
@@ -85,14 +83,6 @@ export const TRANSITIONS: TransitionMeta[] = [
     loadingHint: "Running Bayesian inference...",
     description: "Fits the Bayesian model and runs convergence and sensitivity diagnostics.",
     interactive: false,
-  },
-  {
-    id: "baseline_report",
-    label: "Treatment Effects",
-    loadingHint: "Computing interventional effects...",
-    description:
-      "Computes interventional treatment effects and ranks them by magnitude and certainty.",
-    interactive: true,
   },
 ];
 

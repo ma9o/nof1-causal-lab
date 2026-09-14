@@ -87,7 +87,7 @@ export default function StatisticalModelSpecView({ data }: { data: ModelSnapshot
         </div>
       )}
       <PriorPredictiveDiagnostics
-        diagnostics={data.findings.admission_report?.value.prior_predictive_diagnostics ?? []}
+        diagnostics={data.findings.prior_predictive?.value.diagnostics ?? []}
         names={Object.fromEntries(
           modelConstructs(model).map((construct) => [construct.id, construct.name]),
         )}
@@ -103,6 +103,7 @@ export default function StatisticalModelSpecView({ data }: { data: ModelSnapshot
           </div>
           <PriorTable
             parameters={model.parameters}
+            distributions={model.distributions}
             densities={diagnostics?.prior_densities ?? {}}
           />
         </div>

@@ -1,10 +1,10 @@
 import { indicatorOwners } from "@/lib/model-accessors";
 import { Badge } from "@/components/ui/badge";
 import { InfoTable } from "@/components/ui/info-table";
-import type { Indicator, Construct } from "@nof1-causal-lab/api-types";
+import type { IndicatorSpec, ConstructSpec } from "@nof1-causal-lab/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 
-const col = createColumnHelper<Indicator>();
+const col = createColumnHelper<IndicatorSpec>();
 
 const columns = [
   col.accessor("name", {
@@ -35,13 +35,13 @@ export function IndicatorTable({
   indicators,
   constructs,
 }: {
-  indicators: Indicator[];
-  constructs: Construct[];
+  indicators: IndicatorSpec[];
+  constructs: ConstructSpec[];
 }) {
   const owners = indicatorOwners(constructs);
   return (
     <InfoTable
-      columns={columns as ColumnDef<Indicator, unknown>[]}
+      columns={columns as ColumnDef<IndicatorSpec, unknown>[]}
       data={indicators}
       groupBy={(row) => owners.get(row.id)!.id}
       renderGroupHeader={(construct, rows) => (

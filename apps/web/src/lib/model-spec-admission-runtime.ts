@@ -1,4 +1,4 @@
-import type { ParameterSpec } from "@nof1-causal-lab/api-types";
+import type { ModelSpec, ParameterSpec } from "@nof1-causal-lab/api-types";
 export const MODEL_SPEC_ADMISSION_EVENT_PREFIX = "nof1-causal-lab.model-spec.admission.";
 
 export type ModelSpecAdmissionConstructStatus =
@@ -16,6 +16,7 @@ export interface ModelSpecAdmissionPlanConstruct {
   parents?: string[];
   indicators?: string[];
   parameters?: ParameterSpec[];
+  distributions?: ModelSpec["distributions"];
   closing_edges?: string[];
 }
 
@@ -67,6 +68,7 @@ export interface ModelSpecAdmissionReport {
   timings: ModelSpecAdmissionTiming[];
   /** Priors authored for this attempt; populates the construct's "Authored parameters" table. */
   parameters?: ParameterSpec[];
+  distributions?: ModelSpec["distributions"];
   coupled_recheck?: ModelSpecAdmissionCoupledRecheck;
 }
 
@@ -186,6 +188,7 @@ function parsePlanConstruct(value: unknown): ModelSpecAdmissionPlanConstruct | n
     parents: stringArray(value.parents),
     indicators: stringArray(value.indicators),
     parameters: parseParameters(value.parameters),
+    distributions: value.distributions as ModelSpec["distributions"] | undefined,
     closing_edges: stringArray(value.closing_edges),
   };
 }
@@ -277,6 +280,7 @@ function parseReport(payload: Record<string, unknown>): ModelSpecAdmissionReport
       : [],
     timings: parseTimings(payload.timings),
     parameters: Array.isArray(payload.parameters) ? parseParameters(payload.parameters) : undefined,
+    distributions: payload.distributions as ModelSpec["distributions"] | undefined,
     coupled_recheck:
       coupledRecheck && coupledRecheck.results.length > 0 ? coupledRecheck : undefined,
   };
@@ -532,6 +536,7 @@ export function applyModelSpecAdmissionEvent(
         attempt: report.attempt,
         reports: [...construct.reports, report],
         parameters: report.parameters ?? construct.parameters,
+        distributions: report.distributions ?? construct.distributions,
       })),
     };
   }

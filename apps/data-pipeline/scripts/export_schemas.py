@@ -22,10 +22,10 @@ from nof1_causal_lab.artifacts.effects import EffectSummary
 from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS
 from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.artifacts.scenarios import (
-    BaselineReportVisualization,
     EffectTrajectoryPoint,
     ScenarioRequest,
     SimulationResult,
+    SimulationTrajectory,
 )
 from nof1_causal_lab.distributions import OBSERVATION_FAMILY_SPECS
 from nof1_causal_lab.episode_api import (
@@ -87,14 +87,14 @@ EXPORTED_TOOL_MODELS: tuple[type[BaseModel], ...] = (
     ToolError,
     EffectSummary,
     EffectTrajectoryPoint,
-    BaselineReportVisualization,
+    SimulationTrajectory,
     SimulationResult,
     ScenarioRequest,
     SimulateScenarioToolResult,
 )
 
 INTERACTIVE_CONTEXTS = frozenset(
-    {"latent-structure", "measurement-structure", "statistical-model-spec", "ranking"}
+    {"latent-structure", "measurement-structure", "statistical-model-spec", "analysis"}
 )
 
 

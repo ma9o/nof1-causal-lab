@@ -12,24 +12,18 @@
 import type { ArtifactId, ArtifactFileSpec, MachineDescription } from "./models";
 export const MACHINE_DESCRIPTION: MachineDescription = {
   "artifact_ids": [
-    "question",
     "raw_data",
     "model",
     "identification_report",
     "panel",
-    "validation_report",
-    "admission_report",
-    "baseline_report"
+    "validation_report"
   ],
   "topological_artifact_order": [
-    "question",
     "raw_data",
     "model",
     "identification_report",
     "panel",
-    "validation_report",
-    "baseline_report",
-    "admission_report"
+    "validation_report"
   ],
   "topological_transition_order": [
     "raw_data",
@@ -37,8 +31,7 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
     "measurement_structure",
     "measurements",
     "statistical_model_spec",
-    "posterior",
-    "baseline_report"
+    "posterior"
   ],
   "contexts": [
     {
@@ -145,8 +138,7 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "label": "Model/prior reducer",
       "parent_id": "episode-machine",
       "owns": [
-        "model",
-        "admission_report"
+        "model"
       ],
       "allowed_tools": [
         "search_literature",
@@ -178,13 +170,11 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       ]
     },
     {
-      "context_id": "ranking",
-      "layer": "delegated",
-      "label": "Baseline causal ranking",
+      "context_id": "analysis",
+      "layer": "tool",
+      "label": "Runtime causal queries",
       "parent_id": "episode-machine",
-      "owns": [
-        "baseline_report"
-      ],
+      "owns": [],
       "allowed_tools": [
         "get_model_info",
         "simulate"
@@ -295,15 +285,15 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "context_id": "navigator",
       "consumes": [],
       "produces": [
-        "question"
+        "model"
       ],
       "produces_optional": [],
       "derives": [],
       "move": {
         "kind": "write",
-        "artifact_id": "question",
+        "artifact_id": "model",
         "provenance": "human",
-        "expected_model_version": null
+        "expected_model_version": 0
       },
       "query": null,
       "lower_context_id": null
@@ -366,7 +356,7 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "mode": "delegated",
       "context_id": "navigator",
       "consumes": [
-        "question"
+        "model"
       ],
       "produces": [
         "model"
@@ -391,7 +381,6 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "mode": "delegated",
       "context_id": "navigator",
       "consumes": [
-        "question",
         "raw_data",
         "model"
       ],
@@ -464,7 +453,6 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "mode": "delegated",
       "context_id": "navigator",
       "consumes": [
-        "question",
         "raw_data",
         "model"
       ],
@@ -490,7 +478,6 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "mode": "delegated",
       "context_id": "navigator",
       "consumes": [
-        "question",
         "model",
         "identification_report",
         "panel",
@@ -499,9 +486,7 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "produces": [
         "model"
       ],
-      "produces_optional": [
-        "admission_report"
-      ],
+      "produces_optional": [],
       "derives": [
         "identification_report",
         "validation_report"
@@ -557,30 +542,6 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "lower_context_id": null
     },
     {
-      "action_id": "analyze.rank",
-      "namespace": "analyze",
-      "name": "rank",
-      "kind": "produce",
-      "mode": "delegated",
-      "context_id": "navigator",
-      "consumes": [
-        "model",
-        "panel",
-        "identification_report"
-      ],
-      "produces": [
-        "baseline_report"
-      ],
-      "produces_optional": [],
-      "derives": [],
-      "move": {
-        "kind": "run",
-        "operation_id": "baseline_report"
-      },
-      "query": null,
-      "lower_context_id": "ranking"
-    },
-    {
       "action_id": "analyze.simulate",
       "namespace": "analyze",
       "name": "simulate",
@@ -597,7 +558,7 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "derives": [],
       "move": null,
       "query": {
-        "context_id": "ranking",
+        "context_id": "analysis",
         "tool_name": "simulate",
         "freshness_checked": true
       },
@@ -620,7 +581,7 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "derives": [],
       "move": null,
       "query": {
-        "context_id": "ranking",
+        "context_id": "analysis",
         "tool_name": "simulate",
         "freshness_checked": true
       },
@@ -647,10 +608,6 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
   ],
   "roots": [
     {
-      "artifact_id": "question",
-      "write_pins": []
-    },
-    {
       "artifact_id": "model",
       "write_pins": []
     }
@@ -669,7 +626,7 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
     {
       "transition_id": "latent_structure",
       "consumes": [
-        "question"
+        "model"
       ],
       "produces": [
         "model"
@@ -681,7 +638,6 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
     {
       "transition_id": "measurement_structure",
       "consumes": [
-        "question",
         "raw_data",
         "model"
       ],
@@ -695,7 +651,6 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
     {
       "transition_id": "measurements",
       "consumes": [
-        "question",
         "raw_data",
         "model"
       ],
@@ -709,7 +664,6 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
     {
       "transition_id": "statistical_model_spec",
       "consumes": [
-        "question",
         "model",
         "identification_report",
         "panel",
@@ -718,9 +672,7 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "produces": [
         "model"
       ],
-      "produces_optional": [
-        "admission_report"
-      ],
+      "produces_optional": [],
       "creation_class": "judgment",
       "writable": false
     },
@@ -736,20 +688,6 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "produces_optional": [],
       "creation_class": "deterministic",
       "writable": false
-    },
-    {
-      "transition_id": "baseline_report",
-      "consumes": [
-        "model",
-        "panel",
-        "identification_report"
-      ],
-      "produces": [
-        "baseline_report"
-      ],
-      "produces_optional": [],
-      "creation_class": "judgment",
-      "writable": true
     }
   ],
   "derivations": [
@@ -770,12 +708,6 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
     }
   ],
   "files": {
-    "question": {
-      "json": {
-        "question": "question.json"
-      },
-      "parquet": {}
-    },
     "raw_data": {
       "json": {},
       "parquet": {
@@ -805,29 +737,11 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
         "validation_report": "validation_report.json"
       },
       "parquet": {}
-    },
-    "admission_report": {
-      "json": {
-        "admission_report": "admission_report.json"
-      },
-      "parquet": {}
-    },
-    "baseline_report": {
-      "json": {
-        "baseline_report": "baseline_report.json"
-      },
-      "parquet": {}
     }
   }
 };
-export const ARTIFACT_IDS = ["question","raw_data","model","identification_report","panel","validation_report","admission_report","baseline_report"] as const satisfies readonly ArtifactId[];
+export const ARTIFACT_IDS = ["raw_data","model","identification_report","panel","validation_report"] as const satisfies readonly ArtifactId[];
 export const ARTIFACT_FILE_SPECS: Record<ArtifactId, ArtifactFileSpec> = {
-  "question": {
-    "json": {
-      "question": "question.json"
-    },
-    "parquet": {}
-  },
   "raw_data": {
     "json": {},
     "parquet": {
@@ -855,18 +769,6 @@ export const ARTIFACT_FILE_SPECS: Record<ArtifactId, ArtifactFileSpec> = {
   "validation_report": {
     "json": {
       "validation_report": "validation_report.json"
-    },
-    "parquet": {}
-  },
-  "admission_report": {
-    "json": {
-      "admission_report": "admission_report.json"
-    },
-    "parquet": {}
-  },
-  "baseline_report": {
-    "json": {
-      "baseline_report": "baseline_report.json"
     },
     "parquet": {}
   }

@@ -60,23 +60,23 @@ const JOURNAL: TransitionRecord[] = [
     trace_ids: ["raw_data"],
   }),
   move(2, 3, {
-    move: { kind: "write", artifact_id: "question", provenance: "human" },
+    move: { kind: "write", artifact_id: "model", provenance: "human", expected_model_version: 0 },
     status: "applied",
-    produced: [produced("question", 1)],
+    produced: [produced("model", 1)],
     retracted: [],
     trace_ids: [],
   }),
   move(3, 251, {
     move: { kind: "run", operation_id: "latent_structure" },
     status: "applied",
-    produced: [produced("model", 1)],
+    produced: [produced("model", 2)],
     retracted: [],
     trace_ids: ["latent_structure"],
   }),
   move(4, 175, {
     move: { kind: "run", operation_id: "measurement_structure" },
     status: "applied",
-    produced: [produced("model", 2), produced("identification_report", 1)],
+    produced: [produced("model", 3), produced("identification_report", 1)],
     retracted: [],
     trace_ids: ["measurement_structure"],
   }),
@@ -99,7 +99,7 @@ const JOURNAL: TransitionRecord[] = [
   move(7, 188, {
     move: { kind: "run", operation_id: "statistical_model_spec" },
     status: "applied",
-    produced: [produced("model", 3), produced("admission_report", 1)],
+    produced: [produced("model", 4)],
     retracted: [],
     trace_ids: ["statistical_model_spec"],
   }),
@@ -110,13 +110,6 @@ const JOURNAL: TransitionRecord[] = [
     retracted: [],
     trace_ids: [],
   }),
-  move(9, 133, {
-    move: { kind: "run", operation_id: "baseline_report" },
-    status: "applied",
-    produced: [produced("baseline_report", 1)],
-    retracted: [],
-    trace_ids: ["baseline_report"],
-  }),
 ];
 
 const TRACE_BY_SEQ: Record<number, LLMTrace> = {
@@ -125,7 +118,6 @@ const TRACE_BY_SEQ: Record<number, LLMTrace> = {
   4: demoTraces.measurement_structure,
   5: demoTraces.measurements,
   7: demoTraces.statistical_model_spec,
-  9: demoTraces.baseline_report,
 };
 
 function useFixtureMoveTrace(seq: number, enabled: boolean): MoveTraceState {
@@ -182,7 +174,6 @@ const meta = {
     artifacts: ARTIFACTS,
     nextOperation: null,
     progress: PROGRESS,
-    analysisTrace: demoTraces.baseline_report,
     useMoveTrace: useFixtureMoveTrace,
     onRun: null,
   },
@@ -192,7 +183,7 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-/** The completed report; nothing selected shows the asset. */
+/** The fitted model; nothing selected shows the asset. */
 export const FinalState: Story = {};
 
 /** The same asset before the specification: no queries, no fitted layer. */
@@ -202,7 +193,6 @@ export const Measured: Story = {
     artifacts: ARTIFACTS.filter((artifact) =>
       [
         "raw_data",
-        "question",
         "latent_structure",
         "measurement_structure",
         "causal_design",
@@ -219,11 +209,9 @@ export const Measured: Story = {
         ...PROGRESS.artifacts,
         statistical_model_spec: "pending",
         posterior: "pending",
-        baseline_report: "pending",
       },
       isComplete: false,
     },
-    analysisTrace: undefined,
   },
 };
 
@@ -231,16 +219,13 @@ export const Measured: Story = {
 export const Materializing: Story = {
   args: {
     transitions: JOURNAL.slice(0, 7),
-    artifacts: ARTIFACTS.filter(
-      (artifact) => !["posterior", "baseline_report"].includes(artifact.artifact_id),
-    ),
+    artifacts: ARTIFACTS,
     progress: {
       ...PROGRESS,
-      artifacts: { ...PROGRESS.artifacts, posterior: "running", baseline_report: "pending" },
+      artifacts: { ...PROGRESS.artifacts, posterior: "running" },
       runningTransitions: ["posterior"],
       autoRunning: true,
       isComplete: false,
     },
-    analysisTrace: undefined,
   },
 };

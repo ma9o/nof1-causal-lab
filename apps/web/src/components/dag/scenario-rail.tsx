@@ -1,6 +1,6 @@
 "use client";
 
-import type { BaselineReportScenario } from "@/components/pipeline/output-views/baseline-report-scenarios";
+import type { SimulationScenario } from "@/components/dag/simulation-results";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { formatNumber } from "@/lib/utils/format";
@@ -9,7 +9,7 @@ function signed(value: number): string {
   return `${value >= 0 ? "+" : ""}${formatNumber(value)}`;
 }
 
-function provenanceLabel(scenario: BaselineReportScenario): string {
+function provenanceLabel(scenario: SimulationScenario): string {
   return scenario.result.request.start.kind === "abducted" ? "Counterfactual" : "Interventional";
 }
 
@@ -18,7 +18,7 @@ function ScenarioCard({
   selected,
   onSelect,
 }: {
-  scenario: BaselineReportScenario;
+  scenario: SimulationScenario;
   selected: boolean;
   onSelect: () => void;
 }) {
@@ -70,7 +70,7 @@ export function ScenarioRail({
   selectedKey,
   onSelect,
 }: {
-  scenarios: BaselineReportScenario[];
+  scenarios: SimulationScenario[];
   selectedKey: string | null;
   onSelect: (key: string) => void;
 }) {

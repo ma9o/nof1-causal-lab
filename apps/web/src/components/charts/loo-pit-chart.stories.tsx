@@ -13,5 +13,5 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  args: { loo: posterior.assessment.loo_diagnostics! },
+  args: { loo: posterior.loo_diagnostics! },
 };

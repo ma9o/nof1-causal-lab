@@ -34,7 +34,7 @@ async function readToolErrorMessage(response: Response): Promise<string> {
 /**
  * POST /api/tools/dispatch
  *
- * Direct (no-LLM) context-tool execution — e.g. the ranking interactive DAG's
+ * Direct (no-LLM) context-tool execution — e.g. the analysis interactive DAG's
  * `simulate`. Proxies to the tool server, which reads pinned artifact
  * versions and rejects stale supporting inputs.
  *

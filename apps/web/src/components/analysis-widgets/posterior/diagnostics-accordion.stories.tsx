@@ -26,9 +26,9 @@ export const InferenceOnly: Story = {
 
 export const AllSections: Story = {
   args: {
-    ppc: posterior.assessment.ppc,
+    ppc: posterior.ppc,
     inferenceDiagnostics: posterior.inference_diagnostics,
-    looDiagnostics: posterior.assessment.loo_diagnostics,
+    looDiagnostics: posterior.loo_diagnostics,
     posteriorMarginals: posterior.posterior_marginals,
     posteriorPairs: posterior.posterior_pairs,
   },

@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { createSimulateDispatch } from "@/components/dag/interactive/dispatch-simulate";
-import type { SimulationResult } from "@nof1-causal-lab/api-types";
 import { Button } from "@/components/ui/button";
 import { signColor } from "@/components/dag/core/palette";
 import { formatClampValue } from "@/components/dag/intervention-dag-semantics";
@@ -11,20 +10,21 @@ import { ArtifactChip, Hint, KeyValue, Section, Tag } from "../scope-primitives"
 import { type ScopeContext } from "./scope-context";
 
 export function QueryScope({ context, query }: { context: ScopeContext; query: ModelQuery }) {
-  const [live, setLive] = useState<SimulationResult | null>(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const simulation = live ?? query.simulation;
+  const simulation = query.simulation;
   const posterior = simulation?.summary ?? query.posterior;
-  const modelVersion = simulation?.provenance.model.version ?? query.modelVersion;
-  const modelId = simulation?.provenance.model.workspace_id ?? context.model.context.workspace.id;
-  const outcome = simulation ? simulation.labels[simulation.request.outcome.id] : query.outcome;
+  const modelVersion = simulation?.model.version ?? query.modelVersion;
+  const modelId = simulation?.model.workspace_id ?? context.model.context.workspace_id;
+  const outcome = simulation ? simulation.labels[simulation.request.outcome] : query.outcome;
   async function run() {
-    if (!query.request) return;
     setRunning(true);
     setError(null);
     try {
-      setLive(await createSimulateDispatch(context.model.context.workspace.id)(query.request));
+      const result = await createSimulateDispatch(context.model.context.workspace_id)(
+        query.request,
+      );
+      context.setSimulation(query.key, result);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Simulation failed");
     } finally {
@@ -32,7 +32,7 @@ export function QueryScope({ context, query }: { context: ScopeContext; query: M
     }
   }
   const stale =
-    modelId === context.model.context.workspace.id &&
+    modelId === context.model.context.workspace_id &&
     (modelVersion !== context.snapshot.versions.model ||
       context.model.findings.fit?.source.validity === "stale");
   const clamps = simulation?.request.clamps ?? query.request?.clamps ?? [];
@@ -49,7 +49,7 @@ export function QueryScope({ context, query }: { context: ScopeContext; query: M
                   ? clamps
                       .map(
                         (item) =>
-                          `${simulation?.labels[item.target.id] ?? context.entities.constructs.find((c) => c.id === item.target.id)?.name ?? item.target.id}: ${formatClampValue(item)}`,
+                          `${simulation?.labels[item.target] ?? context.entities.constructs.find((c) => c.id === item.target)?.name ?? item.target}: ${formatClampValue(item)}`,
                       )
                       .join("; ")
                   : query.title}
@@ -63,9 +63,7 @@ export function QueryScope({ context, query }: { context: ScopeContext; query: M
                     `d${clamp.from_day} to ${clamp.to_day != null ? `d${clamp.to_day}` : "horizon"}`,
                   ],
                 ] as Array<[string, React.ReactNode]>)
-              : query.origin === "ranking"
-                ? ([["mode", "+1 latent unit, held"]] as Array<[string, React.ReactNode]>)
-                : []),
+              : []),
             [
               "start",
               query.startKind === "abducted" ? "observed history (abducted)" : "steady state",
@@ -79,15 +77,13 @@ export function QueryScope({ context, query }: { context: ScopeContext; query: M
           ]}
         />
       </Section>
-      {query.request ? (
-        <Section title="Simulate">
-          <Button size="sm" onClick={run} disabled={running || !context.canSimulate}>
-            {running ? "Simulating…" : "Run on current fit"}
-          </Button>
-          <Hint>Runs the nonlinear drift across posterior draws. Results stay in this view.</Hint>
-          {error ? <Hint issue>{error}</Hint> : null}
-        </Section>
-      ) : null}
+      <Section title="Simulate">
+        <Button size="sm" onClick={run} disabled={running || !context.canSimulate}>
+          {running ? "Simulating…" : "Run on current fit"}
+        </Button>
+        <Hint>Runs the nonlinear drift across posterior draws. Results stay in this view.</Hint>
+        {error ? <Hint issue>{error}</Hint> : null}
+      </Section>
       {posterior ? (
         <Section
           title="Result"

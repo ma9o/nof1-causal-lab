@@ -19,7 +19,7 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
   const indicator = context.entities.indicatorById.get(id);
   if (!indicator) return null;
   const disposition = context.model.findings.dispositions?.value.find(
-    (item) => item.source_id === id,
+    (item) => item.target.id === id,
   );
   const audit = context.model.findings.validation_report?.value.indicators[id];
   const counts = context.model.data.measurements?.value.per_indicator_counts[id];
@@ -29,11 +29,11 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
   const priorParameters = parametersForOwner(context.model.model?.value, id);
   const fitted = posteriorRows(parameters, context.model.findings.fit?.value.report);
   const checks =
-    context.model.findings.fit?.value.report.assessment.ppc.per_variable_warnings.filter(
+    context.model.findings.fit?.value.report.ppc.per_variable_warnings.filter(
       (item) => item.indicator_id === id,
     ) ?? [];
-  const issues = audit?.validation.issues.filter((issue) => issue.severity !== "info") ?? [];
-  const checkEntries = audit ? Object.entries(audit.validation.checks) : [];
+  const issues = audit?.issues.filter((issue) => issue.severity !== "info") ?? [];
+  const checkEntries = audit ? Object.entries(audit.checks) : [];
   const okChecks = checkEntries.filter(([, status]) => status === "ok").length;
   return (
     <>
@@ -46,6 +46,7 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
         <div className="flex flex-wrap gap-1">
           <Tag>{indicator.measurement_dtype}</Tag>
           <Tag tone="secondary">{indicator.aggregation}</Tag>
+          <Tag tone="secondary">{indicator.recording}</Tag>
           <Tag tone="secondary">
             window {indicator.observation_window ?? context.model.model?.value.measurement_clock}
           </Tag>
@@ -119,7 +120,7 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
             <Tag tone="secondary">{likelihood.law.distribution}</Tag>
             {likelihood.standardized ? <Tag>standardized</Tag> : null}
           </div>
-          <PriorTable rows={priorRows(priorParameters)} />
+          <PriorTable rows={priorRows(priorParameters, context.model.model!.value.distributions)} />
         </Section>
       ) : null}
       {checks.length > 0 || (parameters.length > 0 && fitted.length > 0) ? (

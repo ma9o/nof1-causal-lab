@@ -1,19 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
   formatScenarioActionDescription,
-  getEffectTrajectoryDays,
+  getSimulationDays,
   getNodeActionSeries,
   getNodeReferenceSeries,
 } from "./intervention-dag-semantics";
 import type { AnalysisSimulationResult } from "./intervention-dag-types";
 
 describe("intervention DAG semantics", () => {
-  it("formats baseline-relative clamp labels from a baseline-start scenario", () => {
+  it("plots end-state responses on their simulation grid and formats clamp labels", () => {
     const result = {
       request: {
+        readout: { estimand: "end_state" },
         clamps: [
           {
-            target: { id: "construct:lipid", kind: "construct" },
+            target: "construct:lipid",
             mode: "shift",
             amount: 1,
             from_day: 0,
@@ -21,18 +22,21 @@ describe("intervention DAG semantics", () => {
         ],
       },
       labels: { "construct:lipid": "lipid_burden" },
-      effect_trajectory: [{ day: 1, effect: 0.2 }],
-      visualization: {
-        reference_node_trajectories: { "construct:lipid": [0.85] },
-        action_node_trajectories: { "construct:lipid": [1.85] },
-        node_effect_trajectories: { "construct:lipid": [1] },
-        start_state: null,
+      time_grid_days: [0, 0.5, 2],
+      effect_trajectory: null,
+      trajectories: {
+        "construct:lipid": {
+          reference_mean: [0.85, 0.9, 0.95],
+          action_mean: [1.85, 1.8, 1.75],
+        },
       },
     } as unknown as AnalysisSimulationResult;
 
     expect(formatScenarioActionDescription(result)).toBe("do(lipid_burden shift +1.0)");
-    expect(getEffectTrajectoryDays(result)).toEqual([1]);
-    expect(getNodeReferenceSeries(result, "construct:lipid")).toEqual([0.85]);
-    expect(getNodeActionSeries(result, "construct:lipid")).toEqual([1.85]);
+    expect(getSimulationDays(result)).toEqual([0, 0.5, 2]);
+    expect(getNodeReferenceSeries(result, "construct:lipid")).toEqual([0.85, 0.9, 0.95]);
+    expect(getNodeActionSeries(result, "construct:lipid")).toEqual([1.85, 1.8, 1.75]);
+    expect(getNodeReferenceSeries(result, "construct:unprojected")).toBeNull();
+    expect(getNodeActionSeries(result, "construct:unprojected")).toBeNull();
   });
 });

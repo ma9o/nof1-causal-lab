@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 import type {
   ArtifactFreshness,
   ArtifactId,
-  LLMTrace,
+  SimulationResult,
   ModelSnapshot,
   TransitionRecord,
 } from "@nof1-causal-lab/api-types";
@@ -38,7 +38,6 @@ export interface CausalModelAssetViewProps {
   artifacts: ArtifactFreshness[];
   nextOperation: import("@nof1-causal-lab/api-types").OperationId | null;
   progress: PipelineProgress;
-  analysisTrace: LLMTrace | undefined;
   useMoveTrace: UseMoveTrace;
   /** Starts the machine's auto-run: the next legal moves in dependency order. */
   onRun: (() => void) | null;
@@ -87,7 +86,6 @@ function ModelRevision({
   transitions,
   nextOperation,
   progress,
-  analysisTrace,
   useMoveTrace,
   onRun,
   model,
@@ -107,7 +105,7 @@ function ModelRevision({
   setFocusSeq: (seq: number | null) => void;
 }) {
   const entities = useMemo(() => indexModel(model), [model]);
-  const question = model.data.question?.value.text;
+  const question = model.model?.value.question ?? undefined;
   const artifacts = model.context.artifacts;
 
   const ticks = useMemo(() => journalTicks(transitions), [transitions]);
@@ -116,14 +114,18 @@ function ModelRevision({
   const snapshot = useMemo(() => modelPosition(model), [model]);
   const current = useMemo(() => modelPosition(currentModel), [currentModel]);
   const outcome =
-    entities.constructs.find((construct) => construct.id === model.model?.value.default_outcome?.id)
+    entities.constructs.find((construct) => construct.id === model.model?.value.default_outcome)
       ?.name ?? null;
-  const queries = useMemo(() => buildModelQueries(model), [model]);
+  const [responses, setResponses] = useState<Record<string, SimulationResult>>({});
+  const setSimulation = useCallback((key: string, result: SimulationResult) => {
+    setResponses((current) => ({ ...current, [key]: result }));
+  }, []);
+  const queries = useMemo(() => buildModelQueries(model, responses), [model, responses]);
   const selectedQuery =
     selection.kind === "query" ? queries.find((query) => query.key === selection.key) : undefined;
   const simulation =
-    selectedQuery?.simulation?.provenance.model.workspace_id === model.context.workspace.id &&
-    selectedQuery.simulation.provenance.model.version === model.context.state.current.model?.version
+    selectedQuery?.simulation?.model.workspace_id === model.context.workspace_id &&
+    selectedQuery.simulation.model.version === model.context.state.current.model?.version
       ? selectedQuery.simulation
       : null;
   const staleArtifacts = useMemo(
@@ -158,8 +160,8 @@ function ModelRevision({
       question,
       queries,
       outcome,
-      analysisTrace,
       select,
+      setSimulation,
       viewAt,
       focusConversation: setFocusSeq,
     }),
@@ -174,8 +176,8 @@ function ModelRevision({
       question,
       queries,
       outcome,
-      analysisTrace,
       select,
+      setSimulation,
       viewAt,
       setFocusSeq,
     ],
@@ -314,7 +316,6 @@ export function CausalModelAsset({
       artifacts={episode.artifacts}
       nextOperation={episode.nextOperation}
       progress={progress}
-      analysisTrace={undefined}
       useMoveTrace={useMoveTrace}
       onRun={readOnly ? null : () => run.mutate()}
     />

@@ -2,10 +2,10 @@
 
 import { useDagLayout } from "@/lib/hooks/use-dag-layout";
 import type {
-  CausalEdge,
-  Construct,
+  CausalEdgeSpec,
+  ConstructSpec,
   PosteriorEstimate,
-  Indicator,
+  IndicatorSpec,
 } from "@nof1-causal-lab/api-types";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { DagCanvasFrame, DagSvg } from "../core/dag-canvas";
@@ -14,7 +14,7 @@ import { DagZoomControls } from "../core/dag-zoom-controls";
 import { orthoPath } from "../core/ortho-path";
 import { DAG_COLORS, signColor } from "../core/palette";
 import {
-  getEffectTrajectoryDays,
+  getSimulationDays,
   getNodeActionSeries,
   getNodeReferenceSeries,
 } from "../intervention-dag-semantics";
@@ -38,9 +38,9 @@ const ZMAX = 2.5;
 const markerFor = (col: string) => (col === TEAL ? "arrPos" : col === RED ? "arrNeg" : "arrZero");
 
 interface InteractiveDagProps {
-  constructs: Construct[];
-  edges: CausalEdge[];
-  indicators?: Indicator[];
+  constructs: ConstructSpec[];
+  edges: CausalEdgeSpec[];
+  indicators?: IndicatorSpec[];
   edgePosteriors?: Record<string, PosteriorEstimate>;
   persistencePosteriors?: Record<string, PosteriorEstimate>;
   identifiableTreatments?: string[];
@@ -72,7 +72,7 @@ export function InteractiveDag({
   nodeStatuses,
   onNodeClick,
 }: InteractiveDagProps) {
-  const outcome = result.labels[result.request.outcome.id];
+  const outcome = result.labels[result.request.outcome];
   const [dir, setDir] = useState<"LR" | "TB">("LR");
   const [localShowIndicators, setLocalShowIndicators] = useState(false);
   const showIndicators = indicatorsVisible ?? localShowIndicators;
@@ -87,7 +87,7 @@ export function InteractiveDag({
     setCurrentResult(result);
   }
 
-  const days = useMemo(() => getEffectTrajectoryDays(currentResult), [currentResult]);
+  const days = useMemo(() => getSimulationDays(currentResult), [currentResult]);
   const n = days.length;
   const [day, setDay] = useState(12);
   const [playing, setPlaying] = useState(false);
@@ -116,16 +116,6 @@ export function InteractiveDag({
     () => new Set(identifiableTreatments),
     [identifiableTreatments],
   );
-  const knownInputSet = useMemo(
-    () =>
-      new Set(
-        constructs
-          .filter((construct) => construct.usage?.kind === "known_input")
-          .map((construct) => construct.name),
-      ),
-    [constructs],
-  );
-
   // Active interventions belong to the current resolved query.
   const interventions = currentResult.request.clamps;
   const maximumPosteriorMean = useMemo(
@@ -149,7 +139,7 @@ export function InteractiveDag({
           result,
           [
             {
-              target: { kind: "construct", id: constructs.find((c) => c.name === node)!.id },
+              target: constructs.find((c) => c.name === node)!.id,
               mode: "set",
               value,
               from_day: fromDay,
@@ -296,7 +286,7 @@ export function InteractiveDag({
                 currentDay != null &&
                 interventions.some(
                   (clamp) =>
-                    currentResult.labels[clamp.target.id] === baseId(b) &&
+                    currentResult.labels[clamp.target] === baseId(b) &&
                     clamp.from_day <= currentDay &&
                     (clamp.to_day == null || currentDay < clamp.to_day),
                 );
@@ -362,7 +352,7 @@ export function InteractiveDag({
               const actionSeries = getNodeActionSeries(currentResult, construct.id) ?? [];
               const nodeInterventions = isPrev
                 ? []
-                : interventions.filter((clamp) => currentResult.labels[clamp.target.id] === base);
+                : interventions.filter((clamp) => currentResult.labels[clamp.target] === base);
               const cardHl = hoverEndpoints.includes(base);
               const status = nodeStatuses?.[base];
               const contextOnly = status === "marginalized";
@@ -392,7 +382,7 @@ export function InteractiveDag({
                     name={base}
                     kind={construct.role === "endogenous" ? "endo" : "exo"}
                     vary={construct.temporal_status === "time_varying" ? "varying" : "invariant"}
-                    isTarget={construct.id === result.request.outcome.id}
+                    isTarget={construct.id === result.request.outcome}
                     isPrev={isPrev}
                     days={days}
                     reference={referenceSeries}
@@ -400,7 +390,6 @@ export function InteractiveDag({
                     timeIndex={clampedDay}
                     interventions={nodeInterventions}
                     status={status}
-                    knownInput={knownInputSet.has(base)}
                     persistence={persistencePosteriors[base]}
                     interactive={
                       !!onSimulate &&
@@ -485,7 +474,7 @@ export function InteractiveDag({
               <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
                 {interventions.map((iv, index) => (
                   <span
-                    key={`${iv.target.id}-${iv.from_day}-${index}`}
+                    key={`${iv.target}-${iv.from_day}-${index}`}
                     style={{
                       position: "absolute",
                       top: 0,
@@ -526,7 +515,7 @@ export function InteractiveDag({
                           whiteSpace: "nowrap",
                         }}
                       >
-                        {`do · ${currentResult.labels[iv.target.id].replace(/_/g, " ")} @d${iv.from_day}`}
+                        {`do · ${currentResult.labels[iv.target].replace(/_/g, " ")} @d${iv.from_day}`}
                       </b>
                       {currentResult !== result ? (
                         <span

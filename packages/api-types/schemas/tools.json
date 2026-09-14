@@ -173,10 +173,10 @@
       "result": null
     }
   ],
-  "ranking": [
+  "analysis": [
     {
       "name": "get_model_info",
-      "description": "Return a read-only summary of the fitted model, variables with persistent IDs, identifiability status, diagnostics, and baseline effects.",
+      "description": "Return a read-only summary of the fitted model, variables with persistent IDs, identifiability status, and diagnostics.",
       "parameters": {
         "additionalProperties": false,
         "properties": {
@@ -189,7 +189,6 @@
                 "measurement",
                 "identifiability",
                 "diagnostics",
-                "baseline_effects",
                 "capabilities"
               ],
               "type": "string"
@@ -213,7 +212,7 @@
     },
     {
       "name": "simulate",
-      "description": "Run a live nonlinear drift simulation across posterior draws, without future process noise. Start from the deterministic baseline equilibrium (interventional) or an abducted fitted latent state (counterfactual), apply one or more timed latent clamps (do-operators), and read the effect on an outcome over a horizon. Targets and outcome use persistent construct IDs. The result is ephemeral unless explicitly included in a report, which retains its request and provenance.",
+      "description": "Run a live nonlinear drift simulation across posterior draws, without future process noise. Start from the deterministic baseline equilibrium (interventional) or an abducted fitted latent state (counterfactual), apply one or more timed latent clamps (do-operators), and read the effect on an outcome over a horizon. Targets and outcome use persistent construct IDs. The result is ephemeral and includes its request, fitted model revision, and trajectory coordinates.",
       "parameters": {
         "additionalProperties": false,
         "description": "One reusable request for an on-demand simulation of a fitted model.",
@@ -270,26 +269,9 @@
               "description": "A do-operator on one latent variable over a time window.\n\nThe window is ``[from_day, to_day)`` in days relative to the rollout start; outside\nthe window the variable evolves under its natural dynamics. ``set`` pins to an absolute\nvalue, ``shift`` adds an amount to the variable's start-state value, ``ramp`` linearly\ninterpolates across the window, and ``trajectory`` tracks a list of values across it.",
               "properties": {
                 "target": {
-                  "additionalProperties": false,
-                  "description": "A construct reference identifies a construct independently of its current name or\nrevision.",
-                  "properties": {
-                    "kind": {
-                      "const": "construct",
-                      "default": "construct",
-                      "title": "Kind",
-                      "type": "string"
-                    },
-                    "id": {
-                      "pattern": "^construct:[A-Za-z0-9_.-]+$",
-                      "tsType": "`construct:${string}`",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "id"
-                  ],
-                  "title": "ConstructRef",
-                  "type": "object"
+                  "pattern": "^construct:[A-Za-z0-9_.-]+$",
+                  "tsType": "`construct:${string}`",
+                  "type": "string"
                 },
                 "mode": {
                   "description": "How the clamped value is specified over the window.",
@@ -403,26 +385,9 @@
             "type": "array"
           },
           "outcome": {
-            "additionalProperties": false,
-            "description": "A construct reference identifies a construct independently of its current name or\nrevision.",
-            "properties": {
-              "kind": {
-                "const": "construct",
-                "default": "construct",
-                "title": "Kind",
-                "type": "string"
-              },
-              "id": {
-                "pattern": "^construct:[A-Za-z0-9_.-]+$",
-                "tsType": "`construct:${string}`",
-                "type": "string"
-              }
-            },
-            "required": [
-              "id"
-            ],
-            "title": "ConstructRef",
-            "type": "object"
+            "pattern": "^construct:[A-Za-z0-9_.-]+$",
+            "tsType": "`construct:${string}`",
+            "type": "string"
           },
           "readout": {
             "additionalProperties": false,
@@ -472,7 +437,7 @@
         "anyOf": [
           {
             "additionalProperties": false,
-            "description": "Ephemeral response, retained only when explicitly included in a report.\n\nThis engine integrates the true nonlinear drift for each posterior draw.\nIt does not include future process noise or claim the mean of the SDE.",
+            "description": "Ephemeral response to a runtime simulation request.\n\nThis engine integrates the true nonlinear drift for each posterior draw.\nIt does not include future process noise or claim the mean of the SDE.",
             "properties": {
               "request": {
                 "additionalProperties": false,
@@ -530,26 +495,9 @@
                       "description": "A do-operator on one latent variable over a time window.\n\nThe window is ``[from_day, to_day)`` in days relative to the rollout start; outside\nthe window the variable evolves under its natural dynamics. ``set`` pins to an absolute\nvalue, ``shift`` adds an amount to the variable's start-state value, ``ramp`` linearly\ninterpolates across the window, and ``trajectory`` tracks a list of values across it.",
                       "properties": {
                         "target": {
-                          "additionalProperties": false,
-                          "description": "A construct reference identifies a construct independently of its current name or\nrevision.",
-                          "properties": {
-                            "kind": {
-                              "const": "construct",
-                              "default": "construct",
-                              "title": "Kind",
-                              "type": "string"
-                            },
-                            "id": {
-                              "pattern": "^construct:[A-Za-z0-9_.-]+$",
-                              "tsType": "`construct:${string}`",
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "id"
-                          ],
-                          "title": "ConstructRef",
-                          "type": "object"
+                          "pattern": "^construct:[A-Za-z0-9_.-]+$",
+                          "tsType": "`construct:${string}`",
+                          "type": "string"
                         },
                         "mode": {
                           "description": "How the clamped value is specified over the window.",
@@ -663,26 +611,9 @@
                     "type": "array"
                   },
                   "outcome": {
-                    "additionalProperties": false,
-                    "description": "A construct reference identifies a construct independently of its current name or\nrevision.",
-                    "properties": {
-                      "kind": {
-                        "const": "construct",
-                        "default": "construct",
-                        "title": "Kind",
-                        "type": "string"
-                      },
-                      "id": {
-                        "pattern": "^construct:[A-Za-z0-9_.-]+$",
-                        "tsType": "`construct:${string}`",
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "id"
-                    ],
-                    "title": "ConstructRef",
-                    "type": "object"
+                    "pattern": "^construct:[A-Za-z0-9_.-]+$",
+                    "tsType": "`construct:${string}`",
+                    "type": "string"
                   },
                   "readout": {
                     "additionalProperties": false,
@@ -728,111 +659,63 @@
                 "title": "ScenarioRequest",
                 "type": "object"
               },
-              "provenance": {
+              "model": {
                 "additionalProperties": false,
-                "description": "The retained fit and actual numerical settings used by this response.",
+                "description": "The workspace and version of the scientific design supporting an inference.",
                 "properties": {
-                  "model": {
-                    "additionalProperties": false,
-                    "description": "The workspace and version of the scientific design supporting an inference.",
-                    "properties": {
-                      "workspace_id": {
-                        "minLength": 1,
-                        "title": "Workspace Id",
-                        "type": "string"
-                      },
-                      "version": {
-                        "minimum": 1,
-                        "title": "Version",
-                        "type": "integer"
-                      }
-                    },
-                    "required": [
-                      "workspace_id",
-                      "version"
-                    ],
-                    "title": "ModelRevision",
-                    "type": "object"
-                  },
-                  "engine": {
-                    "default": "nonlinear_drift_v1",
-                    "enum": [
-                      "nonlinear_drift_v1",
-                      "illustrative_fixture"
-                    ],
-                    "title": "Engine",
+                  "workspace_id": {
+                    "minLength": 1,
+                    "title": "Workspace Id",
                     "type": "string"
                   },
-                  "solver": {
-                    "const": "Tsit5",
-                    "default": "Tsit5",
-                    "title": "Solver",
-                    "type": "string"
-                  },
-                  "rtol": {
-                    "exclusiveMinimum": 0,
-                    "title": "Rtol",
-                    "type": "number"
-                  },
-                  "atol": {
-                    "exclusiveMinimum": 0,
-                    "title": "Atol",
-                    "type": "number"
-                  },
-                  "max_steps": {
+                  "version": {
                     "minimum": 1,
-                    "title": "Max Steps",
+                    "title": "Version",
                     "type": "integer"
-                  },
-                  "draw_count": {
-                    "minimum": 1,
-                    "title": "Draw Count",
-                    "type": "integer"
-                  },
-                  "time_grid_days": {
-                    "items": {
-                      "type": "number"
-                    },
-                    "minItems": 2,
-                    "title": "Time Grid Days",
-                    "type": "array"
-                  },
-                  "start_time_index": {
-                    "anyOf": [
-                      {
-                        "minimum": 0,
-                        "type": "integer"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ],
-                    "default": null,
-                    "title": "Start Time Index"
-                  },
-                  "start_time": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ],
-                    "default": null,
-                    "title": "Start Time"
                   }
                 },
                 "required": [
-                  "model",
-                  "rtol",
-                  "atol",
-                  "max_steps",
-                  "draw_count",
-                  "time_grid_days"
+                  "workspace_id",
+                  "version"
                 ],
-                "title": "SimulationProvenance",
+                "title": "ModelRevision",
                 "type": "object"
+              },
+              "time_grid_days": {
+                "description": "Shared elapsed-day coordinates for all trajectories, including day zero.",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 2,
+                "title": "Time Grid Days",
+                "type": "array"
+              },
+              "start_time_index": {
+                "anyOf": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Resolved fitted-state index for an abducted start; null for a baseline start.",
+                "title": "Start Time Index"
+              },
+              "start_time": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Observed timestamp of the resolved abducted start, when available.",
+                "title": "Start Time"
               },
               "labels": {
                 "additionalProperties": {
@@ -945,113 +828,45 @@
                 ],
                 "default": null
               },
-              "visualization": {
-                "anyOf": [
-                  {
-                    "additionalProperties": false,
-                    "properties": {
-                      "reference_node_trajectories": {
-                        "anyOf": [
-                          {
-                            "additionalProperties": {
-                              "items": {
-                                "type": "number"
-                              },
-                              "type": "array"
-                            },
-                            "propertyNames": {
-                              "pattern": "^construct:[A-Za-z0-9_.-]+$",
-                              "tsType": "`construct:${string}`",
-                              "type": "string"
-                            },
-                            "type": "object"
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ],
-                        "default": null,
-                        "description": "Per-construct latent trajectories for the reference (no-clamp) path aligned to effect_trajectory days.",
-                        "title": "Reference Node Trajectories"
+              "trajectories": {
+                "additionalProperties": {
+                  "additionalProperties": false,
+                  "description": "One construct's mean reference and intervention paths across simulated draws.",
+                  "properties": {
+                    "reference_mean": {
+                      "description": "Mean no-clamp latent path on the result's time_grid_days, including day zero.",
+                      "items": {
+                        "type": "number"
                       },
-                      "action_node_trajectories": {
-                        "anyOf": [
-                          {
-                            "additionalProperties": {
-                              "items": {
-                                "type": "number"
-                              },
-                              "type": "array"
-                            },
-                            "propertyNames": {
-                              "pattern": "^construct:[A-Za-z0-9_.-]+$",
-                              "tsType": "`construct:${string}`",
-                              "type": "string"
-                            },
-                            "type": "object"
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ],
-                        "default": null,
-                        "description": "Per-construct latent trajectories under the composed clamps aligned to effect_trajectory days.",
-                        "title": "Action Node Trajectories"
-                      },
-                      "node_effect_trajectories": {
-                        "anyOf": [
-                          {
-                            "additionalProperties": {
-                              "items": {
-                                "type": "number"
-                              },
-                              "type": "array"
-                            },
-                            "propertyNames": {
-                              "pattern": "^construct:[A-Za-z0-9_.-]+$",
-                              "tsType": "`construct:${string}`",
-                              "type": "string"
-                            },
-                            "type": "object"
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ],
-                        "default": null,
-                        "description": "Per-construct latent effect trajectories aligned to effect_trajectory days. Values are causal deltas relative to the reference path.",
-                        "title": "Node Effect Trajectories"
-                      },
-                      "start_state": {
-                        "anyOf": [
-                          {
-                            "additionalProperties": {
-                              "type": "number"
-                            },
-                            "propertyNames": {
-                              "pattern": "^construct:[A-Za-z0-9_.-]+$",
-                              "tsType": "`construct:${string}`",
-                              "type": "string"
-                            },
-                            "type": "object"
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ],
-                        "default": null,
-                        "description": "Posterior mean latent state the rollout started from.",
-                        "title": "Start State"
-                      }
+                      "minItems": 2,
+                      "title": "Reference Mean",
+                      "type": "array"
                     },
-                    "title": "BaselineReportVisualization",
-                    "type": "object"
+                    "action_mean": {
+                      "description": "Mean latent path under the requested clamps on the same full time grid.",
+                      "items": {
+                        "type": "number"
+                      },
+                      "minItems": 2,
+                      "title": "Action Mean",
+                      "type": "array"
+                    }
                   },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null
+                  "required": [
+                    "reference_mean",
+                    "action_mean"
+                  ],
+                  "title": "SimulationTrajectory",
+                  "type": "object"
+                },
+                "description": "Reference and action means for each simulated construct on time_grid_days.",
+                "propertyNames": {
+                  "pattern": "^construct:[A-Za-z0-9_.-]+$",
+                  "tsType": "`construct:${string}`",
+                  "type": "string"
+                },
+                "title": "Trajectories",
+                "type": "object"
               },
               "manifest_effects": {
                 "anyOf": [
@@ -1082,9 +897,11 @@
             },
             "required": [
               "request",
-              "provenance",
+              "model",
+              "time_grid_days",
               "labels",
               "summary",
+              "trajectories",
               "reference_mean"
             ],
             "title": "SimulationResult",
@@ -1125,9 +942,9 @@
     }
   ],
   "_interactive": [
+    "analysis",
     "latent-structure",
     "measurement-structure",
-    "ranking",
     "statistical-model-spec"
   ]
 }

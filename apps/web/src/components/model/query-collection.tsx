@@ -4,7 +4,7 @@ import { formatSigned } from "./model-selection";
 import type { ModelQuery } from "./queries";
 import { ArtifactChip, Tag } from "./scope-primitives";
 
-/** The model's query collection: persistent beside every scope once results exist. */
+/** The model's query collection: available beside every scope after inference. */
 export function QueryCollection({
   queries,
   selectedKey,
@@ -31,7 +31,7 @@ export function QueryCollection({
       </div>
       {posteriorStale ? (
         <div className="rounded-md border border-warning/40 bg-warning/14 px-1.5 py-1 text-[9.5px] leading-tight text-warning-foreground text-pretty">
-          the selected posterior is stale · report results retain their original fit
+          the selected posterior is stale · session results keep their original fit
         </div>
       ) : null}
       <div className="flex min-h-0 flex-col gap-1.5 overflow-y-auto">
@@ -50,7 +50,7 @@ export function QueryCollection({
             </span>
             <span className="truncate text-[9px] text-muted-foreground">
               {query.startKind === "abducted" ? "from observed history" : "steady state"}
-              {query.horizonDays != null ? ` · ${query.horizonDays} d` : ""} · {query.origin}
+              {query.horizonDays != null ? ` · ${query.horizonDays} d` : ""}
             </span>
             {query.posterior ? (
               <span className="flex items-baseline gap-1.5 font-mono text-[10px]">

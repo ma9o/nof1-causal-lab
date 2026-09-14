@@ -330,7 +330,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/Construct-Output"
+                    "$ref": "#/components/schemas/ConstructSpec-Output"
                   },
                   "title": "Response Get Model Constructs Api Episodes  Workspace Id  Model Constructs Get"
                 }
@@ -393,7 +393,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/CausalEdge-Output"
+                    "$ref": "#/components/schemas/CausalEdgeSpec-Output"
                   },
                   "title": "Response Get Model Edges Api Episodes  Workspace Id  Model Edges Get"
                 }
@@ -456,7 +456,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/Indicator-Output"
+                    "$ref": "#/components/schemas/IndicatorSpec-Output"
                   },
                   "title": "Response Get Model Indicators Api Episodes  Workspace Id  Model Indicators Get"
                 }
@@ -519,7 +519,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/ParameterSpec-Output"
+                    "$ref": "#/components/schemas/ParameterSpec"
                   },
                   "title": "Response Get Model Parameters Api Episodes  Workspace Id  Model Parameters Get"
                 }
@@ -722,14 +722,11 @@
             "required": true,
             "schema": {
               "enum": [
-                "question",
                 "raw_data",
                 "model",
                 "identification_report",
                 "panel",
-                "validation_report",
-                "admission_report",
-                "baseline_report"
+                "validation_report"
               ],
               "type": "string",
               "title": "Artifact Id"
@@ -797,14 +794,11 @@
             "required": true,
             "schema": {
               "enum": [
-                "question",
                 "raw_data",
                 "model",
                 "identification_report",
                 "panel",
-                "validation_report",
-                "admission_report",
-                "baseline_report"
+                "validation_report"
               ],
               "type": "string",
               "title": "Artifact Id"
@@ -877,8 +871,7 @@
                 "measurement_structure",
                 "measurements",
                 "statistical_model_spec",
-                "posterior",
-                "baseline_report"
+                "posterior"
               ],
               "type": "string",
               "title": "Operation Id"
@@ -988,14 +981,11 @@
             "required": true,
             "schema": {
               "enum": [
-                "question",
                 "raw_data",
                 "model",
                 "identification_report",
                 "panel",
-                "validation_report",
-                "admission_report",
-                "baseline_report"
+                "validation_report"
               ],
               "type": "string",
               "title": "Artifact Id"
@@ -1052,7 +1042,7 @@
     "/api/episodes": {
       "post": {
         "summary": "Start Episode",
-        "description": "Ensure the episode workflow exists; optionally seed the `question` root.\n\nIdempotent: attaches to an existing episode or starts a fresh one. Passing\n`question` writes the `question` root artifact with `human` provenance.\nUpload raw data at `POST /api/upload` before running the `raw_data`\ntransition. Returns the same shape as\n`GET /api/episodes/{id}`.",
+        "description": "Ensure the episode workflow exists; optionally author its model's question.\n\nIdempotent: attaches to an existing episode or starts a fresh one. Passing\n`question` creates or revises the Model with `human` provenance.\nUpload raw data at `POST /api/upload` before running the `raw_data`\ntransition. Returns the same shape as\n`GET /api/episodes/{id}`.",
         "operationId": "start_episode_api_episodes_post",
         "requestBody": {
           "content": {
@@ -1287,7 +1277,7 @@
     "/api/tools/{context_id}": {
       "get": {
         "summary": "Get Tool Schemas",
-        "description": "List a context's validation/query tools \u2014 the same tools the in-service LLM loops use.\n\nEach entry is `{name, description, parameters, result}` where `parameters`\nand `result` are JSON Schemas. Fetch this first to learn a tool's argument\nshape, then call `POST /api/tools/{context_id}/{tool_name}`. Examples:\nranking `simulate` / `get_model_info`, statistical-model-spec `search_literature`.",
+        "description": "List a context's validation/query tools \u2014 the same tools the in-service LLM loops use.\n\nEach entry is `{name, description, parameters, result}` where `parameters`\nand `result` are JSON Schemas. Fetch this first to learn a tool's argument\nshape, then call `POST /api/tools/{context_id}/{tool_name}`. Examples:\nanalysis `simulate` / `get_model_info`, statistical-model-spec `search_literature`.",
         "operationId": "get_tool_schemas_api_tools__context_id__get",
         "parameters": [
           {
@@ -1505,69 +1495,6 @@
         ],
         "title": "ActionSpec"
       },
-      "AdmissionReport": {
-        "properties": {
-          "search_queries": {
-            "anyOf": [
-              {
-                "additionalProperties": {
-                  "type": "string"
-                },
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Search Queries"
-          },
-          "validation_warnings": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Validation Warnings"
-          },
-          "prior_predictive_samples": {
-            "anyOf": [
-              {
-                "additionalProperties": {
-                  "items": {
-                    "type": "number"
-                  },
-                  "type": "array"
-                },
-                "propertyNames": {
-                  "$ref": "#/components/schemas/IndicatorId"
-                },
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Prior Predictive Samples"
-          },
-          "prior_predictive_diagnostics": {
-            "items": {
-              "$ref": "#/components/schemas/PriorPredictiveDiagnostic"
-            },
-            "type": "array",
-            "title": "Prior Predictive Diagnostics"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "title": "AdmissionReport",
-        "description": "Prior research and admission findings pinned to the model that was checked."
-      },
       "AggregationFunction": {
         "type": "string",
         "enum": [
@@ -1596,62 +1523,6 @@
           "trend",
           "n_unique"
         ]
-      },
-      "AnchorCertificate": {
-        "properties": {
-          "construct_id": {
-            "type": "string",
-            "title": "Construct Id"
-          },
-          "construct_name": {
-            "type": "string",
-            "title": "Construct Name"
-          },
-          "location_anchor": {
-            "type": "string",
-            "enum": [
-              "standardized_manifest",
-              "exact_state_observation",
-              "fixed_dynamics_center",
-              "fixed_initial_mean"
-            ],
-            "title": "Location Anchor"
-          },
-          "location_source_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Location Source Id"
-          },
-          "scale_anchor": {
-            "type": "string",
-            "enum": [
-              "fixed_manifest_loading",
-              "categorical_slope_pin"
-            ],
-            "title": "Scale Anchor"
-          },
-          "scale_source_id": {
-            "type": "string",
-            "title": "Scale Source Id"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "construct_id",
-          "construct_name",
-          "location_anchor",
-          "scale_anchor",
-          "scale_source_id"
-        ],
-        "title": "AnchorCertificate",
-        "description": "Compiler proof that one retained latent has location and scale anchors."
       },
       "ArtifactEnvelope": {
         "properties": {
@@ -1771,14 +1642,11 @@
       "ArtifactId": {
         "type": "string",
         "enum": [
-          "question",
           "raw_data",
           "model",
           "identification_report",
           "panel",
-          "validation_report",
-          "admission_report",
-          "baseline_report"
+          "validation_report"
         ]
       },
       "ArtifactRef": {
@@ -1879,16 +1747,13 @@
             "$ref": "#/components/schemas/ValidationReportArtifact"
           },
           {
-            "$ref": "#/components/schemas/AdmissionReport"
+            "$ref": "#/components/schemas/PriorPredictiveResult"
           },
           {
             "$ref": "#/components/schemas/ModelDiagnostics"
           },
           {
             "$ref": "#/components/schemas/InferenceReport"
-          },
-          {
-            "$ref": "#/components/schemas/BaselineReportArtifact"
           }
         ],
         "title": "ArtifactViewResponse",
@@ -1929,130 +1794,6 @@
         ],
         "title": "AutoRunResponse",
         "description": "An auto-run acknowledgement identifies the active background episode driver."
-      },
-      "BaselineReportArtifact": {
-        "properties": {
-          "intervention_results": {
-            "items": {
-              "$ref": "#/components/schemas/TreatmentEffect"
-            },
-            "type": "array",
-            "title": "Intervention Results"
-          },
-          "simulation_results": {
-            "items": {
-              "$ref": "#/components/schemas/SimulationResult"
-            },
-            "type": "array",
-            "title": "Simulation Results"
-          },
-          "final_summary": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Final Summary"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "intervention_results"
-        ],
-        "title": "BaselineReportArtifact",
-        "description": "A baseline report collects treatment effects and explicitly retained simulations from the fitted model."
-      },
-      "BaselineReportVisualization": {
-        "properties": {
-          "reference_node_trajectories": {
-            "anyOf": [
-              {
-                "additionalProperties": {
-                  "items": {
-                    "type": "number"
-                  },
-                  "type": "array"
-                },
-                "propertyNames": {
-                  "$ref": "#/components/schemas/ConstructId"
-                },
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reference Node Trajectories",
-            "description": "Per-construct latent trajectories for the reference (no-clamp) path aligned to effect_trajectory days."
-          },
-          "action_node_trajectories": {
-            "anyOf": [
-              {
-                "additionalProperties": {
-                  "items": {
-                    "type": "number"
-                  },
-                  "type": "array"
-                },
-                "propertyNames": {
-                  "$ref": "#/components/schemas/ConstructId"
-                },
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Action Node Trajectories",
-            "description": "Per-construct latent trajectories under the composed clamps aligned to effect_trajectory days."
-          },
-          "node_effect_trajectories": {
-            "anyOf": [
-              {
-                "additionalProperties": {
-                  "items": {
-                    "type": "number"
-                  },
-                  "type": "array"
-                },
-                "propertyNames": {
-                  "$ref": "#/components/schemas/ConstructId"
-                },
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Node Effect Trajectories",
-            "description": "Per-construct latent effect trajectories aligned to effect_trajectory days. Values are causal deltas relative to the reference path."
-          },
-          "start_state": {
-            "anyOf": [
-              {
-                "additionalProperties": {
-                  "type": "number"
-                },
-                "propertyNames": {
-                  "$ref": "#/components/schemas/ConstructId"
-                },
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Start State",
-            "description": "Posterior mean latent state the rollout started from."
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "title": "BaselineReportVisualization"
       },
       "BinaryExpression-Input": {
         "properties": {
@@ -2211,7 +1952,7 @@
         "title": "CapabilitiesResponse",
         "description": "This response tells clients whether the episode facade supports model-changing moves."
       },
-      "CausalEdge-Input": {
+      "CausalEdgeSpec-Input": {
         "properties": {
           "id": {
             "$ref": "#/components/schemas/EdgeId",
@@ -2219,7 +1960,7 @@
           },
           "mechanisms": {
             "items": {
-              "$ref": "#/components/schemas/DynamicsMechanism-Input"
+              "$ref": "#/components/schemas/DynamicsMechanismSpec-Input"
             },
             "type": "array",
             "title": "Mechanisms",
@@ -2228,7 +1969,7 @@
           "cause": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Construct-Input"
+                "$ref": "#/components/schemas/ConstructSpec-Input"
               },
               {
                 "$ref": "#/components/schemas/ConstructRef"
@@ -2239,7 +1980,7 @@
           "effect": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Construct-Input"
+                "$ref": "#/components/schemas/ConstructSpec-Input"
               },
               {
                 "$ref": "#/components/schemas/ConstructRef"
@@ -2275,10 +2016,10 @@
           "effect",
           "description"
         ],
-        "title": "CausalEdge",
-        "description": "A causal edge declares a directed causal relationship between two constructs."
+        "title": "CausalEdgeSpec",
+        "description": "A specification of a directed causal relationship between two constructs."
       },
-      "CausalEdge-Output": {
+      "CausalEdgeSpec-Output": {
         "properties": {
           "id": {
             "$ref": "#/components/schemas/EdgeId",
@@ -2286,7 +2027,7 @@
           },
           "mechanisms": {
             "items": {
-              "$ref": "#/components/schemas/DynamicsMechanism-Output"
+              "$ref": "#/components/schemas/DynamicsMechanismSpec-Output"
             },
             "type": "array",
             "title": "Mechanisms",
@@ -2295,7 +2036,7 @@
           "cause": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Construct-Output"
+                "$ref": "#/components/schemas/ConstructSpec-Output"
               },
               {
                 "$ref": "#/components/schemas/ConstructRef"
@@ -2306,7 +2047,7 @@
           "effect": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Construct-Output"
+                "$ref": "#/components/schemas/ConstructSpec-Output"
               },
               {
                 "$ref": "#/components/schemas/ConstructRef"
@@ -2342,44 +2083,10 @@
           "effect",
           "description"
         ],
-        "title": "CausalEdge",
-        "description": "A causal edge declares a directed causal relationship between two constructs."
+        "title": "CausalEdgeSpec",
+        "description": "A specification of a directed causal relationship between two constructs."
       },
-      "Coefficient-Input": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/FixedCoefficient"
-          },
-          {
-            "$ref": "#/components/schemas/ParameterCoefficient"
-          }
-        ],
-        "discriminator": {
-          "propertyName": "kind",
-          "mapping": {
-            "fixed": "#/components/schemas/FixedCoefficient",
-            "parameter": "#/components/schemas/ParameterCoefficient"
-          }
-        }
-      },
-      "Coefficient-Output": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/FixedCoefficient"
-          },
-          {
-            "$ref": "#/components/schemas/ParameterCoefficient"
-          }
-        ],
-        "discriminator": {
-          "propertyName": "kind",
-          "mapping": {
-            "fixed": "#/components/schemas/FixedCoefficient",
-            "parameter": "#/components/schemas/ParameterCoefficient"
-          }
-        }
-      },
-      "CoefficientExpression-Input": {
+      "CoefficientExpression": {
         "properties": {
           "kind": {
             "type": "string",
@@ -2390,45 +2097,29 @@
           "role": {
             "$ref": "#/components/schemas/CoefficientRole"
           },
-          "coefficient": {
+          "value": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Coefficient-Input"
+                "type": "number"
+              },
+              {
+                "$ref": "#/components/schemas/ParameterId"
               },
               {
                 "type": "null"
               }
-            ]
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "role"
-        ],
-        "title": "CoefficientExpression",
-        "description": "A scientifically typed coefficient operand, literal or parameter reference."
-      },
-      "CoefficientExpression-Output": {
-        "properties": {
-          "kind": {
-            "type": "string",
-            "const": "coefficient",
-            "title": "Kind",
-            "default": "coefficient"
+            ],
+            "title": "Value",
+            "description": "Finite literal or persistent parameter ID; null leaves the operand unassigned."
           },
-          "role": {
-            "$ref": "#/components/schemas/CoefficientRole"
-          },
-          "coefficient": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/Coefficient-Output"
-              },
-              {
-                "type": "null"
-              }
-            ]
+          "construct_ids": {
+            "items": {
+              "$ref": "#/components/schemas/ConstructId"
+            },
+            "type": "array",
+            "title": "Construct Ids",
+            "description": "Additional constructs participating in this coefficient use.",
+            "default": []
           }
         },
         "additionalProperties": false,
@@ -2460,204 +2151,14 @@
           "cutpoint_base",
           "cutpoint_gaps",
           "category_intercepts",
-          "category_slopes"
+          "category_slopes",
+          "diffusion_scale",
+          "diffusion_loading",
+          "process_degrees_of_freedom",
+          "initial_mean",
+          "initial_scale",
+          "initial_correlation"
         ]
-      },
-      "Construct-Input": {
-        "properties": {
-          "id": {
-            "$ref": "#/components/schemas/ConstructId",
-            "description": "Persistent identity. Preserve when revising or renaming."
-          },
-          "name": {
-            "type": "string",
-            "title": "Name",
-            "description": "Construct name (e.g., 'stress', 'sleep_quality')"
-          },
-          "description": {
-            "type": "string",
-            "title": "Description",
-            "description": "What this theoretical construct represents"
-          },
-          "indicators": {
-            "items": {
-              "$ref": "#/components/schemas/Indicator-Input"
-            },
-            "type": "array",
-            "title": "Indicators",
-            "default": []
-          },
-          "dynamics": {
-            "items": {
-              "$ref": "#/components/schemas/DynamicsMechanism-Input"
-            },
-            "type": "array",
-            "title": "Dynamics",
-            "default": []
-          },
-          "innovation": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/InnovationSpec-Input"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "initial_state": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/InitialStateSpec-Input"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "distribution": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/NumPyroDistribution-Input"
-              },
-              {
-                "$ref": "#/components/schemas/DistributionId"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Distribution",
-            "description": "Law of this construct's trajectory on ModelSpec.time_points; may be joint."
-          },
-          "usage": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ConstructUsage-Input"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "role": {
-            "$ref": "#/components/schemas/Role",
-            "description": "'endogenous' (modeled) or 'exogenous' (given)"
-          },
-          "temporal_status": {
-            "$ref": "#/components/schemas/TemporalStatus",
-            "description": "'time_varying' (changes over time) or 'time_invariant' (fixed)"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "id",
-          "name",
-          "description",
-          "role",
-          "temporal_status"
-        ],
-        "title": "Construct",
-        "description": "A construct represents a theoretical entity in the scientific causal model."
-      },
-      "Construct-Output": {
-        "properties": {
-          "id": {
-            "$ref": "#/components/schemas/ConstructId",
-            "description": "Persistent identity. Preserve when revising or renaming."
-          },
-          "name": {
-            "type": "string",
-            "title": "Name",
-            "description": "Construct name (e.g., 'stress', 'sleep_quality')"
-          },
-          "description": {
-            "type": "string",
-            "title": "Description",
-            "description": "What this theoretical construct represents"
-          },
-          "indicators": {
-            "items": {
-              "$ref": "#/components/schemas/Indicator-Output"
-            },
-            "type": "array",
-            "title": "Indicators",
-            "default": []
-          },
-          "dynamics": {
-            "items": {
-              "$ref": "#/components/schemas/DynamicsMechanism-Output"
-            },
-            "type": "array",
-            "title": "Dynamics",
-            "default": []
-          },
-          "innovation": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/InnovationSpec-Output"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "initial_state": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/InitialStateSpec-Output"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "distribution": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/NumPyroDistribution-Output"
-              },
-              {
-                "$ref": "#/components/schemas/DistributionId"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Distribution",
-            "description": "Law of this construct's trajectory on ModelSpec.time_points; may be joint."
-          },
-          "usage": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ConstructUsage-Output"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "role": {
-            "$ref": "#/components/schemas/Role",
-            "description": "'endogenous' (modeled) or 'exogenous' (given)"
-          },
-          "temporal_status": {
-            "$ref": "#/components/schemas/TemporalStatus",
-            "description": "'time_varying' (changes over time) or 'time_invariant' (fixed)"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "id",
-          "name",
-          "description",
-          "role",
-          "temporal_status"
-        ],
-        "title": "Construct",
-        "description": "A construct represents a theoretical entity in the scientific causal model."
       },
       "ConstructId": {
         "type": "string",
@@ -2684,39 +2185,167 @@
         "title": "ConstructRef",
         "description": "A construct reference identifies a construct independently of its current name or\nrevision."
       },
-      "ConstructUsage-Input": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/KnownInput"
+      "ConstructSpec-Input": {
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ConstructId",
+            "description": "Persistent identity. Preserve when revising or renaming."
           },
-          {
-            "$ref": "#/components/schemas/ScientificOnlyConstruct"
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Construct name (e.g., 'stress', 'sleep_quality')"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "description": "What this theoretical construct represents"
+          },
+          "indicators": {
+            "items": {
+              "$ref": "#/components/schemas/IndicatorSpec-Input"
+            },
+            "type": "array",
+            "title": "Indicators",
+            "default": []
+          },
+          "dynamics": {
+            "items": {
+              "$ref": "#/components/schemas/DynamicsMechanismSpec-Input"
+            },
+            "type": "array",
+            "title": "Dynamics",
+            "default": []
+          },
+          "coefficients": {
+            "items": {
+              "$ref": "#/components/schemas/CoefficientExpression"
+            },
+            "type": "array",
+            "title": "Coefficients",
+            "default": []
+          },
+          "innovation_family": {
+            "type": "string",
+            "enum": [
+              "gaussian",
+              "student_t"
+            ],
+            "title": "Innovation Family",
+            "default": "gaussian"
+          },
+          "distribution": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DistributionId"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Membership in a trajectory law in ModelSpec.distributions on ModelSpec.time_points."
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role",
+            "description": "'endogenous' or 'exogenous' (no modeled causal parents; may still be uncertain)"
+          },
+          "temporal_status": {
+            "$ref": "#/components/schemas/TemporalStatus",
+            "description": "'time_varying' (changes over time) or 'time_invariant' (fixed)"
           }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "role",
+          "temporal_status"
         ],
-        "discriminator": {
-          "propertyName": "kind",
-          "mapping": {
-            "known_input": "#/components/schemas/KnownInput",
-            "scientific_only": "#/components/schemas/ScientificOnlyConstruct"
-          }
-        }
+        "title": "ConstructSpec",
+        "description": "A specification of a theoretical entity in the scientific causal model."
       },
-      "ConstructUsage-Output": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/KnownInput"
+      "ConstructSpec-Output": {
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ConstructId",
+            "description": "Persistent identity. Preserve when revising or renaming."
           },
-          {
-            "$ref": "#/components/schemas/ScientificOnlyConstruct"
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Construct name (e.g., 'stress', 'sleep_quality')"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "description": "What this theoretical construct represents"
+          },
+          "indicators": {
+            "items": {
+              "$ref": "#/components/schemas/IndicatorSpec-Output"
+            },
+            "type": "array",
+            "title": "Indicators",
+            "default": []
+          },
+          "dynamics": {
+            "items": {
+              "$ref": "#/components/schemas/DynamicsMechanismSpec-Output"
+            },
+            "type": "array",
+            "title": "Dynamics",
+            "default": []
+          },
+          "coefficients": {
+            "items": {
+              "$ref": "#/components/schemas/CoefficientExpression"
+            },
+            "type": "array",
+            "title": "Coefficients",
+            "default": []
+          },
+          "innovation_family": {
+            "type": "string",
+            "enum": [
+              "gaussian",
+              "student_t"
+            ],
+            "title": "Innovation Family",
+            "default": "gaussian"
+          },
+          "distribution": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DistributionId"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Membership in a trajectory law in ModelSpec.distributions on ModelSpec.time_points."
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role",
+            "description": "'endogenous' or 'exogenous' (no modeled causal parents; may still be uncertain)"
+          },
+          "temporal_status": {
+            "$ref": "#/components/schemas/TemporalStatus",
+            "description": "'time_varying' (changes over time) or 'time_invariant' (fixed)"
           }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "role",
+          "temporal_status"
         ],
-        "discriminator": {
-          "propertyName": "kind",
-          "mapping": {
-            "known_input": "#/components/schemas/KnownInput",
-            "scientific_only": "#/components/schemas/ScientificOnlyConstruct"
-          }
-        }
+        "title": "ConstructSpec",
+        "description": "A specification of a theoretical entity in the scientific causal model."
       },
       "ContextSpec": {
         "properties": {
@@ -2832,10 +2461,10 @@
       "DistributionId": {
         "type": "string",
         "pattern": "^distribution:[A-Za-z0-9_.-]+$",
-        "description": "A shared native law whose membership is defined by the model's scientific quantities.",
+        "description": "A native law whose membership is defined by the model's scientific quantities.",
         "tsType": "`distribution:${string}`"
       },
-      "DynamicsMechanism-Input": {
+      "DynamicsMechanismSpec-Input": {
         "properties": {
           "id": {
             "$ref": "#/components/schemas/MechanismId"
@@ -2859,10 +2488,10 @@
           "id",
           "expression"
         ],
-        "title": "DynamicsMechanism",
-        "description": "An additive drift term or node potential whose negative gradient enters the drift."
+        "title": "DynamicsMechanismSpec",
+        "description": "A symbolic specification of an additive drift term or a node potential.\n\nA node potential contributes its negative gradient to the drift."
       },
-      "DynamicsMechanism-Output": {
+      "DynamicsMechanismSpec-Output": {
         "properties": {
           "id": {
             "$ref": "#/components/schemas/MechanismId"
@@ -2886,8 +2515,8 @@
           "id",
           "expression"
         ],
-        "title": "DynamicsMechanism",
-        "description": "An additive drift term or node potential whose negative gradient enters the drift."
+        "title": "DynamicsMechanismSpec",
+        "description": "A symbolic specification of an additive drift term or a node potential.\n\nA node potential contributes its negative gradient to the drift."
       },
       "EdgeId": {
         "type": "string",
@@ -2913,89 +2542,6 @@
         ],
         "title": "EdgeRef",
         "description": "An edge reference identifies a causal relationship independently of edits to its\ndefinition."
-      },
-      "EffectSummary": {
-        "properties": {
-          "mean": {
-            "type": "number",
-            "title": "Mean"
-          },
-          "median": {
-            "type": "number",
-            "title": "Median"
-          },
-          "lower_95": {
-            "type": "number",
-            "title": "Lower 95"
-          },
-          "upper_95": {
-            "type": "number",
-            "title": "Upper 95"
-          },
-          "prob_positive": {
-            "type": "number",
-            "maximum": 1.0,
-            "minimum": 0.0,
-            "title": "Prob Positive"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "mean",
-          "median",
-          "lower_95",
-          "upper_95",
-          "prob_positive"
-        ],
-        "title": "EffectSummary",
-        "description": "An effect summary reports posterior location, uncertainty, and sign probability."
-      },
-      "EffectTrajectoryPoint": {
-        "properties": {
-          "day": {
-            "type": "number",
-            "minimum": 0.0,
-            "title": "Day"
-          },
-          "effect": {
-            "type": "number",
-            "title": "Effect"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "day",
-          "effect"
-        ],
-        "title": "EffectTrajectoryPoint",
-        "description": "An effect trajectory point records a causal delta at one elapsed rollout time."
-      },
-      "EntityRef": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/ConstructRef"
-          },
-          {
-            "$ref": "#/components/schemas/EdgeRef"
-          },
-          {
-            "$ref": "#/components/schemas/IndicatorRef"
-          },
-          {
-            "$ref": "#/components/schemas/MechanismRef"
-          }
-        ],
-        "discriminator": {
-          "propertyName": "kind",
-          "mapping": {
-            "construct": "#/components/schemas/ConstructRef",
-            "edge": "#/components/schemas/EdgeRef",
-            "indicator": "#/components/schemas/IndicatorRef",
-            "mechanism": "#/components/schemas/MechanismRef"
-          }
-        }
       },
       "EpisodeState": {
         "properties": {
@@ -3133,30 +2679,6 @@
         "title": "ExecOptions",
         "description": "Per-move execution parameters (infra, not domain state)."
       },
-      "ExecutionReadiness": {
-        "properties": {
-          "unmet_requirements": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Unmet Requirements",
-            "default": []
-          },
-          "anchor_certificates": {
-            "items": {
-              "$ref": "#/components/schemas/AnchorCertificate"
-            },
-            "type": "array",
-            "title": "Anchor Certificates",
-            "default": []
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "title": "ExecutionReadiness",
-        "description": "Current model requirements and latent anchors, computed without a stored receipt."
-      },
       "Expression-Input": {
         "oneOf": [
           {
@@ -3166,7 +2688,7 @@
             "$ref": "#/components/schemas/StateExpression"
           },
           {
-            "$ref": "#/components/schemas/CoefficientExpression-Input"
+            "$ref": "#/components/schemas/CoefficientExpression"
           },
           {
             "$ref": "#/components/schemas/BinaryExpression-Input"
@@ -3180,7 +2702,7 @@
           "mapping": {
             "binary": "#/components/schemas/BinaryExpression-Input",
             "call": "#/components/schemas/CallExpression-Input",
-            "coefficient": "#/components/schemas/CoefficientExpression-Input",
+            "coefficient": "#/components/schemas/CoefficientExpression",
             "literal": "#/components/schemas/LiteralExpression",
             "state": "#/components/schemas/StateExpression"
           }
@@ -3195,7 +2717,7 @@
             "$ref": "#/components/schemas/StateExpression"
           },
           {
-            "$ref": "#/components/schemas/CoefficientExpression-Output"
+            "$ref": "#/components/schemas/CoefficientExpression"
           },
           {
             "$ref": "#/components/schemas/BinaryExpression-Output"
@@ -3209,7 +2731,7 @@
           "mapping": {
             "binary": "#/components/schemas/BinaryExpression-Output",
             "call": "#/components/schemas/CallExpression-Output",
-            "coefficient": "#/components/schemas/CoefficientExpression-Output",
+            "coefficient": "#/components/schemas/CoefficientExpression",
             "literal": "#/components/schemas/LiteralExpression",
             "state": "#/components/schemas/StateExpression"
           }
@@ -3570,27 +3092,6 @@
         "description": "A fit read contains the inference log report and server-composed display findings.",
         "x-python-module": "nof1_causal_lab.machine.snapshot_models"
       },
-      "FixedCoefficient": {
-        "properties": {
-          "kind": {
-            "type": "string",
-            "const": "fixed",
-            "title": "Kind",
-            "default": "fixed"
-          },
-          "value": {
-            "type": "number",
-            "title": "Value"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "value"
-        ],
-        "title": "FixedCoefficient",
-        "description": "A coefficient held at a specified value on the continuous-time model scale."
-      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -3635,35 +3136,6 @@
         "title": "HistogramBin",
         "description": "A histogram bin gives its interval, center, and number of posterior draws."
       },
-      "IdentifiabilityStatus": {
-        "properties": {
-          "identifiable_treatments": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/IdentifiedTreatmentStatus"
-            },
-            "propertyNames": {
-              "$ref": "#/components/schemas/ConstructId"
-            },
-            "type": "object",
-            "title": "Identifiable Treatments",
-            "description": "Treatment IDs mapped to their identification strategy and supporting construct IDs"
-          },
-          "non_identifiable_treatments": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/NonIdentifiableTreatmentStatus"
-            },
-            "propertyNames": {
-              "$ref": "#/components/schemas/ConstructId"
-            },
-            "type": "object",
-            "title": "Non Identifiable Treatments",
-            "description": "Treatment IDs mapped to the construct IDs blocking identification"
-          }
-        },
-        "type": "object",
-        "title": "IdentifiabilityStatus",
-        "description": "Status of causal effect identifiability."
-      },
       "IdentificationReport": {
         "properties": {
           "outcome": {
@@ -3676,15 +3148,36 @@
               }
             ]
           },
-          "status": {
-            "$ref": "#/components/schemas/IdentifiabilityStatus"
+          "treatments": {
+            "additionalProperties": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/IdentifiedTreatmentStatus"
+                },
+                {
+                  "$ref": "#/components/schemas/NonIdentifiableTreatmentStatus"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "status",
+                "mapping": {
+                  "identified": "#/components/schemas/IdentifiedTreatmentStatus",
+                  "not_identified": "#/components/schemas/NonIdentifiableTreatmentStatus"
+                }
+              }
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/ConstructId"
+            },
+            "type": "object",
+            "title": "Treatments",
+            "description": "One tagged identification result per treatment, including its supporting evidence"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "outcome",
-          "status"
+          "outcome"
         ],
         "title": "IdentificationReport",
         "description": "Positive and negative causal identification findings for the model's default query."
@@ -3734,252 +3227,6 @@
         "title": "IdentifiedTreatmentStatus",
         "description": "Details on how a treatment effect is identified."
       },
-      "Indicator-Input": {
-        "properties": {
-          "id": {
-            "$ref": "#/components/schemas/IndicatorId",
-            "description": "Persistent identity. Preserve when revising or renaming."
-          },
-          "likelihood": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/LikelihoodSpec-Input"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "name": {
-            "type": "string",
-            "title": "Name",
-            "description": "Indicator name (e.g., 'hrv', 'self_reported_stress')"
-          },
-          "how_to_measure": {
-            "type": "string",
-            "title": "How To Measure",
-            "description": "Instructions for workers on how to extract this from data"
-          },
-          "construct_polarity": {
-            "$ref": "#/components/schemas/IndicatorPolarity",
-            "description": "Whether higher indicator values move in the same direction as the construct (`positive`) or the opposite direction (`negative`)."
-          },
-          "measurement_dtype": {
-            "$ref": "#/components/schemas/MeasurementDtype",
-            "description": "'continuous', 'binary', 'count', 'ordinal', 'categorical'"
-          },
-          "aggregation": {
-            "$ref": "#/components/schemas/AggregationFunction",
-            "description": "Aggregation function applied when bucketing raw extractions within the indicator support window. Measurement-structure support is currently limited to: first, last, sum, count, mean, std. Available parser operators: count, cv, entropy, first, instability, iqr, kurtosis, last, max, mean, median, min, n_unique, p10, p25, p75, p90, p99, range, skew, std, sum, trend, var"
-          },
-          "observation_window": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Observation Window",
-            "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). If omitted, the support window defaults to the global model_clock."
-          },
-          "ordinal_levels": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ordinal Levels",
-            "description": "Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding."
-          },
-          "categorical_levels": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Categorical Levels",
-            "description": "Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding."
-          },
-          "source_columns": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Source Columns",
-            "description": "Raw data column names referenced by how_to_measure. Used to project chunks to only relevant columns before extraction."
-          },
-          "computed_rule": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/WindowExpression"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Optional deterministic support-window expression for extraction_mode='computed'. Use this when a computed indicator needs formulas, thresholds, or multiple source columns instead of a direct single-column aggregation. The expression must return one scalar per support window."
-          },
-          "extraction_mode": {
-            "type": "string",
-            "enum": [
-              "computed",
-              "semantic"
-            ],
-            "title": "Extraction Mode",
-            "description": "'computed' (deterministic pipeline extraction) or 'semantic' (LLM extraction). Use 'computed' when the indicator can be derived deterministically either from a direct source-column aggregation or from a computed_rule support-window expression over the declared source_columns.",
-            "default": "semantic"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "id",
-          "name",
-          "how_to_measure",
-          "construct_polarity",
-          "measurement_dtype",
-          "aggregation"
-        ],
-        "title": "Indicator",
-        "description": "An indicator defines an observed measurement of a construct and how to extract it."
-      },
-      "Indicator-Output": {
-        "properties": {
-          "id": {
-            "$ref": "#/components/schemas/IndicatorId",
-            "description": "Persistent identity. Preserve when revising or renaming."
-          },
-          "likelihood": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/LikelihoodSpec-Output"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "name": {
-            "type": "string",
-            "title": "Name",
-            "description": "Indicator name (e.g., 'hrv', 'self_reported_stress')"
-          },
-          "how_to_measure": {
-            "type": "string",
-            "title": "How To Measure",
-            "description": "Instructions for workers on how to extract this from data"
-          },
-          "construct_polarity": {
-            "$ref": "#/components/schemas/IndicatorPolarity",
-            "description": "Whether higher indicator values move in the same direction as the construct (`positive`) or the opposite direction (`negative`)."
-          },
-          "measurement_dtype": {
-            "$ref": "#/components/schemas/MeasurementDtype",
-            "description": "'continuous', 'binary', 'count', 'ordinal', 'categorical'"
-          },
-          "aggregation": {
-            "$ref": "#/components/schemas/AggregationFunction",
-            "description": "Aggregation function applied when bucketing raw extractions within the indicator support window. Measurement-structure support is currently limited to: first, last, sum, count, mean, std. Available parser operators: count, cv, entropy, first, instability, iqr, kurtosis, last, max, mean, median, min, n_unique, p10, p25, p75, p90, p99, range, skew, std, sum, trend, var"
-          },
-          "observation_window": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Observation Window",
-            "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). If omitted, the support window defaults to the global model_clock."
-          },
-          "ordinal_levels": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ordinal Levels",
-            "description": "Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding."
-          },
-          "categorical_levels": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Categorical Levels",
-            "description": "Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding."
-          },
-          "source_columns": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Source Columns",
-            "description": "Raw data column names referenced by how_to_measure. Used to project chunks to only relevant columns before extraction."
-          },
-          "computed_rule": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/WindowExpression"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Optional deterministic support-window expression for extraction_mode='computed'. Use this when a computed indicator needs formulas, thresholds, or multiple source columns instead of a direct single-column aggregation. The expression must return one scalar per support window."
-          },
-          "extraction_mode": {
-            "type": "string",
-            "enum": [
-              "computed",
-              "semantic"
-            ],
-            "title": "Extraction Mode",
-            "description": "'computed' (deterministic pipeline extraction) or 'semantic' (LLM extraction). Use 'computed' when the indicator can be derived deterministically either from a direct source-column aggregation or from a computed_rule support-window expression over the declared source_columns.",
-            "default": "semantic"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "id",
-          "name",
-          "how_to_measure",
-          "construct_polarity",
-          "measurement_dtype",
-          "aggregation"
-        ],
-        "title": "Indicator",
-        "description": "An indicator defines an observed measurement of a construct and how to extract it."
-      },
       "IndicatorAudit": {
         "properties": {
           "profile": {
@@ -3992,14 +3239,31 @@
               }
             ]
           },
-          "validation": {
-            "$ref": "#/components/schemas/IndicatorValidation"
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationIssue"
+            },
+            "type": "array",
+            "title": "Issues"
+          },
+          "checks": {
+            "additionalProperties": {
+              "type": "string",
+              "enum": [
+                "ok",
+                "warning",
+                "error"
+              ]
+            },
+            "type": "object",
+            "title": "Checks"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "validation"
+          "issues",
+          "checks"
         ],
         "title": "IndicatorAudit",
         "description": "An indicator audit combines its empirical data profile with the results of validation\nchecks."
@@ -4270,36 +3534,273 @@
         "title": "IndicatorRef",
         "description": "An indicator reference identifies a measurement definition independently of its name or\nrevision."
       },
-      "IndicatorValidation": {
+      "IndicatorSpec-Input": {
         "properties": {
-          "issues": {
+          "id": {
+            "$ref": "#/components/schemas/IndicatorId",
+            "description": "Persistent identity. Preserve when revising or renaming."
+          },
+          "likelihood": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LikelihoodSpec-Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Indicator name (e.g., 'hrv', 'self_reported_stress')"
+          },
+          "how_to_measure": {
+            "type": "string",
+            "title": "How To Measure",
+            "description": "Instructions for workers on how to extract this from data"
+          },
+          "construct_polarity": {
+            "$ref": "#/components/schemas/IndicatorPolarity",
+            "description": "Whether higher indicator values move in the same direction as the construct (`positive`) or the opposite direction (`negative`)."
+          },
+          "measurement_dtype": {
+            "$ref": "#/components/schemas/MeasurementDtype",
+            "description": "'continuous', 'binary', 'count', 'ordinal', 'categorical'"
+          },
+          "aggregation": {
+            "$ref": "#/components/schemas/AggregationFunction",
+            "description": "Aggregation function applied when bucketing raw extractions within the indicator support window. Measurement-structure support is currently limited to: first, last, sum, count, mean, std. Available parser operators: count, cv, entropy, first, instability, iqr, kurtosis, last, max, mean, median, min, n_unique, p10, p25, p75, p90, p99, range, skew, std, sum, trend, var"
+          },
+          "recording": {
+            "type": "string",
+            "enum": [
+              "samples",
+              "events",
+              "changes"
+            ],
+            "title": "Recording",
+            "description": "Source recording semantics within the raw dataset's covered time span. samples: absent readings are unknown. events: a complete event record; empty sum/count windows are zero. changes: a complete change record; the last recorded value persists, with leading gaps unknown. events and changes require computed extraction.",
+            "default": "samples"
+          },
+          "observation_window": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observation Window",
+            "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). If omitted, the support window defaults to the global model_clock."
+          },
+          "ordinal_levels": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ordinal Levels",
+            "description": "Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding."
+          },
+          "categorical_levels": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Categorical Levels",
+            "description": "Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding."
+          },
+          "source_columns": {
             "items": {
-              "$ref": "#/components/schemas/ValidationIssue"
+              "type": "string"
             },
             "type": "array",
-            "title": "Issues"
+            "title": "Source Columns",
+            "description": "Raw data column names referenced by how_to_measure. Used to project chunks to only relevant columns before extraction."
           },
-          "checks": {
-            "additionalProperties": {
-              "type": "string",
-              "enum": [
-                "ok",
-                "warning",
-                "error"
-              ]
-            },
-            "type": "object",
-            "title": "Checks"
+          "computed_rule": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WindowExpression"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional deterministic support-window expression for extraction_mode='computed'. Use this when a computed indicator needs formulas, thresholds, or multiple source columns instead of a direct single-column aggregation. The expression must return one scalar per support window."
+          },
+          "extraction_mode": {
+            "type": "string",
+            "enum": [
+              "computed",
+              "semantic"
+            ],
+            "title": "Extraction Mode",
+            "description": "'computed' (deterministic pipeline extraction) or 'semantic' (LLM extraction). Use 'computed' when the indicator can be derived deterministically either from a direct source-column aggregation or from a computed_rule support-window expression over the declared source_columns.",
+            "default": "semantic"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "issues",
-          "checks"
+          "id",
+          "name",
+          "how_to_measure",
+          "construct_polarity",
+          "measurement_dtype",
+          "aggregation"
         ],
-        "title": "IndicatorValidation",
-        "description": "Indicator validation records the outcomes and issues from checks on one extracted\nindicator."
+        "title": "IndicatorSpec",
+        "description": "A specification of a construct's observed measurement and how to extract it."
+      },
+      "IndicatorSpec-Output": {
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/IndicatorId",
+            "description": "Persistent identity. Preserve when revising or renaming."
+          },
+          "likelihood": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LikelihoodSpec-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Indicator name (e.g., 'hrv', 'self_reported_stress')"
+          },
+          "how_to_measure": {
+            "type": "string",
+            "title": "How To Measure",
+            "description": "Instructions for workers on how to extract this from data"
+          },
+          "construct_polarity": {
+            "$ref": "#/components/schemas/IndicatorPolarity",
+            "description": "Whether higher indicator values move in the same direction as the construct (`positive`) or the opposite direction (`negative`)."
+          },
+          "measurement_dtype": {
+            "$ref": "#/components/schemas/MeasurementDtype",
+            "description": "'continuous', 'binary', 'count', 'ordinal', 'categorical'"
+          },
+          "aggregation": {
+            "$ref": "#/components/schemas/AggregationFunction",
+            "description": "Aggregation function applied when bucketing raw extractions within the indicator support window. Measurement-structure support is currently limited to: first, last, sum, count, mean, std. Available parser operators: count, cv, entropy, first, instability, iqr, kurtosis, last, max, mean, median, min, n_unique, p10, p25, p75, p90, p99, range, skew, std, sum, trend, var"
+          },
+          "recording": {
+            "type": "string",
+            "enum": [
+              "samples",
+              "events",
+              "changes"
+            ],
+            "title": "Recording",
+            "description": "Source recording semantics within the raw dataset's covered time span. samples: absent readings are unknown. events: a complete event record; empty sum/count windows are zero. changes: a complete change record; the last recorded value persists, with leading gaps unknown. events and changes require computed extraction.",
+            "default": "samples"
+          },
+          "observation_window": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observation Window",
+            "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). If omitted, the support window defaults to the global model_clock."
+          },
+          "ordinal_levels": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ordinal Levels",
+            "description": "Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding."
+          },
+          "categorical_levels": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Categorical Levels",
+            "description": "Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding."
+          },
+          "source_columns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Source Columns",
+            "description": "Raw data column names referenced by how_to_measure. Used to project chunks to only relevant columns before extraction."
+          },
+          "computed_rule": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WindowExpression"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional deterministic support-window expression for extraction_mode='computed'. Use this when a computed indicator needs formulas, thresholds, or multiple source columns instead of a direct single-column aggregation. The expression must return one scalar per support window."
+          },
+          "extraction_mode": {
+            "type": "string",
+            "enum": [
+              "computed",
+              "semantic"
+            ],
+            "title": "Extraction Mode",
+            "description": "'computed' (deterministic pipeline extraction) or 'semantic' (LLM extraction). Use 'computed' when the indicator can be derived deterministically either from a direct source-column aggregation or from a computed_rule support-window expression over the declared source_columns.",
+            "default": "semantic"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "how_to_measure",
+          "construct_polarity",
+          "measurement_dtype",
+          "aggregation"
+        ],
+        "title": "IndicatorSpec",
+        "description": "A specification of a construct's observed measurement and how to extract it."
       },
       "InferenceMetadata": {
         "properties": {
@@ -4335,8 +3836,18 @@
             "$ref": "#/components/schemas/JsonObject-Output",
             "description": "Engine-reported telemetry for this fit; keys and values are engine-defined."
           },
-          "assessment": {
-            "$ref": "#/components/schemas/PosteriorAssessment"
+          "ppc": {
+            "$ref": "#/components/schemas/PosteriorPredictiveChecks"
+          },
+          "loo_diagnostics": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LOODiagnostics"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "posterior_marginals": {
             "anyOf": [
@@ -4371,144 +3882,10 @@
         "type": "object",
         "required": [
           "inference_metadata",
-          "assessment"
+          "ppc"
         ],
         "title": "InferenceReport",
         "description": "Display findings recorded by an inference transition, separate from ModelSpec."
-      },
-      "InitialStateSpec-Input": {
-        "properties": {
-          "mean": {
-            "$ref": "#/components/schemas/Coefficient-Input"
-          },
-          "scale": {
-            "$ref": "#/components/schemas/Coefficient-Input"
-          },
-          "correlations": {
-            "items": {
-              "$ref": "#/components/schemas/StateCoupling-Input"
-            },
-            "type": "array",
-            "title": "Correlations",
-            "default": []
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "mean",
-          "scale"
-        ],
-        "title": "InitialStateSpec",
-        "description": "Initial location, marginal scale and correlations, including shared baseline factors."
-      },
-      "InitialStateSpec-Output": {
-        "properties": {
-          "mean": {
-            "$ref": "#/components/schemas/Coefficient-Output"
-          },
-          "scale": {
-            "$ref": "#/components/schemas/Coefficient-Output"
-          },
-          "correlations": {
-            "items": {
-              "$ref": "#/components/schemas/StateCoupling-Output"
-            },
-            "type": "array",
-            "title": "Correlations",
-            "default": []
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "mean",
-          "scale"
-        ],
-        "title": "InitialStateSpec",
-        "description": "Initial location, marginal scale and correlations, including shared baseline factors."
-      },
-      "InnovationSpec-Input": {
-        "properties": {
-          "distribution": {
-            "type": "string",
-            "enum": [
-              "gaussian",
-              "student_t"
-            ],
-            "title": "Distribution",
-            "default": "gaussian"
-          },
-          "scale": {
-            "$ref": "#/components/schemas/Coefficient-Input"
-          },
-          "loadings": {
-            "items": {
-              "$ref": "#/components/schemas/StateCoupling-Input"
-            },
-            "type": "array",
-            "title": "Loadings",
-            "default": []
-          },
-          "degrees_of_freedom": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/Coefficient-Input"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "scale"
-        ],
-        "title": "InnovationSpec",
-        "description": "Continuous-time driving noise, including conditional loadings from common causes."
-      },
-      "InnovationSpec-Output": {
-        "properties": {
-          "distribution": {
-            "type": "string",
-            "enum": [
-              "gaussian",
-              "student_t"
-            ],
-            "title": "Distribution",
-            "default": "gaussian"
-          },
-          "scale": {
-            "$ref": "#/components/schemas/Coefficient-Output"
-          },
-          "loadings": {
-            "items": {
-              "$ref": "#/components/schemas/StateCoupling-Output"
-            },
-            "type": "array",
-            "title": "Loadings",
-            "default": []
-          },
-          "degrees_of_freedom": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/Coefficient-Output"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "scale"
-        ],
-        "title": "InnovationSpec",
-        "description": "Continuous-time driving noise, including conditional loadings from common causes."
       },
       "JournalStatus": {
         "type": "string",
@@ -4586,42 +3963,6 @@
             "$ref": "#/components/schemas/JsonObject-Output"
           }
         ]
-      },
-      "KnownInput": {
-        "properties": {
-          "kind": {
-            "type": "string",
-            "const": "known_input",
-            "title": "Kind",
-            "default": "known_input"
-          },
-          "source_indicator_id": {
-            "$ref": "#/components/schemas/IndicatorId"
-          },
-          "scale": {
-            "type": "number",
-            "exclusiveMinimum": 0.0,
-            "title": "Scale",
-            "description": "Positive divisor applied before inference",
-            "default": 1.0
-          },
-          "missing_policy": {
-            "type": "string",
-            "enum": [
-              "zero",
-              "forward_fill"
-            ],
-            "title": "Missing Policy",
-            "default": "zero"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "source_indicator_id"
-        ],
-        "title": "KnownInput",
-        "description": "An observed-input declaration binds a construct to its measured driver trajectory."
       },
       "LLMTrace": {
         "properties": {
@@ -4797,7 +4138,7 @@
       "LikelihoodSpec-Input": {
         "properties": {
           "law": {
-            "$ref": "#/components/schemas/ObservationLaw-Input"
+            "$ref": "#/components/schemas/ObservationLawSpec-Input"
           },
           "standardized": {
             "type": "boolean",
@@ -4831,7 +4172,7 @@
       "LikelihoodSpec-Output": {
         "properties": {
           "law": {
-            "$ref": "#/components/schemas/ObservationLaw-Output"
+            "$ref": "#/components/schemas/ObservationLawSpec-Output"
           },
           "standardized": {
             "type": "boolean",
@@ -5101,38 +4442,8 @@
         "pattern": "^mechanism:[A-Za-z0-9_.-]+$",
         "tsType": "`mechanism:${string}`"
       },
-      "MechanismRef": {
-        "properties": {
-          "kind": {
-            "type": "string",
-            "const": "mechanism",
-            "title": "Kind",
-            "default": "mechanism"
-          },
-          "id": {
-            "$ref": "#/components/schemas/MechanismId"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "id"
-        ],
-        "title": "MechanismRef",
-        "description": "A particular additive term, independently of its position or coefficient values."
-      },
       "ModelData": {
         "properties": {
-          "question": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/Sourced_QuestionArtifact_"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "raw_data": {
             "anyOf": [
               {
@@ -5157,7 +4468,7 @@
         "additionalProperties": false,
         "type": "object",
         "title": "ModelData",
-        "description": "ModelSpec data pairs the causal question and observed evidence with their source versions.",
+        "description": "Observed evidence paired with its source versions.",
         "x-python-module": "nof1_causal_lab.machine.snapshot_models"
       },
       "ModelDiagnostics": {
@@ -5227,16 +4538,6 @@
               }
             ]
           },
-          "execution": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/Sourced_ExecutionReadiness_"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "dispositions": {
             "anyOf": [
               {
@@ -5272,10 +4573,10 @@
               }
             ]
           },
-          "admission_report": {
+          "prior_predictive": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Sourced_AdmissionReport_"
+                "$ref": "#/components/schemas/Sourced_PriorPredictiveResult_"
               },
               {
                 "type": "null"
@@ -5301,16 +4602,6 @@
                 "type": "null"
               }
             ]
-          },
-          "baseline_report": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/Sourced_BaselineReportArtifact_"
-              },
-              {
-                "type": "null"
-              }
-            ]
           }
         },
         "additionalProperties": false,
@@ -5318,50 +4609,6 @@
         "title": "ModelFindings",
         "description": "ModelSpec findings collect identification, validation, and fitted results with their provenance.",
         "x-python-module": "nof1_causal_lab.machine.snapshot_models"
-      },
-      "ModelRef": {
-        "properties": {
-          "kind": {
-            "type": "string",
-            "const": "model",
-            "title": "Kind",
-            "default": "model"
-          },
-          "id": {
-            "type": "string",
-            "minLength": 1,
-            "title": "Id"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "id"
-        ],
-        "title": "ModelRef",
-        "description": "A model reference identifies the workspace that owns the scientific model."
-      },
-      "ModelRevision": {
-        "properties": {
-          "workspace_id": {
-            "type": "string",
-            "minLength": 1,
-            "title": "Workspace Id"
-          },
-          "version": {
-            "type": "integer",
-            "minimum": 1.0,
-            "title": "Version"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "workspace_id",
-          "version"
-        ],
-        "title": "ModelRevision",
-        "description": "The workspace and version of the scientific design supporting an inference."
       },
       "ModelSnapshot": {
         "properties": {
@@ -5396,17 +4643,29 @@
       },
       "ModelSpec-Input": {
         "properties": {
+          "question": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question"
+          },
           "edges": {
             "items": {
-              "$ref": "#/components/schemas/CausalEdge-Input"
+              "$ref": "#/components/schemas/CausalEdgeSpec-Input"
             },
             "type": "array",
-            "minItems": 1,
-            "title": "Edges"
+            "title": "Edges",
+            "default": []
           },
           "parameters": {
             "items": {
-              "$ref": "#/components/schemas/ParameterSpec-Input"
+              "$ref": "#/components/schemas/ParameterSpec"
             },
             "type": "array",
             "title": "Parameters",
@@ -5421,7 +4680,7 @@
             },
             "type": "object",
             "title": "Distributions",
-            "description": "Shared joint laws. Members are the parameters and constructs referring to each ID. Event coordinates are parameters by ID and element ID, then constructs by ID and time point. Inline scalar parameter laws apply independently to their elements."
+            "description": "All explicit probability laws. Members are the parameters and constructs referring to each ID. Event coordinates are parameters by ID and element ID, then constructs by ID and time point. A scalar law belongs to one parameter and applies independently to its elements."
           },
           "time_points": {
             "items": {
@@ -5445,7 +4704,7 @@
           "default_outcome": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ConstructRef"
+                "$ref": "#/components/schemas/ConstructId"
               },
               {
                 "type": "null"
@@ -5455,25 +4714,34 @@
         },
         "additionalProperties": false,
         "type": "object",
-        "required": [
-          "edges"
-        ],
         "title": "ModelSpec",
-        "description": "One connected causal graph whose endpoints and relationships gain scientific detail."
+        "description": "An evolving research question and connected causal graph with owned scientific detail."
       },
       "ModelSpec-Output": {
         "properties": {
+          "question": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question"
+          },
           "edges": {
             "items": {
-              "$ref": "#/components/schemas/CausalEdge-Output"
+              "$ref": "#/components/schemas/CausalEdgeSpec-Output"
             },
             "type": "array",
-            "minItems": 1,
-            "title": "Edges"
+            "title": "Edges",
+            "default": []
           },
           "parameters": {
             "items": {
-              "$ref": "#/components/schemas/ParameterSpec-Output"
+              "$ref": "#/components/schemas/ParameterSpec"
             },
             "type": "array",
             "title": "Parameters",
@@ -5488,7 +4756,7 @@
             },
             "type": "object",
             "title": "Distributions",
-            "description": "Shared joint laws. Members are the parameters and constructs referring to each ID. Event coordinates are parameters by ID and element ID, then constructs by ID and time point. Inline scalar parameter laws apply independently to their elements."
+            "description": "All explicit probability laws. Members are the parameters and constructs referring to each ID. Event coordinates are parameters by ID and element ID, then constructs by ID and time point. A scalar law belongs to one parameter and applies independently to its elements."
           },
           "time_points": {
             "items": {
@@ -5512,7 +4780,7 @@
           "default_outcome": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ConstructRef"
+                "$ref": "#/components/schemas/ConstructId"
               },
               {
                 "type": "null"
@@ -5522,11 +4790,8 @@
         },
         "additionalProperties": false,
         "type": "object",
-        "required": [
-          "edges"
-        ],
         "title": "ModelSpec",
-        "description": "One connected causal graph whose endpoints and relationships gain scientific detail."
+        "description": "An evolving research question and connected causal graph with owned scientific detail."
       },
       "ModelSpecAdmissionEvent": {
         "properties": {
@@ -5790,7 +5055,7 @@
           "params"
         ]
       },
-      "ObservationLaw-Input": {
+      "ObservationLawSpec-Input": {
         "properties": {
           "distribution": {
             "type": "string",
@@ -5822,10 +5087,10 @@
           "distribution",
           "arguments"
         ],
-        "title": "ObservationLaw",
-        "description": "A native probability constructor applied to model-dependent expressions."
+        "title": "ObservationLawSpec",
+        "description": "A symbolic specification of an indicator's conditional observation distribution."
       },
-      "ObservationLaw-Output": {
+      "ObservationLawSpec-Output": {
         "properties": {
           "distribution": {
             "type": "string",
@@ -5857,8 +5122,8 @@
           "distribution",
           "arguments"
         ],
-        "title": "ObservationLaw",
-        "description": "A native probability constructor applied to model-dependent expressions."
+        "title": "ObservationLawSpec",
+        "description": "A symbolic specification of an indicator's conditional observation distribution."
       },
       "ObservationRecord": {
         "properties": {
@@ -5987,8 +5252,7 @@
           "measurement_structure",
           "measurements",
           "statistical_model_spec",
-          "posterior",
-          "baseline_report"
+          "posterior"
         ]
       },
       "PPCOverlay": {
@@ -6164,26 +5428,6 @@
         "title": "PPCWarning",
         "description": "A predictive-check finding records whether one indicator passes a calibration,\ndependence, or variance check."
       },
-      "ParameterCoefficient": {
-        "properties": {
-          "kind": {
-            "type": "string",
-            "const": "parameter",
-            "title": "Kind",
-            "default": "parameter"
-          },
-          "parameter_id": {
-            "$ref": "#/components/schemas/ParameterId"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "parameter_id"
-        ],
-        "title": "ParameterCoefficient",
-        "description": "A slot referencing a scientific parameter, whether fixed or estimated."
-      },
       "ParameterElementId": {
         "type": "string",
         "pattern": "^element:[0-9a-f]{64}$",
@@ -6212,7 +5456,7 @@
         "title": "ParameterRef",
         "description": "A scalar finding identifies its scientific parameter and declared logical component."
       },
-      "ParameterSpec-Input": {
+      "ParameterSpec": {
         "properties": {
           "id": {
             "$ref": "#/components/schemas/ParameterId"
@@ -6253,17 +5497,13 @@
           "distribution": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/NumPyroDistribution-Input"
-              },
-              {
                 "$ref": "#/components/schemas/DistributionId"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Distribution",
-            "description": "Native law or a reference to a shared joint law in ModelSpec.distributions."
+            "description": "Membership in a native law in ModelSpec.distributions; may be joint."
           },
           "reference_interval_days": {
             "anyOf": [
@@ -6287,106 +5527,6 @@
         ],
         "title": "ParameterSpec",
         "description": "A named quantity's current uncertainty; component slots define its meaning."
-      },
-      "ParameterSpec-Output": {
-        "properties": {
-          "id": {
-            "$ref": "#/components/schemas/ParameterId"
-          },
-          "name": {
-            "type": "string",
-            "title": "Name",
-            "description": "Authored parameter label; relationships use its persistent ID"
-          },
-          "description": {
-            "type": "string",
-            "title": "Description",
-            "description": "Human-readable description of what this parameter represents"
-          },
-          "distribution_transform": {
-            "type": "string",
-            "enum": [
-              "identity",
-              "dt_persistence_to_ct_decay",
-              "dt_effect_to_ct_rate",
-              "initial_state_correlation"
-            ],
-            "title": "Distribution Transform",
-            "default": "identity"
-          },
-          "value": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Value",
-            "description": "Known constant on the model quantity scale, exclusive with a distribution."
-          },
-          "distribution": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/NumPyroDistribution-Output"
-              },
-              {
-                "$ref": "#/components/schemas/DistributionId"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Distribution",
-            "description": "Native law or a reference to a shared joint law in ModelSpec.distributions."
-          },
-          "reference_interval_days": {
-            "anyOf": [
-              {
-                "type": "number",
-                "exclusiveMinimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reference Interval Days"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "id",
-          "name",
-          "description"
-        ],
-        "title": "ParameterSpec",
-        "description": "A named quantity's current uncertainty; component slots define its meaning."
-      },
-      "PosteriorAssessment": {
-        "properties": {
-          "ppc": {
-            "$ref": "#/components/schemas/PosteriorPredictiveChecks"
-          },
-          "loo_diagnostics": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/LOODiagnostics"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "ppc"
-        ],
-        "title": "PosteriorAssessment",
-        "description": "Predictive assessments of a fitted posterior."
       },
       "PosteriorEstimate": {
         "properties": {
@@ -6647,7 +5787,38 @@
           "mode"
         ],
         "title": "PriorPredictiveDiagnostic",
-        "description": "A prior predictive diagnostic records the result of one exact model-admission check."
+        "description": "A measured prior-predictive check and its evaluation criteria."
+      },
+      "PriorPredictiveResult": {
+        "properties": {
+          "samples": {
+            "additionalProperties": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/IndicatorId"
+            },
+            "type": "object",
+            "title": "Samples"
+          },
+          "diagnostics": {
+            "items": {
+              "$ref": "#/components/schemas/PriorPredictiveDiagnostic"
+            },
+            "type": "array",
+            "title": "Diagnostics"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "samples"
+        ],
+        "title": "PriorPredictiveResult",
+        "description": "Simulated observations and checks recorded by a model-authoring operation."
       },
       "Provenance": {
         "type": "string",
@@ -6656,22 +5827,6 @@
           "human",
           "llm"
         ]
-      },
-      "QuestionArtifact": {
-        "properties": {
-          "text": {
-            "type": "string",
-            "minLength": 1,
-            "title": "Text"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "text"
-        ],
-        "title": "QuestionArtifact",
-        "description": "A research question states the observational causal question under investigation."
       },
       "RawDataColumnDescription": {
         "properties": {
@@ -6919,429 +6074,12 @@
         "title": "RuntimeEventError",
         "description": "Serialized transition failure."
       },
-      "ScenarioClamp": {
-        "properties": {
-          "target": {
-            "$ref": "#/components/schemas/ConstructRef",
-            "description": "Persistent identity of the construct to clamp."
-          },
-          "mode": {
-            "type": "string",
-            "enum": [
-              "set",
-              "shift",
-              "ramp",
-              "trajectory"
-            ],
-            "title": "Mode",
-            "description": "How the clamped value is specified over the window."
-          },
-          "value": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Value",
-            "description": "Required when mode='set'. Absolute latent-space value."
-          },
-          "amount": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Amount",
-            "description": "Required when mode='shift'. Additive delta from the start-state value."
-          },
-          "value_start": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Value Start",
-            "description": "Required when mode='ramp'. Value at from_day."
-          },
-          "value_end": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Value End",
-            "description": "Required when mode='ramp'. Value at to_day."
-          },
-          "values": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "number"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Values",
-            "description": "Required when mode='trajectory'. Values sampled evenly across the window."
-          },
-          "from_day": {
-            "type": "number",
-            "minimum": 0.0,
-            "title": "From Day",
-            "description": "Window onset in days from the rollout start.",
-            "default": 0.0
-          },
-          "to_day": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "To Day",
-            "description": "Window end in days from the rollout start. Null runs through the horizon."
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "target",
-          "mode"
-        ],
-        "title": "ScenarioClamp",
-        "description": "A do-operator on one latent variable over a time window.\n\nThe window is ``[from_day, to_day)`` in days relative to the rollout start; outside\nthe window the variable evolves under its natural dynamics. ``set`` pins to an absolute\nvalue, ``shift`` adds an amount to the variable's start-state value, ``ramp`` linearly\ninterpolates across the window, and ``trajectory`` tracks a list of values across it."
-      },
-      "ScenarioQueryInput": {
-        "properties": {
-          "estimand": {
-            "type": "string",
-            "enum": [
-              "end_state",
-              "trajectory"
-            ],
-            "title": "Estimand",
-            "description": "Report the final-horizon outcome effect or the full effect trajectory.",
-            "default": "trajectory"
-          },
-          "horizon_days": {
-            "type": "integer",
-            "maximum": 365.0,
-            "minimum": 1.0,
-            "title": "Horizon Days",
-            "description": "Forward horizon in days from the rollout start.",
-            "default": 30
-          },
-          "projection": {
-            "type": "string",
-            "enum": [
-              "latent",
-              "manifest",
-              "both"
-            ],
-            "title": "Projection",
-            "description": "Report latent outcome effects, manifest projections, or both.",
-            "default": "latent"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "title": "ScenarioQueryInput"
-      },
-      "ScenarioRequest": {
-        "properties": {
-          "start": {
-            "$ref": "#/components/schemas/ScenarioStartInput"
-          },
-          "clamps": {
-            "items": {
-              "$ref": "#/components/schemas/ScenarioClamp"
-            },
-            "type": "array",
-            "minItems": 1,
-            "title": "Clamps",
-            "description": "One or more timed latent clamps composing the scenario."
-          },
-          "outcome": {
-            "$ref": "#/components/schemas/ConstructRef",
-            "description": "Persistent identity of the requested outcome."
-          },
-          "readout": {
-            "$ref": "#/components/schemas/ScenarioQueryInput"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "clamps",
-          "outcome"
-        ],
-        "title": "ScenarioRequest",
-        "description": "One reusable request for an on-demand simulation of a fitted model."
-      },
-      "ScenarioStartInput": {
-        "properties": {
-          "kind": {
-            "type": "string",
-            "enum": [
-              "baseline",
-              "abducted"
-            ],
-            "title": "Kind",
-            "description": "'baseline' starts from the deterministic drift equilibrium (an interventional, rung-2 query). 'abducted' conditions on the individual's observed evidence and starts from the recovered fitted latent state (a counterfactual, rung-3 query).",
-            "default": "baseline"
-          },
-          "time_index": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Time Index",
-            "description": "Abducted start only: observed fitted-state index to begin from. Defaults to the final retained fitted latent state."
-          },
-          "time": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Time",
-            "description": "Abducted start only: ISO-8601 observed timestamp matching a retained fitted latent state. Use either time_index or time, not both."
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "title": "ScenarioStartInput",
-        "description": "Where the forward rollout begins (replaces the rung-2/rung-3 split)."
-      },
-      "ScientificOnlyConstruct": {
-        "properties": {
-          "kind": {
-            "type": "string",
-            "const": "scientific_only",
-            "title": "Kind",
-            "default": "scientific_only"
-          },
-          "reason": {
-            "type": "string",
-            "minLength": 1,
-            "title": "Reason"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "reason"
-        ],
-        "title": "ScientificOnlyConstruct",
-        "description": "A scientific-only declaration excludes an identified construct from executable states."
-      },
-      "SimulationProvenance": {
-        "properties": {
-          "model": {
-            "$ref": "#/components/schemas/ModelRevision"
-          },
-          "engine": {
-            "type": "string",
-            "enum": [
-              "nonlinear_drift_v1",
-              "illustrative_fixture"
-            ],
-            "title": "Engine",
-            "default": "nonlinear_drift_v1"
-          },
-          "solver": {
-            "type": "string",
-            "const": "Tsit5",
-            "title": "Solver",
-            "default": "Tsit5"
-          },
-          "rtol": {
-            "type": "number",
-            "exclusiveMinimum": 0.0,
-            "title": "Rtol"
-          },
-          "atol": {
-            "type": "number",
-            "exclusiveMinimum": 0.0,
-            "title": "Atol"
-          },
-          "max_steps": {
-            "type": "integer",
-            "minimum": 1.0,
-            "title": "Max Steps"
-          },
-          "draw_count": {
-            "type": "integer",
-            "minimum": 1.0,
-            "title": "Draw Count"
-          },
-          "time_grid_days": {
-            "items": {
-              "type": "number"
-            },
-            "type": "array",
-            "minItems": 2,
-            "title": "Time Grid Days"
-          },
-          "start_time_index": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Start Time Index"
-          },
-          "start_time": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Start Time"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "model",
-          "rtol",
-          "atol",
-          "max_steps",
-          "draw_count",
-          "time_grid_days"
-        ],
-        "title": "SimulationProvenance",
-        "description": "The retained fit and actual numerical settings used by this response."
-      },
-      "SimulationResult": {
-        "properties": {
-          "request": {
-            "$ref": "#/components/schemas/ScenarioRequest"
-          },
-          "provenance": {
-            "$ref": "#/components/schemas/SimulationProvenance"
-          },
-          "labels": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "propertyNames": {
-              "$ref": "#/components/schemas/ConstructId"
-            },
-            "type": "object",
-            "title": "Labels"
-          },
-          "summary": {
-            "$ref": "#/components/schemas/EffectSummary"
-          },
-          "effect_trajectory": {
-            "anyOf": [
-              {
-                "items": {
-                  "$ref": "#/components/schemas/EffectTrajectoryPoint"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Effect Trajectory"
-          },
-          "trajectory_peak": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/EffectTrajectoryPoint"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "visualization": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/BaselineReportVisualization"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "manifest_effects": {
-            "anyOf": [
-              {
-                "additionalProperties": {
-                  "type": "number"
-                },
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Manifest Effects"
-          },
-          "reference_mean": {
-            "type": "number",
-            "title": "Reference Mean"
-          },
-          "warnings": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Warnings"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "request",
-          "provenance",
-          "labels",
-          "summary",
-          "reference_mean"
-        ],
-        "title": "SimulationResult",
-        "description": "Ephemeral response, retained only when explicitly included in a report.\n\nThis engine integrates the true nonlinear drift for each posterior draw.\nIt does not include future process noise or claim the mean of the SDE."
-      },
       "SnapshotContext": {
         "properties": {
-          "workspace": {
-            "$ref": "#/components/schemas/ModelRef"
+          "workspace_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Workspace Id"
           },
           "seq": {
             "type": "integer",
@@ -7384,7 +6122,7 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "workspace",
+          "workspace_id",
           "seq",
           "state"
         ],
@@ -7400,60 +6138,6 @@
         ],
         "title": "SourceValidity",
         "description": "Source validity records whether a fact still matches its pinned inputs."
-      },
-      "Sourced_AdmissionReport_": {
-        "properties": {
-          "value": {
-            "$ref": "#/components/schemas/AdmissionReport"
-          },
-          "source": {
-            "$ref": "#/components/schemas/FactSource"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "value",
-          "source"
-        ],
-        "title": "Sourced[AdmissionReport]",
-        "x-python-module": "nof1_causal_lab.machine.snapshot_models"
-      },
-      "Sourced_BaselineReportArtifact_": {
-        "properties": {
-          "value": {
-            "$ref": "#/components/schemas/BaselineReportArtifact"
-          },
-          "source": {
-            "$ref": "#/components/schemas/FactSource"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "value",
-          "source"
-        ],
-        "title": "Sourced[BaselineReportArtifact]",
-        "x-python-module": "nof1_causal_lab.machine.snapshot_models"
-      },
-      "Sourced_ExecutionReadiness_": {
-        "properties": {
-          "value": {
-            "$ref": "#/components/schemas/ExecutionReadiness"
-          },
-          "source": {
-            "$ref": "#/components/schemas/FactSource"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "value",
-          "source"
-        ],
-        "title": "Sourced[ExecutionReadiness]",
-        "x-python-module": "nof1_causal_lab.machine.snapshot_models"
       },
       "Sourced_FitSummary_": {
         "properties": {
@@ -7545,10 +6229,10 @@
         "title": "Sourced[ModelSpec]",
         "x-python-module": "nof1_causal_lab.machine.snapshot_models"
       },
-      "Sourced_QuestionArtifact_": {
+      "Sourced_PriorPredictiveResult_": {
         "properties": {
           "value": {
-            "$ref": "#/components/schemas/QuestionArtifact"
+            "$ref": "#/components/schemas/PriorPredictiveResult"
           },
           "source": {
             "$ref": "#/components/schemas/FactSource"
@@ -7560,7 +6244,7 @@
           "value",
           "source"
         ],
-        "title": "Sourced[QuestionArtifact]",
+        "title": "Sourced[PriorPredictiveResult]",
         "x-python-module": "nof1_causal_lab.machine.snapshot_models"
       },
       "Sourced_RawDataData_": {
@@ -7716,43 +6400,7 @@
           "outcome"
         ],
         "title": "StartEpisodeResponse",
-        "description": "Starting an episode returns its current status and any question-write outcome."
-      },
-      "StateCoupling-Input": {
-        "properties": {
-          "other_id": {
-            "$ref": "#/components/schemas/ConstructId"
-          },
-          "coefficient": {
-            "$ref": "#/components/schemas/Coefficient-Input"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "other_id",
-          "coefficient"
-        ],
-        "title": "StateCoupling",
-        "description": "A coefficient connecting an owned component to another construct."
-      },
-      "StateCoupling-Output": {
-        "properties": {
-          "other_id": {
-            "$ref": "#/components/schemas/ConstructId"
-          },
-          "coefficient": {
-            "$ref": "#/components/schemas/Coefficient-Output"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "other_id",
-          "coefficient"
-        ],
-        "title": "StateCoupling",
-        "description": "A coefficient connecting an owned component to another construct."
+        "description": "Starting an episode returns its current status and any model-write outcome."
       },
       "StateEquation": {
         "properties": {
@@ -7802,32 +6450,40 @@
         "type": "string",
         "enum": [
           "retained_state",
-          "known_input",
           "marginalized",
           "identification_only",
           "retained_edge",
           "projected_edge",
           "manifest",
-          "known_input_source",
-          "excluded_indicator"
+          "excluded_indicator",
+          "unsupported"
         ],
         "title": "StructuralDisposition",
         "description": "A structural disposition classifies how compilation uses or excludes an authored model\nentity."
       },
       "StructuralItemDisposition": {
         "properties": {
-          "source_id": {
-            "type": "string",
-            "title": "Source Id"
-          },
-          "source_kind": {
-            "type": "string",
-            "enum": [
-              "construct",
-              "edge",
-              "indicator"
+          "target": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ConstructRef"
+              },
+              {
+                "$ref": "#/components/schemas/EdgeRef"
+              },
+              {
+                "$ref": "#/components/schemas/IndicatorRef"
+              }
             ],
-            "title": "Source Kind"
+            "title": "Target",
+            "discriminator": {
+              "propertyName": "kind",
+              "mapping": {
+                "construct": "#/components/schemas/ConstructRef",
+                "edge": "#/components/schemas/EdgeRef",
+                "indicator": "#/components/schemas/IndicatorRef"
+              }
+            }
           },
           "disposition": {
             "$ref": "#/components/schemas/StructuralDisposition"
@@ -7840,43 +6496,12 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "source_id",
-          "source_kind",
+          "target",
           "disposition",
           "reason"
         ],
         "title": "StructuralItemDisposition",
         "description": "An item disposition explains the compilation decision for one identified authored\nentity."
-      },
-      "TemporalEffect": {
-        "properties": {
-          "horizons": {
-            "items": {
-              "$ref": "#/components/schemas/EffectTrajectoryPoint"
-            },
-            "type": "array",
-            "minItems": 1,
-            "title": "Horizons"
-          },
-          "peak_effect": {
-            "type": "number",
-            "title": "Peak Effect"
-          },
-          "time_to_peak_days": {
-            "type": "number",
-            "minimum": 0.0,
-            "title": "Time To Peak Days"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "horizons",
-          "peak_effect",
-          "time_to_peak_days"
-        ],
-        "title": "TemporalEffect",
-        "description": "A temporal effect summarizes a trajectory at requested horizons and its absolute peak."
       },
       "TemporalStatus": {
         "type": "string",
@@ -8265,81 +6890,6 @@
         "title": "TransitionTraceIndex",
         "description": "Promoted traces identified by their committed execution sequence."
       },
-      "TreatmentEffect": {
-        "properties": {
-          "treatment": {
-            "type": "string",
-            "title": "Treatment"
-          },
-          "treatment_id": {
-            "$ref": "#/components/schemas/ConstructId"
-          },
-          "summary": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/EffectSummary"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "histogram": {
-            "items": {
-              "$ref": "#/components/schemas/HistogramBin"
-            },
-            "type": "array",
-            "title": "Histogram"
-          },
-          "posterior_draws": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "number"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Posterior Draws"
-          },
-          "temporal": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/TemporalEffect"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "manifest_effects": {
-            "anyOf": [
-              {
-                "additionalProperties": {
-                  "type": "number"
-                },
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Manifest Effects"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "treatment",
-          "treatment_id",
-          "summary"
-        ],
-        "title": "TreatmentEffect",
-        "description": "A treatment effect stores posterior effect draws and optional temporal or observed-scale\nsummaries."
-      },
       "UncheckedJsonObject": {
         "additionalProperties": true,
         "type": "object",
@@ -8402,15 +6952,16 @@
       },
       "ValidationIssue": {
         "properties": {
-          "subject": {
+          "indicator_id": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/EntityRef"
+                "$ref": "#/components/schemas/IndicatorId"
               },
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "Affected indicator; null for a dataset-wide issue."
           },
           "issue_type": {
             "type": "string",

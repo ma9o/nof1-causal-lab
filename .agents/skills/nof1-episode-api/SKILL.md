@@ -74,10 +74,10 @@ curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/capabilities"
 
 ### POST `/api/episodes`
 
-Ensure the episode workflow exists; optionally seed the `question` root.
+Ensure the episode workflow exists; optionally author its model's question.
 
 Idempotent: attaches to an existing episode or starts a fresh one. Passing
-`question` writes the `question` root artifact with `human` provenance.
+`question` creates or revises the Model with `human` provenance.
 Upload raw data at `POST /api/upload` before running the `raw_data`
 transition. Returns the same shape as
 `GET /api/episodes/{id}`.
@@ -227,7 +227,7 @@ Validate and atomically replace the named base model revision.
 curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/model" \
   -X PUT \
   -H 'Content-Type: application/json' \
-  -d '{"expected_version": 0, "model": {"edges": [{"id": "string", "cause": {"id": "string", "name": "string", "description": "string", "role": "endogenous", "temporal_status": "time_varying"}, "effect": {"id": "string", "name": "string", "description": "string", "role": "endogenous", "temporal_status": "time_varying"}, "description": "string"}]}}'
+  -d '{"expected_version": 0, "model": {}}'
 ```
 
 ### GET `/api/episodes/{workspace_id}/model/constructs`
@@ -416,7 +416,7 @@ List a context's validation/query tools — the same tools the in-service LLM lo
 Each entry is `{name, description, parameters, result}` where `parameters`
 and `result` are JSON Schemas. Fetch this first to learn a tool's argument
 shape, then call `POST /api/tools/{context_id}/{tool_name}`. Examples:
-ranking `simulate` / `get_model_info`, statistical-model-spec `search_literature`.
+analysis `simulate` / `get_model_info`, statistical-model-spec `search_literature`.
 
 **Parameters**
 

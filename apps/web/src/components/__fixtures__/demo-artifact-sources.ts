@@ -1,13 +1,11 @@
 import modelArtifact from "../../../../../data/DEMO/fixture/artifacts/model.json";
-import admissionArtifact from "../../../../../data/DEMO/fixture/artifacts/admission_report.json";
-import baselineReportArtifact from "../../../../../data/DEMO/fixture/artifacts/baseline_report.json";
+import authoringLog from "../../../../../data/DEMO/fixture/model_authoring.json";
 import inferenceLog from "../../../../../data/DEMO/fixture/inference.json";
 import validationReportArtifact from "../../../../../data/DEMO/fixture/artifacts/validation_report.json";
 
 export const demoArtifactSources = {
   model: modelArtifact,
-  admission_report: admissionArtifact,
+  prior_predictive: authoringLog.prior_predictive,
   validation_report: validationReportArtifact,
   inference_report: inferenceLog.report,
-  baseline_report: baselineReportArtifact,
 } as const;

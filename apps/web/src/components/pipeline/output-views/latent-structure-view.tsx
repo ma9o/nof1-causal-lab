@@ -15,14 +15,14 @@ export default function LatentStructureView({ data }: { data: ModelSpec }) {
     <div className="space-y-4">
       <StructureDag
         constructs={modelConstructs(data)}
-        outcomeId={data.default_outcome?.id}
+        outcomeId={data.default_outcome ?? undefined}
         edges={data.edges}
         onNodeClick={setSelectedConstruct}
       />
       {selected && (
         <ConstructDetailPanel
           construct={selected}
-          isOutcome={selected.id === data.default_outcome?.id}
+          isOutcome={selected.id === data.default_outcome}
         />
       )}
       <EdgeList constructs={modelConstructs(data)} edges={data.edges} />

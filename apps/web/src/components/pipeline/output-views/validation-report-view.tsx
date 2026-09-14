@@ -1,4 +1,4 @@
-import type { Indicator, ValidationReportArtifact } from "@nof1-causal-lab/api-types";
+import type { IndicatorSpec, ValidationReportArtifact } from "@nof1-causal-lab/api-types";
 import { IndicatorHealthTable } from "@/components/analysis-widgets/validation-report/indicator-health-table";
 
 export default function ValidationReportView({
@@ -6,7 +6,7 @@ export default function ValidationReportView({
   indicators,
 }: {
   data: ValidationReportArtifact;
-  indicators: Indicator[];
+  indicators: IndicatorSpec[];
 }) {
   const audits = data.indicators;
 

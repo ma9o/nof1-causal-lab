@@ -1,10 +1,10 @@
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { Construct } from "@nof1-causal-lab/api-types";
+import type { ConstructSpec } from "@nof1-causal-lab/api-types";
 import { Star } from "lucide-react";
 
 interface ConstructDetailPanelProps {
-  construct: Construct;
+  construct: ConstructSpec;
   isOutcome?: boolean;
 }
 

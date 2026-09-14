@@ -5,7 +5,12 @@ import { formatNumber } from "@/lib/utils/format";
 import { Badge } from "@/components/ui/badge";
 import { InfoTable } from "@/components/ui/info-table";
 import { distributionArgumentText } from "@/lib/utils/distribution-format";
-import type { ParameterSpec, DensityPoint, ModelDiagnostics } from "@nof1-causal-lab/api-types";
+import type {
+  ParameterSpec,
+  DensityPoint,
+  ModelDiagnostics,
+  ModelSpec,
+} from "@nof1-causal-lab/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 import { scaleLinear } from "d3-scale";
 import { area, curveMonotoneX, line } from "d3-shape";
@@ -121,7 +126,10 @@ function DensitySparkline({ prior, data }: { prior: PriorRow; data: DensityPoint
   );
 }
 
-const priorColumns = (densities: ModelDiagnostics["prior_densities"]) =>
+const priorColumns = (
+  densities: ModelDiagnostics["prior_densities"],
+  distributions: ModelSpec["distributions"],
+) =>
   [
     col.accessor("name", {
       header: "Parameter",
@@ -131,9 +139,9 @@ const priorColumns = (densities: ModelDiagnostics["prior_densities"]) =>
       (parameter) =>
         parameter.value != null
           ? "Fixed"
-          : typeof parameter.distribution === "string"
-            ? "Joint distribution"
-            : (parameter.distribution?.distribution ?? "Unspecified"),
+          : parameter.distribution != null
+            ? distributions[parameter.distribution].distribution
+            : "Unspecified",
       {
         id: "distribution",
         header: "Distribution",
@@ -146,13 +154,8 @@ const priorColumns = (densities: ModelDiagnostics["prior_densities"]) =>
       cell: ({ row }) => {
         if (row.original.value != null)
           return <span className="font-mono text-xs">{row.original.value}</span>;
-        if (typeof row.original.distribution === "string")
-          return (
-            <span className="text-xs text-muted-foreground">
-              Shared with other model quantities
-            </span>
-          );
-        const params = row.original.distribution?.params ?? {};
+        const params =
+          row.original.distribution != null ? distributions[row.original.distribution].params : {};
         return (
           <div className="flex flex-col gap-0.5 font-mono text-xs text-muted-foreground">
             {Object.entries(params).map(([k, v]) => (
@@ -176,10 +179,12 @@ const priorColumns = (densities: ModelDiagnostics["prior_densities"]) =>
 export function PriorTable({
   parameters,
   densities,
+  distributions,
 }: {
   parameters: ParameterSpec[];
   densities: ModelDiagnostics["prior_densities"];
+  distributions: ModelSpec["distributions"];
 }) {
-  const columns = useMemo(() => priorColumns(densities), [densities]);
+  const columns = useMemo(() => priorColumns(densities, distributions), [densities, distributions]);
   return <InfoTable columns={columns} data={parameters} estimateRowHeight={72} />;
 }

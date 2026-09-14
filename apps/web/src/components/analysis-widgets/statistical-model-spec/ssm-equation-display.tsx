@@ -1,5 +1,5 @@
 import { modelConstructs } from "@/lib/model-accessors";
-import type { Indicator, ParameterSpec, StateEquation } from "@nof1-causal-lab/api-types";
+import type { IndicatorSpec, ParameterSpec, StateEquation } from "@nof1-causal-lab/api-types";
 import katex from "katex";
 import { FunctionalSpecLink } from "@/components/analysis-widgets/statistical-model-spec/functional-spec-link";
 import { ObsModelTable } from "@/components/analysis-widgets/statistical-model-spec/obs-model-table";
@@ -18,7 +18,7 @@ interface SsmEquationDisplayProps {
   observationEquations: Record<string, string>;
   equations: StateEquation[];
   parameters: ParameterSpec[];
-  indicators: Indicator[];
+  indicators: IndicatorSpec[];
   model: import("@nof1-causal-lab/api-types").ModelSpec;
 }
 
@@ -118,6 +118,7 @@ export function SSMEquationDisplay({
             <ObsModelTable
               observationEquations={observationEquations}
               parameters={parameters}
+              distributions={model.distributions}
               indicators={indicators}
               constructs={modelConstructs(model)}
             />

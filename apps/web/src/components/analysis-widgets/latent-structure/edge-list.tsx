@@ -1,12 +1,12 @@
 import { Badge } from "@/components/ui/badge";
 import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
-import type { CausalEdge, Construct } from "@nof1-causal-lab/api-types";
+import type { CausalEdgeSpec, ConstructSpec } from "@nof1-causal-lab/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 import { SourceBadges } from "../source-badges";
 
-const col = createColumnHelper<CausalEdge>();
+const col = createColumnHelper<CausalEdgeSpec>();
 
-function columns(constructs: Construct[]) {
+function columns(constructs: ConstructSpec[]) {
   const names = new Map(constructs.map((item) => [item.id, item.name]));
   return [
     col.accessor("cause.id", {
@@ -45,8 +45,14 @@ function columns(constructs: Construct[]) {
   ];
 }
 
-export function EdgeList({ edges, constructs }: { edges: CausalEdge[]; constructs: Construct[] }) {
+export function EdgeList({
+  edges,
+  constructs,
+}: {
+  edges: CausalEdgeSpec[];
+  constructs: ConstructSpec[];
+}) {
   return (
-    <InfoTable columns={columns(constructs) as ColumnDef<CausalEdge, unknown>[]} data={edges} />
+    <InfoTable columns={columns(constructs) as ColumnDef<CausalEdgeSpec, unknown>[]} data={edges} />
   );
 }

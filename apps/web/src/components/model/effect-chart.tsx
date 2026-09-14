@@ -65,7 +65,7 @@ export function EffectChart({
         fill={DAG_COLORS.intervention}
         fontWeight={600}
       >
-        do · {simulation.labels[clamp.target.id]} {formatClampValue(clamp)} · d{clamp.from_day}–
+        do · {simulation.labels[clamp.target]} {formatClampValue(clamp)} · d{clamp.from_day}–
         {clampEnd}
       </text>
       {axisDays.map((day) => (

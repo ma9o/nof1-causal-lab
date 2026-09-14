@@ -2,9 +2,10 @@ import type { MethodResponse } from "openapi-fetch";
 import type { createModelClient } from "./client";
 import type { paths } from "./generated/model-api";
 import type {
-  Construct,
+  ConstructRef,
+  ConstructSpec,
   FactSource,
-  Indicator,
+  IndicatorSpec,
   InferenceReport,
   ModelSnapshot,
   ModelSpec,
@@ -22,10 +23,12 @@ export type CanonicalInferenceReport = Expect<
   Equal<NonNullable<ModelSnapshot["findings"]["fit"]>["value"]["report"], InferenceReport>
 >;
 export type CanonicalParameter = Expect<Equal<ModelSpec["parameters"][number], ParameterSpec>>;
-export type CanonicalConstruct = Expect<Equal<ModelSpec["constructs"][number], Construct>>;
-export type OwnedIndicator = Expect<Equal<Construct["indicators"][number], Indicator>>;
+export type CanonicalConstruct = Expect<
+  Equal<ModelSpec["edges"][number]["cause"], ConstructSpec | ConstructRef>
+>;
+export type OwnedIndicator = Expect<Equal<ConstructSpec["indicators"][number], IndicatorSpec>>;
 // @ts-expect-error Indicator ownership is declared by containment.
-export type NoIndependentIndicatorOwner = Indicator["construct_id"];
+export type NoIndependentIndicatorOwner = IndicatorSpec["construct_id"];
 export type SourceValidityIsScalar = Expect<Extends<FactSource["validity"], "fresh" | "stale">>;
 
 type ModelRead = paths["/api/episodes/{workspace_id}/model"]["get"];
@@ -41,7 +44,7 @@ export type GeneratedReadReusesDefinition = Expect<
   >
 >;
 export type GeneratedReadReusesConstructs = Expect<
-  Equal<ConstructsRead["responses"][200]["content"]["application/json"], Construct[]>
+  Equal<ConstructsRead["responses"][200]["content"]["application/json"], ConstructSpec[]>
 >;
 export type InvalidRevisionQuery = Expect<
   // @ts-expect-error Revision queries require numeric journal positions.

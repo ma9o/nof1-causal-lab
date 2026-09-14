@@ -3,7 +3,12 @@
 import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
 import { PPC_P_LOWER, PPC_P_UPPER } from "@/lib/constants/diagnostics";
 import { formatNumber } from "@/lib/utils/format";
-import type { Indicator, PPCOverlay, PPCTestStat, PPCWarning } from "@nof1-causal-lab/api-types";
+import type {
+  IndicatorSpec,
+  PPCOverlay,
+  PPCTestStat,
+  PPCWarning,
+} from "@nof1-causal-lab/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 import {
   Area,
@@ -43,7 +48,7 @@ function buildRows(
   warnings: PPCWarning[],
   testStats: PPCTestStat[],
   overlays: PPCOverlay[],
-  indicators: Indicator[],
+  indicators: IndicatorSpec[],
 ): PPCVariableRow[] {
   const map = new Map<string, PPCVariableRow>();
   for (const w of warnings) {
@@ -55,7 +60,7 @@ function buildRows(
   for (const ov of overlays) {
     getOrCreate(map, ov.indicator_id).overlay = ov;
   }
-  const definitions = new Map<string, Indicator>(
+  const definitions = new Map<string, IndicatorSpec>(
     indicators.map((indicator) => [indicator.id, indicator]),
   );
   return Array.from(map.values()).map((row) => ({
@@ -253,7 +258,7 @@ export function PPCWarningsTable({
   warnings: PPCWarning[];
   testStats: PPCTestStat[];
   overlays: PPCOverlay[];
-  indicators: Indicator[];
+  indicators: IndicatorSpec[];
 }) {
   const rows = buildRows(warnings, testStats, overlays, indicators);
   if (rows.length === 0) return null;

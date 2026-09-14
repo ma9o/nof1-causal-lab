@@ -311,7 +311,7 @@ export function MeasurementTable({
   indicators,
   diagnostics,
 }: {
-  indicators: import("@nof1-causal-lab/api-types").Indicator[];
+  indicators: import("@nof1-causal-lab/api-types").IndicatorSpec[];
   diagnostics: Record<string, LikelihoodDiagnostics | undefined>;
 }) {
   const rows: MeasurementRow[] = useMemo(

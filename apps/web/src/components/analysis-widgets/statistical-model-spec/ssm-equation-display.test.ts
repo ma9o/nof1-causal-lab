@@ -1,15 +1,15 @@
-import type { Indicator } from "@nof1-causal-lab/api-types";
+import type { IndicatorSpec } from "@nof1-causal-lab/api-types";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import {
-  observationEquations,
+  confounderEquations,
+  constructs,
   equations,
   indicators,
-  constructs,
-  parameters,
   model,
-  confounderEquations,
+  observationEquations,
+  parameters,
 } from "./__fixtures__/statistical-model-spec-fixtures";
 import { SSMEquationDisplay } from "./ssm-equation-display";
 
@@ -35,7 +35,7 @@ describe("SSMEquationDisplay", () => {
     const owner = constructs.find((construct) =>
       construct.indicators.some((indicator) => indicator.id === source.id),
     )!;
-    const indicator: Indicator = {
+    const indicator: IndicatorSpec = {
       ...source,
       likelihood: {
         law: {
@@ -47,7 +47,8 @@ describe("SSMEquationDisplay", () => {
               left: {
                 kind: "coefficient",
                 role: "observation_intercept",
-                coefficient: { kind: "fixed", value: 0 },
+                value: 0,
+                construct_ids: [],
               },
               right: {
                 kind: "binary",
@@ -55,7 +56,8 @@ describe("SSMEquationDisplay", () => {
                 left: {
                   kind: "coefficient",
                   role: "loading",
-                  coefficient: { kind: "fixed", value: 1 },
+                  value: 1,
+                  construct_ids: [],
                 },
                 right: { kind: "state", construct_id: owner.id },
               },
@@ -63,7 +65,8 @@ describe("SSMEquationDisplay", () => {
             scale: {
               kind: "coefficient",
               role: "observation_scale",
-              coefficient: { kind: "fixed", value: 0.6 },
+              value: 0.6,
+              construct_ids: [],
             },
           },
         },

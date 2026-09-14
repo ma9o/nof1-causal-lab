@@ -54,12 +54,14 @@ function formatCheckDuration(ms: number): string {
 }
 
 /** "Normal(0, 1)" from an authored prior; distribution families are already display-cased. */
-function formatPriorSummary(param: ParameterSpec): string {
-  return typeof param.distribution === "string"
-    ? "Joint distribution"
-    : param.distribution
-      ? distributionText(param.distribution)
-      : "Not authored";
+function formatPriorSummary(
+  param: ParameterSpec,
+  distributions: import("@nof1-causal-lab/api-types").ModelSpec["distributions"] | undefined,
+): string {
+  if (param.value != null) return `Fixed: ${param.value}`;
+  return param.distribution && distributions
+    ? distributionText(distributions[param.distribution])
+    : "Not authored";
 }
 
 function StatusIcon({ status }: { status: ModelSpecAdmissionConstructStatus }) {
@@ -517,8 +519,11 @@ function ConstructDetail({ construct }: { construct: ModelSpecAdmissionConstruct
                         </span>
                       </td>
                       <td className="px-2 py-1.5 text-right align-top font-mono tabular-nums text-muted-foreground">
-                        <span className="block truncate" title={formatPriorSummary(param)}>
-                          {formatPriorSummary(param)}
+                        <span
+                          className="block truncate"
+                          title={formatPriorSummary(param, construct.distributions)}
+                        >
+                          {formatPriorSummary(param, construct.distributions)}
                         </span>
                       </td>
                     </tr>

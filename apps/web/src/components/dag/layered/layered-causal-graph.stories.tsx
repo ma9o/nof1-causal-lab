@@ -1,5 +1,6 @@
 import { demoModelSnapshot, demoSnapshotAt } from "@/components/__fixtures__/demo-artifacts";
-import { buildModelQueries } from "@/components/model/queries";
+import { demoSimulationTrace } from "../__fixtures__/simulation-fixture";
+import { buildSimulationScenarios } from "../simulation-results";
 import type { ConstructId } from "@nof1-causal-lab/api-types";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
@@ -21,9 +22,7 @@ const measurementModel = demoSnapshotAt(4);
 const designModel = demoSnapshotAt(4);
 const specificationModel = demoSnapshotAt(7);
 const fitModel = demoSnapshotAt(8);
-const simulationResult = buildModelQueries(demoModelSnapshot).find(
-  (query) => query.simulation,
-)?.simulation;
+const simulationResult = buildSimulationScenarios({ trace: demoSimulationTrace })[0].result;
 
 const meta = {
   title: "DAG/Layered Causal Graph",

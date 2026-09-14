@@ -1,9 +1,9 @@
-import type { Construct, ModelSpec } from "@nof1-causal-lab/api-types";
+import type { ConstructSpec, ModelSpec } from "@nof1-causal-lab/api-types";
 
 /** Follow the serialized graph's endpoint definitions; references carry identity only. */
-export function modelConstructs(model: ModelSpec | null | undefined): Construct[] {
+export function modelConstructs(model: ModelSpec | null | undefined): ConstructSpec[] {
   return (model?.edges ?? []).flatMap((edge) =>
-    [edge.cause, edge.effect].filter((endpoint): endpoint is Construct => "name" in endpoint),
+    [edge.cause, edge.effect].filter((endpoint): endpoint is ConstructSpec => "name" in endpoint),
   );
 }
 
@@ -11,7 +11,7 @@ export function modelIndicators(model: ModelSpec | null | undefined) {
   return modelConstructs(model).flatMap((construct) => construct.indicators);
 }
 
-export function indicatorOwners(constructs: readonly Construct[]) {
+export function indicatorOwners(constructs: readonly ConstructSpec[]) {
   return new Map(
     constructs.flatMap((construct) =>
       construct.indicators.map((indicator) => [indicator.id, construct] as const),
@@ -29,8 +29,8 @@ export function referencedParameterIds(component: unknown): Set<string> {
       return;
     }
     const record = value as Record<string, unknown>;
-    if (record.kind === "parameter" && typeof record.parameter_id === "string") {
-      ids.add(record.parameter_id);
+    if (record.kind === "coefficient" && typeof record.value === "string") {
+      ids.add(record.value);
       return;
     }
     Object.values(record).forEach(visit);

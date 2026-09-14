@@ -1,28 +1,15 @@
 "use client";
 
 import { modelConstructs } from "@/lib/model-accessors";
-import type {
-  PipelineSectionId,
-  ModelSnapshot,
-  BaselineReportArtifact,
-  TransitionMeta,
-} from "@nof1-causal-lab/api-types";
-import { lazy, memo, Suspense, useMemo } from "react";
-import { constructStatuses } from "@/components/dag/construct-statuses";
-import { createSimulateDispatch } from "@/components/dag/interactive/dispatch-simulate";
+import type { PipelineSectionId, ModelSnapshot, TransitionMeta } from "@nof1-causal-lab/api-types";
+import { lazy, memo, Suspense } from "react";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import type { AnalysisTransitionRun } from "@/lib/api/analysis";
-import { useWorkspaceView } from "@/lib/contexts/workspace-view-context";
 import { useLLMTrace } from "@/lib/hooks/use-llm-trace";
 import { useModelSnapshot } from "@/lib/hooks/use-model-snapshot";
 import type { TransitionRunStatus, TransitionTiming } from "@/lib/hooks/use-run-events";
 import { resolveTransitionObservedStatus } from "@/lib/transition-runtime";
 import { OutputPresentationShell } from "./output-presentation-shell";
-import {
-  buildBaselineReportScenarios,
-  buildEdgePosteriors,
-  buildPersistencePosteriors,
-} from "./output-views/baseline-report-scenarios";
 
 const RawDataView = lazy(() => import("./output-views/raw-data-view"));
 const LatentStructureView = lazy(() => import("./output-views/latent-structure-view"));
@@ -40,11 +27,6 @@ const PosteriorView = lazy(() => import("./output-views/posterior-view"));
 const LLMTracePanel = lazy(() =>
   import("@/components/ui/custom/llm-trace-panel").then((module) => ({
     default: module.LLMTracePanel,
-  })),
-);
-const SimulationViewer = lazy(() =>
-  import("@/components/dag/simulation-viewer").then((module) => ({
-    default: module.SimulationViewer,
   })),
 );
 
@@ -143,58 +125,6 @@ export const OutputSectionRouter = memo(
     transitionRunsEqual(previous.transitionRun, next.transitionRun),
 );
 
-function BaselineReportConnectedContent({
-  workspaceId,
-  data,
-  snapshot,
-}: {
-  workspaceId: string;
-  snapshot: ModelSnapshot;
-  data: BaselineReportArtifact;
-}) {
-  const { selectedScenarioKey, selectScenario, readOnly } = useWorkspaceView();
-  const model = snapshot.model?.value;
-  const { data: llmTrace } = useLLMTrace(workspaceId, "baseline_report", true);
-
-  // The scientific DAG remains the stable base. Fitted edge posteriors and simulation
-  // trajectories appear only where the backend materialized them; marginalized
-  // constructs stay visible as subdued theory context.
-  const graph = useMemo(
-    () => ({
-      constructs: modelConstructs(model) ?? [],
-      edges: model?.edges ?? [],
-      indicators: modelConstructs(model).flatMap((construct) => construct.indicators),
-      edgePosteriors: buildEdgePosteriors({
-        latentStructure: model,
-        estimates: snapshot.findings.fit?.value.edge_estimates ?? {},
-      }),
-      persistencePosteriors: buildPersistencePosteriors({
-        latentStructure: model,
-        estimates: snapshot.findings.fit?.value.decay_estimates ?? {},
-      }),
-      identifiableTreatments: data.intervention_results.map(({ treatment }) => treatment),
-      nodeStatuses: constructStatuses(snapshot),
-    }),
-    [data.intervention_results, model, snapshot],
-  );
-  const scenarios = useMemo(() => buildBaselineReportScenarios({ trace: llmTrace }), [llmTrace]);
-  const onSimulate = useMemo(
-    () => (readOnly ? undefined : createSimulateDispatch(workspaceId)),
-    [readOnly, workspaceId],
-  );
-
-  return (
-    <SimulationViewer
-      scenarios={scenarios}
-      graph={graph}
-      selectedKey={selectedScenarioKey}
-      onSelect={selectScenario}
-      rankingResults={data.intervention_results}
-      onSimulate={onSimulate}
-    />
-  );
-}
-
 function OutputView({
   artifactId,
   workspaceId,
@@ -243,16 +173,6 @@ function OutputView({
       return (
         data.findings.fit && (
           <PosteriorView data={data.findings.fit.value.report} indicators={indicators} />
-        )
-      );
-    case "baseline_report":
-      return (
-        data.findings.baseline_report && (
-          <BaselineReportConnectedContent
-            workspaceId={workspaceId}
-            snapshot={data}
-            data={data.findings.baseline_report.value}
-          />
         )
       );
   }

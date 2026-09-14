@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useState } from "react";
-import { buildBaselineReportScenarios } from "@/components/pipeline/output-views/baseline-report-scenarios";
+import { buildSimulationScenarios } from "@/components/dag/simulation-results";
 import { withContainer } from "@/components/story-decorators";
 import { LLMTracePanelView } from "@/components/ui/custom/llm-trace-panel-view";
 import {
@@ -9,11 +9,10 @@ import {
   edges,
   identifiableTreatments,
   indicators,
-  materializedBaselineReportData,
-  demoBaselineTrace,
+  demoSimulationTrace,
   nodeStatuses,
   persistencePosteriors,
-} from "./__fixtures__/baseline_report-materialized-fixture";
+} from "@/components/dag/__fixtures__/simulation-fixture";
 import { SimulationViewer } from "./simulation-viewer";
 
 /**
@@ -30,7 +29,7 @@ import { SimulationViewer } from "./simulation-viewer";
  * without a component-local world.
  */
 
-const scenarios = buildBaselineReportScenarios({ trace: demoBaselineTrace });
+const scenarios = buildSimulationScenarios({ trace: demoSimulationTrace });
 
 const graph = {
   constructs,
@@ -53,11 +52,10 @@ function SimulationViewerWithChat() {
         graph={graph}
         selectedKey={selectedKey}
         onSelect={setSelectedKey}
-        rankingResults={materializedBaselineReportData.intervention_results}
       />
       <div className="flex h-[760px] min-h-0 flex-col rounded-lg border bg-muted/30 p-3">
         <LLMTracePanelView
-          trace={demoBaselineTrace}
+          trace={demoSimulationTrace}
           selectedSimulationKey={selectedKey ?? undefined}
           onSelectSimulation={(key) => setSelectedKey(key)}
         />
@@ -67,7 +65,7 @@ function SimulationViewerWithChat() {
 }
 
 const meta = {
-  title: "Pipeline/Outputs/Baseline Report/Simulation Viewer",
+  title: "Analysis/Simulation Viewer",
   component: SimulationViewer,
   decorators: [withContainer("max-w-6xl")],
 } satisfies Meta<typeof SimulationViewer>;

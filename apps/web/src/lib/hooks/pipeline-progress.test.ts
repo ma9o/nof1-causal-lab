@@ -15,7 +15,6 @@ const TEST_ORDER: PipelineSectionId[] = [
   "validation_report",
   "statistical_model_spec",
   "posterior",
-  "baseline_report",
 ];
 
 function applyUpdate(
@@ -41,7 +40,7 @@ describe("initialProgress", () => {
     const progress = initialProgress(TEST_ORDER);
 
     expect(progress.artifacts["raw_data"]).toBe("pending");
-    expect(progress.artifacts["baseline_report"]).toBe("pending");
+    expect(progress.artifacts["posterior"]).toBe("pending");
     expect(progress.transitionErrors).toEqual({});
     expect(progress.transitionOrder).toEqual(TEST_ORDER);
     expect(progress.runningTransitions).toEqual([]);

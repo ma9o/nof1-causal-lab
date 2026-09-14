@@ -20,13 +20,13 @@ export function EdgeScope({ context, id }: { context: ScopeContext; id: EdgeId }
   if (!edge) return null;
   const { lagged } = edge;
   const disposition = context.model.findings.dispositions?.value.find(
-    (item) => item.source_id === id,
+    (item) => item.target.id === id,
   );
   const cause = context.entities.constructById.get(edge.cause.id)!.name;
   const effect = context.entities.constructById.get(edge.effect.id)!.name;
   const parameters = parametersForOwner(context.model.model?.value, edge.id);
   const priorParameters = parametersForOwner(context.model.model?.value, id);
-  const priors = priorRows(priorParameters);
+  const priors = priorRows(priorParameters, context.model.model!.value.distributions);
   const fitted = posteriorRows(parameters, context.model.findings.fit?.value.report);
   return (
     <>

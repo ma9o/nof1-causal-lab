@@ -1,5 +1,5 @@
 import type { DagDirection, DagGraphInput } from "@/lib/utils/dag-graph-layout";
-import type { CausalEdge, Construct, Indicator } from "@nof1-causal-lab/api-types";
+import type { CausalEdgeSpec, ConstructSpec, IndicatorSpec } from "@nof1-causal-lab/api-types";
 import { baseId, buildGhostLinks, unrollCausalLinks } from "../unroll";
 
 // Re-exported so existing importers (e.g. interactive-dag) keep their import path
@@ -34,13 +34,13 @@ export interface SimulationGraph {
  * `ar_coefficient` posterior exists.
  */
 export function buildSimulationGraph(
-  constructs: Construct[],
-  edges: CausalEdge[],
+  constructs: ConstructSpec[],
+  edges: CausalEdgeSpec[],
   opts: {
     dir: DagDirection;
     showIndicators: boolean;
     showUnroll: boolean;
-    indicators: Indicator[];
+    indicators: IndicatorSpec[];
     /** Fitted states with a materialized daily-persistence posterior. */
     persistenceNodes: string[];
   },

@@ -4,66 +4,62 @@ import type {
   EffectSummary,
   ModelSnapshot,
   ScenarioRequest,
+  SimulationResult,
 } from "@nof1-causal-lab/api-types";
-import type { AnalysisSimulationResult } from "@/components/dag/intervention-dag-types";
-import { formatScenarioActionDescription } from "@/components/dag/intervention-dag-semantics";
 
-/** Queries available from the report's ranking and explicitly retained simulations. */
+/** A request offered by the UI, with an optional response held in this session. */
 export interface ModelQuery {
   key: string;
   title: string;
-  origin: "analysis" | "ranking";
-  startKind: "baseline" | "abducted" | null;
-  horizonDays: number | null;
-  outcome: string | null;
+  startKind: "baseline" | "abducted";
+  horizonDays: number;
+  outcome: string;
   posterior: EffectSummary | null;
   modelVersion: number | null;
-  simulation: AnalysisSimulationResult | null;
-  request?: ScenarioRequest;
-  treatmentId?: ConstructId;
+  simulation: SimulationResult | null;
+  request: ScenarioRequest;
+  treatmentId: ConstructId;
 }
 
-export function rankingQueryKey(treatment: string): string {
-  return `ranking:${treatment}`;
+export function interventionQueryKey(treatment: ConstructId, outcome: ConstructId): string {
+  return `intervention:${treatment}:${outcome}`;
 }
 
-export function buildModelQueries(model: ModelSnapshot): ModelQuery[] {
-  const constructs = modelConstructs(model.model?.value) ?? [];
-  const names = new Map(constructs.map((entity) => [entity.id, entity.name]));
-  const outcome =
-    constructs.find((entity) => entity.id === model.model?.value.default_outcome?.id)?.name ?? null;
-  const reportModelVersion =
-    model.context.state.current.baseline_report?.derived_from.model ?? null;
-  const report = model.findings.baseline_report?.value;
-  const ranking: ModelQuery[] = (report?.intervention_results ?? []).flatMap((result) =>
-    result.summary === null
-      ? []
-      : [
-          {
-            key: rankingQueryKey(result.treatment_id),
-            title: `do(${names.get(result.treatment_id)} +1)`,
-            treatmentId: result.treatment_id,
-            origin: "ranking",
-            startKind: "baseline",
-            horizonDays: null,
-            outcome,
-            posterior: result.summary,
-            simulation: null,
-            modelVersion: reportModelVersion,
-          },
-        ],
+export function buildModelQueries(
+  model: ModelSnapshot,
+  responses: Record<string, SimulationResult> = {},
+): ModelQuery[] {
+  const identification = model.findings.identification?.value;
+  if (!model.findings.fit || !identification?.outcome) return [];
+  const outcomeId = identification.outcome;
+  const names = new Map(modelConstructs(model.model?.value).map((item) => [item.id, item.name]));
+  const treatments = (Object.keys(identification.treatments) as ConstructId[]).filter(
+    (id) => identification.treatments[id].status === "identified",
   );
-  const retained: ModelQuery[] = (report?.simulation_results ?? []).map((result, index) => ({
-    key: `report:${index}`,
-    title: formatScenarioActionDescription(result),
-    origin: "analysis",
-    startKind: result.request.start.kind,
-    horizonDays: result.request.readout.horizon_days,
-    outcome: result.labels[result.request.outcome.id],
-    posterior: result.summary,
-    simulation: result,
-    request: result.request,
-    modelVersion: result.provenance.model.version,
-  }));
-  return [...ranking, ...retained];
+  return treatments.map<ModelQuery>((treatmentId) => {
+    const key = interventionQueryKey(treatmentId, outcomeId);
+    const response = responses[key];
+    const simulation =
+      response?.model.workspace_id === model.context.workspace_id ? response : null;
+    // These are query defaults; identification and all effect calculations
+    // are performed by the backend.
+    const request: ScenarioRequest = {
+      start: { kind: "baseline" },
+      clamps: [{ target: treatmentId, mode: "shift", amount: 1, from_day: 0 }],
+      outcome: outcomeId,
+      readout: { estimand: "trajectory", horizon_days: 30, projection: "latent" },
+    };
+    return {
+      key,
+      title: `do(${names.get(treatmentId)} +1)`,
+      treatmentId,
+      startKind: "baseline",
+      horizonDays: 30,
+      outcome: names.get(outcomeId)!,
+      posterior: simulation?.summary ?? null,
+      modelVersion: simulation?.model.version ?? null,
+      simulation,
+      request,
+    };
+  });
 }

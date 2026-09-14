@@ -1,6 +1,6 @@
 import { DataTable } from "@/components/ui/data-table";
 import { ExploreDataframeButton } from "@/components/ui/explore-dataframe-button";
-import type { Indicator, MeasurementsData } from "@nof1-causal-lab/api-types";
+import type { IndicatorSpec, MeasurementsData } from "@nof1-causal-lab/api-types";
 
 export default function MeasurementsView({
   data,
@@ -8,7 +8,7 @@ export default function MeasurementsView({
   indicators,
 }: {
   data: MeasurementsData;
-  indicators: Indicator[];
+  indicators: IndicatorSpec[];
   workspaceId: string;
 }) {
   const definitions = new Map(indicators.map((indicator) => [indicator.id, indicator]));

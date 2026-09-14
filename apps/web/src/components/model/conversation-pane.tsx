@@ -51,7 +51,7 @@ function TurnBody({
           {byHand ? "you" : tick.move.provenance}
         </div>
         <div className="rounded-xl border bg-secondary px-2.5 py-1.5 text-pretty">
-          {tick.move.artifact_id === "question" && question
+          {tick.move.artifact_id === "model" && question
             ? question
             : `${moveLabel(tick.move)} written${byHand ? " by hand" : ""}`}
         </div>
@@ -236,7 +236,7 @@ export function ConversationPane({
             isNow={isNow}
             future={tick.seq > playhead}
             focused={focusSeq === tick.seq}
-            question={question}
+            question={tick.seq === playhead ? question : undefined}
             useMoveTrace={useMoveTrace}
             onSelect={() => onSelectTick(tick.seq)}
           />

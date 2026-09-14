@@ -1,9 +1,9 @@
 "use client";
 
 import type {
-  Construct,
+  ConstructSpec,
   ConstructId,
-  Indicator,
+  IndicatorSpec,
   LikelihoodSpec,
   ModelSnapshot,
   PosteriorEstimate,
@@ -22,7 +22,7 @@ import { DagNodeShell } from "../core/dag-node";
 import { DagZoomControls } from "../core/dag-zoom-controls";
 import { DAG_COLORS, signColor } from "../core/palette";
 import {
-  getEffectTrajectoryDays,
+  getSimulationDays,
   getNodeActionSeries,
   getNodeReferenceSeries,
 } from "../intervention-dag-semantics";
@@ -200,7 +200,7 @@ function MiniTrajectory({
 }
 
 function measurementSummary(
-  indicators: Indicator[],
+  indicators: IndicatorSpec[],
   likelihoodByVariable: ReadonlyMap<string, LikelihoodSpec>,
   warningVariables: ReadonlySet<string>,
 ): string {
@@ -222,7 +222,6 @@ function ConstructCard({
   likelihoodByVariable,
   warningVariables,
   status,
-  knownInput,
   persistence,
   days,
   reference,
@@ -233,13 +232,12 @@ function ConstructCard({
   dimmed,
   onSelect,
 }: {
-  construct: Construct;
+  construct: ConstructSpec;
   isOutcome: boolean;
-  indicators: Indicator[];
+  indicators: IndicatorSpec[];
   likelihoodByVariable: ReadonlyMap<string, LikelihoodSpec>;
   warningVariables: ReadonlySet<string>;
   status?: ConstructStatus;
-  knownInput: boolean;
   persistence?: PosteriorEstimate;
   days: number[];
   reference: number[];
@@ -254,7 +252,7 @@ function ConstructCard({
   const label = statusLabel(status);
   const accent = clampLabel ? DAG_COLORS.intervention : statusAccent(status);
   const summary = measurementSummary(indicators, likelihoodByVariable, warningVariables);
-  const badge = clampLabel ?? label ?? (knownInput ? "known input" : null);
+  const badge = clampLabel ?? label ?? null;
   const badgeColor = clampLabel
     ? DAG_COLORS.intervention
     : status === "blocking"
@@ -329,7 +327,7 @@ function HistoryCard({
   selected,
   onSelect,
 }: {
-  construct: Construct;
+  construct: ConstructSpec;
   status?: ConstructStatus;
   persistence?: PosteriorEstimate;
   dimmed: boolean;
@@ -544,20 +542,15 @@ export function LayeredCausalGraph({
     entities.edges.map((entity) => [
       entity.id,
       designVisible
-        ? model.findings.dispositions?.value.find((item) => item.source_id === entity.id)
+        ? model.findings.dispositions?.value.find((item) => item.target.id === entity.id)
             ?.disposition
         : undefined,
     ]),
   );
-  const indicatorsByConstruct = new Map<ConstructId, Indicator[]>(
+  const indicatorsByConstruct = new Map<ConstructId, IndicatorSpec[]>(
     visible.has("measurement")
       ? entities.constructs.map((construct) => [construct.id, construct.indicators])
       : [],
-  );
-  const knownInputIds = new Set(
-    entities.constructs
-      .filter((construct) => construct.usage?.kind === "known_input")
-      .map((construct) => construct.id),
   );
   const likelihoodByVariable = new Map(
     specificationVisible
@@ -568,7 +561,7 @@ export function LayeredCausalGraph({
   );
   const warningVariables = new Set(
     fitVisible
-      ? (model.findings.fit?.value.report.assessment.ppc.per_variable_warnings ?? [])
+      ? (model.findings.fit?.value.report.ppc.per_variable_warnings ?? [])
           .filter((check) => !check.passed)
           .map((check) => check.indicator_id)
       : [],
@@ -583,7 +576,7 @@ export function LayeredCausalGraph({
 
   const simulationResult = simulationVisible ? simulation : null;
   const days = useMemo(
-    () => (simulationResult ? getEffectTrajectoryDays(simulationResult) : []),
+    () => (simulationResult ? getSimulationDays(simulationResult) : []),
     [simulationResult],
   );
   const clampedDayIndex = Math.max(0, Math.min(Math.max(0, days.length - 1), dayIndex));
@@ -647,7 +640,7 @@ export function LayeredCausalGraph({
       currentDay != null &&
       simulationResult?.request.clamps.some(
         (clamp) =>
-          clamp.target.id === meta.effect &&
+          clamp.target === meta.effect &&
           clamp.from_day <= currentDay &&
           (clamp.to_day == null || currentDay < clamp.to_day),
       );
@@ -818,7 +811,7 @@ export function LayeredCausalGraph({
                   ? undefined
                   : simulationResult?.request.clamps.find(
                       (candidate) =>
-                        candidate.target.id === construct.id &&
+                        candidate.target === construct.id &&
                         candidate.from_day <= currentDay &&
                         (candidate.to_day == null || currentDay < candidate.to_day),
                     );
@@ -829,13 +822,12 @@ export function LayeredCausalGraph({
                     construct={construct}
                     isOutcome={
                       construct.id ===
-                      (simulation?.request.outcome.id ?? model.model?.value.default_outcome?.id)
+                      (simulation?.request.outcome ?? model.model?.value.default_outcome)
                     }
                     indicators={nodeIndicators}
                     likelihoodByVariable={likelihoodByVariable}
                     warningVariables={warningVariables}
                     status={nodeStatuses.get(construct.id) ?? undefined}
-                    knownInput={knownInputIds.has(construct.id)}
                     persistence={persistencePosteriors[construct.id]}
                     days={days}
                     reference={reference}

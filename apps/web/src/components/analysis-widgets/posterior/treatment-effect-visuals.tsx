@@ -2,64 +2,8 @@
 
 import { cn } from "@/lib/utils";
 import { formatNumber } from "@/lib/utils/format";
-import type { TreatmentEffect } from "@nof1-causal-lab/api-types";
-import {
-  Bar,
-  ComposedChart,
-  Tooltip as RechartsTooltip,
-  ReferenceLine,
-  ResponsiveContainer,
-  XAxis,
-  YAxis,
-} from "recharts";
 
 type ManifestEffects = Record<string, number | undefined> | null | undefined;
-
-/** Posterior-draw histogram with zero and mean reference lines. */
-export function PosteriorHistogram({
-  bins,
-  mean,
-  className,
-}: {
-  bins: TreatmentEffect["histogram"];
-  mean: number | null;
-  className?: string;
-}) {
-  if (bins.length === 0) return <span className="text-xs text-muted-foreground">--</span>;
-
-  return (
-    <div className={cn("ml-auto h-16 w-44", className)}>
-      <ResponsiveContainer width="100%" height="100%">
-        <ComposedChart data={bins} margin={{ top: 2, right: 4, left: 0, bottom: 0 }}>
-          <XAxis
-            dataKey="bin_center"
-            type="number"
-            domain={["dataMin", "dataMax"]}
-            tickFormatter={(v: number) => formatNumber(v, 2)}
-            tick={{ fontSize: 9 }}
-            tickLine={false}
-            axisLine={{ stroke: "var(--border)" }}
-          />
-          <YAxis hide />
-          <RechartsTooltip
-            formatter={(v: number | string | undefined) => {
-              const numeric = typeof v === "number" ? v : Number(v);
-              return [Number.isFinite(numeric) ? formatNumber(numeric, 0) : "--", "count"] as const;
-            }}
-            labelFormatter={(l: unknown) => {
-              const numeric = typeof l === "number" ? l : Number(l);
-              return Number.isFinite(numeric) ? `τ = ${formatNumber(numeric, 3)}` : "τ = --";
-            }}
-            contentStyle={{ fontSize: 10, padding: "2px 6px" }}
-          />
-          <ReferenceLine x={0} strokeDasharray="4 3" className="stroke-muted-foreground/60" />
-          {mean !== null && <ReferenceLine x={mean} stroke="var(--foreground)" strokeWidth={1.5} />}
-          <Bar dataKey="count" fill="var(--muted-foreground)" opacity={0.35} />
-        </ComposedChart>
-      </ResponsiveContainer>
-    </div>
-  );
-}
 
 /** Indicator-level projection of an outcome effect through the measurement loadings. */
 export function ManifestProjection({

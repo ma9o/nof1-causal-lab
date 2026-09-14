@@ -51,7 +51,7 @@ describe("groupStaleArtifactsByProducer", () => {
 
   it("ignores root artifacts with no producer", () => {
     const report = [
-      artifact({ artifact_id: "question", stale: true, produced_by: null, provenance: "human" }),
+      artifact({ artifact_id: "model", stale: true, produced_by: null, provenance: "human" }),
     ];
 
     expect(groupStaleArtifactsByProducer(report)).toEqual({});

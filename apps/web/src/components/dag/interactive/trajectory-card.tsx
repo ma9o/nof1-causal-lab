@@ -38,7 +38,6 @@ interface TrajectoryCardProps {
   /** Backend disposition/identification status for retained theory context. */
   status?: ConstructStatus;
   /** Compiled as an observed transition input rather than a latent state. */
-  knownInput?: boolean;
   /** Fitted continuous-time decay-rate posterior for an executable latent state. */
   persistence?: PosteriorEstimate;
   /** do() control state. */
@@ -66,7 +65,6 @@ export function TrajectoryCard({
   timeIndex,
   interventions,
   status,
-  knownInput = false,
   persistence,
   interactive,
   onSetDo,
@@ -101,17 +99,17 @@ export function TrajectoryCard({
 
   if (reference.length > 0 && reference.length !== days.length) {
     throw new Error(
-      `Invalid simulation visualization for ${name}: reference trajectory is not aligned to effect_trajectory`,
+      `Invalid simulation trajectory for ${name}: reference trajectory is not aligned to the simulation time grid`,
     );
   }
   if (action.length > 0 && action.length !== days.length) {
     throw new Error(
-      `Invalid simulation visualization for ${name}: action trajectory is not aligned to effect_trajectory`,
+      `Invalid simulation trajectory for ${name}: action trajectory is not aligned to the simulation time grid`,
     );
   }
   if (action.length > 0 && reference.length === 0) {
     throw new Error(
-      `Invalid simulation visualization for ${name}: action trajectory has no reference trajectory`,
+      `Invalid simulation trajectory for ${name}: action trajectory has no reference trajectory`,
     );
   }
 
@@ -191,7 +189,7 @@ export function TrajectoryCard({
         {(isTarget ? "★ " : "") + name.replace(/_/g, " ")}
       </text>
       <text x={14} y={40} fontSize={9.5} fill={MUTED}>
-        {`${kind === "endo" ? "theory endo" : "theory exo"} · ${vary}${knownInput ? " · known input" : kind === "exo" ? " · held" : ""}${status === "marginalized" ? " · marginalized" : ""}`}
+        {`${kind === "endo" ? "theory endo" : "theory exo"} · ${vary}${status === "marginalized" ? " · marginalized" : ""}`}
       </text>
       {persistence ? (
         <text
@@ -324,7 +322,7 @@ export function TrajectoryCard({
           ) : null}
 
           {nodeInterventions.map((clamp, clampIndex) => (
-            <g key={`${clamp.target.id}-${clamp.from_day}-${clampIndex}`}>
+            <g key={`${clamp.target}-${clamp.from_day}-${clampIndex}`}>
               <line
                 x1={sx(clamp.from_day)}
                 x2={sx(clamp.from_day)}
@@ -456,12 +454,10 @@ export function TrajectoryCard({
         <g>
           <rect x={14} y={55} width={w - 28} height={h - 69} rx={7} fill="#f4f5f7" />
           <text x={w / 2} y={91} textAnchor="middle" fontSize={9.5} fill={MUTED}>
-            {knownInput ? "observed transition input u(t)" : "not materialized in this simulation"}
+            not materialized in this simulation
           </text>
           <text x={w / 2} y={107} textAnchor="middle" fontSize={8} fill="#9aa0a8">
-            {knownInput
-              ? "not part of the latent trajectory projection"
-              : "retained as scientific DAG context"}
+            retained as scientific DAG context
           </text>
         </g>
       )}

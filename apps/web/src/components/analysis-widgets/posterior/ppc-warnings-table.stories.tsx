@@ -8,7 +8,7 @@ import { withContainer } from "@/components/story-decorators";
 import { posterior } from "@/components/__fixtures__/inference-data";
 import { PPCWarningsTable } from "./ppc-warnings-table";
 
-const ppc = posterior.assessment.ppc!;
+const ppc = posterior.ppc!;
 
 const meta = {
   args: { indicators },

@@ -42,13 +42,7 @@ describe("promoted DEMO fixture", () => {
   });
 
   it("keeps retained numerical findings on scientific IDs without compiler coordinates", () => {
-    const execution = demoModelSnapshot.findings.execution!;
-    expect(Object.keys(execution.value).sort()).toEqual([
-      "anchor_certificates",
-      "unmet_requirements",
-    ]);
-    expect(execution.value.unmet_requirements).toEqual([]);
-    expect(execution.source).toEqual(demoModelSnapshot.model!.source);
+    expect(demoModelSnapshot.findings).not.toHaveProperty("execution");
     const posterior = demoModelSnapshot.findings.fit!.value.report;
     const retained = JSON.parse(
       readFileSync(join(repoRoot, "data/DEMO/fixture/inference.json"), "utf8"),
@@ -62,15 +56,18 @@ describe("promoted DEMO fixture", () => {
       coordinates,
     );
     expect(posterior.inference_diagnostics).toEqual(demoPosterior.inference_diagnostics);
-    const observed = demoModelSnapshot.findings.admission_report!.value.prior_predictive_samples!;
-    expect(posterior.assessment.ppc!.overlays.map((o) => o.indicator_id).sort()).toEqual(
+    const observed = demoModelSnapshot.findings.prior_predictive!.value.samples!;
+    expect(posterior.ppc!.overlays.map((o) => o.indicator_id).sort()).toEqual(
       Object.keys(observed).sort(),
     );
   });
 
   it("materializes comprehensive DAG layers only where their process semantics exist", () => {
     const trace = JSON.parse(
-      readFileSync(join(repoRoot, "data/DEMO/fixture/traces/baseline_report.json"), "utf8"),
+      readFileSync(
+        join(repoRoot, "apps/web/src/components/dag/__fixtures__/simulation-trace.json"),
+        "utf8",
+      ),
     ) as {
       messages: Array<{ tool_name: string | null; tool_result: string | null }>;
     };
@@ -81,34 +78,29 @@ describe("promoted DEMO fixture", () => {
       )
       .map((message) => JSON.parse(message.tool_result)) as SimulationResult[];
 
-    const stateIds = demoModelSnapshot.findings
-      .dispositions!.value.filter((item) => item.disposition === "retained_state")
-      .map((item) => item.source_id)
+    // Retained illustrative traces cover the constructs with authored dynamics.
+    const stateIds = modelConstructs(demoModel)
+      .filter((construct) => (construct.dynamics ?? []).length > 0)
+      .map((construct) => construct.id)
       .sort();
 
     expect(simulations).toHaveLength(5);
     for (const result of simulations) {
-      const visualization = result.visualization!;
+      const trajectories = result.trajectories;
       const trajectory = result.effect_trajectory!;
-      expect(result.provenance.model.version).toBe(3);
-      expect(result.labels[result.request.outcome.id]).toBe("internalizing_symptom_burden");
-      expect(result.request.clamps).toHaveLength(1);
-      expect(Object.keys(visualization).sort()).toEqual([
-        "action_node_trajectories",
-        "node_effect_trajectories",
-        "reference_node_trajectories",
-        "start_state",
-      ]);
-      expect(Object.keys(visualization.reference_node_trajectories!).sort()).toEqual(stateIds);
-      expect(Object.keys(visualization.action_node_trajectories!).sort()).toEqual(stateIds);
-      expect(Object.keys(visualization.node_effect_trajectories!).sort()).toEqual(stateIds);
-      expect(Object.keys(visualization.start_state!).sort()).toEqual(stateIds);
-      expect(trajectory).toHaveLength(61);
       expect(
-        Object.values(visualization.reference_node_trajectories!).every(
-          (series) => series.length === trajectory.length,
-        ),
+        result.warnings.some((warning) => warning.includes("Artificial Storybook simulation")),
       ).toBe(true);
+      expect(result.model.version).toBe(3);
+      expect(result.labels[result.request.outcome]).toBe("internalizing_symptom_burden");
+      expect(result.request.clamps).toHaveLength(1);
+      expect(Object.keys(trajectories).sort()).toEqual(stateIds);
+      expect(trajectory).toHaveLength(61);
+      for (const series of Object.values(trajectories)) {
+        expect(Object.keys(series).sort()).toEqual(["action_mean", "reference_mean"]);
+        expect(series.reference_mean).toHaveLength(result.time_grid_days.length);
+        expect(series.action_mean).toHaveLength(result.time_grid_days.length);
+      }
     }
   });
 });

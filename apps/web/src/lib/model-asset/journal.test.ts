@@ -45,9 +45,14 @@ const JOURNAL: TransitionRecord[] = [
     produced: [produced("raw_data", 1)],
     trace_ids: ["raw_data"],
   }),
-  record(2, { kind: "write", artifact_id: "question", provenance: "human" }, "applied", {
-    produced: [produced("question", 1)],
-  }),
+  record(
+    2,
+    { kind: "write", artifact_id: "model", provenance: "human", expected_model_version: 0 },
+    "applied",
+    {
+      produced: [produced("model", 1)],
+    },
+  ),
   record(3, { kind: "run", operation_id: "measurement_structure" }, "applied", {
     produced: [produced("model", 2), produced("identification_report", 1)],
     trace_ids: ["measurement_structure"],

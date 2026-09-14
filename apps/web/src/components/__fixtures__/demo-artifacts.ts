@@ -12,9 +12,8 @@ export const demoRawData = artifactViews.raw_data!;
 export const demoMeasurements = artifactViews.measurements!;
 export const demoValidationReport = artifactViews.validation_report!;
 export const demoModelDiagnostics = artifactViews.model_diagnostics!;
-export const demoAdmissionReport = artifactViews.admission_report!;
+export const demoPriorPredictive = artifactViews.prior_predictive!;
 export const demoPosterior = artifactViews.inference_report!;
-export const demoBaselineReport = artifactViews.baseline_report!;
 
 export function demoSnapshotAt(seq: number): ModelSnapshot {
   if (seq === demoModelSnapshot.context.seq) return demoModelSnapshot;

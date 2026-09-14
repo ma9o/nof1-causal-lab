@@ -4,9 +4,6 @@
   "description": "Combined JSON Schema for exported artifact contracts and facade API models. Generated from Python Pydantic models.",
   "type": "object",
   "properties": {
-    "question": {
-      "$ref": "#/$defs/QuestionArtifact"
-    },
     "model": {
       "$ref": "#/$defs/ModelSpec"
     },
@@ -15,12 +12,6 @@
     },
     "validation_report": {
       "$ref": "#/$defs/ValidationReportArtifact"
-    },
-    "admission_report": {
-      "$ref": "#/$defs/AdmissionReport"
-    },
-    "baseline_report": {
-      "$ref": "#/$defs/BaselineReportArtifact"
     }
   },
   "$defs": {
@@ -150,78 +141,6 @@
       "x-concern": "execution_provenance",
       "description": "An action declares a machine operation and its interaction context."
     },
-    "AdmissionReport": {
-      "additionalProperties": false,
-      "description": "Prior research and admission findings pinned to the model that was checked.",
-      "properties": {
-        "search_queries": {
-          "anyOf": [
-            {
-              "additionalProperties": {
-                "type": "string"
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Search Queries"
-        },
-        "validation_warnings": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Validation Warnings"
-        },
-        "prior_predictive_samples": {
-          "anyOf": [
-            {
-              "additionalProperties": {
-                "items": {
-                  "type": "number"
-                },
-                "type": "array"
-              },
-              "propertyNames": {
-                "$ref": "#/$defs/IndicatorId"
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Prior Predictive Samples"
-        },
-        "prior_predictive_diagnostics": {
-          "items": {
-            "$ref": "#/$defs/PriorPredictiveDiagnostic"
-          },
-          "title": "Prior Predictive Diagnostics",
-          "type": "array"
-        }
-      },
-      "title": "AdmissionReport",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.artifacts.admission",
-      "x-layer": "findings",
-      "x-concern": "scientific_model",
-      "required": [
-        "prior_predictive_diagnostics"
-      ]
-    },
     "AggregationFunction": {
       "enum": [
         "mean",
@@ -254,66 +173,6 @@
       "x-layer": "authored",
       "x-concern": "scientific_model",
       "description": "An aggregation function summarizes observations within a measurement window."
-    },
-    "AnchorCertificate": {
-      "additionalProperties": false,
-      "description": "Compiler proof that one retained latent has location and scale anchors.",
-      "properties": {
-        "construct_id": {
-          "title": "Construct Id",
-          "type": "string"
-        },
-        "construct_name": {
-          "title": "Construct Name",
-          "type": "string"
-        },
-        "location_anchor": {
-          "enum": [
-            "standardized_manifest",
-            "exact_state_observation",
-            "fixed_dynamics_center",
-            "fixed_initial_mean"
-          ],
-          "title": "Location Anchor",
-          "type": "string"
-        },
-        "location_source_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Location Source Id"
-        },
-        "scale_anchor": {
-          "enum": [
-            "fixed_manifest_loading",
-            "categorical_slope_pin"
-          ],
-          "title": "Scale Anchor",
-          "type": "string"
-        },
-        "scale_source_id": {
-          "title": "Scale Source Id",
-          "type": "string"
-        }
-      },
-      "required": [
-        "construct_id",
-        "construct_name",
-        "location_anchor",
-        "scale_anchor",
-        "scale_source_id"
-      ],
-      "title": "AnchorCertificate",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.artifacts.execution",
-      "x-layer": "authored",
-      "x-concern": "scientific_model"
     },
     "ArtifactEnvelope": {
       "additionalProperties": false,
@@ -450,14 +309,11 @@
     },
     "ArtifactId": {
       "enum": [
-        "question",
         "raw_data",
         "model",
         "identification_report",
         "panel",
-        "validation_report",
-        "admission_report",
-        "baseline_report"
+        "validation_report"
       ],
       "type": "string",
       "x-python-module": "nof1_causal_lab.artifacts.identity",
@@ -574,16 +430,13 @@
           "$ref": "#/$defs/ValidationReportArtifact"
         },
         {
-          "$ref": "#/$defs/AdmissionReport"
+          "$ref": "#/$defs/PriorPredictiveResult"
         },
         {
           "$ref": "#/$defs/ModelDiagnostics"
         },
         {
           "$ref": "#/$defs/InferenceReport"
-        },
-        {
-          "$ref": "#/$defs/BaselineReportArtifact"
         }
       ],
       "description": "One available artifact projection returned by the model view endpoint.",
@@ -640,10 +493,10 @@
           ],
           "default": null
         },
-        "admission_report": {
+        "prior_predictive": {
           "anyOf": [
             {
-              "$ref": "#/$defs/AdmissionReport"
+              "$ref": "#/$defs/PriorPredictiveResult"
             },
             {
               "type": "null"
@@ -666,17 +519,6 @@
           "anyOf": [
             {
               "$ref": "#/$defs/InferenceReport"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "baseline_report": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/BaselineReportArtifact"
             },
             {
               "type": "null"
@@ -721,143 +563,6 @@
       "x-python-module": "nof1_causal_lab.episode_api",
       "x-layer": "transport",
       "x-concern": "api_tools"
-    },
-    "BaselineReportArtifact": {
-      "additionalProperties": false,
-      "description": "A baseline report collects treatment effects and explicitly retained simulations from the fitted model.",
-      "properties": {
-        "intervention_results": {
-          "items": {
-            "$ref": "#/$defs/TreatmentEffect"
-          },
-          "title": "Intervention Results",
-          "type": "array"
-        },
-        "simulation_results": {
-          "items": {
-            "$ref": "#/$defs/SimulationResult"
-          },
-          "title": "Simulation Results",
-          "type": "array"
-        },
-        "final_summary": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Final Summary"
-        }
-      },
-      "required": [
-        "intervention_results",
-        "simulation_results"
-      ],
-      "title": "BaselineReportArtifact",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.artifacts.baseline_report",
-      "x-layer": "artifacts",
-      "x-concern": "scientific_model"
-    },
-    "BaselineReportVisualization": {
-      "additionalProperties": false,
-      "properties": {
-        "reference_node_trajectories": {
-          "anyOf": [
-            {
-              "additionalProperties": {
-                "items": {
-                  "type": "number"
-                },
-                "type": "array"
-              },
-              "propertyNames": {
-                "$ref": "#/$defs/ConstructId"
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Per-construct latent trajectories for the reference (no-clamp) path aligned to effect_trajectory days.",
-          "title": "Reference Node Trajectories"
-        },
-        "action_node_trajectories": {
-          "anyOf": [
-            {
-              "additionalProperties": {
-                "items": {
-                  "type": "number"
-                },
-                "type": "array"
-              },
-              "propertyNames": {
-                "$ref": "#/$defs/ConstructId"
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Per-construct latent trajectories under the composed clamps aligned to effect_trajectory days.",
-          "title": "Action Node Trajectories"
-        },
-        "node_effect_trajectories": {
-          "anyOf": [
-            {
-              "additionalProperties": {
-                "items": {
-                  "type": "number"
-                },
-                "type": "array"
-              },
-              "propertyNames": {
-                "$ref": "#/$defs/ConstructId"
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Per-construct latent effect trajectories aligned to effect_trajectory days. Values are causal deltas relative to the reference path.",
-          "title": "Node Effect Trajectories"
-        },
-        "start_state": {
-          "anyOf": [
-            {
-              "additionalProperties": {
-                "type": "number"
-              },
-              "propertyNames": {
-                "$ref": "#/$defs/ConstructId"
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Posterior mean latent state the rollout started from.",
-          "title": "Start State"
-        }
-      },
-      "title": "BaselineReportVisualization",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.artifacts.scenarios",
-      "x-layer": "findings",
-      "x-concern": "scientific_model",
-      "description": "Scenario visualization data contains exact-engine reference and action trajectories."
     },
     "BinaryExpression": {
       "additionalProperties": false,
@@ -956,9 +661,9 @@
       "x-layer": "transport",
       "x-concern": "api_tools"
     },
-    "CausalEdge": {
+    "CausalEdgeSpec": {
       "additionalProperties": false,
-      "description": "A causal edge declares a directed causal relationship between two constructs.",
+      "description": "A specification of a directed causal relationship between two constructs.",
       "properties": {
         "id": {
           "$ref": "#/$defs/EdgeId",
@@ -967,7 +672,7 @@
         "mechanisms": {
           "default": [],
           "items": {
-            "$ref": "#/$defs/DynamicsMechanism"
+            "$ref": "#/$defs/DynamicsMechanismSpec"
           },
           "title": "Mechanisms",
           "type": "array"
@@ -975,7 +680,7 @@
         "cause": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Construct"
+              "$ref": "#/$defs/ConstructSpec"
             },
             {
               "$ref": "#/$defs/ConstructRef"
@@ -986,7 +691,7 @@
         "effect": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Construct"
+              "$ref": "#/$defs/ConstructSpec"
             },
             {
               "$ref": "#/$defs/ConstructRef"
@@ -1023,32 +728,11 @@
         "mechanisms",
         "sources"
       ],
-      "title": "CausalEdge",
+      "title": "CausalEdgeSpec",
       "type": "object",
       "x-python-module": "nof1_causal_lab.artifacts.construct",
       "x-layer": "authored",
       "x-concern": "scientific_model"
-    },
-    "Coefficient": {
-      "discriminator": {
-        "mapping": {
-          "fixed": "#/$defs/FixedCoefficient",
-          "parameter": "#/$defs/ParameterCoefficient"
-        },
-        "propertyName": "kind"
-      },
-      "oneOf": [
-        {
-          "$ref": "#/$defs/FixedCoefficient"
-        },
-        {
-          "$ref": "#/$defs/ParameterCoefficient"
-        }
-      ],
-      "x-python-module": "nof1_causal_lab.artifacts.coefficient",
-      "x-layer": "authored",
-      "x-concern": "scientific_model",
-      "description": "A component coefficient is a fixed value or a reference to a scientific parameter."
     },
     "CoefficientExpression": {
       "additionalProperties": false,
@@ -1063,19 +747,34 @@
         "role": {
           "$ref": "#/$defs/CoefficientRole"
         },
-        "coefficient": {
+        "value": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Coefficient"
+              "type": "number"
+            },
+            {
+              "$ref": "#/$defs/ParameterId"
             },
             {
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Finite literal or persistent parameter ID; null leaves the operand unassigned.",
+          "title": "Value"
+        },
+        "construct_ids": {
+          "default": [],
+          "description": "Additional constructs participating in this coefficient use.",
+          "items": {
+            "$ref": "#/$defs/ConstructId"
+          },
+          "title": "Construct Ids",
+          "type": "array"
         }
       },
       "required": [
+        "construct_ids",
         "kind",
         "role"
       ],
@@ -1105,120 +804,19 @@
         "cutpoint_base",
         "cutpoint_gaps",
         "category_intercepts",
-        "category_slopes"
+        "category_slopes",
+        "diffusion_scale",
+        "diffusion_loading",
+        "process_degrees_of_freedom",
+        "initial_mean",
+        "initial_scale",
+        "initial_correlation"
       ],
       "type": "string",
       "x-python-module": "nof1_causal_lab.artifacts.expressions",
       "x-layer": "authored",
       "x-concern": "scientific_model",
       "description": "A coefficient role identifies an expression operand\u2019s scientific quantity and support."
-    },
-    "Construct": {
-      "additionalProperties": false,
-      "description": "A construct represents a theoretical entity in the scientific causal model.",
-      "properties": {
-        "id": {
-          "$ref": "#/$defs/ConstructId",
-          "description": "Persistent identity. Preserve when revising or renaming."
-        },
-        "name": {
-          "description": "Construct name (e.g., 'stress', 'sleep_quality')",
-          "title": "Name",
-          "type": "string"
-        },
-        "description": {
-          "description": "What this theoretical construct represents",
-          "title": "Description",
-          "type": "string"
-        },
-        "indicators": {
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/Indicator"
-          },
-          "title": "Indicators",
-          "type": "array"
-        },
-        "dynamics": {
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/DynamicsMechanism"
-          },
-          "title": "Dynamics",
-          "type": "array"
-        },
-        "innovation": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/InnovationSpec"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "initial_state": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/InitialStateSpec"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "distribution": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/NumPyroDistribution"
-            },
-            {
-              "$ref": "#/$defs/DistributionId"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Law of this construct's trajectory on ModelSpec.time_points; may be joint.",
-          "title": "Distribution"
-        },
-        "usage": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ConstructUsage"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "role": {
-          "$ref": "#/$defs/Role",
-          "description": "'endogenous' (modeled) or 'exogenous' (given)"
-        },
-        "temporal_status": {
-          "$ref": "#/$defs/TemporalStatus",
-          "description": "'time_varying' (changes over time) or 'time_invariant' (fixed)"
-        }
-      },
-      "required": [
-        "description",
-        "dynamics",
-        "id",
-        "indicators",
-        "name",
-        "role",
-        "temporal_status"
-      ],
-      "title": "Construct",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.artifacts.construct",
-      "x-layer": "authored",
-      "x-concern": "scientific_model"
     },
     "ConstructId": {
       "pattern": "^construct:[A-Za-z0-9_.-]+$",
@@ -1253,26 +851,94 @@
       "x-layer": "identity",
       "x-concern": "identity"
     },
-    "ConstructUsage": {
-      "discriminator": {
-        "mapping": {
-          "known_input": "#/$defs/KnownInput",
-          "scientific_only": "#/$defs/ScientificOnlyConstruct"
+    "ConstructSpec": {
+      "additionalProperties": false,
+      "description": "A specification of a theoretical entity in the scientific causal model.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/ConstructId",
+          "description": "Persistent identity. Preserve when revising or renaming."
         },
-        "propertyName": "kind"
-      },
-      "oneOf": [
-        {
-          "$ref": "#/$defs/KnownInput"
+        "name": {
+          "description": "Construct name (e.g., 'stress', 'sleep_quality')",
+          "title": "Name",
+          "type": "string"
         },
-        {
-          "$ref": "#/$defs/ScientificOnlyConstruct"
+        "description": {
+          "description": "What this theoretical construct represents",
+          "title": "Description",
+          "type": "string"
+        },
+        "indicators": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/IndicatorSpec"
+          },
+          "title": "Indicators",
+          "type": "array"
+        },
+        "dynamics": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/DynamicsMechanismSpec"
+          },
+          "title": "Dynamics",
+          "type": "array"
+        },
+        "coefficients": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/CoefficientExpression"
+          },
+          "title": "Coefficients",
+          "type": "array"
+        },
+        "innovation_family": {
+          "default": "gaussian",
+          "enum": [
+            "gaussian",
+            "student_t"
+          ],
+          "title": "Innovation Family",
+          "type": "string"
+        },
+        "distribution": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DistributionId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Membership in a trajectory law in ModelSpec.distributions on ModelSpec.time_points."
+        },
+        "role": {
+          "$ref": "#/$defs/Role",
+          "description": "'endogenous' or 'exogenous' (no modeled causal parents; may still be uncertain)"
+        },
+        "temporal_status": {
+          "$ref": "#/$defs/TemporalStatus",
+          "description": "'time_varying' (changes over time) or 'time_invariant' (fixed)"
         }
+      },
+      "required": [
+        "coefficients",
+        "description",
+        "dynamics",
+        "id",
+        "indicators",
+        "innovation_family",
+        "name",
+        "role",
+        "temporal_status"
       ],
+      "title": "ConstructSpec",
+      "type": "object",
       "x-python-module": "nof1_causal_lab.artifacts.construct",
       "x-layer": "authored",
-      "x-concern": "scientific_model",
-      "description": "A construct usage declares a measured driver or a scientific-only variable excluded from executable states."
+      "x-concern": "scientific_model"
     },
     "ContextSpec": {
       "properties": {
@@ -1402,7 +1068,7 @@
       "description": "A derivation declares an artifact maintained atomically with its input versions."
     },
     "DistributionId": {
-      "description": "A shared native law whose membership is defined by the model's scientific quantities.",
+      "description": "A native law whose membership is defined by the model's scientific quantities.",
       "pattern": "^distribution:[A-Za-z0-9_.-]+$",
       "tsType": "`distribution:${string}`",
       "type": "string",
@@ -1410,7 +1076,7 @@
       "x-layer": "identity",
       "x-concern": "identity"
     },
-    "DynamicsMechanism": {
+    "DynamicsMechanismSpec": {
       "additionalProperties": false,
       "description": "A dynamics mechanism declares one contribution to continuous-time drift.",
       "properties": {
@@ -1435,7 +1101,7 @@
         "id",
         "kind"
       ],
-      "title": "DynamicsMechanism",
+      "title": "DynamicsMechanismSpec",
       "type": "object",
       "x-python-module": "nof1_causal_lab.artifacts.mechanism",
       "x-layer": "authored",
@@ -1537,35 +1203,6 @@
       "x-python-module": "nof1_causal_lab.artifacts.effects",
       "x-layer": "findings",
       "x-concern": "scientific_model"
-    },
-    "EntityRef": {
-      "discriminator": {
-        "mapping": {
-          "construct": "#/$defs/ConstructRef",
-          "edge": "#/$defs/EdgeRef",
-          "indicator": "#/$defs/IndicatorRef",
-          "mechanism": "#/$defs/MechanismRef"
-        },
-        "propertyName": "kind"
-      },
-      "oneOf": [
-        {
-          "$ref": "#/$defs/ConstructRef"
-        },
-        {
-          "$ref": "#/$defs/EdgeRef"
-        },
-        {
-          "$ref": "#/$defs/IndicatorRef"
-        },
-        {
-          "$ref": "#/$defs/MechanismRef"
-        }
-      ],
-      "x-python-module": "nof1_causal_lab.artifacts.identity",
-      "x-layer": "identity",
-      "x-concern": "identity",
-      "description": "An entity reference identifies a construct, edge, indicator, or mechanism by its persistent identity."
     },
     "EpisodeState": {
       "additionalProperties": false,
@@ -1675,37 +1312,6 @@
       "x-python-module": "nof1_causal_lab.episode_api",
       "x-layer": "transport",
       "x-concern": "api_tools"
-    },
-    "ExecutionReadiness": {
-      "additionalProperties": false,
-      "description": "Current model requirements and latent anchors, computed without a stored receipt.",
-      "properties": {
-        "unmet_requirements": {
-          "default": [],
-          "items": {
-            "type": "string"
-          },
-          "title": "Unmet Requirements",
-          "type": "array"
-        },
-        "anchor_certificates": {
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/AnchorCertificate"
-          },
-          "title": "Anchor Certificates",
-          "type": "array"
-        }
-      },
-      "title": "ExecutionReadiness",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.artifacts.execution",
-      "x-layer": "authored",
-      "x-concern": "scientific_model",
-      "required": [
-        "anchor_certificates",
-        "unmet_requirements"
-      ]
     },
     "Expression": {
       "discriminator": {
@@ -2137,31 +1743,6 @@
       "x-layer": "read_models",
       "x-concern": "read_models"
     },
-    "FixedCoefficient": {
-      "additionalProperties": false,
-      "description": "A coefficient held at a specified value on the continuous-time model scale.",
-      "properties": {
-        "kind": {
-          "const": "fixed",
-          "default": "fixed",
-          "title": "Kind",
-          "type": "string"
-        },
-        "value": {
-          "title": "Value",
-          "type": "number"
-        }
-      },
-      "required": [
-        "kind",
-        "value"
-      ],
-      "title": "FixedCoefficient",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.artifacts.coefficient",
-      "x-layer": "authored",
-      "x-concern": "scientific_model"
-    },
     "HistogramBin": {
       "additionalProperties": false,
       "description": "A histogram bin gives its interval, center, and number of posterior draws.",
@@ -2196,42 +1777,6 @@
       "x-layer": "findings",
       "x-concern": "scientific_model"
     },
-    "IdentifiabilityStatus": {
-      "description": "Status of causal effect identifiability.",
-      "properties": {
-        "identifiable_treatments": {
-          "additionalProperties": {
-            "$ref": "#/$defs/IdentifiedTreatmentStatus"
-          },
-          "description": "Treatment IDs mapped to their identification strategy and supporting construct IDs",
-          "propertyNames": {
-            "$ref": "#/$defs/ConstructId"
-          },
-          "title": "Identifiable Treatments",
-          "type": "object"
-        },
-        "non_identifiable_treatments": {
-          "additionalProperties": {
-            "$ref": "#/$defs/NonIdentifiableTreatmentStatus"
-          },
-          "description": "Treatment IDs mapped to the construct IDs blocking identification",
-          "propertyNames": {
-            "$ref": "#/$defs/ConstructId"
-          },
-          "title": "Non Identifiable Treatments",
-          "type": "object"
-        }
-      },
-      "title": "IdentifiabilityStatus",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.artifacts.identification",
-      "x-layer": "findings",
-      "x-concern": "scientific_model",
-      "required": [
-        "identifiable_treatments",
-        "non_identifiable_treatments"
-      ]
-    },
     "IdentificationReport": {
       "additionalProperties": false,
       "description": "Positive and negative causal identification findings for the model's default query.",
@@ -2246,13 +1791,35 @@
             }
           ]
         },
-        "status": {
-          "$ref": "#/$defs/IdentifiabilityStatus"
+        "treatments": {
+          "additionalProperties": {
+            "discriminator": {
+              "mapping": {
+                "identified": "#/$defs/IdentifiedTreatmentStatus",
+                "not_identified": "#/$defs/NonIdentifiableTreatmentStatus"
+              },
+              "propertyName": "status"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/IdentifiedTreatmentStatus"
+              },
+              {
+                "$ref": "#/$defs/NonIdentifiableTreatmentStatus"
+              }
+            ]
+          },
+          "description": "One tagged identification result per treatment, including its supporting evidence",
+          "propertyNames": {
+            "$ref": "#/$defs/ConstructId"
+          },
+          "title": "Treatments",
+          "type": "object"
         }
       },
       "required": [
         "outcome",
-        "status"
+        "treatments"
       ],
       "title": "IdentificationReport",
       "type": "object",
@@ -2311,139 +1878,6 @@
       "x-layer": "findings",
       "x-concern": "scientific_model"
     },
-    "Indicator": {
-      "additionalProperties": false,
-      "description": "An indicator defines an observed measurement of a construct and how to extract it.",
-      "properties": {
-        "id": {
-          "$ref": "#/$defs/IndicatorId",
-          "description": "Persistent identity. Preserve when revising or renaming."
-        },
-        "likelihood": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/LikelihoodSpec"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "name": {
-          "description": "Indicator name (e.g., 'hrv', 'self_reported_stress')",
-          "title": "Name",
-          "type": "string"
-        },
-        "how_to_measure": {
-          "description": "Instructions for workers on how to extract this from data",
-          "title": "How To Measure",
-          "type": "string"
-        },
-        "construct_polarity": {
-          "$ref": "#/$defs/IndicatorPolarity",
-          "description": "Whether higher indicator values move in the same direction as the construct (`positive`) or the opposite direction (`negative`)."
-        },
-        "measurement_dtype": {
-          "$ref": "#/$defs/MeasurementDtype",
-          "description": "'continuous', 'binary', 'count', 'ordinal', 'categorical'"
-        },
-        "aggregation": {
-          "$ref": "#/$defs/AggregationFunction",
-          "description": "Aggregation function applied when bucketing raw extractions within the indicator support window. Measurement-structure support is currently limited to: first, last, sum, count, mean, std. Available parser operators: count, cv, entropy, first, instability, iqr, kurtosis, last, max, mean, median, min, n_unique, p10, p25, p75, p90, p99, range, skew, std, sum, trend, var"
-        },
-        "observation_window": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). If omitted, the support window defaults to the global model_clock.",
-          "title": "Observation Window"
-        },
-        "ordinal_levels": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.",
-          "title": "Ordinal Levels"
-        },
-        "categorical_levels": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding.",
-          "title": "Categorical Levels"
-        },
-        "source_columns": {
-          "description": "Raw data column names referenced by how_to_measure. Used to project chunks to only relevant columns before extraction.",
-          "items": {
-            "type": "string"
-          },
-          "title": "Source Columns",
-          "type": "array"
-        },
-        "computed_rule": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/WindowExpression"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Optional deterministic support-window expression for extraction_mode='computed'. Use this when a computed indicator needs formulas, thresholds, or multiple source columns instead of a direct single-column aggregation. The expression must return one scalar per support window."
-        },
-        "extraction_mode": {
-          "default": "semantic",
-          "description": "'computed' (deterministic pipeline extraction) or 'semantic' (LLM extraction). Use 'computed' when the indicator can be derived deterministically either from a direct source-column aggregation or from a computed_rule support-window expression over the declared source_columns.",
-          "enum": [
-            "computed",
-            "semantic"
-          ],
-          "title": "Extraction Mode",
-          "type": "string"
-        }
-      },
-      "required": [
-        "aggregation",
-        "construct_polarity",
-        "extraction_mode",
-        "how_to_measure",
-        "id",
-        "measurement_dtype",
-        "name",
-        "source_columns"
-      ],
-      "title": "Indicator",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.artifacts.indicator",
-      "x-layer": "authored",
-      "x-concern": "scientific_model"
-    },
     "IndicatorAudit": {
       "additionalProperties": false,
       "description": "An indicator audit combines its empirical data profile with the results of validation\nchecks.",
@@ -2459,12 +1893,29 @@
           ],
           "default": null
         },
-        "validation": {
-          "$ref": "#/$defs/IndicatorValidation"
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/ValidationIssue"
+          },
+          "title": "Issues",
+          "type": "array"
+        },
+        "checks": {
+          "additionalProperties": {
+            "enum": [
+              "ok",
+              "warning",
+              "error"
+            ],
+            "type": "string"
+          },
+          "title": "Checks",
+          "type": "object"
         }
       },
       "required": [
-        "validation"
+        "checks",
+        "issues"
       ],
       "title": "IndicatorAudit",
       "type": "object",
@@ -2768,38 +2219,149 @@
       "x-layer": "identity",
       "x-concern": "identity"
     },
-    "IndicatorValidation": {
+    "IndicatorSpec": {
       "additionalProperties": false,
-      "description": "Indicator validation records the outcomes and issues from checks on one extracted\nindicator.",
+      "description": "A specification of a construct's observed measurement and how to extract it.",
       "properties": {
-        "issues": {
-          "items": {
-            "$ref": "#/$defs/ValidationIssue"
-          },
-          "title": "Issues",
-          "type": "array"
+        "id": {
+          "$ref": "#/$defs/IndicatorId",
+          "description": "Persistent identity. Preserve when revising or renaming."
         },
-        "checks": {
-          "additionalProperties": {
-            "enum": [
-              "ok",
-              "warning",
-              "error"
-            ],
+        "likelihood": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LikelihoodSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "name": {
+          "description": "Indicator name (e.g., 'hrv', 'self_reported_stress')",
+          "title": "Name",
+          "type": "string"
+        },
+        "how_to_measure": {
+          "description": "Instructions for workers on how to extract this from data",
+          "title": "How To Measure",
+          "type": "string"
+        },
+        "construct_polarity": {
+          "$ref": "#/$defs/IndicatorPolarity",
+          "description": "Whether higher indicator values move in the same direction as the construct (`positive`) or the opposite direction (`negative`)."
+        },
+        "measurement_dtype": {
+          "$ref": "#/$defs/MeasurementDtype",
+          "description": "'continuous', 'binary', 'count', 'ordinal', 'categorical'"
+        },
+        "aggregation": {
+          "$ref": "#/$defs/AggregationFunction",
+          "description": "Aggregation function applied when bucketing raw extractions within the indicator support window. Measurement-structure support is currently limited to: first, last, sum, count, mean, std. Available parser operators: count, cv, entropy, first, instability, iqr, kurtosis, last, max, mean, median, min, n_unique, p10, p25, p75, p90, p99, range, skew, std, sum, trend, var"
+        },
+        "recording": {
+          "default": "samples",
+          "description": "Source recording semantics within the raw dataset's covered time span. samples: absent readings are unknown. events: a complete event record; empty sum/count windows are zero. changes: a complete change record; the last recorded value persists, with leading gaps unknown. events and changes require computed extraction.",
+          "enum": [
+            "samples",
+            "events",
+            "changes"
+          ],
+          "title": "Recording",
+          "type": "string"
+        },
+        "observation_window": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). If omitted, the support window defaults to the global model_clock.",
+          "title": "Observation Window"
+        },
+        "ordinal_levels": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.",
+          "title": "Ordinal Levels"
+        },
+        "categorical_levels": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding.",
+          "title": "Categorical Levels"
+        },
+        "source_columns": {
+          "description": "Raw data column names referenced by how_to_measure. Used to project chunks to only relevant columns before extraction.",
+          "items": {
             "type": "string"
           },
-          "title": "Checks",
-          "type": "object"
+          "title": "Source Columns",
+          "type": "array"
+        },
+        "computed_rule": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WindowExpression"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional deterministic support-window expression for extraction_mode='computed'. Use this when a computed indicator needs formulas, thresholds, or multiple source columns instead of a direct single-column aggregation. The expression must return one scalar per support window."
+        },
+        "extraction_mode": {
+          "default": "semantic",
+          "description": "'computed' (deterministic pipeline extraction) or 'semantic' (LLM extraction). Use 'computed' when the indicator can be derived deterministically either from a direct source-column aggregation or from a computed_rule support-window expression over the declared source_columns.",
+          "enum": [
+            "computed",
+            "semantic"
+          ],
+          "title": "Extraction Mode",
+          "type": "string"
         }
       },
       "required": [
-        "checks",
-        "issues"
+        "aggregation",
+        "construct_polarity",
+        "extraction_mode",
+        "how_to_measure",
+        "id",
+        "measurement_dtype",
+        "name",
+        "recording",
+        "source_columns"
       ],
-      "title": "IndicatorValidation",
+      "title": "IndicatorSpec",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.artifacts.validation_report",
-      "x-layer": "findings",
+      "x-python-module": "nof1_causal_lab.artifacts.indicator",
+      "x-layer": "authored",
       "x-concern": "scientific_model"
     },
     "InferenceMetadata": {
@@ -2841,8 +2403,19 @@
           "$ref": "#/$defs/JsonObject",
           "description": "Engine-reported telemetry for this fit; keys and values are engine-defined."
         },
-        "assessment": {
-          "$ref": "#/$defs/PosteriorAssessment"
+        "ppc": {
+          "$ref": "#/$defs/PosteriorPredictiveChecks"
+        },
+        "loo_diagnostics": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LOODiagnostics"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "posterior_marginals": {
           "anyOf": [
@@ -2876,91 +2449,14 @@
         }
       },
       "required": [
-        "assessment",
         "inference_diagnostics",
-        "inference_metadata"
+        "inference_metadata",
+        "ppc"
       ],
       "title": "InferenceReport",
       "type": "object",
       "x-python-module": "nof1_causal_lab.artifacts.posterior",
       "x-layer": "findings",
-      "x-concern": "scientific_model"
-    },
-    "InitialStateSpec": {
-      "additionalProperties": false,
-      "description": "Initial location, marginal scale and correlations, including shared baseline factors.",
-      "properties": {
-        "mean": {
-          "$ref": "#/$defs/Coefficient"
-        },
-        "scale": {
-          "$ref": "#/$defs/Coefficient"
-        },
-        "correlations": {
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/StateCoupling"
-          },
-          "title": "Correlations",
-          "type": "array"
-        }
-      },
-      "required": [
-        "correlations",
-        "mean",
-        "scale"
-      ],
-      "title": "InitialStateSpec",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.artifacts.state_distribution",
-      "x-layer": "authored",
-      "x-concern": "scientific_model"
-    },
-    "InnovationSpec": {
-      "additionalProperties": false,
-      "description": "Continuous-time driving noise, including conditional loadings from common causes.",
-      "properties": {
-        "distribution": {
-          "default": "gaussian",
-          "enum": [
-            "gaussian",
-            "student_t"
-          ],
-          "title": "Distribution",
-          "type": "string"
-        },
-        "scale": {
-          "$ref": "#/$defs/Coefficient"
-        },
-        "loadings": {
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/StateCoupling"
-          },
-          "title": "Loadings",
-          "type": "array"
-        },
-        "degrees_of_freedom": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Coefficient"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        }
-      },
-      "required": [
-        "distribution",
-        "loadings",
-        "scale"
-      ],
-      "title": "InnovationSpec",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.artifacts.state_distribution",
-      "x-layer": "authored",
       "x-concern": "scientific_model"
     },
     "JournalStatus": {
@@ -3034,48 +2530,6 @@
       "x-layer": "transport",
       "x-concern": "api_tools",
       "description": "A JSON value transports a scalar or a recursive array or object."
-    },
-    "KnownInput": {
-      "additionalProperties": false,
-      "description": "An observed-input declaration binds a construct to its measured driver trajectory.",
-      "properties": {
-        "kind": {
-          "const": "known_input",
-          "default": "known_input",
-          "title": "Kind",
-          "type": "string"
-        },
-        "source_indicator_id": {
-          "$ref": "#/$defs/IndicatorId"
-        },
-        "scale": {
-          "default": 1.0,
-          "description": "Positive divisor applied before inference",
-          "exclusiveMinimum": 0.0,
-          "title": "Scale",
-          "type": "number"
-        },
-        "missing_policy": {
-          "default": "zero",
-          "enum": [
-            "zero",
-            "forward_fill"
-          ],
-          "title": "Missing Policy",
-          "type": "string"
-        }
-      },
-      "required": [
-        "kind",
-        "missing_policy",
-        "scale",
-        "source_indicator_id"
-      ],
-      "title": "KnownInput",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.artifacts.construct",
-      "x-layer": "authored",
-      "x-concern": "scientific_model"
     },
     "LLMTrace": {
       "description": "An LLM trace records a conversation, its model, elapsed time, and token usage.",
@@ -3276,7 +2730,7 @@
       "description": "An indicator's conditional probability law and its scientific justification.",
       "properties": {
         "law": {
-          "$ref": "#/$defs/ObservationLaw"
+          "$ref": "#/$defs/ObservationLawSpec"
         },
         "standardized": {
           "default": false,
@@ -3574,45 +3028,10 @@
       "x-concern": "identity",
       "description": "A persistent mechanism identity distinguishes additive terms through reordering and revision."
     },
-    "MechanismRef": {
-      "additionalProperties": false,
-      "description": "A particular additive term, independently of its position or coefficient values.",
-      "properties": {
-        "kind": {
-          "const": "mechanism",
-          "default": "mechanism",
-          "title": "Kind",
-          "type": "string"
-        },
-        "id": {
-          "$ref": "#/$defs/MechanismId"
-        }
-      },
-      "required": [
-        "id",
-        "kind"
-      ],
-      "title": "MechanismRef",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.artifacts.identity",
-      "x-layer": "identity",
-      "x-concern": "identity"
-    },
     "ModelData": {
       "additionalProperties": false,
-      "description": "ModelSpec data pairs the causal question and observed evidence with their source versions.",
+      "description": "Observed evidence paired with its source versions.",
       "properties": {
-        "question": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Sourced_QuestionArtifact_"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
         "raw_data": {
           "anyOf": [
             {
@@ -3722,17 +3141,6 @@
           ],
           "default": null
         },
-        "execution": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Sourced_ExecutionReadiness_"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
         "dispositions": {
           "anyOf": [
             {
@@ -3770,10 +3178,10 @@
           ],
           "default": null
         },
-        "admission_report": {
+        "prior_predictive": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Sourced_AdmissionReport_"
+              "$ref": "#/$defs/Sourced_PriorPredictiveResult_"
             },
             {
               "type": "null"
@@ -3802,17 +3210,6 @@
             }
           ],
           "default": null
-        },
-        "baseline_report": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Sourced_BaselineReportArtifact_"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
         }
       },
       "title": "ModelFindings",
@@ -3823,32 +3220,6 @@
       "required": [
         "graph_status"
       ]
-    },
-    "ModelRef": {
-      "additionalProperties": false,
-      "description": "A model reference identifies the workspace that owns the scientific model.",
-      "properties": {
-        "kind": {
-          "const": "model",
-          "default": "model",
-          "title": "Kind",
-          "type": "string"
-        },
-        "id": {
-          "minLength": 1,
-          "title": "Id",
-          "type": "string"
-        }
-      },
-      "required": [
-        "id",
-        "kind"
-      ],
-      "title": "ModelRef",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.artifacts.identity",
-      "x-layer": "identity",
-      "x-concern": "identity"
     },
     "ModelRevision": {
       "additionalProperties": false,
@@ -3913,13 +3284,26 @@
     },
     "ModelSpec": {
       "additionalProperties": false,
-      "description": "One connected causal graph whose endpoints and relationships gain scientific detail.",
+      "description": "An evolving research question and connected causal graph with owned scientific detail.",
       "properties": {
+        "question": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Question"
+        },
         "edges": {
+          "default": [],
           "items": {
-            "$ref": "#/$defs/CausalEdge"
+            "$ref": "#/$defs/CausalEdgeSpec"
           },
-          "minItems": 1,
           "title": "Edges",
           "type": "array"
         },
@@ -3935,7 +3319,7 @@
           "additionalProperties": {
             "$ref": "#/$defs/NumPyroDistribution"
           },
-          "description": "Shared joint laws. Members are the parameters and constructs referring to each ID. Event coordinates are parameters by ID and element ID, then constructs by ID and time point. Inline scalar parameter laws apply independently to their elements.",
+          "description": "All explicit probability laws. Members are the parameters and constructs referring to each ID. Event coordinates are parameters by ID and element ID, then constructs by ID and time point. A scalar law belongs to one parameter and applies independently to its elements.",
           "propertyNames": {
             "$ref": "#/$defs/DistributionId"
           },
@@ -3965,7 +3349,7 @@
         "default_outcome": {
           "anyOf": [
             {
-              "$ref": "#/$defs/ConstructRef"
+              "$ref": "#/$defs/ConstructId"
             },
             {
               "type": "null"
@@ -3974,17 +3358,17 @@
           "default": null
         }
       },
+      "title": "ModelSpec",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.model_spec",
+      "x-layer": "authored",
+      "x-concern": "scientific_model",
       "required": [
         "distributions",
         "edges",
         "parameters",
         "time_points"
-      ],
-      "title": "ModelSpec",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.artifacts.model_spec",
-      "x-layer": "authored",
-      "x-concern": "scientific_model"
+      ]
     },
     "ModelSpecAdmissionEvent": {
       "additionalProperties": false,
@@ -4194,9 +3578,9 @@
       "x-concern": "scientific_model",
       "description": "A native NumPyro probability distribution serialized by its constructor tree."
     },
-    "ObservationLaw": {
+    "ObservationLawSpec": {
       "additionalProperties": false,
-      "description": "A native probability constructor applied to model-dependent expressions.",
+      "description": "A symbolic specification of an indicator's conditional observation distribution.",
       "properties": {
         "distribution": {
           "enum": [
@@ -4226,7 +3610,7 @@
         "arguments",
         "distribution"
       ],
-      "title": "ObservationLaw",
+      "title": "ObservationLawSpec",
       "type": "object",
       "x-python-module": "nof1_causal_lab.artifacts.likelihood",
       "x-layer": "authored",
@@ -4361,8 +3745,7 @@
         "measurement_structure",
         "measurements",
         "statistical_model_spec",
-        "posterior",
-        "baseline_report"
+        "posterior"
       ],
       "type": "string",
       "x-python-module": "nof1_causal_lab.artifacts.identity",
@@ -4554,30 +3937,6 @@
       "x-layer": "findings",
       "x-concern": "scientific_model"
     },
-    "ParameterCoefficient": {
-      "additionalProperties": false,
-      "description": "A slot referencing a scientific parameter, whether fixed or estimated.",
-      "properties": {
-        "kind": {
-          "const": "parameter",
-          "default": "parameter",
-          "title": "Kind",
-          "type": "string"
-        },
-        "parameter_id": {
-          "$ref": "#/$defs/ParameterId"
-        }
-      },
-      "required": [
-        "kind",
-        "parameter_id"
-      ],
-      "title": "ParameterCoefficient",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.artifacts.coefficient",
-      "x-layer": "authored",
-      "x-concern": "scientific_model"
-    },
     "ParameterElementId": {
       "pattern": "^element:[0-9a-f]{64}$",
       "tsType": "`element:${string}`",
@@ -4661,9 +4020,6 @@
         "distribution": {
           "anyOf": [
             {
-              "$ref": "#/$defs/NumPyroDistribution"
-            },
-            {
               "$ref": "#/$defs/DistributionId"
             },
             {
@@ -4671,8 +4027,7 @@
             }
           ],
           "default": null,
-          "description": "Native law or a reference to a shared joint law in ModelSpec.distributions.",
-          "title": "Distribution"
+          "description": "Membership in a native law in ModelSpec.distributions; may be joint."
         },
         "reference_interval_days": {
           "anyOf": [
@@ -4698,34 +4053,6 @@
       "type": "object",
       "x-python-module": "nof1_causal_lab.artifacts.parameter_spec",
       "x-layer": "authored",
-      "x-concern": "scientific_model"
-    },
-    "PosteriorAssessment": {
-      "additionalProperties": false,
-      "description": "Predictive assessments of a fitted posterior.",
-      "properties": {
-        "ppc": {
-          "$ref": "#/$defs/PosteriorPredictiveChecks"
-        },
-        "loo_diagnostics": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/LOODiagnostics"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        }
-      },
-      "required": [
-        "ppc"
-      ],
-      "title": "PosteriorAssessment",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.artifacts.posterior",
-      "x-layer": "findings",
       "x-concern": "scientific_model"
     },
     "PosteriorEstimate": {
@@ -4960,7 +4287,7 @@
     },
     "PriorPredictiveDiagnostic": {
       "additionalProperties": false,
-      "description": "A prior predictive diagnostic records the result of one exact model-admission check.",
+      "description": "A measured prior-predictive check and its evaluation criteria.",
       "properties": {
         "check": {
           "title": "Check",
@@ -5009,7 +4336,42 @@
       ],
       "title": "PriorPredictiveDiagnostic",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.artifacts.admission",
+      "x-python-module": "nof1_causal_lab.artifacts.prior_predictive",
+      "x-layer": "findings",
+      "x-concern": "scientific_model"
+    },
+    "PriorPredictiveResult": {
+      "additionalProperties": false,
+      "description": "Simulated observations and checks recorded by a model-authoring operation.",
+      "properties": {
+        "samples": {
+          "additionalProperties": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/IndicatorId"
+          },
+          "title": "Samples",
+          "type": "object"
+        },
+        "diagnostics": {
+          "items": {
+            "$ref": "#/$defs/PriorPredictiveDiagnostic"
+          },
+          "title": "Diagnostics",
+          "type": "array"
+        }
+      },
+      "required": [
+        "diagnostics",
+        "samples"
+      ],
+      "title": "PriorPredictiveResult",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.prior_predictive",
       "x-layer": "findings",
       "x-concern": "scientific_model"
     },
@@ -5024,25 +4386,6 @@
       "x-layer": "machine",
       "x-concern": "execution_provenance",
       "description": "Artifact provenance records whether its content was computed, authored by a human, or proposed by an LLM."
-    },
-    "QuestionArtifact": {
-      "additionalProperties": false,
-      "description": "A research question states the observational causal question under investigation.",
-      "properties": {
-        "text": {
-          "minLength": 1,
-          "title": "Text",
-          "type": "string"
-        }
-      },
-      "required": [
-        "text"
-      ],
-      "title": "QuestionArtifact",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.artifacts.question",
-      "x-layer": "artifacts",
-      "x-concern": "scientific_model"
     },
     "RawDataColumnDescription": {
       "additionalProperties": false,
@@ -5330,8 +4673,8 @@
       "description": "A do-operator on one latent variable over a time window.\n\nThe window is ``[from_day, to_day)`` in days relative to the rollout start; outside\nthe window the variable evolves under its natural dynamics. ``set`` pins to an absolute\nvalue, ``shift`` adds an amount to the variable's start-state value, ``ramp`` linearly\ninterpolates across the window, and ``trajectory`` tracks a list of values across it.",
       "properties": {
         "target": {
-          "$ref": "#/$defs/ConstructRef",
-          "description": "Persistent identity of the construct to clamp."
+          "$ref": "#/$defs/ConstructId",
+          "description": "Persistent ID of the construct to clamp."
         },
         "mode": {
           "description": "How the clamped value is specified over the window.",
@@ -5506,8 +4849,8 @@
           "type": "array"
         },
         "outcome": {
-          "$ref": "#/$defs/ConstructRef",
-          "description": "Persistent identity of the requested outcome."
+          "$ref": "#/$defs/ConstructId",
+          "description": "Persistent ID of the requested outcome."
         },
         "readout": {
           "$ref": "#/$defs/ScenarioQueryInput"
@@ -5576,32 +4919,6 @@
         "kind"
       ]
     },
-    "ScientificOnlyConstruct": {
-      "additionalProperties": false,
-      "description": "A scientific-only declaration excludes an identified construct from executable states.",
-      "properties": {
-        "kind": {
-          "const": "scientific_only",
-          "default": "scientific_only",
-          "title": "Kind",
-          "type": "string"
-        },
-        "reason": {
-          "minLength": 1,
-          "title": "Reason",
-          "type": "string"
-        }
-      },
-      "required": [
-        "kind",
-        "reason"
-      ],
-      "title": "ScientificOnlyConstruct",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.artifacts.construct",
-      "x-layer": "authored",
-      "x-concern": "scientific_model"
-    },
     "SimulateScenarioToolResult": {
       "anyOf": [
         {
@@ -5617,49 +4934,19 @@
       "x-concern": "api_tools",
       "description": "A simulation tool response carries either a resolved scenario result or a reported tool error."
     },
-    "SimulationProvenance": {
+    "SimulationResult": {
       "additionalProperties": false,
-      "description": "The retained fit and actual numerical settings used by this response.",
+      "description": "Ephemeral response to a runtime simulation request.\n\nThis engine integrates the true nonlinear drift for each posterior draw.\nIt does not include future process noise or claim the mean of the SDE.",
       "properties": {
+        "request": {
+          "$ref": "#/$defs/ScenarioRequest"
+        },
         "model": {
-          "$ref": "#/$defs/ModelRevision"
-        },
-        "engine": {
-          "default": "nonlinear_drift_v1",
-          "enum": [
-            "nonlinear_drift_v1",
-            "illustrative_fixture"
-          ],
-          "title": "Engine",
-          "type": "string"
-        },
-        "solver": {
-          "const": "Tsit5",
-          "default": "Tsit5",
-          "title": "Solver",
-          "type": "string"
-        },
-        "rtol": {
-          "exclusiveMinimum": 0,
-          "title": "Rtol",
-          "type": "number"
-        },
-        "atol": {
-          "exclusiveMinimum": 0,
-          "title": "Atol",
-          "type": "number"
-        },
-        "max_steps": {
-          "minimum": 1,
-          "title": "Max Steps",
-          "type": "integer"
-        },
-        "draw_count": {
-          "minimum": 1,
-          "title": "Draw Count",
-          "type": "integer"
+          "$ref": "#/$defs/ModelRevision",
+          "description": "Exact fitted model revision used by this response."
         },
         "time_grid_days": {
+          "description": "Shared elapsed-day coordinates for all trajectories, including day zero.",
           "items": {
             "type": "number"
           },
@@ -5678,6 +4965,7 @@
             }
           ],
           "default": null,
+          "description": "Resolved fitted-state index for an abducted start; null for a baseline start.",
           "title": "Start Time Index"
         },
         "start_time": {
@@ -5690,34 +4978,8 @@
             }
           ],
           "default": null,
+          "description": "Observed timestamp of the resolved abducted start, when available.",
           "title": "Start Time"
-        }
-      },
-      "required": [
-        "atol",
-        "draw_count",
-        "engine",
-        "max_steps",
-        "model",
-        "rtol",
-        "solver",
-        "time_grid_days"
-      ],
-      "title": "SimulationProvenance",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.artifacts.scenarios",
-      "x-layer": "findings",
-      "x-concern": "scientific_model"
-    },
-    "SimulationResult": {
-      "additionalProperties": false,
-      "description": "Ephemeral response, retained only when explicitly included in a report.\n\nThis engine integrates the true nonlinear drift for each posterior draw.\nIt does not include future process noise or claim the mean of the SDE.",
-      "properties": {
-        "request": {
-          "$ref": "#/$defs/ScenarioRequest"
-        },
-        "provenance": {
-          "$ref": "#/$defs/SimulationProvenance"
         },
         "labels": {
           "additionalProperties": {
@@ -5758,16 +5020,16 @@
           ],
           "default": null
         },
-        "visualization": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/BaselineReportVisualization"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
+        "trajectories": {
+          "additionalProperties": {
+            "$ref": "#/$defs/SimulationTrajectory"
+          },
+          "description": "Reference and action means for each simulated construct on time_grid_days.",
+          "propertyNames": {
+            "$ref": "#/$defs/ConstructId"
+          },
+          "title": "Trajectories",
+          "type": "object"
         },
         "manifest_effects": {
           "anyOf": [
@@ -5798,10 +5060,12 @@
       },
       "required": [
         "labels",
-        "provenance",
+        "model",
         "reference_mean",
         "request",
         "summary",
+        "time_grid_days",
+        "trajectories",
         "warnings"
       ],
       "title": "SimulationResult",
@@ -5810,12 +5074,47 @@
       "x-layer": "findings",
       "x-concern": "scientific_model"
     },
+    "SimulationTrajectory": {
+      "additionalProperties": false,
+      "description": "One construct's mean reference and intervention paths across simulated draws.",
+      "properties": {
+        "reference_mean": {
+          "description": "Mean no-clamp latent path on the result's time_grid_days, including day zero.",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "title": "Reference Mean",
+          "type": "array"
+        },
+        "action_mean": {
+          "description": "Mean latent path under the requested clamps on the same full time grid.",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "title": "Action Mean",
+          "type": "array"
+        }
+      },
+      "required": [
+        "action_mean",
+        "reference_mean"
+      ],
+      "title": "SimulationTrajectory",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.scenarios",
+      "x-layer": "authored",
+      "x-concern": "scientific_model"
+    },
     "SnapshotContext": {
       "additionalProperties": false,
       "description": "A snapshot context identifies the selected journal revision and its artifact versions.",
       "properties": {
-        "workspace": {
-          "$ref": "#/$defs/ModelRef"
+        "workspace_id": {
+          "minLength": 1,
+          "title": "Workspace Id",
+          "type": "string"
         },
         "seq": {
           "minimum": 0,
@@ -5862,7 +5161,7 @@
         "retracted",
         "seq",
         "state",
-        "workspace"
+        "workspace_id"
       ],
       "title": "SnapshotContext",
       "type": "object",
@@ -5881,69 +5180,6 @@
       "x-python-module": "nof1_causal_lab.machine.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
-    },
-    "Sourced_AdmissionReport_": {
-      "additionalProperties": false,
-      "properties": {
-        "value": {
-          "$ref": "#/$defs/AdmissionReport"
-        },
-        "source": {
-          "$ref": "#/$defs/FactSource"
-        }
-      },
-      "required": [
-        "source",
-        "value"
-      ],
-      "title": "Sourced[AdmissionReport]",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.snapshot_models",
-      "x-layer": "read_models",
-      "x-concern": "read_models",
-      "description": "A sourced value pairs one model finding with its supporting artifact version."
-    },
-    "Sourced_BaselineReportArtifact_": {
-      "additionalProperties": false,
-      "properties": {
-        "value": {
-          "$ref": "#/$defs/BaselineReportArtifact"
-        },
-        "source": {
-          "$ref": "#/$defs/FactSource"
-        }
-      },
-      "required": [
-        "source",
-        "value"
-      ],
-      "title": "Sourced[BaselineReportArtifact]",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.snapshot_models",
-      "x-layer": "read_models",
-      "x-concern": "read_models",
-      "description": "A sourced value pairs one model finding with its supporting artifact version."
-    },
-    "Sourced_ExecutionReadiness_": {
-      "additionalProperties": false,
-      "properties": {
-        "value": {
-          "$ref": "#/$defs/ExecutionReadiness"
-        },
-        "source": {
-          "$ref": "#/$defs/FactSource"
-        }
-      },
-      "required": [
-        "source",
-        "value"
-      ],
-      "title": "Sourced[ExecutionReadiness]",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.snapshot_models",
-      "x-layer": "read_models",
-      "x-concern": "read_models",
-      "description": "A sourced value pairs one model finding with its supporting artifact version."
     },
     "Sourced_FitSummary_": {
       "additionalProperties": false,
@@ -6029,11 +5265,11 @@
       "x-concern": "read_models",
       "description": "A sourced value pairs one model finding with its supporting artifact version."
     },
-    "Sourced_QuestionArtifact_": {
+    "Sourced_PriorPredictiveResult_": {
       "additionalProperties": false,
       "properties": {
         "value": {
-          "$ref": "#/$defs/QuestionArtifact"
+          "$ref": "#/$defs/PriorPredictiveResult"
         },
         "source": {
           "$ref": "#/$defs/FactSource"
@@ -6043,7 +5279,7 @@
         "source",
         "value"
       ],
-      "title": "Sourced[QuestionArtifact]",
+      "title": "Sourced[PriorPredictiveResult]",
       "type": "object",
       "x-python-module": "nof1_causal_lab.machine.snapshot_models",
       "x-layer": "read_models",
@@ -6119,7 +5355,7 @@
     },
     "StartEpisodeResponse": {
       "additionalProperties": false,
-      "description": "Starting an episode returns its current status and any question-write outcome.",
+      "description": "Starting an episode returns its current status and any model-write outcome.",
       "properties": {
         "workspace_id": {
           "title": "Workspace Id",
@@ -6195,27 +5431,6 @@
       "x-layer": "transport",
       "x-concern": "api_tools"
     },
-    "StateCoupling": {
-      "additionalProperties": false,
-      "description": "A coefficient connecting an owned component to another construct.",
-      "properties": {
-        "other_id": {
-          "$ref": "#/$defs/ConstructId"
-        },
-        "coefficient": {
-          "$ref": "#/$defs/Coefficient"
-        }
-      },
-      "required": [
-        "coefficient",
-        "other_id"
-      ],
-      "title": "StateCoupling",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.artifacts.state_distribution",
-      "x-layer": "authored",
-      "x-concern": "scientific_model"
-    },
     "StateEquation": {
       "additionalProperties": false,
       "description": "A continuous-time state equation rendered from declared scientific mechanisms.",
@@ -6271,14 +5486,13 @@
       "description": "A structural disposition classifies how compilation uses or excludes an authored model\nentity.",
       "enum": [
         "retained_state",
-        "known_input",
         "marginalized",
         "identification_only",
         "retained_edge",
         "projected_edge",
         "manifest",
-        "known_input_source",
-        "excluded_indicator"
+        "excluded_indicator",
+        "unsupported"
       ],
       "title": "StructuralDisposition",
       "type": "string",
@@ -6290,18 +5504,27 @@
       "additionalProperties": false,
       "description": "An item disposition explains the compilation decision for one identified authored\nentity.",
       "properties": {
-        "source_id": {
-          "title": "Source Id",
-          "type": "string"
-        },
-        "source_kind": {
-          "enum": [
-            "construct",
-            "edge",
-            "indicator"
+        "target": {
+          "discriminator": {
+            "mapping": {
+              "construct": "#/$defs/ConstructRef",
+              "edge": "#/$defs/EdgeRef",
+              "indicator": "#/$defs/IndicatorRef"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ConstructRef"
+            },
+            {
+              "$ref": "#/$defs/EdgeRef"
+            },
+            {
+              "$ref": "#/$defs/IndicatorRef"
+            }
           ],
-          "title": "Source Kind",
-          "type": "string"
+          "title": "Target"
         },
         "disposition": {
           "$ref": "#/$defs/StructuralDisposition"
@@ -6314,46 +5537,12 @@
       "required": [
         "disposition",
         "reason",
-        "source_id",
-        "source_kind"
+        "target"
       ],
       "title": "StructuralItemDisposition",
       "type": "object",
       "x-python-module": "nof1_causal_lab.artifacts.execution",
       "x-layer": "authored",
-      "x-concern": "scientific_model"
-    },
-    "TemporalEffect": {
-      "additionalProperties": false,
-      "description": "A temporal effect summarizes a trajectory at requested horizons and its absolute peak.",
-      "properties": {
-        "horizons": {
-          "items": {
-            "$ref": "#/$defs/EffectTrajectoryPoint"
-          },
-          "minItems": 1,
-          "title": "Horizons",
-          "type": "array"
-        },
-        "peak_effect": {
-          "title": "Peak Effect",
-          "type": "number"
-        },
-        "time_to_peak_days": {
-          "minimum": 0,
-          "title": "Time To Peak Days",
-          "type": "number"
-        }
-      },
-      "required": [
-        "horizons",
-        "peak_effect",
-        "time_to_peak_days"
-      ],
-      "title": "TemporalEffect",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.artifacts.effects",
-      "x-layer": "findings",
       "x-concern": "scientific_model"
     },
     "TemporalStatus": {
@@ -6810,88 +5999,6 @@
       "x-layer": "transport",
       "x-concern": "api_tools"
     },
-    "TreatmentEffect": {
-      "additionalProperties": false,
-      "description": "A treatment effect stores posterior effect draws and optional temporal or observed-scale\nsummaries.",
-      "properties": {
-        "treatment": {
-          "title": "Treatment",
-          "type": "string"
-        },
-        "treatment_id": {
-          "$ref": "#/$defs/ConstructId"
-        },
-        "summary": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/EffectSummary"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "histogram": {
-          "items": {
-            "$ref": "#/$defs/HistogramBin"
-          },
-          "title": "Histogram",
-          "type": "array"
-        },
-        "posterior_draws": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "number"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Posterior Draws"
-        },
-        "temporal": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/TemporalEffect"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "manifest_effects": {
-          "anyOf": [
-            {
-              "additionalProperties": {
-                "type": "number"
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Manifest Effects"
-        }
-      },
-      "required": [
-        "histogram",
-        "summary",
-        "treatment",
-        "treatment_id"
-      ],
-      "title": "TreatmentEffect",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.artifacts.baseline_report",
-      "x-layer": "authored",
-      "x-concern": "scientific_model"
-    },
     "UncheckedJsonObject": {
       "additionalProperties": true,
       "description": "An unchecked JSON object carries data across a boundary before domain validation.",
@@ -6922,16 +6029,17 @@
       "additionalProperties": false,
       "description": "A validation issue explains a data problem and its severity for an indicator or the\ndataset.",
       "properties": {
-        "subject": {
+        "indicator_id": {
           "anyOf": [
             {
-              "$ref": "#/$defs/EntityRef"
+              "$ref": "#/$defs/IndicatorId"
             },
             {
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Affected indicator; null for a dataset-wide issue."
         },
         "issue_type": {
           "title": "Issue Type",
@@ -7106,11 +6214,8 @@
     }
   },
   "required": [
-    "admission_report",
-    "baseline_report",
     "identification_report",
     "model",
-    "question",
     "validation_report"
   ]
 }

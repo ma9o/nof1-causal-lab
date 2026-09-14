@@ -2,7 +2,7 @@
 
 import { useDagLayout } from "@/lib/hooks/use-dag-layout";
 import type { DagDirection, DagGraphInput, Point } from "@/lib/utils/dag-graph-layout";
-import type { CausalEdge, Construct, Indicator, KnownInput } from "@nof1-causal-lab/api-types";
+import type { CausalEdgeSpec, ConstructSpec, IndicatorSpec } from "@nof1-causal-lab/api-types";
 import { useCallback, useMemo, useState } from "react";
 import { DagCanvasFrame, DagSvg } from "./core/dag-canvas";
 import { DagDirectionToggle } from "./core/dag-direction-toggle";
@@ -23,10 +23,10 @@ import {
 export type ConstructStatus = "observed" | "marginalized" | "blocking";
 
 interface StructureDagProps {
-  constructs: Construct[];
-  outcomeId?: string;
-  edges: CausalEdge[];
-  indicators?: Indicator[];
+  constructs: ConstructSpec[];
+  outcomeId?: string | null;
+  edges: CausalEdgeSpec[];
+  indicators?: IndicatorSpec[];
   /** Constructs compiled as observed transition inputs rather than latent states. */
   /**
    * Per-construct backend disposition/identifiability status. Colors the node border and any
@@ -127,10 +127,9 @@ function nodeAccent(status: ConstructStatus | undefined, lit: boolean): string |
 interface StructureNodeProps {
   width: number;
   height: number;
-  construct: Construct;
+  construct: ConstructSpec;
   isOutcome: boolean;
-  indicators: Indicator[];
-  knownInput?: KnownInput;
+  indicators: IndicatorSpec[];
   status?: ConstructStatus;
   lit: boolean;
   /** Rendered as the faded t−1 ghost (no indicators, no status). */
@@ -144,14 +143,13 @@ function StructureNode({
   construct,
   isOutcome,
   indicators,
-  knownInput,
   status,
   lit,
   isPrev,
 }: StructureNodeProps) {
   const isExo = construct.role === "exogenous";
   const vary = construct.temporal_status === "time_varying" ? "varying" : "invariant";
-  const subtitle = `${isExo ? "theory exo" : "theory endo"} · ${vary}${knownInput ? " · known input" : isExo ? " · held" : ""}`;
+  const subtitle = `${isExo ? "theory exo" : "theory endo"} · ${vary}`;
 
   const reserved = (isOutcome ? 44 : 28) + (isPrev ? 36 : 0);
   const title = `${isOutcome ? "★ " : ""}${truncate(labelize(construct.name), Math.floor((width - reserved) / 6.6))}${isPrev ? " · t−1" : ""}`;
@@ -257,17 +255,6 @@ export function StructureDag({
     [constructs],
   );
   const byName = useMemo(() => new Map(constructs.map((c) => [c.name, c])), [constructs]);
-  const knownInputByName = useMemo(
-    () =>
-      new Map(
-        constructs.flatMap((construct) =>
-          construct.usage?.kind === "known_input"
-            ? [[construct.name, construct.usage] as const]
-            : [],
-        ),
-      ),
-    [constructs],
-  );
 
   const indicatorsByConstruct = useMemo(() => {
     const selected = new Set((indicators ?? []).map((indicator) => indicator.id));
@@ -468,7 +455,6 @@ export function StructureDag({
                     construct={construct}
                     isOutcome={construct.id === outcomeId}
                     indicators={indicatorsByConstruct.get(base) ?? []}
-                    knownInput={knownInputByName.get(base)}
                     status={nodeStatuses?.[base]}
                     lit={lit}
                     isPrev={prev}

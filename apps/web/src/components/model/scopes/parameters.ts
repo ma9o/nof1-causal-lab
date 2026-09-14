@@ -1,6 +1,5 @@
-import { modelConstructs } from "@/lib/model-accessors";
-import type { ModelSpec, InferenceReport, Expression } from "@nof1-causal-lab/api-types";
-import { referencedParameterIds } from "@/lib/model-accessors";
+import type { Expression, InferenceReport, ModelSpec } from "@nof1-causal-lab/api-types";
+import { modelConstructs, referencedParameterIds } from "@/lib/model-accessors";
 import { distributionText } from "@/lib/utils/distribution-format";
 import type { PosteriorRow, PriorRow } from "../scope-primitives";
 
@@ -31,8 +30,9 @@ export function parametersForOwner(model: ModelSpec | null | undefined, id: stri
   const components = [
     ...modelConstructs(model).filter((construct) => construct.id === id),
     ...modelConstructs(model).flatMap((construct) => [
-      ...(construct.innovation?.loadings ?? []).filter((item) => item.other_id === id),
-      ...(construct.initial_state?.correlations ?? []).filter((item) => item.other_id === id),
+      ...construct.coefficients.filter((item) =>
+        item.construct_ids.some((identity) => identity === id),
+      ),
       ...construct.indicators.flatMap((indicator) =>
         Object.values(indicator.likelihood?.law.arguments ?? {}).flatMap((expression) =>
           expressionComponentsForConstruct(expression, id),
@@ -60,6 +60,7 @@ export function parametersForOwner(model: ModelSpec | null | undefined, id: stri
 
 export function priorRows(
   parameters: import("@nof1-causal-lab/api-types").ParameterSpec[],
+  distributions: ModelSpec["distributions"],
 ): PriorRow[] {
   return parameters.map(({ name, description, distribution_transform, distribution, value }) => {
     return {
@@ -69,9 +70,7 @@ export function priorRows(
         value != null
           ? `Fixed: ${value}`
           : distribution
-            ? typeof distribution === "string"
-              ? "Joint distribution"
-              : distributionText(distribution)
+            ? distributionText(distributions[distribution])
             : null,
     };
   });

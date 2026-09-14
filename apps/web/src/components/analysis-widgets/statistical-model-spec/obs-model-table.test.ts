@@ -7,7 +7,9 @@ import { ObsPriorList } from "./obs-model-table";
 
 describe("ObsPriorList", () => {
   it("marks missing authored observation priors as not authored", () => {
-    const markup = renderToStaticMarkup(createElement(ObsPriorList, { terms: [] }));
+    const markup = renderToStaticMarkup(
+      createElement(ObsPriorList, { terms: [], distributions: {} }),
+    );
 
     expect(markup).toContain("Not authored");
   });
@@ -16,6 +18,7 @@ describe("ObsPriorList", () => {
     const markup = renderToStaticMarkup(
       createElement(ObsPriorList, {
         terms: [{ ...parameters[0], name: "obs_sd_sleep", distribution: null }],
+        distributions: {},
       }),
     );
 
@@ -30,12 +33,15 @@ describe("ObsPriorList", () => {
           {
             ...parameters[0],
             name: "obs_concentration",
-            distribution: {
-              distribution: "Gamma",
-              params: { concentration: 5, rate: 0.5 },
-            },
+            distribution: "distribution:observation-concentration",
           },
         ],
+        distributions: {
+          "distribution:observation-concentration": {
+            distribution: "Gamma",
+            params: { concentration: 5, rate: 0.5 },
+          },
+        },
       }),
     );
 

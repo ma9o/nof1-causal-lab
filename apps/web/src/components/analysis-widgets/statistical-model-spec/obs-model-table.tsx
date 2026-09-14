@@ -1,6 +1,6 @@
 "use client";
 
-import type { Indicator, ParameterSpec } from "@nof1-causal-lab/api-types";
+import type { IndicatorSpec, ParameterSpec } from "@nof1-causal-lab/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 import katex from "katex";
 import { InfoTable } from "@/components/ui/info-table";
@@ -16,6 +16,7 @@ function inlineKatex(latex: string): string {
 // ── row type ─────────────────────────────────────────────
 
 interface ObsModelRow {
+  distributions: import("@nof1-causal-lab/api-types").ModelSpec["distributions"];
   variable: string;
   construct: string | undefined;
   equationLatex: string;
@@ -56,12 +57,20 @@ const columns = [
   col.display({
     id: "priors",
     header: "Priors",
-    cell: ({ row }) => <ObsPriorList terms={row.original.priorTerms} />,
+    cell: ({ row }) => (
+      <ObsPriorList terms={row.original.priorTerms} distributions={row.original.distributions} />
+    ),
     enableSorting: false,
   }),
 ] as ColumnDef<ObsModelRow, unknown>[];
 
-export function ObsPriorList({ terms }: { terms: ParameterSpec[] }) {
+export function ObsPriorList({
+  terms,
+  distributions,
+}: {
+  terms: ParameterSpec[];
+  distributions: import("@nof1-causal-lab/api-types").ModelSpec["distributions"];
+}) {
   if (terms.length === 0) {
     return <span className="text-xs text-muted-foreground">Not authored</span>;
   }
@@ -76,14 +85,12 @@ export function ObsPriorList({ terms }: { terms: ParameterSpec[] }) {
             __html: inlineKatex(
               term.value != null
                 ? `${observationParameterSymbol({ parameterName: term.name })} = ${term.value}`
-                : typeof term.distribution === "string"
-                  ? `${observationParameterSymbol({ parameterName: term.name })}:\\ \\text{Joint distribution}`
-                  : term.distribution
-                    ? observationPriorLatex({
-                        prior: term.distribution,
-                        parameterName: term.name,
-                      })
-                    : `${observationParameterSymbol({ parameterName: term.name })}:\\ \\text{Not authored}`,
+                : term.distribution
+                  ? observationPriorLatex({
+                      prior: distributions[term.distribution],
+                      parameterName: term.name,
+                    })
+                  : `${observationParameterSymbol({ parameterName: term.name })}:\\ \\text{Not authored}`,
             ),
           }}
         />
@@ -96,13 +103,15 @@ export function ObsPriorList({ terms }: { terms: ParameterSpec[] }) {
 
 export function ObsModelTable({
   parameters,
+  distributions,
   indicators,
   constructs,
   observationEquations,
 }: {
   parameters: ParameterSpec[];
-  indicators: Indicator[];
-  constructs: import("@nof1-causal-lab/api-types").Construct[];
+  distributions: import("@nof1-causal-lab/api-types").ModelSpec["distributions"];
+  indicators: IndicatorSpec[];
+  constructs: import("@nof1-causal-lab/api-types").ConstructSpec[];
   observationEquations: Record<string, string>;
 }) {
   const rows: ObsModelRow[] = indicators.flatMap((indicator) => {
@@ -118,6 +127,7 @@ export function ObsModelTable({
       construct,
       equationLatex: observationEquations[indicator.id],
       priorTerms,
+      distributions,
     };
   });
 

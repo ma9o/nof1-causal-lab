@@ -29,14 +29,11 @@ export const SCOPE_KIND_LABEL: Record<ModelSelection["kind"], string> = {
 
 /** Short move labels for every artifact the machine can install. */
 export const ARTIFACT_LABEL: Record<ArtifactId, string> = {
-  question: "Question",
   raw_data: "Preprocess",
   model: "Model",
   identification_report: "Identification report",
   panel: "Panel",
   validation_report: "Validation",
-  admission_report: "Admission report",
-  baseline_report: "Treatment effects",
 };
 
 export function humanize(value: string): string {

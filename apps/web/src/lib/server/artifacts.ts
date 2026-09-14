@@ -26,11 +26,12 @@ function artifactFileName(artifactId: ArtifactId, kind: FileKind, key: string): 
 async function fetchArtifact(
   workspaceId: string,
   artifactId: ArtifactId,
+  version?: number,
 ): Promise<ArtifactEnvelope> {
   const response = await fetch(
     `${TOOL_SERVER}/api/episodes/${encodeURIComponent(workspaceId)}/artifacts/${encodeURIComponent(
       artifactId,
-    )}`,
+    )}${version == null ? "" : `?version=${version}`}`,
     { cache: "no-store" },
   );
   if (response.status === 404) {
@@ -66,9 +67,10 @@ export async function readArtifactJson<T>(
   workspaceId: string,
   artifactId: ArtifactId,
   key: string,
+  version?: number,
 ): Promise<T> {
   const filename = artifactFileName(artifactId, "json", key);
-  const artifact = await fetchArtifact(workspaceId, artifactId);
+  const artifact = await fetchArtifact(workspaceId, artifactId, version);
   if (!(filename in artifact.payload)) {
     throw new ArtifactNotFoundError(`${artifactId} has no payload file '${filename}'`);
   }

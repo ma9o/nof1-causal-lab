@@ -3,9 +3,8 @@ import { modelConstructs } from "@/lib/model-accessors";
  * analysis scenario model.
  *
  * Every analysis "scenario" is a materialized `simulate` tool result — a start
- * state + a list of timed latent clamps — sourced from the persisted output
- * trace, carrying the
- * full per-node `visualization` trajectories that drive the living DAG. The
+ * state + a list of timed latent clamps — sourced from runtime tool responses,
+ * carrying per-construct reference and action means on a shared time grid. The
  * production tool contract requires one or more `do()` clamps; each result also
  * carries the corresponding reference rollout for visual comparison.
  *
@@ -30,7 +29,7 @@ import { traceToUIMessages } from "@/lib/utils/trace-to-ui-messages";
 
 export type ScenarioProvenance = "intervention";
 
-export interface BaselineReportScenario {
+export interface SimulationScenario {
   /** Stable selection key — the `simulate` tool-call id. */
   key: string;
   provenance: ScenarioProvenance;
@@ -113,12 +112,12 @@ function collectSimulations(
   return order;
 }
 
-function toScenario(raw: RawSimulation): BaselineReportScenario {
+function toScenario(raw: RawSimulation): SimulationScenario {
   return {
     key: raw.toolCallId,
     provenance: "intervention",
     title: formatScenarioActionDescription(raw.result),
-    outcome: raw.result.labels[raw.result.request.outcome.id],
+    outcome: raw.result.labels[raw.result.request.outcome],
     summary: raw.result.summary,
     manifestEffects: raw.result.manifest_effects ?? null,
     result: raw.result,
@@ -131,11 +130,11 @@ function toScenario(raw: RawSimulation): BaselineReportScenario {
 /**
  * Build the intervention scenario list newest first.
  */
-export function buildBaselineReportScenarios(args: {
+export function buildSimulationScenarios(args: {
   trace?: LLMTrace | null;
-  /** Additional live UI-message streams to merge with the persisted trace. */
+  /** Additional live UI-message streams to merge with the supplied trace. */
   extraMessages?: UIMessage[];
-}): BaselineReportScenario[] {
+}): SimulationScenario[] {
   const { trace, extraMessages } = args;
 
   const simulations = new Map<string, RawSimulation>();

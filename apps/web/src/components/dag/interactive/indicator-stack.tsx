@@ -1,13 +1,13 @@
 "use client";
 
-import type { Indicator } from "@nof1-causal-lab/api-types";
+import type { IndicatorSpec } from "@nof1-causal-lab/api-types";
 import { DAG_COLORS } from "../core/palette";
 import { CARD_H, CARD_W, IGAP, ISTACK_TOP, MINI_H } from "./build-cone-graph";
 
 const MINI_W = CARD_W - 12;
 
 /** Static measurement channels declared by the backend measurement artifact. */
-export function IndicatorStack({ indicators }: { indicators: Indicator[] }) {
+export function IndicatorStack({ indicators }: { indicators: IndicatorSpec[] }) {
   if (indicators.length === 0) return null;
   return (
     <>

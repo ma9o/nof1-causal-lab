@@ -1,7 +1,7 @@
 "use client";
 
 import type {
-  Indicator,
+  IndicatorSpec,
   JsonObject,
   LOODiagnostics,
   PosteriorMarginal,
@@ -26,7 +26,7 @@ import { formatNumber } from "@/lib/utils/format";
 import { PPCWarningsTable } from "./ppc-warnings-table";
 
 interface DiagnosticsAccordionProps {
-  indicators: Indicator[];
+  indicators: IndicatorSpec[];
   ppc?: PosteriorPredictiveChecks | null;
   inferenceDiagnostics?: JsonObject;
   looDiagnostics?: LOODiagnostics | null;

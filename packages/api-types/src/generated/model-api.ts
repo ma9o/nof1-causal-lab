@@ -173,18 +173,8 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /**
-         * AdmissionReport
-         * @description Prior research and admission findings pinned to the model that was checked.
-         */
-        AdmissionReport: Domain.AdmissionReport;
         /** @enum {string} */
         AggregationFunction: Domain.AggregationFunction;
-        /**
-         * AnchorCertificate
-         * @description Compiler proof that one retained latent has location and scale anchors.
-         */
-        AnchorCertificate: Domain.AnchorCertificate;
         /** ArtifactFreshness */
         ArtifactFreshness: Domain.ArtifactFreshness;
         /** @enum {string} */
@@ -211,13 +201,6 @@ export interface components {
          */
         ArtifactViewResponse: Domain.ArtifactViewResponse;
         /**
-         * BaselineReportArtifact
-         * @description A baseline report collects treatment effects and explicitly retained simulations from the fitted model.
-         */
-        BaselineReportArtifact: Domain.BaselineReportArtifact;
-        /** BaselineReportVisualization */
-        BaselineReportVisualization: Domain.BaselineReportVisualization;
-        /**
          * BinaryExpression
          * @description A supported scalar operation composing two expressions.
          */
@@ -240,39 +223,22 @@ export interface components {
          */
         "CallExpression-Output": Domain.CallExpression;
         /**
-         * CausalEdge
-         * @description A causal edge declares a directed causal relationship between two constructs.
+         * CausalEdgeSpec
+         * @description A specification of a directed causal relationship between two constructs.
          */
-        "CausalEdge-Input": Domain.CausalEdge;
+        "CausalEdgeSpec-Input": Domain.CausalEdgeSpec;
         /**
-         * CausalEdge
-         * @description A causal edge declares a directed causal relationship between two constructs.
+         * CausalEdgeSpec
+         * @description A specification of a directed causal relationship between two constructs.
          */
-        "CausalEdge-Output": Domain.CausalEdge;
-        "Coefficient-Input": Domain.Coefficient;
-        "Coefficient-Output": Domain.Coefficient;
+        "CausalEdgeSpec-Output": Domain.CausalEdgeSpec;
         /**
          * CoefficientExpression
          * @description A scientifically typed coefficient operand, literal or parameter reference.
          */
-        "CoefficientExpression-Input": Domain.CoefficientExpression;
-        /**
-         * CoefficientExpression
-         * @description A scientifically typed coefficient operand, literal or parameter reference.
-         */
-        "CoefficientExpression-Output": Domain.CoefficientExpression;
+        CoefficientExpression: Domain.CoefficientExpression;
         /** @enum {string} */
         CoefficientRole: Domain.CoefficientRole;
-        /**
-         * Construct
-         * @description A construct represents a theoretical entity in the scientific causal model.
-         */
-        "Construct-Input": Domain.Construct;
-        /**
-         * Construct
-         * @description A construct represents a theoretical entity in the scientific causal model.
-         */
-        "Construct-Output": Domain.Construct;
         ConstructId: Domain.ConstructId;
         /**
          * ConstructRef
@@ -280,25 +246,37 @@ export interface components {
          *     revision.
          */
         ConstructRef: Domain.ConstructRef;
-        "ConstructUsage-Input": Domain.ConstructUsage;
-        "ConstructUsage-Output": Domain.ConstructUsage;
+        /**
+         * ConstructSpec
+         * @description A specification of a theoretical entity in the scientific causal model.
+         */
+        "ConstructSpec-Input": Domain.ConstructSpec;
+        /**
+         * ConstructSpec
+         * @description A specification of a theoretical entity in the scientific causal model.
+         */
+        "ConstructSpec-Output": Domain.ConstructSpec;
         /**
          * DensityPoint
          * @description A plotting coordinate evaluated from the native prior's log density.
          */
         DensityPoint: Domain.DensityPoint;
-        /** @description A shared native law whose membership is defined by the model's scientific quantities. */
+        /** @description A native law whose membership is defined by the model's scientific quantities. */
         DistributionId: Domain.DistributionId;
         /**
-         * DynamicsMechanism
-         * @description An additive drift term or node potential whose negative gradient enters the drift.
+         * DynamicsMechanismSpec
+         * @description A symbolic specification of an additive drift term or a node potential.
+         *
+         *     A node potential contributes its negative gradient to the drift.
          */
-        "DynamicsMechanism-Input": Domain.DynamicsMechanism;
+        "DynamicsMechanismSpec-Input": Domain.DynamicsMechanismSpec;
         /**
-         * DynamicsMechanism
-         * @description An additive drift term or node potential whose negative gradient enters the drift.
+         * DynamicsMechanismSpec
+         * @description A symbolic specification of an additive drift term or a node potential.
+         *
+         *     A node potential contributes its negative gradient to the drift.
          */
-        "DynamicsMechanism-Output": Domain.DynamicsMechanism;
+        "DynamicsMechanismSpec-Output": Domain.DynamicsMechanismSpec;
         EdgeId: Domain.EdgeId;
         /**
          * EdgeRef
@@ -306,17 +284,6 @@ export interface components {
          *     definition.
          */
         EdgeRef: Domain.EdgeRef;
-        /**
-         * EffectSummary
-         * @description An effect summary reports posterior location, uncertainty, and sign probability.
-         */
-        EffectSummary: Domain.EffectSummary;
-        /**
-         * EffectTrajectoryPoint
-         * @description An effect trajectory point records a causal delta at one elapsed rollout time.
-         */
-        EffectTrajectoryPoint: Domain.EffectTrajectoryPoint;
-        EntityRef: Domain.EntityRef;
         /**
          * EpisodeState
          * @description Episode state identifies the artifact versions currently selected by the transition
@@ -327,11 +294,6 @@ export interface components {
          *     or produced-when-nonempty semantics withheld it).
          */
         EpisodeState: Domain.EpisodeState;
-        /**
-         * ExecutionReadiness
-         * @description Current model requirements and latent anchors, computed without a stored receipt.
-         */
-        ExecutionReadiness: Domain.ExecutionReadiness;
         "Expression-Input": Domain.Expression;
         "Expression-Output": Domain.Expression;
         /** @enum {string} */
@@ -346,11 +308,6 @@ export interface components {
          * @description A fit read contains the inference log report and server-composed display findings.
          */
         FitSummary: Domain.FitSummary;
-        /**
-         * FixedCoefficient
-         * @description A coefficient held at a specified value on the continuous-time model scale.
-         */
-        FixedCoefficient: Domain.FixedCoefficient;
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -362,11 +319,6 @@ export interface components {
          */
         HistogramBin: Domain.HistogramBin;
         /**
-         * IdentifiabilityStatus
-         * @description Status of causal effect identifiability.
-         */
-        IdentifiabilityStatus: Domain.IdentifiabilityStatus;
-        /**
          * IdentificationReport
          * @description Positive and negative causal identification findings for the model's default query.
          */
@@ -376,16 +328,6 @@ export interface components {
          * @description Details on how a treatment effect is identified.
          */
         IdentifiedTreatmentStatus: Domain.IdentifiedTreatmentStatus;
-        /**
-         * Indicator
-         * @description An indicator defines an observed measurement of a construct and how to extract it.
-         */
-        "Indicator-Input": Domain.Indicator;
-        /**
-         * Indicator
-         * @description An indicator defines an observed measurement of a construct and how to extract it.
-         */
-        "Indicator-Output": Domain.Indicator;
         /**
          * IndicatorAudit
          * @description An indicator audit combines its empirical data profile with the results of validation
@@ -413,11 +355,15 @@ export interface components {
          */
         IndicatorRef: Domain.IndicatorRef;
         /**
-         * IndicatorValidation
-         * @description Indicator validation records the outcomes and issues from checks on one extracted
-         *     indicator.
+         * IndicatorSpec
+         * @description A specification of a construct's observed measurement and how to extract it.
          */
-        IndicatorValidation: Domain.IndicatorValidation;
+        "IndicatorSpec-Input": Domain.IndicatorSpec;
+        /**
+         * IndicatorSpec
+         * @description A specification of a construct's observed measurement and how to extract it.
+         */
+        "IndicatorSpec-Output": Domain.IndicatorSpec;
         /**
          * InferenceMetadata
          * @description Inference metadata records the sampling method, sample count, and run duration.
@@ -428,26 +374,6 @@ export interface components {
          * @description Display findings recorded by an inference transition, separate from ModelSpec.
          */
         InferenceReport: Domain.InferenceReport;
-        /**
-         * InitialStateSpec
-         * @description Initial location, marginal scale and correlations, including shared baseline factors.
-         */
-        "InitialStateSpec-Input": Domain.InitialStateSpec;
-        /**
-         * InitialStateSpec
-         * @description Initial location, marginal scale and correlations, including shared baseline factors.
-         */
-        "InitialStateSpec-Output": Domain.InitialStateSpec;
-        /**
-         * InnovationSpec
-         * @description Continuous-time driving noise, including conditional loadings from common causes.
-         */
-        "InnovationSpec-Input": Domain.InnovationSpec;
-        /**
-         * InnovationSpec
-         * @description Continuous-time driving noise, including conditional loadings from common causes.
-         */
-        "InnovationSpec-Output": Domain.InnovationSpec;
         "JsonArray-Input": Domain.JsonArray;
         "JsonArray-Output": Domain.JsonArray;
         "JsonObject-Input": Domain.JsonObject;
@@ -455,11 +381,6 @@ export interface components {
         JsonScalar: Domain.JsonScalar;
         "JsonValue-Input": Domain.JsonValue;
         "JsonValue-Output": Domain.JsonValue;
-        /**
-         * KnownInput
-         * @description An observed-input declaration binds a construct to its measured driver trajectory.
-         */
-        KnownInput: Domain.KnownInput;
         /**
          * LOODiagnostics
          * @description Leave-one-out diagnostics assess predictive fit and the reliability of its cross-
@@ -504,13 +425,8 @@ export interface components {
         MeasurementsData: Domain.MeasurementsData;
         MechanismId: Domain.MechanismId;
         /**
-         * MechanismRef
-         * @description A particular additive term, independently of its position or coefficient values.
-         */
-        MechanismRef: Domain.MechanismRef;
-        /**
          * ModelData
-         * @description ModelSpec data pairs the causal question and observed evidence with their source versions.
+         * @description Observed evidence paired with its source versions.
          */
         ModelData: Domain.ModelData;
         /**
@@ -524,28 +440,18 @@ export interface components {
          */
         ModelFindings: Domain.ModelFindings;
         /**
-         * ModelRef
-         * @description A model reference identifies the workspace that owns the scientific model.
-         */
-        ModelRef: Domain.ModelRef;
-        /**
-         * ModelRevision
-         * @description The workspace and version of the scientific design supporting an inference.
-         */
-        ModelRevision: Domain.ModelRevision;
-        /**
          * ModelSnapshot
          * @description The canonical scientific definition with independently sourced inputs and findings.
          */
         ModelSnapshot: Domain.ModelSnapshot;
         /**
          * ModelSpec
-         * @description One connected causal graph whose endpoints and relationships gain scientific detail.
+         * @description An evolving research question and connected causal graph with owned scientific detail.
          */
         "ModelSpec-Input": Domain.ModelSpec;
         /**
          * ModelSpec
-         * @description One connected causal graph whose endpoints and relationships gain scientific detail.
+         * @description An evolving research question and connected causal graph with owned scientific detail.
          */
         "ModelSpec-Output": Domain.ModelSpec;
         /** ModelUpdateBody */
@@ -562,15 +468,15 @@ export interface components {
         "NumPyroDistribution-Input": Domain.NumPyroDistribution;
         "NumPyroDistribution-Output": Domain.NumPyroDistribution;
         /**
-         * ObservationLaw
-         * @description A native probability constructor applied to model-dependent expressions.
+         * ObservationLawSpec
+         * @description A symbolic specification of an indicator's conditional observation distribution.
          */
-        "ObservationLaw-Input": Domain.ObservationLaw;
+        "ObservationLawSpec-Input": Domain.ObservationLawSpec;
         /**
-         * ObservationLaw
-         * @description A native probability constructor applied to model-dependent expressions.
+         * ObservationLawSpec
+         * @description A symbolic specification of an indicator's conditional observation distribution.
          */
-        "ObservationLaw-Output": Domain.ObservationLaw;
+        "ObservationLawSpec-Output": Domain.ObservationLawSpec;
         /**
          * ObservationRecord
          * @description Canonical serialized extraction observation row.
@@ -601,11 +507,6 @@ export interface components {
          *     dependence, or variance check.
          */
         PPCWarning: Domain.PPCWarning;
-        /**
-         * ParameterCoefficient
-         * @description A slot referencing a scientific parameter, whether fixed or estimated.
-         */
-        ParameterCoefficient: Domain.ParameterCoefficient;
         ParameterElementId: Domain.ParameterElementId;
         ParameterId: Domain.ParameterId;
         /**
@@ -617,17 +518,7 @@ export interface components {
          * ParameterSpec
          * @description A named quantity's current uncertainty; component slots define its meaning.
          */
-        "ParameterSpec-Input": Domain.ParameterSpec;
-        /**
-         * ParameterSpec
-         * @description A named quantity's current uncertainty; component slots define its meaning.
-         */
-        "ParameterSpec-Output": Domain.ParameterSpec;
-        /**
-         * PosteriorAssessment
-         * @description Predictive assessments of a fitted posterior.
-         */
-        PosteriorAssessment: Domain.PosteriorAssessment;
+        ParameterSpec: Domain.ParameterSpec;
         /**
          * PosteriorEstimate
          * @description A posterior estimate reports a mean and a credible interval with explicit semantics.
@@ -651,16 +542,16 @@ export interface components {
         PosteriorPredictiveChecks: Domain.PosteriorPredictiveChecks;
         /**
          * PriorPredictiveDiagnostic
-         * @description A prior predictive diagnostic records the result of one exact model-admission check.
+         * @description A measured prior-predictive check and its evaluation criteria.
          */
         PriorPredictiveDiagnostic: Domain.PriorPredictiveDiagnostic;
+        /**
+         * PriorPredictiveResult
+         * @description Simulated observations and checks recorded by a model-authoring operation.
+         */
+        PriorPredictiveResult: Domain.PriorPredictiveResult;
         /** @enum {string} */
         Provenance: Domain.Provenance;
-        /**
-         * QuestionArtifact
-         * @description A research question states the observational causal question under investigation.
-         */
-        QuestionArtifact: Domain.QuestionArtifact;
         /**
          * RawDataColumnDescription
          * @description A stored column's physical type and authored interpretation.
@@ -684,46 +575,6 @@ export interface components {
          */
         Role: Domain.Role;
         /**
-         * ScenarioClamp
-         * @description A do-operator on one latent variable over a time window.
-         *
-         *     The window is ``[from_day, to_day)`` in days relative to the rollout start; outside
-         *     the window the variable evolves under its natural dynamics. ``set`` pins to an absolute
-         *     value, ``shift`` adds an amount to the variable's start-state value, ``ramp`` linearly
-         *     interpolates across the window, and ``trajectory`` tracks a list of values across it.
-         */
-        ScenarioClamp: Domain.ScenarioClamp;
-        /** ScenarioQueryInput */
-        ScenarioQueryInput: Domain.ScenarioQueryInput;
-        /**
-         * ScenarioRequest
-         * @description One reusable request for an on-demand simulation of a fitted model.
-         */
-        ScenarioRequest: Domain.ScenarioRequest;
-        /**
-         * ScenarioStartInput
-         * @description Where the forward rollout begins (replaces the rung-2/rung-3 split).
-         */
-        ScenarioStartInput: Domain.ScenarioStartInput;
-        /**
-         * ScientificOnlyConstruct
-         * @description A scientific-only declaration excludes an identified construct from executable states.
-         */
-        ScientificOnlyConstruct: Domain.ScientificOnlyConstruct;
-        /**
-         * SimulationProvenance
-         * @description The retained fit and actual numerical settings used by this response.
-         */
-        SimulationProvenance: Domain.SimulationProvenance;
-        /**
-         * SimulationResult
-         * @description Ephemeral response, retained only when explicitly included in a report.
-         *
-         *     This engine integrates the true nonlinear drift for each posterior draw.
-         *     It does not include future process noise or claim the mean of the SDE.
-         */
-        SimulationResult: Domain.SimulationResult;
-        /**
          * SnapshotContext
          * @description A snapshot context identifies the selected journal revision and its artifact versions.
          */
@@ -734,21 +585,6 @@ export interface components {
          * @enum {string}
          */
         SourceValidity: Domain.SourceValidity;
-        /** Sourced[AdmissionReport] */
-        Sourced_AdmissionReport_: {
-            value: components["schemas"]["AdmissionReport"];
-            source: components["schemas"]["FactSource"];
-        };
-        /** Sourced[BaselineReportArtifact] */
-        Sourced_BaselineReportArtifact_: {
-            value: components["schemas"]["BaselineReportArtifact"];
-            source: components["schemas"]["FactSource"];
-        };
-        /** Sourced[ExecutionReadiness] */
-        Sourced_ExecutionReadiness_: {
-            value: components["schemas"]["ExecutionReadiness"];
-            source: components["schemas"]["FactSource"];
-        };
         /** Sourced[FitSummary] */
         Sourced_FitSummary_: {
             value: components["schemas"]["FitSummary"];
@@ -774,9 +610,9 @@ export interface components {
             value: components["schemas"]["ModelSpec-Output"];
             source: components["schemas"]["FactSource"];
         };
-        /** Sourced[QuestionArtifact] */
-        Sourced_QuestionArtifact_: {
-            value: components["schemas"]["QuestionArtifact"];
+        /** Sourced[PriorPredictiveResult] */
+        Sourced_PriorPredictiveResult_: {
+            value: components["schemas"]["PriorPredictiveResult"];
             source: components["schemas"]["FactSource"];
         };
         /** Sourced[RawDataData] */
@@ -795,16 +631,6 @@ export interface components {
             value: components["schemas"]["StructuralItemDisposition"][];
             source: components["schemas"]["FactSource"];
         };
-        /**
-         * StateCoupling
-         * @description A coefficient connecting an owned component to another construct.
-         */
-        "StateCoupling-Input": Domain.StateCoupling;
-        /**
-         * StateCoupling
-         * @description A coefficient connecting an owned component to another construct.
-         */
-        "StateCoupling-Output": Domain.StateCoupling;
         /**
          * StateEquation
          * @description A continuous-time state equation rendered from declared scientific mechanisms.
@@ -829,11 +655,6 @@ export interface components {
          */
         StructuralItemDisposition: Domain.StructuralItemDisposition;
         /**
-         * TemporalEffect
-         * @description A temporal effect summarizes a trajectory at requested horizons and its absolute peak.
-         */
-        TemporalEffect: Domain.TemporalEffect;
-        /**
          * TemporalStatus
          * @description Temporal status states whether a construct varies within the individual over time.
          * @enum {string}
@@ -844,12 +665,6 @@ export interface components {
          * @description An immutable entry in the workspace transition journal.
          */
         TransitionRef: Domain.TransitionRef;
-        /**
-         * TreatmentEffect
-         * @description A treatment effect stores posterior effect draws and optional temporal or observed-scale
-         *     summaries.
-         */
-        TreatmentEffect: Domain.TreatmentEffect;
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -1039,7 +854,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Construct-Output"][];
+                    "application/json": components["schemas"]["ConstructSpec-Output"][];
                 };
             };
             /** @description Validation Error */
@@ -1072,7 +887,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CausalEdge-Output"][];
+                    "application/json": components["schemas"]["CausalEdgeSpec-Output"][];
                 };
             };
             /** @description Validation Error */
@@ -1105,7 +920,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Indicator-Output"][];
+                    "application/json": components["schemas"]["IndicatorSpec-Output"][];
                 };
             };
             /** @description Validation Error */
@@ -1138,7 +953,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ParameterSpec-Output"][];
+                    "application/json": components["schemas"]["ParameterSpec"][];
                 };
             };
             /** @description Validation Error */
