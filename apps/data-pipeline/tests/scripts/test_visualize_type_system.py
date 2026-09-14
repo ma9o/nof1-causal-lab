@@ -5,7 +5,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from scripts.visualize_type_system import build_type_graph, compact_graph, graph_dot, select_view
+from scripts.visualize_type_system import (
+    build_type_graph,
+    compact_graph,
+    graph_dot,
+    select_view,
+    with_entity_references,
+)
 
 if TYPE_CHECKING:
     from nof1_causal_lab.json_types import JsonObject
@@ -253,3 +259,53 @@ def test_artifact_view_uses_registered_payloads_and_machine_view_marks_its_bound
     semantic = select_view(graph, "semantic")
     assert semantic.graph["roots"] == {"ModelSnapshot"}
     assert not {"Response", "RunOperation", "IdentificationReport"} & semantic.nodes
+
+
+def test_entity_identity_links_survive_compaction_and_follow_typed_reference_paths(
+    projection_schema,
+):
+    definitions = projection_schema["$defs"]
+    definitions["ConstructSpec"] = {
+        "description": "A construct declares its scientific identity.",
+        "type": "object",
+        "x-layer": "authored",
+        "x-concern": "scientific_model",
+        "properties": {"id": {"$ref": "#/$defs/ConstructId"}},
+    }
+    definitions["ConstructRef"] = {
+        "description": "A reference names its target construct.",
+        "type": "object",
+        "x-layer": "identity",
+        "x-concern": "identity",
+        "properties": {
+            "kind": {"const": "construct", "type": "string"},
+            "id": {"$ref": "#/$defs/ConstructId"},
+        },
+    }
+    definitions["ModelSnapshot"]["properties"]["targets"] = {
+        "type": "array",
+        "items": {"$ref": "#/$defs/ConstructRef"},
+    }
+    definitions["Sourced_Record_"]["properties"]["value"] = {"$ref": "#/$defs/ConstructRef"}
+
+    declared = build_type_graph(projection_schema)
+    relationships = with_entity_references(declared)
+    semantic = select_view(relationships, "semantic")
+    compact = compact_graph(semantic)
+
+    assert "ConstructSpec" in semantic
+    assert not {"ConstructRef", "ConstructId", "Sourced_Record_"} & compact.nodes
+    assert not declared.has_edge("Record", "ConstructSpec")
+    assert not relationships.has_edge("ConstructSpec", "ConstructSpec")
+    assert compact.edges["Record", "ConstructSpec"]["reference_fields"] == {"id"}
+    assert compact.edges["ModelSnapshot", "ConstructSpec"]["reference_fields"] == {
+        "lookup{key}",
+        "nullable_id",
+        "targets[].id",
+        "estimate.value.id",
+        "alternatives[].value.id",
+    }
+    assert "targets: list<ConstructRef>" in compact.nodes["ModelSnapshot"]["annotations"]
+    dot = graph_dot(compact, "Types")
+    assert "Green dotted: entity reference by ID" in dot
+    assert 'style=dotted, color="#0f766e"' in dot

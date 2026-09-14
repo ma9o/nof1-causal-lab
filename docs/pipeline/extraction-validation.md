@@ -35,7 +35,7 @@ flowchart LR
 | `timestamps` | Observation-time parsing | error if 100% invalid; warning if >50% | fraction of `anchor_time` values that fail all ten timestamp formats |
 | `sample_size` | Minimum observation count | warning | < 10 observations |
 | `variance` | Zero-variance detection | error | variance = 0 (constant series) |
-| `dtype_range` | Values conform to declared [`measurement_dtype`](measurement-structure.md#indicator) | error for binary/count violations; warning for continuous outliers | see dtype-range details below |
+| `dtype_range` | Values conform to declared [`measurement_dtype`](measurement-structure.md#indicatorspec) | error for binary/count violations; warning for continuous outliers | see dtype-range details below |
 | `time_coverage` | Data span relative to model clock | warning | time span < 10 × `measurement_clock` hours; skipped for time-invariant constructs |
 | `timestamp_gaps` | Largest consecutive gap | warning | max gap > 5 × `measurement_clock` hours; skipped for time-invariant constructs |
 | `hallucination_signals` | Patterns suspicious of LLM fabrication: dominant duplicate values (non-binary, non-count) and perfect arithmetic sequences | warning | >50% duplicate concentration, or all sorted diffs identical with non-zero step (≥5 observations) |
@@ -62,17 +62,17 @@ For a study tracking developer productivity where `measurements` transition extr
 
 ## Outputs
 
-| Output | Type | Description |
-|---|---|---|
-| `is_valid` | `bool` | `true` if no error-severity issues exist across all indicators and dataset checks |
-| `indicators` | `dict[IndicatorId, IndicatorAudit]` | Keyed by persistent indicator ID; each entry bundles the [empirical profile](#empiricalprofile) and validation findings |
-| `dataset_issues` | `list[ValidationIssue]` | Issues not attributable to a single indicator (e.g., negative cross-indicator correlations) |
+| Field | Description |
+|---|---|
+| `is_valid` | `true` if no error-severity issues exist across all indicators and dataset checks |
+| `indicators` | Keyed by persistent indicator ID; each entry has an optional [empirical `profile`](#empiricalprofile), an `issues` list, and a `checks` map of metric names to `ok`, `warning`, or `error` |
+| `dataset_issues` | [Issues](#validationissue) not attributable to a single indicator (e.g., negative cross-indicator correlations) |
 
 ### `ValidationIssue`
 
 | Field | Type | Description |
 |---|---|---|
-| `subject` | `EntityRef` ∣ `null` | Explicit indicator or construct owner; null for a dataset-wide issue |
+| `indicator_id` | `IndicatorId` ∣ `null` | Affected indicator; null for dataset issues, including correlations across indicators |
 | `severity` | `str` | Issue severity |
 | `issue_type` | `str` | Validation rule identifier |
 | `message` | `str` | Explanation of the finding |

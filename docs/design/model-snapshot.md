@@ -6,11 +6,11 @@ The reader loads the journal once and reads the artifact versions selected by th
 
 ## Identity and Ownership
 
-The canonical [ModelSpec](../pipeline/latent-structure.md#modelspec) owns constructs, causal edges, parameters, the measurement clock, shared distributions, and trajectory time points. Constructs own [indicators](../pipeline/measurement-structure.md#indicator), intrinsic dynamics, and usage choices. Indicators own their likelihood. Edges own an additive collection of [mechanisms](../pipeline/statistical-model-spec.md#dynamicsmechanism).
+The canonical [ModelSpec](../pipeline/latent-structure.md#modelspec) owns the research question, constructs, causal edges, parameters, the measurement clock, shared distributions, and trajectory time points. Constructs own [indicators](../pipeline/measurement-structure.md#indicatorspec), intrinsic dynamics, and usage choices. Indicators own their likelihood. Edges own an additive collection of [mechanisms](../pipeline/statistical-model-spec.md#dynamicsmechanismspec).
 
 Preserve an entity's ID while enriching or renaming it. A mechanism also retains its ID when reordered among other terms. Estimated coefficients reference scientific parameters whose owners include that mechanism. Fixed coefficients stay on their mechanism.
 
-The compiler binds these identities to execution coordinates. It does not duplicate scientific definitions in a semantic catalog. Execution readiness is derived directly from the selected Model revision. It cannot retain an earlier revision’s approval after an edit.
+The compiler binds these identities to execution coordinates. It does not duplicate scientific definitions in a semantic catalog. Numerical operations [validate the selected definition](../reference/compilation.md) and their actual inputs when preparing execution. Snapshot reads preserve partial authoring values without running those execution checks.
 
 ## Read Contract
 
@@ -20,11 +20,11 @@ The compiler binds these identities to execution coordinates. It does not duplic
 |---|---|
 | `model` | Optional `Sourced[ModelSpec]`, directly reusing the current scientific hierarchy |
 | `context` | Workspace, selected journal sequence, artifact state, freshness, installation positions, retractions, and backend simulation availability |
-| `data` | Independently sourced question, uploaded table profile, and extracted measurements |
-| `findings` | Identification, structural dispositions, validation, admission, fit summaries, and baseline results |
-| `findings.execution` | Unmet execution requirements or anchor certificates, sourced to the selected Model |
+| `data` | Independently sourced uploaded table profile and extracted measurements |
+| `findings` | Identification, structural dispositions, validation, prior-predictive results, and fit summaries |
+| `findings.prior_predictive` | [Prior-predictive samples and checks](../pipeline/statistical-model-spec.md#priorpredictiveresult), sourced to the model-authoring journal record and checked against its model and data inputs |
 
-Each optional sourced value carries an artifact or transition-log reference, JSON pointer, and freshness. The default outcome is `model.value.default_outcome`; an indicator's likelihood is on the defining `cause` or `effect` endpoint under `model.value.edges[i]`, then `indicators[j].likelihood`. Sampler diagnostics are under `findings.fit.value.report.inference_diagnostics`; predictive checks are under `findings.fit.value.report.assessment`.
+Each optional sourced value carries an artifact or transition-log reference, JSON pointer, and freshness. `context.workspace_id` identifies the workspace; `context.seq` selects its journal state. Model artifact versions remain distinct from journal sequences. The research question is `model.value.question`, including in a question-only initial revision. The default outcome ID is `model.value.default_outcome`; an indicator's likelihood is on the defining `cause` or `effect` endpoint under `model.value.edges[i]`, then `indicators[j].likelihood`. Sampler diagnostics are under `findings.fit.value.report.inference_diagnostics`; [predictive checks and held-out evaluation](../pipeline/inference.md#inferencereport) are under `findings.fit.value.report.ppc` and `findings.fit.value.report.loo_diagnostics`.
 
 The model version and journal sequence are different identities. A model write increments the former; any journaled attempt advances the latter. Use `context.seq` to coordinate several reads of the same committed episode.
 
@@ -34,9 +34,9 @@ The model version and journal sequence are different identities. A model write i
 |---|---|
 | `/definition` | Optional `Sourced[ModelSpec]` |
 | `/inference-report` | Optional `Sourced[InferenceReport]` from the transition log |
-| `/constructs` | `Construct[]`, derived from unique graph endpoints |
-| `/edges` | `CausalEdge[]` |
-| `/indicators` | `Indicator[]`, obtained from construct ownership |
+| `/constructs` | `ConstructSpec[]`, derived from unique graph endpoints |
+| `/edges` | `CausalEdgeSpec[]` |
+| `/indicators` | `IndicatorSpec[]`, obtained from construct ownership |
 | `/parameters` | `ParameterSpec[]` |
 
 Every accessor accepts `at_seq`. Collection reads do not construct batch views. Python accessors return the canonical objects; generated TypeScript consumes their serialized schema directly. The Next.js server forwards these typed HTTP reads.
@@ -47,7 +47,7 @@ Scientific parameters carry a native NumPyro distribution or a reference to a sh
 
 The compiler declares category contrasts and ordinal cutpoints from category labels. Padded tensor coordinates are execution details. A scalar identity survives an execution-axis reorder; a Cholesky component includes its ordered basis because changing that basis changes the represented quantity.
 
-Freshness follows each consumer's [actual Model inputs](../../apps/data-pipeline/src/nof1_causal_lab/models/model_inputs.py). A distribution edit preserves extraction, identification, and structural compilation inputs while invalidating inference-dependent findings. Labels can affect a consumer's input when it uses those labels. Original artifact pins are retained when a result is reusable.
+Freshness follows each consumer's [actual Model inputs](../../apps/data-pipeline/src/nof1_causal_lab/models/model_inputs.py). A question edit invalidates extraction, whose LLM workers consume the text, while preserving numerical compilation and identification inputs. Refitting and prior authoring recover the original unconditioned law through model ancestry and retain the selected revision’s question, so an intervening question edit cannot turn a posterior into a fresh prior. A distribution edit preserves extraction, identification, and structural compilation inputs while invalidating inference-dependent findings. Labels can affect a consumer's input when it uses those labels. Original artifact pins are retained when a result is reusable.
 
 Stale results remain available for inspection with their source marked stale. Current graph estimates and parameter attachments require fresh observational inputs and compatible structural findings. Inference freshness follows its scientific Model and panel inputs. Invalidation does not fit or simulate a replacement. A persistence prior converted to decay remains an exact transformed law; a posterior decay mean is not presented as a persistence mean.
 

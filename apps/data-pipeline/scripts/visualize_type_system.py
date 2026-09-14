@@ -1,13 +1,16 @@
-"""Render the exported backend type dependency graph as Graphviz DOT and SVG.
+"""Analyze exported backend types and refresh their Graphviz DOT and SVG map.
 
-Run from the repository root with ``bun run types:graph`` for the compact map.
+Run ``bun run types:graph`` from the repository root for four advisory reports
+and a refreshed compact map. The complete report is saved beside the SVG as
+``*.analysis.md``; ``--limit 0`` prints every candidate (default: five per report).
 Use ``--view semantic``, ``--view artifacts``, or ``--view machine`` to focus on
 one interface. ``--detail full`` keeps every type and its opening role sentence;
 ``--root TypeName`` follows any individual type's dependencies.
 The scientific model groups data, model choices, checks, inference, and analysis.
 Colors describe conceptual roles. Cross-group references do not set layout ranks.
 Red borders and titles highlight central domain objects; hover for their role.
-Edges mean "has a field referencing this type", not causal relationships.
+Edges distinguish field types from entity references carried by nominal IDs.
+They describe data relationships, not causal relationships.
 Requires the Graphviz ``dot`` executable.
 """
 
@@ -17,6 +20,7 @@ import argparse
 import json
 import re
 import subprocess
+from functools import partial
 from html import escape
 from pathlib import Path
 from textwrap import wrap
@@ -28,11 +32,10 @@ from scripts.type_system_catalog import (
     CONCERNS,
     CORE_DOMAIN_OBJECTS,
     LAYERS,
-    SCIENTIFIC_MODEL_GROUPS,
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
     from nof1_causal_lab.json_types import JsonObject, JsonValue
 
@@ -143,6 +146,55 @@ def _dependency_closure(graph: nx.DiGraph, roots: set[str]) -> nx.DiGraph:
     return selected
 
 
+def with_entity_references(graph: nx.DiGraph) -> nx.DiGraph:
+    """Resolve nominal IDs to the authored entities declaring those primary keys.
+
+    The schema graph stays unchanged for analysis. Display edges retain the
+    referring field paths and distinguish identity from value containment.
+    """
+    owners: dict[str, str] = {}
+    for name, data in graph.nodes(data=True):
+        primary_key = data["schema"].get("properties", {}).get("id")
+        if data["layer"] != "authored" or not isinstance(primary_key, dict):
+            continue
+        identities = _references(primary_key)
+        if len(identities) != 1:
+            continue
+        identity = next(iter(identities))
+        key = graph.nodes[identity]
+        if key["layer"] != "identity" or key["schema"].get("type") != "string":
+            continue
+        if identity in owners:
+            raise ValueError(f"Identity {identity} has multiple authored owners")
+        owners[identity] = name
+
+    result = graph.copy()
+    references: dict[str, str] = {}
+    for name, data in graph.nodes(data=True):
+        properties = data["schema"].get("properties", {})
+        if data["layer"] != "identity" or set(properties) != {"kind", "id"}:
+            continue
+        identities = _references(properties["id"])
+        if len(identities) == 1 and (identity := next(iter(identities))) in owners:
+            references[name] = owners[identity]
+            result.nodes[name]["identity_target"] = owners[identity]
+
+    for source, data in graph.nodes(data=True):
+        for reference, paths in _reference_paths(data["schema"]).items():
+            if reference in owners:
+                target = owners[reference]
+                labels = {path or "variant" for path in paths if source != target or path != "id"}
+            elif reference in references:
+                target = references[reference]
+                labels = {f"{path or 'variant'}.id" for path in paths}
+            else:
+                continue
+            if labels:
+                previous = result.get_edge_data(source, target, {}).get("reference_fields", set())
+                result.add_edge(source, target, reference_fields=previous | labels)
+    return result
+
+
 def select_view(graph: nx.DiGraph, view: str) -> nx.DiGraph:
     """Select complete dependency closures or the machine's explicit type boundary."""
     if view == "all":
@@ -209,7 +261,7 @@ def _type_label(value: JsonValue, graph: nx.DiGraph) -> str:
 
 
 def compact_graph(graph: nx.DiGraph) -> nx.DiGraph:
-    """Fold vocabulary and Sourced[T] visually, retaining the underlying field paths."""
+    """Fold vocabulary and reference carriers, retaining field and identity paths."""
     roots = graph.graph["roots"]
     vocabulary = {
         name
@@ -225,17 +277,27 @@ def compact_graph(graph: nx.DiGraph) -> nx.DiGraph:
         for name, data in graph.nodes(data=True)
         if name not in roots and not data.get("external") and _is_sourced(data["schema"])
     }
-    folded = vocabulary | wrappers
+    references = {
+        name
+        for name, data in graph.nodes(data=True)
+        if name not in roots and not data.get("external") and data.get("identity_target")
+    }
+    folded = vocabulary | wrappers | references
     compact = graph.subgraph(graph.nodes - folded).copy()
     compact.remove_edges_from(list(compact.edges))
+    for source, target, data in graph.edges(data=True):
+        if source in compact and target in compact and data.get("reference_fields"):
+            compact.add_edge(source, target, reference_fields=data["reference_fields"])
     compact.graph.update(compact=True, folded_types=folded, source_type_count=len(graph))
     for source in compact:
         annotations: set[str] = set()
         notes: set[str] = set()
         definition = graph.nodes[source]["schema"]
         for _, target, data in graph.out_edges(source, data=True):
-            fields = data["fields"]
-            if target in vocabulary or target == "FactSource":
+            fields = data.get("fields", set())
+            if not fields:
+                continue
+            if target in vocabulary | references or target == "FactSource":
                 for field in fields:
                     value = definition if field == "variant" else definition["properties"][field]
                     annotations.add(f"{field}: {_type_label(value, graph)}")
@@ -249,13 +311,13 @@ def compact_graph(graph: nx.DiGraph) -> nx.DiGraph:
                     graph.nodes[target]["schema"]["properties"]["value"], "value"
                 )
                 value_targets = set(value_paths)
-                visible_targets = value_targets - vocabulary
+                visible_targets = value_targets - vocabulary - references
                 parent_paths: set[str] = set()
                 for field in fields:
                     value = definition if field == "variant" else definition["properties"][field]
                     parent_paths.update(_reference_paths(value, field)[target])
                     notes.add(f"{field}: {_type_label(value, graph)}; source: FactSource")
-                    if not visible_targets or value_targets & vocabulary:
+                    if not visible_targets or value_targets & (vocabulary | references):
                         annotations.add(f"{field}: {_type_label(value, graph)}")
                 for value_target in visible_targets:
                     labels = compact.get_edge_data(source, value_target, {}).get(
@@ -269,6 +331,23 @@ def compact_graph(graph: nx.DiGraph) -> nx.DiGraph:
                             f"{parent}.{child}"
                             for parent in parent_paths
                             for child in value_paths[value_target]
+                        },
+                    )
+                for _, entity, reference_data in graph.out_edges(target, data=True):
+                    if not reference_data.get("reference_fields"):
+                        continue
+                    labels = compact.get_edge_data(source, entity, {}).get(
+                        "reference_fields", set()
+                    )
+                    compact.add_edge(
+                        source,
+                        entity,
+                        reference_fields=labels
+                        | {
+                            f"{parent}.{child}"
+                            for parent in parent_paths
+                            for child in reference_data["reference_fields"]
+                            if child == "value" or child.startswith(("value.", "value[", "value{"))
                         },
                     )
                 continue
@@ -312,13 +391,14 @@ def graph_dot(graph: nx.DiGraph, title: str) -> str:
         f'    "legend:domain" [label="Core domain object", {CORE_DOMAIN_STYLE}, '
         'tooltip="Red border and title: central scientific objects and their UI projections. Hover over a highlighted type for its semantic role."];'
     )
+    legend = "Solid: field type\nGreen dotted: entity reference by ID"
     if graph.graph.get("compact"):
-        legend = (
-            "Solid: field reference\nDashed: field through Sourced<T>.value\n"
-            "Inline: scalar IDs, enums, FactSource\nSourced<T> carries value + FactSource\n"
-            "Outlined external types are not expanded"
+        legend += (
+            "\nPurple dashed: field through Sourced<T>.value\n"
+            "Inline: scalar IDs, enums, entity refs, FactSource\nSourced<T> carries value + FactSource\n"
         )
-        lines.append(f'    "legend:notation" [label={quote(legend)}, fontsize=10];')
+    legend += "\nOutlined external types are not expanded"
+    lines.append(f'    "legend:notation" [label={quote(legend)}, fontsize=10];')
     lines.append("  }")
     for concern, (label, _) in CONCERNS.items():
         members = sorted(
@@ -334,27 +414,7 @@ def graph_dot(graph: nx.DiGraph, title: str) -> str:
         lines.append(
             f'    graph [label={quote(f"{label} · {count}")}, labeljust=l, fontsize=20, fontcolor="#0f172a", color="#94a3b8", style="rounded,filled", fillcolor="#ffffff", margin=24];'
         )
-        grouped: set[str] = set()
-        if concern == "scientific_model":
-            for group, (group_label, modules) in SCIENTIFIC_MODEL_GROUPS.items():
-                owners = {f"nof1_causal_lab.{module}" for module in modules}
-                group_members = [
-                    name
-                    for name in members
-                    if graph.nodes[name]["schema"].get("x-python-module") in owners
-                ]
-                if not group_members:
-                    continue
-                grouped.update(group_members)
-                layout_groups.update(dict.fromkeys(group_members, f"{concern}/{group}"))
-                lines.append(f"    subgraph cluster_{concern}_{group} {{")
-                lines.append(
-                    f"      graph [label={quote(group_label)}, fontsize=16, "
-                    'color="#e2e8f0", fillcolor="#f8fafc", margin=16];'
-                )
-                lines.extend(f"      {quote(name)};" for name in group_members)
-                lines.append("    }")
-        lines.extend(f"    {quote(name)};" for name in members if name not in grouped)
+        lines.extend(f"    {quote(name)};" for name in members)
         lines.append("  }")
     for name in sorted(graph):
         color = LAYERS[graph.nodes[name]["layer"]][1]
@@ -385,6 +445,10 @@ def graph_dot(graph: nx.DiGraph, title: str) -> str:
         for field_kind, style in (
             ("fields", ""),
             ("sourced_fields", ', style=dashed, color="#7c3aed", fontcolor="#6d28d9"'),
+            (
+                "reference_fields",
+                ', style=dotted, color="#0f766e", fontcolor="#0f766e", arrowhead=vee',
+            ),
         ):
             if data.get(field_kind):
                 label = "\n".join(
@@ -402,9 +466,7 @@ def graph_dot(graph: nx.DiGraph, title: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def main() -> None:
-    from scripts.export_schemas import export_schemas
-
+def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     focus = parser.add_mutually_exclusive_group()
     focus.add_argument("--root", help="Only include this type and its dependencies")
@@ -416,10 +478,30 @@ def main() -> None:
         help="Compact annotations or every exported type (default: compact)",
     )
     parser.add_argument("--output", type=Path, help="Output path stem (without extension)")
-    args = parser.parse_args()
-    graph = build_type_graph(export_schemas(), args.root)
-    if args.root is None:
-        graph = select_view(graph, args.view)
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=5,
+        help="Maximum candidates printed per report; 0 prints all (default: 5). Saved reports are complete.",
+    )
+    args = parser.parse_args(argv)
+    if args.limit < 0:
+        parser.error("--limit must be nonnegative")
+
+    from scripts.export_schemas import export_schemas
+    from scripts.type_system_analysis import analyze_type_graph, render_analysis
+    from scripts.type_system_usage import collect_source_evidence
+
+    full = build_type_graph(export_schemas())
+    relationships = with_entity_references(full)
+    graph = (
+        _dependency_closure(relationships, {args.root})
+        if args.root
+        else select_view(relationships, args.view)
+    )
+    selected = {name for name, data in graph.nodes(data=True) if not data.get("external")}
+    source = collect_source_evidence(full, REPO_ROOT / "apps/data-pipeline/src")
+    reports = analyze_type_graph(full, source, selected)
     if args.detail == "compact":
         graph = compact_graph(graph)
     name = args.root or VIEWS[args.view][1]
@@ -429,17 +511,29 @@ def main() -> None:
     stem.parent.mkdir(parents=True, exist_ok=True)
     dot_path = stem.with_suffix(".dot")
     svg_path = stem.with_suffix(".svg")
+    report_path = stem.with_suffix(".analysis.md")
     scope = args.root or VIEWS[args.view][0]
-    title = f"{scope} · {len(graph)} boxes · {args.detail} field dependencies"
+    title = f"{scope} · {len(graph)} boxes · {args.detail} field and identity relationships"
     dot_path.write_text(graph_dot(graph, title))
     subprocess.run(["dot", "-Tsvg", str(dot_path), "-o", str(svg_path)], check=True)
+    render_report = partial(
+        render_analysis,
+        reports,
+        source=source,
+        type_count=len(full),
+        selected_count=len(selected),
+        scope=scope,
+    )
+    report_path.write_text(render_report())
+    print(render_report(limit=args.limit))
     print(f"{len(graph)} boxes, {graph.number_of_edges()} connections; schema references verified")
     if args.detail == "compact":
         print(
-            f"{len(graph.graph['folded_types'])} of {graph.graph['source_type_count']} types folded into field annotations or sourced edges"
+            f"{len(graph.graph['folded_types'])} of {graph.graph['source_type_count']} types folded into annotations or reference edges"
         )
-    print(svg_path)
-    print(dot_path)
+    print(f"SVG refreshed: {svg_path}")
+    print(f"DOT refreshed: {dot_path}")
+    print(f"Complete analysis: {report_path}")
 
 
 if __name__ == "__main__":

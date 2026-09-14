@@ -30,6 +30,7 @@
     "types:graph": "bun run --cwd apps/data-pipeline types:graph",
 
     "docs:codegen": "bun run docs:distribution && bun run docs:latex",
+    "docs:bayesian-workflow": "uv run --script scripts/prepare_bayesian_workflow.py",
     "docs:check": "bun run --parallel --no-exit-on-error docs:distribution:check docs:latex:check docs:markdown:check docs:spell:check",
     "docs:distribution": "bun run --cwd apps/data-pipeline docs:distribution",
     "docs:distribution:check": "bun run docs:distribution --check",

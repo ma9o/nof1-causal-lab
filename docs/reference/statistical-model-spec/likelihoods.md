@@ -21,9 +21,13 @@ Defines the observation-model vocabulary for [`LikelihoodSpec`](../../pipeline/s
 
 `ordered_cutpoints` starts at the base threshold and cumulatively adds positive gaps in declared ordinal-level order. For two levels, its gap argument is literal zero. `category_logits` prepends the reference category's zero logit to `intercepts + slopes * p`; the indicator supplies category order and the existing anchor rules apply. These structured arguments retain the existing category-specific parameter identities.
 
-`Delta(v=state(x))` declares an exact measurement without a loading, intercept, or noise parameter to author. Its numerical view derives a unit loading and zero intercept. The existing [aggregation and support semantics](../../pipeline/measurement-structure.md#indicator) determine what is exact: a point value for `first`/`last`, or the declared window summary for interval observations. An exact window mean does not force a constant trajectory. Missing observations impose no equality and do not fill gaps or turn the construct into a fixed input.
+`Delta(v=state(x))` declares an exact measurement without a loading, intercept, or noise parameter to author. Its numerical view derives a unit loading and zero intercept. The existing [aggregation and support semantics](../../pipeline/measurement-structure.md#indicatorspec) determine what is exact: a point value for `first`/`last`, or the declared window summary for interval observations. An exact window mean does not force a constant trajectory. Missing observations impose no equality and do not fill gaps or turn the construct into a fixed input.
 
-Delta densities and predictive draws preserve exact equality and zero measurement variance. The current particle backend rejects Delta observations before parameter initialization: its continuous proposals cannot condition on exact equalities. Fitting these laws requires constraint-preserving proposals; replacing Delta with a small Gaussian variance would change the authored model.
+Delta densities and predictive draws preserve exact equality and zero measurement variance. Particle inference supports direct point bindings `Delta(v=state(x))`: observed coordinates are fixed at their recorded times, while missing coordinates remain sampled. Initial-state and transition densities still contribute to parameter inference. The auxiliary proposals and their density corrections operate only on the free coordinates, and sampler movement diagnostics exclude fixed coordinates. Conflicting exact readings of the same state at the same model time are rejected.
+
+The Gaussian approximation used for [sampler initialization](../../pipeline/inference.md) can seed these models, after which the initial path is projected onto the exact observations. All retained particle draws use the original Delta law. Particle inference still rejects affine Delta bindings and interval-summary constraints; their densities and predictive draws are supported, but their trajectory constraints need a different sampler parameterization.
+
+PSIS-LOO is omitted when the fitted data contain exact observations: removing an equality changes the support of the posterior, so adjusting the weights of constrained draws cannot estimate the held-out prediction. Those predictions require refitting or integrating over the state coordinates fixed by the held-out measurements.
 
 The numerical backend derives its family and response from these expressions. It rejects unsupported formulas before fitting. The same declaration supplies displayed equations and parameter references. Earlier family/link/slot records require the explicit offline converter at `apps/data-pipeline/scripts/migrate_likelihood_expressions.py`; runtime schemas accept the conditional law form.
 
@@ -32,7 +36,7 @@ The numerical backend derives its family and response from these expressions. It
 
 ## Dtype-to-Distribution Mapping
 
-Each indicator's [`measurement_dtype`](../../pipeline/measurement-structure.md#indicator) selects the default conditional law. The family and link names below describe its numerical lowering. Where the dtype admits only one valid combination, the likelihood is locked by [component authoring](../../pipeline/statistical-model-spec.md). Where alternatives exist, the LLM chooses via a decision card.
+Each indicator's [`measurement_dtype`](../../pipeline/measurement-structure.md#indicatorspec) selects the default conditional law. The family and link names below describe its numerical lowering. Where the dtype admits only one valid combination, the likelihood is locked by [component authoring](../../pipeline/statistical-model-spec.md). Where alternatives exist, the LLM chooses via a decision card.
 
 | `measurement_dtype` | Default distribution | Link | Alternatives |
 |---|---|---|---|

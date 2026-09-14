@@ -10,15 +10,14 @@ Materializes numeric indicator values from raw data by routing each indicator th
 
 | Input | Source | Description |
 |---|---|---|
-| `question` | User | Original research question—provides temporal and semantic context for LLM workers |
 | `raw_data` | [`raw_data` transition](ingestion.md#outputs) | Ingested Arrow table, converted to Polars for extraction computations |
-| `model` | [`measurement_structure` transition](measurement-structure.md) | [`ModelSpec`](latent-structure.md#modelspec) with indicators and extraction modes |
+| `model` | [`measurement_structure` transition](measurement-structure.md) | [`ModelSpec`](latent-structure.md#modelspec) with its research question, indicators, and extraction modes |
 
 `measurement_structure` transition specified *what* to measure and *how*; `measurements` transition carries out those instructions against the raw data. This is the first point where indicator definitions are evaluated over actual values.
 
 ## Process
 
-Indicators are split by [`extraction_mode`](measurement-structure.md#indicator) and processed concurrently.
+Indicators are split by [`extraction_mode`](measurement-structure.md#indicatorspec) and processed concurrently.
 
 ```mermaid
 flowchart LR

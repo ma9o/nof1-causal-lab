@@ -12,6 +12,8 @@
 
 - Prefer `ast-grep` for code navigation.
 
+- Follow the [type naming conventions](docs/guides/codegen.md#type-naming-conventions): use `...Spec` for declarative model definitions, `...Expression` for formulas, and role-specific names for runtime objects, reports, results, and references.
+
 - After substantive source changes, run `bun run duplicates` and review its advisory candidates. The audit is diff-aware; use `--deep` for a broader search and `--all` only for repository-wide audits.
 
 # Notebooks
@@ -43,7 +45,7 @@
 
 - Budget GPU benchmarks carefully: a B200 on Modal costs $6/hour.
 
-- Never run evals (`inspect eval`) unless explicitly asked. Use `uv run pytest tests/` for testing; avoid `slow` tests unless directly affected.
+- Never run evals (`inspect eval`) unless explicitly asked. Use `uv run pytest tests/` for testing; select specialized concern suites with `-m` when requested or directly affected.
 
 - Before committing, run `bun run --cwd apps/data-pipeline lint`.
 

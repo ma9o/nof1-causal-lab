@@ -27,9 +27,9 @@ The combined `contracts.json` includes all registered JSON artifact payloads, fa
 Graphviz DOT file under `.local/type-system/`. Graphviz must provide `dot`.
 Sections group types by concern; colors identify their roles.
 One **Scientific model** section contains observed data, model specification,
-model checks and compilation, and inference and causal analysis. Internal groups
-keep these readable, with measurement choices alongside dynamics, causal structure,
-and parameters. References between groups remain visible without stretching their layouts.
+model checks and compilation, and inference and causal analysis. Its types share
+one layout without internal subsections, so their references determine placement.
+References between top-level sections remain visible without stretching their layouts.
 
 | Command | View | Output stem |
 |---------|------|-------------|
@@ -45,9 +45,13 @@ The machine view labels external types and leaves their fields unexpanded.
 Compact diagrams put scalar IDs, validated scalar aliases, named enums, and provenance references into
 field annotations. Generic sourced values become annotations or dashed arrows
 through their `.value` fields; their `FactSource` provenance remains explicit.
-Solid arrows represent ordinary field references. Role descriptions and folded
+Solid arrows represent ordinary field types. Green dotted arrows show references
+by identity, resolved from nominal IDs to authored entities that declare those
+IDs as their `id` field. Compact views fold simple entity-reference records into
+these arrows while retaining their types and field paths in annotations and tooltips.
+View selection follows both field and identity relationships. Role descriptions and folded
 field details remain available in tooltips. These are display transformations;
-the exported contracts retain their distinct types.
+the exported contracts and schema analysis retain their distinct types and field dependencies.
 
 Add `--detail full` to retain every type in the selected view and show role
 sentences inside nodes. Detailed output stems end in `-full`. Use `--root TypeName`
@@ -71,14 +75,76 @@ bun run docs:check   # verify documentation drift, Markdown, and spelling
 
 `bun run check` runs both drift checks alongside the repository's lint, type, test, and build tasks.
 
+## Type Naming Conventions
+
+Name types for the role their instances serve. Python contracts and generated
+TypeScript exports use the same names.
+
+| Role | Convention | Examples |
+|------|------------|----------|
+| Declarative model or configuration definition, consumed by validation or compilation | `...Spec` | `ModelSpec`, `ParameterSpec`, `LikelihoodSpec`, `DynamicsSpec` |
+| Symbolic formula or formula node | `...Expression` | `StateExpression`, `CoefficientExpression`, `BinaryExpression` |
+| Compiled implementation or execution state | `Compiled...` or `...Runtime` | `CompiledDynamics`, `CompiledObservationModel`, `ObservationSupportRuntime` |
+| Executable mathematical operation | Name the operation | `ObservationKernel`, `ObservationOperator`, `VectorField` |
+| Validation, identification, or inference findings | `...Report` or a specific finding name | `IdentificationReport`, `InferenceReport`, `ValidationIssue` |
+| Completed operation output | `...Result` | `SimulationResult`, `PriorPredictiveResult` |
+| Recorded observation or event | `...Record` or `...Event` | `ObservationRecord`, `RuntimeEvent` |
+| Persistent scalar identity | `...Id` | `ConstructId`, `IndicatorId`, `ParameterId` |
+| Structured reference | `...Ref` | `ConstructRef`, `ArtifactRef`, `ParameterRef` |
+| Exact model version | `...Revision` | `ModelRevision` |
+| API request and its input values | `...Request` or `...Input` | `ScenarioRequest`, `ScenarioStartInput` |
+
+The scientific definition types are `ModelSpec`, `ConstructSpec`, `CausalEdgeSpec`,
+`IndicatorSpec`, `DynamicsMechanismSpec`, `LikelihoodSpec`, `ObservationLawSpec`,
+and `ParameterSpec`. A spec may be partial during authoring, complete before
+execution, or enriched with conditioned distributions after inference. Its suffix
+describes its declarative role throughout those revisions.
+
+Use the scientific nouns in prose and UI labels: "construct", "indicator", and
+"observation law". Keep identity names and serialized field names tied to those
+concepts, such as `ConstructId`, `ConstructRef`, `indicators`, and `law`.
+The suffix belongs to the definition type's name.
+
+Choose names by meaning rather than by the base class or whether an object is
+serializable. An expression represents a formula; a runtime object supplies
+execution operations; a report records findings. These roles keep their own names.
+When renaming a public type, update its consumers and regenerate the API artifacts
+without retaining compatibility aliases.
+
+### Identity and revision conventions
+
+Use a scalar ID when a field identifies one known kind of entity: scenario
+`target` and `outcome`, model `default_outcome`, and validation `indicator_id`.
+Keep tagged references for mixed entity kinds and for shared graph endpoints.
+Python edges hold canonical `ConstructSpec` objects; their
+[JSON representation](../design/additive-model.md#proposed-ownership) defines a
+shared construct once and refers to it at subsequent endpoints.
+
+Scientific IDs are nominal Python `NewType` values with Pydantic format
+constraints. Construct IDs explicitly when allocating trusted identities; use
+Pydantic model validation or `TypeAdapter` when accepting serialized input.
+The `NewType` constructor alone does not validate a prefix or prove that an entity
+exists. Resolve membership against the selected model. Named JSON Schema
+definitions preserve the corresponding TypeScript ID types.
+
+Entity identity survives renames and revisions. Exact provenance remains separate:
+`ModelRevision` records a workspace and model artifact version; `ArtifactRef`
+records an artifact and version; `TransitionRef` records a journal sequence in the
+enclosing workspace. A journal sequence is not a model artifact version.
+Snapshots carry `context.workspace_id` and the selected journal sequence, and pin
+each sourced value to its supporting version. See
+[model snapshots](../design/model-snapshot.md) for historical reads and freshness.
+
 ## Changing the schema
 
 Workflow: **edit Python → `bun run codegen` → commit both**.
 
-Type names describe their role. `ModelSpec` is the directly persisted scientific definition; `Construct`, `Indicator`, and `ParameterSpec` retain their canonical ownership inside it. Log reports use names such as `InferenceReport`. Tool responses use names such as
-`SimulationResult` and `ToolError`. `ToolDefinition` describes a callable
-tool, while `ArtifactPayload` supplies the shared validation base. Generated
-TypeScript exports use the same names as Python. Server-composed views and machine records share this export. Frontend code owns presentation state only.
+Follow the [type naming conventions](#type-naming-conventions). `ModelSpec` is the
+directly persisted scientific definition; `ConstructSpec`, `IndicatorSpec`, and
+`ParameterSpec` retain their canonical ownership inside it. `ToolDefinition`
+describes a callable tool, while `ArtifactPayload` supplies the shared validation
+base. Server-composed views and machine records share this export. Frontend code
+owns presentation state only.
 
 - **New/changed field**: edit the owning Python model.
 - **New artifact contract**: add the payload class in `artifacts/`, register it in `ARTIFACT_CONTRACTS`, add re-export in `index.ts`.

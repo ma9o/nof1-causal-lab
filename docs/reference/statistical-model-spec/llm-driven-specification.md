@@ -8,7 +8,7 @@ The transition consumes exact current versions of these artifacts.
 
 | Input | Role |
 |---|---|
-| `question` | Substantive estimand context for prior reasoning |
+| `model.question` | Research context from the pinned [ModelSpec](../../pipeline/latent-structure.md#modelspec), used for prior reasoning |
 | `model` | Retained constructs, indicators, edges, confounders, and model clock |
 | `identification_report` | Identification findings already derived from the causal design |
 | `panel` | Encoded longitudinal observations used by admission checks |
@@ -161,7 +161,7 @@ After all constructs are admitted, a deterministic barrier compiles the complete
 1. reconstructs the complete accepted state from the latest checkpoint;
 2. materializes `ModelSpec` and authored priors;
 3. leaves finalized per-attempt LLM traces in the sequence-owned run for journal promotion;
-4. commits the completed `model` and `admission_report` with their exact input pins; and
+4. commits the completed `model` with its exact input pins and records the [prior-predictive result](../../pipeline/statistical-model-spec.md#priorpredictiveresult), research queries, and typed validation findings in the run journal; and
 5. completes required derivations before publishing the move.
 
 No checkpoint is treated as a public model artifact, and no downstream inference can start from partial accepted state.

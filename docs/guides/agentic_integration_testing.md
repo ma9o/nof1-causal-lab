@@ -10,20 +10,41 @@
 
 ## Prerequisites
 
-### Test cost
+### Test concerns
+
+The specialized suites use [pytest concern markers](../../apps/data-pipeline/pyproject.toml).
+Each marker identifies the behavior exercised, independently of runtime or device:
+
+| Marker | Concern |
+|--------|---------|
+| `inference` | Particle runtimes, exact likelihood targets, and posterior sampling |
+| `warmup` | Laplace initialization, local linearization, solver references, and gradients |
+| `simulation` | Deterministic/stochastic trajectories, steady states, and interventions |
+| `predictive` | Prior/posterior predictive generation and observation sampling |
+| `recovery` | Fitted accuracy and uncertainty checked against known generating parameters |
+| `admission` | Complete construct and edge admission batteries |
+| `workflow` | Complete Temporal episode journeys |
+
+Apply a marker when a test executes that subsystem. Isolated routing, validation,
+identity, projection, and small array-reduction contracts remain unmarked in the
+default selection. Use function or class markers in mixed files; a module marker
+applies only when every test shares the concern. A test can have multiple concerns:
+the MAP recovery suite carries both `warmup` and `recovery`.
 
 `bun run --cwd apps/data-pipeline test` and direct `uv run pytest tests/` runs
-use one worker and exclude `slow`, `cpu_expensive`, and `gpu` tests by default.
-Mark tests that compile numerical inference kernels, fit models, or run batches
-of forward simulations with `@pytest.mark.cpu_expensive`. This marker applies
-regardless of the device executing the numerical work. Mark tests that require
-GPU hardware with `@pytest.mark.gpu`; retain `slow` for other long-running tests.
-Contract, identity, projection, and small array-reduction tests remain in the
-default selection.
+use all available CPU workers (`-n auto`) and run the default contracts. Select specialized suites explicitly
+when requested or directly affected by the change:
 
-Expensive tests require an explicit request. When authorized, select the desired
-marker with `-m`; `test:all` explicitly includes every marker. Worker parallelism
-also requires an explicit `-n` override.
+```bash
+bun run --cwd apps/data-pipeline test -m simulation
+bun run --cwd apps/data-pipeline test -m "warmup and not recovery"
+bun run --cwd apps/data-pipeline test -m "inference or predictive"
+```
+
+Add `--collect-only` to inspect a selection without executing it. `test:all`
+includes every concern and requires an explicit request. Use `-n 0` for a serial
+run or `-n N` to limit the worker count. Pytest reports durations separately and rejects
+unregistered markers. Keep test files beside their subject under `tests/`.
 
 ### Local stack
 
@@ -100,7 +121,7 @@ bun run fixture:demo
 bun run fixture:demo:check
 ```
 
-This validates the retained canonical Model, its execution readiness, and findings, then uses the production reader to generate snapshots and artifact views. It preserves the stored episode and all retained numerical results. It does not fit, sample, simulate, or invent missing scientific artifacts. A complete promoted episode supplies its own canonical payloads.
+This validates the retained canonical Model and findings and uses the production reader to generate snapshots and artifact views. An incomplete model remains available for inspection; inference report freshness follows its pinned inputs. It preserves the stored episode and all retained numerical results. It does not fit, simulate, or invent missing scientific artifacts. Prior plot viewports use a small deterministic draw from the retained prior laws. A complete promoted episode supplies its own canonical payloads.
 
 ## Step-by-Step Flow
 
@@ -123,7 +144,7 @@ There is no auth: the facade is the source of truth for what is allowed, and
 `curl -s http://localhost:8100/api/capabilities` reports whether the move
 plane is available (`moves_enabled` is `false` on a read-only facade).
 
-This writes the `question` artifact and starts the **auto-run driver**: a
+This creates or revises the Model’s `question` field and starts the **auto-run driver**: a
 default navigation policy that proposes operation-named `run` moves in dependency
 order while transition outputs are missing or stale, stopping when the episode
 is quiescent or a move fails.
@@ -176,8 +197,7 @@ curl -s -X POST http://localhost:8100/api/episodes/$WORKSPACE_ID/auto \
   -H 'Content-Type: application/json' -d '{}'
 ```
 
-The question does not need re-supplying: it is a versioned root artifact,
-not a run parameter.
+The question is retained in each [ModelSpec revision](../pipeline/latent-structure.md#modelspec), so subsequent operations read it from their pinned Model input.
 
 ## Editing the Model
 
@@ -199,7 +219,7 @@ Dependencies are artifact-level; `GET /api/machine` exposes
 The runnable transition ids are:
 
 ```text
-raw_data → latent_structure → measurement_structure → measurements → statistical_model_spec → posterior → baseline_report
+raw_data → latent_structure → measurement_structure → measurements → statistical_model_spec → posterior
 ```
 
 Note the machine is not a tape: any transition whose consumed artifacts exist

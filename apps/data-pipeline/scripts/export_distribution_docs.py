@@ -327,7 +327,7 @@ def _export_likelihoods(*, check: bool) -> bool:
 
     dtype_body = "\n".join(
         [
-            "Each indicator's [`measurement_dtype`](../../pipeline/measurement-structure.md#indicator) "
+            "Each indicator's [`measurement_dtype`](../../pipeline/measurement-structure.md#indicatorspec) "
             "selects the default conditional law. The family and link names below describe its numerical lowering. "
             "Where the dtype admits only one valid combination, the likelihood is locked "
             "by [component authoring](../../pipeline/statistical-model-spec.md). "

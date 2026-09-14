@@ -18,74 +18,36 @@ LAYERS = {
     "transport": ("Transport", "#e2e8f0"),
 }
 
-# Data, model choices, checks, and inference all belong to one scientific model.
-# These smaller groups also define its module membership, keeping placement in sync.
-SCIENTIFIC_MODEL_GROUPS = {
-    "structure": (
-        "Question & causal structure",
-        (
-            "artifacts.question",
-            "artifacts.model_spec",
-            "artifacts.construct",
-            "artifacts.evidence",
-        ),
-    ),
-    "components": (
-        "Dynamics & observations",
-        (
-            "artifacts.indicator",
-            "artifacts.state_distribution",
-            "artifacts.likelihood",
-            "artifacts.mechanism",
-            "measurement_types",
-            "utils.observation_semantics",
-        ),
-    ),
-    "parameters": (
-        "Parameters & expressions",
-        (
-            "artifacts.parameter_spec",
-            "artifacts.coefficient",
-            "artifacts.expressions",
-            "artifacts.parameter",
-            "distributions",
-            "numpyro_json",
-        ),
-    ),
-    "observed_data": (
-        "Observed data",
-        (
-            "artifacts.raw_data",
-            "artifacts.measurements",
-            "artifacts.validation_report",
-        ),
-    ),
-    "model_checks": (
-        "Model evidence",
-        (
-            "artifacts.identification",
-            "artifacts.admission",
-            "artifacts.prior",
-            "artifacts.execution",
-        ),
-    ),
-    "inference_analysis": (
-        "Inference & causal analysis",
-        (
-            "artifacts.posterior",
-            "artifacts.posterior_diagnostics",
-            "artifacts.effects",
-            "artifacts.scenarios",
-            "artifacts.baseline_report",
-        ),
-    ),
-}
-
 # Sections group types by subject; layer colors continue to describe their role.
 CONCERNS = {
     "scientific_model": (
         "Scientific model",
-        tuple(module for _, modules in SCIENTIFIC_MODEL_GROUPS.values() for module in modules),
+        (
+            "artifacts.model_spec",
+            "artifacts.construct",
+            "artifacts.evidence",
+            "artifacts.indicator",
+            "artifacts.likelihood",
+            "artifacts.mechanism",
+            "measurement_types",
+            "utils.observation_semantics",
+            "artifacts.parameter_spec",
+            "artifacts.expressions",
+            "artifacts.parameter",
+            "distributions",
+            "numpyro_json",
+            "artifacts.raw_data",
+            "artifacts.measurements",
+            "artifacts.validation_report",
+            "artifacts.identification",
+            "artifacts.prior_predictive",
+            "artifacts.prior",
+            "artifacts.execution",
+            "artifacts.posterior",
+            "artifacts.posterior_diagnostics",
+            "artifacts.effects",
+            "artifacts.scenarios",
+        ),
     ),
     "execution_provenance": (
         "Execution & provenance",
@@ -115,22 +77,16 @@ CONCERNS = {
 # or contract layer. UI projections of the same central objects share the emphasis.
 CORE_DOMAIN_OBJECTS = {
     "ModelSpec": "The canonical scientific definition, enriched through stable entities.",
-    "QuestionArtifact": "The causal question that gives the model its purpose.",
     "ObservationRecord": "An observed measurement supplying evidence to the model.",
-    "Construct": "A scientific variable whose causal relationships are modeled.",
-    "CausalEdge": "A directed causal assumption between constructs.",
-    "Indicator": "The measurement definition connecting a construct to observed data.",
-    "KnownInput": "A measured driver distinguished from an inferred latent state.",
+    "ConstructSpec": "A scientific variable whose causal relationships are modeled.",
+    "CausalEdgeSpec": "A directed causal assumption between constructs.",
+    "IndicatorSpec": "The measurement definition connecting a construct to observed data.",
     "IdentificationReport": "The identification evidence required for causal reporting.",
     "LikelihoodSpec": "The observation distribution linking model states to measurements.",
-    "InnovationSpec": "The driving noise and conditional dependencies owned by a construct.",
-    "InitialStateSpec": "The initial location, scale, and dependencies owned by a construct.",
-    "DynamicsMechanism": "The explicit scientific contribution to continuous-time drift.",
+    "DynamicsMechanismSpec": "The explicit scientific contribution to continuous-time drift.",
     "ParameterSpec": "A referenced scientific parameter with a native prior law or fixed value.",
     "InferenceReport": "Inference telemetry and predictive findings recorded in the transition log.",
-    "SimulationProvenance": "The immutable fitted revision and solver settings supporting a simulation response.",
     "ScenarioClamp": "The intervention applied to a specific construct over time.",
-    "TreatmentEffect": "A reported causal effect with posterior uncertainty.",
     "ModelSnapshot": "Independently sourced canonical aggregates read at one committed revision.",
     "FitSummary": "The canonical posterior together with server-composed display findings.",
 }
@@ -142,16 +98,13 @@ ROLE_SENTENCES = {
     "BinaryOperator": "A binary operator combines two scalar expression operands.",
     "ExpressionFunction": "An expression function transforms scalar operands or constructs structured observation arguments.",
     "Expression": "A scalar expression composes supported arithmetic with scientific state and coefficient references.",
-    "ConstructUsage": "A construct usage declares a measured driver or a scientific-only variable excluded from executable states.",
     "NumPyroDistribution": "A native NumPyro probability distribution serialized by its constructor tree.",
-    "DynamicsMechanism": "A dynamics mechanism declares one contribution to continuous-time drift.",
-    "Coefficient": "A component coefficient is a fixed value or a reference to a scientific parameter.",
+    "DynamicsMechanismSpec": "A dynamics mechanism declares one contribution to continuous-time drift.",
     "ActionSpec": "An action declares a machine operation and its interaction context.",
     "AggregationFunction": "An aggregation function summarizes observations within a measurement window.",
     "ArtifactFileSpec": "An artifact file specification declares its JSON payloads, tables, and executable binaries.",
     "ArtifactFreshness": "An artifact's presence and freshness are derived from the selected journal revision.",
     "ArtifactId": "An artifact identity selects one node in the machine's artifact graph.",
-    "BaselineReportVisualization": "Scenario visualization data contains exact-engine reference and action trajectories.",
     "ConstructId": "A persistent construct identity survives changes to its display name.",
     "ContextSpec": "An interaction context declares the tools and machine actions available to an agent.",
     "EdgeId": "A persistent edge identity identifies one authored causal relationship.",
@@ -213,11 +166,7 @@ def _layer_for(name: str, module: str) -> str:
     if module.endswith(("episode_api", "json_types", "utils.llm", "numpyro_json")):
         return "transport"
     if module.endswith("artifacts.scenarios"):
-        return (
-            "findings"
-            if name == "SimulationProvenance" or name.endswith(("Result", "Visualization", "Point"))
-            else "authored"
-        )
+        return "findings" if name.endswith(("Result", "Visualization", "Point")) else "authored"
     if name.endswith("Artifact"):
         return "artifacts"
     if module.endswith(
@@ -227,12 +176,11 @@ def _layer_for(name: str, module: str) -> str:
             "artifacts.effects",
             "artifacts.validation_report",
             "artifacts.prior",
-            "artifacts.admission",
+            "artifacts.prior_predictive",
             "artifacts.identification",
         )
     ) or name in {
         "IdentificationReport",
-        "IdentifiabilityStatus",
         "IdentifiedTreatmentStatus",
         "NonIdentifiableTreatmentStatus",
         "TreatmentIdentification",

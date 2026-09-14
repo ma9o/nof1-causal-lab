@@ -110,6 +110,6 @@ flowchart LR
 
 `prepare_model_runtime(model_spec=...)` reads the pinned scientific definition, derives native priors and numerical blocks, validates observation support, and prepares JAX observations, times, and inputs. `fit_prepared_model()` passes that execution context to particle inference. The returned `ParticleMCMCPosterior` carries production-engine evidence, parameter samples, trajectories, and diagnostics. Persistence converts parameter samples to scientific element IDs and labels the state axis. The fitted artifact keeps its exact ModelSpec revision in provenance. Laplace/IEKS produces a distinct `WarmupProposal` that cannot enter reported-posterior APIs.
 
-Post-estimation causal effect computation, intervention semantics, and interpretation guidance live in [`baseline_report` transition](../pipeline/analysis.md).
+Post-estimation causal effect computation, intervention semantics, and interpretation guidance live in [runtime intervention analysis](../pipeline/analysis.md).
 
 [^sarkka2019]: Särkkä, S., & Solin, A. (2019). *Applied Stochastic Differential Equations*. Cambridge University Press. [Bibliography entry](bibliography.md)

@@ -8,14 +8,14 @@ The main domain spine is the sequence of artifacts the pipeline produces and ref
 
 | Layer | Primary artifact | Produced in | Owner doc | Purpose |
 |---|---|---|---|---|
-| Research intent | Natural-language question | Pipeline request | [pipeline.md](../pipeline.md) | Declares the causal query |
+| Research intent | Natural-language question | `ModelSpec.question` | [ModelSpec](../pipeline/latent-structure.md#modelspec) | States the causal research aim for that model revision |
 | Theoretical causal structure | `ModelSpec` | `latent_structure` transition | [../pipeline/latent-structure.md](../pipeline/latent-structure.md) | Defines constructs, edges, and the designated outcome |
 | Measurement and identification | `ModelSpec` | `measurement_structure` transition | [../pipeline/measurement-structure.md](../pipeline/measurement-structure.md) | Adds owned indicators and derives separately sourced identification findings |
 | Observational evidence | `ObservationRecord`s and the encoded observation table (`data_for_model`) | `measurements` transition | [../pipeline/extraction.md](../pipeline/extraction.md) | Converts source data into time-indexed indicator values |
 | Data-quality surface | `IndicatorAudit` | `validation_report` derivation | [../pipeline/extraction-validation.md](../pipeline/extraction-validation.md) | Describes whether extracted observations are usable |
 | Functional specification | `ModelSpec` with native priors | `statistical_model_spec` transition | [../pipeline/statistical-model-spec.md](../pipeline/statistical-model-spec.md) | Chooses likelihoods, parameters, and prior beliefs |
 | Conditioned scientific model | `ModelSpec` with updated joint distributions | `posterior` transition | [../pipeline/inference.md](../pipeline/inference.md) | The same scientific type; inference diagnostics live in the transition log |
-| Interventional and counterfactual effect summaries | `TreatmentEffect` plus follow-up simulations | `baseline_report` transition | [../pipeline/analysis.md](../pipeline/analysis.md) | Answers interventional (`do`) and counterfactual queries |
+| Interventional and counterfactual effect summaries | `SimulationResult` (ephemeral) | Runtime API query | [../pipeline/analysis.md](../pipeline/analysis.md) | Answers interventional (`do`) and counterfactual queries |
 
 ## Temporal Semantics
 
@@ -27,7 +27,7 @@ Time appears in five distinct roles across the pipeline. They answer different q
 | **`observation_window`** | [`measurement_structure` transition](../pipeline/measurement-structure.md#observation_window-and-model_clock) | Over what support interval is a single indicator value measured or aggregated? May differ per indicator (e.g. daily mood vs. weekly incident count) as long as windows align back onto the `model_clock`. |
 | **`anchor_time`** | [`measurements` transition](../pipeline/extraction.md#observationrecord) | Which timestamp attaches the extracted value to the latent grid? Derived from the indicator's [`anchor_policy`](../pipeline/measurement-structure.md#derived-observation-semantics) — usually `support_end` for interval summaries, `support_start` for `first`. |
 | **`dt`** | [estimation.md](estimation.md#2-discretization-ct-to-dt) | What is the elapsed time between consecutive observations used to discretize the continuous-time SDE? Computed from successive `anchor_time` values; drives `A_d = exp(A·dt)` and the discrete process noise. |
-| **Intervention horizon** | [`baseline_report` transition](../pipeline/analysis.md) | How far forward is a trajectory intervention projected? Default 30 days, discretized at the `model_clock` step, yielding snapshots at 1 d, 7 d, and 30 d plus peak effect and time-to-peak. |
+| **Intervention horizon** | [Runtime analysis](../pipeline/analysis.md) | How far forward is a trajectory intervention projected? Default 30 days, discretized at the `model_clock` step, returning the requested effect trajectory and its peak. |
 
 ### Worked example: one observation through the pipeline
 
@@ -38,7 +38,7 @@ Consider a study with `model_clock = "1d"` and an indicator *daily mean mood* (`
 | **1b** | The measurement structure declares `aggregation = mean` → `support_kind = interval`, `anchor_policy = support_end`. | `observation_window = "1d"` committed |
 | **2** | The extractor averages mood values from 2025-03-01 00:00 to 2025-03-02 00:00, producing value 6.2. | `ObservationRecord(anchor_time = 2025-03-02, support_start = 2025-03-01, support_end = 2025-03-02)` |
 | **5** | The previous observation was anchored at 2025-03-01; the estimator computes `dt = 1.0 day` and discretizes: `A_d = exp(A · 1.0)`. | `dt = 1.0` day feeds the Kalman/PF step |
-| **6** | After fitting, an intervention `do(exercise = baseline+1)` is simulated forward 30 days at 1-day steps from the baseline steady state, producing [`TemporalEffect`](../pipeline/analysis.md#temporaleffect) with requested horizon samples and peak timing. | Horizon = 30 d at `model_clock` resolution |
+| **Runtime query** | After fitting, an intervention `do(exercise = baseline+1)` is simulated forward 30 days at 1-day steps from the baseline steady state, producing [`SimulationResult`](../pipeline/analysis.md#simulationresult) with an effect trajectory and peak timing. | Horizon = 30 d at `model_clock` resolution |
 
 The key invariant: `model_clock` sets the resolution; `observation_window` says how much real-world time each datum summarizes; `anchor_time` places it on the grid; `dt` discretizes the SDE between grid points; the intervention horizon projects the fitted model forward on that same grid.
 

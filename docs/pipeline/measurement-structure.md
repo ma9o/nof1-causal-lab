@@ -10,96 +10,98 @@ Operationalizes the [`ModelSpec`](latent-structure.md#modelspec) against observe
 
 | Input | Source | Description |
 |---|---|---|
-| `question` | User | Original research question, used to justify measurement choices |
-| `model` | [`latent_structure` transition](latent-structure.md) | `ModelSpec` with constructs and edges |
+| `model` | [`latent_structure` transition](latent-structure.md) | `ModelSpec` with its research question, constructs, and edges |
 | `raw_data` | [`raw_data` transition](ingestion.md#outputs) | Raw Arrow table with column descriptions |
 
 `latent_structure` transition provided theoretical structure without seeing any data. `measurement_structure` transition is the first point where the model meets the dataset.
 
 ## Process
 
-`measurement_structure` transition runs one LLM conversation that bridges theory and data. The LLM sees the latent structure, the research question, and a schema summary of the ingested dataset. The conversation has two phases: an initial measurement-structure and known-input proposal checked by a validation tool, followed by a self-review pass using the same validator.
+`measurement_structure` transition runs one LLM conversation that bridges theory and data. The LLM sees the latent structure, the research question, and a schema summary of the ingested dataset. The conversation has two phases: an initial measurement-structure proposal checked by a validation tool, followed by a self-review pass using the same validator.
 
 ```mermaid
 flowchart LR
-    M[ModelSpec] --> P[Add owned indicators and usage]
+    M[ModelSpec] --> P[Add owned indicators]
     P --> V{Validate whole model}
     V -- revise --> P
     V -- valid --> R[Commit model revision]
-    R --> S[Validate execution structure]
+    R --> S[Derive structural dispositions]
     R --> I[IdentificationReport]
 ```
 
-**Propose:** For each construct in the latent structure, the LLM proposes one or more indicators: observed variables that operationalize the construct in this dataset. Each indicator names the source columns it uses, how extraction will work, what kind of value it produces, and over what support window that value is defined. When a directly observed construct trajectory should condition the dynamics rather than remain a latent state, the proposal also identifies its source indicator as a known input.
+**Propose:** For each construct in the latent structure, the LLM proposes one or more indicators: observed variables that operationalize the construct in this dataset. Each indicator names the source columns it uses, how extraction will work, what kind of value it produces, and over what support window that value is defined. Exact observations use the indicator’s [Delta likelihood](statistical-model-spec.md#likelihoodspec). Source recording semantics determine which gaps can be resolved before inference.
 
-**Validator:** The LLM submits the whole candidate as `model_json` to `validate_measurement_structure`. The tool checks schema and compiler constraints:
+**Validator:** The LLM submits the whole candidate as `model_json` to `validate_measurement_structure`. The tool checks scientific schema and measurement constraints:
 
 - *Outcome coverage:* every outcome construct has at least one indicator
 - *No duplicate indicator definitions* across indicators
 - *Valid construct references:* indicator references point to constructs in the latent structure
 - *Dtype–aggregation compatibility:* `measurement_dtype` and `aggregation` are compatible
 - *Computed-rule validity:* computed indicators have valid rule expressions
-- *Known-input integrity:* declarations reference an existing construct and an indicator that measures that same construct
-- *Structural compilation:* every construct, edge, and indicator receives an explicit disposition; retained states satisfy coverage and loading-rank constraints; unsupported static-target edges are rejected
+- *Source recording:* complete event/change records require computed extraction and compatible aggregation
 
-After the candidate model validates, the machine derives its execution plan and checks [causal identifiability](../reference/causal-design/identifiability.md) for each treatment-to-outcome pair. Production identification uses nonparametric do-calculus. A linear instrumental-variable argument cannot authorize a causal claim for the nonlinear `ModelSpec`; the public identification contract accepts only `method="do_calculus"`.
+Partial measurement proposals remain valid scientific models. The reader shows structural dispositions; numerical operations validate execution requirements and reject unsupported structure.
 
-**Review:** A follow-up prompt asks the LLM to review its validated measurement structure for coverage, operationalization clarity in `how_to_measure`, observation-window semantics, the [reflective measurement assumption](../reference/measurement-structure/assumptions.md#a1-reflective-measurement-structure), absence of cumulative or running metrics, and whether every known-input declaration is justified by direct observation and explicit missing-value semantics. If the review surfaces issues, the LLM revises and re-validates before the conversation ends.
+After the candidate model validates, the machine checks [causal identifiability](../reference/causal-design/identifiability.md) for each treatment-to-outcome pair. Production identification uses nonparametric do-calculus. A linear instrumental-variable argument cannot authorize a causal claim for the nonlinear `ModelSpec`; the public identification contract accepts only `method="do_calculus"`.
+
+**Review:** A follow-up prompt asks the LLM to review its validated measurement structure for coverage, operationalization clarity in `how_to_measure`, observation-window semantics, the [reflective measurement assumption](../reference/measurement-structure/assumptions.md#a1-reflective-measurement-structure), absence of cumulative or running metrics, and whether complete event/change records are justified by the source evidence. If the review surfaces issues, the LLM revises and re-validates before the conversation ends.
 
 ### Example
 
-For a study of developer workload and code quality, `measurement_structure` transition might map `Developer Workload` to indicators like "number of open PRs assigned" (computed, count) and "sprint velocity" (computed, mean), and map `Review Thoroughness` to "average review comment count per PR" (computed, mean). If an assigned on-call shift is represented as a construct with a directly recorded schedule indicator, it can be declared as a known input so its realized trajectory drives the retained latent states without becoming one itself.
+For a study of developer workload and code quality, `measurement_structure` transition might map `Developer Workload` to indicators like "number of open PRs assigned" (computed, count) and "sprint velocity" (computed, mean), and map `Review Thoroughness` to "average review comment count per PR" (computed, mean). An assigned on-call shift can have an exact schedule indicator. A complete change record establishes persistence; sparse readings alone leave intervening values unknown.
 
 ## Outputs
 
-| Output | Type | Description |
-|---|---|---|
-| `model` | [`ModelSpec`](latent-structure.md#modelspec) | The same scientific entities enriched with owned indicators, a measurement clock, and usage choices |
-| `identification_report` | [`IdentificationReport`](#identificationreport) | Positive and negative findings for the model's default causal query |
+| Field | Description |
+|---|---|
+| `model` | The same [`ModelSpec`](latent-structure.md#modelspec) enriched with owned indicators, a measurement clock, and source recording semantics |
+| `identification_report` | [`IdentificationReport`](#identificationreport) with positive and negative findings for the model's default causal query |
 
 ### Model Measurement Choices
 
-| Field | Owner | Description |
-|---|---|---|
-| `measurement_clock` | `ModelSpec` | Shared window and default lag unit |
-| `indicators` | `Construct` | Reflective measurement definitions owned by that scientific entity |
-| `usage` | `Construct` | Optional known-input or scientific-only declaration |
+| Field | Description |
+|---|---|
+| `ModelSpec.measurement_clock` | Shared window and default lag unit |
+| `ConstructSpec.indicators` | Reflective measurement definitions owned by that scientific entity |
 
 Indicators are reflective[^bollen1989]: the construct causes the indicator value. The [measurement assumptions](../reference/measurement-structure/assumptions.md) define that commitment.
 
-### `Indicator`
+### `IndicatorSpec`
 
-| Field | Type | Description |
-|---|---|---|
-| `id` | `IndicatorId` | Persistent `indicator:` identity, preserved when revising or renaming the same indicator |
-| `name` | `str` | Current indicator name used downstream |
-| `how_to_measure` | `str` | Human-readable measurement instructions grounded in the dataset |
-| `measurement_dtype` | `str` | Semantic value type: `continuous`, `binary`, `count`, `ordinal`, or `categorical` |
-| `aggregation` | `str` | Summary operator applied within each realized support window |
-| `observation_window` | `str` | Window width such as `"1d"` or `"1w"` over which one indicator value is defined |
-| `ordinal_levels` | `list[str]` \| `null` | Ordered labels when `measurement_dtype="ordinal"` |
-| `categorical_levels` | `list[str]` \| `null` | Exhaustive labels when `measurement_dtype="categorical"` |
-| `source_columns` | `list[str]` | Raw columns needed to compute or interpret the indicator |
-| `computed_rule` | `WindowExpression` \| `null` | Validated expression string producing one scalar per window from declared source columns; requires computed extraction |
-| `extraction_mode` | `str` | Whether extraction is deterministic (`computed`) or LLM-mediated (`semantic`) |
-| `construct_polarity` | `str` | Whether increasing indicator values represent more or less of its construct |
-| `likelihood` | `LikelihoodSpec` ∣ `null` | Owned [measurement likelihood](statistical-model-spec.md#likelihoodspec), absent before statistical specification |
+| Field | Description |
+|---|---|
+| `id` | Persistent `IndicatorId` (`indicator:` identity), preserved when revising or renaming the same indicator |
+| `name` | Current indicator name used downstream |
+| `how_to_measure` | Human-readable measurement instructions grounded in the dataset |
+| `measurement_dtype` | Semantic value type: `continuous`, `binary`, `count`, `ordinal`, or `categorical` |
+| `aggregation` | Summary operator applied within each realized support window |
+| `recording` | `samples` (default), `events`, or `changes`: missing readings, complete event records, or complete change records |
+| `observation_window` | Optional window width such as `"1d"` or `"1w"`; defaults to the model clock |
+| `ordinal_levels` | Ordered label list when `measurement_dtype="ordinal"`; otherwise absent |
+| `categorical_levels` | Exhaustive label list when `measurement_dtype="categorical"`; otherwise absent |
+| `source_columns` | Raw columns needed to compute or interpret the indicator |
+| `computed_rule` | Optional validated `WindowExpression` string producing one scalar per window from declared source columns; requires computed extraction |
+| `extraction_mode` | Whether extraction is deterministic (`computed`) or LLM-mediated (`semantic`) |
+| `construct_polarity` | Whether increasing indicator values represent more or less of its construct |
+| `likelihood` | Owned [measurement likelihood](statistical-model-spec.md#likelihoodspec), absent before statistical specification |
 
-### `KnownInput`
+### Source recording and exactness
 
-| Field | Type | Description |
-|---|---|---|
-| `kind` | `"known_input"` | The containing construct is an observed transition driver |
-| `source_indicator_id` | `IndicatorId` | Indicator for the same construct that supplies the input trajectory |
-| `scale` | `float` | Positive divisor applied to the source values before inference |
-| `missing_policy` | `str` | Whether missing grid values become zero or carry the last observed value forward |
+`recording="samples"` preserves missing readings. For computed extraction,
+`recording="events"` declares a complete event record over the raw dataset’s
+covered span: empty sum/count windows produce zero. An explicitly missing value
+in an observed sum window remains unknown. `recording="changes"` requires `last`
+aggregation and carries the most recent value forward across windows. Leading
+gaps remain unknown. Neither rule fills times outside the covered raw-data span.
 
-### `ScientificOnlyConstruct`
+`first` and `last` alone select a point; they do not imply persistence. Unit
+conversion belongs in `computed_rule`, for example `last(dose_mg) / 10`.
 
-| Field | Type | Description |
-|---|---|---|
-| `kind` | `"scientific_only"` | The containing construct remains in the scientific DAG and is excluded from the executable state vector |
-| `reason` | `str` | Explicit scientific or identification rationale for the exclusion |
+A [Delta law](../reference/statistical-model-spec/likelihoods.md) fixes observed
+coordinates. It does not remove a construct’s initial density or transition
+density, nor does it determine a continuous trajectory between sparse points.
+The current particle engine supports direct point constraints; exact interval
+summaries still require a sampler that preserves those constraints.
 
 ### `observation_window` and `measurement_clock`
 
@@ -130,21 +132,13 @@ The `ModelSpec` does not store row timestamps itself, but it fully determines th
 
 ### Execution Structure
 
-[ModelSpec structural accessors](../reference/compilation.md#structural-derivation) derive retained state and observation order, reference indicators, known inputs, and dependencies induced by marginalized latent roots. Compilation validates these selections. The model snapshot exposes the resulting dispositions as findings sourced to its model revision. There is no separately persisted execution plan.
-
-### `IdentifiabilityStatus`
-
-| Field | Type | Description |
-|---|---|---|
-| `identifiable_treatments` | `dict[ConstructId, IdentifiedTreatmentStatus]` | Treatment IDs mapped to the identification method, estimand, marginalized confounder IDs, and instrument IDs |
-| `non_identifiable_treatments` | `dict[ConstructId, NonIdentifiableTreatmentStatus]` | Treatment IDs mapped to blocking confounder IDs and optional notes |
+[ModelSpec structural accessors](../reference/compilation.md#structural-derivation) derive retained state and observation order, reference indicators and dependencies induced by marginalized latent roots. Compilation validates these selections. The model snapshot exposes the resulting dispositions as findings sourced to its model revision. Admission checks select their coordinates in an operation-local view. Required unmeasured constructs must have supported marginalization semantics; incomplete dynamics and unsupported static-target edges fail explicitly. No construct owns an execution-selection flag.
 
 ### `IdentificationReport`
 
-| Field | Type | Description |
-|---|---|---|
-| `outcome` | `ConstructId` ∣ `null` | Default outcome selected in the pinned model |
-| `status` | [`IdentifiabilityStatus`](#identifiabilitystatus) | Positive and negative treatment findings, including blocking confounders |
+| Field | Description |
+|---|---|
+| `treatments` | One finding per treatment ID (`ConstructId`), discriminated by `status`: `identified` carries the do-calculus method, estimand, marginalized confounder IDs, and instrument IDs; `not_identified` carries blocking confounder IDs and optional notes |
 
 The identifiability assumptions, including temporal unrolling and the internal DAG-to-ADMG projection, live in [causal-design/identifiability.md](../reference/causal-design/identifiability.md).
 

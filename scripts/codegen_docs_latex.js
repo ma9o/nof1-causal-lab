@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 const { createHash } = require("node:crypto");
+const { execFileSync } = require("node:child_process");
 const { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } = require("node:fs");
 const { dirname, relative, resolve, sep } = require("node:path");
 
@@ -33,26 +34,20 @@ function normalizePath(filePath) {
   return filePath.split(sep).join("/");
 }
 
-function markdownFilesIn(dir) {
-  const files = [];
-
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const entryPath = resolve(dir, entry.name);
-
-    if (entry.isDirectory()) {
-      files.push(...markdownFilesIn(entryPath));
-    } else if (entry.isFile() && entry.name.endsWith(".md")) {
-      files.push(entryPath);
-    }
-  }
-
-  return files;
-}
-
 function docsMarkdownFiles() {
-  return [resolve(repoRoot, "README.md"), ...markdownFilesIn(docsRoot)].sort((a, b) =>
-    normalizePath(relative(repoRoot, a)).localeCompare(normalizePath(relative(repoRoot, b))),
-  );
+  // Generated local references retain their own LaTeX and are gitignored.
+  return execFileSync(
+    "git",
+    ["ls-files", "--cached", "--others", "--exclude-standard", "--deduplicate", "-z", "--", "README.md", "docs"],
+    { cwd: repoRoot, encoding: "utf8" },
+  )
+    .split("\0")
+    .filter((filePath) => filePath.endsWith(".md"))
+    .map((filePath) => resolve(repoRoot, filePath))
+    .filter(existsSync)
+    .sort((a, b) =>
+      normalizePath(relative(repoRoot, a)).localeCompare(normalizePath(relative(repoRoot, b))),
+    );
 }
 
 function isEscaped(text, index) {

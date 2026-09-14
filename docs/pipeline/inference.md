@@ -4,7 +4,7 @@
 |---|---|---|
 | Computed | No | A new `ModelSpec` revision with joint uncertainty; an [inference report](#inferencereport) in the transition log |
 
-Conditions the scientific `ModelSpec` from [`statistical_model_spec` transition](statistical-model-spec.md) to the extracted observation data from [`measurements` transition](extraction.md), retaining aligned parameter and latent-state draws. Engine-defined JSON records inference diagnostics; a separate structured assessment records posterior predictive fit and leave-one-out cross-validation. The sampler is `marginal_particle_gibbs`; its proposal controls are described in [inference routing](../reference/inference-routing.md#user-overrides).
+Conditions the scientific `ModelSpec` from [`statistical_model_spec` transition](statistical-model-spec.md) to the extracted observation data from [`measurements` transition](extraction.md), retaining aligned parameter and latent-state draws. The inference report records engine-defined diagnostic JSON and structured fields for posterior predictive fit and leave-one-out cross-validation. The sampler is `marginal_particle_gibbs`; its proposal controls are described in [inference routing](../reference/inference-routing.md#user-overrides).
 
 ## Inputs
 
@@ -61,18 +61,12 @@ The transition log owns this report, the exact input pins, and the production en
 |---|---|
 | `inference_metadata` | Sampling method, sample count, and duration |
 | `inference_diagnostics` | Engine-defined JSON telemetry, including any sampler metrics and traces |
-| `assessment` | [PosteriorAssessment](#posteriorassessment) for predictive checks and held-out measurement evaluation |
+| `ppc` | [PosteriorPredictiveChecks](#posteriorpredictivechecks): predictive interval coverage, autocorrelation, and variance checks |
+| `loo_diagnostics` | Optional [LOODiagnostics](#loodiagnostics) for held-out measurement rows |
 | `posterior_marginals` | Optional [marginal summaries](#posteriormarginal) keyed by scientific parameter and element IDs |
 | `posterior_pairs` | Optional [paired summaries](#posteriorpair) of aligned parameter draws |
 
 Inference diagnostics remain unchanged in historical or stale reads. Their keys follow the engine implementation; the UI provides a generic expandable viewer. Any interpretation of sampler telemetry belongs in the backend. Scientific parameter references, intervals, and predictive assessments retain their structured contracts.
-
-### `PosteriorAssessment`
-
-| Field | Description |
-|---|---|
-| `ppc` | [PosteriorPredictiveChecks](#posteriorpredictivechecks): predictive interval coverage, autocorrelation, and variance checks |
-| `loo_diagnostics` | Optional [LOODiagnostics](#loodiagnostics) for held-out measurement rows |
 
 ### `PosteriorPredictiveChecks`
 
@@ -130,7 +124,7 @@ Inference diagnostics remain unchanged in historical or stale reads. Their keys 
 
 | Field | Type | Description |
 |---|---|---|
-| `indicator_id` | `IndicatorId` | Persistent identity of the checked [indicator](measurement-structure.md#indicator) |
+| `indicator_id` | `IndicatorId` | Persistent identity of the checked [indicator](measurement-structure.md#indicatorspec) |
 | `stat_name` | `str` | Replicated statistic |
 | `observed_value` | `float` | Statistic evaluated on observed values |
 | `rep_values` | `list[float]` | Statistic evaluated on exact posterior predictive draws |

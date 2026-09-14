@@ -35,9 +35,9 @@ from the API. The loop in brief:
 1. `GET /api/machine` once for the artifact graph and creation classes, then
    `GET /api/episodes/{workspace_id}` for the live state and legal moves.
 2. Propose moves at `POST /api/episodes/{workspace_id}/moves`: `run` an
-   artifact-named transition for compute, or `write` a judgment artifact
-   (`latent_structure`, `measurement_structure`, `statistical_model_spec`,
-   `baseline_report`) directly instead of running the in-service transition.
+   named operation for compute, or submit a complete scientific Model through
+   `PUT /api/episodes/{workspace_id}/model` with its expected version.
+   After inference, use the [runtime analysis tools](../pipeline/analysis.md) for scenarios.
 3. Long transitions (`statistical_model_spec`, `posterior`) can outlive a client timeout: prefer
    `POST /api/episodes/{workspace_id}/auto`, then poll
    `GET /api/episodes/{workspace_id}`.

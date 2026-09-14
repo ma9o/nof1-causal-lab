@@ -13,12 +13,12 @@
 | Artifact or concept | Owning doc |
 |---|---|
 | `ModelSpec` | [pipeline/latent-structure.md](pipeline/latent-structure.md) |
-| `ModelSpec`, `Indicator`, `ModelSpec`, `IdentifiabilityStatus` | [pipeline/measurement-structure.md](pipeline/measurement-structure.md) |
+| `IndicatorSpec` and `IdentificationReport` | [pipeline/measurement-structure.md](pipeline/measurement-structure.md) |
 | `ObservationRecord`s and the encoded observation table (`data_for_model`) | [pipeline/extraction.md](pipeline/extraction.md) |
 | `IndicatorAudit` and validation findings | [pipeline/extraction-validation.md](pipeline/extraction-validation.md) |
 | `ModelSpec`, `LikelihoodSpec`, `ParameterSpec` | [pipeline/statistical-model-spec.md](pipeline/statistical-model-spec.md) |
 | Conditioned `ModelSpec` and inference reports | [pipeline/inference.md](pipeline/inference.md) |
-| `TreatmentEffect` and intervention tools | [pipeline/analysis.md](pipeline/analysis.md) |
+| Runtime simulation requests and responses | [pipeline/analysis.md](pipeline/analysis.md) |
 
 ## Cross-Cutting References
 
@@ -39,7 +39,7 @@
 | Workflow | Open |
 |---|---|
 | Local setup | [Guide](guides/dev_setup.md) |
-| TypeScript code generation from Python contracts | [Guide](guides/codegen.md) |
+| Type naming conventions and TypeScript code generation from Python contracts | [Guide](guides/codegen.md) |
 | Integration testing | [Guide](guides/agentic_integration_testing.md) |
 | Evaluations | [Guide](guides/running_evals.md) |
 

@@ -107,5 +107,5 @@ bun run --cwd packages/api-types codegen:contracts:json:check
 
 Check and update variants reuse their base command with the relevant flag. Keep
 the underlying command in one place when adding a new variant. `test:all` includes
-expensive tests; see the [test cost policy](agentic_integration_testing.md#test-cost)
+every test concern; see [test selection by concern](agentic_integration_testing.md#test-concerns)
 before using it.

@@ -67,7 +67,7 @@ regenerating the old vocabulary.
 | [`artifact-staleness.ts`](../../apps/web/src/lib/artifact-staleness.ts) | Groups stale artifacts "by producing stage" via `isStageId(artifact.produced_by)` |
 | [`stage-result-loader.ts`](../../apps/web/src/lib/stage-result-loader.ts) | Stage-keyed loader map — the loaders already read artifact files internally; only the keys are stages |
 | `apps/web/src/components/pipeline/stage-contents/stage-{0,1a,1b,2,3,4,5b,6}-content.tsx`, [`stage-section-router.tsx`](../../apps/web/src/components/pipeline/stage-section-router.tsx), `stage-section.tsx`, `active-stage-indicator.tsx`, `progress-bar.tsx`, `new-stages-notification.tsx` | Stage-keyed rendering and routing |
-| `stage2-runtime.ts`, `stage4-admission-runtime.ts`, `stage4-data.ts`, `stage4-derived-data.ts`, `use-stage-data.ts`, `use-stage2-state.ts`, `use-stage4-admission.ts`, `stage0-data.ts`, `stage6-scenarios.ts` | Stage-named runtime/derived-data modules |
+| `stage2-runtime.ts`, `stage4-admission-runtime.ts`, `stage4-data.ts`, `stage4-derived-data.ts`, `use-stage-data.ts`, `use-stage2-state.ts`, `use-stage4-admission.ts`, `stage0-data.ts` | Stage-named runtime/derived-data modules |
 
 ### Stratum 4 — code organization, config, tests, docs (labels that re-teach the old model)
 
@@ -99,7 +99,7 @@ One rule: **the public identity of a run is the artifact it produces.** No paral
 | `ModelCompileError(stage_id=...)` | `ModelCompileError(transition_id=...)` |
 | `/api/results/{ws}/{stage}` | `/api/artifacts/{ws}/{artifact_id}/view` (view payloads keyed by artifact) |
 | `stageId` in dispatch/replay bodies | `contextId` (tool dispatch — contexts already have semantic ids: `ingestion`, `latent-structure`, `statistical-model-spec`, …) and `artifactId` (replay write-back — it is a `write(artifact)` move) |
-| config `stage4_prior_elicitation` etc. | artifact/context-named keys: `ingestion`, `structure_proposal`, `extraction_workers`, `prior_elicitation`, `analysis_commentary` |
+| config `stage4_prior_elicitation` etc. | artifact/context-named keys: `ingestion`, `structure_proposal`, `extraction_workers`, `prior_elicitation` |
 | `flows/stages/stageN/` | `flows/transitions/<artifact_or_context_name>/` (see step 6) |
 
 The web UI's telemetry-only sub-events (extraction worker fan-out, model-spec admission) keep
@@ -138,20 +138,20 @@ Steps 4–7 can land as follow-up commits on the same branch. Suggested worktree
 - [`pipeline-progress.ts`](../../apps/web/src/lib/hooks/pipeline-progress.ts): progress becomes `Record<ArtifactId, RunStatus>` driven by transition events and the journal; `getCurrentRunningStage` becomes "currently running transitions" (plural — the machine allows independent branches). Display order comes from the topological order served by `GET /api/machine`.
 - [`artifact-staleness.ts`](../../apps/web/src/lib/artifact-staleness.ts): group by artifact id directly; `isStageId(produced_by)` checks disappear.
 - [`stage-result-loader.ts`](../../apps/web/src/lib/stage-result-loader.ts): re-key the loader map by artifact id (the bodies already read artifact files).
-- Components: `stage-contents/stage-N-content.tsx` → artifact-named view components (`raw-data-view.tsx`, `latent-structure-view.tsx`, `measurement-structure-view.tsx`, `measurements-view.tsx`, `validation-report-view.tsx`, `statistical-model-spec-view.tsx`, `posterior-view.tsx`, `baseline-report-view.tsx`); [`stage-section-router.tsx`](../../apps/web/src/components/pipeline/stage-section-router.tsx) routes on artifact id. Rename `stage2-runtime.ts` → `extraction-runtime.ts`, `stage4-*` → `model-spec-*`, `use-stage-data.ts` → `use-artifact-view.ts`, etc. Update stories and fixtures alongside.
+- Components: `stage-contents/stage-N-content.tsx` → artifact-named view components (`raw-data-view.tsx`, `latent-structure-view.tsx`, `measurement-structure-view.tsx`, `measurements-view.tsx`, `validation-report-view.tsx`, `statistical-model-spec-view.tsx`, `posterior-view.tsx`); [`stage-section-router.tsx`](../../apps/web/src/components/pipeline/stage-section-router.tsx) routes on artifact id. Rename `stage2-runtime.ts` → `extraction-runtime.ts`, `stage4-*` → `model-spec-*`, `use-stage-data.ts` → `use-artifact-view.ts`, etc. Update stories and fixtures alongside.
 
 ### Step 5 — re-key the web API routes
 
 - `/api/results/{ws}/{stage}` → `/api/artifacts/{ws}/{artifactId}/view`; [`endpoints.ts`](../../apps/web/src/lib/api/endpoints.ts) `getStageResult` → `getArtifactView`. Update the mock provider and route tests.
 - [`tools/dispatch/route.ts`](../../apps/web/src/app/api/tools/dispatch/route.ts): body `stageId` → `contextId`, validated against the hierarchy's context ids exposed by `GET /api/machine`.
 - [model write API](model-snapshot.md#writes-and-operation-history): body `stageId`/`stageData` → `artifactId`/`payload` — it is literally a `write(artifact)` move and should say so.
-- Update [`tool_server.py`](../../apps/data-pipeline/src/nof1_causal_lab/tool_server.py): the analysis tool context dict keys `"stage-1b"`/`"stage-4"`/`"stage-5b"`/`"stage-6"` become artifact names (`causal_design`, `statistical_model_spec`, `posterior`, `baseline_report`).
+- Update [`tool_server.py`](../../apps/data-pipeline/src/nof1_causal_lab/tool_server.py): the analysis tool context dict keys `"stage-1b"`/`"stage-4"`/`"stage-5b"` become artifact names (`causal_design`, `statistical_model_spec`, `posterior`).
 
 ### Step 6 — rename the interior (mechanical, can trail as separate commits)
 
 - `flows/stages/stageN/` → `flows/transitions/<name>/` with artifact/context names: `ingestion` (stage0), `latent_structure` (stage1a), `measurement_structure` (stage1b), `extraction` (stage2), `validation` (stage3), `model_spec` (stage4, absorbing stage4b), `inference` (stage5b), `analysis` (stage6). Contract classes follow: `Stage2Contract` → `MeasurementsArtifact`, `Stage5bContract` → the inference log report, etc. `STAGE_CONTRACTS` → `ARTIFACT_CONTRACTS: dict[ArtifactId, ...]`; `StageId` Literal in [`contracts_base.py`](../../apps/data-pipeline/src/nof1_causal_lab/flows/contracts_base.py) is deleted in favor of the machine's `ArtifactId`.
 - Module renames: `llm_stage_runtime.py` → `llm_transition_runtime.py`, `stage_tools.py` → `transition_tools.py` (`INTERACTIVE_STAGES` → `INTERACTIVE_CONTEXTS`), `stage_tool_factory.py`, `stage4_compile_cache.py` → `model_spec_compile_cache.py`.
-- Config keys in [`config.yaml`](../../apps/data-pipeline/config.yaml) / [`utils/config.py`](../../apps/data-pipeline/src/nof1_causal_lab/utils/config.py): `stage0_ingestion` → `ingestion`, `stage1_structure_proposal` → `structure_proposal` (fields `stage1a_max_tool_turns`/`stage1b_max_tool_turns` → `latent_max_tool_turns`/`measurement_max_tool_turns`), `stage2_workers` → `extraction_workers`, `stage4_prior_elicitation` → `prior_elicitation`, `stage6_commentary` → `analysis_commentary`. Update `scripts/validate_config.py`, tests, and deployed config in the same change — no dual-key reading.
+- Config keys in [`config.yaml`](../../apps/data-pipeline/config.yaml) / [`utils/config.py`](../../apps/data-pipeline/src/nof1_causal_lab/utils/config.py): `stage0_ingestion` → `ingestion`, `stage1_structure_proposal` → `structure_proposal` (fields `stage1a_max_tool_turns`/`stage1b_max_tool_turns` → `latent_max_tool_turns`/`measurement_max_tool_turns`), `stage2_workers` → `extraction_workers`, `stage4_prior_elicitation` → `prior_elicitation`. Update `scripts/validate_config.py`, tests, and deployed config in the same change — no dual-key reading.
 - Temporal: rename `run_stage_activity` → `run_transition_activity` and `_RUN_STAGE_TIMEOUT` → `_RUN_TRANSITION_TIMEOUT`. Registered activity names are contract-like with running workers — coordinate a worker redeploy; do not keep an alias.
 - Modal: `_run_stage_gpu`/`_run_stage_cpu` → `_run_transition_gpu`/`_run_transition_cpu`; Modal function identity changes require redeploy, payloads are already artifact-named.
 - Tests: `tests/stages/stageN/` → `tests/transitions/<name>/`; update `tests/integration/stages/`, `scripts/validate_run.py`, `scripts/export_schemas.py`, `scripts/export_agent_api.py`, and regenerate `packages/api-types/src/generated/*` via the codegen flow in [docs/guides/codegen.md](../guides/codegen.md).

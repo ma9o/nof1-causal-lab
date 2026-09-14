@@ -10,7 +10,7 @@ Builds a causal DAG[^pearl2009] ([`ModelSpec`](#modelspec)) from the natural lan
 
 | Input | Source | Description |
 |---|---|---|
-| `question` | User's research question in natural language |
+| `model` | User-authored [ModelSpec](#modelspec) | Research question and any existing graph; the initial revision can contain only `question` |
 
 Notably, there is no observed data input at this transition.
 
@@ -49,14 +49,15 @@ For a question about whether tutoring intensity improves exam performance throug
 
 | Output | Type | Description |
 |---|---|---|
-| `model` | Canonical scientific definition, initially declaring one connected graph and an optional default outcome |
+| `model` | [ModelSpec](#modelspec) | Revised definition retaining its research question and adding a connected causal graph and optional default outcome |
 
 ### ModelSpec
 
 | Field | Description |
 |---|---|
-| `default_outcome` | Optional endogenous target for the workflow’s default question; individual [scenario queries](analysis.md#scenariorequest) own their outcome selection |
-| `edges` | Nonempty directed relationships forming one connected graph when arrow direction is ignored; `cause` and `effect` resolve to shared construct endpoints, and each edge owns additive mechanisms |
+| `question` | Optional nonempty research question, versioned with the scientific definition; required by LLM authoring and extraction |
+| `default_outcome` | Optional `ConstructId` of the endogenous target for the workflow’s default question; individual [scenario queries](analysis.md#scenariorequest) own their outcome selection |
+| `edges` | Directed relationships, empty before graph authoring and forming one connected graph when present when arrow direction is ignored; `cause` and `effect` resolve to shared construct endpoints, and each edge owns additive mechanisms |
 | `parameters` | Shared [scientific quantities and distributions](statistical-model-spec.md#parameterspec), referenced by persistent ID |
 | `measurement_clock` | [Shared measurement clock](measurement-structure.md#observation_window-and-measurement_clock), absent before measurement choices |
 | `distributions` | Shared native NumPyro laws, referenced by the parameters and constructs that participate in each joint distribution |
@@ -67,7 +68,7 @@ serialized ModelSpec. JSON defines each construct once at an edge endpoint and
 uses a `ConstructRef` for its other occurrences. Endpoint references may precede
 definitions; undefined references and conflicting definitions are rejected.
 
-### `Construct`
+### `ConstructSpec`
 
 | Field | Description |
 |---|---|
@@ -76,13 +77,13 @@ definitions; undefined references and conflicting definitions are rejected.
 | `description` | Meaning of the construct |
 | `role` | Endogenous or exogenous |
 | `temporal_status` | Time-varying or time-invariant |
-| `indicators` | Owned [measurement definitions](measurement-structure.md#indicator) |
-| `dynamics` | Owned additive [intrinsic dynamics](statistical-model-spec.md#dynamicsmechanism) |
+| `indicators` | Owned [measurement definitions](measurement-structure.md#indicatorspec) |
+| `dynamics` | Owned additive [intrinsic dynamics](statistical-model-spec.md#dynamicsmechanismspec) |
 | `innovation`, `initial_state` | Owned [state distributions](statistical-model-spec.md#state-distributions), added during statistical authoring |
 | `distribution` | Current trajectory uncertainty on the ModelSpec time grid |
 | `usage` | An explicit [execution choice](measurement-structure.md#model-measurement-choices), when needed |
 
-### `CausalEdge`
+### `CausalEdgeSpec`
 
 | Field | Description |
 |---|---|
@@ -91,6 +92,6 @@ definitions; undefined references and conflicting definitions are rejected.
 | `description` | Theoretical justification for the causal relationship |
 | `lagged` | Whether the cause precedes the effect by one model-clock tick |
 | `sources` | Supporting literature with title, optional URL, and excerpt |
-| `mechanisms` | Additive [effect functions](statistical-model-spec.md#dynamicsmechanism), each retaining its own identity |
+| `mechanisms` | Additive [effect functions](statistical-model-spec.md#dynamicsmechanismspec), each retaining its own identity |
 
 [^pearl2009]: Pearl, J. (2009). *Causality: Models, Reasoning, and Inference* (2nd ed.). Cambridge University Press. [Bibliography entry](../reference/bibliography.md)

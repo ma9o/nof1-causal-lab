@@ -33,14 +33,15 @@ Operation names and artifact names have separate types. Several operations produ
 | Operation | Inputs | Main effects | Scientific definition |
 |---|---|---|---|
 | `raw_data` | Uploaded source files | Raw Arrow table with column descriptions | [Ingestion](../pipeline/ingestion.md) |
-| `latent_structure` | Question; existing Model when present | Propose or revise constructs and edges on the Model | [Latent authoring](../pipeline/latent-structure.md) |
-| `measurement_structure` | Question, raw data, Model | Add owned indicators and usage to the Model | [Measurement authoring](../pipeline/measurement-structure.md) |
-| `measurements` | Question, raw data, Model | Extract observations and, when usable, a panel | [Extraction](../pipeline/extraction.md) |
-| `statistical_model_spec` | Question, Model, plan, identification, panel, validation | Commit the completed Model and admission report | [Statistical authoring](../pipeline/statistical-model-spec.md) |
+| `latent_structure` | Model containing its research question | Propose or revise constructs and edges on the Model | [Latent authoring](../pipeline/latent-structure.md) |
+| `measurement_structure` | Raw data and Model | Add owned indicators and usage to the Model | [Measurement authoring](../pipeline/measurement-structure.md) |
+| `measurements` | Raw data and Model | Extract observations and, when usable, a panel | [Extraction](../pipeline/extraction.md) |
+| `statistical_model_spec` | Model, identification, panel, validation | Commit the completed Model and record prior-predictive results in its operation history | [Statistical authoring](../pipeline/statistical-model-spec.md) |
 | `posterior` | Executable Model and panel | Joint posterior and fit diagnostics | [Inference](../pipeline/inference.md) |
-| `baseline_report` | Posterior, Model, identification | Identified effect summaries and commentary | [Analysis](../pipeline/analysis.md) |
 
 The default navigator uses this order to find missing or stale work. Legal moves are determined by declared inputs; the machine permits explicit navigation when those inputs exist. Numerical effect computation also requires a positive identification verdict for the selected treatment and outcome.
+
+The pipeline ends at inference. [Runtime analysis](../pipeline/analysis.md) exposes `get_model_info` and `simulate` in the `analysis` tool context. Simulation is a read-only query: its response stays in the caller's session and does not produce a report artifact or a journal move.
 
 ## Derivations and Writes
 
@@ -49,7 +50,7 @@ The default navigator uses this order to find missing or stale work. Legal moves
 | `identification_report` | Model |
 | `validation_report` | Panel and Model |
 
-The writable roots are question and Model. Baseline reports also permit an explicit authored write, including retained simulation results with their requests and provenance. Scientific authoring operations use the same Model writer as the public HTTP API.
+The writable root is Model, which can begin with a research question and no edges. Scientific authoring operations use the same Model writer as the public HTTP API.
 
 A Model write names its expected base version (`0` for creation), validates all ownership and references, and completes required derivations before publication. If validation or a final write fails, its partial versions are removed and the previous state stays current. Incomplete scientific choices remain valid during authoring; executable outputs appear only when their requirements are met.
 

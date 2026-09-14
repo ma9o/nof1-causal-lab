@@ -14,4 +14,5 @@ by `GET /api/machine`; for cross-cutting lenses see
 | `validation_report` | Extraction Validation | Indicator audits | Computed | No | Stops on validation errors | [pipeline/extraction-validation.md](pipeline/extraction-validation.md) |
 | `statistical_model_spec` | Statistical Model Specification and Prior Elicitation | `ModelSpec` + priors | Semantic | Yes | None | [pipeline/statistical-model-spec.md](pipeline/statistical-model-spec.md) |
 | `posterior` | Inference and Diagnostics | Fitted artifact + diagnostics | Computed | No | Stops if model fitting fails | [pipeline/inference.md](pipeline/inference.md) |
-| `baseline_report` | Intervention Analysis | Intervention rankings + follow-up trace | Hybrid | Yes | None | [pipeline/analysis.md](pipeline/analysis.md) |
+
+After inference, [runtime intervention analysis](pipeline/analysis.md) exposes model inspection and simulation through the API. Scenario responses stay in the current session.

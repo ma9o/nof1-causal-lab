@@ -47,26 +47,26 @@ typed numerical programs and sourced findings represent computation outputs.
 
 ```text
 Model
-├── edges: CausalEdge[]                 one nonempty connected causal graph
+├── question?                         research intent
+├── edges: CausalEdgeSpec[]             empty initially; connected when present
 │   ├── id, description, lag, evidence
-│   ├── cause, effect: Construct        shared endpoint identities
+│   ├── cause, effect: ConstructSpec    shared endpoint identities
 │   │   ├── id, name, description, role, temporal_status
-│   │   ├── indicators: Indicator[]
+│   │   ├── indicators: IndicatorSpec[]
 │   │   │   └── likelihood?             family, link, coefficients, evidence
-│   │   ├── dynamics: DynamicsMechanism[]
+│   │   ├── dynamics: DynamicsMechanismSpec[]
 │   │   ├── innovation?, initial_state?
 │   │   └── usage?
-│   └── mechanisms: DynamicsMechanism[]
+│   └── mechanisms: DynamicsMechanismSpec[]
 ├── parameters: ParameterSpec[]
 ├── measurement_clock?
 └── default_outcome?
 ```
 
-The primitive is one connected causal graph. Connectivity ignores arrow direction;
+The Model can start with a research question and no edges. Once authored, its graph is connected. Connectivity ignores arrow direction;
 temporal edge legality remains a separate check. Every construct is an endpoint,
 and `model.constructs` enumerates unique endpoints as a functional view. There is
-no independently authored or serialized construct catalogue. An empty graph or a
-revision with disconnected components is invalid.
+no independently authored or serialized construct catalogue. A revision with disconnected components is invalid.
 
 Edges reach the same canonical construct object when they share an endpoint. JSON
 writes a construct definition at its first endpoint occurrence and uses
@@ -81,8 +81,8 @@ indicator is redundant. Likewise, a nested likelihood does not repeat its
 indicator ID; a nested node or edge mechanism does not repeat its containing
 entity's ID. Collections use each entity's existing ID, with private indexes for
 lookup. The proposed shape reuses the values already defined by
-[`Construct`](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/construct.py),
-[`Indicator`](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/indicator.py),
+[`ConstructSpec`](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/construct.py),
+[`IndicatorSpec`](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/indicator.py),
 and the [expression-owned mechanisms](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/mechanism.py).
 
 `edge.mechanisms` is an additive collection, preserving the flexibility of the
@@ -188,14 +188,13 @@ replace several components together; intermediate drafts do not become current.
 | Requested operation | Missing choices and inputs, complete component choices and priors, executable capability, and the scientific checks required for that operation |
 
 For example, removing a construct’s final incident edge removes that endpoint and
-its contained indicators and dynamics. The remaining graph must stay connected and
-nonempty. The update must repair parameter definitions, the default outcome, and
+its contained indicators and dynamics. A nonempty remaining graph must stay connected. The update must repair parameter definitions, the default outcome, and
 references from remaining components; otherwise the commit fails. Changing indicator categories must similarly replace or clear
 any incompatible attached choices in the same update. Missing choices can then be
 filled by later operations.
 
 Validation enforces the encoded invariants. Scientific identification and
-admission remain explicit findings; a structurally valid model is not itself
+[prior-predictive checks](../pipeline/statistical-model-spec.md#priorpredictiveresult) remain explicit findings; a structurally valid model is not itself
 evidence that a causal claim is supported. Scientific defaults enter through an
 explicit completion operation that records their origin. Validation and numerical
 compilation do not silently supply them.
@@ -244,7 +243,7 @@ reordering, and changing a covariance basis can change the represented component
 
 ## Numerical Programs and Results
 
-`model.check_execution()` validates the completed scientific value and returns latent anchor evidence. `model.execution_readiness` reports unmet requirements on incomplete models; it is derived for each selected revision. [Numerical functions](../../apps/data-pipeline/src/nof1_causal_lab/models/ssm/numerics.py) derive array order, supports, native sample sites, transformed priors, and parameter assembly from the same `ModelSpec`.
+[`model.check_execution()`](../../apps/data-pipeline/src/nof1_causal_lab/models/model_checks.py) validates the selected scientific value at numerical execution boundaries and returns latent anchor findings. Partial authoring values remain available for inspection; each operation checks the inputs it needs. [Numerical functions](../../apps/data-pipeline/src/nof1_causal_lab/models/ssm/numerics.py) derive array order, supports, native sample sites, transformed priors, and parameter assembly from the same `ModelSpec`.
 
 The completed model declares every scientific quantity, mechanism coefficient, prior law, and scientific default. Derivation preserves all additive contributions and rejects missing scientific choices. Small numerical blocks and native components are temporary execution values. There is no second numerical model specification or serialized numerical-spec copy.
 
@@ -262,7 +261,7 @@ contains the canonical model plus data, findings, and revision context. The
 frontend receives generated contracts and server-derived scientific facts.
 
 The inference algorithms, exact nonlinear drift and emission paths, prior laws,
-and scientific admission requirements remain part of the preservation contract.
+and prior-predictive validation requirements remain part of the preservation contract.
 This design changes ownership and compilation boundaries, not the target model.
 
 ## Revisions and Dependencies
@@ -405,7 +404,7 @@ Ownership exceptions deserve early attention because they can change the tree:
 shared likelihood parameters, explicit latent confounders, known inputs, and
 parameter components with an ordered basis. Their meanings and ownership must be
 settled before moving their fields. Existing numerical laws, identity rules, and
-scientific admission requirements remain preservation constraints throughout.
+prior-predictive validation requirements remain preservation constraints throughout.
 
 During implementation, determine exact field names, small component boundaries,
 accessor signatures, module layout, serializer details, and individual validator

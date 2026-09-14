@@ -1,0 +1,4 @@
+# Generated wiki entries are local; track the instructions and ignore rules.
+*
+!.gitignore
+!README.md

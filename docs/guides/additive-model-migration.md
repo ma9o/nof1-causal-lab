@@ -29,7 +29,7 @@ The destination must be absent and outside the source. A failed conversion remov
 
 ## Converting the Former Parameter Catalogue
 
-The [component-slot converter](../../apps/data-pipeline/scripts/migrate_component_slots.py) moves a retained flat parameter catalogue into construct-owned innovation and initial-state components and indicator-owned likelihood coefficients. It preserves parameter IDs and native laws, removes stored quantity/owner metadata and root policy flags, and converts coefficient references to `kind="parameter"`. The full history converter above includes this step.
+The [component-slot converter](../../apps/data-pipeline/scripts/migrate_component_slots.py) moves a retained flat parameter catalogue into construct-owned coefficient expressions and indicator-owned likelihood coefficients. It preserves parameter IDs and native laws, removes stored quantity/owner metadata and root policy flags, and places referenced parameter IDs directly in operand values. The full history converter above includes this step.
 
 For standalone model JSON files already using the additive entity hierarchy, validate the conversion first, then write the selected files:
 
@@ -39,6 +39,22 @@ uv run python -m scripts.migrate_component_slots --write PATH/model.json
 ```
 
 This command accepts the former catalogue schema. It is an offline conversion tool, not a runtime compatibility path. Rebuild derived fixture views after converting their source model.
+
+Models with the former `innovation` and `initial_state` containers can use the [construct-coefficient converter](../../apps/data-pipeline/scripts/migrate_construct_coefficients.py). It moves their scalar uses into the shared [coefficient expressions](../pipeline/statistical-model-spec.md#construct-coefficients), preserving parameter IDs, values, noise families, and joint construct references:
+
+```bash
+uv run python -m scripts.migrate_construct_coefficients PATH/model.json
+uv run python -m scripts.migrate_construct_coefficients --write PATH/model.json
+```
+
+Models already using expression operands with nested `FixedCoefficient` or `ParameterCoefficient` records can use the [operand-value converter](../../apps/data-pipeline/scripts/migrate_coefficient_values.py):
+
+```bash
+uv run python -m scripts.migrate_coefficient_values PATH/model.json
+uv run python -m scripts.migrate_coefficient_values --write PATH/model.json
+```
+
+It preserves roles, fixed values including zero, parameter IDs, joint construct references, and unassigned operands. Current runtime schemas accept only the direct `value` field.
 
 ## Validation and Cutover
 
@@ -65,3 +81,64 @@ isolated constructs, undefined endpoints, and disconnected graphs. Those structu
 require an explicit scientific revision; conversion does not invent causal edges.
 This command converts a model value, not an episode journal or retained numerical
 coordinate arrays.
+
+## Retired construct usage
+
+`ConstructUsage` is no longer an authored field. Exact measurements belong in an
+indicator’s [Delta likelihood](../reference/statistical-model-spec/likelihoods.md);
+[recording semantics](../pipeline/measurement-structure.md#source-recording-and-exactness)
+determine how extraction handles empty windows. Constructs retain their initial
+and transition laws. Admission scopes are operation-local projections.
+
+Run the offline converter with complete reviewed construct replacements for every
+active declaration:
+
+```bash
+cd apps/data-pipeline
+uv run python -m scripts.migrate_construct_usage old-model.json new-model.json --revisions construct-revisions.json
+```
+
+The revisions file maps construct IDs to complete revised construct definitions.
+The converter preserves the source file and rejects unreviewed active declarations.
+Null declarations need no replacement. Removing a scientific-only exclusion may
+expose required unsupported structure; the result remains a valid partial model
+with explicit execution requirements.
+
+## Scalar identity fields
+
+Older JSON payloads wrap scenario targets, outcomes, and model default outcomes in
+`ConstructRef` records, and wrap snapshot workspace IDs in `ModelRef` records.
+Convert those files on a separate copy of a retained workspace:
+
+```bash
+cd apps/data-pipeline
+uv run python -m scripts.migrate_identity_references ../../.local/migration/WORKSPACE/store/model/v1/model.json
+```
+
+The command reports changed files by default; add `--write` to convert the supplied
+JSON files. Include every retained model version and any saved scenario, snapshot,
+or validation-report JSON payloads. The converter preserves scientific IDs, model
+version numbers, journal sequence references, and provenance pins. It leaves shared
+graph endpoint references intact. Validation issues become indicator-specific or
+dataset issues; construct-level explanations retain the construct ID in the message.
+The running application accepts the current contract without compatibility parsing.
+
+## Inline distribution laws
+
+The [distribution-reference converter](../../apps/data-pipeline/scripts/migrate_distribution_references.py) moves inline parameter and trajectory laws into `ModelSpec.distributions`. Quantities retain only their law IDs. The converter preserves native constructors, shared joint laws, and the source file; the destination must be new.
+
+```bash
+cd apps/data-pipeline
+uv run python -m scripts.migrate_distribution_references source-model.json converted-model.json
+```
+
+## Research question ownership
+
+The [question converter](../../apps/data-pipeline/scripts/migrate_model_question.py) folds each retained `question` artifact into the same [ModelSpec history](../design/model-snapshot.md) as graph and statistical edits. Run it on an offline workspace with the current scientific schema, preserving the workspace directory name:
+
+```bash
+cd apps/data-pipeline
+uv run python -m scripts.migrate_model_question ../../data/WORKSPACE ../../.local/question-migration/WORKSPACE
+```
+
+The destination must be new. Initial question writes become models with empty edges; later question writes preserve the existing scientific definition. Model version numbers and dependent pins are remapped together, while journal positions, retained findings, arrays, and source data remain intact. `model-question-migration.json` records the revision mapping. Rebuild any generated fixture snapshots from the converted values. The full historical stage-schema converter above includes this step.

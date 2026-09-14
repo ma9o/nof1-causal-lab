@@ -27,7 +27,7 @@ Derivations are not Temporal workflows. They are deterministic code reached from
 flowchart TB
     API["episode API / tool server"] --> EP["EpisodeWorkflow"]
 
-    EP -->|"raw_data, latent_structure,\nmeasurement_structure, baseline_report"| S["SingleLLMTransitionWorkflow"]
+    EP -->|"raw_data, latent_structure,\nmeasurement_structure"| S["SingleLLMTransitionWorkflow"]
     EP -->|"measurements"| M["MeasurementsWorkflow"]
     EP -->|"statistical_model_spec"| SMS["StatisticalModelSpecWorkflow"]
     EP -->|"posterior and other non-migrated runs"| RTA["run_transition_activity"]
@@ -52,7 +52,7 @@ flowchart TB
 
 [`EpisodeWorkflow`](../../apps/data-pipeline/src/nof1_causal_lab/machine/temporal/workflow.py) is the entity workflow for one workspace. It accepts proposed moves, validates them against the pure artifact machine, runs the selected transition path, applies returned `TransitionEffects`, and journals every applied, rejected, or raised move.
 
-[`SingleLLMTransitionWorkflow`](../../apps/data-pipeline/src/nof1_causal_lab/machine/temporal/llm_transition_workflow.py) is the generic outer workflow for transitions whose shape is exactly: emit running, plan, run one LLM subroutine, finalize, emit completed or failed. It covers `raw_data`, `latent_structure`, `measurement_structure`, and `baseline_report`.
+[`SingleLLMTransitionWorkflow`](../../apps/data-pipeline/src/nof1_causal_lab/machine/temporal/llm_transition_workflow.py) is the generic outer workflow for transitions whose shape is exactly: emit running, plan, run one LLM subroutine, finalize, emit completed or failed. It covers `raw_data`, `latent_structure`, and `measurement_structure`.
 
 [`MeasurementsWorkflow`](../../apps/data-pipeline/src/nof1_causal_lab/machine/temporal/measurement_workflow.py) stays specialized because it batches extraction chunks, tracks worker progress, retries chunk workflows, and aggregates chunk results.
 

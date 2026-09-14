@@ -12,8 +12,7 @@ For the high-level reducer flow, see the [`statistical_model_spec` construct-adm
 
 | Input | Source | Description |
 |---|---|---|
-| `question` | User | Original research question, used to justify prior reasoning |
-| `model` | [Measurement authoring](measurement-structure.md) | The scientific entities to enrich with likelihoods, dynamics, parameters, and priors |
+| `model` | [Measurement authoring](measurement-structure.md) | The research question and scientific entities to enrich with likelihoods, dynamics, parameters, and priors |
 | `data_for_model` | [`measurements` transition](extraction.md) | Encoded long-format [`ObservationRecord`](extraction.md#observationrecord) table |
 | `indicator_audits` | [`validation_report` derivation](extraction-validation.md) | Per-indicator [`EmpiricalProfile`](extraction-validation.md#empiricalprofile)s and validation summaries |
 | `enable_literature` | Pipeline config | Whether the `search_literature` tool is offered to the LLM |
@@ -71,7 +70,7 @@ Only deterministic numerical failures are hard gates. Monte Carlo discrepancies 
 
 ### Checkpointing and Recovery
 
-Checkpoints are immutable execution sidecars. Original LLM submissions and their revision history live in the state-machine records; each model parameter carries its current distribution. They store the accepted dependency-closed set, exact input-version pins, validation outcomes, search state, repair feedback, and full-model barrier status. Concurrent submissions write immutable child checkpoints from their launch snapshots; one merge activity serializes each completion batch into the next master checkpoint. The completed `model` and `admission_report` are written only after every construct is admitted and the barrier passes.
+Checkpoints are immutable execution sidecars. Original LLM submissions and their revision history live in the state-machine records; each model parameter references its current model-owned distribution. They store the accepted dependency-closed set, exact input-version pins, validation outcomes, search state, repair feedback, and full-model barrier status. Concurrent submissions write immutable child checkpoints from their launch snapshots; one merge activity serializes each completion batch into the next master checkpoint. The completed `model` and its [prior-predictive result](#priorpredictiveresult) are committed only after every construct is admitted and the barrier passes. Run completion and input freshness determine whether authoring needs to run again.
 
 Temporal resumes an interrupted in-flight workflow from its recorded activity and child-workflow history. When a model-spec run terminates, its episode-journal record carries a typed run/checkpoint selection. The checkpoint layer resolves that selection when the outer orchestrator modifies an upstream artifact through normal machine moves and runs `statistical_model_spec` again.
 
@@ -92,13 +91,13 @@ For a study of classroom engagement and academic performance, the transition cou
 | Output | Type | Description |
 |---|---|---|
 | `model` | [`ModelSpec`](latent-structure.md#modelspec) | Completed scientific entities, owned components, parameter definitions, and priors |
-| `admission_report` | [`AdmissionReport`](#admissionreport) | Prior research and accepted C1–C5 findings, pinned to the completed model |
+| Journal `diagnostics.prior_predictive` | [`PriorPredictiveResult`](#priorpredictiveresult) | Simulated observations and construct-level checks, tied to the completed model and the run's input versions |
 
 ### LikelihoodSpec
 
 | Field | Type | Description |
 |---|---|---|
-| `law` | `ObservationLaw` | Native distribution constructor whose arguments are expressions over scientific states and coefficients |
+| `law` | `ObservationLawSpec` | Native distribution constructor whose arguments are expressions over scientific states and coefficients |
 | `standardized` | `bool` | Declared standardization choice for eligible additive-location indicators |
 | `reasoning` | `str` | Scientific justification |
 | `sources` | `tuple[LiteratureSource, ...]` | Evidence for the choice |
@@ -114,12 +113,12 @@ Parameter ownership, support checks, numerical lowering, and displayed observati
 | `id` | Stable identity referenced by component coefficients; preserved through model revisions |
 | `name` | Display label; references use the identity |
 | `description` | Scientific interpretation |
-| `distribution` | Native NumPyro law or reference to a shared ModelSpec distribution; required for a free parameter in a complete model |
+| `distribution` | ID of a law in `ModelSpec.distributions`; required for a free parameter in a complete model |
 | `value` | Fixed model-scale value, mutually exclusive with a distribution |
 | `distribution_transform` | Identity, interval persistence to decay, interval effect to rate, or initial correlation |
 | `reference_interval_days` | Positive interval defining an authored interval-scale distribution |
 
-Authoring rationales and supporting sources belong in the state-machine log. Fitting updates the same parameter's distribution in a new ModelSpec revision; the original law remains available in the input revision.
+Authoring rationales and supporting sources belong in the state-machine log. Fitting updates the same parameter's law membership in a new ModelSpec revision; the original law remains available in the input revision.
 
 Prior density curves are computed on backend reads from the native NumPyro law, on the declared authoring scale. A small deterministic prior draw sets the plotting range; curve heights use the native `log_prob`. Curves are cached for display and never stored in `ParameterSpec` or used by inference. Joint, batched, discrete, and point-mass laws do not have a scalar density plot.
 
@@ -127,22 +126,31 @@ Prior density curves are computed on backend reads from the native NumPyro law, 
 
 | Field | Owner | Description |
 |---|---|---|
-| `dynamics` | `Construct` | Intrinsic drift contributions and node potentials |
-| `likelihood` | `Indicator` | Conditional probability law, standardization, and evidence |
-| `mechanisms` | `CausalEdge` | Additive causal effect functions |
-| `innovation` | `Construct` | Noise distribution, scale, conditional loadings, and optional tail parameter |
-| `initial_state` | `Construct` | Initial mean, scale, and correlations |
-| `parameters` | `ModelSpec` | Referenced definitions with native laws or fixed values and supporting evidence |
+| `dynamics` | `ConstructSpec` | Intrinsic drift contributions and node potentials |
+| `likelihood` | `IndicatorSpec` | Conditional probability law, standardization, and evidence |
+| `mechanisms` | `CausalEdgeSpec` | Additive causal effect functions |
+| `coefficients` | `ConstructSpec` | Shared coefficient expressions for diffusion scale and loadings, initial mean and scale, correlations, and the optional process tail parameter |
+| `innovation_family` | `ConstructSpec` | Gaussian or Student-t driving noise |
+| `parameters` | `ModelSpec` | Referenced definitions with law memberships or fixed values |
+| `distributions` | `ModelSpec` | Native NumPyro laws keyed by the IDs referenced by parameters and constructs |
 
-### State Distributions
+### Construct Coefficients
 
-| Component | Fields | Description |
+The same [coefficient expressions](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/expressions.py) used in dynamics and likelihoods declare construct-level scalar uses. Existing numerical assembly maps these uses to diffusion and initial-distribution coordinates.
+
+| Field | Description |
+|---|---|
+| `role` | `diffusion_scale`, `diffusion_loading`, `process_degrees_of_freedom`, `initial_mean`, `initial_scale`, or `initial_correlation` |
+| `value` | Finite number or persistent parameter ID; `null` marks an incomplete declaration |
+| `construct_ids` | One additional construct for a joint loading or correlation; empty for a scalar use |
+
+| Role | Numerical use | Description |
 |---|---|---|
-| `InnovationSpec` | `distribution`, `scale`, `loadings`, `degrees_of_freedom` | Construct-owned driving noise; loadings retain conditional noise coordinates |
-| `InitialStateSpec` | `mean`, `scale`, `correlations` | Construct-owned initial location, marginal scale, and joint correlations |
-| `StateCoupling` | `other_id`, `coefficient` | Explicit reference to another construct and the associated coefficient |
+| `diffusion_scale`, `diffusion_loading` | Diffusion factor | Marginal driving scale and conditional noise coordinates |
+| `initial_mean`, `initial_scale`, `initial_correlation` | Initial distribution | Initial location, marginal scale, and joint correlations; unmeasured static roots share their baseline scale |
+| `process_degrees_of_freedom` | Process tail parameter | Shared parameter for Student-t innovations |
 
-### DynamicsMechanism
+### DynamicsMechanismSpec
 
 | Field | Description |
 |---|---|
@@ -161,21 +169,25 @@ Scientific constructors such as `restoring_potential`, `linear_effect`, and `hil
 
 Intrinsic dynamics reference only their owning construct. Potentials belong to nodes; directed edges require drift terms. An edge expression references its primary cause, and any additional state dependencies require explicit causal edges into its effect. Fixed coefficient values must satisfy their declared support. Location anchoring requires a complete restoring expression of the declared kind; a coefficient's role alone does not certify an anchor. Known-input and marginalized-confounder matrix boundaries continue to require a scalar linear expression.
 
-### Coefficient
+### CoefficientExpression
 
-| Variant | Fields | Description |
-|---|---|---|
-| `FixedCoefficient` | `kind="fixed"`, `value` | Finite coefficient on the continuous-time model scale |
-| `ParameterCoefficient` | `kind="parameter"`, `parameter_id` | Explicit reference to its [scientific parameter](#parameterspec) |
+| Field | Description |
+|---|---|
+| `kind` | `"coefficient"`, identifying an operand in the expression grammar |
+| `role` | Scientific meaning and required support of this use |
+| `value` | Finite model-scale number, persistent [parameter ID](#parameterspec), or `null` while unassigned |
+| `construct_ids` | Additional constructs participating in a joint coefficient use |
 
-### AdmissionReport
+For example, `{"kind": "coefficient", "role": "loading", "value": 1}` declares a fixed unit loading. A parameter ID in `value` references the same scientific quantity wherever it appears; its role describes the local use. Zero is an assigned value. No nested fixed-value or parameter-reference record is stored.
+
+### PriorPredictiveResult
 
 | Field | Type | Description |
 |---|---|---|
-| `search_queries` | `dict[str, str]` ∣ `null` | Research queries used for prior elicitation |
-| `validation_warnings` | `list[str]` ∣ `null` | Retained validation findings |
-| `prior_predictive_samples` | `dict[IndicatorId, list[float]]` ∣ `null` | Exact prior-predictive observations for Data-vs-Prior inspection |
-| `prior_predictive_diagnostics` | `list[PriorPredictiveDiagnostic]` | Accepted construct-level checks, including feedback-component rechecks |
+| `samples` | `dict[IndicatorId, list[float]]` | Exact prior-predictive observations for Data-vs-Prior inspection |
+| `diagnostics` | `list[PriorPredictiveDiagnostic]` | Construct-level checks, including feedback-component rechecks |
+
+The [model snapshot](../design/model-snapshot.md) exposes the result as `findings.prior_predictive`, sourced to its journal record. Research queries remain in authoring traces and `diagnostics.search_queries`; compiler findings retain their [`PriorValidationResult`](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/prior.py) structure in `diagnostics.validation_diagnostics`. Admission progress and acceptance decisions remain in execution checkpoints. A completed operation can be recognized independently of whether predictive results were retained.
 
 [^gelman2020]: Gelman, A., Vehtari, A., Simpson, D., et al. (2020). Bayesian Workflow. arXiv:2011.01808. [Bibliography entry](../reference/bibliography.md)
 [^gelman2013]: Gelman, A., Carlin, J. B., Stern, H. S., Dunson, D. B., Vehtari, A., & Rubin, D. B. (2013). *Bayesian Data Analysis* (3rd ed.). CRC Press. [Bibliography entry](../reference/bibliography.md)

@@ -77,7 +77,7 @@ Every admitted construct creates an immutable branch checkpoint. As completions 
 
 Dataframes, compiler objects, and executable model objects are not serialized into checkpoints. They are reconstructed from pinned artifacts.
 
-Checkpoints live under `data/{workspace_id}/scratch/runs/{run_id}/checkpoints/`. They are internal execution sidecars and do not enter the public artifact graph. Finalized LLM traces are instead promoted into the durable episode ledger at commit time. An incomplete model reports its unmet [execution requirements](../compilation.md#execution-readiness) and cannot enter inference.
+Checkpoints live under `data/{workspace_id}/scratch/runs/{run_id}/checkpoints/`. They are internal execution sidecars and do not enter the public artifact graph. Finalized LLM traces are instead promoted into the durable episode ledger at commit time. Inference validates [execution requirements](../compilation.md#execution-validation) before local or remote computation and rejects incomplete models.
 
 The submission identifier determines each branch checkpoint path. If Temporal retries a tool activity after the checkpoint was written, the activity returns the existing checkpoint instead of applying the construct twice. The master checkpoint has a single writer, so parallel branches never race to overwrite accepted state.
 
@@ -132,4 +132,4 @@ The timing breakdown separates shared work—design preparation, model compilati
 
 ## Completion
 
-The transition completes only when every current construct is admitted and the shared full-model barrier passes. Finalization materializes the accumulated `ModelSpec` and priors, commits the revised `model` and its `admission_report` together. A failed final write leaves the previous model and findings current.
+The transition completes only when every current construct is admitted and the shared full-model barrier passes. Finalization commits the accumulated `ModelSpec` and records the [prior-predictive result](../../pipeline/statistical-model-spec.md#priorpredictiveresult), research queries, and typed validation findings in the same run's journal record. A failed final write leaves the previous model and findings current. Navigation uses successful run completion and matching inputs.
