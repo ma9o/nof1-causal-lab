@@ -1,4 +1,4 @@
-# CausalDesign: Identifiability
+# Causal Identification: Identifiability
 
 This reference covers the identifiability assumptions used by [`measurement_structure` transition](../../pipeline/measurement-structure.md): why treatment-outcome identifiability is checked there, how temporal unrolling works, and why the external contract stays as a DAG with explicit latent confounders.
 
@@ -7,6 +7,14 @@ This reference covers the identifiability assumptions used by [`measurement_stru
 `measurement_structure` transition checks whether each treatment-to-outcome effect is causally identifiable under the latent graph and the measurement assumptions.
 
 The unit of checking is one treatment-outcome pair at a time. Non-identifiability of one effect does not affect identifiability of others, because the ID algorithm[^shpitser2006] restricts attention to ancestors of the outcome; additions elsewhere cannot introduce new blocking structures.
+
+## Supported Identification Evidence
+
+The [production identifier](../../../apps/data-pipeline/src/nof1_causal_lab/models/identification.py) explicitly disables linear instrumental-variable identification. The nonlinear scientific model does not declare the linearity assumptions that argument needs. When nonparametric ID fails, an available instrument does not turn the finding positive.
+
+The [identification contract](../../../apps/data-pipeline/src/nof1_causal_lab/artifacts/identification.py) accepts only `method="do_calculus"` for positive findings. Previously stored or externally supplied linear-IV findings fail validation and cannot enter causal reporting. The lower-level graph utility retains an explicit `iv_allowed=True` option for callers studying the separate linear assumption; that result is outside the production reporting contract.
+
+This restriction concerns the linear-IV argument. The measurement and temporal assumptions below still determine the scope of the graph identification check.
 
 ## A3a. Latent Confounders Have Bounded Temporal Reach
 
@@ -31,7 +39,7 @@ but not via `U_{t-2}` or earlier, because `U_{t-1}` d-separates `U_{t-2}` from c
 
 **Depends on:** [A1](../measurement-structure/assumptions.md#a1-reflective-measurement-structure) (reflective measurement), [A6](../measurement-structure/assumptions.md#a6-measurement-error-handling-depends-on-indicator-count) (multi-indicator identification via factor analysis), and [A9](../measurement-structure/assumptions.md#a9-single-indicator-constructs-absorb-measurement-error) (single-indicator identification by assumption).
 
-**Rationale:** Under A1, A6, and A9 the construct covariance matrix is identified from observed indicator data. Pearl-style[^pearl2009] identification criteria then apply to the construct-level DAG as if constructs were directly observed. This two-step logic—identify the measurement structure, then identify the causal model—follows Anderson and Gerbing (1988)[^anderson1988] and is one reason `CausalDesign`, not `LatentStructure` alone, is the right handoff object for downstream fitting. Proxy indicators for latent confounders follow Miao, Geng, and Tchetgen Tchetgen (2018)[^miao2018].
+**Rationale:** Under A1, A6, and A9 the construct covariance matrix is identified from observed indicator data. Pearl-style[^pearl2009] identification criteria then apply to the construct-level DAG as if constructs were directly observed. This two-step logic—identify the measurement structure, then identify the causal model—follows Anderson and Gerbing (1988)[^anderson1988] and requires identification to consume the graph and owned measurement choices of the same Model revision. Proxy indicators for latent confounders follow Miao, Geng, and Tchetgen Tchetgen (2018)[^miao2018].
 
 ## User-Facing DAG vs Internal ADMG Projection
 

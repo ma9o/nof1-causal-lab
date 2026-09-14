@@ -1,4 +1,4 @@
-# MeasurementStructure Assumptions
+# Measurement Structure Assumptions
 
 This page collects the assumptions that constrain how constructs are measured.
 
@@ -98,7 +98,7 @@ where `lambda` is fixed to `1` and measurement error merges with structural erro
 
 **Recommendation:** When substantively important, prefer multiple indicators per construct to enable measurement-error separation. Single-indicator constructs are appropriate for well-validated scales with known high reliability or for exploratory analysis where attenuation bias is acceptable.
 
-## Future Considerations (MeasurementStructure-Related)
+## Future Considerations (Measurement Choices)
 
 The following are explicitly not assumed and may be added in future versions:
 
@@ -107,7 +107,7 @@ The following are explicitly not assumed and may be added in future versions:
 
 ## Boundary
 
-These assumptions shape the `MeasurementStructure` itself. The follow-on assumption that an identified measurement structure permits causal identification lives with the [CausalDesign](../causal-design/identifiability.md).
+These assumptions shape the `ModelSpec` itself. The follow-on assumption that an identified measurement structure permits causal identification lives with the [CausalDesign](../causal-design/identifiability.md).
 
 [^diamantopoulos2006]: Diamantopoulos, A., & Siguaw, J. A. (2006). Formative Versus Reflective Indicators in Organizational Measure Development. *British Journal of Management*, 17(4), 263–282. [Bibliography entry](../bibliography.md)
 [^asparouhov2018]: Asparouhov, T., Hamaker, E. L., & Muthén, B. (2018). Dynamic Structural Equation Models. *Structural Equation Modeling*, 25(3), 359–388. [Bibliography entry](../bibliography.md)

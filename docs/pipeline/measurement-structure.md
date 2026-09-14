@@ -2,17 +2,17 @@
 
 | Modality | Interactive | Produces |
 |---|---|---|
-| Semantic | Yes | [`MeasurementStructure`](#measurementstructure), executable-disposition declarations; derives [`CausalDesign`](#causaldesign), [`StructuralPlan`](#structuralplan), and [`IdentificationReport`](#identificationreport) when positive |
+| Semantic | Yes | A revised [`ModelSpec`](latent-structure.md#modelspec), plus an [`IdentificationReport`](#identificationreport) |
 
-Operationalizes the [`LatentStructure`](latent-structure.md#latent-structure) against observed data by specifying indicators for each construct, then checks whether each treatment-to-outcome effect is causally identifiable[^pearl2009].
+Operationalizes the [`ModelSpec`](latent-structure.md#modelspec) against observed data by specifying indicators for each construct, then checks whether each treatment-to-outcome effect is causally identifiable[^pearl2009].
 
 ## Inputs
 
 | Input | Source | Description |
 |---|---|---|
 | `question` | User | Original research question, used to justify measurement choices |
-| `latent_structure` | [`latent_structure` transition](latent-structure.md) | `LatentStructure` with constructs and edges |
-| `raw_dataframe` | [`raw_data` transition](ingestion.md) | Raw dataframe with column descriptions |
+| `model` | [`latent_structure` transition](latent-structure.md) | `ModelSpec` with constructs and edges |
+| `raw_data` | [`raw_data` transition](ingestion.md#outputs) | Raw Arrow table with column descriptions |
 
 `latent_structure` transition provided theoretical structure without seeing any data. `measurement_structure` transition is the first point where the model meets the dataset.
 
@@ -22,17 +22,17 @@ Operationalizes the [`LatentStructure`](latent-structure.md#latent-structure) ag
 
 ```mermaid
 flowchart LR
-    P[Propose] --> V1{Validator} -- errors --> P
-    V1 -- VALID --> R[Review] --> V2{Validator} -- errors --> R
-    V2 -- VALID --> M([MeasurementStructure + dispositions])
-    M -->|derive| C([CausalDesign])
-    C -->|compile| S([StructuralPlan])
-    C -->|derive when positive| I([IdentificationReport])
+    M[ModelSpec] --> P[Add owned indicators and usage]
+    P --> V{Validate whole model}
+    V -- revise --> P
+    V -- valid --> R[Commit model revision]
+    R --> S[Validate execution structure]
+    R --> I[IdentificationReport]
 ```
 
 **Propose:** For each construct in the latent structure, the LLM proposes one or more indicators: observed variables that operationalize the construct in this dataset. Each indicator names the source columns it uses, how extraction will work, what kind of value it produces, and over what support window that value is defined. When a directly observed construct trajectory should condition the dynamics rather than remain a latent state, the proposal also identifies its source indicator as a known input.
 
-**Validator:** The LLM submits its proposal via a `validate_measurement_structure` tool call. The tool checks schema and compiler constraints:
+**Validator:** The LLM submits the whole candidate as `model_json` to `validate_measurement_structure`. The tool checks schema and compiler constraints:
 
 - *Outcome coverage:* every outcome construct has at least one indicator
 - *No duplicate indicator definitions* across indicators
@@ -42,7 +42,7 @@ flowchart LR
 - *Known-input integrity:* declarations reference an existing construct and an indicator that measures that same construct
 - *Structural compilation:* every construct, edge, and indicator receives an explicit disposition; retained states satisfy coverage and loading-rank constraints; unsupported static-target edges are rejected
 
-After the authored artifact validates, the machine derives the complete causal design and checks [causal identifiability](../reference/causal-design/identifiability.md) for each treatment-to-outcome pair.
+After the candidate model validates, the machine derives its execution plan and checks [causal identifiability](../reference/causal-design/identifiability.md) for each treatment-to-outcome pair. Production identification uses nonparametric do-calculus. A linear instrumental-variable argument cannot authorize a causal claim for the nonlinear `ModelSpec`; the public identification contract accepts only `method="do_calculus"`.
 
 **Review:** A follow-up prompt asks the LLM to review its validated measurement structure for coverage, operationalization clarity in `how_to_measure`, observation-window semantics, the [reflective measurement assumption](../reference/measurement-structure/assumptions.md#a1-reflective-measurement-structure), absence of cumulative or running metrics, and whether every known-input declaration is justified by direct observation and explicit missing-value semantics. If the review surfaces issues, the LLM revises and re-validates before the conversation ends.
 
@@ -54,28 +54,24 @@ For a study of developer workload and code quality, `measurement_structure` tran
 
 | Output | Type | Description |
 |---|---|---|
-| `measurement_structure` | [`MeasurementStructure`](#measurementstructure) | Authored indicator mapping and model clock |
-| `known_inputs` | `list[KnownInput]` | Authored declarations of observed trajectories compiled as transition inputs |
-| `scientific_only_constructs` | `list[ScientificOnlyConstruct]` | Measured constructs retained in the scientific DAG but explicitly excluded from the executable state |
-| `causal_design` | [`CausalDesign`](#causaldesign) | Machine-derived scientific composition and identification status |
-| `structural_plan` | [`StructuralPlan`](#structuralplan) | Versioned executable projection with stable source IDs, semantic metadata, and explicit source-item dispositions |
-| `identification_report` | [`IdentificationReport`](#identificationreport) | Machine-derived positive identification gate, present only when at least one treatment effect is explicitly identifiable |
+| `model` | [`ModelSpec`](latent-structure.md#modelspec) | The same scientific entities enriched with owned indicators, a measurement clock, and usage choices |
+| `identification_report` | [`IdentificationReport`](#identificationreport) | Positive and negative findings for the model's default causal query |
 
-### `MeasurementStructure`
+### Model Measurement Choices
 
-| Field | Type | Description |
+| Field | Owner | Description |
 |---|---|---|
-| `indicators` | `list[Indicator]` | Observed indicators attached to constructs |
-| `model_clock` | `str` | Shared observation-window width used for extraction, discretization, and the default lag unit for construct-level temporal semantics |
+| `measurement_clock` | `ModelSpec` | Shared window and default lag unit |
+| `indicators` | `Construct` | Reflective measurement definitions owned by that scientific entity |
+| `usage` | `Construct` | Optional known-input or scientific-only declaration |
 
-Indicators are reflective[^bollen1989]: the construct causes the indicator value, not the reverse. The assumptions behind that commitment live in [measurement-structure/assumptions.md](../reference/measurement-structure/assumptions.md).
+Indicators are reflective[^bollen1989]: the construct causes the indicator value. The [measurement assumptions](../reference/measurement-structure/assumptions.md) define that commitment.
 
 ### `Indicator`
 
 | Field | Type | Description |
 |---|---|---|
 | `id` | `IndicatorId` | Persistent `indicator:` identity, preserved when revising or renaming the same indicator |
-| `construct_id` | `ConstructId` | Persistent owner reference to the [authored construct](latent-structure.md#construct) |
 | `name` | `str` | Current indicator name used downstream |
 | `how_to_measure` | `str` | Human-readable measurement instructions grounded in the dataset |
 | `measurement_dtype` | `str` | Semantic value type: `continuous`, `binary`, `count`, `ordinal`, or `categorical` |
@@ -86,12 +82,14 @@ Indicators are reflective[^bollen1989]: the construct causes the indicator value
 | `source_columns` | `list[str]` | Raw columns needed to compute or interpret the indicator |
 | `computed_rule` | `WindowExpression` \| `null` | Validated expression string producing one scalar per window from declared source columns; requires computed extraction |
 | `extraction_mode` | `str` | Whether extraction is deterministic (`computed`) or LLM-mediated (`semantic`) |
+| `construct_polarity` | `str` | Whether increasing indicator values represent more or less of its construct |
+| `likelihood` | `LikelihoodSpec` ∣ `null` | Owned [measurement likelihood](statistical-model-spec.md#likelihoodspec), absent before statistical specification |
 
 ### `KnownInput`
 
 | Field | Type | Description |
 |---|---|---|
-| `construct_id` | `ConstructId` | Construct removed from the latent state vector and treated as an observed transition driver |
+| `kind` | `"known_input"` | The containing construct is an observed transition driver |
 | `source_indicator_id` | `IndicatorId` | Indicator for the same construct that supplies the input trajectory |
 | `scale` | `float` | Positive divisor applied to the source values before inference |
 | `missing_policy` | `str` | Whether missing grid values become zero or carry the last observed value forward |
@@ -100,10 +98,10 @@ Indicators are reflective[^bollen1989]: the construct causes the indicator value
 
 | Field | Type | Description |
 |---|---|---|
-| `construct_id` | `ConstructId` | Measured scientific-DAG construct excluded from the executable state vector |
+| `kind` | `"scientific_only"` | The containing construct remains in the scientific DAG and is excluded from the executable state vector |
 | `reason` | `str` | Explicit scientific or identification rationale for the exclusion |
 
-### `observation_window` and `model_clock`
+### `observation_window` and `measurement_clock`
 
 Examples of indicator-level observation windows:
 
@@ -111,7 +109,7 @@ Examples of indicator-level observation windows:
 - "Number of production incidents during the previous week"
 - "Teacher feedback sentiment in the current grading period"
 
-Different indicators may use different `observation_window` values as long as they are aligned back onto the shared `model_clock`.
+Different indicators may use different `observation_window` values as long as they are aligned back onto the shared `measurement_clock`.
 
 ### Indicator Level `aggregation`
 
@@ -128,33 +126,11 @@ These are substantive commitments, not mere implementation details. A daily mean
 
 ### Derived Observation Semantics
 
-The `MeasurementStructure` does not store row timestamps itself, but it fully determines the row-level support semantics that [`measurements` transition](extraction.md) materializes into [`ObservationRecord`](extraction.md#observationrecord) fields. The derivation is deterministic: the indicator's `aggregation` operator selects the `support_kind` (point vs. interval) and the `anchor_policy` per the "Typical anchor" column above.
+The `ModelSpec` does not store row timestamps itself, but it fully determines the row-level support semantics that [`measurements` transition](extraction.md) materializes into [`ObservationRecord`](extraction.md#observationrecord) fields. The derivation is deterministic: the indicator's `aggregation` operator selects the `support_kind` (point vs. interval) and the `anchor_policy` per the "Typical anchor" column above.
 
-### `CausalDesign`
+### Execution Structure
 
-`CausalDesign` is the machine-derived combined input to downstream transitions:
-
-| Field | Type | Description |
-|---|---|---|
-| `latent` | [`LatentStructure`](latent-structure.md#latent-structure) | The validated `latent_structure` transition construct-level graph |
-| `measurement` | [`MeasurementStructure`](#measurementstructure) | The indicator mapping and model clock introduced here |
-| `identifiability` | [`IdentifiabilityStatus`](#identifiabilitystatus) \| `null` | Treatment-level identifiability results from the `measurement_structure` transition checker |
-| `known_inputs` | `list[KnownInput]` | Authored observed transition drivers |
-| `scientific_only_constructs` | `list[ScientificOnlyConstruct]` | Authored exclusions from the executable SSM |
-
-### `StructuralPlan`
-
-| Field | Type | Description |
-|---|---|---|
-| `schema_version` | `int` | Persisted structural-plan contract version |
-| `semantics` | `StructuralSemanticCatalog` | Construct, edge, and indicator semantics keyed by stable source IDs |
-| `state_order` | `list[str]` | Retained construct source IDs in canonical compiler order |
-| `edges` | `list[StructuralEdge]` | Retained directed edges keyed back to their source edge IDs |
-| `manifest_indicator_order` | `list[str]` | Retained indicator source IDs in canonical likelihood order |
-| `reference_indicator_ids` | `dict[str, str]` | Retained state source IDs mapped to their compiler-authoritative reference manifest source IDs |
-| `known_inputs` | `list[StructuralKnownInput]` | Observed transition inputs with source construct and indicator IDs |
-| `induced_dependencies` | `list[StructuralInducedDependency]` | Covariance dependencies induced by marginalized explicit latent root confounders |
-| `dispositions` | `list[StructuralItemDisposition]` | Total retained, projected, marginalized, input, manifest, or scientific-only decision for every source item |
+[ModelSpec structural accessors](../reference/compilation.md#structural-derivation) derive retained state and observation order, reference indicators, known inputs, and dependencies induced by marginalized latent roots. Compilation validates these selections. The model snapshot exposes the resulting dispositions as findings sourced to its model revision. There is no separately persisted execution plan.
 
 ### `IdentifiabilityStatus`
 
@@ -167,9 +143,8 @@ The `MeasurementStructure` does not store row timestamps itself, but it fully de
 
 | Field | Type | Description |
 |---|---|---|
-| `outcome_id` | `ConstructId` | Persistent outcome identity |
-| `estimable_treatments` | `list[ConstructId]` | Nonempty list of treatment IDs with explicitly identified effects |
-| `non_identifiable_treatments` | `dict[ConstructId, NonIdentifiableTreatmentStatus]` | Treatment IDs mapped to blocking confounder IDs and optional notes |
+| `outcome` | `ConstructId` ∣ `null` | Default outcome selected in the pinned model |
+| `status` | [`IdentifiabilityStatus`](#identifiabilitystatus) | Positive and negative treatment findings, including blocking confounders |
 
 The identifiability assumptions, including temporal unrolling and the internal DAG-to-ADMG projection, live in [causal-design/identifiability.md](../reference/causal-design/identifiability.md).
 

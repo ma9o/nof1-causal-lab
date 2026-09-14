@@ -93,28 +93,14 @@ The command validates the episode journal, copies the durable workspace into
 for Storybook and tests. It replaces `data/DEMO` as a unit rather than merging,
 and excludes `cache/` and `scratch/`.
 
-Artificial projections may temporarily fill artifacts that the checked-in DEMO
-episode has not materialized. They belong only under `data/DEMO/fixture/`; the
-next successful promotion replaces them automatically.
-
-Regenerate the deterministic artificial completion from DEMO's real latent and
-measurement structures, validation profiles, and panel with:
+Retained illustrative artifacts live under `data/DEMO/fixture/`. Recompose their read views with:
 
 ```bash
 bun run fixture:demo
 bun run fixture:demo:check
 ```
 
-This leaves `data/DEMO/store/` and the episode journal untouched. Inside the
-fixture only, it selects a compact scientific DAG and reduced indicator set
-from the stored DEMO proposal, projects the corresponding validation audits,
-grounds `known_inputs` and `scientific_only_constructs`, and rebuilds the causal
-design through the production identification and structural-plan paths. It then
-writes the missing downstream artifact and trace projections. Raw data and
-extracted measurement values remain unchanged. Generation passes the production
-artifact models, model-spec semantic validator and compiler, and simulate
-input/output contracts; the original upstream validation report, including its
-failures, remains in `data/DEMO/store/`.
+This validates the retained canonical Model, its execution readiness, and findings, then uses the production reader to generate snapshots and artifact views. It preserves the stored episode and all retained numerical results. It does not fit, sample, simulate, or invent missing scientific artifacts. A complete promoted episode supplies its own canonical payloads.
 
 ## Step-by-Step Flow
 
@@ -138,7 +124,7 @@ There is no auth: the facade is the source of truth for what is allowed, and
 plane is available (`moves_enabled` is `false` on a read-only facade).
 
 This writes the `question` artifact and starts the **auto-run driver**: a
-default navigation policy that proposes artifact-named `run` moves in dependency
+default navigation policy that proposes operation-named `run` moves in dependency
 order while transition outputs are missing or stale, stopping when the episode
 is quiescent or a move fails.
 
@@ -183,7 +169,7 @@ enabledness; there is no window arithmetic):
 # Run one transition
 curl -s -X POST http://localhost:8100/api/episodes/$WORKSPACE_ID/moves \
   -H 'Content-Type: application/json' \
-  -d '{"move": {"kind": "run", "artifact_id": "statistical_model_spec"}}'
+  -d '{"move": {"kind": "run", "operation_id": "statistical_model_spec"}}'
 
 # Or resume the default policy (runs everything enabled and stale/missing)
 curl -s -X POST http://localhost:8100/api/episodes/$WORKSPACE_ID/auto \
@@ -193,35 +179,19 @@ curl -s -X POST http://localhost:8100/api/episodes/$WORKSPACE_ID/auto \
 The question does not need re-supplying: it is a versioned root artifact,
 not a run parameter.
 
-## Editing artifacts
+## Editing the Model
 
-A human/LLM edit is a `write` move: schema-validated, provenance-stamped,
-and journaled. Editing `measurement_structure` fans out a recomputed
-`causal_design` plus a positive `identification_report` when the composed
-design has explicitly identified treatments;
-downstream artifacts become **stale** (visible in `.artifacts`), and the
-next auto-run recomputes exactly the stale suffix.
+Read the current Model and its source version, edit the owned scientific entities, and submit the whole candidate with that expected version. The [model write contract](../design/model-snapshot.md#writes-and-operation-history) validates and commits required derivations atomically. Negative identification findings remain explicit reports. Changed inputs invalidate dependent results without launching another expensive run.
 
 ```bash
-curl -s -X POST http://localhost:8100/api/episodes/$WORKSPACE_ID/moves \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "move": {"kind": "write", "artifact_id": "measurement_structure", "provenance": "human"},
-    "payload": {
-      "measurement_structure": {"model_clock": "1d", "indicators": [...]},
-      "known_inputs": []
-    }
-  }'
-
-curl -s -X POST http://localhost:8100/api/episodes/$WORKSPACE_ID/auto \
-  -H 'Content-Type: application/json' -d '{}'
+# model-update.json contains {"expected_version": <current version>, "model": <candidate>}
+curl -s -X PUT http://localhost:8100/api/episodes/$WORKSPACE_ID/model \
+  -H 'Content-Type: application/json' --data-binary @model-update.json
 ```
 
-Through the web app, [`/api/replay`](../../apps/web/src/app/api/replay/route.ts)
-performs the same write-then-auto sequence; an external agent proposes the
-same moves over MCP (see the [agent quickstart](agent_quickstart.md)).
+Use `0` only when creating the first Model. A stale base returns HTTP 409. The [offline conversion guide](additive-model-migration.md) covers retained episodes from the former scientific schemas.
 
-### Valid Run Artifact IDs
+### Valid Operation IDs
 
 Dependencies are artifact-level; `GET /api/machine` exposes
 `topological_artifact_order` and `topological_transition_order` from

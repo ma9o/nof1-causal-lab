@@ -10,7 +10,7 @@ Euler–Maruyama particle sampler, diagnostics, and posterior-predictive code as
 
 The runner accepts:
 
-- a compiled `CompiledSSMArtifact` JSON file;
+- a completed `ModelSpec` JSON file;
 - the long-form model panel serialized either as Polars binary (`.bin`) or Parquet;
 - an optional JSON object of sampler overrides.
 
@@ -22,7 +22,7 @@ from pathlib import Path
 Path("panel.bin").write_bytes(data_for_model.serialize(format="binary"))
 ```
 
-The compiled artifact must be its complete `model_dump(mode="json")`; a partial model
+The model must be its complete `model_dump(mode="json")`; a partial model
 specification is not sufficient.
 
 ## Run
@@ -31,7 +31,7 @@ From `apps/data-pipeline`:
 
 ```bash
 uv run modal run scripts/cached_fit.py \
-  --compiled-ssm ../../scratchpad/fit-input/compiled_ssm.json \
+  --model-spec ../../scratchpad/fit-input/model.json \
   --panel ../../scratchpad/fit-input/panel.bin \
   --label nine-construct
 ```
@@ -48,7 +48,7 @@ To change fit budgets without invalidating Pathfinder, provide an override file:
 
 ```bash
 uv run modal run scripts/cached_fit.py \
-  --compiled-ssm ../../scratchpad/fit-input/compiled_ssm.json \
+  --model-spec ../../scratchpad/fit-input/model.json \
   --panel ../../scratchpad/fit-input/panel.bin \
   --sampler-overrides ../../scratchpad/fit-input/sampler_overrides.json \
   --label nine-construct-short
@@ -67,7 +67,7 @@ per-chain initial positions, the parameter proposal scaling matrix, and—when t
 production `paid_mix` leaf is selected—the IEKS reference trajectories. It is committed
 before particle MCMC starts, so it remains available if the later fit fails.
 
-Each result directory contains the compiled artifact, original panel bytes, resolved
+Each result directory contains the ModelSpec, original panel bytes, resolved
 sampler configuration, cache provenance, posterior samples, retained latent paths,
 serialized posterior, MCMC diagnostics, PPC output, and a compact summary. Inference
 outputs are committed before PPC runs.
@@ -78,7 +78,7 @@ The warmup cache is content-addressed and never silently reused across mismatche
 
 | Change | Reuse Pathfinder? |
 | --- | --- |
-| Compiled model, priors, or structural topology | No |
+| Scientific model, priors, or structural topology | No |
 | Panel values, support metadata, or serialization format | No |
 | Inference source, runner source, dependency lock, or application config | No |
 | Chain count, seed, IEKS settings, or Pathfinder settings | No |

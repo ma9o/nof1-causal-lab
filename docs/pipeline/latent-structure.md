@@ -2,15 +2,15 @@
 
 | Modality | Interactive | Produces |
 |---|---|---|
-| Semantic | Yes | [`LatentStructure`](#latentstructure) |
+| Semantic | Yes | [`ModelSpec`](#modelspec) |
 
-Builds a causal DAG[^pearl2009] ([`LatentStructure`](#latentstructure)) from the natural language research question.
+Builds a causal DAG[^pearl2009] ([`ModelSpec`](#modelspec)) from the natural language research question.
 
 ## Inputs
 
 | Input | Source | Description |
 |---|---|---|
-| `question` | User | User's research question in natural language |
+| `question` | User's research question in natural language |
 
 Notably, there is no observed data input at this transition.
 
@@ -24,18 +24,18 @@ The conversation has two phases: an initial proposal checked by a structural val
 flowchart LR
     P[Propose] --> V1{Validator} -- errors --> P
     V1 -- VALID --> R[Review] --> V2{Validator} -- errors --> R
-    V2 -- VALID --> F([LatentStructure])
+    V2 -- VALID --> F([Model revision])
 ```
 
 **Propose:** The LLM works backward from the outcome implied by the question: what directly causes it, what causes those causes, and so on. The goal is completeness over parsimony: downstream pipeline transitions will prune based on identifiability; this transition must not omit anything causally important.
 
 Each proposed construct is classified by [role and temporal status](../reference/latent-structure/constructs-and-edges.md#construct-dimensions), and each directed edge carries a [lag designation](../reference/latent-structure/constructs-and-edges.md#edge-lag-rules)—lagged (cause at *t−1* → effect at *t*) or contemporaneous (within the same time index).
 
-**Validator:** The LLM submits its proposal via a `validate_latent_structure` tool call. The tool enforces the `LatentStructure` contract:
+**Validator:** The LLM submits its proposal via a `validate_latent_structure` tool call. The tool accepts a whole candidate `ModelSpec` as `model_json` and enforces its contract:
 
 - *Construct-role invariants and temporal rules* from [constructs-and-edges.md](../reference/latent-structure/constructs-and-edges.md)
 - *Assumption-derived restrictions* from [A4](../reference/latent-structure/assumptions.md#a4-acyclicity-within-time-slice), [A4b](../reference/latent-structure/assumptions.md#a4b-endogenous-time-varying-directed-effects-are-drift-mediated), and [A5](../reference/latent-structure/assumptions.md#a5-time-invariant-latents-as-subject-level-static-states)
-- *Outcome reachability:* the designated outcome must have at least one incoming edge
+- *Identity integrity:* every reference resolves inside the model; indicators and mechanisms have exactly one owner
 
 On failure the tool returns the specific errors; the LLM revises and resubmits within the same conversation until the tool returns VALID.
 
@@ -49,34 +49,48 @@ For a question about whether tutoring intensity improves exam performance throug
 
 | Output | Type | Description |
 |---|---|---|
-| `latent_structure` | `LatentStructure` | Theoretical causal topological structure over latent constructs |
+| `model` | Canonical scientific definition, initially declaring one connected graph and an optional default outcome |
 
-### `LatentStructure`
+### ModelSpec
 
-| Field | Type | Description |
-|---|---|---|
-| `constructs` | `list[Construct]` | Nonempty collection of theoretical constructs in the model |
-| `default_outcome` | `ConstructRef` \| null | Optional endogenous target for the workflow’s default question; individual [scenario queries](analysis.md#scenarioquery) own their outcome selection |
-| `edges` | `list[CausalEdge]` | Directed causal edges between constructs. `lagged=true` means the effect at time `t` depends on the cause at `t-1`. |
+| Field | Description |
+|---|---|
+| `default_outcome` | Optional endogenous target for the workflow’s default question; individual [scenario queries](analysis.md#scenariorequest) own their outcome selection |
+| `edges` | Nonempty directed relationships forming one connected graph when arrow direction is ignored; `cause` and `effect` resolve to shared construct endpoints, and each edge owns additive mechanisms |
+| `parameters` | Shared [scientific quantities and distributions](statistical-model-spec.md#parameterspec), referenced by persistent ID |
+| `measurement_clock` | [Shared measurement clock](measurement-structure.md#observation_window-and-measurement_clock), absent before measurement choices |
+| `distributions` | Shared native NumPyro laws, referenced by the parameters and constructs that participate in each joint distribution |
+| `time_points` | Time grid for construct trajectory distributions, filled when conditioning on observations |
+
+`model.constructs` is a derived enumeration of unique endpoints, absent from the
+serialized ModelSpec. JSON defines each construct once at an edge endpoint and
+uses a `ConstructRef` for its other occurrences. Endpoint references may precede
+definitions; undefined references and conflicting definitions are rejected.
 
 ### `Construct`
 
-| Field | Type | Description |
-|---|---|---|
-| `id` | `ConstructId` | Persistent `construct:` identity, preserved when revising or renaming the same entity |
-| `name` | `str` | Current construct name |
-| `description` | `str` | Meaning of the construct |
-| `role` | `Role` | Endogenous or exogenous |
-| `temporal_status` | `TemporalStatus` | Time-varying or time-invariant |
+| Field | Description |
+|---|---|
+| `id` | Persistent `construct:` identity, preserved when revising or renaming the same entity |
+| `name` | Current construct name |
+| `description` | Meaning of the construct |
+| `role` | Endogenous or exogenous |
+| `temporal_status` | Time-varying or time-invariant |
+| `indicators` | Owned [measurement definitions](measurement-structure.md#indicator) |
+| `dynamics` | Owned additive [intrinsic dynamics](statistical-model-spec.md#dynamicsmechanism) |
+| `innovation`, `initial_state` | Owned [state distributions](statistical-model-spec.md#state-distributions), added during statistical authoring |
+| `distribution` | Current trajectory uncertainty on the ModelSpec time grid |
+| `usage` | An explicit [execution choice](measurement-structure.md#model-measurement-choices), when needed |
 
 ### `CausalEdge`
 
-| Field | Type | Description |
-|---|---|---|
-| `id` | `EdgeId` | Persistent `edge:` identity, preserved when revising the same edge |
-| `cause_id`, `effect_id` | `ConstructId` | Persistent references to the endpoint construct definitions |
-| `description` | `str` | Theoretical justification for the causal relationship |
-| `lagged` | `bool` | Whether the cause precedes the effect by one model-clock tick |
-| `sources` | `list[LiteratureSource]` | Supporting literature with title, optional URL, and excerpt |
+| Field | Description |
+|---|---|
+| `id` | Persistent `edge:` identity, preserved when revising the same edge |
+| `cause`, `effect` | The actual endpoint constructs in Python; repeated JSON endpoints reference the same definition |
+| `description` | Theoretical justification for the causal relationship |
+| `lagged` | Whether the cause precedes the effect by one model-clock tick |
+| `sources` | Supporting literature with title, optional URL, and excerpt |
+| `mechanisms` | Additive [effect functions](statistical-model-spec.md#dynamicsmechanism), each retaining its own identity |
 
 [^pearl2009]: Pearl, J. (2009). *Causality: Models, Reasoning, and Inference* (2nd ed.). Cambridge University Press. [Bibliography entry](../reference/bibliography.md)

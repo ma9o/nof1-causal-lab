@@ -11,8 +11,8 @@ Materializes numeric indicator values from raw data by routing each indicator th
 | Input | Source | Description |
 |---|---|---|
 | `question` | User | Original research question—provides temporal and semantic context for LLM workers |
-| `raw_dataframe` | [`raw_data` transition](ingestion.md) | Ingested dataframe (wide-format parquet) plus column descriptions |
-| `causal_design` | [`measurement_structure` transition](measurement-structure.md) | [`CausalDesign`](measurement-structure.md#causaldesign) with indicators and extraction modes |
+| `raw_data` | [`raw_data` transition](ingestion.md#outputs) | Ingested Arrow table, converted to Polars for extraction computations |
+| `model` | [`measurement_structure` transition](measurement-structure.md) | [`ModelSpec`](latent-structure.md#modelspec) with indicators and extraction modes |
 
 `measurement_structure` transition specified *what* to measure and *how*; `measurements` transition carries out those instructions against the raw data. This is the first point where indicator definitions are evaluated over actual values.
 
@@ -35,7 +35,7 @@ flowchart LR
     end
 ```
 
-Both paths begin by [truncating the raw time column to each indicator's observation window](measurement-structure.md#observation_window-and-model_clock), then materializing every support-window bucket between the first and last observed tick, including buckets with no raw rows. They diverge in how values are extracted from each bucket.
+Both paths begin by [truncating the raw time column to each indicator's observation window](measurement-structure.md#observation_window-and-measurement_clock), then materializing every support-window bucket between the first and last observed tick, including buckets with no raw rows. They diverge in how values are extracted from each bucket.
 
 **Computed path:** The indicator's aggregation function is applied within each window group via Polars. Computed rules—multi-column expressions specified as an AST—are compiled into Polars expressions and evaluated within the same groups. Windows with no raw rows emit `null`; count aggregations emit `0` only when raw rows are present and the counted source or condition is absent.
 
@@ -45,13 +45,13 @@ Both paths begin by [truncating the raw time column to each indicator's observat
 
 *Fan-out:* Each chunk is dispatched to a parallel LLM worker via Prefect's `.map()`, respecting configurable concurrency and rate limits. The worker receives the formatted window text, the research question, and the indicator definitions (name, dtype, summary operator, support kind, window, and `how_to_measure` instructions). It interprets events against those instructions and submits its extractions via a `validate_extractions` tool call. The validation tool checks:
 
-- *Indicator names* exist in the `CausalDesign`
+- *Indicator names* exist in the `ModelSpec`
 - *Support-window starts* match the expected boundaries for this chunk
 - *Dtype conformance:* extracted values match the indicator's `measurement_dtype` (continuous, binary, count, ordinal, categorical)
 - *No duplicate `(window_start, indicator)` pairs* within the chunk
 - *Ordinal bounds:* ordinal codes fall within `0..len(ordinal_levels) − 1`
 
-**Merge & Annotate:** Both paths emit raw `(indicator_id, value, timestamp)` tuples where `timestamp` is the support-window start. The annotation step joins these rows with indicator metadata from the `CausalDesign` to produce the canonical [`ObservationRecord`](#observationrecord).
+**Merge & Annotate:** Both paths emit raw `(indicator_id, value, timestamp)` tuples where `timestamp` is the support-window start. The annotation step joins these rows with indicator metadata from the `ModelSpec` to produce the canonical [`ObservationRecord`](#observationrecord).
 
 ### Example
 
@@ -61,13 +61,17 @@ For a study of classroom interventions and student learning where `measurement_s
 
 | Output | Type | Description |
 |---|---|---|
-| `data_for_model` | [`ObservationRecord`](#observationrecord) | Numerically encoded `ObservationRecord`s persisted for downstream fitting |
+| `panel` | [`ObservationRecord`](#observationrecord) table | Numerically encoded observations persisted as Parquet for downstream fitting |
+
+The panel is the only persisted scientific output. Final worker outcomes and counts are retained in the [transition journal](../guides/agentic_integration_testing.md#workspace-layout). The measurement view reads panel counts and sample rows directly.
+
+A completed extraction with no observations records its outcome in the journal and retracts any previous panel and its validation report. Automatic execution stops for those inputs; fitting remains unavailable until observations exist. Changes to extraction inputs make the operation eligible again.
 
 ### `ObservationRecord`
 
 | Field | Type | Description |
 |---|---|---|
-| `indicator_id` | `IndicatorId` | Persistent indicator ID, referencing the [measurement structure](measurement-structure.md#measurementstructure) |
+| `indicator_id` | `IndicatorId` | Persistent indicator ID, referencing the [measurement structure](measurement-structure.md#model-measurement-choices) |
 | `value` | `Float64` | Extracted value (numerically encoded; non-continuous types label-encoded) |
 | `anchor_time` | `datetime` | Latent-grid attachment time—the timestamp downstream models use for this observation |
 | `support_kind` | `"point"` \| `"interval"` | Whether the measurement is point-local (`first`/`last`) or an interval summary (`sum`/`count`/`mean`/`std`) |

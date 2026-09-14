@@ -9,7 +9,7 @@ The transition consumes exact current versions of these artifacts.
 | Input | Role |
 |---|---|
 | `question` | Substantive estimand context for prior reasoning |
-| `causal_design` | Retained constructs, indicators, edges, confounders, and model clock |
+| `model` | Retained constructs, indicators, edges, confounders, and model clock |
 | `identification_report` | Identification findings already derived from the causal design |
 | `panel` | Encoded longitudinal observations used by admission checks |
 | `validation_report` | Indicator empirical profiles and data-quality findings |
@@ -20,13 +20,13 @@ The selected versions are recorded as input pins in every checkpoint and in the 
 
 Before the first LLM turn, code:
 
-1. derives the compiler-authoritative parameter catalog;
+1. proposes concrete components and derives prompt rows from their parameter references;
 2. condenses estimation-graph strongly connected components into a deterministic admission DAG;
-3. determines the parameters and indicators owned by each construct;
+3. follows component references to determine each construct's parameter and indicator context;
 4. detects cycle-closing edge parameters that must be authored with the closing construct; and
 5. creates or resumes an immutable checkpoint lineage.
 
-The LLM cannot add constructs, indicators, causal edges, or arbitrary parameter names.
+The LLM preserves constructs, indicators, and causal edges. It may change supported statistical components and declare the parameters referenced by their coefficient slots; parameter names are labels. The assembled ModelSpec validates the references and rejects unused definitions.
 
 ## One Construct per Concurrent LLM Subroutine
 
@@ -36,7 +36,7 @@ Every ready singleton unit opens a fresh LLM subroutine concurrently. Feedback-c
 |---|---|
 | Active construct | Construct identity, causal parents, and position in its admission unit |
 | Indicators | Allowed families and links plus empirical profiles |
-| Parameter surface | Canonical parameters that may receive priors in this submission |
+| Component proposal | Canonical components and referenced parameter definitions to complete or revise |
 | Accepted context | Previously admitted constructs relevant to the cumulative model |
 | Validation feedback | Findings from the preceding attempt, when present |
 | Guidance | Prior shapes, scales, dynamics semantics, and soft-check acceptance rules |
@@ -53,9 +53,9 @@ Every attempt must call `submit_construct` with this conceptual payload.
 
 | Field | Meaning |
 |---|---|
-| `construct` | Branch construct; submissions outside the ready frontier are rejected |
-| `indicators` | Distribution, link, and reasoning for each active indicator |
-| `priors` | Canonical parameter name to distribution, parameters, and reasoning |
+| `construct` | The complete owned construct, including indicators, likelihoods, and intrinsic dynamics; it must belong to the ready frontier |
+| `edges` | Incoming causal edges with their additive mechanisms and stable identities |
+| `parameters` | Scientific parameter definitions with native priors and evidence |
 | `accept` | Optional list of `{check, target, rationale}` objects naming current soft failures exactly |
 
 The tool call is terminal for that attempt. A non-admitted result causes the workflow to open another fresh attempt, up to the configured four-attempt limit.
@@ -145,7 +145,7 @@ When the new input pins equal the source checkpoint pins, code reconstructs `Adm
 
 When an upstream artifact changed, saved work becomes a proposal to revalidate rather than trusted accepted state.
 
-Code rebuilds the catalog and replays saved contributions when their predecessor units remain valid. Each contribution passes through the same compiler and exact admission battery. Rebase invalidates:
+Code rebuilds the component proposal and replays saved contributions when their predecessor units remain valid. Each contribution passes through the same compiler and exact admission battery. Rebase invalidates:
 
 - a construct missing from its new admission unit;
 - a contribution that no longer compiles;
@@ -159,9 +159,9 @@ Each invalid unit and its descendants reopen. The new run writes checkpoint zero
 After all constructs are admitted, a deterministic barrier compiles the complete model once, draws one exact prior-predictive sample set, and runs every construct's battery against that shared state. Any failed unit and its descendants reopen for another admission cycle. Finalization runs only after the barrier passes:
 
 1. reconstructs the complete accepted state from the latest checkpoint;
-2. materializes `StatisticalModelSpec` and authored priors;
+2. materializes `ModelSpec` and authored priors;
 3. leaves finalized per-attempt LLM traces in the sequence-owned run for journal promotion;
-4. writes the versioned `statistical_model_spec` artifact with the run's input pins; and
-5. invokes the normal derivation cascade that produces `compiled_ssm`.
+4. commits the completed `model` and `admission_report` with their exact input pins; and
+5. completes required derivations before publishing the move.
 
 No checkpoint is treated as a public model artifact, and no downstream inference can start from partial accepted state.

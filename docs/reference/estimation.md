@@ -1,6 +1,6 @@
 # Estimation Pipeline
 
-This document describes what `SSMModel.model()` computes when the [compilation pipeline](compilation.md) hands off a ready-to-fit [`SSMModel`](compilation.md#stage-5-runtime-preparation-runtimepy-serializationpy-observation_supportpy). The entry point is a compiled artifact containing `SSMSpec`, `compiled_prior_semantics`, `edge_lag_days`, and parameter bindings — everything before this point is covered in [compilation.md](compilation.md). For inference strategy selection rationale, see [inference-routing.md](inference-routing.md).
+This document describes execution from a completed [ModelSpec](../pipeline/latent-structure.md#modelspec). [Numerical functions](compilation.md#numerical-derivation) derive native priors and matrices, and construct Dynestyx's `DynamicalModel`. For inference strategy selection, see [inference routing](inference-routing.md).
 
 **Reader guide:**
 
@@ -99,8 +99,7 @@ The estimation pipeline composes three main libraries:
 
 ```mermaid
 flowchart LR
-    A["CompiledSSMArtifact"] --> B["hydrate_compiled_model()"]
-    B --> C["prepare_model_runtime()"]
+    A["ModelSpec"] --> C["prepare_model_runtime()"]
     C --> D["SSMModel"]
     C --> E["observations + times + support"]
     D --> F["fit_prepared_model()"]
@@ -109,7 +108,7 @@ flowchart LR
     G --> H["ParticleMCMCPosterior"]
 ```
 
-A [`CompiledSSMArtifact`](compilation.md#stage-5-artifact-serialization-compileartifactpy) arrives from the compilation pipeline. `hydrate_compiled_model()` deserializes `SSMSpec`, reloads the prior runtime bundle from `compiled_prior_semantics`, and constructs a live `SSMModel`. `prepare_model_runtime()` then hydrates data-dependent observation metadata, prepares JAX observations/times/support arrays, and attaches support and transition inputs to the model. `fit_prepared_model()` passes the executable model and arrays to `inference.fit()`, which requests the model-owned Euler–Maruyama trajectory target and returns a `ParticleMCMCPosterior` with production-engine evidence, posterior samples, and diagnostics. Laplace/IEKS returns the distinct `WarmupProposal` type and therefore cannot enter reported-posterior APIs.
+`prepare_model_runtime(model_spec=...)` reads the pinned scientific definition, derives native priors and numerical blocks, validates observation support, and prepares JAX observations, times, and inputs. `fit_prepared_model()` passes that execution context to particle inference. The returned `ParticleMCMCPosterior` carries production-engine evidence, parameter samples, trajectories, and diagnostics. Persistence converts parameter samples to scientific element IDs and labels the state axis. The fitted artifact keeps its exact ModelSpec revision in provenance. Laplace/IEKS produces a distinct `WarmupProposal` that cannot enter reported-posterior APIs.
 
 Post-estimation causal effect computation, intervention semantics, and interpretation guidance live in [`baseline_report` transition](../pipeline/analysis.md).
 

@@ -46,7 +46,7 @@ regenerating the old vocabulary.
 | [`flows/runtime_events.py`](../../apps/data-pipeline/src/nof1_causal_lab/flows/runtime_events.py) | Event protocol: `STAGE_PROGRESS_EVENT_PREFIX = "nof1-causal-lab.pipeline-stage"`, `stage_id` in payloads, `emit_stage2_*` event emitters |
 | [`apps/web/src/lib/stage-runtime.ts`](../../apps/web/src/lib/stage-runtime.ts) | Web mirror of the same event prefix and status types |
 | [`apps/web/src/app/api/results/[workspaceId]/[stage]/route.ts`](../../apps/web/src/app/api/results/%5BworkspaceId%5D/%5Bstage%5D/route.ts) + [`endpoints.ts`](../../apps/web/src/lib/api/endpoints.ts) | Stage-keyed results route `/api/results/{ws}/{stage}` and `getStageResult` |
-| [`apps/web/src/app/api/tools/dispatch/route.ts`](../../apps/web/src/app/api/tools/dispatch/route.ts), [`replay/route.ts`](../../apps/web/src/app/api/replay/route.ts) | `stageId` in request bodies for tool dispatch and artifact write-back |
+| [`apps/web/src/app/api/tools/dispatch/route.ts`](../../apps/web/src/app/api/tools/dispatch/route.ts), [model write API](model-snapshot.md#writes-and-operation-history) | `stageId` in request bodies for tool dispatch and artifact write-back |
 
 ### Stratum 2 — shared type vocabulary
 
@@ -129,7 +129,7 @@ Steps 4–7 can land as follow-up commits on the same branch. Suggested worktree
 
 - [`flows/runtime_events.py`](../../apps/data-pipeline/src/nof1_causal_lab/flows/runtime_events.py): `STAGE_PROGRESS_EVENT_PREFIX` → `TRANSITION_EVENT_PREFIX = "nof1-causal-lab.transition"`; `emit_stage_progress_event(workspace_id, stage_id, status)` → `emit_transition_event(workspace_id, transition_id, status)`; `emit_stage2_plan_event` / `emit_stage2_worker_event` → `emit_extraction_plan_event` / `emit_extraction_worker_event` with `context_id: "measurement"` (or drop the id entirely — the prefix already scopes it).
 - [`machine/runners.py`](../../apps/data-pipeline/src/nof1_causal_lab/machine/runners.py) emits with `artifact_id` directly — the `spec.runner_id` lookup disappears.
-- Mirror in [`apps/web/src/lib/stage-runtime.ts`](../../apps/web/src/lib/stage-runtime.ts) → `transition-runtime.ts`, and update event replay/bootstrap paths ([`replay/route.ts`](../../apps/web/src/app/api/replay/route.ts), [`use-run-events.ts`](../../apps/web/src/lib/hooks/use-run-events.ts)).
+- Mirror in [`apps/web/src/lib/stage-runtime.ts`](../../apps/web/src/lib/stage-runtime.ts) → `transition-runtime.ts`, and update event replay/bootstrap paths ([model write API](model-snapshot.md#writes-and-operation-history), [`use-run-events.ts`](../../apps/web/src/lib/hooks/use-run-events.ts)).
 - **Delete the translation layer**: `stageIdsByArtifact` in [`use-run-events.ts`](../../apps/web/src/lib/hooks/use-run-events.ts) exists only to map artifact moves back to stage ids; with artifact-keyed events it has no reason to exist.
 
 ### Step 4 — replace the shared type vocabulary and the frontend stage cursor
@@ -144,12 +144,12 @@ Steps 4–7 can land as follow-up commits on the same branch. Suggested worktree
 
 - `/api/results/{ws}/{stage}` → `/api/artifacts/{ws}/{artifactId}/view`; [`endpoints.ts`](../../apps/web/src/lib/api/endpoints.ts) `getStageResult` → `getArtifactView`. Update the mock provider and route tests.
 - [`tools/dispatch/route.ts`](../../apps/web/src/app/api/tools/dispatch/route.ts): body `stageId` → `contextId`, validated against the hierarchy's context ids exposed by `GET /api/machine`.
-- [`replay/route.ts`](../../apps/web/src/app/api/replay/route.ts): body `stageId`/`stageData` → `artifactId`/`payload` — it is literally a `write(artifact)` move and should say so.
+- [model write API](model-snapshot.md#writes-and-operation-history): body `stageId`/`stageData` → `artifactId`/`payload` — it is literally a `write(artifact)` move and should say so.
 - Update [`tool_server.py`](../../apps/data-pipeline/src/nof1_causal_lab/tool_server.py): the analysis tool context dict keys `"stage-1b"`/`"stage-4"`/`"stage-5b"`/`"stage-6"` become artifact names (`causal_design`, `statistical_model_spec`, `posterior`, `baseline_report`).
 
 ### Step 6 — rename the interior (mechanical, can trail as separate commits)
 
-- `flows/stages/stageN/` → `flows/transitions/<name>/` with artifact/context names: `ingestion` (stage0), `latent_structure` (stage1a), `measurement_structure` (stage1b), `extraction` (stage2), `validation` (stage3), `model_spec` (stage4, absorbing stage4b), `inference` (stage5b), `analysis` (stage6). Contract classes follow: `Stage2Contract` → `MeasurementsArtifact`, `Stage5bContract` → `PosteriorArtifact`, etc. `STAGE_CONTRACTS` → `ARTIFACT_CONTRACTS: dict[ArtifactId, ...]`; `StageId` Literal in [`contracts_base.py`](../../apps/data-pipeline/src/nof1_causal_lab/flows/contracts_base.py) is deleted in favor of the machine's `ArtifactId`.
+- `flows/stages/stageN/` → `flows/transitions/<name>/` with artifact/context names: `ingestion` (stage0), `latent_structure` (stage1a), `measurement_structure` (stage1b), `extraction` (stage2), `validation` (stage3), `model_spec` (stage4, absorbing stage4b), `inference` (stage5b), `analysis` (stage6). Contract classes follow: `Stage2Contract` → `MeasurementsArtifact`, `Stage5bContract` → the inference log report, etc. `STAGE_CONTRACTS` → `ARTIFACT_CONTRACTS: dict[ArtifactId, ...]`; `StageId` Literal in [`contracts_base.py`](../../apps/data-pipeline/src/nof1_causal_lab/flows/contracts_base.py) is deleted in favor of the machine's `ArtifactId`.
 - Module renames: `llm_stage_runtime.py` → `llm_transition_runtime.py`, `stage_tools.py` → `transition_tools.py` (`INTERACTIVE_STAGES` → `INTERACTIVE_CONTEXTS`), `stage_tool_factory.py`, `stage4_compile_cache.py` → `model_spec_compile_cache.py`.
 - Config keys in [`config.yaml`](../../apps/data-pipeline/config.yaml) / [`utils/config.py`](../../apps/data-pipeline/src/nof1_causal_lab/utils/config.py): `stage0_ingestion` → `ingestion`, `stage1_structure_proposal` → `structure_proposal` (fields `stage1a_max_tool_turns`/`stage1b_max_tool_turns` → `latent_max_tool_turns`/`measurement_max_tool_turns`), `stage2_workers` → `extraction_workers`, `stage4_prior_elicitation` → `prior_elicitation`, `stage6_commentary` → `analysis_commentary`. Update `scripts/validate_config.py`, tests, and deployed config in the same change — no dual-key reading.
 - Temporal: rename `run_stage_activity` → `run_transition_activity` and `_RUN_STAGE_TIMEOUT` → `_RUN_TRANSITION_TIMEOUT`. Registered activity names are contract-like with running workers — coordinate a worker redeploy; do not keep an alias.

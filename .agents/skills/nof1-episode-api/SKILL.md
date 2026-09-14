@@ -29,9 +29,9 @@ each transition's creation class and the derivation graph:
    state: per-artifact freshness, the legal moves, and whether an auto-run is
    active.
 2. Propose a move at `POST /api/episodes/{workspace_id}/moves` — either
-   `{"move": {"kind": "run", "artifact_id": "latent_structure"}}` to run a transition, or
-   `{"move": {"kind": "write", "artifact_id": "latent_structure", "provenance": "llm"}, "payload": {...}}`
-   to author a judgment artifact directly.
+   `{"move": {"kind": "run", "operation_id": "latent_structure"}}` to run a transition, or
+   `{"move": {"kind": "write", "artifact_id": "model", "expected_model_version": 0, "provenance": "llm"}, "payload": {...}}`
+   to create the scientific model directly (use its current version for later writes).
 3. Long transitions (`statistical_model_spec`, `posterior` — minutes to hours) can outlive a client
    timeout. Prefer `POST /api/episodes/{workspace_id}/auto` (a background driver
    that runs enabled transitions in dependency order) and poll the state.
@@ -204,7 +204,7 @@ Batch canonical aggregates in one committed read transaction.
 
 Omit `at_seq` for the latest applied move, or select a committed journal sequence.
 Zero selects the empty model. Rejected/raised attempts are not revisions (404).
-Use the returned `seq` for subsequent aggregate or collection reads at the same revision.
+Use the returned `context.seq` for subsequent aggregate or collection reads at the same revision.
 
 **Parameters**
 
@@ -213,6 +213,21 @@ Use the returned `seq` for subsequent aggregate or collection reads at the same 
 
 ```bash
 curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/model"
+```
+
+### PUT `/api/episodes/{workspace_id}/model`
+
+Validate and atomically replace the named base model revision.
+
+**Parameters**
+
+- `workspace_id` (path, required)
+
+```bash
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/model" \
+  -X PUT \
+  -H 'Content-Type: application/json' \
+  -d '{"expected_version": 0, "model": {"edges": [{"id": "string", "cause": {"id": "string", "name": "string", "description": "string", "role": "endogenous", "temporal_status": "time_varying"}, "effect": {"id": "string", "name": "string", "description": "string", "role": "endogenous", "temporal_status": "time_varying"}, "description": "string"}]}}'
 ```
 
 ### GET `/api/episodes/{workspace_id}/model/constructs`
@@ -226,6 +241,19 @@ Authored constructs, using their canonical domain type.
 
 ```bash
 curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/model/constructs"
+```
+
+### GET `/api/episodes/{workspace_id}/model/definition`
+
+The canonical scientific value selected by this journal revision.
+
+**Parameters**
+
+- `workspace_id` (path, required)
+- `at_seq` (query, optional)
+
+```bash
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/model/definition"
 ```
 
 ### GET `/api/episodes/{workspace_id}/model/edges`
@@ -254,22 +282,9 @@ Authored indicators whose owners survive at the selected revision.
 curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/model/indicators"
 ```
 
-### GET `/api/episodes/{workspace_id}/model/latent-structure`
+### GET `/api/episodes/{workspace_id}/model/inference-report`
 
-Canonical latent structure, including its default outcome, at the selected revision.
-
-**Parameters**
-
-- `workspace_id` (path, required)
-- `at_seq` (query, optional)
-
-```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/model/latent-structure"
-```
-
-### GET `/api/episodes/{workspace_id}/model/measurement-structure`
-
-Measurement definitions, clock, and declarations with their shared provenance.
+Read the inference transition report associated with the selected model revision.
 
 **Parameters**
 
@@ -277,12 +292,12 @@ Measurement definitions, clock, and declarations with their shared provenance.
 - `at_seq` (query, optional)
 
 ```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/model/measurement-structure"
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/model/inference-report"
 ```
 
 ### GET `/api/episodes/{workspace_id}/model/parameters`
 
-Scientific parameter definitions from the selected compiler, without inference execution.
+Scientific parameter definitions from the selected model, without inference execution.
 
 **Parameters**
 
@@ -291,32 +306,6 @@ Scientific parameter definitions from the selected compiler, without inference e
 
 ```bash
 curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/model/parameters"
-```
-
-### GET `/api/episodes/{workspace_id}/model/posterior`
-
-Canonical posterior with compatible parameter coordinates and its own fit assessment.
-
-**Parameters**
-
-- `workspace_id` (path, required)
-- `at_seq` (query, optional)
-
-```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/model/posterior"
-```
-
-### GET `/api/episodes/{workspace_id}/model/specification`
-
-Canonical specification with prior results compatible with the selected compiler.
-
-**Parameters**
-
-- `workspace_id` (path, required)
-- `at_seq` (query, optional)
-
-```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/model/specification"
 ```
 
 ### GET `/api/episodes/{workspace_id}/model/views/{artifact_id}`
@@ -339,12 +328,12 @@ Propose one move; blocks until it is applied, rejected, or raises.
 
 Two kinds:
 
-- Run a transition: `{"move": {"kind": "run", "artifact_id": "latent_structure"}}`.
+- Run a transition: `{"move": {"kind": "run", "operation_id": "latent_structure"}}`.
 - Author a judgment artifact directly (skip the in-service stage):
-  `{"move": {"kind": "write", "artifact_id": "latent_structure", "provenance":
+  `{"move": {"kind": "write", "artifact_id": "model", "expected_model_version": 0, "provenance":
   "llm"}, "payload": {...}}`. The payload is schema-validated against that
   artifact's contract, journaled, and provenance-stamped; the write becomes a
-  new provenance root and marks everything downstream stale until re-run.
+  revision. Consumers retain their original pins; changed scientific inputs invalidate affected results.
 
 The synchronous outcome is the same record the timeline stores. Long transitions
 (statistical model specification, posterior — minutes to hours) can outlive a client timeout; for
@@ -358,7 +347,20 @@ those prefer `POST /api/episodes/{workspace_id}/auto` plus polling.
 curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/moves" \
   -X POST \
   -H 'Content-Type: application/json' \
-  -d '{"move": {"kind": "run", "artifact_id": "question"}}'
+  -d '{"move": {"kind": "run", "operation_id": "raw_data"}}'
+```
+
+### GET `/api/episodes/{workspace_id}/operations/{operation_id}/traces`
+
+The latest applied operation's traces, independently of later ModelSpec authorship.
+
+**Parameters**
+
+- `workspace_id` (path, required)
+- `operation_id` (path, required)
+
+```bash
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/operations/OPERATION_ID/traces"
 ```
 
 ### GET `/api/episodes/{workspace_id}/timeline`
@@ -430,8 +432,8 @@ Execute a context tool against the workspace's current artifact-store versions.
 
 Body is `{"workspace_id": "...", "input": {...}}` where `input` matches the
 tool's `parameters` schema from `GET /api/tools/{context_id}`; 422 on a schema
-violation. Numeric tools hard-flag stale provenance chains in their result
-warnings — do not report numbers past those flags.
+violation. Analysis tools reject stale supporting inputs with 409 before
+loading or reusing a fitted context.
 
 **Parameters**
 

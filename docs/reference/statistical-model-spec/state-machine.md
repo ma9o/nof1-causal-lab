@@ -4,7 +4,7 @@ The `statistical_model_spec` transition is a deterministic, topology-aware const
 
 ## What the State Machine Owns
 
-The state machine translates the current [`causal_design`](../../pipeline/measurement-structure.md#causaldesign), [`panel`](../../pipeline/extraction.md), and [`validation_report`](../../pipeline/extraction-validation.md) into one complete statistical model and prior system.
+The state machine translates the current [`model`](../../pipeline/latent-structure.md#modelspec), [`panel`](../../pipeline/extraction.md), and [`validation_report`](../../pipeline/extraction-validation.md) into one complete statistical model and prior system.
 
 | State | Meaning |
 |---|---|
@@ -77,7 +77,7 @@ Every admitted construct creates an immutable branch checkpoint. As completions 
 
 Dataframes, compiler objects, and executable model objects are not serialized into checkpoints. They are reconstructed from pinned artifacts.
 
-Checkpoints live under `data/{workspace_id}/scratch/runs/{run_id}/checkpoints/`. They are internal execution sidecars and do not enter the public artifact graph. Finalized LLM traces are instead promoted into the durable episode ledger at commit time. Consequently, an incomplete model can never trigger the [`compiled_ssm` derivation](../../pipeline/statistical-model-spec.md#outputs).
+Checkpoints live under `data/{workspace_id}/scratch/runs/{run_id}/checkpoints/`. They are internal execution sidecars and do not enter the public artifact graph. Finalized LLM traces are instead promoted into the durable episode ledger at commit time. An incomplete model reports its unmet [execution requirements](../compilation.md#execution-readiness) and cannot enter inference.
 
 The submission identifier determines each branch checkpoint path. If Temporal retries a tool activity after the checkpoint was written, the activity returns the existing checkpoint instead of applying the construct twice. The master checkpoint has a single writer, so parallel branches never race to overwrite accepted state.
 
@@ -132,4 +132,4 @@ The timing breakdown separates shared work—design preparation, model compilati
 
 ## Completion
 
-The transition completes only when every current construct is admitted and the shared full-model barrier passes. Finalization materializes the accumulated `StatisticalModelSpec` and priors, writes the versioned `statistical_model_spec` artifact, and lets the normal derivation cascade produce `compiled_ssm`.
+The transition completes only when every current construct is admitted and the shared full-model barrier passes. Finalization materializes the accumulated `ModelSpec` and priors, commits the revised `model` and its `admission_report` together. A failed final write leaves the previous model and findings current.

@@ -9,12 +9,12 @@ The main domain spine is the sequence of artifacts the pipeline produces and ref
 | Layer | Primary artifact | Produced in | Owner doc | Purpose |
 |---|---|---|---|---|
 | Research intent | Natural-language question | Pipeline request | [pipeline.md](../pipeline.md) | Declares the causal query |
-| Theoretical causal structure | `LatentStructure` | `latent_structure` transition | [../pipeline/latent-structure.md](../pipeline/latent-structure.md) | Defines constructs, edges, and the designated outcome |
-| Measurement and identification | `CausalDesign` | `measurement_structure` transition | [../pipeline/measurement-structure.md](../pipeline/measurement-structure.md) | Binds constructs to indicators and records identifiability |
+| Theoretical causal structure | `ModelSpec` | `latent_structure` transition | [../pipeline/latent-structure.md](../pipeline/latent-structure.md) | Defines constructs, edges, and the designated outcome |
+| Measurement and identification | `ModelSpec` | `measurement_structure` transition | [../pipeline/measurement-structure.md](../pipeline/measurement-structure.md) | Adds owned indicators and derives separately sourced identification findings |
 | Observational evidence | `ObservationRecord`s and the encoded observation table (`data_for_model`) | `measurements` transition | [../pipeline/extraction.md](../pipeline/extraction.md) | Converts source data into time-indexed indicator values |
 | Data-quality surface | `IndicatorAudit` | `validation_report` derivation | [../pipeline/extraction-validation.md](../pipeline/extraction-validation.md) | Describes whether extracted observations are usable |
-| Functional specification | `StatisticalModelSpec` plus priors | `statistical_model_spec` transition | [../pipeline/statistical-model-spec.md](../pipeline/statistical-model-spec.md) | Chooses likelihoods, parameters, and prior beliefs |
-| Fitted runtime artifact | `FittedArtifact` plus diagnostics | `posterior` transition | [../pipeline/inference.md](../pipeline/inference.md) | Holds posterior inference outputs used downstream |
+| Functional specification | `ModelSpec` with native priors | `statistical_model_spec` transition | [../pipeline/statistical-model-spec.md](../pipeline/statistical-model-spec.md) | Chooses likelihoods, parameters, and prior beliefs |
+| Conditioned scientific model | `ModelSpec` with updated joint distributions | `posterior` transition | [../pipeline/inference.md](../pipeline/inference.md) | The same scientific type; inference diagnostics live in the transition log |
 | Interventional and counterfactual effect summaries | `TreatmentEffect` plus follow-up simulations | `baseline_report` transition | [../pipeline/analysis.md](../pipeline/analysis.md) | Answers interventional (`do`) and counterfactual queries |
 
 ## Temporal Semantics

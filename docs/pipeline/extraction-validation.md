@@ -4,13 +4,13 @@
 |---|---|---|
 | Computed | No | `IndicatorAudit` per indicator, dataset-level issues |
 
-Audits [`measurements` transition](extraction.md) observations against the [`measurement_structure` transition `CausalDesign`](measurement-structure.md#causaldesign), then computes an [empirical profile](#empiricalprofile) for each indicator that [`statistical_model_spec` transition](statistical-model-spec.md) uses to ground prior elicitation.
+Audits [`measurements` transition](extraction.md) observations against the [`measurement_structure` transition `ModelSpec`](latent-structure.md#modelspec), then computes an [empirical profile](#empiricalprofile) for each indicator that [`statistical_model_spec` transition](statistical-model-spec.md) uses to ground prior elicitation.
 
 ## Inputs
 
 | Input | Source | Description |
 |---|---|---|
-| `causal_design` | [`measurement_structure` transition](measurement-structure.md) | [`CausalDesign`](measurement-structure.md#causaldesign) with indicator and construct metadata, `model_clock` |
+| `model` | [`measurement_structure` transition](measurement-structure.md) | [`ModelSpec`](latent-structure.md#modelspec) with indicator and construct metadata, `measurement_clock` |
 | `data_for_model` | [`measurements` transition](extraction.md) | Encoded long-format [`ObservationRecord`](extraction.md#observationrecord) table |
 
 ## Process
@@ -24,20 +24,20 @@ flowchart LR
     IR & DR --> R[Reduce & Profile] --> A([IndicatorAudit])
 ```
 
-**Context assembly:** Parses the [`model_clock`](measurement-structure.md#observation_window-and-model_clock) from the [`CausalDesign`](measurement-structure.md#causaldesign) into hours, builds lookup tables for indicator and construct metadata, and validates the table loaded from `measurements` transition. For each indicator it pre-computes an `IndicatorContext`: the numeric `Float64` series after coercion and null removal, observation count, variance, declared `measurement_dtype`, whether the parent construct is time-invariant, and a parsed timestamp series.
+**Context assembly:** Parses the [`measurement_clock`](measurement-structure.md#observation_window-and-measurement_clock) from the [`ModelSpec`](latent-structure.md#modelspec) into hours, builds lookup tables for indicator and construct metadata, and validates the table loaded from `measurements` transition. For each indicator it pre-computes an `IndicatorContext`: the numeric `Float64` series after coercion and null removal, observation count, variance, declared `measurement_dtype`, whether the parent construct is time-invariant, and a parsed timestamp series.
 
 **Indicator rules:** Nine rules run in sequence for each indicator. Each rule receives the indicator's data and context and returns zero or more `ValidationIssue`s:
 
 | Rule | Checks | Severity | Threshold |
 |---|---|---|---|
-| `missing` | Indicator declared in `CausalDesign` but absent from extracted data | warning | any absence |
+| `missing` | Indicator declared in `ModelSpec` but absent from extracted data | warning | any absence |
 | `no_numeric` | Rows exist but no values survived `Float64` coercion | error | zero numeric values |
 | `timestamps` | Observation-time parsing | error if 100% invalid; warning if >50% | fraction of `anchor_time` values that fail all ten timestamp formats |
 | `sample_size` | Minimum observation count | warning | < 10 observations |
 | `variance` | Zero-variance detection | error | variance = 0 (constant series) |
 | `dtype_range` | Values conform to declared [`measurement_dtype`](measurement-structure.md#indicator) | error for binary/count violations; warning for continuous outliers | see dtype-range details below |
-| `time_coverage` | Data span relative to model clock | warning | time span < 10 × `model_clock` hours; skipped for time-invariant constructs |
-| `timestamp_gaps` | Largest consecutive gap | warning | max gap > 5 × `model_clock` hours; skipped for time-invariant constructs |
+| `time_coverage` | Data span relative to model clock | warning | time span < 10 × `measurement_clock` hours; skipped for time-invariant constructs |
+| `timestamp_gaps` | Largest consecutive gap | warning | max gap > 5 × `measurement_clock` hours; skipped for time-invariant constructs |
 | `hallucination_signals` | Patterns suspicious of LLM fabrication: dominant duplicate values (non-binary, non-count) and perfect arithmetic sequences | warning | >50% duplicate concentration, or all sorted diffs identical with non-zero step (≥5 observations) |
 
 The `dtype_range` rule applies different logic per declared type:
@@ -58,7 +58,7 @@ From the same encoded [`ObservationRecord`](extraction.md#observationrecord) tab
 
 ### Example
 
-For a study tracking developer productivity where `measurements` transition extracted indicators "lines of code per day" (continuous), "number of PR reviews" (count), and "burnout self-report" (ordinal), `validation_report` derivation might flag "lines of code per day" with a `suspicious_pattern` warning if >50% of extracted values are identical (suggesting the LLM hallucinated a constant), report `insufficient_coverage` on "burnout self-report" if the self-report survey data spans only 3 weeks against a `model_clock` of `"1d"`, and surface a `low_construct_correlation` warning if daily-aggregated "lines of code per day" and "number of PR reviews" correlate negatively despite both measuring the same construct.
+For a study tracking developer productivity where `measurements` transition extracted indicators "lines of code per day" (continuous), "number of PR reviews" (count), and "burnout self-report" (ordinal), `validation_report` derivation might flag "lines of code per day" with a `suspicious_pattern` warning if >50% of extracted values are identical (suggesting the LLM hallucinated a constant), report `insufficient_coverage` on "burnout self-report" if the self-report survey data spans only 3 weeks against a `measurement_clock` of `"1d"`, and surface a `low_construct_correlation` warning if daily-aggregated "lines of code per day" and "number of PR reviews" correlate negatively despite both measuring the same construct.
 
 ## Outputs
 
@@ -81,7 +81,7 @@ For a study tracking developer productivity where `measurements` transition extr
 
 | Field | Type | Description |
 |---|---|---|
-| `measurement_dtype` | `str` ∣ `null` | Declared dtype from the [`CausalDesign`](measurement-structure.md#causaldesign) (`"binary"`, `"count"`, `"continuous"`, or `"ordinal"`) |
+| `measurement_dtype` | `str` ∣ `null` | Declared dtype from the [`ModelSpec`](latent-structure.md#modelspec) (`"binary"`, `"count"`, `"continuous"`, or `"ordinal"`) |
 | `n_obs` | `int` | Number of non-null numeric observations |
 | `mean` | `float` ∣ `null` | Arithmetic mean |
 | `std` | `float` ∣ `null` | Standard deviation |

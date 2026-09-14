@@ -10,7 +10,7 @@ Generated API artifacts and generated documentation have separate ownership and 
 - **Agent API**: `export_agent_api.py` writes the OpenAPI schema and the generated `nof1-episode-api` skill from the FastAPI application.
 - **Model client**: [`generate-client.ts`](../../packages/api-types/scripts/generate-client.ts) uses [openapi-typescript](https://openapi-ts.dev/node) to generate request paths, parameters, and response types. Response declarations reference the existing domain types; [openapi-fetch](https://openapi-ts.dev/openapi-fetch/) supplies the runtime client.
 
-Prior forms share [`DistributionSpec`](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/distribution.py), which validates the family and its arguments together through NumPyro. Schema export derives inline constructor signatures from NumPyro's argument constraints; generated client types pair each family with its required arguments. There is no separate parameter-model generation step.
+Native NumPyro distributions use the shared [JSON codec](../../apps/data-pipeline/src/nof1_causal_lab/numpyro_json.py) on scientific parameters and compiled sites. Export derives constructor signatures from native distribution arguments and constraints. There is no separate prior-parameter class hierarchy.
 
 ```bash
 bun run codegen       # regenerate API artifacts
@@ -19,13 +19,17 @@ bun run codegen:check # verify API artifact drift
 
 Generated API files are committed. Run `codegen` after editing an artifact, read model, machine record, tool contract, or facade response.
 
-The combined `contracts.json` includes all fourteen primary JSON artifact payloads, facade responses, machine records, and tool results. `panel` is a Parquet artifact whose file layout is declared in the generated metadata. OpenAPI remains the HTTP operation description; it is not a second source of domain types.
+The combined `contracts.json` includes all registered JSON artifact payloads, facade responses, machine records, and tool results. `panel` is a Parquet artifact whose file layout is declared in the generated metadata. OpenAPI remains the HTTP operation description; it is not a second source of domain types.
 
 ## Type Diagrams
 
 `bun run types:graph` reads current Python schemas and writes a compact SVG and
 Graphviz DOT file under `.local/type-system/`. Graphviz must provide `dot`.
 Sections group types by concern; colors identify their roles.
+One **Scientific model** section contains observed data, model specification,
+model checks and compilation, and inference and causal analysis. Internal groups
+keep these readable, with measurement choices alongside dynamics, causal structure,
+and parameters. References between groups remain visible without stretching their layouts.
 
 | Command | View | Output stem |
 |---------|------|-------------|
@@ -71,10 +75,8 @@ bun run docs:check   # verify documentation drift, Markdown, and spelling
 
 Workflow: **edit Python → `bun run codegen` → commit both**.
 
-Type names describe their role. Persisted stage payloads use `Artifact`, such as
-`LatentStructureArtifact`; their contained scientific values keep names such as
-`LatentStructure` and `Construct`. Tool responses use names such as
-`SimulateScenarioResult` and `ToolError`. `ToolDefinition` describes a callable
+Type names describe their role. `ModelSpec` is the directly persisted scientific definition; `Construct`, `Indicator`, and `ParameterSpec` retain their canonical ownership inside it. Log reports use names such as `InferenceReport`. Tool responses use names such as
+`SimulationResult` and `ToolError`. `ToolDefinition` describes a callable
 tool, while `ArtifactPayload` supplies the shared validation base. Generated
 TypeScript exports use the same names as Python. Server-composed views and machine records share this export. Frontend code owns presentation state only.
 

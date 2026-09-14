@@ -1,13 +1,13 @@
 # Parameters and Priors
 
-Defines the parameter roles, prior vocabulary, and default guidance for [`ParameterSpec`](../../pipeline/statistical-model-spec.md#statisticalmodelspecparameterspec) entries with native priors in a [`StatisticalModelSpec`](../../pipeline/statistical-model-spec.md#statisticalmodelspec).
+Defines the parameter roles, prior vocabulary, and default guidance for [`ParameterSpec`](../../pipeline/statistical-model-spec.md#parameterspec) entries with native priors in a [`ModelSpec`](../../pipeline/statistical-model-spec.md#model-statistical-choices).
 
 > All sections below are generated from `nof1_causal_lab.distributions`.
 > Edit the Python catalog and re-run `uv run python scripts/export_distribution_docs.py` instead of editing them manually.
 
 ## Parameter Roles
 
-The [model-spec skeleton](../../pipeline/statistical-model-spec.md) creates exactly the following parameters from a [`StructuralPlan`](../../pipeline/measurement-structure.md#structuralplan):
+[Component authoring](../../pipeline/statistical-model-spec.md) derives these prompt roles from the coefficient slots of a concrete model proposal. Fixed slots need no prior; roles and constraints are not stored again on the parameter definition:
 
 | Role | Symbol | Count | Constraint | SSM location |
 |---|---|---|---|---|

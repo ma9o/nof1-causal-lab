@@ -2,15 +2,15 @@
 
 | Modality | Interactive | Produces |
 |---|---|---|
-| Computed | No | Joint posterior draws, exact model/data provenance, posterior summaries, and a separate [assessment](#posteriorassessment) |
+| Computed | No | A new `ModelSpec` revision with joint uncertainty; an [inference report](#inferencereport) in the transition log |
 
-Fits the compiled state-space model from [`statistical_model_spec` transition](statistical-model-spec.md) to the extracted observation data from [`measurements` transition](extraction.md), retaining aligned parameter and latent-state draws. A separate assessment records sampling diagnostics, posterior predictive fit, and leave-one-out cross-validation. The sampler is `marginal_particle_gibbs`; its proposal controls are described in [inference routing](../reference/inference-routing.md#user-overrides).
+Conditions the scientific `ModelSpec` from [`statistical_model_spec` transition](statistical-model-spec.md) to the extracted observation data from [`measurements` transition](extraction.md), retaining aligned parameter and latent-state draws. Engine-defined JSON records inference diagnostics; a separate structured assessment records posterior predictive fit and leave-one-out cross-validation. The sampler is `marginal_particle_gibbs`; its proposal controls are described in [inference routing](../reference/inference-routing.md#user-overrides).
 
 ## Inputs
 
 | Input | Source | Description |
 |---|---|---|
-| `compiled_ssm` | [`statistical_model_spec` transition](statistical-model-spec.md) | [`CompiledSSMArtifact`](../reference/compilation.md) with statistical model spec, priors, and compiled SSM |
+| `model` | [`statistical_model_spec` transition](statistical-model-spec.md) | Scientific components and their current parameter distributions |
 | `data_for_model` | [`measurements` transition](extraction.md) | Encoded long-format [`ObservationRecord`](extraction.md#observationrecord) table |
 | `inference_method` | Pipeline config | Optional explicit `"marginal_particle_gibbs"`; `null` uses the same [production route](../reference/inference-routing.md#structural-routing) |
 
@@ -18,13 +18,14 @@ Fits the compiled state-space model from [`statistical_model_spec` transition](s
 
 ## Process
 
-`posterior` transition is fully deterministic (no LLM). It produces the joint posterior, then summarizes its draws and assesses the fit. Assessment results do not own the parameter or latent-state samples.
+`posterior` is a computed operation with no LLM. It produces a new revision of the same `ModelSpec`, replacing its uncertainty with the joint posterior. Parameter and construct references share one native NumPyro law, preserving dependence between parameters and latent trajectories. The report and engine evidence live in the transition log. An explicit refit starts from the original input revision so the same observations are counted once.
 
 ```mermaid
 flowchart LR
     F[Model fitting] --> J[Aligned joint posterior draws]
     J --> S[Posterior summaries]
-    J --> A[Sampling and predictive assessment]
+    F --> D[Engine telemetry]
+    J --> A[Predictive assessment]
     F -- failure --> X([Pipeline halts])
 ```
 
@@ -34,7 +35,7 @@ The [scientific-model compiler](../../apps/data-pipeline/src/nof1_causal_lab/mod
 
 Inference and prior prediction share the same [parameter assembly](../../apps/data-pipeline/src/nof1_causal_lab/models/ssm/execution/parameters.py): declared free sites supply block values, including the initial covariance and static-factor contribution. The NumPyro model retains the covariance constraint factor. Prior prediction draws directly from the compiled distributions using stable per-site random streams.
 
-Forward simulation uses the same declared drift and diffusion. Dynestyx runs deterministic Diffrax paths; the [stochastic simulator](../../apps/data-pipeline/src/nof1_causal_lab/models/ssm/dynamics/simulator.py) retains its Diffrax call to preserve indexed Brownian increments and seeded replay, which the pinned Dynestyx solver cannot accept. Known inputs retain their destination-indexed interval convention in both inference and simulation.
+Prior and posterior prediction construct the same Dynestyx model as inference, sample its initial distribution, and execute its declared nonlinear drift, node potentials, and diffusion. The [observation adapter](../../apps/data-pipeline/src/nof1_causal_lab/models/predictive_simulation.py) samples the model's observation distribution and applies indicator-specific interval summaries and masks. Dynestyx runs deterministic Diffrax paths; the [stochastic simulator](../../apps/data-pipeline/src/nof1_causal_lab/models/ssm/dynamics/simulator.py) retains its Diffrax call to preserve indexed Brownian increments and seeded replay, which the pinned Dynestyx solver cannot accept. Known inputs retain their destination-indexed interval convention in both inference and simulation.
 
 **LOO cross-validation:** The transition computes PSIS-LOO via ArviZ from the true emission factors evaluated on joint particle draws of parameters and latent states. Each held-out unit is one measurement row containing every observed indicator at that time; completely missing rows are excluded. Conditional factors include the sampled latent variables, as described in the [loo guidance for latent-variable models](https://mc-stan.org/loo/articles/loo2-non-factorized.html). PSIS approximates the held-out posterior, with Pareto-k diagnostics assessing the importance weights[^vehtari2017]. This estimates interpolation with all other measurements available, including future rows; leave-future-out forecasting requires a separate validation task[^burkner2020].
 
@@ -46,56 +47,32 @@ For a longitudinal study of teacher workload and student outcomes, each retained
 
 ## Outputs
 
-| Output | Type | Description |
-|---|---|---|
-| `draws` | [`PosteriorDrawsInfo`](#posteriordrawsinfo) | Draw count and parameter/state axes of the persisted joint posterior |
-| `provenance` | [`PosteriorProvenance`](#posteriorprovenance) | Exact model and observation versions defining the fit |
-| `inference_metadata` | `InferenceMetadata` | Sampling method, sample count, and duration |
-| `assessment` | [`PosteriorAssessment`](#posteriorassessment) | Sampling and predictive checks assessed separately from the draws |
-| `posterior_marginals` | list\[[`PosteriorMarginal`](#posteriormarginal)\] \| null | Marginal density and interval summaries |
-| `posterior_pairs` | list\[[`PosteriorPair`](#posteriorpair)\] \| null | Pairwise posterior scatter summaries |
+| Field | Description |
+|---|---|
+| `model` | A new [ModelSpec](latent-structure.md#modelspec) revision with conditioned parameter distributions, construct trajectory distributions, and their observation time grid |
 
-### `PosteriorDrawsInfo`
+The shared distribution is a native NumPyro mixture of aligned joint sample points. It retains every parameter/trajectory pairing; independent marginal summaries never replace it. The [distribution codec](../../apps/data-pipeline/src/nof1_causal_lab/numpyro_json.py) stores large arrays by content identity and loads them lazily. Coordinate order derives from scientific element IDs, construct IDs, and time points. No compiler coordinate inventory or fitted-model wrapper is persisted.
 
-| Field | Type | Description |
-|---|---|---|
-| `n_draws` | `int` | Number of aligned draws |
-| `parameter_shapes` | `dict[str, list[int]]` | Shape of each parameter site within one draw |
-| `latent_shape` | `tuple[int, int]` \| null | Time and state axis lengths of each retained trajectory |
+### `InferenceReport`
 
-### `PosteriorProvenance`
+The transition log owns this report, the exact input pins, and the production engine evidence. Original prior distributions remain in the input model revision; original authoring proposals and evidence remain in their authoring logs.
 
-| Field | Type | Description |
-|---|---|---|
-| `causal_design` | `CausalDesignRef` | Workspace and exact causal-design version |
-| `compiled_ssm_version` | `int` | Compiled model version within the same workspace |
-| `panel_version` | `int` | Observation panel version within the same workspace |
+| Field | Description |
+|---|---|
+| `inference_metadata` | Sampling method, sample count, and duration |
+| `inference_diagnostics` | Engine-defined JSON telemetry, including any sampler metrics and traces |
+| `assessment` | [PosteriorAssessment](#posteriorassessment) for predictive checks and held-out measurement evaluation |
+| `posterior_marginals` | Optional [marginal summaries](#posteriormarginal) keyed by scientific parameter and element IDs |
+| `posterior_pairs` | Optional [paired summaries](#posteriorpair) of aligned parameter draws |
+
+Inference diagnostics remain unchanged in historical or stale reads. Their keys follow the engine implementation; the UI provides a generic expandable viewer. Any interpretation of sampler telemetry belongs in the backend. Scientific parameter references, intervals, and predictive assessments retain their structured contracts.
 
 ### `PosteriorAssessment`
 
-| Field | Type | Description |
-|---|---|---|
-| `ppc` | [`PosteriorPredictiveChecks`](#posteriorpredictivechecks) | Predictive interval coverage, autocorrelation, and variance checks |
-| `mcmc_diagnostics` | `MCMCDiagnostics` \| null | Chain diagnostics and scalar parameter assessments |
-| `smc_diagnostics` | `SMCDiagnostics` \| null | Particle diagnostics |
-| `loo_diagnostics` | [`LOODiagnostics`](#loodiagnostics) \| null | Predictive assessment for held-out measurement rows |
-
-### `JointPosteriorDraws`
-
-| Field | Type | Description |
-|---|---|---|
-| `parameters` | `dict[str, JAX array]` | Parameter samples with a leading draw axis shared by every site and the latent paths |
-| `latent_paths` | JAX array \| null | Retained trajectories on `(draw, time, state)` axes; production inference retains these alongside parameter draws |
-
-### `FittedArtifact`
-
-| Field | Type | Description |
-|---|---|---|
-| `result` | `ParticleMCMCPosterior` | Production particle posterior owning [aligned joint draws](#jointposteriordraws); persisted independently of live sampler diagnostics |
-| `spec` | `SSMSpec` | Non-optional executable model specification associated with the posterior |
-| `times` | JAX array | Observation times used by the fit |
-| `provenance` | `PosteriorProvenance` | Workspace, causal-design version, compiled-SSM version, and panel version supporting the fit |
-| `observation_support` | `ObservationSupportRuntime` \| `null` | Runtime interval/point-support metadata |
+| Field | Description |
+|---|---|
+| `ppc` | [PosteriorPredictiveChecks](#posteriorpredictivechecks): predictive interval coverage, autocorrelation, and variance checks |
+| `loo_diagnostics` | Optional [LOODiagnostics](#loodiagnostics) for held-out measurement rows |
 
 ### `PosteriorPredictiveChecks`
 
@@ -129,7 +106,7 @@ For a longitudinal study of teacher workload and student outcomes, each retained
 | Field | Type | Description |
 |---|---|---|
 | `parameter` | `str` | Display label for the scientific scalar element |
-| `subject` | `ParameterRef` | Explicit parameter ID and logical element ID from the [compiled parameter definition](statistical-model-spec.md#statisticalmodelspecparameterspec) |
+| `subject` | `ParameterRef` | Explicit parameter ID and logical element ID from the [compiled parameter definition](statistical-model-spec.md#parameterspec) |
 | `x_values` | `list[float]` | Bin centers for the density curve |
 | `density` | `list[float]` | Normalized density at each bin center |
 | `mean` | `float` | Posterior mean |
@@ -148,16 +125,6 @@ For a longitudinal study of teacher workload and student outcomes, each retained
 | `subject_x`, `subject_y` | `ParameterRef` | Scientific scalar elements of the paired draws |
 | `x_values` | `list[float]` | Posterior draws for x |
 | `y_values` | `list[float]` | Posterior draws for y |
-
-### `MCMCParamDiagnostic`
-
-| Field | Type | Description |
-|---|---|---|
-| `parameter` | `str` | Display label for the scientific scalar element |
-| `subject` | `ParameterRef` | Explicit parameter ID and logical element ID from the [compiled parameter definition](statistical-model-spec.md#statisticalmodelspecparameterspec) |
-| `r_hat` | `float` \| null | Scalar convergence diagnostic; null when undefined |
-| `ess_bulk`, `ess_tail` | `float` \| null | Scalar effective sample sizes |
-| `mcse_mean` | `float` \| null | Monte Carlo standard error of the scalar mean |
 
 ### `PPCTestStat`
 

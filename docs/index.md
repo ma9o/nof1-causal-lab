@@ -12,12 +12,12 @@
 
 | Artifact or concept | Owning doc |
 |---|---|
-| `LatentStructure` | [pipeline/latent-structure.md](pipeline/latent-structure.md) |
-| `MeasurementStructure`, `Indicator`, `CausalDesign`, `IdentifiabilityStatus` | [pipeline/measurement-structure.md](pipeline/measurement-structure.md) |
+| `ModelSpec` | [pipeline/latent-structure.md](pipeline/latent-structure.md) |
+| `ModelSpec`, `Indicator`, `ModelSpec`, `IdentifiabilityStatus` | [pipeline/measurement-structure.md](pipeline/measurement-structure.md) |
 | `ObservationRecord`s and the encoded observation table (`data_for_model`) | [pipeline/extraction.md](pipeline/extraction.md) |
 | `IndicatorAudit` and validation findings | [pipeline/extraction-validation.md](pipeline/extraction-validation.md) |
-| `StatisticalModelSpec`, `LikelihoodSpec`, `ParameterSpec` | [pipeline/statistical-model-spec.md](pipeline/statistical-model-spec.md) |
-| `FittedArtifact` and post-fit diagnostics | [pipeline/inference.md](pipeline/inference.md) |
+| `ModelSpec`, `LikelihoodSpec`, `ParameterSpec` | [pipeline/statistical-model-spec.md](pipeline/statistical-model-spec.md) |
+| Conditioned `ModelSpec` and inference reports | [pipeline/inference.md](pipeline/inference.md) |
 | `TreatmentEffect` and intervention tools | [pipeline/analysis.md](pipeline/analysis.md) |
 
 ## Cross-Cutting References

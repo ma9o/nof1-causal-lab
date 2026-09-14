@@ -1,14 +1,14 @@
-# LatentStructure: Constructs and Edges
+# Latent Structure: Constructs and Edges
 
-This reference deepens the construct and edge semantics used by [`latent_structure` transition](../../pipeline/latent-structure.md). `latent_structure` transition owns the emitted `LatentStructure` contract; this page focuses on ontology, edge legality, and lag semantics.
+This reference deepens the construct and edge semantics used by [`latent_structure` transition](../../pipeline/latent-structure.md). `latent_structure` transition owns the emitted `ModelSpec` contract; this page focuses on ontology, edge legality, and lag semantics.
 
 ## Ontology
 
-**Constructs** are theoretical entities in the causal model such as stress, mood, cognitive load, staffing pressure, or student engagement. They live in the `LatentStructure`.
+**Constructs** are theoretical entities in the causal model such as stress, mood, cognitive load, staffing pressure, or student engagement. They are the endpoints of the connected causal graph in `ModelSpec`; construct enumeration is a derived view.
 
-**Indicators** are observed data such as HRV readings, self-report scores, cortisol levels, pull-request counts, or assignment completion rates. They live in the [`measurement_structure` transition measurement structure](../../pipeline/measurement-structure.md#measurementstructure) and reflect their parent construct via factor loadings.
+**Indicators** are observed data such as HRV readings, self-report scores, cortisol levels, pull-request counts, or assignment completion rates. They live in the [`measurement_structure` transition measurement structure](../../pipeline/measurement-structure.md#model-measurement-choices) and reflect their parent construct via factor loadings.
 
-The `LatentStructure` therefore lives at the construct layer, not the observed-variable layer.
+The `ModelSpec` therefore lives at the construct layer, not the observed-variable layer.
 
 ## Construct Dimensions
 
@@ -45,17 +45,17 @@ Two lag values are valid under the [Markov property (A3)](assumptions.md#a3-mark
 
 ## Edges
 
-A `LatentStructure` edge is a directed causal relation between constructs. It says which construct can affect which other construct. It does not yet say how either construct is measured.
+A `ModelSpec` edge is a directed causal relation between constructs. It says which construct can affect which other construct. It does not yet say how either construct is measured.
 
-The graph stays a DAG in the user-facing contract:
+The model contains one nonempty connected causal graph (ignoring arrow direction for connectivity). Every construct participates in an edge; removing its last incident edge removes its membership. Temporal DAG rules remain in force:
 
 - Use explicit latent confounder nodes when theory posits an unobserved common cause.
 - Do not use bidirected edges in user-facing diagrams.
-- Do not introduce indicator nodes here; indicators belong to the `MeasurementStructure`.
+- Indicator definitions belong to their constructs; the causal DAG accessor exposes construct nodes and causal edges.
 
 ## Outcome Designation
 
-The `LatentStructure` carries exactly one designated outcome. See the [`latent_structure` transition definition](../../pipeline/latent-structure.md#latent-structure) for encoding and treatment derivation.
+The `ModelSpec` may designate an endogenous default outcome. See the [`latent_structure` transition definition](../../pipeline/latent-structure.md#modelspec) for encoding and treatment derivation.
 
 ## Example
 

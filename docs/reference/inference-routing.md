@@ -73,13 +73,14 @@ limited to initialization or corrected proposal construction.
 Inference paths have nominally distinct outputs. Laplace/IEKS code returns a
 `WarmupProposal`; marginalized Particle Gibbs returns a
 `ParticleMCMCPosterior` carrying evidence for the particle engine and nonlinear
-Euler-Maruyama transition target. Persisted `FittedArtifact` values accept only
-the latter.
+Euler-Maruyama transition target. `condition_model` accepts only
+the latter and writes a new ModelSpec revision; its producing transition log
+retains engine evidence and input pins.
 
 Before numeric causal effects are computed, the analysis boundary validates the
 persisted engine evidence and joins it to an estimand-specific
-`IdentifiedEstimand`. Both proofs carry the same workspace-local causal-design
-version. The resulting `CertifiedCausalAnalysis` is the only input accepted by
+`IdentifiedEstimand`. The model revision and the producing inference log must agree on the exact
+scientific value. The resulting `CertifiedCausalAnalysis` is the only input accepted by
 baseline intervention reporting; interactive simulations construct the same
 proof object when loading their artifact context. A warmup result, an
 unidentified treatment, or evidence from a different design therefore fails
