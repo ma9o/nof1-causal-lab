@@ -595,67 +595,44 @@ class TestLaplaceSupportAware:
 
         z_est = jnp.array([[0.4], [1.0]], dtype=jnp.float32)
         observations = jnp.array([[jnp.nan], [1.3]], dtype=jnp.float32)
-        obs_mask = ~jnp.isnan(observations)
         H = jnp.array([[1.0]], dtype=jnp.float32)
         d = jnp.array([0.0], dtype=jnp.float32)
         R = jnp.array([[0.2]], dtype=jnp.float32)
 
-        diag, upper, rhs = _assemble_support_aware_observation_system(
-            z_est,
-            observations,
-            obs_mask,
-            H,
-            d,
-            R,
-            obs_kernel,
-            window_batches,
-            observation_operator.point_like_mask(z_est.dtype),
-            window_derivatives,
-            bandwidth,
-        )
-
-        state_len = int(windows.state_lens[0])
-        prev_coeff = windows.prev_coeffs[0, 0, 0].astype(z_est.dtype)
-        curr_coeff = windows.curr_coeffs[0, 0, 0].astype(z_est.dtype)
-        weight = windows.weights[0, 0, 0].astype(z_est.dtype)
-        summary_codes = get_summary_operator_codes(support)
-        anchor_obs = jnp.nan_to_num(observations, nan=0.0)[1]
-        anchor_mask = obs_mask[1].astype(z_est.dtype)
-
-        def _exact_window_log_prob(segment_flat):
-            states = segment_flat.reshape(windows.max_state_len, 1)
-            responses = jax.vmap(lambda z_t: obs_kernel.response_fn(H @ z_t + d))(states)
-            last_response = responses[state_len - 1]
-            obs_sum = prev_coeff * responses[0] + curr_coeff * responses[1]
-            obs_sumsq = prev_coeff * responses[0] ** 2 + curr_coeff * responses[1] ** 2
-            obs_weight = jnp.full_like(obs_sum, weight)
-            expected_mean = expected_observation_mean(
-                last_response,
-                obs_sum,
-                obs_sumsq,
-                obs_weight,
-                summary_codes,
+        @jax.jit
+        def _assemble(states, obs):
+            return _assemble_support_aware_observation_system(
+                states,
+                obs,
+                ~jnp.isnan(obs),
+                H,
+                d,
+                R,
+                obs_kernel,
+                window_batches,
+                observation_operator.point_like_mask(states.dtype),
+                window_derivatives,
+                bandwidth,
             )
-            return mean_log_prob_fn(anchor_obs, expected_mean, R, anchor_mask)
 
-        segment_flat = z_est.reshape(-1)
-        grad = jax.grad(_exact_window_log_prob)(segment_flat)
-        hess = jax.hessian(_exact_window_log_prob)(segment_flat)
-        info = -0.5 * (hess + hess.T)
-        taylor_rhs = info @ segment_flat + grad
+        diag, upper, rhs = _assemble(z_est, observations)
 
-        expected_diag = np.array([info[0, 0], info[1, 1]], dtype=np.float32)
-        expected_upper = np.array([info[0, 1]], dtype=np.float32)
-        expected_rhs = np.array(taylor_rhs.reshape(2, 1), dtype=np.float32)
+        # y ~ Normal((z0 + z1)/2, variance=0.2): information is w wᵀ / R,
+        # and the Gaussian information vector is w y / R, independent of z_est.
+        # Compute this from the declared observation, without calling emission
+        # or support code again to construct the reference.
+        weights = np.array([0.5, 0.5])
+        information = np.outer(weights, weights) / 0.2
+        expected_rhs = weights * 1.3 / 0.2
 
-        np.testing.assert_allclose(np.asarray(diag[:, 0, 0]), expected_diag, rtol=1e-5, atol=1e-5)
+        np.testing.assert_allclose(diag[:, 0, 0], np.diag(information), rtol=1e-5, atol=1e-5)
         np.testing.assert_allclose(
-            np.asarray(upper[0, 0, 0, 0]),
-            expected_upper[0],
+            upper[0, 0, 0, 0],
+            information[0, 1],
             rtol=1e-5,
             atol=1e-5,
         )
-        np.testing.assert_allclose(np.asarray(rhs[:, 0]), expected_rhs[:, 0], rtol=1e-5, atol=1e-5)
+        np.testing.assert_allclose(rhs[:, 0], expected_rhs, rtol=1e-5, atol=1e-5)
 
 
 class TestLaplaceBackendCaching:

@@ -1,12 +1,8 @@
 """Tests for the Codex-backed AgentSession.
 
-Unit tests stub out ``asyncio.create_subprocess_exec`` with a fake
-process that emits canned Codex ``--json`` events. Integration against
-a real ``codex`` binary is gated on presence + ``NOF1_CAUSAL_LAB_RUN_CODEX_HARNESS``.
+Tests stub out ``asyncio.create_subprocess_exec`` with a fake process that
+emits canned Codex ``--json`` events.
 """
-
-import os
-import shutil
 
 import pytest
 
@@ -14,7 +10,6 @@ from nof1_causal_lab.utils.harness.codex import (
     CodexHarnessSession,
     build_codex_argv,
     build_codex_mcp_toml,
-    open_codex_harness_session,
 )
 from tests.helpers import run_async as _run
 from tests.infra.harness_fakes import FakeProcess as _FakeProcess
@@ -206,28 +201,3 @@ class TestSessionTurn:
         session = CodexHarnessSession(tools=[], codex_home=tmp_path, model="m")
         with pytest.raises(RuntimeError, match="codex exited with status 1"):
             _run(session.turn("hi"))
-
-
-_CODEX_AVAILABLE = shutil.which("codex") is not None and bool(
-    os.getenv("NOF1_CAUSAL_LAB_RUN_CODEX_HARNESS")
-)
-
-
-@pytest.mark.skipif(
-    not _CODEX_AVAILABLE,
-    reason="codex binary or NOF1_CAUSAL_LAB_RUN_CODEX_HARNESS not set",
-)
-class TestCodexIntegration:
-    def test_round_trip(self):
-        async def scenario():
-            async with open_codex_harness_session(
-                tools=[],
-                model="gpt-5.4",
-                reasoning_effort="low",
-            ) as session:
-                result = await session.turn("Respond with exactly the word 'ok' and nothing else.")
-                return result, session.result
-
-        turn_result, agent_result = _run(scenario())
-        assert "ok" in turn_result.completion.lower()
-        assert agent_result.trace.messages

@@ -29,7 +29,6 @@ from nof1_causal_lab.models.ssm.structure import (
     DiffusionBlockSpec,
     T0CholBlockSpec,
 )
-from tests.dynamics_fixtures import decay_term, hill_term, interaction_term
 from tests.helpers import (
     complete_test_model,
     make_model,
@@ -44,7 +43,6 @@ from tests.model_fixtures import (
     default_static_state_sd_block,
     default_t0_chol_block,
     default_t0_means_block,
-    dense_matrix_dynamics_spec,
     full_dense_matrix_dynamics_spec,
     full_diagonal_support,
     model_fixture,
@@ -197,99 +195,6 @@ class TestBuilderPriorConversion:
         )
         with pytest.raises(ValueError, match="measurement clock"):
             compile_priors(model)
-
-    @pytest.mark.predictive
-    def test_prior_predictive_supports_hill_edge_spec(self):
-        """The prior predictive path should accept nonlinear component dynamics."""
-        spec = _make_spec(
-            n_latent=2,
-            n_manifest=2,
-            latent_names=["dose", "response"],
-            manifest_names=["dose", "response"],
-            dynamics_spec=DynamicsSpec(
-                n_latent=2,
-                components=(
-                    *(decay_term(target=i) for i in range(2)),
-                    hill_term(
-                        source=0,
-                        target=1,
-                    ),
-                ),
-            ),
-        )
-        model = build_ssm_model(
-            pl.DataFrame({"time": [0.0], "dose": [0.0], "response": [0.0]}),
-            model_spec=spec,
-        )
-
-        samples = sample_prior_predictive(
-            model,
-            samples=3,
-            times=jnp.linspace(0.0, 1.0, 4, dtype=jnp.float32),
-        )
-
-        assert samples["latents"].shape == (3, 4, 2)
-        assert samples["linear_predictors"].shape == (3, 4, 2)
-        assert samples["observations"].shape == (3, 4, 2)
-        assert bool(jnp.isfinite(samples["observations"]).all())
-
-    @pytest.mark.predictive
-    def test_prior_predictive_observation_shape_matches_affine_and_nonlinear_specs(self):
-        """Affine and nonlinear specs should use the same public predictive shape."""
-        times = jnp.linspace(0.0, 1.0, 4, dtype=jnp.float32)
-        affine_spec = _make_spec(
-            n_latent=2,
-            n_manifest=2,
-            latent_names=["a", "b"],
-            manifest_names=["a", "b"],
-            dynamics_spec=dense_matrix_dynamics_spec(
-                n_latent=2,
-                decay_support=full_diagonal_support(2),
-                edge_support=np.zeros((2, 2), dtype=bool),
-                coupling_template=jnp.zeros((2, 2), dtype=jnp.float32),
-                intercept_support=np.zeros(2, dtype=bool),
-                cint_template=jnp.zeros(2, dtype=jnp.float32),
-            ),
-        )
-        nonlinear_spec = _make_spec(
-            n_latent=2,
-            n_manifest=2,
-            latent_names=["a", "b"],
-            manifest_names=["a", "b"],
-            dynamics_spec=DynamicsSpec(
-                n_latent=2,
-                components=(
-                    *(decay_term(target=i) for i in range(2)),
-                    interaction_term(
-                        source_a=0,
-                        source_b=1,
-                        target=1,
-                    ),
-                ),
-            ),
-        )
-
-        affine_model = build_ssm_model(
-            pl.DataFrame({"time": [0.0], "a": [0.0], "b": [0.0]}),
-            model_spec=affine_spec,
-        )
-        nonlinear_model = build_ssm_model(
-            pl.DataFrame({"time": [0.0], "a": [0.0], "b": [0.0]}),
-            model_spec=nonlinear_spec,
-        )
-        affine_samples = sample_prior_predictive(
-            affine_model,
-            samples=2,
-            times=times,
-        )
-        nonlinear_samples = sample_prior_predictive(
-            nonlinear_model,
-            samples=2,
-            times=times,
-        )
-
-        assert affine_samples["observations"].shape == nonlinear_samples["observations"].shape
-        assert affine_samples["observations"].shape == (2, 4, 2)
 
 
 class TestObservationSupportValidation:

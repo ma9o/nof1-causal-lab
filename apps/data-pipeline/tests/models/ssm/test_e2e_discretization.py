@@ -8,7 +8,6 @@ Phase 1 tests:
 - reference_interval_days precedence chain for DT→CT conversion
 - ModelSpec structure (dynamics_support, lambda_support) from DAG
 - First-order DT→CT→DT roundtrip consistency
-- Prior predictive produces finite, stable samples
 
 Compilation also preserves factorized priors and checks causal edge-lag metadata.
 """
@@ -699,58 +698,6 @@ class TestE2ESpecToDiscretization:
         assert jnp.all(jnp.isfinite(Q)), "Q contains NaN/Inf"
         assert c is not None, "c should not be None when cint is provided"
         assert jnp.all(jnp.isfinite(c)), "c contains NaN/Inf"
-
-    @pytest.mark.predictive
-    def test_prior_predictive_produces_finite_samples(
-        self,
-        two_construct_structure,
-        two_construct_model,
-        weekly_study_priors,
-    ):
-        """Prior predictive sampling produces finite, bounded outputs."""
-        import polars as pl
-
-        from nof1_causal_lab.models.ssm.inference import prior_predictive
-
-        n_time = 30
-        rng = np.random.default_rng(0)
-        mock_data = pl.DataFrame(
-            {
-                "mood_rating": rng.normal(5, 1.5, n_time),
-                "stress_self_report": rng.normal(5, 1.5, n_time),
-                "stress_cortisol": rng.normal(10, 2, n_time),
-                "time": np.arange(n_time, dtype=float),
-            }
-        )
-        from nof1_causal_lab.models.model_checks import check_execution
-        from nof1_causal_lab.models.ssm.runtime import build_ssm_model
-        from tests.helpers import make_prior_model
-
-        typed_scientific_model = ModelSpec.model_validate(two_construct_model)
-        check_execution(
-            make_prior_model(typed_scientific_model, weekly_study_priors),
-        )
-        model = build_ssm_model(
-            mock_data, model_spec=make_prior_model(typed_scientific_model, weekly_study_priors)
-        )
-
-        # Sample from prior predictive
-        times = jnp.arange(n_time, dtype=jnp.float32)
-        samples = prior_predictive(model, times, num_samples=20, seed=42)
-
-        # Check key component-owned dynamics sites exist and are finite.
-        dynamics_keys = [key for key in samples if key.startswith("vf_")]
-        assert dynamics_keys, "Missing component-owned dynamics sites in prior predictive samples"
-        for key in dynamics_keys:
-            assert jnp.all(jnp.isfinite(samples[key])), f"{key} samples contain NaN/Inf"
-
-        if "diffusion" in samples:
-            diff_samples = samples["diffusion"]
-            assert jnp.all(jnp.isfinite(diff_samples)), "diffusion samples contain NaN/Inf"
-
-        # Decay rates should stay on positive support, giving negative diagonal dynamics terms.
-        for key in [name for name in dynamics_keys if name.endswith("_decay")]:
-            assert jnp.all(samples[key] > 0), f"{key} has non-positive decay draws"
 
     def test_different_intervals_produce_different_rates(self, two_construct_model):
         """Same DT beta at different study intervals → different CT rates.

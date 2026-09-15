@@ -76,24 +76,12 @@ def full_vector_support(n: int) -> np.ndarray:
     return np.ones(n, dtype=bool)
 
 
-def zero_vector_support(n: int) -> np.ndarray:
-    return np.zeros(n, dtype=bool)
-
-
 def full_diagonal_support(n: int) -> np.ndarray:
     return np.ones(n, dtype=bool)
 
 
-def zero_diagonal_support(n: int) -> np.ndarray:
-    return np.zeros(n, dtype=bool)
-
-
 def full_cholesky_support(n: int) -> np.ndarray:
     return np.tri(n, dtype=bool)
-
-
-def zero_square_support(n: int) -> np.ndarray:
-    return np.zeros((n, n), dtype=bool)
 
 
 def default_diffusion_block(n_latent: int) -> DiffusionBlockSpec:

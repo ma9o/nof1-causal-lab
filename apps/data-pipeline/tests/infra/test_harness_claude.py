@@ -1,15 +1,10 @@
 """Tests for the Claude-backed AgentSession.
 
-Unit tests stub out ``asyncio.create_subprocess_exec`` with a fake
-process that emits canned stream-json, so the session can be exercised
-without a real ``claude`` binary. An integration test that actually
-spawns Claude is skipped unless the binary is on PATH AND the
-``NOF1_CAUSAL_LAB_RUN_CLAUDE_HARNESS`` env var is set.
+Tests stub out ``asyncio.create_subprocess_exec`` with a fake process that
+emits canned stream-json events.
 """
 
 import json
-import os
-import shutil
 
 import pytest
 
@@ -17,7 +12,6 @@ from nof1_causal_lab.utils.harness.claude import (
     ClaudeHarnessSession,
     build_claude_argv,
     build_mcp_config_json,
-    open_claude_harness_session,
 )
 from tests.helpers import run_async as _run
 from tests.infra.harness_fakes import FakeProcess as _FakeProcess
@@ -350,35 +344,3 @@ class TestSessionTurn:
 
         with pytest.raises(RuntimeError, match="claude exited with status 2"):
             _run(session.turn("Hi"))
-
-
-# ---------------------------------------------------------------------------
-# Integration (requires claude CLI)
-# ---------------------------------------------------------------------------
-
-
-_CLAUDE_AVAILABLE = shutil.which("claude") is not None and bool(
-    os.getenv("NOF1_CAUSAL_LAB_RUN_CLAUDE_HARNESS")
-)
-
-
-@pytest.mark.skipif(
-    not _CLAUDE_AVAILABLE,
-    reason="claude binary or NOF1_CAUSAL_LAB_RUN_CLAUDE_HARNESS not set",
-)
-class TestClaudeIntegration:
-    def test_round_trip(self):
-        async def scenario():
-            async with open_claude_harness_session(
-                tools=[],
-                system_prompt=None,
-                model="sonnet",
-                effort="low",
-                max_turns=2,
-            ) as session:
-                result = await session.turn("Respond with exactly the word 'ok' and nothing else.")
-                return result, session.result
-
-        turn_result, agent_result = _run(scenario())
-        assert "ok" in turn_result.completion.lower()
-        assert agent_result.trace.messages

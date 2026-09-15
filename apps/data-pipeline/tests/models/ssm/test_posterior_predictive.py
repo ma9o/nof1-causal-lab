@@ -394,149 +394,99 @@ class TestGetRelevantManifestVariables:
         assert result == set()
 
 
-# =============================================================================
-# _compute_overlays
-# =============================================================================
+def test_overlays_preserve_quantiles_observations_and_selected_trajectories():
+    # Draws are deliberately unordered, with different scales across time and
+    # variables. Quantiles below are hand-computed linear interpolations.
+    draws = jnp.array(
+        [
+            [[0.0, 30.0], [10.0, 0.0], [4.0, 20.0]],
+            [[4.0, 10.0], [12.0, 8.0], [0.0, 24.0]],
+            [[8.0, 20.0], [14.0, 4.0], [8.0, 28.0]],
+            [[12.0, 40.0], [16.0, 12.0], [12.0, 32.0]],
+        ]
+    )
+    observations = jnp.array([[2.0, 25.0], [jnp.nan, -1.0], [9.0, 27.0]])
+    ids = ["indicator:z", "indicator:a"]
+    result = _compute_overlays(draws, observations, ids, n_spaghetti=2)
+
+    assert [overlay.indicator_id for overlay in result] == ids
+    assert [overlay.observed for overlay in result] == [[2.0, None, 9.0], [25.0, -1.0, 27.0]]
+    expected_bands = [
+        [
+            [0.3, 10.15, 0.3],
+            [3.0, 11.5, 3.0],
+            [6.0, 13.0, 6.0],
+            [9.0, 14.5, 9.0],
+            [11.7, 15.85, 11.7],
+        ],
+        [
+            [10.75, 0.3, 20.3],
+            [17.5, 3.0, 23.0],
+            [25.0, 6.0, 26.0],
+            [32.5, 9.0, 29.0],
+            [39.25, 11.7, 31.7],
+        ],
+    ]
+    for column, overlay in enumerate(result):
+        np.testing.assert_allclose(
+            [overlay.q025, overlay.q25, overlay.median, overlay.q75, overlay.q975],
+            expected_bands[column],
+            rtol=1e-6,
+            atol=1e-6,
+        )
+        np.testing.assert_array_equal(overlay.spaghetti_draws, draws[jnp.array([0, 3]), :, column])
 
 
-class TestComputeOverlays:
-    def _make_data(self, n_draws=10, T=5, n_manifest=2):
-        """Create synthetic simulation data."""
-        rng = np.random.default_rng(42)
-        y_sim = jnp.array(rng.normal(0, 1, (n_draws, T, n_manifest)))
-        observations = jnp.array(rng.normal(0, 1, (T, n_manifest)))
-        return y_sim, observations
+def test_single_draw_has_exact_bands_and_caps_requested_trajectories():
+    draws = jnp.array([[[2.0, -1.0], [4.0, 8.0]]])
+    result = _compute_overlays(
+        draws, jnp.zeros((2, 2)), ["indicator:x", "indicator:y"], n_spaghetti=100
+    )
 
-    def test_returns_one_overlay_per_variable(self):
-        y_sim, obs = self._make_data(n_manifest=3)
-        result = _compute_overlays(y_sim, obs, ["indicator:x", "indicator:y", "indicator:z"])
-        assert len(result) == 3
-        assert result[0].indicator_id == "indicator:x"
-        assert result[1].indicator_id == "indicator:y"
-        assert result[2].indicator_id == "indicator:z"
-
-    def test_overlay_has_correct_length(self):
-        y_sim, obs = self._make_data(T=7, n_manifest=1)
-        result = _compute_overlays(y_sim, obs, ["indicator:x"])
-        assert len(result[0].q025) == 7
-        assert len(result[0].median) == 7
-        assert len(result[0].observed) == 7
-
-    def test_quantile_ordering(self):
-        """q025 <= q25 <= median <= q75 <= q975 at each time step."""
-        y_sim, obs = self._make_data(n_draws=50, T=10, n_manifest=1)
-        result = _compute_overlays(y_sim, obs, ["indicator:x"])
-        overlay = result[0]
-        for t in range(10):
-            assert overlay.q025[t] <= overlay.q25[t]
-            assert overlay.q25[t] <= overlay.median[t]
-            assert overlay.median[t] <= overlay.q75[t]
-            assert overlay.q75[t] <= overlay.q975[t]
-
-    def test_spaghetti_draws_count(self):
-        y_sim, obs = self._make_data(n_draws=30, n_manifest=1)
-        result = _compute_overlays(y_sim, obs, ["indicator:x"], n_spaghetti=5)
-        assert len(result[0].spaghetti_draws) == 5
-
-    def test_spaghetti_count_capped_at_n_draws(self):
-        y_sim, obs = self._make_data(n_draws=3, n_manifest=1)
-        result = _compute_overlays(y_sim, obs, ["indicator:x"], n_spaghetti=100)
-        assert len(result[0].spaghetti_draws) == 3
-
-    def test_spaghetti_draw_length_matches_T(self):
-        y_sim, obs = self._make_data(n_draws=5, T=8, n_manifest=1)
-        result = _compute_overlays(y_sim, obs, ["indicator:x"])
-        for draw in result[0].spaghetti_draws:
-            assert len(draw) == 8
-
-    def test_nan_observations_become_none(self):
-        y_sim, obs = self._make_data(T=3, n_manifest=1)
-        obs_with_nan = obs.at[1, 0].set(float("nan"))
-        result = _compute_overlays(y_sim, obs_with_nan, ["indicator:x"])
-        assert result[0].observed[1] is None
-        assert result[0].observed[0] is not None
-
-    def test_requires_complete_indicator_axis(self):
-        y_sim, obs = self._make_data(n_manifest=2)
-        with pytest.raises(ValueError, match="shorter"):
-            _compute_overlays(y_sim, obs, ["indicator:x"])
-
-    def test_single_draw(self):
-        y_sim, obs = self._make_data(n_draws=1, T=3, n_manifest=1)
-        result = _compute_overlays(y_sim, obs, ["indicator:x"])
-        # All quantiles should be the same value
-        assert result[0].q025 == result[0].q975
+    assert len(result) == 2
+    for column, overlay in enumerate(result):
+        for band in [overlay.q025, overlay.q25, overlay.median, overlay.q75, overlay.q975]:
+            np.testing.assert_array_equal(band, draws[0, :, column])
+        np.testing.assert_array_equal(overlay.spaghetti_draws, draws[:, :, column])
 
 
-# =============================================================================
-# _compute_test_stats
-# =============================================================================
+def test_test_stats_match_masked_observations_and_each_replicate():
+    # Huge values at missing observation rows must be ignored in each replicate.
+    # The final variable has only two observed rows and must be omitted.
+    observations = jnp.array(
+        [[1.0, -4.0, 8.0], [3.0, jnp.nan, jnp.nan], [jnp.nan, 0.0, jnp.nan], [5.0, 4.0, 10.0]]
+    )
+    draws = jnp.array(
+        [
+            [[2.0, -2.0, 10.0], [4.0, 999.0, 11.0], [999.0, 2.0, 12.0], [6.0, 6.0, 13.0]],
+            [[-1.0, 2.0, 20.0], [1.0, -999.0, 21.0], [-999.0, 0.0, 22.0], [3.0, -2.0, 23.0]],
+        ]
+    )
+    result = _compute_test_stats(draws, observations, ["indicator:x", "indicator:y", "indicator:z"])
+    small_sd, large_sd = np.sqrt(8.0 / 3.0), np.sqrt(32.0 / 3.0)
+    # Each entry gives observed value, one statistic per draw, and P(rep >= obs).
+    expected = {
+        ("indicator:x", "mean"): (3.0, [4.0, 1.0], 0.5),
+        ("indicator:x", "sd"): (small_sd, [small_sd, small_sd], 1.0),
+        ("indicator:x", "min"): (1.0, [2.0, -1.0], 0.5),
+        ("indicator:x", "max"): (5.0, [6.0, 3.0], 0.5),
+        ("indicator:y", "mean"): (0.0, [2.0, 0.0], 1.0),
+        ("indicator:y", "sd"): (large_sd, [large_sd, small_sd], 0.5),
+        ("indicator:y", "min"): (-4.0, [-2.0, -2.0], 1.0),
+        ("indicator:y", "max"): (4.0, [6.0, 2.0], 0.5),
+    }
+    assert len(result) == len(expected)
+    assert {(stat.indicator_id, stat.stat_name) for stat in result} == set(expected)
+    for stat in result:
+        observed, replicas, p_value = expected[stat.indicator_id, stat.stat_name]
+        np.testing.assert_allclose(stat.observed_value, observed, rtol=1e-6)
+        np.testing.assert_allclose(stat.rep_values, replicas, rtol=1e-6)
+        assert stat.p_value == pytest.approx(p_value)
 
 
-class TestComputeTestStats:
-    def _make_data(self, n_draws=10, T=20, n_manifest=2):
-        rng = np.random.default_rng(42)
-        y_sim = jnp.array(rng.normal(0, 1, (n_draws, T, n_manifest)))
-        observations = jnp.array(rng.normal(0, 1, (T, n_manifest)))
-        return y_sim, observations
-
-    def test_returns_4_stats_per_variable(self):
-        y_sim, obs = self._make_data(n_manifest=1)
-        result = _compute_test_stats(y_sim, obs, ["indicator:x"])
-        assert len(result) == 4
-        stat_names = {r.stat_name for r in result}
-        assert stat_names == {"mean", "sd", "min", "max"}
-
-    def test_multiple_variables(self):
-        y_sim, obs = self._make_data(n_manifest=2)
-        result = _compute_test_stats(y_sim, obs, ["indicator:x", "indicator:y"])
-        assert len(result) == 8  # 4 stats * 2 variables
-
-    def test_rep_values_length_matches_n_draws(self):
-        y_sim, obs = self._make_data(n_draws=15, n_manifest=1)
-        result = _compute_test_stats(y_sim, obs, ["indicator:x"])
-        for stat in result:
-            assert len(stat.rep_values) == 15
-
-    def test_observed_value_is_float(self):
-        y_sim, obs = self._make_data(n_manifest=1)
-        result = _compute_test_stats(y_sim, obs, ["indicator:x"])
-        for stat in result:
-            assert isinstance(stat.observed_value, float)
-
-    def test_skips_variables_with_too_few_valid_obs(self):
-        """Variables with < 3 valid observations should be skipped."""
-        y_sim, obs = self._make_data(T=5, n_manifest=1)
-        # Make all but 2 observations NaN
-        obs_sparse = jnp.full_like(obs, float("nan"))
-        obs_sparse = obs_sparse.at[0, 0].set(1.0)
-        obs_sparse = obs_sparse.at[1, 0].set(2.0)
-        result = _compute_test_stats(y_sim, obs_sparse, ["indicator:x"])
-        assert len(result) == 0
-
-    def test_handles_nan_masking(self):
-        """NaN values in observations should be excluded from stats."""
-        y_sim, obs = self._make_data(T=10, n_manifest=1)
-        obs_with_nan = obs.at[0, 0].set(float("nan"))
-        result = _compute_test_stats(y_sim, obs_with_nan, ["indicator:x"])
-        # Should still produce results (9 valid obs > 3)
-        assert len(result) == 4
-
-    def test_mean_stat_is_reasonable(self):
-        """Mean of replicated data should be near 0 for N(0,1) draws."""
-        rng = np.random.default_rng(0)
-        y_sim = jnp.array(rng.normal(0, 1, (50, 100, 1)))
-        obs = jnp.array(rng.normal(0, 1, (100, 1)))
-        result = _compute_test_stats(y_sim, obs, ["indicator:x"])
-        mean_stat = next(r for r in result if r.stat_name == "mean")
-        # Observed mean should be within range of replicated means
-        rep_min = min(mean_stat.rep_values)
-        rep_max = max(mean_stat.rep_values)
-        # Generous bounds since data is random
-        assert rep_min < 0.5
-        assert rep_max > -0.5
-
-    def test_requires_complete_indicator_axis(self):
-        y_sim, obs = self._make_data(n_manifest=2)
-        with pytest.raises(ValueError, match="shorter"):
-            _compute_test_stats(y_sim, obs, ["indicator:x"])
+@pytest.mark.parametrize(
+    "compute", [_compute_overlays, _compute_test_stats], ids=["overlays", "stats"]
+)
+def test_predictive_summaries_require_complete_indicator_axis(compute):
+    with pytest.raises(ValueError, match="shorter"):
+        compute(jnp.ones((2, 3, 2)), jnp.ones((3, 2)), ["indicator:x"])
