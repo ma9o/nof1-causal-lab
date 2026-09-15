@@ -1,30 +1,22 @@
+import { createModelClient, type SimulationReport } from "@nof1-causal-lab/api-types";
 import type { AnalysisSimulationResult } from "../intervention-dag-types";
 import type { SimulateFn } from "./simulate-input";
 
-/**
- * The production `onSimulate`: run a do() scenario by dispatching the analysis
- * `simulate` tool directly (no LLM) via `POST /api/tools/dispatch`. Returns
- * the `SimulationResult`.
- */
-export function createSimulateDispatch(workspaceId: string): SimulateFn {
+/** Submit an identified scenario through the same durable simulate action. */
+export function createSimulateDispatch(workspaceId: string, modelVersion: number): SimulateFn {
   return async (input): Promise<AnalysisSimulationResult> => {
-    const response = await fetch("/api/tools/dispatch", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ workspaceId, contextId: "analysis", tool: "simulate", input }),
+    const { data, error } = await createModelClient().POST("/api/episodes/{workspace_id}/actions", {
+      params: { path: { workspace_id: workspaceId } },
+      body: {
+        action: "simulate",
+        model_version: modelVersion,
+        design: { kind: "causal", query: input },
+      },
     });
-    const payload = (await response.json()) as { output?: unknown; error?: string };
-    if (!response.ok || payload.error) {
-      throw new Error(payload.error ?? `simulate dispatch failed (HTTP ${response.status})`);
-    }
-    if (
-      typeof payload.output === "object" &&
-      payload.output != null &&
-      "error" in payload.output &&
-      typeof payload.output.error === "string"
-    ) {
-      throw new Error(payload.output.error);
-    }
-    return payload.output as AnalysisSimulationResult;
+    if (error || !data || data.status !== "applied") throw new Error(JSON.stringify(error ?? data));
+    const report = data.diagnostics.report as unknown as SimulationReport;
+    if (!report.causal_result)
+      throw new Error("Simulation did not return a certified causal result");
+    return report.causal_result;
   };
 }

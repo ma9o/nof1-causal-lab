@@ -542,7 +542,7 @@ def _deserialize_panel(payload: bytes, panel_format: PanelFormat) -> Any:
 
 
 def _resolved_sampler_config(overrides: JsonDict) -> JsonDict:
-    from nof1_causal_lab.flows.transitions.inference.flow import build_sampler_config
+    from nof1_causal_lab.actions.fit import build_sampler_config
 
     resolved = dict(build_sampler_config(None))
     unknown = sorted(set(overrides) - set(resolved))
@@ -707,7 +707,13 @@ def run_cached_fit(
     import logging
 
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.flows.transitions.inference.fit import fit_model, run_ppc
+    from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorPredictiveChecks
+    from nof1_causal_lab.flows.transitions.inference.fit import fit_model
+    from nof1_causal_lab.models.posterior_predictive import measure_predictive_checks
+    from nof1_causal_lab.models.ssm import numerics
+    from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
+        simulate_predictive_draws,
+    )
     from nof1_causal_lab.models.ssm.runtime import prepare_model_runtime
 
     logging.basicConfig(
@@ -812,15 +818,29 @@ def run_cached_fit(
         )
         results_volume.commit()
 
+        predictive_indices = np.linspace(
+            0, fitted["n_samples"] - 1, min(50, fitted["n_samples"])
+        ).astype(int)
         ppc = (
-            run_ppc(fitted)
+            measure_predictive_checks(
+                simulate_predictive_draws(
+                    fitted["spec"],
+                    {
+                        name: values[predictive_indices]
+                        for name, values in result.get_samples().items()
+                    },
+                    fitted["times"],
+                    observation_support=fitted["runtime"].observation_support,
+                )["observations"],
+                fitted["runtime"].observations,
+                numerics.observation_ids(fitted["spec"]),
+            )
             if run_ppc_checks
-            else {
-                "checked": False,
-                "per_variable_warnings": [],
-            }
+            else PosteriorPredictiveChecks(checked=False, per_variable_warnings=[])
         )
-        (result_dir / "ppc.json").write_text(json.dumps(_jsonable(ppc), indent=2, allow_nan=False))
+        (result_dir / "ppc.json").write_text(
+            json.dumps(_jsonable(ppc.model_dump(mode="json")), indent=2, allow_nan=False)
+        )
         samples = result.get_samples()
         latent_paths = result.draws.latent_paths
         summary = {
@@ -831,8 +851,8 @@ def run_cached_fit(
             "sample_sites": len(samples),
             "sample_shapes": {name: list(value.shape) for name, value in samples.items()},
             "latent_path_shape": (list(latent_paths.shape) if latent_paths is not None else None),
-            "ppc_checked": bool(ppc.get("checked", False)),
-            "ppc_warning_count": len(ppc.get("per_variable_warnings", [])),
+            "ppc_checked": ppc.checked,
+            "ppc_warning_count": len(ppc.per_variable_warnings),
         }
         (result_dir / "summary.json").write_text(
             json.dumps(_jsonable(summary), indent=2, allow_nan=False)

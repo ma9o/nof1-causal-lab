@@ -588,26 +588,6 @@ def check_transmission(
     )
 
 
-def check_data_availability(indicator: str) -> CheckResult:
-    """C5d — surface an emission channel with no observed values as prior-only."""
-    return CheckResult(
-        "C5d data availability",
-        indicator,
-        "0 observed values",
-        "> 0 observed values",
-        False,
-        f"{indicator} has no observed values, so its emission and linked latent state are "
-        "not empirically anchored in this panel.",
-        (
-            "the likelihood remains executable for forward simulation, but the current "
-            "panel contributes no likelihood terms for this indicator",
-            "treat trajectory and magnitude statements as prior-driven unless other measured "
-            "states identify them through the structural model",
-        ),
-        {"n_obs": 0},
-    )
-
-
 # ---------------------------------------------------------------- severity (declarative)
 
 CHECK_MODES = {
@@ -620,7 +600,6 @@ CHECK_MODES = {
     "C5a location reach": "soft",
     "C5b width": "soft",
     "C5c transmission": "soft",
-    "C5d data availability": "soft",
 }
 
 CHECK_CONSEQUENCES = {
@@ -643,8 +622,6 @@ CHECK_CONSEQUENCES = {
     "C5c transmission": "{target}: little prior-predictive variation comes from temporal "
     "movement in the emission mean; conditional observation variance dominates, so this "
     "construct's trajectory is weakly grounded in the data",
-    "C5d data availability": "{target}: no observed values anchor this emission in the current "
-    "panel; its contribution is prior-driven and must not be presented as empirically learned",
 }
 
 

@@ -63,6 +63,7 @@ def test_partial_model_revisions_remain_readable_without_execution_checks(worksp
                 move=WriteArtifact(artifact_id="model", expected_model_version=version - 1),
                 status="applied",
                 produced=effects.produced,
+                diagnostics=effects.diagnostics,
                 trace_ids=[],
                 resume=None,
             )
@@ -73,6 +74,9 @@ def test_partial_model_revisions_remain_readable_without_execution_checks(worksp
             snapshot = ModelReader(workspace).snapshot()
         assert snapshot.model is not None
         assert snapshot.model.value == model
+        assert snapshot.findings.specification is not None
+        execution = snapshot.findings.specification.value.findings[0]
+        assert execution.status == ("passed" if version == 2 else "not_evaluated")
         assert "execution" not in snapshot.findings.model_dump()
         assert "execution_readiness" not in snapshot.model.value.model_dump()
         assert not snapshot.context.can_simulate
@@ -135,12 +139,12 @@ def test_auto_navigation_uses_operation_requirements_and_input_versions(
 def test_incomplete_model_is_rejected_before_local_or_remote_inference(
     workspace, monkeypatch, deployment
 ):
+    from nof1_causal_lab.actions import fit as flow
     from nof1_causal_lab.flows import modal_runners
-    from nof1_causal_lab.flows.transitions.inference import flow
 
     monkeypatch.setenv("DEPLOYMENT_ENV", deployment)
     local, remote = Mock(), AsyncMock()
-    monkeypatch.setattr(flow, "run_inference_with_data", local)
+    monkeypatch.setattr(flow, "fit", local)
     monkeypatch.setattr(modal_runners, "run_transition_on_modal", remote)
     store = ArtifactStore(workspace)
     model = store.write_version(
@@ -257,10 +261,10 @@ def test_model_spec_completion_tracks_prior_lineage_and_data_without_requiring_a
     )
 
 
-def test_refit_after_question_edit_recovers_prior_and_preserves_current_question(
+def test_refit_after_question_edit_uses_selected_model_and_preserves_current_question(
     workspace, monkeypatch
 ):
-    from nof1_causal_lab.flows.transitions.inference import flow
+    from nof1_causal_lab.actions import fit as flow
     from nof1_causal_lab.machine.derivations import read_model
     from nof1_causal_lab.machine.inference import inference_input_version, read_prior_model
     from nof1_causal_lab.machine.runners import _run_posterior
@@ -293,15 +297,14 @@ def test_refit_after_question_edit_recovers_prior_and_preserves_current_question
     )
 
     def fit(**kwargs):
-        assert kwargs["model_spec"] == expected
+        assert kwargs["model_spec"] == edited
         return {
             "_model": kwargs["model_spec"].revised(time_points=(0.0, 1.0)),
             "engine_evidence": {},
             "inference_metadata": {"method": "mock", "n_samples": 1, "duration_seconds": 0.0},
-            "ppc": {},
         }
 
-    monkeypatch.setattr(flow, "run_inference_with_data", fit)
+    monkeypatch.setattr(flow, "fit", fit)
     pins: dict[ArtifactId, int] = {"model": 3, "panel": 1}
     effects = run_async(_run_posterior(workspace, store, pins, ExecOptions()))
     assert effects.produced[0].derived_from == pins

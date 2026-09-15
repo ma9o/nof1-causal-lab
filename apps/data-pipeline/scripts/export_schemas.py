@@ -17,6 +17,8 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+# Import all artifact contracts — this pulls in every nested domain model
+from nof1_causal_lab.actions.revisions import ModelComparison, RevisionCatalog
 from nof1_causal_lab.artifacts.catalog import ARTIFACT_CONTRACTS
 from nof1_causal_lab.artifacts.effects import EffectSummary
 from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS
@@ -42,13 +44,7 @@ from nof1_causal_lab.episode_api import (
     WorkspaceList,
     machine_description,
 )
-
-# Import all artifact contracts — this pulls in every nested domain model
 from nof1_causal_lab.flows.context_tools import CONTEXT_TOOLS
-from nof1_causal_lab.flows.transitions.analysis.contracts import (
-    SimulateScenarioToolResult,
-    ToolError,
-)
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.artifact_files import ARTIFACT_FILE_SPECS
 from nof1_causal_lab.machine.snapshot_models import ModelSnapshot
@@ -75,6 +71,8 @@ EXPORTED_API_MODELS: tuple[type[BaseModel], ...] = (
     EventsResponse,
     StartEpisodeResponse,
     AutoRunResponse,
+    RevisionCatalog,
+    ModelComparison,
     LLMTrace,
     ModelSnapshot,
     ArtifactViews,
@@ -84,17 +82,21 @@ EXPORTED_API_MODELS: tuple[type[BaseModel], ...] = (
 )
 
 EXPORTED_TOOL_MODELS: tuple[type[BaseModel], ...] = (
-    ToolError,
     EffectSummary,
     EffectTrajectoryPoint,
     SimulationTrajectory,
     SimulationResult,
     ScenarioRequest,
-    SimulateScenarioToolResult,
 )
 
 INTERACTIVE_CONTEXTS = frozenset(
-    {"latent-structure", "measurement-structure", "statistical-model-spec", "analysis"}
+    {
+        "scientific",
+        "latent-structure",
+        "measurement-structure",
+        "statistical-model-spec",
+        "analysis",
+    }
 )
 
 

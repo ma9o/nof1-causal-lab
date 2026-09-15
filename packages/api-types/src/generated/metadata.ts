@@ -16,6 +16,7 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
     "model",
     "identification_report",
     "panel",
+    "data_profile",
     "validation_report"
   ],
   "topological_artifact_order": [
@@ -23,17 +24,33 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
     "model",
     "identification_report",
     "panel",
+    "data_profile",
     "validation_report"
   ],
   "topological_transition_order": [
     "raw_data",
     "latent_structure",
+    "simulate",
     "measurement_structure",
     "measurements",
     "statistical_model_spec",
     "posterior"
   ],
   "contexts": [
+    {
+      "context_id": "scientific",
+      "layer": "tool",
+      "label": "Scientific actions",
+      "parent_id": "action-registry",
+      "owns": [],
+      "allowed_tools": [
+        "edit_model",
+        "prepare_data",
+        "fit",
+        "simulate"
+      ],
+      "runtime_state": []
+    },
     {
       "context_id": "navigator",
       "layer": "navigator",
@@ -176,8 +193,7 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "parent_id": "episode-machine",
       "owns": [],
       "allowed_tools": [
-        "get_model_info",
-        "simulate"
+        "get_model_info"
       ],
       "runtime_state": [
         "identified_treatments",
@@ -187,176 +203,12 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
   ],
   "actions": [
     {
-      "action_id": "nav.state",
-      "namespace": "nav",
-      "name": "state",
-      "kind": "read",
-      "mode": "read",
-      "context_id": "navigator",
+      "action_id": "edit_model",
+      "description": "Revise scientific definitions and current laws; refresh applicable specification and data-compatibility findings.",
       "consumes": [],
-      "produces": [],
-      "produces_optional": [],
-      "derives": [],
-      "move": null,
-      "query": null,
-      "lower_context_id": null
-    },
-    {
-      "action_id": "nav.timeline",
-      "namespace": "nav",
-      "name": "timeline",
-      "kind": "read",
-      "mode": "read",
-      "context_id": "navigator",
-      "consumes": [],
-      "produces": [],
-      "produces_optional": [],
-      "derives": [],
-      "move": null,
-      "query": null,
-      "lower_context_id": null
-    },
-    {
-      "action_id": "nav.events",
-      "namespace": "nav",
-      "name": "events",
-      "kind": "read",
-      "mode": "read",
-      "context_id": "navigator",
-      "consumes": [],
-      "produces": [],
-      "produces_optional": [],
-      "derives": [],
-      "move": null,
-      "query": null,
-      "lower_context_id": null
-    },
-    {
-      "action_id": "nav.get",
-      "namespace": "nav",
-      "name": "get",
-      "kind": "read",
-      "mode": "read",
-      "context_id": "navigator",
-      "consumes": [],
-      "produces": [],
-      "produces_optional": [],
-      "derives": [],
-      "move": null,
-      "query": null,
-      "lower_context_id": null
-    },
-    {
-      "action_id": "nav.versions",
-      "namespace": "nav",
-      "name": "versions",
-      "kind": "read",
-      "mode": "read",
-      "context_id": "navigator",
-      "consumes": [],
-      "produces": [],
-      "produces_optional": [],
-      "derives": [],
-      "move": null,
-      "query": null,
-      "lower_context_id": null
-    },
-    {
-      "action_id": "nav.diff",
-      "namespace": "nav",
-      "name": "diff",
-      "kind": "read",
-      "mode": "read",
-      "context_id": "navigator",
-      "consumes": [],
-      "produces": [],
-      "produces_optional": [],
-      "derives": [],
-      "move": null,
-      "query": null,
-      "lower_context_id": null
-    },
-    {
-      "action_id": "episode.create",
-      "namespace": "episode",
-      "name": "create",
-      "kind": "produce",
-      "mode": "direct",
-      "context_id": "navigator",
-      "consumes": [],
-      "produces": [
-        "model"
-      ],
-      "produces_optional": [],
-      "derives": [],
-      "move": {
-        "kind": "write",
-        "artifact_id": "model",
-        "provenance": "human",
-        "expected_model_version": 0
-      },
-      "query": null,
-      "lower_context_id": null
-    },
-    {
-      "action_id": "episode.attach_data",
-      "namespace": "episode",
-      "name": "attach_data",
-      "kind": "external",
-      "mode": "direct",
-      "context_id": "navigator",
-      "consumes": [],
-      "produces": [],
-      "produces_optional": [],
-      "derives": [],
-      "move": null,
-      "query": null,
-      "lower_context_id": null
-    },
-    {
-      "action_id": "episode.ingest_data",
-      "namespace": "episode",
-      "name": "ingest_data",
-      "kind": "produce",
-      "mode": "delegated",
-      "context_id": "navigator",
-      "consumes": [],
-      "produces": [
-        "raw_data"
-      ],
-      "produces_optional": [],
-      "derives": [],
-      "move": {
-        "kind": "run",
-        "operation_id": "raw_data"
-      },
-      "query": null,
-      "lower_context_id": "ingestion"
-    },
-    {
-      "action_id": "episode.refresh",
-      "namespace": "episode",
-      "name": "refresh",
-      "kind": "driver",
-      "mode": "async",
-      "context_id": "navigator",
-      "consumes": [],
-      "produces": [],
-      "produces_optional": [],
-      "derives": [],
-      "move": null,
-      "query": null,
-      "lower_context_id": null
-    },
-    {
-      "action_id": "specify.latent_structure",
-      "namespace": "specify",
-      "name": "latent_structure",
-      "kind": "produce",
-      "mode": "delegated",
-      "context_id": "navigator",
-      "consumes": [
-        "model"
+      "optional_consumes": [
+        "model",
+        "panel"
       ],
       "produces": [
         "model"
@@ -365,245 +217,52 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "derives": [
         "identification_report",
         "validation_report"
-      ],
-      "move": {
-        "kind": "run",
-        "operation_id": "latent_structure"
-      },
-      "query": null,
-      "lower_context_id": "latent-structure"
+      ]
     },
     {
-      "action_id": "specify.measurement",
-      "namespace": "specify",
-      "name": "measurement",
-      "kind": "produce",
-      "mode": "delegated",
-      "context_id": "navigator",
-      "consumes": [
-        "raw_data",
-        "model"
-      ],
-      "produces": [
-        "model"
-      ],
-      "produces_optional": [],
-      "derives": [
-        "identification_report",
-        "validation_report"
-      ],
-      "move": {
-        "kind": "run",
-        "operation_id": "measurement_structure"
-      },
-      "query": null,
-      "lower_context_id": "measurement-structure"
-    },
-    {
-      "action_id": "specify.edit",
-      "namespace": "specify",
-      "name": "edit",
-      "kind": "produce",
-      "mode": "direct",
-      "context_id": "navigator",
-      "consumes": [
-        "model"
-      ],
-      "produces": [
-        "model"
-      ],
-      "produces_optional": [],
-      "derives": [
-        "identification_report",
-        "validation_report"
-      ],
-      "move": {
-        "kind": "write",
-        "artifact_id": "model",
-        "provenance": "human",
-        "expected_model_version": null
-      },
-      "query": null,
-      "lower_context_id": null
-    },
-    {
-      "action_id": "specify.identify",
-      "namespace": "specify",
-      "name": "identify",
-      "kind": "check",
-      "mode": "direct",
-      "context_id": "navigator",
-      "consumes": [
-        "model"
-      ],
-      "produces": [],
-      "produces_optional": [],
-      "derives": [
-        "identification_report"
-      ],
-      "move": null,
-      "query": null,
-      "lower_context_id": null
-    },
-    {
-      "action_id": "measure.extract",
-      "namespace": "measure",
-      "name": "extract",
-      "kind": "produce",
-      "mode": "delegated",
-      "context_id": "navigator",
-      "consumes": [
+      "action_id": "prepare_data",
+      "description": "Import sources or evaluate declared measurement rules; return versioned data and applicable profiles and checks.",
+      "consumes": [],
+      "optional_consumes": [
         "raw_data",
         "model"
       ],
       "produces": [],
       "produces_optional": [
+        "raw_data",
         "panel"
       ],
       "derives": [
+        "data_profile",
         "validation_report"
-      ],
-      "move": {
-        "kind": "run",
-        "operation_id": "measurements"
-      },
-      "query": null,
-      "lower_context_id": "measurement"
+      ]
     },
     {
-      "action_id": "fit.specify",
-      "namespace": "fit",
-      "name": "specify",
-      "kind": "produce",
-      "mode": "delegated",
-      "context_id": "navigator",
+      "action_id": "fit",
+      "description": "Condition the selected model on selected observations; return joint uncertainty and fitting diagnostics.",
       "consumes": [
         "model",
-        "identification_report",
-        "panel",
-        "validation_report"
+        "panel"
       ],
+      "optional_consumes": [],
       "produces": [
         "model"
       ],
       "produces_optional": [],
-      "derives": [
-        "identification_report",
-        "validation_report"
-      ],
-      "move": {
-        "kind": "run",
-        "operation_id": "statistical_model_spec"
-      },
-      "query": null,
-      "lower_context_id": "statistical-model-spec"
+      "derives": []
     },
     {
-      "action_id": "fit.infer",
-      "namespace": "fit",
-      "name": "infer",
-      "kind": "produce",
-      "mode": "async",
-      "context_id": "navigator",
-      "consumes": [
-        "model",
-        "panel"
-      ],
-      "produces": [
-        "model"
-      ],
-      "produces_optional": [],
-      "derives": [
-        "identification_report",
-        "validation_report"
-      ],
-      "move": {
-        "kind": "run",
-        "operation_id": "posterior"
-      },
-      "query": null,
-      "lower_context_id": "inference"
-    },
-    {
-      "action_id": "fit.check",
-      "namespace": "fit",
-      "name": "check",
-      "kind": "check",
-      "mode": "direct",
-      "context_id": "navigator",
+      "action_id": "simulate",
+      "description": "Generate requested quantities from current model uncertainty and measure the shared predictive batch.",
       "consumes": [
         "model"
       ],
-      "produces": [],
-      "produces_optional": [],
-      "derives": [],
-      "move": null,
-      "query": null,
-      "lower_context_id": null
-    },
-    {
-      "action_id": "analyze.simulate",
-      "namespace": "analyze",
-      "name": "simulate",
-      "kind": "query",
-      "mode": "direct",
-      "context_id": "navigator",
-      "consumes": [
-        "model",
-        "panel",
-        "identification_report"
-      ],
-      "produces": [],
-      "produces_optional": [],
-      "derives": [],
-      "move": null,
-      "query": {
-        "context_id": "analysis",
-        "tool_name": "simulate",
-        "freshness_checked": true
-      },
-      "lower_context_id": null
-    },
-    {
-      "action_id": "analyze.counterfactual",
-      "namespace": "analyze",
-      "name": "counterfactual",
-      "kind": "query",
-      "mode": "direct",
-      "context_id": "navigator",
-      "consumes": [
-        "model",
-        "panel",
-        "identification_report"
-      ],
-      "produces": [],
-      "produces_optional": [],
-      "derives": [],
-      "move": null,
-      "query": {
-        "context_id": "analysis",
-        "tool_name": "simulate",
-        "freshness_checked": true
-      },
-      "lower_context_id": null
-    },
-    {
-      "action_id": "analyze.ppc",
-      "namespace": "analyze",
-      "name": "ppc",
-      "kind": "check",
-      "mode": "direct",
-      "context_id": "navigator",
-      "consumes": [
-        "model",
+      "optional_consumes": [
         "panel"
       ],
       "produces": [],
       "produces_optional": [],
-      "derives": [],
-      "move": null,
-      "query": null,
-      "lower_context_id": null
+      "derives": []
     }
   ],
   "roots": [
@@ -688,6 +347,16 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "produces_optional": [],
       "creation_class": "deterministic",
       "writable": false
+    },
+    {
+      "transition_id": "simulate",
+      "consumes": [
+        "model"
+      ],
+      "produces": [],
+      "produces_optional": [],
+      "creation_class": "deterministic",
+      "writable": false
     }
   ],
   "derivations": [
@@ -699,10 +368,18 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "optional": false
     },
     {
+      "produces": "data_profile",
+      "from": [
+        "panel"
+      ],
+      "optional": false
+    },
+    {
       "produces": "validation_report",
       "from": [
         "panel",
-        "model"
+        "model",
+        "data_profile"
       ],
       "optional": false
     }
@@ -732,6 +409,12 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
         "panel": "panel.parquet"
       }
     },
+    "data_profile": {
+      "json": {
+        "data_profile": "data_profile.json"
+      },
+      "parquet": {}
+    },
     "validation_report": {
       "json": {
         "validation_report": "validation_report.json"
@@ -740,7 +423,7 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
     }
   }
 };
-export const ARTIFACT_IDS = ["raw_data","model","identification_report","panel","validation_report"] as const satisfies readonly ArtifactId[];
+export const ARTIFACT_IDS = ["raw_data","model","identification_report","panel","data_profile","validation_report"] as const satisfies readonly ArtifactId[];
 export const ARTIFACT_FILE_SPECS: Record<ArtifactId, ArtifactFileSpec> = {
   "raw_data": {
     "json": {},
@@ -765,6 +448,12 @@ export const ARTIFACT_FILE_SPECS: Record<ArtifactId, ArtifactFileSpec> = {
     "parquet": {
       "panel": "panel.parquet"
     }
+  },
+  "data_profile": {
+    "json": {
+      "data_profile": "data_profile.json"
+    },
+    "parquet": {}
   },
   "validation_report": {
     "json": {

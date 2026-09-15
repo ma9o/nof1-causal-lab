@@ -1,3 +1,4 @@
+import { PPCWarningsTable } from "@/components/analysis-widgets/posterior/ppc-warnings-table";
 import { JsonViewer } from "@/components/ui/json-viewer";
 import { ArtifactChip, FactChip, KeyValue, Prose, Section } from "../scope-primitives";
 import { chipFor, type ScopeContext } from "./scope-context";
@@ -6,6 +7,7 @@ export function AssetScope({ context }: { context: ScopeContext }) {
   const { model } = context;
   const rawData = model.data.raw_data?.value;
   const fit = model.findings.fit?.value;
+  const simulation = model.findings.simulation;
   const loo = fit?.report.loo_diagnostics;
   return (
     <>
@@ -39,7 +41,6 @@ export function AssetScope({ context }: { context: ScopeContext }) {
                     ],
                   ] as Array<[string, React.ReactNode]>)
                 : []),
-              ["PPC", `${fit.predictive_checks_passed}/${fit.predictive_checks_total} checks pass`],
             ]}
           />
           {Object.keys(fit.report.inference_diagnostics).length > 0 && (
@@ -50,6 +51,32 @@ export function AssetScope({ context }: { context: ScopeContext }) {
               <JsonViewer data={fit.report.inference_diagnostics} />
             </details>
           )}
+        </Section>
+      ) : null}
+      {simulation ? (
+        <Section title="Simulation" chips={<FactChip source={simulation.source} />}>
+          <KeyValue
+            rows={[
+              ["draws", simulation.value.design.draws.toLocaleString()],
+              ["model revision", String(simulation.value.model.version)],
+            ]}
+          />
+          <div className="space-y-1 text-xs">
+            {simulation.value.findings.map((finding, index) => (
+              <p key={index}>
+                {finding.check} · {finding.target}: {finding.value} ({finding.criterion}) —{" "}
+                {finding.explanation}
+              </p>
+            ))}
+          </div>
+          {simulation.value.predictive_checks && simulation.source.validity === "fresh" ? (
+            <PPCWarningsTable
+              warnings={simulation.value.predictive_checks.per_variable_warnings}
+              testStats={simulation.value.predictive_checks.test_stats}
+              overlays={simulation.value.predictive_checks.overlays}
+              indicators={context.entities.indicators}
+            />
+          ) : null}
         </Section>
       ) : null}
     </>

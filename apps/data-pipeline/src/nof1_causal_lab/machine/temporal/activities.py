@@ -51,6 +51,7 @@ async def run_transition_activity(input: RunOperationInput) -> TransitionEffects
             input.operation_id,
             input.state,
             input.options,
+            input.input_versions,
         )
     except TransitionExecutionError as exc:
         raise ApplicationError(

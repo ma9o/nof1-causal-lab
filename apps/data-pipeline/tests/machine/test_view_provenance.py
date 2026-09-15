@@ -121,7 +121,9 @@ def test_inference_log_keeps_findings_across_authoring_log_updates_and_tracks_ch
     assert (
         current.value.report.inference_diagnostics == historical.value.report.inference_diagnostics
     )
-    assert current.value.report.ppc == historical.value.report.ppc
+    assert (
+        current.value.report.inference_diagnostics == historical.value.report.inference_diagnostics
+    )
     assert current.value.report.loo_diagnostics == historical.value.report.loo_diagnostics
     assert ModelReader("BINDINGS", at_seq=5).fit() == historical
 

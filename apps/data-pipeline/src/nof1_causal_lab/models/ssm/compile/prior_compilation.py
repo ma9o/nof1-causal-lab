@@ -516,6 +516,51 @@ def _correlation_prior(prior: dist.Distribution) -> dist.Distribution:
     return prior
 
 
+def compile_parameter_law(
+    model: ModelSpec,
+    parameter: ParameterSpec,
+    binding: SemanticBinding,
+    edge_lag_days: dict[tuple[int, int], float] | None,
+) -> tuple[dist.Distribution, float | None]:
+    """Translate one scalar scientific law into its native numerical coordinates."""
+    prior = model.distribution_for(parameter.id)
+    if prior is None:
+        raise ValueError(f"Parameter {parameter.id!r} requires an explicit probability law")
+    if prior.batch_shape or prior.event_shape:
+        raise ValueError(
+            "Fitting requires independent scalar input laws; shared laws remain intact in "
+            "ModelSpec. Select an input revision supported by the fitting engine."
+        )
+    prior.validate_args()
+    if isinstance(prior, dist.Delta):
+        raise ValueError(f"Prior {parameter.id!r}: {_DEGENERATE_PRIOR_PREAMBLE}")
+    if binding.transform == PriorAuthoringTransform.DT_PERSISTENCE_TO_CT_DECAY:
+        interval = parameter.reference_interval_days
+        dt = (
+            float(interval)
+            if interval is not None
+            else get_construct_dt_days(model, binding.construct_names[0])
+        )
+        return persistence_to_decay(prior, dt), None
+    if binding.transform == PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE:
+        if binding.effect_idx is None or binding.cause_idx is None:
+            raise ValueError(
+                f"Dynamics effect prior {parameter.id!r} is missing effect/cause metadata"
+            )
+        dt = _resolve_cross_lag_interval_days(
+            param_name=parameter.id,
+            parameter=parameter,
+            model_spec=model,
+            edge_lag_days=edge_lag_days,
+            effect_idx=binding.effect_idx,
+            cause_idx=binding.cause_idx,
+        )
+        return interval_effect_to_rate(prior, dt), dt
+    if binding.transform == PriorAuthoringTransform.INITIAL_STATE_CORRELATION:
+        prior = _correlation_prior(prior)
+    return prior, None
+
+
 def compile_priors(
     model: ModelSpec,
     edge_lag_days: dict[tuple[int, int], float] | None = None,
@@ -557,21 +602,18 @@ def compile_priors(
 
     for param_name, parameter in parameters.items():
         try:
-            prior = model.distribution_for(parameter.id)
-            assert prior is not None
-            if prior.batch_shape or prior.event_shape:
-                raise ValueError(
-                    "This compiler requires independent scalar input laws; shared laws remain intact in ModelSpec. Refit from the original input revision."
-                )
-            prior.validate_args()
-            if isinstance(prior, dist.Delta):
-                raise ValueError(f"Prior {param_name!r}: {_DEGENERATE_PRIOR_PREAMBLE}")
             binding = binding_by_parameter.get(param_name)
             if binding is None:
                 errors.append(
                     f"Prior {param_name!r} for {model.parameter_context(parameter.id).quantity.value!r} could not be structurally bound to the compiled SSM."
                 )
                 continue
+
+            prior, effect_interval = compile_parameter_law(model, parameter, binding, edge_lag_days)
+            if effect_interval is not None:
+                assert binding.effect_idx is not None
+                assert binding.cause_idx is not None
+                offdiag_interval_days[(binding.effect_idx, binding.cause_idx)] = effect_interval
 
             if binding.transform == PriorAuthoringTransform.SITE_WIDE:
                 site = site_by_name.get(binding.site_name)
@@ -605,56 +647,6 @@ def compile_priors(
                     attach(site, row_idx * n_cols + col_idx, prior)
                 continue
 
-            if binding.transform == PriorAuthoringTransform.DT_PERSISTENCE_TO_CT_DECAY:
-                construct_name = binding.construct_names[0]
-                ref_days = parameter.reference_interval_days
-                resolved_ref_days = float(ref_days) if ref_days is not None else None
-                if resolved_ref_days is not None and resolved_ref_days <= 0:
-                    errors.append(
-                        f"AR prior '{param_name}' reference_interval_days must be positive, "
-                        f"got {resolved_ref_days:.3g}"
-                    )
-                    continue
-                dt = (
-                    resolved_ref_days
-                    if resolved_ref_days is not None
-                    else get_construct_dt_days(model, construct_name)
-                )
-                attach(
-                    site_by_name[binding.site_name],
-                    binding.flat_index,
-                    persistence_to_decay(prior, dt),
-                )
-                continue
-
-            if binding.transform == PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE:
-                if model is None:
-                    raise ValueError(
-                        "Dynamics effect prior compilation requires a translated ModelSpec runtime."
-                    )
-                if binding.effect_idx is not None and binding.cause_idx is not None:
-                    dt = _resolve_cross_lag_interval_days(
-                        param_name=param_name,
-                        parameter=parameter,
-                        model_spec=model,
-                        edge_lag_days=edge_lag_days,
-                        effect_idx=binding.effect_idx,
-                        cause_idx=binding.cause_idx,
-                    )
-                    offdiag_interval_days[(binding.effect_idx, binding.cause_idx)] = dt
-                else:
-                    raise ValueError(
-                        f"Dynamics effect prior {param_name!r} is missing effect/cause metadata."
-                    )
-                attach(
-                    site_by_name[binding.site_name],
-                    binding.flat_index,
-                    interval_effect_to_rate(prior, dt),
-                )
-                continue
-
-            if binding.transform == PriorAuthoringTransform.INITIAL_STATE_CORRELATION:
-                prior = _correlation_prior(prior)
             attach(site_by_name[binding.site_name], binding.flat_index, prior)
         except ValueError as exc:
             errors.append(str(exc))

@@ -33,6 +33,7 @@ export const ARTIFACT_LABEL: Record<ArtifactId, string> = {
   model: "Model",
   identification_report: "Identification report",
   panel: "Panel",
+  data_profile: "Data profile",
   validation_report: "Validation",
 };
 

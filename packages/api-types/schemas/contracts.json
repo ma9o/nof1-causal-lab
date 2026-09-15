@@ -10,6 +10,9 @@
     "identification_report": {
       "$ref": "#/$defs/IdentificationReport"
     },
+    "data_profile": {
+      "$ref": "#/$defs/DataProfileArtifact"
+    },
     "validation_report": {
       "$ref": "#/$defs/ValidationReportArtifact"
     }
@@ -18,41 +21,10 @@
     "ActionSpec": {
       "properties": {
         "action_id": {
-          "title": "Action Id",
-          "type": "string"
+          "$ref": "#/$defs/ScientificActionId"
         },
-        "namespace": {
-          "title": "Namespace",
-          "type": "string"
-        },
-        "name": {
-          "title": "Name",
-          "type": "string"
-        },
-        "kind": {
-          "enum": [
-            "read",
-            "produce",
-            "check",
-            "query",
-            "driver",
-            "external"
-          ],
-          "title": "Kind",
-          "type": "string"
-        },
-        "mode": {
-          "enum": [
-            "direct",
-            "delegated",
-            "async",
-            "read"
-          ],
-          "title": "Mode",
-          "type": "string"
-        },
-        "context_id": {
-          "title": "Context Id",
+        "description": {
+          "title": "Description",
           "type": "string"
         },
         "consumes": {
@@ -61,6 +33,14 @@
             "$ref": "#/$defs/ArtifactId"
           },
           "title": "Consumes",
+          "type": "array"
+        },
+        "optional_consumes": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ArtifactId"
+          },
+          "title": "Optional Consumes",
           "type": "array"
         },
         "produces": {
@@ -86,51 +66,14 @@
           },
           "title": "Derives",
           "type": "array"
-        },
-        "move": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Move"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "query": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ToolQuerySpec"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "lower_context_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Lower Context Id"
         }
       },
       "required": [
         "action_id",
         "consumes",
-        "context_id",
         "derives",
-        "kind",
-        "mode",
-        "name",
-        "namespace",
+        "description",
+        "optional_consumes",
         "produces",
         "produces_optional"
       ],
@@ -139,7 +82,7 @@
       "x-python-module": "nof1_causal_lab.machine.hierarchy",
       "x-layer": "machine",
       "x-concern": "execution_provenance",
-      "description": "An action declares a machine operation and its interaction context."
+      "description": "An action declares a scientific operation and its input and output responsibilities."
     },
     "AggregationFunction": {
       "enum": [
@@ -313,6 +256,7 @@
         "model",
         "identification_report",
         "panel",
+        "data_profile",
         "validation_report"
       ],
       "type": "string",
@@ -734,6 +678,57 @@
       "x-layer": "authored",
       "x-concern": "scientific_model"
     },
+    "CausalSimulationSpec": {
+      "additionalProperties": false,
+      "description": "An identified paired scenario, certified against the selected production fit.",
+      "properties": {
+        "kind": {
+          "const": "causal",
+          "default": "causal",
+          "title": "Kind",
+          "type": "string"
+        },
+        "query": {
+          "$ref": "#/$defs/ScenarioRequest"
+        },
+        "draws": {
+          "default": 100,
+          "maximum": 10000,
+          "minimum": 1,
+          "title": "Draws",
+          "type": "integer"
+        },
+        "seed": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Seed",
+          "type": "integer"
+        },
+        "process_noise": {
+          "default": false,
+          "title": "Process Noise",
+          "type": "boolean"
+        },
+        "observation_noise": {
+          "default": false,
+          "title": "Observation Noise",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "draws",
+        "kind",
+        "observation_noise",
+        "process_noise",
+        "query",
+        "seed"
+      ],
+      "title": "CausalSimulationSpec",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.simulation",
+      "x-layer": "findings",
+      "x-concern": "scientific_model"
+    },
     "CoefficientExpression": {
       "additionalProperties": false,
       "description": "A scientifically typed coefficient operand, literal or parameter reference.",
@@ -1012,6 +1007,43 @@
       "x-layer": "machine",
       "x-concern": "execution_provenance",
       "description": "An interaction context declares the tools and machine actions available to an agent."
+    },
+    "DataProfileArtifact": {
+      "additionalProperties": false,
+      "description": "Model-independent empirical measurements and data-quality findings.",
+      "properties": {
+        "is_valid": {
+          "title": "Is Valid",
+          "type": "boolean"
+        },
+        "indicators": {
+          "additionalProperties": {
+            "$ref": "#/$defs/IndicatorAudit"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/IndicatorId"
+          },
+          "title": "Indicators",
+          "type": "object"
+        },
+        "dataset_issues": {
+          "items": {
+            "$ref": "#/$defs/ValidationIssue"
+          },
+          "title": "Dataset Issues",
+          "type": "array"
+        }
+      },
+      "required": [
+        "dataset_issues",
+        "indicators",
+        "is_valid"
+      ],
+      "title": "DataProfileArtifact",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.validation_report",
+      "x-layer": "artifacts",
+      "x-concern": "scientific_model"
     },
     "DensityPoint": {
       "additionalProperties": false,
@@ -1699,16 +1731,6 @@
         "report": {
           "$ref": "#/$defs/InferenceReport"
         },
-        "predictive_checks_passed": {
-          "minimum": 0,
-          "title": "Predictive Checks Passed",
-          "type": "integer"
-        },
-        "predictive_checks_total": {
-          "minimum": 0,
-          "title": "Predictive Checks Total",
-          "type": "integer"
-        },
         "edge_estimates": {
           "additionalProperties": {
             "$ref": "#/$defs/PosteriorEstimate"
@@ -1733,8 +1755,6 @@
       "required": [
         "decay_estimates",
         "edge_estimates",
-        "predictive_checks_passed",
-        "predictive_checks_total",
         "report"
       ],
       "title": "FitSummary",
@@ -1905,7 +1925,8 @@
             "enum": [
               "ok",
               "warning",
-              "error"
+              "error",
+              "not_evaluated"
             ],
             "type": "string"
           },
@@ -2403,9 +2424,6 @@
           "$ref": "#/$defs/JsonObject",
           "description": "Engine-reported telemetry for this fit; keys and values are engine-defined."
         },
-        "ppc": {
-          "$ref": "#/$defs/PosteriorPredictiveChecks"
-        },
         "loo_diagnostics": {
           "anyOf": [
             {
@@ -2450,8 +2468,7 @@
       },
       "required": [
         "inference_diagnostics",
-        "inference_metadata",
-        "ppc"
+        "inference_metadata"
       ],
       "title": "InferenceReport",
       "type": "object",
@@ -3028,6 +3045,94 @@
       "x-concern": "identity",
       "description": "A persistent mechanism identity distinguishes additive terms through reordering and revision."
     },
+    "ModelComparison": {
+      "additionalProperties": false,
+      "properties": {
+        "before": {
+          "$ref": "#/$defs/ModelRevision"
+        },
+        "after": {
+          "$ref": "#/$defs/ModelRevision"
+        },
+        "parameters": {
+          "items": {
+            "$ref": "#/$defs/ParameterChange"
+          },
+          "title": "Parameters",
+          "type": "array"
+        },
+        "changed_inputs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Changed Inputs",
+          "type": "array"
+        },
+        "before_checks": {
+          "$ref": "#/$defs/SpecificationReport"
+        },
+        "after_checks": {
+          "$ref": "#/$defs/SpecificationReport"
+        },
+        "before_fit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InferenceReport"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "after_fit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InferenceReport"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "before_simulation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SimulationReport"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "after_simulation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SimulationReport"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "after",
+        "after_checks",
+        "after_fit",
+        "after_simulation",
+        "before",
+        "before_checks",
+        "before_fit",
+        "before_simulation",
+        "changed_inputs",
+        "parameters"
+      ],
+      "title": "ModelComparison",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.actions.revisions",
+      "x-layer": "transport",
+      "x-concern": "api_tools"
+    },
     "ModelData": {
       "additionalProperties": false,
       "description": "Observed evidence paired with its source versions.",
@@ -3204,6 +3309,28 @@
           "anyOf": [
             {
               "$ref": "#/$defs/Sourced_FitSummary_"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "specification": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Sourced_SpecificationReport_"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "simulation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Sourced_SimulationReport_"
             },
             {
               "type": "null"
@@ -3745,7 +3872,8 @@
         "measurement_structure",
         "measurements",
         "statistical_model_spec",
-        "posterior"
+        "posterior",
+        "simulate"
       ],
       "type": "string",
       "x-python-module": "nof1_causal_lab.artifacts.identity",
@@ -3775,35 +3903,70 @@
         },
         "q025": {
           "items": {
-            "type": "number"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "title": "Q025",
           "type": "array"
         },
         "q25": {
           "items": {
-            "type": "number"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "title": "Q25",
           "type": "array"
         },
         "median": {
           "items": {
-            "type": "number"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "title": "Median",
           "type": "array"
         },
         "q75": {
           "items": {
-            "type": "number"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "title": "Q75",
           "type": "array"
         },
         "q975": {
           "items": {
-            "type": "number"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "title": "Q975",
           "type": "array"
@@ -3811,7 +3974,14 @@
         "spaghetti_draws": {
           "items": {
             "items": {
-              "type": "number"
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "type": "array"
           },
@@ -3936,6 +4106,49 @@
       "x-python-module": "nof1_causal_lab.artifacts.posterior_diagnostics",
       "x-layer": "findings",
       "x-concern": "scientific_model"
+    },
+    "ParameterChange": {
+      "additionalProperties": false,
+      "properties": {
+        "parameter_id": {
+          "$ref": "#/$defs/ParameterId"
+        },
+        "before": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ParameterSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "after": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ParameterSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "change": {
+          "title": "Change",
+          "type": "string"
+        }
+      },
+      "required": [
+        "after",
+        "before",
+        "change",
+        "parameter_id"
+      ],
+      "title": "ParameterChange",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.actions.revisions",
+      "x-layer": "transport",
+      "x-concern": "api_tools"
     },
     "ParameterElementId": {
       "pattern": "^element:[0-9a-f]{64}$",
@@ -4542,6 +4755,42 @@
       "x-layer": "machine",
       "x-concern": "execution_provenance"
     },
+    "RevisionCatalog": {
+      "additionalProperties": false,
+      "properties": {
+        "models": {
+          "items": {
+            "$ref": "#/$defs/ArtifactVersionInfo"
+          },
+          "title": "Models",
+          "type": "array"
+        },
+        "raw_data": {
+          "items": {
+            "$ref": "#/$defs/ArtifactVersionInfo"
+          },
+          "title": "Raw Data",
+          "type": "array"
+        },
+        "panels": {
+          "items": {
+            "$ref": "#/$defs/ArtifactVersionInfo"
+          },
+          "title": "Panels",
+          "type": "array"
+        }
+      },
+      "required": [
+        "models",
+        "panels",
+        "raw_data"
+      ],
+      "title": "RevisionCatalog",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.actions.revisions",
+      "x-layer": "transport",
+      "x-concern": "api_tools"
+    },
     "Role": {
       "description": "A construct role states whether the variable is modeled as endogenous or treated as\nexogenous.",
       "enum": [
@@ -4590,9 +4839,20 @@
         },
         "operation_id": {
           "$ref": "#/$defs/OperationId"
+        },
+        "input_versions": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/ArtifactId"
+          },
+          "title": "Input Versions",
+          "type": "object"
         }
       },
       "required": [
+        "input_versions",
         "kind",
         "operation_id"
       ],
@@ -4919,20 +5179,209 @@
         "kind"
       ]
     },
-    "SimulateScenarioToolResult": {
-      "anyOf": [
+    "ScientificActionId": {
+      "enum": [
+        "edit_model",
+        "prepare_data",
+        "fit",
+        "simulate"
+      ],
+      "type": "string",
+      "x-python-module": "nof1_causal_lab.artifacts.identity",
+      "x-layer": "identity",
+      "x-concern": "identity"
+    },
+    "SimulationDesign": {
+      "discriminator": {
+        "mapping": {
+          "causal": "#/$defs/CausalSimulationSpec",
+          "trajectory": "#/$defs/SimulationSpec"
+        },
+        "propertyName": "kind"
+      },
+      "oneOf": [
         {
-          "$ref": "#/$defs/SimulationResult"
+          "$ref": "#/$defs/SimulationSpec"
         },
         {
-          "$ref": "#/$defs/ToolError"
+          "$ref": "#/$defs/CausalSimulationSpec"
         }
       ],
-      "title": "SimulateScenarioToolResult",
-      "x-python-module": "nof1_causal_lab.flows.transitions.analysis.contracts",
-      "x-layer": "transport",
-      "x-concern": "api_tools",
-      "description": "A simulation tool response carries either a resolved scenario result or a reported tool error."
+      "x-python-module": "nof1_causal_lab.artifacts.simulation",
+      "x-layer": "findings",
+      "x-concern": "scientific_model"
+    },
+    "SimulationFinding": {
+      "additionalProperties": false,
+      "description": "A measured quantity with the criterion used to interpret it.",
+      "properties": {
+        "check": {
+          "title": "Check",
+          "type": "string"
+        },
+        "target": {
+          "title": "Target",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "string"
+        },
+        "criterion": {
+          "title": "Criterion",
+          "type": "string"
+        },
+        "passed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Passed"
+        },
+        "explanation": {
+          "title": "Explanation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "check",
+        "criterion",
+        "explanation",
+        "passed",
+        "target",
+        "value"
+      ],
+      "title": "SimulationFinding",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.simulation",
+      "x-layer": "findings",
+      "x-concern": "scientific_model"
+    },
+    "SimulationReport": {
+      "additionalProperties": false,
+      "description": "Evidence from one explicit simulation, separate from an inference report.",
+      "properties": {
+        "model": {
+          "$ref": "#/$defs/ModelRevision"
+        },
+        "design": {
+          "$ref": "#/$defs/SimulationDesign"
+        },
+        "comparison_panel_version": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Comparison Panel Version"
+        },
+        "state_ids": {
+          "items": {
+            "$ref": "#/$defs/ConstructId"
+          },
+          "title": "State Ids",
+          "type": "array"
+        },
+        "indicator_ids": {
+          "items": {
+            "$ref": "#/$defs/IndicatorId"
+          },
+          "title": "Indicator Ids",
+          "type": "array"
+        },
+        "parameter_draws": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Parameter Draws",
+          "type": "object"
+        },
+        "latent_paths": {
+          "title": "Latent Paths",
+          "type": "string"
+        },
+        "observations": {
+          "title": "Observations",
+          "type": "string"
+        },
+        "findings": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/SimulationFinding"
+          },
+          "title": "Findings",
+          "type": "array"
+        },
+        "predictive_checks": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PosteriorPredictiveChecks"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "reference_latent_paths": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reference Latent Paths"
+        },
+        "reference_observations": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reference Observations"
+        },
+        "causal_result": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SimulationResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "design",
+        "findings",
+        "indicator_ids",
+        "latent_paths",
+        "model",
+        "observations",
+        "parameter_draws",
+        "state_ids"
+      ],
+      "title": "SimulationReport",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.simulation",
+      "x-layer": "findings",
+      "x-concern": "scientific_model"
     },
     "SimulationResult": {
       "additionalProperties": false,
@@ -5072,6 +5521,162 @@
       "type": "object",
       "x-python-module": "nof1_causal_lab.artifacts.scenarios",
       "x-layer": "findings",
+      "x-concern": "scientific_model"
+    },
+    "SimulationSpec": {
+      "additionalProperties": false,
+      "description": "A replicated study generated from the selected model's current laws.",
+      "properties": {
+        "kind": {
+          "const": "trajectory",
+          "default": "trajectory",
+          "title": "Kind",
+          "type": "string"
+        },
+        "times": {
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "title": "Times",
+          "type": "array"
+        },
+        "draws": {
+          "default": 100,
+          "maximum": 10000,
+          "minimum": 1,
+          "title": "Draws",
+          "type": "integer"
+        },
+        "seed": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Seed",
+          "type": "integer"
+        },
+        "edge_contrasts": {
+          "default": false,
+          "title": "Edge Contrasts",
+          "type": "boolean"
+        },
+        "initial_state": {
+          "default": "new_study",
+          "enum": [
+            "new_study",
+            "retained",
+            "fixed",
+            "equilibrium"
+          ],
+          "title": "Initial State",
+          "type": "string"
+        },
+        "state_time": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "State Time"
+        },
+        "state_values": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/ConstructId"
+          },
+          "title": "State Values",
+          "type": "object"
+        },
+        "process_noise": {
+          "default": true,
+          "title": "Process Noise",
+          "type": "boolean"
+        },
+        "observation_noise": {
+          "default": true,
+          "title": "Observation Noise",
+          "type": "boolean"
+        },
+        "interventions": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ScenarioClamp"
+          },
+          "title": "Interventions",
+          "type": "array"
+        },
+        "context": {
+          "default": "exploration",
+          "enum": [
+            "exploration",
+            "calibration",
+            "prediction"
+          ],
+          "title": "Context",
+          "type": "string"
+        },
+        "checks": {
+          "default": [
+            "dynamics",
+            "measurement",
+            "data_comparison"
+          ],
+          "items": {
+            "enum": [
+              "dynamics",
+              "measurement",
+              "data_comparison"
+            ],
+            "type": "string"
+          },
+          "title": "Checks",
+          "type": "array"
+        },
+        "confinement_growth_ratio": {
+          "default": 5.0,
+          "exclusiveMinimum": 1,
+          "title": "Confinement Growth Ratio",
+          "type": "number"
+        },
+        "confinement_failure_fraction": {
+          "default": 0.01,
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Confinement Failure Fraction",
+          "type": "number"
+        },
+        "comparison_time_offset": {
+          "default": 0.0,
+          "title": "Comparison Time Offset",
+          "type": "number"
+        }
+      },
+      "required": [
+        "checks",
+        "comparison_time_offset",
+        "confinement_failure_fraction",
+        "confinement_growth_ratio",
+        "context",
+        "draws",
+        "edge_contrasts",
+        "initial_state",
+        "interventions",
+        "kind",
+        "observation_noise",
+        "process_noise",
+        "seed",
+        "state_values",
+        "times"
+      ],
+      "title": "SimulationSpec",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.simulation",
+      "x-layer": "authored",
       "x-concern": "scientific_model"
     },
     "SimulationTrajectory": {
@@ -5307,6 +5912,48 @@
       "x-concern": "read_models",
       "description": "A sourced value pairs one model finding with its supporting artifact version."
     },
+    "Sourced_SimulationReport_": {
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "$ref": "#/$defs/SimulationReport"
+        },
+        "source": {
+          "$ref": "#/$defs/FactSource"
+        }
+      },
+      "required": [
+        "source",
+        "value"
+      ],
+      "title": "Sourced[SimulationReport]",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.machine.snapshot_models",
+      "x-layer": "read_models",
+      "x-concern": "read_models",
+      "description": "A sourced value pairs one model finding with its supporting artifact version."
+    },
+    "Sourced_SpecificationReport_": {
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "$ref": "#/$defs/SpecificationReport"
+        },
+        "source": {
+          "$ref": "#/$defs/FactSource"
+        }
+      },
+      "required": [
+        "source",
+        "value"
+      ],
+      "title": "Sourced[SpecificationReport]",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.machine.snapshot_models",
+      "x-layer": "read_models",
+      "x-concern": "read_models",
+      "description": "A sourced value pairs one model finding with its supporting artifact version."
+    },
     "Sourced_ValidationReportArtifact_": {
       "additionalProperties": false,
       "properties": {
@@ -5352,6 +5999,60 @@
       "x-layer": "read_models",
       "x-concern": "read_models",
       "description": "A sourced value pairs one model finding with its supporting artifact version."
+    },
+    "SpecificationFinding": {
+      "additionalProperties": false,
+      "description": "One model-only check and its current evaluation status.",
+      "properties": {
+        "check": {
+          "title": "Check",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "passed",
+            "failed",
+            "not_evaluated"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "check",
+        "message",
+        "status"
+      ],
+      "title": "SpecificationFinding",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.checks",
+      "x-layer": "findings",
+      "x-concern": "scientific_model"
+    },
+    "SpecificationReport": {
+      "additionalProperties": false,
+      "description": "Model-only findings; data compatibility has its own paired provenance.",
+      "properties": {
+        "findings": {
+          "items": {
+            "$ref": "#/$defs/SpecificationFinding"
+          },
+          "title": "Findings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "findings"
+      ],
+      "title": "SpecificationReport",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.checks",
+      "x-layer": "findings",
+      "x-concern": "scientific_model"
     },
     "StartEpisodeResponse": {
       "additionalProperties": false,
@@ -5582,67 +6283,6 @@
       "x-python-module": "nof1_causal_lab.episode_api",
       "x-layer": "transport",
       "x-concern": "api_tools"
-    },
-    "ToolError": {
-      "additionalProperties": false,
-      "properties": {
-        "error": {
-          "title": "Error",
-          "type": "string"
-        },
-        "identifiable_treatments": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Identifiable Treatments"
-        }
-      },
-      "required": [
-        "error"
-      ],
-      "title": "ToolError",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.flows.transitions.analysis.contracts",
-      "x-layer": "transport",
-      "x-concern": "api_tools",
-      "description": "A tool error reports why a requested operation could not produce a result."
-    },
-    "ToolQuerySpec": {
-      "properties": {
-        "context_id": {
-          "title": "Context Id",
-          "type": "string"
-        },
-        "tool_name": {
-          "title": "Tool Name",
-          "type": "string"
-        },
-        "freshness_checked": {
-          "default": true,
-          "title": "Freshness Checked",
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "context_id",
-        "freshness_checked",
-        "tool_name"
-      ],
-      "title": "ToolQuerySpec",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.hierarchy",
-      "x-layer": "machine",
-      "x-concern": "execution_provenance",
-      "description": "A tool query specification declares a context's callable query."
     },
     "TraceMessage": {
       "description": "A trace message records one conversational step, including any reasoning or tool\ninteraction.",
@@ -6074,6 +6714,9 @@
       "additionalProperties": false,
       "description": "A validation report summarizes whether extracted measurements satisfy the required data\nchecks.",
       "properties": {
+        "preflight": {
+          "$ref": "#/$defs/SpecificationReport"
+        },
         "is_valid": {
           "title": "Is Valid",
           "type": "boolean"
@@ -6099,7 +6742,8 @@
       "required": [
         "dataset_issues",
         "indicators",
-        "is_valid"
+        "is_valid",
+        "preflight"
       ],
       "title": "ValidationReportArtifact",
       "type": "object",
@@ -6214,6 +6858,7 @@
     }
   },
   "required": [
+    "data_profile",
     "identification_report",
     "model",
     "validation_report"

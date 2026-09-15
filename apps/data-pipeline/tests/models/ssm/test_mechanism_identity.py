@@ -16,16 +16,13 @@ from nof1_causal_lab.artifacts.identity import ConstructRef, EdgeRef, MechanismR
 from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
-from nof1_causal_lab.flows.transitions.model_spec.agentic.construct_flow import (
-    contribution_from_payload,
-)
 from nof1_causal_lab.models.model_distributions import with_parameter_distributions
 from nof1_causal_lab.models.model_structure import model_for_constructs
 from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
 from nof1_causal_lab.models.ssm.compile.prior_compilation import compile_priors
-from nof1_causal_lab.models.ssm.construct_admission import (
-    AdmissionState,
-    trial_admission_state,
+from nof1_causal_lab.recipes.construct_authoring import AdmissionState, trial_admission_state
+from nof1_causal_lab.recipes.incremental_model import (
+    contribution_from_payload,
 )
 from tests.helpers import complete_test_model, make_model
 from tests.slot_fixtures import fixture_parameter_id

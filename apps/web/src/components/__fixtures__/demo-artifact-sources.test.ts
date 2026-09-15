@@ -1,3 +1,4 @@
+import { predictiveChecks } from "./inference-data";
 import { modelConstructs } from "@/lib/model-accessors";
 import { referencedParameterIds } from "@/lib/model-accessors";
 import { existsSync, readFileSync } from "node:fs";
@@ -57,7 +58,7 @@ describe("promoted DEMO fixture", () => {
     );
     expect(posterior.inference_diagnostics).toEqual(demoPosterior.inference_diagnostics);
     const observed = demoModelSnapshot.findings.prior_predictive!.value.samples!;
-    expect(posterior.ppc!.overlays.map((o) => o.indicator_id).sort()).toEqual(
+    expect(predictiveChecks.overlays.map((o) => o.indicator_id).sort()).toEqual(
       Object.keys(observed).sort(),
     );
   });

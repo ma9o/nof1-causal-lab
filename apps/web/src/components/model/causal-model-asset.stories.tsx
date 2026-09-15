@@ -53,7 +53,7 @@ function move(
 /** The DEMO fixture's journal, reconstructed: the same moves the canonical episode applied. */
 const JOURNAL: TransitionRecord[] = [
   move(1, 212, {
-    move: { kind: "run", operation_id: "raw_data" },
+    move: { kind: "run", operation_id: "raw_data", input_versions: {} },
     status: "applied",
     produced: [produced("raw_data", 1)],
     retracted: [],
@@ -67,28 +67,28 @@ const JOURNAL: TransitionRecord[] = [
     trace_ids: [],
   }),
   move(3, 251, {
-    move: { kind: "run", operation_id: "latent_structure" },
+    move: { kind: "run", operation_id: "latent_structure", input_versions: {} },
     status: "applied",
     produced: [produced("model", 2)],
     retracted: [],
     trace_ids: ["latent_structure"],
   }),
   move(4, 175, {
-    move: { kind: "run", operation_id: "measurement_structure" },
+    move: { kind: "run", operation_id: "measurement_structure", input_versions: {} },
     status: "applied",
     produced: [produced("model", 3), produced("identification_report", 1)],
     retracted: [],
     trace_ids: ["measurement_structure"],
   }),
   move(5, 318, {
-    move: { kind: "run", operation_id: "measurements" },
+    move: { kind: "run", operation_id: "measurements", input_versions: {} },
     status: "applied",
     produced: [produced("panel", 1), produced("validation_report", 1)],
     retracted: [],
     trace_ids: ["measurements"],
   }),
   move(6, 74, {
-    move: { kind: "run", operation_id: "statistical_model_spec" },
+    move: { kind: "run", operation_id: "statistical_model_spec", input_versions: {} },
     status: "raised",
     produced: [],
     retracted: [],
@@ -97,14 +97,14 @@ const JOURNAL: TransitionRecord[] = [
     error_message: "ValueError: prior admission rejected a channel",
   }),
   move(7, 188, {
-    move: { kind: "run", operation_id: "statistical_model_spec" },
+    move: { kind: "run", operation_id: "statistical_model_spec", input_versions: {} },
     status: "applied",
     produced: [produced("model", 4)],
     retracted: [],
     trace_ids: ["statistical_model_spec"],
   }),
   move(8, 1843, {
-    move: { kind: "run", operation_id: "posterior" },
+    move: { kind: "run", operation_id: "posterior", input_versions: {} },
     status: "applied",
     produced: [],
     retracted: [],

@@ -17,7 +17,7 @@ from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.artifact_files import parquet_filename
 from nof1_causal_lab.machine.derivations import complete_computed_transition
 from nof1_causal_lab.machine.graph import transition_spec
-from nof1_causal_lab.machine.moves import TransitionEffects, input_pins
+from nof1_causal_lab.machine.moves import TransitionEffects
 from nof1_causal_lab.machine.store import ArtifactStore
 from nof1_causal_lab.machine.temporal.activity_errors import (
     as_non_retryable_application_error,
@@ -129,7 +129,9 @@ async def plan_measurements_activity(input: MeasurementsWorkflowInput) -> Measur
 
     store = ArtifactStore(input.workspace_id)
     spec = transition_spec("measurements")
-    pins = input_pins(input.state, spec)
+    from nof1_causal_lab.machine.selection import resolve_input_pins
+
+    pins = resolve_input_pins(store, input.state, spec, input.input_versions)
     run_id = f"seq-{input.seq:06d}"
     root = _run_root(input.workspace_id, run_id)
 

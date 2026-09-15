@@ -71,6 +71,7 @@ class RunOperationInput(BaseModel):
     workspace_id: str
     operation_id: OperationId
     state: EpisodeState
+    input_versions: dict[ArtifactId, int] = Field(default_factory=dict)
     options: ExecOptions = Field(default_factory=ExecOptions)
 
 
@@ -80,6 +81,7 @@ class MeasurementsWorkflowInput(BaseModel):
     workspace_id: str
     seq: int
     state: EpisodeState
+    input_versions: dict[ArtifactId, int] = Field(default_factory=dict)
     options: ExecOptions = Field(default_factory=ExecOptions)
 
 

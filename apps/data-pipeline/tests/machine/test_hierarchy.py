@@ -7,16 +7,13 @@ from nof1_causal_lab.machine.graph import (
     ROOT_ARTIFACTS,
     ROOTS,
     WRITABLE_ARTIFACTS,
-    transition_spec,
 )
 from nof1_causal_lab.machine.hierarchy import (
     ACTIONS,
     ACTIONS_BY_ID,
     CONTEXTS,
-    CONTEXTS_BY_ID,
     describe_actions,
     describe_contexts,
-    primary_transition_action,
 )
 
 
@@ -30,21 +27,11 @@ def test_context_tree_is_closed():
             assert context.parent_id in context_ids
 
 
-def test_transition_actions_cover_graph_exactly_once():
-    transition_ids = {spec.operation_id for spec in ARTIFACT_GRAPH}
-    action_transition_ids = {
-        action.move.operation_id
-        for action in ACTIONS
-        if action.move is not None and action.move.kind == "run"
-    }
-
-    assert action_transition_ids == transition_ids
-    for artifact_id in transition_ids:
-        action = primary_transition_action(artifact_id)
-        spec = transition_spec(artifact_id)
-        assert action.consumes == spec.consumes
-        assert action.produces == spec.produces
-        assert action.produces_optional == spec.produces_optional
+def test_scientific_surface_has_four_actions_independent_of_recipe_stages():
+    assert set(ACTIONS_BY_ID) == {"edit_model", "prepare_data", "fit", "simulate"}
+    assert ACTIONS_BY_ID["fit"].consumes == ("model", "panel")
+    assert ACTIONS_BY_ID["simulate"].consumes == ("model",)
+    assert ACTIONS_BY_ID["edit_model"].consumes == ()
 
 
 def test_every_transition_declares_a_creation_class():
@@ -63,15 +50,6 @@ def test_public_context_tools_are_allowed_by_their_context():
             continue
         declared = tool_names_by_context[context.context_id]
         assert declared.issubset(context.allowed_tools)
-
-
-def test_actions_reference_declared_contexts():
-    context_ids = {context.context_id for context in CONTEXTS}
-
-    for action in ACTIONS:
-        assert action.context_id in context_ids
-        if action.lower_context_id is not None:
-            assert action.lower_context_id in context_ids
 
 
 def test_writable_surface_is_roots_plus_writable_transitions():
@@ -101,10 +79,11 @@ def test_registry_descriptions_are_json_ready():
     assert {entry["context_id"] for entry in context_payload} == {
         context.context_id for context in CONTEXTS
     }
-    edit = next(entry for entry in action_payload if entry["action_id"] == "specify.edit")
-    assert edit["derives"] == [
+    edit = next(entry for entry in action_payload if entry["action_id"] == "edit_model")
+    assert edit["derives"] == (
         "identification_report",
         "validation_report",
-    ]
-    assert ACTIONS_BY_ID["fit.specify"].lower_context_id == "statistical-model-spec"
-    assert CONTEXTS_BY_ID["statistical-model-spec"].runtime_state
+    )
+    assert next(
+        context for context in CONTEXTS if context.context_id == "statistical-model-spec"
+    ).runtime_state

@@ -294,9 +294,9 @@ def test_latest_failed_stage_four_checkpoint_is_the_resume_source(monkeypatch, t
 
 
 def test_target_restore_uses_only_its_causal_ancestor_closure(monkeypatch):
-    from nof1_causal_lab.flows.transitions.model_spec.agentic import construct_flow
-    from nof1_causal_lab.models.ssm import construct_admission
-    from nof1_causal_lab.models.ssm.construct_admission import AdmissionState
+    from nof1_causal_lab.recipes import construct_authoring as construct_admission
+    from nof1_causal_lab.recipes import incremental_model as construct_flow
+    from nof1_causal_lab.recipes.construct_authoring import AdmissionState
 
     class FakeState:
         def __init__(self, *, order, **_kwargs):
@@ -368,7 +368,7 @@ def test_target_restore_uses_only_its_causal_ancestor_closure(monkeypatch):
 def test_rebase_retains_independent_branch_and_reopens_failed_descendants(monkeypatch):
     from nof1_causal_lab.machine.temporal import model_spec_checkpoints
     from nof1_causal_lab.machine.temporal.model_spec_checkpoints import ModelSpecCheckpoint
-    from nof1_causal_lab.models.ssm import construct_admission
+    from nof1_causal_lab.recipes import construct_authoring as construct_admission
 
     class FakeState:
         def __init__(self, target):

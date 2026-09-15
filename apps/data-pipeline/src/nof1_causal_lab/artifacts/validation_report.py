@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .base import ArtifactPayload
+from .checks import SpecificationReport
 from .identity import IndicatorId
 
 
@@ -62,13 +63,22 @@ class IndicatorAudit(BaseModel):
 
     profile: IndicatorEmpiricalProfile | None = None
     issues: list[ValidationIssue]
-    checks: dict[str, Literal["ok", "warning", "error"]]
+    checks: dict[str, Literal["ok", "warning", "error", "not_evaluated"]]
 
 
 class ValidationReportArtifact(ArtifactPayload):
     """A validation report summarizes whether extracted measurements satisfy the required data
     checks.
     """
+
+    preflight: SpecificationReport = Field(default_factory=lambda: SpecificationReport(findings=()))
+    is_valid: bool
+    indicators: dict[IndicatorId, IndicatorAudit]
+    dataset_issues: list[ValidationIssue]
+
+
+class DataProfileArtifact(ArtifactPayload):
+    """Model-independent empirical measurements and data-quality findings."""
 
     is_valid: bool
     indicators: dict[IndicatorId, IndicatorAudit]

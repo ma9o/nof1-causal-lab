@@ -9,10 +9,10 @@ vi.mock("@/lib/server/episode-runs", () => ({
       this.status = status;
     }
   },
-  startAutoRun: vi.fn(),
+  startStudyRecipe: vi.fn(),
 }));
 
-import { EpisodeRunError, startAutoRun } from "@/lib/server/episode-runs";
+import { EpisodeRunError, startStudyRecipe } from "@/lib/server/episode-runs";
 import { POST } from "./route";
 
 function makeRequest(): Request {
@@ -30,11 +30,11 @@ describe("POST /api/analysis/[workspaceId]/recompute", () => {
     });
 
     expect(response.status).toBe(400);
-    expect(startAutoRun).not.toHaveBeenCalled();
+    expect(startStudyRecipe).not.toHaveBeenCalled();
   });
 
   it("starts the auto-run driver", async () => {
-    vi.mocked(startAutoRun).mockResolvedValue();
+    vi.mocked(startStudyRecipe).mockResolvedValue();
 
     const response = await POST(makeRequest(), {
       params: Promise.resolve({ workspaceId: "user-1" }),
@@ -42,11 +42,11 @@ describe("POST /api/analysis/[workspaceId]/recompute", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ ok: true, workspaceId: "user-1" });
-    expect(startAutoRun).toHaveBeenCalledWith("user-1");
+    expect(startStudyRecipe).toHaveBeenCalledWith("user-1");
   });
 
   it("treats an already-running auto-run (facade 409) as success", async () => {
-    vi.mocked(startAutoRun).mockRejectedValue(
+    vi.mocked(startStudyRecipe).mockRejectedValue(
       new EpisodeRunError(409, "auto-run already active for user-1"),
     );
 
@@ -59,7 +59,7 @@ describe("POST /api/analysis/[workspaceId]/recompute", () => {
   });
 
   it("maps facade failures to their HTTP status", async () => {
-    vi.mocked(startAutoRun).mockRejectedValue(new EpisodeRunError(502, "facade unavailable"));
+    vi.mocked(startStudyRecipe).mockRejectedValue(new EpisodeRunError(502, "facade unavailable"));
 
     const response = await POST(makeRequest(), {
       params: Promise.resolve({ workspaceId: "user-1" }),
@@ -69,7 +69,7 @@ describe("POST /api/analysis/[workspaceId]/recompute", () => {
   });
 
   it("returns 502 on unexpected failures", async () => {
-    vi.mocked(startAutoRun).mockRejectedValue(new Error("boom"));
+    vi.mocked(startStudyRecipe).mockRejectedValue(new Error("boom"));
 
     const response = await POST(makeRequest(), {
       params: Promise.resolve({ workspaceId: "user-1" }),

@@ -47,6 +47,8 @@ CONCERNS = {
             "artifacts.posterior_diagnostics",
             "artifacts.effects",
             "artifacts.scenarios",
+            "artifacts.simulation",
+            "artifacts.checks",
         ),
     ),
     "execution_provenance": (
@@ -68,7 +70,14 @@ CONCERNS = {
     ),
     "api_tools": (
         "API & tool contracts",
-        ("episode_api", "flows.transitions.analysis.contracts", "json_types", "utils.llm"),
+        (
+            "episode_api",
+            "actions.contracts",
+            "actions.revisions",
+            "flows.transitions.analysis.contracts",
+            "json_types",
+            "utils.llm",
+        ),
     ),
     "identity": ("Shared identities & references", ("artifacts.identity",)),
 }
@@ -85,7 +94,8 @@ CORE_DOMAIN_OBJECTS = {
     "LikelihoodSpec": "The observation distribution linking model states to measurements.",
     "DynamicsMechanismSpec": "The explicit scientific contribution to continuous-time drift.",
     "ParameterSpec": "A referenced scientific parameter with a native prior law or fixed value.",
-    "InferenceReport": "Inference telemetry and predictive findings recorded in the transition log.",
+    "InferenceReport": "Inference telemetry and fitted parameter findings recorded in the transition log.",
+    "SimulationReport": "Generated draws and predictive measurements with their model and data provenance.",
     "ScenarioClamp": "The intervention applied to a specific construct over time.",
     "ModelSnapshot": "Independently sourced canonical aggregates read at one committed revision.",
     "FitSummary": "The canonical posterior together with server-composed display findings.",
@@ -100,7 +110,7 @@ ROLE_SENTENCES = {
     "Expression": "A scalar expression composes supported arithmetic with scientific state and coefficient references.",
     "NumPyroDistribution": "A native NumPyro probability distribution serialized by its constructor tree.",
     "DynamicsMechanismSpec": "A dynamics mechanism declares one contribution to continuous-time drift.",
-    "ActionSpec": "An action declares a machine operation and its interaction context.",
+    "ActionSpec": "An action declares a scientific operation and its input and output responsibilities.",
     "AggregationFunction": "An aggregation function summarizes observations within a measurement window.",
     "ArtifactFileSpec": "An artifact file specification declares its JSON payloads, tables, and executable binaries.",
     "ArtifactFreshness": "An artifact's presence and freshness are derived from the selected journal revision.",
@@ -167,6 +177,12 @@ def _layer_for(name: str, module: str) -> str:
         return "transport"
     if module.endswith("artifacts.scenarios"):
         return "findings" if name.endswith(("Result", "Visualization", "Point")) else "authored"
+    if module.endswith("artifacts.simulation"):
+        return "authored" if name == "SimulationSpec" else "findings"
+    if module.endswith("artifacts.checks"):
+        return "findings"
+    if name == "FitSettingsSpec":
+        return "authored"
     if name.endswith("Artifact"):
         return "artifacts"
     if module.endswith(
@@ -193,7 +209,7 @@ def _layer_for(name: str, module: str) -> str:
         ("distributions", "measurement_types", "utils.observation_semantics")
     ):
         return "authored"
-    if module.startswith("nof1_causal_lab.flows."):
+    if module.startswith(("nof1_causal_lab.flows.", "nof1_causal_lab.actions.")):
         return "transport"
     raise ValueError(f"Exported type {name} in {module} has no conceptual layer")
 

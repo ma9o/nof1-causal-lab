@@ -1,8 +1,7 @@
-"""posterior orchestration."""
+"""Condition a model on observations without launching predictive simulation."""
 
 from __future__ import annotations
 
-import logging
 from dataclasses import asdict
 from typing import TYPE_CHECKING, Any
 
@@ -11,27 +10,9 @@ from nof1_causal_lab.machine.errors import ModelFitError
 from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior
 from nof1_causal_lab.models.ssm.inference.persistence import condition_model
 
-logger = logging.getLogger(__name__)
-
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.sampler_config import SamplerConfig
-
-
-def _log_ppc(ppc_result: UncheckedJsonObject) -> None:
-    logger.info("--- Posterior Predictive Checks ---")
-    if not ppc_result.get("checked", False):
-        logger.info("  Skipped: %s", ppc_result.get("error", "unknown"))
-        return
-
-    warnings = ppc_result.get("per_variable_warnings", [])
-    if warnings:
-        logger.warning("  %d warning(s):", len(warnings))
-        for warning in warnings:
-            logger.warning("    - %s: %s", warning["indicator_id"], warning["message"])
-        return
-
-    logger.info("  All checks passed")
 
 
 def build_sampler_config(inference_method: str | None) -> SamplerConfig:
@@ -49,7 +30,7 @@ def build_sampler_config(inference_method: str | None) -> SamplerConfig:
     return sampler_config
 
 
-def run_inference_with_data(
+def fit(
     *,
     model_spec: ModelSpec,
     data_for_model: Any,
@@ -60,7 +41,7 @@ def run_inference_with_data(
     compute_loo_diagnostics: bool,
 ) -> UncheckedJsonObject:
     """Fit the model from materialized model-spec/2 artifacts and shape posterior."""
-    from .fit import fit_model, run_ppc
+    from nof1_causal_lab.flows.transitions.inference.fit import fit_model
 
     fitted_result = fit_model(
         model_spec,
@@ -87,7 +68,6 @@ def run_inference_with_data(
             },
         )
 
-    ppc_result = run_ppc(fitted_result)
     result = fitted_result["result"]
     if not isinstance(result, ParticleMCMCPosterior):
         raise ModelFitError(
@@ -103,14 +83,11 @@ def run_inference_with_data(
         array_loader=array_loader,
     )
 
-    _log_ppc(ppc_result)
-
     return {
         "_model": conditioned,
         "engine_evidence": asdict(result.evidence),
         "inference_metadata": inference_metadata,
         "inference_diagnostics": fitted_result["inference_diagnostics"],
-        "ppc": ppc_result,
         "loo_diagnostics": fitted_result.get("loo_diagnostics"),
         "posterior_marginals": fitted_result.get("posterior_marginals"),
         "posterior_pairs": fitted_result.get("posterior_pairs"),

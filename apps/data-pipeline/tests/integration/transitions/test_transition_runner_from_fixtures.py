@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from nof1_causal_lab.machine.store import ArtifactStore
 
 
-def test_inference_advances_model_and_refitting_reuses_original_input(
+def test_inference_advances_model_and_uses_the_selected_input(
     integration_workspace: str,
     artifact_store: ArtifactStore,
     monkeypatch,
@@ -65,16 +65,6 @@ def test_inference_advances_model_and_refitting_reuses_original_input(
         }
 
     monkeypatch.setattr(stage5_fit, "fit_model", fake_fit_model)
-    monkeypatch.setattr(
-        stage5_fit,
-        "run_ppc",
-        lambda _: {
-            "per_variable_warnings": [],
-            "checked": True,
-            "overlays": [],
-            "test_stats": [],
-        },
-    )
     state = fx.state_from(original, panel)
     spec = transition_spec("posterior")
     for version in (2, 3):
@@ -89,8 +79,7 @@ def test_inference_advances_model_and_refitting_reuses_original_input(
         )
         info = next(info for info in effects.produced if info.artifact_id == "model")
         assert info.version == version
-        # Provenance follows the selected revision. The fitted-input assertion
-        # below checks that both runs recover the original, unconditioned prior.
+        # Both provenance and computation follow the selected model revision.
         assert info.derived_from == {"model": version - 1, "panel": 1}
         assert effects.diagnostics["input_pins"] == info.derived_from
         assert effects.diagnostics["report"]["inference_diagnostics"] == telemetry
@@ -108,6 +97,8 @@ def test_inference_advances_model_and_refitting_reuses_original_input(
         assert inference_is_current(state)
         assert not _needs_run(state, spec, conditioned)
         assert not _needs_run(state, transition_spec("statistical_model_spec"), conditioned)
-    assert fitted_inputs == [authored.model_dump(mode="json")] * 2
+    assert fitted_inputs == [
+        read_model(artifact_store, version).model_dump(mode="json") for version in (1, 2)
+    ]
     assert read_model(artifact_store, 1).model_dump(mode="json") == fitted_inputs[0]
     assert artifact_store.list_versions("model") == [1, 2, 3]

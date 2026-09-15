@@ -22,7 +22,21 @@ from nof1_causal_lab.artifacts.parameter_spec import (
     ParameterRole,
     ParameterSpec,
 )
-from nof1_causal_lab.flows.transitions.model_spec.agentic.construct_flow import (
+from nof1_causal_lab.flows.transitions.model_spec.agentic.construct_prompt import (
+    build_construct_messages,
+)
+from nof1_causal_lab.models.likelihoods import observation_law
+from nof1_causal_lab.models.ssm.reachability import CheckResult
+from nof1_causal_lab.models.ssm.simulation_checks import (
+    MeasurementTiming,
+    _signal_from_linear_predictor,
+)
+from nof1_causal_lab.recipes.construct_authoring import (
+    AdmissionState,
+    ConstructAdmissionReport,
+    ConstructContribution,
+)
+from nof1_causal_lab.recipes.incremental_model import (
     SUBMIT_CONSTRUCT_SCHEMA,
     ConstructBuildState,
     ParamCatalog,
@@ -33,18 +47,6 @@ from nof1_causal_lab.flows.transitions.model_spec.agentic.construct_flow import 
     contribution_from_payload,
     render_admission_feedback,
 )
-from nof1_causal_lab.flows.transitions.model_spec.agentic.construct_prompt import (
-    build_construct_messages,
-)
-from nof1_causal_lab.models.likelihoods import observation_law
-from nof1_causal_lab.models.ssm.construct_admission import (
-    AdmissionState,
-    AdmissionTiming,
-    ConstructAdmissionReport,
-    ConstructContribution,
-    _signal_from_linear_predictor,
-)
-from nof1_causal_lab.models.ssm.reachability import CheckResult
 from tests.dynamics_fixtures import decay_term
 from tests.helpers import complete_test_model, fixture_entity_id, graph_constructs
 from tests.models.ssm.test_dag_to_ssm import _model_payload
@@ -387,7 +389,7 @@ def test_native_diffusion_site_accepts_different_authored_families():
 
 
 def test_feedback_closure_hard_recheck_blocks_commit(monkeypatch):
-    from nof1_causal_lab.flows.transitions.model_spec.agentic import construct_flow as module
+    from nof1_causal_lab.recipes import incremental_model as module
 
     model = _model_definition()
     _add_feedback_edge(model, cause="Y", effect="X")
@@ -449,8 +451,8 @@ def test_admission_report_payload_includes_backend_timing_breakdown():
         name="X",
         results=(CheckResult("C1a finiteness", "X", "0%", "0%", True, "ok"),),
         timings=(
-            AdmissionTiming("model_compilation", "ModelSpec compilation", 12.5),
-            AdmissionTiming(
+            MeasurementTiming("model_compilation", "ModelSpec compilation", 12.5),
+            MeasurementTiming(
                 "c1_confinement",
                 "C1 confinement",
                 3.25,
@@ -519,7 +521,7 @@ def test_build_construct_messages_surfaces_params_and_feedback():
     state = ConstructBuildState(
         model=spec, data_for_model=pl.DataFrame(), order=["X", "Y", "Z"], cursor=1
     )
-    from nof1_causal_lab.models.ssm.construct_admission import trial_admission_state
+    from nof1_causal_lab.recipes.construct_authoring import trial_admission_state
 
     state.admission = trial_admission_state(
         state.admission, contribution_from_payload(spec, _payload(spec, "X"))

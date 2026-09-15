@@ -9,8 +9,10 @@ import polars as pl
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
+from nof1_causal_lab.artifacts.validation_report import DataProfileArtifact
 from nof1_causal_lab.flows.transitions.validation.rules import (
-    RULES,
+    COMPATIBILITY_RULES,
+    DATA_RULES,
     ValidationContext,
     build_indicator_audits,
     derive_validation_status,
@@ -27,6 +29,8 @@ from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 def validate_extraction(
     model: ModelSpec,
     dataframes: list[pl.DataFrame],
+    *,
+    data_profile: DataProfileArtifact | None = None,
 ) -> UncheckedJsonObject:
     """Validate semantic properties of extracted data.
 
@@ -59,8 +63,6 @@ def validate_extraction(
     indicator_ids: set[str] = {ind["id"] for ind in indicators}
     indicator_lookup = {ind["id"]: ind for ind in indicators}
     unknown = set(combined["indicator_id"].unique()) - indicator_ids
-    if unknown:
-        raise ValueError(f"Observations reference indicators outside the pinned design: {unknown}")
 
     constructs = inputs["graph"]["constructs"]
     construct_lookup = {c["id"]: c for c in constructs}
@@ -85,7 +87,7 @@ def validate_extraction(
     )
 
     indicator_issues, indicator_health, dataset_issues = run_rules(
-        RULES,
+        COMPATIBILITY_RULES,
         validation_ctx,
     )
 
@@ -97,7 +99,42 @@ def validate_extraction(
         indicator_health=indicator_health,
     )
 
-    all_issues = [*indicator_issues, *dataset_issues]
+    if unknown:
+        dataset_issues.append(
+            {
+                "indicator_id": None,
+                "issue_type": "unknown_indicators",
+                "severity": "error",
+                "message": f"Observations reference indicators outside the selected model: {sorted(unknown)}",
+            }
+        )
+    profile = (data_profile if data_profile is not None else profile_data(combined)).model_dump(
+        mode="json"
+    )
+    # Reuse stored empirical summaries; add only model-dependent measurements here.
+    for identity, audit in indicator_audits.items():
+        source = profile["indicators"].get(identity)
+        if source is not None:
+            audit["issues"] = [*source["issues"], *audit["issues"]]
+            audit["checks"] = {**source["checks"], **audit["checks"]}
+            if audit["profile"] is not None and source["profile"] is not None:
+                semantic = {
+                    key: audit["profile"][key]
+                    for key in (
+                        "measurement_dtype",
+                        "time_coverage_ratio",
+                        "max_gap_ratio",
+                        "dtype_violations",
+                        "duplicate_pct",
+                        "arithmetic_sequence_detected",
+                    )
+                }
+                audit["profile"] = {**source["profile"], **semantic}
+        else:
+            audit["checks"]["data_availability"] = "not_evaluated"
+    all_issues = [
+        issue for audit in indicator_audits.values() for issue in audit["issues"]
+    ] + dataset_issues
     status = derive_validation_status(all_issues)
 
     return {
@@ -105,3 +142,26 @@ def validate_extraction(
         "indicators": indicator_audits,
         "dataset_issues": dataset_issues,
     }
+
+
+def profile_data(data: pl.DataFrame) -> DataProfileArtifact:
+    """Measure observed data without consulting any model or authoring state."""
+    if data.is_empty():
+        return DataProfileArtifact.model_validate(no_data_validation_result())
+    identities = set(data["indicator_id"].unique())
+    context = ValidationContext(data, [], identities, {}, {}, None)
+    issues, health, dataset_issues = run_rules(DATA_RULES, context)
+    audits = build_indicator_audits(
+        indicator_ids=identities,
+        indicator_lookup={},
+        model_data=data,
+        indicator_issues=issues,
+        indicator_health=health,
+    )
+    return DataProfileArtifact.model_validate(
+        {
+            "is_valid": derive_validation_status(issues + dataset_issues)["is_valid"],
+            "indicators": audits,
+            "dataset_issues": dataset_issues,
+        }
+    )

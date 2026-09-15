@@ -65,17 +65,10 @@
     ],
     [
       "CUSTOM005",
-      "src/nof1_causal_lab/flows/transitions/inference/fit.py",
+      "src/nof1_causal_lab/actions/fit.py",
       "<module>",
       "unchecked-json-usage",
-      "UncheckedJsonObject[2]"
-    ],
-    [
-      "CUSTOM005",
-      "src/nof1_causal_lab/flows/transitions/inference/flow.py",
-      "<module>",
-      "unchecked-json-usage",
-      "UncheckedJsonObject[2]"
+      "UncheckedJsonObject[1]"
     ],
     [
       "CUSTOM005",
@@ -93,7 +86,7 @@
     ],
     [
       "CUSTOM005",
-      "src/nof1_causal_lab/flows/transitions/model_spec/agentic/construct_flow.py",
+      "src/nof1_causal_lab/recipes/incremental_model.py",
       "<module>",
       "unchecked-json-usage",
       "UncheckedJsonObject[10]"
@@ -243,7 +236,7 @@
       "src/nof1_causal_lab/tool_server.py",
       "<module>",
       "unchecked-json-usage",
-      "UncheckedJsonObject[41]"
+      "UncheckedJsonObject[29]"
     ],
     [
       "CUSTOM005",

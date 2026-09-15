@@ -21,7 +21,7 @@ def imports():
     import prior_specification_support as ps
 
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.models.ssm.construct_admission import build_construct_units
+    from nof1_causal_lab.recipes.construct_authoring import build_construct_units
     from nof1_causal_lab.utils.model_structure import (
         get_constructs,
         get_indicators,

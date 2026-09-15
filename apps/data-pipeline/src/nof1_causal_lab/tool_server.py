@@ -20,18 +20,14 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import cached_property, lru_cache
-from math import ceil
 from typing import TYPE_CHECKING, Any, cast
 
-import jax
-import jax.numpy as jnp
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ValidationError
 
 from nof1_causal_lab.artifacts.identification import IdentificationReport
 from nof1_causal_lab.artifacts.identity import ModelRevision
-from nof1_causal_lab.artifacts.scenarios import ScenarioRequest
 from nof1_causal_lab.episode_api import (
     capabilities_router,
     machine_router,
@@ -55,16 +51,7 @@ from nof1_causal_lab.models.causal_proofs import (
 )
 from nof1_causal_lab.models.ssm import SSMModel
 from nof1_causal_lab.models.ssm import numerics as numeric
-from nof1_causal_lab.models.ssm.counterfactual import (
-    ClampSpec,
-    summarize_draws,
-    vmap_simulate_clamps_from_state,
-)
 from nof1_causal_lab.models.ssm.dynamics import (
-    Intervention,
-    SimulationConfig,
-    VectorField,
-    compute_steady_state,
     posterior_dynamics_from_samples,
 )
 from nof1_causal_lab.models.ssm.runtime import prepare_model_runtime
@@ -85,7 +72,6 @@ type ToolImplementation = Callable[
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.artifacts.scenarios import ScenarioQueryInput, ScenarioStartInput
     from nof1_causal_lab.flows.contracts_base import ToolDefinition
     from nof1_causal_lab.machine.store import TransitionRecord
     from nof1_causal_lab.models.ssm.dynamics.posterior import PosteriorDynamicsSamples
@@ -93,56 +79,66 @@ if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.runtime import PreparedModelRuntime
 
 _API_DESCRIPTION = """\
-The episode machine is the single interface to an N-of-1 causal analysis. An
-external agent drives it entirely over this HTTP API — the same surface the web
-viewer uses. There is no SDK and no MCP server: `curl` is the interface.
+The scientific interface has four actions: `edit_model`, `prepare_data`, `fit`,
+and `simulate`. Requests commit through the serialized episode machine; reads
+come from its versioned artifacts and append-only transition log.
 
-## Orientation
+## Scientific loop
 
-Call `GET /api/machine` once. It returns the static artifact graph — every
-transition with what it consumes, produces, and optionally co-produces — plus
-each transition's creation class and the derivation graph:
+1. Read `GET /api/machine` for action responsibilities, then
+   `GET /api/episodes/{workspace_id}/model` for current model/data versions and findings.
+2. Submit to `POST /api/episodes/{workspace_id}/actions`:
+   - `edit_model`: `{"action":"edit_model","expected_version":0,"model":{"question":"Does workload affect sleep?"}}`.
+     Model structure, measurements, mechanisms, constants, and laws can be edited together.
+     Valid incomplete models are saved with applicable specification findings.
+   - `prepare_data`: `{"action":"prepare_data","source":"files"}` imports uploaded sources.
+     `{"action":"prepare_data","source":"raw_data","raw_data_version":1,"model_version":2}`
+     extracts observations using the selected measurement definitions.
+   - `fit`: `{"action":"fit","model_version":3,"panel_version":1}` conditions the selected
+     model on observations. Returns joint uncertainty and fit diagnostics; predictive
+     simulation is a separate request. Current fitting supports independent scalar laws.
+   - `simulate`: `{"action":"simulate","model_version":3,"design":{"kind":"trajectory","times":[0,1,2,3],"draws":100,"seed":0}}`
+     replicates a study from the selected model's current laws. Independent and joint
+     parameter laws use the same nonlinear generator. Optional `comparison_panel_version`
+     enables predictive comparisons on the matching observation grid; `design.edge_contrasts`
+     adds paired edge-off experiments. Replication draws a new initial state from the
+     model's initial distribution, even when the model contains fitted trajectories.
+3. Read the action outcome and `GET /api/episodes/{workspace_id}/timeline` for
+   `applied`, `rejected`, or `raised` records. Numerical arrays have immutable store references.
+   `GET /api/episodes/{workspace_id}/model` includes separately sourced specification,
+   identification, data-compatibility, fitting, and simulation findings.
 
-- `deterministic` — pure compute, no credentials (e.g. identification).
-- `batch_llm` — bulk LLM compute on the service's ambient key. You trigger it
-  with a `run` move; you never supply a key.
-- `judgment` — proposal work you can do yourself by writing the produced
-  artifact directly. These transitions are flagged `writable`.
+The same requests are available as tools through `GET /api/tools/scientific` and
+`POST /api/tools/scientific/{action}`. HTTP and tool calls share execution contracts.
 
-## The loop
+## Revisions and optional recipes
 
-1. `GET /api/machine` once, then `GET /api/episodes/{workspace_id}` for the live
-   state: per-artifact freshness, the legal moves, and whether an auto-run is
-   active.
-2. Propose a move at `POST /api/episodes/{workspace_id}/moves` — either
-   `{"move": {"kind": "run", "operation_id": "latent_structure"}}` to run a transition, or
-   `{"move": {"kind": "write", "artifact_id": "model", "expected_model_version": 0, "provenance": "llm"}, "payload": {...}}`
-   to create the scientific model directly (use its current version for later writes).
-3. Long transitions (`statistical_model_spec`, `posterior` — minutes to hours) can outlive a client
-   timeout. Prefer `POST /api/episodes/{workspace_id}/auto` (a background driver
-   that runs enabled transitions in dependency order) and poll the state.
-4. Read what happened at `GET /api/episodes/{workspace_id}/timeline`: `applied`,
-   `rejected` (illegal, state unchanged), or `raised` (typed transition error).
+Requests name stored input revisions. Fits check the selected model/data pair; model edits reject base revision conflicts. Read `/revisions` to select history and `/revisions/compare` to compare parameter decisions and recorded evidence.
+An edit does not require prior simulation or an authoring admission. Causal numerical
+claims still require matching identification and production inference evidence.
+Simulation reports retain their own model/data versions; a later edit makes that
+report historical rather than evidence for the edited model.
 
-## Staleness
-
-A `write` becomes a new provenance root and marks everything downstream stale
-until re-run. Numeric tools (`simulate`, `get_model_info`) hard-flag
-stale provenance chains in their warnings — never report numbers past those
-flags.
+The `/moves` endpoint serves internal jobs; `/recipes/observational-study` runs the optional authoring recipe.
+Their stage ordering is not a requirement of the scientific actions. A trajectory design selects
+`initial_state` (new_study, retained, fixed, equilibrium), `state_time` or `state_values`,
+process/observation noise, timed interventions and check criteria. A causal design
+uses `kind: "causal"` and `query` with start, clamps, outcome and readout. It uses the same
+generator and requires identification plus committed production-fit evidence.
+The `analysis` context is read-only model introspection.
 
 ## Data in, results out
 
-Upload raw data at `POST /api/upload` (`multipart/form-data` with `workspaceId`
-and `file`) before running the `raw_data` transition. Read artifact payloads at
-`GET /api/episodes/{workspace_id}/artifacts/{artifact_id}`; binary files
-(parquet, pickle) are served individually from `.../files/{filename}`.
+Upload files at `POST /api/upload` (`multipart/form-data` with `workspaceId` and
+`file`) before `prepare_data` with `source=files`. Read artifact payloads at
+`GET /api/episodes/{workspace_id}/artifacts/{artifact_id}`; binary files are served
+from `.../files/{filename}`. Long jobs may outlive an HTTP client timeout; inspect
+the timeline before submitting another request.
 
 ## Read-only deployments
 
-The hosted viewer's backend serves these same read endpoints against a published
-store with no move plane. `GET /api/capabilities` reports `moves_enabled`; every
-move returns 403 when it is `false`.
+`GET /api/capabilities` reports `moves_enabled`. Read-only deployments reject all
+scientific action submissions and machine writes with 403.
 """
 
 app = FastAPI(
@@ -163,20 +159,6 @@ app.include_router(capabilities_router)
 app.include_router(workspaces_router)
 app.include_router(uploads_router)
 app.include_router(machine_router)
-
-
-def _parse_iso_datetime(value: str | None) -> datetime | None:
-    if value is None:
-        return None
-    normalized = value.strip()
-    if not normalized:
-        return None
-    if normalized.endswith("Z"):
-        normalized = normalized[:-1] + "+00:00"
-    dt = datetime.fromisoformat(normalized)
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=UTC)
-    return dt.astimezone(UTC)
 
 
 def _extract_observation_timestamps(observation_data: Any) -> list[datetime]:
@@ -207,100 +189,6 @@ def _extract_observation_timestamps(observation_data: Any) -> list[datetime]:
     return out
 
 
-def _manifest_effects(
-    samples: UncheckedJsonObject,
-    outcome_idx: int,
-    effect_mean: float,
-    manifest_names: list[str],
-) -> dict[str, float] | None:
-    lambda_draws = samples.get("lambda")
-    if lambda_draws is None:
-        return None
-    lambda_mean = (
-        jnp.mean(lambda_draws, axis=0) if getattr(lambda_draws, "ndim", 0) == 3 else lambda_draws
-    )
-    if getattr(lambda_mean, "ndim", 0) != 2:
-        return None
-
-    effects: dict[str, float] = {}
-    for idx, loading in enumerate(lambda_mean[:, outcome_idx]):
-        loading_value = float(loading)
-        if abs(loading_value) <= 1e-9:
-            continue
-        name = manifest_names[idx] if idx < len(manifest_names) else f"manifest_{idx}"
-        effects[name] = loading_value * effect_mean
-    return effects or None
-
-
-def _serialize_effect_trajectory(
-    trajectory: jnp.ndarray, time_grid_days: jnp.ndarray
-) -> list[dict[str, float]]:
-    days = time_grid_days.tolist()
-    values = trajectory.tolist()
-    return [
-        {"day": round(float(day), 3), "effect": float(value)}
-        for day, value in zip(days, values, strict=False)
-    ]
-
-
-def _serialize_trajectories(
-    construct_ids: list[str],
-    reference_paths: jnp.ndarray,
-    action_paths: jnp.ndarray,
-) -> dict[str, dict[str, list[float]]]:
-    reference_mean = jnp.mean(reference_paths, axis=0)
-    action_mean = jnp.mean(action_paths, axis=0)
-    return {
-        identity: {
-            "reference_mean": reference_mean[:, idx].tolist(),
-            "action_mean": action_mean[:, idx].tolist(),
-        }
-        for idx, identity in enumerate(construct_ids)
-    }
-
-
-def _resolve_counterfactual_start(
-    ctx: UncheckedJsonObject,
-    start: ScenarioStartInput,
-    *,
-    n_timepoints: int,
-) -> tuple[int, str | None]:
-    if n_timepoints <= 0:
-        raise HTTPException(400, "Persisted fitted latent paths contain no timepoints.")
-
-    raw_time_index = start.time_index
-    raw_time = start.time
-    timestamps = list(ctx.get("_observation_timestamps") or [])
-
-    if raw_time_index is not None:
-        time_index = int(raw_time_index)
-    elif raw_time:
-        if not timestamps:
-            raise HTTPException(
-                400, "start.time requires observed timestamps in the fitted workspace."
-            )
-        requested = _parse_iso_datetime(str(raw_time))
-        matches = [
-            idx for idx, timestamp in enumerate(timestamps[:n_timepoints]) if timestamp == requested
-        ]
-        if not matches:
-            raise HTTPException(
-                400, "start.time must exactly match a retained fitted-state timestamp."
-            )
-        time_index = matches[0]
-    else:
-        time_index = n_timepoints - 1
-
-    if time_index < 0 or time_index >= n_timepoints:
-        raise HTTPException(
-            400,
-            f"start.time_index must be between 0 and {n_timepoints - 1}; got {time_index}.",
-        )
-
-    time = timestamps[time_index].isoformat() if time_index < len(timestamps) else None
-    return time_index, time
-
-
 @dataclass(frozen=True)
 class _LoadedSimulation:
     """Process-local numerical inputs for one immutable fitted posterior."""
@@ -318,18 +206,6 @@ class _LoadedSimulation:
     @cached_property
     def dynamics(self) -> PosteriorDynamicsSamples:
         return posterior_dynamics_from_samples(self.model, self.draws.parameters)
-
-    @cached_property
-    def baseline_states(self):
-        draws = self.dynamics.param_samples
-        stacked = jax.tree.map(lambda *xs: jnp.stack(xs), *draws)
-        # Fixed drift coefficients leave no array leaves from which to infer the batch size.
-        return jax.vmap(
-            lambda params: compute_steady_state(
-                self.dynamics.vector_field, params, Intervention.none()
-            ),
-            axis_size=len(draws),
-        )(stacked)
 
 
 @lru_cache(maxsize=2)
@@ -362,6 +238,7 @@ def _load_simulation(_data_root: str, workspace_id: str, model_version: int) -> 
 def _build_analysis_context(workspace_id: str) -> UncheckedJsonObject:
     """Reuse pinned numerical inputs while checking current serving provenance."""
     from nof1_causal_lab.machine.moves import freshness_report
+    from nof1_causal_lab.machine.snapshots import ModelReader
     from nof1_causal_lab.machine.store import ArtifactStore, derive_current_state
 
     state = derive_current_state(workspace_id)
@@ -426,11 +303,19 @@ def _build_analysis_context(workspace_id: str) -> UncheckedJsonObject:
         inference=loaded.inference,
     )
 
+    simulation = ModelReader(workspace_id).simulation()
+    checks = (
+        simulation.value.predictive_checks
+        if simulation is not None and simulation.source.validity == "fresh"
+        else None
+    )
+
     return {
         "_workspace_id": workspace_id,
         "model": model.model_dump(mode="json"),
         "identification_report": identification_report.model_dump(mode="json"),
         "inference_report": loaded.inference.diagnostics["report"],
+        "predictive_checks": checks.model_dump(mode="json") if checks is not None else {},
         "_causal_analysis": causal_analysis,
         "_prepared_runtime": loaded.runtime,
         "_simulation": loaded,
@@ -438,174 +323,6 @@ def _build_analysis_context(workspace_id: str) -> UncheckedJsonObject:
         "_outcome_name": outcome_name,
         "_identifiable_treatments": treatment_names,
     }
-
-
-@dataclass(frozen=True)
-class AnalysisSimulationSetup:
-    causal_analysis: CertifiedCausalAnalysis
-    samples: UncheckedJsonObject
-    readout: ScenarioQueryInput
-    clamps: list[ClampSpec]
-    outcome: str
-    latent_names: list[str]
-    manifest_names: list[str]
-    outcome_idx: int
-    time_grid: jnp.ndarray
-    vector_field: VectorField
-    # ``param_samples`` is the canonical per-draw component-shape
-    # parameter list rebuilt from ``ModelSpec`` and posterior sample sites.
-    param_samples: list[tuple[UncheckedJsonObject, ...]] | None = None
-
-
-@dataclass(frozen=True)
-class AnalysisEffectOutputs:
-    summary: dict[str, float]
-    effect_trajectory: list[dict[str, float]] | None
-    manifest_effects: dict[str, float] | None
-
-
-def _tool_error_result(
-    message: str,
-    *,
-    identifiable_treatments: list[str] | None = None,
-) -> UncheckedJsonObject:
-    result: UncheckedJsonObject = {"error": message}
-    if identifiable_treatments is not None:
-        result["identifiable_treatments"] = identifiable_treatments
-    return {"result": result}
-
-
-def _prepare_analysis_simulation(
-    ctx: UncheckedJsonObject,
-    request: ScenarioRequest,
-) -> tuple[AnalysisSimulationSetup | None, UncheckedJsonObject | None]:
-    causal_analysis: CertifiedCausalAnalysis = ctx["_causal_analysis"]
-    samples = ctx["_simulation"].draws.parameters
-
-    model = causal_analysis.model
-    outcome_id = request.outcome
-    constructs = {item.id: item for item in model.constructs}
-    if outcome_id not in constructs:
-        return None, _tool_error_result("Outcome is absent from the fitted model.")
-    outcome = constructs[outcome_id].name
-    if outcome != causal_analysis.outcome:
-        return None, _tool_error_result("Outcome does not match the identified estimand.")
-    spec = causal_analysis.model
-    latent_names = list(numeric.state_names(spec) or [])
-    manifest_names = list(numeric.observation_names(spec) or [])
-    name_to_idx = {name: idx for idx, name in enumerate(latent_names)}
-    outcome_idx = name_to_idx.get(outcome)
-    if outcome_idx is None:
-        return None, _tool_error_result("Outcome not present in fitted latent structure.")
-
-    identifiable = causal_analysis.treatments
-    clamps: list[ClampSpec] = []
-    for clamp in request.clamps:
-        target_id = clamp.target
-        if target_id not in constructs:
-            return None, _tool_error_result("Clamp target is absent from the fitted model.")
-        variable = constructs[target_id].name
-        if variable not in identifiable:
-            return None, _tool_error_result(
-                f"Clamp target '{variable}' is not an identifiable treatment.",
-                identifiable_treatments=identifiable,
-            )
-        index = name_to_idx.get(variable)
-        if index is None:
-            return None, _tool_error_result(
-                f"Clamp target '{variable}' is not present in the fitted latent structure."
-            )
-        clamps.append(
-            ClampSpec(
-                index=index,
-                mode=clamp.mode,
-                from_day=clamp.from_day,
-                to_day=clamp.to_day,
-                value=clamp.value,
-                amount=clamp.amount,
-                value_start=clamp.value_start,
-                value_end=clamp.value_end,
-                values=tuple(clamp.values) if clamp.values is not None else None,
-            )
-        )
-
-    horizon = request.readout.horizon_days
-    steps = max(1, ceil(horizon / model.model_clock_days))
-    time_grid = jnp.linspace(0.0, float(horizon), steps + 1)
-
-    posterior_dynamics = ctx["_simulation"].dynamics
-    vector_field = posterior_dynamics.vector_field
-    param_samples = posterior_dynamics.param_samples
-    if not param_samples:
-        return None, _tool_error_result("Posterior dynamics samples are unavailable.")
-
-    return (
-        AnalysisSimulationSetup(
-            causal_analysis=causal_analysis,
-            samples=samples,
-            readout=request.readout,
-            clamps=clamps,
-            outcome=outcome,
-            latent_names=latent_names,
-            manifest_names=manifest_names,
-            outcome_idx=outcome_idx,
-            time_grid=time_grid,
-            vector_field=vector_field,
-            param_samples=param_samples,
-        ),
-        None,
-    )
-
-
-def _build_effect_outputs(
-    setup: AnalysisSimulationSetup,
-    *,
-    effect_paths: jnp.ndarray,
-) -> AnalysisEffectOutputs:
-    if setup.readout.estimand == "trajectory":
-        mean_effect_trajectory = jnp.mean(effect_paths, axis=0)
-        effect_trajectory = _serialize_effect_trajectory(
-            mean_effect_trajectory[1:], setup.time_grid[1:]
-        )
-    else:
-        effect_trajectory = None
-
-    summary = summarize_draws(effect_paths[:, -1]).model_dump(mode="json")
-    manifest_effects = None
-    if setup.readout.projection in {"manifest", "both"}:
-        manifest_effects = _manifest_effects(
-            setup.samples,
-            setup.outcome_idx,
-            summary["mean"],
-            setup.manifest_names,
-        )
-
-    return AnalysisEffectOutputs(
-        summary=summary,
-        effect_trajectory=effect_trajectory,
-        manifest_effects=manifest_effects,
-    )
-
-
-def _collect_analysis_warnings(
-    ctx: UncheckedJsonObject,
-    *,
-    treatments: list[str] | None = None,
-    include_diagnostic_warnings: bool = False,
-    extra_warnings: list[str] | None = None,
-) -> list[str]:
-    warnings: list[str] = []
-    if include_diagnostic_warnings and treatments:
-        posterior = ctx.get("posterior", {})
-        for item in posterior.get("ppc", {}).get("per_variable_warnings", []) or []:
-            message = item.get("message")
-            if message:
-                warnings.append(str(message))
-
-    for warning in extra_warnings or []:
-        if warning:
-            warnings.append(str(warning))
-    return warnings
 
 
 # ---------------------------------------------------------------------------
@@ -663,7 +380,7 @@ def _build_model_info_payload(
     sections = list(args.get("sections") or ["overview", "variables", "capabilities"])
     focused = {str(name) for name in (args.get("names") or [])}
     model = ModelSpec.model_validate(ctx["model"])
-    posterior = ctx.get("posterior", {})
+    posterior = ctx["inference_report"]
     runtime = ctx["_prepared_runtime"]
     retained_state_names = set(get_state_names(model))
     constructs = [
@@ -741,7 +458,7 @@ def _build_model_info_payload(
     if "diagnostics" in sections:
         payload["diagnostics"] = {
             "ppc_warning_count": len(
-                (posterior.get("ppc") or {}).get("per_variable_warnings", []) or []
+                ctx.get("predictive_checks", {}).get("per_variable_warnings", [])
             ),
         }
     if "capabilities" in sections:
@@ -763,89 +480,6 @@ def _execute_get_model_info(
     return {"result": _build_model_info_payload(ctx, args)}
 
 
-def _execute_simulate(ctx: UncheckedJsonObject, args: UncheckedJsonObject) -> UncheckedJsonObject:
-    """Run a composable scenario: a start state + a list of timed latent clamps.
-
-    The start is the population baseline steady state (interventional) or an abducted
-    fitted latent state (counterfactual); the clamps are do-operators over time windows.
-    The Pearl rung is emergent from the start rather than a separate query type.
-    """
-    request = ScenarioRequest.model_validate(args)
-    setup, error = _prepare_analysis_simulation(ctx, request)
-    if error is not None:
-        return error
-    assert setup is not None
-    assert setup.param_samples is not None
-
-    if request.start.kind == "abducted":
-        latent_paths = ctx["_simulation"].draws.latent_paths
-        if latent_paths is None:
-            return _tool_error_result(
-                "Posterior fitted artifact is missing persisted latent state paths required "
-                "for an abducted start."
-            )
-        start_index, start_time = _resolve_counterfactual_start(
-            ctx, request.start, n_timepoints=int(latent_paths.shape[1])
-        )
-        initial_states = latent_paths[:, start_index, :]
-        n_draws = len(setup.param_samples)
-        if int(initial_states.shape[0]) != n_draws:
-            return _tool_error_result(
-                "Persisted fitted latent path draw count does not match posterior dynamics "
-                f"draw count ({int(initial_states.shape[0])} != {n_draws})."
-            )
-    else:
-        initial_states = ctx["_simulation"].baseline_states
-        start_index, start_time = None, None
-
-    config = SimulationConfig()
-
-    baseline_state_paths, action_state_paths, effect_state_paths = vmap_simulate_clamps_from_state(
-        setup.vector_field,
-        setup.param_samples,
-        initial_states=initial_states,
-        clamps=setup.clamps,
-        time_grid=setup.time_grid,
-        config=config,
-    )
-    outcome_effect = effect_state_paths[:, :, setup.outcome_idx]
-    reference_mean = float(jnp.mean(baseline_state_paths[:, -1, setup.outcome_idx]))
-
-    outputs = _build_effect_outputs(setup, effect_paths=outcome_effect)
-    construct_ids = {item.name: item.id for item in setup.causal_analysis.model.constructs}
-    clamp_variables = [setup.latent_names[clamp.index] for clamp in setup.clamps]
-
-    return {
-        "result": {
-            "request": request.model_dump(mode="json"),
-            "model": setup.causal_analysis.model_revision.model_dump(mode="json"),
-            "time_grid_days": setup.time_grid.tolist(),
-            "start_time_index": start_index,
-            "start_time": start_time,
-            "labels": {item.id: item.name for item in setup.causal_analysis.model.constructs},
-            "summary": outputs.summary,
-            "effect_trajectory": outputs.effect_trajectory,
-            "trajectory_peak": max(
-                outputs.effect_trajectory, key=lambda point: abs(point["effect"])
-            )
-            if outputs.effect_trajectory
-            else None,
-            "trajectories": _serialize_trajectories(
-                [construct_ids[name] for name in setup.latent_names],
-                baseline_state_paths,
-                action_state_paths,
-            ),
-            "manifest_effects": outputs.manifest_effects,
-            "reference_mean": reference_mean,
-            "warnings": _collect_analysis_warnings(
-                ctx,
-                treatments=clamp_variables,
-                include_diagnostic_warnings=True,
-            ),
-        }
-    }
-
-
 # Registry: (context_id, tool_name) -> implementation function
 _TOOL_IMPLS: dict[tuple[str, str], ToolImplementation] = {
     ("latent-structure", "validate_latent_structure"): _execute_validate_latent_structure,
@@ -856,7 +490,6 @@ _TOOL_IMPLS: dict[tuple[str, str], ToolImplementation] = {
     ("measurement", "validate_extractions"): _execute_validate_extractions,
     ("statistical-model-spec", "search_literature"): _execute_search_literature,
     ("analysis", "get_model_info"): _execute_get_model_info,
-    ("analysis", "simulate"): _execute_simulate,
 }
 
 # Upstream dependencies: which context results need to be loaded for execution.
@@ -947,6 +580,21 @@ async def execute_tool(
             404, f"No tool contract for tool {tool_name!r} in context {context_id!r}"
         )
 
+    if context_id == "scientific":
+        from pydantic import TypeAdapter
+
+        from nof1_causal_lab.actions.contracts import ScientificActionRequest
+        from nof1_causal_lab.episode_api import execute_scientific_action
+
+        try:
+            action = TypeAdapter(ScientificActionRequest).validate_python(
+                contract.input_schema.model_validate(request.input)
+            )
+        except ValidationError as exc:
+            raise HTTPException(422, detail=exc.errors(include_context=False)) from exc
+        outcome = await execute_scientific_action(request.workspace_id, action)
+        return {"result": outcome.model_dump(mode="json")}
+
     impl = _TOOL_IMPLS.get((context_id, tool_name))
     if impl is None:
         raise HTTPException(
@@ -958,7 +606,7 @@ async def execute_tool(
             mode="json"
         )
     except ValidationError as exc:
-        raise HTTPException(422, detail=exc.errors()) from exc
+        raise HTTPException(422, detail=exc.errors(include_context=False)) from exc
 
     try:
         ctx = _build_context(request.workspace_id, context_id)

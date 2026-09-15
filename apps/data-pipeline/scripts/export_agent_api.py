@@ -157,9 +157,9 @@ def _skill_frontmatter() -> str:
     """
     description = (
         "Drive or inspect the nof1-causal-lab episode state machine over HTTP with "
-        "curl: run pipeline stages, write judgment artifacts (latent structure, "
-        "causal design, priors), read episode state/timeline/artifacts, and invoke "
-        "stage tools against the tool server. Use when navigating the episode "
+        "curl: edit models, prepare data, fit and simulate; inspect revisions, "
+        "read episode state/timeline/artifacts, and invoke "
+        "scientific tools and optional recipes against the tool server. Use when navigating the episode "
         "machine as an external agent instead of the web viewer."
     )
     return f'---\nname: nof1-episode-api\ndescription: "{description}"\n---'

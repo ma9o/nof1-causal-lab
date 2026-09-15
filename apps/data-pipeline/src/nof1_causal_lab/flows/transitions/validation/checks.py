@@ -319,3 +319,17 @@ def check_construct_correlations(
                     )
 
     return issues
+
+
+def data_availability_issue(indicator_id: str, n_observations: int):
+    """Report a declared channel with no likelihood contributions, without simulation."""
+    from nof1_causal_lab.artifacts.validation_report import ValidationIssue
+
+    if n_observations:
+        return None
+    return ValidationIssue(
+        indicator_id=indicator_id,
+        issue_type="missing",
+        severity="warning",
+        message="No data extracted for this indicator; its quantities are not empirically anchored by this channel.",
+    )

@@ -15,5 +15,5 @@ if TYPE_CHECKING:
 MODEL_INPUTS: dict[ArtifactId, str] = {
     "panel": "extraction",
     "identification_report": "identification",
-    "validation_report": "identification",
+    "validation_report": "belief",
 }

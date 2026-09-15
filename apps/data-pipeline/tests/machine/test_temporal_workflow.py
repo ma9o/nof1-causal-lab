@@ -93,8 +93,8 @@ def _statistical_submission() -> dict[str, Any]:
 
 @pytest.fixture
 def machine_env(monkeypatch, tmp_path):
-    import nof1_causal_lab.flows.transitions.model_spec.agentic.construct_flow as construct_flow
-    import nof1_causal_lab.models.ssm.construct_admission as construct_admission
+    import nof1_causal_lab.recipes.construct_authoring as construct_admission
+    import nof1_causal_lab.recipes.incremental_model as construct_flow
     import nof1_causal_lab.utils.openrouter_client as openrouter_client
     from nof1_causal_lab.utils import config as config_module
     from nof1_causal_lab.utils import data as data_module

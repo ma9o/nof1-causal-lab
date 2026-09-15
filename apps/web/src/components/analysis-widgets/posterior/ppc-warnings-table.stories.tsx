@@ -5,10 +5,10 @@ const indicators = modelConstructs(demoModelSnapshot.model!.value).flatMap(
 );
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { withContainer } from "@/components/story-decorators";
-import { posterior } from "@/components/__fixtures__/inference-data";
+import { predictiveChecks } from "@/components/__fixtures__/inference-data";
 import { PPCWarningsTable } from "./ppc-warnings-table";
 
-const ppc = posterior.ppc!;
+const ppc = predictiveChecks;
 
 const meta = {
   args: { indicators },

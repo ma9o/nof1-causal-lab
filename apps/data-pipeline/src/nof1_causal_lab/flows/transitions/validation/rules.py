@@ -18,6 +18,7 @@ from nof1_causal_lab.flows.transitions.validation.checks import (
     check_hallucination_signals,
     check_time_coverage,
     check_timestamp_gaps,
+    data_availability_issue,
     parse_timestamp_series,
     timestamp_issue_specs,
 )
@@ -162,18 +163,10 @@ def no_data_validation_result() -> UncheckedJsonObject:
 
 
 def _rule_missing(entry: IndicatorRuleInput) -> ValidationFindings:
-    if not entry.ind_data.is_empty():
-        return ValidationFindings()
+    issue = data_availability_issue(entry.name, 0 if entry.ctx is None else entry.ctx.n_obs)
     return ValidationFindings(
-        issues=[
-            Issue(
-                entry.name,
-                "missing",
-                "warning",
-                "No data extracted for this indicator",
-                cell_key="",
-            )
-        ]
+        issues=[issue_from_raw(issue.model_dump(mode="json"), cell_key="")] if issue else [],
+        metrics={"data_availability": None if issue else True},
     )
 
 
@@ -331,9 +324,14 @@ RULES: list[ValidationRule] = [
     ValidationRule("construct_correlations", "dataset", _rule_construct_correlations),
 ]
 
+DATA_RULES = [rule for rule in RULES if rule.name in {"no_numeric", "timestamps", "sample_size"}]
+COMPATIBILITY_RULES = [rule for rule in RULES if rule not in DATA_RULES]
+
+
 CELL_STATUS_KEYS = frozenset(
     {
         "n_obs",
+        "data_availability",
         "variance",
         "n_unparseable_timestamps",
         "time_coverage_ratio",
@@ -363,7 +361,9 @@ def reduce_findings(
             all_issues.append(issue_payload(issue))
 
         cell_statuses: dict[str, str] = {
-            key: "ok" for key in CELL_STATUS_KEYS if key in merged_metrics
+            key: "not_evaluated" if merged_metrics[key] is None else "ok"
+            for key in CELL_STATUS_KEYS
+            if key in merged_metrics
         }
         for issue in ind_issues:
             if issue.cell_key in cell_statuses and cell_statuses[issue.cell_key] != "error":

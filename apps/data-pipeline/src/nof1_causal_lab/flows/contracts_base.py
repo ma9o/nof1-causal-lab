@@ -11,24 +11,32 @@ from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 
 
 def _inline_refs(schema: UncheckedJsonObject) -> UncheckedJsonObject:
-    """Inline ``$ref`` pointers so tool schemas are self-contained."""
+    """Inline finite definitions and retain recursive references within the schema."""
     defs = schema.get("$defs", {})
     if not defs:
         return schema
 
-    def _resolve(node: Any) -> Any:
+    recursive = False
+
+    def _resolve(node: Any, ancestors: frozenset[str] = frozenset()) -> Any:
+        nonlocal recursive
         if isinstance(node, list):
-            return [_resolve(item) for item in node]
+            return [_resolve(item, ancestors) for item in node]
         if not isinstance(node, dict):
             return node
         if "$ref" in node:
             ref_path = node["$ref"]
             ref_name = ref_path.rsplit("/", 1)[-1]
-            resolved = defs.get(ref_name, node)
-            return _resolve(dict(resolved))
-        return {key: _resolve(value) for key, value in node.items() if key != "$defs"}
+            if ref_name in ancestors:
+                recursive = True
+                return node
+            return _resolve(dict(defs[ref_name]), ancestors | {ref_name})
+        return {key: _resolve(value, ancestors) for key, value in node.items() if key != "$defs"}
 
-    return _resolve(schema)
+    result = _resolve(schema)
+    if recursive:
+        result["$defs"] = defs
+    return result
 
 
 @dataclass(frozen=True)

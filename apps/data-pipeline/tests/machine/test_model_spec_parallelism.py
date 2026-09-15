@@ -22,7 +22,7 @@ from nof1_causal_lab.machine.temporal.statistical_model_spec_activities import (
 from nof1_causal_lab.machine.temporal.statistical_model_spec_workflow import (
     _ready_constructs,
 )
-from nof1_causal_lab.models.ssm.construct_admission import (
+from nof1_causal_lab.recipes.construct_authoring import (
     AdmissionState,
     CheckResult,
     ConstructContribution,
@@ -32,7 +32,7 @@ from nof1_causal_lab.models.ssm.construct_admission import (
 from tests.helpers import make_model, run_async
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.construct_admission import DesignInfo
+    from nof1_causal_lab.models.ssm.simulation_checks import DesignInfo
 
 
 def _structure() -> ModelSpec:
@@ -114,7 +114,7 @@ def test_barrier_reopens_failed_feedback_suffix_and_descendants():
 
 
 def test_full_barrier_shares_one_exact_simulation(monkeypatch):
-    from nof1_causal_lab.models.ssm import construct_admission
+    from nof1_causal_lab.recipes import construct_authoring as construct_admission
 
     calls: dict[str, Any] = {"compile": 0, "sample": 0, "battery": []}
 
@@ -135,7 +135,7 @@ def test_full_barrier_shares_one_exact_simulation(monkeypatch):
 
     monkeypatch.setattr(construct_admission, "_compile_partial", fake_compile)
     monkeypatch.setattr(construct_admission, "_sample_partial", fake_sample)
-    monkeypatch.setattr(construct_admission, "_run_battery", fake_battery)
+    monkeypatch.setattr(construct_admission, "measure_construct_simulation", fake_battery)
     monkeypatch.setattr(construct_admission.jax, "block_until_ready", lambda value: value)
 
     validation = validate_full_admission_state(

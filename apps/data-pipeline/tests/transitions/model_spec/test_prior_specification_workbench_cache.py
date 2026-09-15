@@ -5,8 +5,8 @@ import polars as pl
 from notebooks import prior_specification_support as support
 
 from nof1_causal_lab.models.model_distributions import with_parameter_distributions
-from nof1_causal_lab.models.ssm.construct_admission import ConstructAdmissionReport
 from nof1_causal_lab.models.ssm.reachability import CheckResult
+from nof1_causal_lab.recipes.construct_authoring import ConstructAdmissionReport
 from tests.helpers import complete_test_model, make_model
 
 

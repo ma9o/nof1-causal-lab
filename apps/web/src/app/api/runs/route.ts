@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { EpisodeRunError, startAutoRun, startEpisode } from "@/lib/server/episode-runs";
+import { EpisodeRunError, startEpisode } from "@/lib/server/episode-runs";
 import { normalizeWorkspaceId } from "@/lib/workspace-id";
 
 export async function POST(request: Request) {
@@ -18,7 +18,6 @@ export async function POST(request: Request) {
 
   try {
     await startEpisode(safeWorkspaceId, query.trim());
-    await startAutoRun(safeWorkspaceId);
 
     return NextResponse.json({ workspaceId: safeWorkspaceId });
   } catch (error) {
@@ -32,6 +31,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
 
-    return NextResponse.json({ error: "Failed to trigger pipeline" }, { status: 502 });
+    return NextResponse.json({ error: "Failed to create workspace" }, { status: 502 });
   }
 }

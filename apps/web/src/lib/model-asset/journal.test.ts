@@ -41,7 +41,7 @@ function record(
 }
 
 const JOURNAL: TransitionRecord[] = [
-  record(1, { kind: "run", operation_id: "raw_data" }, "applied", {
+  record(1, { kind: "run", operation_id: "raw_data", input_versions: {} }, "applied", {
     produced: [produced("raw_data", 1)],
     trace_ids: ["raw_data"],
   }),
@@ -53,20 +53,30 @@ const JOURNAL: TransitionRecord[] = [
       produced: [produced("model", 1)],
     },
   ),
-  record(3, { kind: "run", operation_id: "measurement_structure" }, "applied", {
+  record(3, { kind: "run", operation_id: "measurement_structure", input_versions: {} }, "applied", {
     produced: [produced("model", 2), produced("identification_report", 1)],
     trace_ids: ["measurement_structure"],
   }),
-  record(4, { kind: "run", operation_id: "statistical_model_spec" }, "raised", {
+  record(4, { kind: "run", operation_id: "statistical_model_spec", input_versions: {} }, "raised", {
     error_type: "ValueError",
     error_message: "prior admission failed",
   }),
-  record(5, { kind: "run", operation_id: "statistical_model_spec" }, "rejected", {
-    reason: "inputs missing",
-  }),
-  record(6, { kind: "run", operation_id: "statistical_model_spec" }, "applied", {
-    produced: [produced("model", 3), produced("identification_report", 1)],
-  }),
+  record(
+    5,
+    { kind: "run", operation_id: "statistical_model_spec", input_versions: {} },
+    "rejected",
+    {
+      reason: "inputs missing",
+    },
+  ),
+  record(
+    6,
+    { kind: "run", operation_id: "statistical_model_spec", input_versions: {} },
+    "applied",
+    {
+      produced: [produced("model", 3), produced("identification_report", 1)],
+    },
+  ),
   record(7, { kind: "write", artifact_id: "model", provenance: "human" }, "applied", {
     produced: [produced("model", 4), produced("identification_report", 2)],
     retracted: [{ artifact_id: "identification_report", reason_ref: "stale-spec" }],
@@ -93,10 +103,10 @@ describe("journalTicks", () => {
 it("keeps extraction outcomes and empty completions without a worker artifact", () => {
   const workers = [{ worker_id: 0, status: "failed", error: "No observations" }];
   const [populated, empty] = journalTicks([
-    record(1, { kind: "run", operation_id: "measurements" }, "applied", {
+    record(1, { kind: "run", operation_id: "measurements", input_versions: {} }, "applied", {
       produced: [produced("panel", 1), produced("validation_report", 1)],
     }),
-    record(2, { kind: "run", operation_id: "measurements" }, "applied", {
+    record(2, { kind: "run", operation_id: "measurements", input_versions: {} }, "applied", {
       diagnostics: { workers },
       retracted: [{ artifact_id: "panel", reason_ref: "empty extraction" }],
     }),

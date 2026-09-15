@@ -68,8 +68,8 @@ export async function startEpisode(
   });
 }
 
-export async function startAutoRun(workspaceId: string): Promise<void> {
-  await episodeFetch(`/${workspaceId}/auto`, {
+export async function startStudyRecipe(workspaceId: string): Promise<void> {
+  await episodeFetch(`/${workspaceId}/recipes/observational-study`, {
     method: "POST",
     body: JSON.stringify({}),
   });

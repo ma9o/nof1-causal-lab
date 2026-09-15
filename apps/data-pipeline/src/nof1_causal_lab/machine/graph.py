@@ -79,10 +79,12 @@ ARTIFACT_GRAPH: tuple[Transition, ...] = (
         "deterministic",
         after=("statistical_model_spec",),
     ),
+    Transition("simulate", ("model",), (), "deterministic", optional_consumes=("panel",)),
 )
 DERIVATIONS: tuple[Derivation, ...] = (
     Derivation("identification_report", ("model",)),
-    Derivation("validation_report", ("panel", "model")),
+    Derivation("data_profile", ("panel",)),
+    Derivation("validation_report", ("panel", "model", "data_profile")),
 )
 ROOTS: tuple[Root, ...] = (Root("model"),)
 ROOT_ARTIFACTS = tuple(root.artifact_id for root in ROOTS)

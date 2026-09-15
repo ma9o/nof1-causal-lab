@@ -34,6 +34,7 @@ ARTIFACT_FILE_SPECS: dict[ArtifactId, ArtifactFileSpec] = {
         json={"identification_report": "identification_report.json"}
     ),
     "panel": ArtifactFileSpec(parquet={"panel": "panel.parquet"}),
+    "data_profile": ArtifactFileSpec(json={"data_profile": "data_profile.json"}),
     "validation_report": ArtifactFileSpec(json={"validation_report": "validation_report.json"}),
 }
 

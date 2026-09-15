@@ -123,14 +123,14 @@ async def plan_statistical_model_spec_activity(
     input: StatisticalModelSpecWorkflowInput,
 ) -> StatisticalModelSpecPlan:
     from nof1_causal_lab.flows.runtime_events import emit_model_spec_admission_event
-    from nof1_causal_lab.flows.transitions.model_spec.agentic.construct_flow import (
+    from nof1_causal_lab.recipes.construct_authoring import (
+        build_construct_order,
+        build_construct_units,
+    )
+    from nof1_causal_lab.recipes.incremental_model import (
         _MAX_ATTEMPTS_PER_CONSTRUCT,
         ConstructBuildState,
         _admission_plan_payload,
-    )
-    from nof1_causal_lab.models.ssm.construct_admission import (
-        build_construct_order,
-        build_construct_units,
     )
     from nof1_causal_lab.utils.config import get_config, get_secret
 
@@ -261,11 +261,11 @@ async def plan_statistical_model_spec_attempt_activity(
     input: StatisticalModelSpecAttemptPlanInput,
 ) -> StatisticalModelSpecAttemptPlan:
     from nof1_causal_lab.flows.runtime_events import emit_model_spec_admission_event
-    from nof1_causal_lab.flows.transitions.model_spec.agentic.construct_flow import (
-        SUBMIT_CONSTRUCT_SCHEMA,
-    )
     from nof1_causal_lab.flows.transitions.model_spec.agentic.construct_prompt import (
         build_construct_messages,
+    )
+    from nof1_causal_lab.recipes.incremental_model import (
+        SUBMIT_CONSTRUCT_SCHEMA,
     )
 
     checkpoint = read_model_spec_checkpoint(input.workspace_id, input.checkpoint_ref)
@@ -455,17 +455,17 @@ async def validate_statistical_model_spec_barrier_activity(
 ) -> StatisticalModelSpecBarrierResult:
     """Run the exact full-model barrier and reopen only implicated dependency regions."""
     from nof1_causal_lab.flows.runtime_events import emit_model_spec_admission_event
-    from nof1_causal_lab.flows.transitions.model_spec.agentic.construct_flow import (
+    from nof1_causal_lab.recipes.construct_authoring import (
+        build_construct_units,
+        validate_full_admission_state,
+    )
+    from nof1_causal_lab.recipes.incremental_model import (
         _acceptance_map,
         _check_result_payload,
         _closed_loop_target,
         _design_for_state,
         _timing_payload,
         render_admission_feedback,
-    )
-    from nof1_causal_lab.models.ssm.construct_admission import (
-        build_construct_units,
-        validate_full_admission_state,
     )
 
     checkpoint = read_model_spec_checkpoint(input.workspace_id, input.checkpoint_ref)
@@ -628,7 +628,7 @@ async def finalize_statistical_model_spec_activity(
             data_for_model=data_for_model,
             workspace_id=None,
         )
-        from nof1_causal_lab.models.ssm.construct_admission import build_construct_order
+        from nof1_causal_lab.recipes.construct_authoring import build_construct_order
 
         missing = sorted(
             set(build_construct_order(model))

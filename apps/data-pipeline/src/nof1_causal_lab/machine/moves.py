@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING, Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS, ArtifactId, OperationId
+from nof1_causal_lab.artifacts.posterior import FitSettingsSpec
+from nof1_causal_lab.artifacts.simulation import SimulationDesign  # noqa: TC001
 from nof1_causal_lab.json_types import JsonObject  # noqa: TC001
 from nof1_causal_lab.machine.artifacts import ArtifactVersionInfo, Provenance  # noqa: TC001
 from nof1_causal_lab.machine.graph import (
@@ -36,6 +38,7 @@ class RunOperation(BaseModel):
 
     kind: Literal["run"] = "run"
     operation_id: OperationId
+    input_versions: dict[ArtifactId, int] = Field(default_factory=dict)
 
 
 class WriteArtifact(BaseModel):
@@ -77,6 +80,9 @@ class ExecOptions(BaseModel):
     inference_method: str | None = None
     enable_literature: bool | None = None
     max_windows: int | None = None
+    fit_settings: FitSettingsSpec = Field(default_factory=FitSettingsSpec)
+    simulation: SimulationDesign | None = None
+    comparison_panel_version: int | None = Field(default=None, ge=1)
 
 
 def legal_moves(state: EpisodeState) -> list[Move]:
@@ -127,9 +133,19 @@ def validate_move(state: EpisodeState, move: Move) -> str | None:
         spec = transition_spec(move.operation_id)
     except KeyError as exc:
         return str(exc)
-    missing = [artifact for artifact in spec.consumes if not state.has(artifact)]
+    missing = [
+        artifact
+        for artifact in spec.consumes
+        if not state.has(artifact) and artifact not in move.input_versions
+    ]
     if missing:
         return f"{move.operation_id} requires artifacts that do not exist: {', '.join(missing)}"
+    permitted = {*spec.consumes, *spec.optional_consumes}
+    for artifact_id, version in move.input_versions.items():
+        if artifact_id not in permitted:
+            return f"{move.operation_id} does not consume {artifact_id}"
+        if version < 1:
+            return "Selected revisions must be positive"
     return None
 
 

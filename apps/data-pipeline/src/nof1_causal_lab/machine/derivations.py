@@ -47,6 +47,7 @@ def complete_derivation_cascade(
     affected: set[ArtifactId] = {info.artifact_id for info in produced} | {
         item.artifact_id for item in all_retracted
     }
+    diagnostics = {}
 
     try:
         for spec in topological_derivation_order():
@@ -64,7 +65,7 @@ def complete_derivation_cascade(
                 continue
 
             stale_parents = [parent for parent in spec.from_ if is_stale(next_state, parent)]
-            if stale_parents:
+            if stale_parents and spec.produces not in {"data_profile", "validation_report"}:
                 retraction = _retract_current(
                     next_state,
                     spec.produces,
@@ -98,12 +99,27 @@ def complete_derivation_cascade(
             all_produced.append(info)
             next_state = next_state.with_versions([info])
             affected.add(spec.produces)
+        if any(info.artifact_id == "model" for info in produced):
+            from nof1_causal_lab.actions.checks import check_specification
+
+            report = check_specification(read_model(store, next_state.current["model"].version))
+            diagnostics["specification_report"] = report.model_dump(mode="json")
+        if affected.intersection({"model", "panel", "raw_data"}):
+            diagnostics["check_dependencies"] = {
+                "specification": "evaluated" if next_state.has("model") else "not_evaluated",
+                "data_profile": "evaluated" if next_state.has("data_profile") else "not_evaluated",
+                "compatibility": "evaluated"
+                if next_state.has("validation_report")
+                else "not_evaluated",
+            }
     except Exception:
         for info in reversed(all_produced):
             store.delete_version(info.artifact_id, info.version)
         raise
 
-    return TransitionEffects(produced=all_produced, retracted=all_retracted)
+    return TransitionEffects(
+        produced=all_produced, retracted=all_retracted, diagnostics=diagnostics
+    )
 
 
 def _retract_current(
@@ -137,6 +153,8 @@ def _derive_one(
 ) -> ArtifactVersionInfo | None:
     if spec.produces == "identification_report":
         return _derive_identification_report(store, pins)
+    if spec.produces == "data_profile":
+        return _derive_data_profile(store, pins)
     if spec.produces == "validation_report":
         return _derive_validation_report(store, pins)
     raise AssertionError(f"No derivation body for {spec.produces}")
@@ -176,6 +194,19 @@ def _derive_identification_report(
     )
 
 
+def _derive_data_profile(store: ArtifactStore, pins: dict[ArtifactId, int]) -> ArtifactVersionInfo:
+    from nof1_causal_lab.flows.transitions.validation.flow import profile_data
+
+    report = profile_data(_read_panel(store, pins["panel"]))
+    return store.write_version(
+        "data_profile",
+        provenance="computed",
+        derived_from=pins,
+        produced_by="derive:data_profile",
+        json_files={json_filename("data_profile", "data_profile"): report.model_dump(mode="json")},
+    )
+
+
 def _derive_validation_report(
     store: ArtifactStore,
     pins: dict[ArtifactId, int],
@@ -188,20 +219,48 @@ def _derive_validation_report(
 
     model = read_model(store, pins["model"])
     panel = _read_panel(store, pins["panel"])
-    audit_result = validate_extraction(model, [panel])
+    from nof1_causal_lab.artifacts.validation_report import DataProfileArtifact
+
+    profile = DataProfileArtifact.model_validate(
+        store.read_json_file(
+            "data_profile", pins["data_profile"], json_filename("data_profile", "data_profile")
+        )
+    )
+    audit_result = validate_extraction(model, [panel], data_profile=profile)
     if not audit_result:
         raise RuntimeError(
             "validation_report derivation returned an empty audit result; "
             "refusing to fabricate an is_valid=False report with empty indicators."
         )
 
+    source = store.read_meta("panel", pins["panel"])
+    selected = store.read_meta("model", pins["model"])
+    if source.consumed_model_inputs and any(
+        selected.model_inputs[key] != value for key, value in source.consumed_model_inputs.items()
+    ):
+        audit_result["dataset_issues"].append(
+            {
+                "indicator_id": None,
+                "issue_type": "measurement_definitions",
+                "severity": "error",
+                "message": "These observations were prepared under different measurement definitions; prepare them again or select a compatible model.",
+            }
+        )
     indicator_issues = [
         issue for audit in audit_result.get("indicators", {}).values() for issue in audit["issues"]
     ]
     dataset_issues = audit_result.get("dataset_issues", [])
     status = derive_validation_status([*indicator_issues, *dataset_issues])
+    from nof1_causal_lab.actions.checks import check_model_data
+
+    preflight = check_model_data(model, panel)
     payload = ValidationReportArtifact.model_validate(
-        {**audit_result, "is_valid": status["is_valid"]}
+        {
+            **audit_result,
+            "is_valid": status["is_valid"]
+            and not any(finding.status == "failed" for finding in preflight.findings),
+            "preflight": preflight,
+        }
     ).model_dump(mode="json")
     return store.write_version(
         "validation_report",

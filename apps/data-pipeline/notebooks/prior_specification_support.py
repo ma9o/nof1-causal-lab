@@ -15,14 +15,6 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from nof1_causal_lab.artifacts.construct import serialize_edge_references
-from nof1_causal_lab.flows.transitions.model_spec.agentic.construct_flow import (
-    ConstructBuildState,
-    _acceptance_map,
-    _check_result_payload,
-    _closed_loop_target,
-    _design_for_state,
-    contribution_from_payload,
-)
 from nof1_causal_lab.flows.transitions.model_spec.agentic.construct_prompt import (
     build_construct_messages,
 )
@@ -36,14 +28,22 @@ from nof1_causal_lab.machine.temporal.model_spec_checkpoints import (
     restore_construct_state,
     write_model_spec_admission_evaluation,
 )
-from nof1_causal_lab.models.ssm.construct_admission import (
-    AdmissionTiming,
+from nof1_causal_lab.models.ssm.reachability import CheckResult
+from nof1_causal_lab.models.ssm.simulation_checks import MeasurementTiming
+from nof1_causal_lab.recipes.construct_authoring import (
     ConstructAdmissionReport,
     FullAdmissionValidation,
     build_construct_order,
     validate_full_admission_state,
 )
-from nof1_causal_lab.models.ssm.reachability import CheckResult
+from nof1_causal_lab.recipes.incremental_model import (
+    ConstructBuildState,
+    _acceptance_map,
+    _check_result_payload,
+    _closed_loop_target,
+    _design_for_state,
+    contribution_from_payload,
+)
 from nof1_causal_lab.utils import storage
 
 if TYPE_CHECKING:
@@ -334,7 +334,7 @@ def _report_from_cached_evaluation(
         name=evaluation.construct_name,
         results=results,
         timings=(
-            AdmissionTiming(
+            MeasurementTiming(
                 phase="admission_evaluation_cache",
                 label="Cached exact admission evaluation",
                 duration_ms=0.0,

@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Any, Unpack
 import jax.numpy as jnp
 
 from nof1_causal_lab.flows.model_spec_compile_cache import restore_model_spec_compile_cache
-from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.runtime import (
     PreparedModelRuntime,
@@ -235,65 +234,3 @@ def fit_model(
             "error": "SSM implementation not available",
             "duration_seconds": _fit_elapsed_seconds(t0),
         }
-
-
-def run_ppc(
-    fitted_result: UncheckedJsonObject,
-) -> UncheckedJsonObject:
-    """Run posterior predictive checks on the fitted model.
-
-    Forward-simulates from posterior draws and compares to observed data,
-    producing per-variable warnings for calibration, autocorrelation, and variance.
-
-    Args:
-        fitted_result: Output from fit_model task (includes runtime)
-
-    Returns:
-        Dict with PPC diagnostics (PosteriorPredictiveChecks.model_dump())
-    """
-    from nof1_causal_lab.models.posterior_predictive import run_posterior_predictive_checks
-
-    if not fitted_result.get("fitted", False):
-        return {"checked": False, "per_variable_warnings": []}
-
-    t0 = time.monotonic()
-    try:
-        result: ParticleMCMCPosterior = fitted_result["result"]
-        runtime: PreparedModelRuntime = fitted_result["runtime"]
-        spec = runtime.spec
-        samples = result.get_samples()
-        posterior_draws = (
-            int(next(iter(samples.values())).shape[0])
-            if isinstance(samples, dict) and samples
-            else 0
-        )
-        logger.info(
-            "Running posterior predictive checks: method=%s posterior_draws=%d "
-            "timepoints=%d manifest_vars=%d",
-            result.method,
-            posterior_draws,
-            len(runtime.times),
-            len(numeric.observation_names(runtime.spec)),
-        )
-
-        assert numeric.observation_ids(runtime.spec) is not None
-        ppc_result = run_posterior_predictive_checks(
-            samples=samples,
-            observations=runtime.observations,
-            times=runtime.times,
-            indicator_ids=numeric.observation_ids(runtime.spec),
-            spec=spec,
-            observation_support=runtime.observation_support,
-            observation_mask=~jnp.isnan(runtime.observations),
-        )
-        logger.info(
-            "Posterior predictive checks complete in %.1fs: warnings=%d",
-            _fit_elapsed_seconds(t0),
-            len(ppc_result.per_variable_warnings),
-        )
-
-        return ppc_result.model_dump(mode="json")
-
-    except (ValueError, RuntimeError, ArithmeticError, FloatingPointError):
-        logger.exception("PPC check failed after %.1fs", _fit_elapsed_seconds(t0))
-        return {"checked": False, "per_variable_warnings": []}

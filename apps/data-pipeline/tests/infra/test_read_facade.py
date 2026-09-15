@@ -26,7 +26,7 @@ def test_read_facade_serves_reads_and_rejects_moves(monkeypatch, tmp_path):
     assert move.status_code == 403
     start = client.post("/api/episodes", json={"workspace_id": "WS-READONLY"})
     assert start.status_code == 403
-    auto = client.post("/api/episodes/WS-READONLY/auto", json={})
+    auto = client.post("/api/episodes/WS-READONLY/recipes/observational-study", json={})
     assert auto.status_code == 403
     upload = client.post(
         "/api/upload",
@@ -194,7 +194,7 @@ def test_workspaces_endpoint_lists_episode_questions(monkeypatch, tmp_path):
     assert response.json() == {
         "workspaces": [
             {
-                "href": "/analysis/WS-LIST",
+                "href": "/model/WS-LIST",
                 "question": "does X cause Y?",
                 "workspaceId": "WS-LIST",
             }

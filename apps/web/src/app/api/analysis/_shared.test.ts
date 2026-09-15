@@ -102,13 +102,13 @@ describe("buildAnalysisManifest", () => {
         transition({
           seq: 2,
           ts: "2026-07-01T00:01:00+00:00",
-          move: { kind: "run", operation_id: "raw_data" },
+          move: { kind: "run", operation_id: "raw_data", input_versions: {} },
           status: "applied",
         }),
         transition({
           seq: 3,
           ts: "2026-07-01T00:02:00+00:00",
-          move: { kind: "run", operation_id: "latent_structure" },
+          move: { kind: "run", operation_id: "latent_structure", input_versions: {} },
           status: "raised",
           error_type: "SchemaValidationError",
           error_message: "latent_structure payload failed validation",
@@ -116,7 +116,7 @@ describe("buildAnalysisManifest", () => {
         transition({
           seq: 4,
           ts: "2026-07-01T00:03:00+00:00",
-          move: { kind: "run", operation_id: "latent_structure" },
+          move: { kind: "run", operation_id: "latent_structure", input_versions: {} },
           status: "rejected",
           reason: "latent_structure requires artifacts that do not exist: raw_data",
         }),
@@ -131,6 +131,7 @@ describe("buildAnalysisManifest", () => {
     expect(manifest?.transitionOrder).toEqual([
       "raw_data",
       "latent_structure",
+      "simulate",
       "measurement_structure",
       "measurements",
       "validation_report",
@@ -158,14 +159,14 @@ describe("buildAnalysisManifest", () => {
         transition({
           seq: 1,
           ts: "2026-07-01T00:00:00+00:00",
-          move: { kind: "run", operation_id: "raw_data" },
+          move: { kind: "run", operation_id: "raw_data", input_versions: {} },
           status: "raised",
           error_type: "RuntimeError",
         }),
         transition({
           seq: 2,
           ts: "2026-07-01T00:05:00+00:00",
-          move: { kind: "run", operation_id: "raw_data" },
+          move: { kind: "run", operation_id: "raw_data", input_versions: {} },
           status: "applied",
         }),
       ],

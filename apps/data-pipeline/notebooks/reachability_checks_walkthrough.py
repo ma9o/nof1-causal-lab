@@ -17,12 +17,12 @@ def imports():
     import networkx as nx
     import numpy as np
 
+    from nof1_causal_lab.flows.transitions.validation.checks import data_availability_issue
     from nof1_causal_lab.models.ssm.reachability import (
         CHECK_CONSEQUENCES,
         CHECK_MODES,
         check_confinement,
         check_coverage,
-        check_data_availability,
         check_edge_share,
         check_resolvability,
         check_saturation,
@@ -32,11 +32,11 @@ def imports():
     )
 
     return (
+        data_availability_issue,
         CHECK_CONSEQUENCES,
         CHECK_MODES,
         check_confinement,
         check_coverage,
-        check_data_availability,
         check_edge_share,
         check_resolvability,
         check_saturation,
@@ -1202,15 +1202,15 @@ def show_c5c(c5c_case, mo, np, plt, result_panel, stress_observed, style_axes, t
 
 
 @app.cell
-def make_c5d_case(check_data_availability):
-    _result = check_data_availability("HRV")
-    assert not _result.passed
+def make_c5d_case(data_availability_issue):
+    _result = data_availability_issue("indicator:hrv", 0)
+    assert _result is not None
     c5d_case = {"result": _result}
     return (c5d_case,)
 
 
 @app.cell(hide_code=True)
-def show_c5d(c5d_case, mo, np, plt, result_panel, times):
+def show_c5d(c5d_case, mo, np, plt, times):
     _fig, _axes = plt.subplots(1, 2, figsize=(10.8, 3.3))
     _availability = np.vstack([np.ones(times.size), np.zeros(times.size)])
     _axes[0].imshow(
@@ -1230,18 +1230,8 @@ def show_c5d(c5d_case, mo, np, plt, result_panel, times):
     _fig.tight_layout()
     mo.vstack(
         [
-            result_panel(
-                "C5d data availability — a declared HRV channel with no rows",
-                c5d_case["result"],
-                "Add HRV as an emission for unobserved AutonomicArousal, but supply zero HRV "
-                "observations for this person.",
-                "The emission remains executable for forward simulation yet contributes no "
-                "likelihood terms. Any arousal trajectory claim is therefore prior-driven "
-                "unless the rest of the structural model identifies it.",
-                "Provide observations, remove the unsupported channel, or retain it only for "
-                "explicitly prospective simulation.",
-                "the absence is real and all linked state and emission claims are labeled as "
-                "prior-driven",
+            mo.md(
+                f"### C5d: model/data compatibility\n\n{c5d_case['result'].message}\n\nThis runs after model/data submission and requires no generated trajectories."
             ),
             mo.as_html(_fig),
         ]

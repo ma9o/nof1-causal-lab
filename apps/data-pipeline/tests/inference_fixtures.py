@@ -43,7 +43,6 @@ def inference_log(model, *, version=2, seq=3, report=None):
                     "duration_seconds": 0.0,
                 },
                 "inference_diagnostics": {},
-                "ppc": {},
             },
         },
     )

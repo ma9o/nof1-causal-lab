@@ -37,7 +37,7 @@ export default function LandingPage() {
   useEffect(() => {
     if (isMockMode() && !sessionStorage.getItem("mock-landed")) {
       sessionStorage.setItem("mock-landed", "true");
-      router.push(`/analysis/${getMockFixture()}`);
+      router.push(`/model/${getMockFixture()}`);
     }
   }, [router]);
 
@@ -93,7 +93,7 @@ export default function LandingPage() {
         }),
       });
 
-      router.push(`/analysis/${workspaceId}`);
+      router.push(`/model/${workspaceId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start analysis");
       setIsSubmitting(false);

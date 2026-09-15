@@ -15,10 +15,8 @@ from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.model_structure import StructuralCompilationError
 from nof1_causal_lab.models.ssm import numerics as numeric
-from nof1_causal_lab.models.ssm.construct_admission import (
-    ConstructContribution,
-    _incoming_edge_off_target,
-)
+from nof1_causal_lab.models.ssm.simulation_checks import _incoming_edge_off_target
+from nof1_causal_lab.recipes.construct_authoring import ConstructContribution
 from tests.helpers import complete_test_model, make_model
 
 

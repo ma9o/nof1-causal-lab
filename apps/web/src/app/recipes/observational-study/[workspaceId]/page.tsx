@@ -40,27 +40,12 @@ export default function AnalysisPage({ params }: { params: Promise<{ workspaceId
       return;
     }
 
-    if (progress.isComplete) {
-      document.title = "Analysis Complete | nof1-causal-lab";
-      return;
-    }
-
-    if (progress.isFailed) {
-      document.title = "Failed | nof1-causal-lab";
-      return;
-    }
-
-    const completed = progress.transitionOrder.filter(
-      (artifactId) => progress.artifacts[artifactId] === "completed",
-    ).length;
     const currentLabels = progress.runningTransitions.map(
       (artifactId) => TRANSITION_META[artifactId].label,
     );
     const current = currentLabels.length > 0 ? currentLabels.join(", ") : null;
 
-    document.title = current
-      ? `(${completed}/${progress.transitionOrder.length}) ${current} | nof1-causal-lab`
-      : `(${completed}/${progress.transitionOrder.length}) Running | nof1-causal-lab`;
+    document.title = current ? `${current} | nof1-causal-lab` : "Model workspace | nof1-causal-lab";
   }, [progress]);
 
   const mainContent = manifestError ? (

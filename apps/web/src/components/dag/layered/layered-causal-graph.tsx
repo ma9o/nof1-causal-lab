@@ -560,8 +560,8 @@ export function LayeredCausalGraph({
       : [],
   );
   const warningVariables = new Set(
-    fitVisible
-      ? (model.findings.fit?.value.report.ppc.per_variable_warnings ?? [])
+    fitVisible && model.findings.simulation?.source.validity === "fresh"
+      ? (model.findings.simulation?.value.predictive_checks?.per_variable_warnings ?? [])
           .filter((check) => !check.passed)
           .map((check) => check.indicator_id)
       : [],

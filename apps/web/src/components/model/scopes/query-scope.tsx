@@ -21,9 +21,10 @@ export function QueryScope({ context, query }: { context: ScopeContext; query: M
     setRunning(true);
     setError(null);
     try {
-      const result = await createSimulateDispatch(context.model.context.workspace_id)(
-        query.request,
-      );
+      const result = await createSimulateDispatch(
+        context.model.context.workspace_id,
+        query.modelVersion!,
+      )(query.request);
       context.setSimulation(query.key, result);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Simulation failed");
@@ -79,9 +80,12 @@ export function QueryScope({ context, query }: { context: ScopeContext; query: M
       </Section>
       <Section title="Simulate">
         <Button size="sm" onClick={run} disabled={running || !context.canSimulate}>
-          {running ? "Simulating…" : "Run on current fit"}
+          {running ? "Simulating…" : "Simulate selected fit"}
         </Button>
-        <Hint>Runs the nonlinear drift across posterior draws. Results stay in this view.</Hint>
+        <Hint>
+          Runs the nonlinear drift with joint parameter and state draws. Results are recorded in the
+          workspace.
+        </Hint>
         {error ? <Hint issue>{error}</Hint> : null}
       </Section>
       {posterior ? (

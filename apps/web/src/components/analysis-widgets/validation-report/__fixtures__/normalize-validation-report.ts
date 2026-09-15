@@ -33,6 +33,7 @@ export function normalizeValidationReportData(value: unknown): ValidationReportA
   const profiles = validationReport.validation_report?.per_indicator_health ?? [];
 
   return {
+    preflight: { findings: [] },
     is_valid: validationReport.validation_report?.is_valid ?? validationReport.is_valid ?? true,
     dataset_issues: validationReport.dataset_issues ?? [],
     indicators: Object.fromEntries(

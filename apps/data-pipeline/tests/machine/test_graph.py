@@ -40,7 +40,8 @@ def test_derived_outputs_depend_on_the_canonical_definition():
     parents = {d.produces: d.from_ for d in DERIVATIONS}
     assert parents == {
         "identification_report": ("model",),
-        "validation_report": ("panel", "model"),
+        "data_profile": ("panel",),
+        "validation_report": ("panel", "model", "data_profile"),
     }
     assert not {output for s in ARTIFACT_GRAPH for output in s.all_produces} & parents.keys()
 

@@ -9,7 +9,6 @@ import pytest
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.models.model_structure import model_for_constructs
 from nof1_causal_lab.models.ssm import numerics as numeric
-from nof1_causal_lab.models.ssm.construct_admission import AdmissionState
 from nof1_causal_lab.models.ssm.execution.dynamical_model import (
     HeterogeneousObservation,
     build_dynamical_model,
@@ -20,6 +19,7 @@ from nof1_causal_lab.models.ssm.parameterization import (
     assemble_deterministics_from_registry,
     build_site_registry,
 )
+from nof1_causal_lab.recipes.construct_authoring import AdmissionState
 from tests.dynamics_fixtures import decay_term, interaction_term, linear_term
 from tests.helpers import complete_test_model, make_model
 
@@ -122,15 +122,15 @@ def test_numerical_function_constructs_dynestyx_model(model):
 def test_predictive_runtime_uses_native_initial_and_observation_laws(model):
     """Exercise model batching and prediction at one time point, without a trajectory solve."""
     from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
-        sample_prior_predictive_emissions,
-        simulate_prior_predictive_latents,
+        sample_predictive_emissions,
+        simulate_predictive_latents,
     )
 
     samples = {site.name: jnp.full((2, *site.shape), 0.5) for site in build_site_registry(model)}
     samples.update(assemble_deterministics_from_registry(samples, model))
     times = jnp.array([2.0])
     key = jax.random.PRNGKey(14)
-    latents, predictors = simulate_prior_predictive_latents(model, samples, times, rng_key=key)
+    latents, predictors = simulate_predictive_latents(model, samples, times, rng_key=key)
     native = build_dynamical_model(
         model, {name: values[0] for name, values in samples.items()}, t0=times[0]
     )
@@ -140,7 +140,7 @@ def test_predictive_runtime_uses_native_initial_and_observation_laws(model):
     np.testing.assert_allclose(
         predictors[0, 0], native.observation_model.linear_predictor(latents[0, 0]), atol=1e-6
     )
-    observations, mask, means = sample_prior_predictive_emissions(
+    observations, mask, means = sample_predictive_emissions(
         model,
         samples,
         predictors,
@@ -273,13 +273,13 @@ def test_fixed_quantities_and_interactions_remain_effective_in_edge_off_checks(m
     from nof1_causal_lab.artifacts.expressions import LiteralExpression, linear_coefficient
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.parameter import SiteKind
-    from nof1_causal_lab.models.ssm.construct_admission import (
-        ConstructContribution,
+    from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
+    from nof1_causal_lab.models.ssm.predictive import registry_runtime
+    from nof1_causal_lab.models.ssm.simulation_checks import (
         _incoming_edge_off_target,
         _resimulate_edge_off,
     )
-    from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
-    from nof1_causal_lab.models.ssm.predictive import registry_runtime
+    from nof1_causal_lab.recipes.construct_authoring import ConstructContribution
     from tests.model_fixtures import model_fixture, parameter_draws
 
     source = model_fixture(

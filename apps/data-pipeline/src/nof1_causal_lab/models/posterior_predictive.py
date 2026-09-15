@@ -15,14 +15,11 @@ from nof1_causal_lab.artifacts.posterior_diagnostics import (
     PPCTestStat,
     PPCWarning,
 )
-from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.utils.histograms import histogram_draws
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
 import jax.numpy as jnp
 
@@ -175,11 +172,6 @@ def _check_variance_ratio(
     warnings = []
     n_manifest = observations.shape[1]
 
-    # Posterior predictive std: compute per-draw temporal std, then average across draws
-    # This separates posterior uncertainty from temporal variation
-    per_draw_std = jnp.std(y_sim, axis=1)  # (n_subsample, m) — temporal std per draw
-    pp_std = jnp.mean(per_draw_std, axis=0)  # (m,) — average across draws
-
     for j, name in zip(range(n_manifest), indicator_ids, strict=True):
         obs_j = observations[:, j]
         valid = ~jnp.isnan(obs_j)
@@ -192,7 +184,11 @@ def _check_variance_ratio(
         if obs_std < 1e-12:
             continue
 
-        ratio = float(pp_std[j] / obs_std)
+        # Compare temporal variation on the same observed schedule. Latent-only
+        # support boundaries have no emission and must not enter this reduction.
+        per_draw_std = jnp.std(y_sim[:, valid_idx, j], axis=1)
+        predicted_std = float(jnp.mean(per_draw_std))
+        ratio = predicted_std / obs_std
 
         if ratio > high_ratio:
             warnings.append(
@@ -219,7 +215,7 @@ def _check_variance_ratio(
                 PPCWarning(
                     indicator_id=name,
                     check_type="variance",
-                    message=f"Predicted variance {float(pp_std[j]):.3f} vs observed {obs_std:.3f} (ratio {ratio:.2f})",
+                    message=f"Predicted variance {predicted_std:.3f} vs observed {obs_std:.3f} (ratio {ratio:.2f})",
                     value=ratio,
                     passed=True,
                 )
@@ -231,6 +227,11 @@ def _check_variance_ratio(
 # ---------------------------------------------------------------------------
 # Overlay and test statistic computations
 # ---------------------------------------------------------------------------
+
+
+def _predictive_value(value: jnp.ndarray) -> float | None:
+    """A missing scheduled emission is an absent plot value, including in JSON."""
+    return float(value) if jnp.isfinite(value) else None
 
 
 def _compute_overlays(
@@ -266,17 +267,17 @@ def _compute_overlays(
         observed = [None if jnp.isnan(v) else float(v) for v in obs_j]
 
         # Spaghetti: individual draw trajectories for this variable
-        spaghetti = [[float(v) for v in y_sim[int(idx), :, j]] for idx in spag_indices]
+        spaghetti = [[_predictive_value(v) for v in y_sim[int(idx), :, j]] for idx in spag_indices]
 
         overlays.append(
             PPCOverlay(
                 indicator_id=name,
                 observed=observed,
-                q025=[float(v) for v in q025[:, j]],
-                q25=[float(v) for v in q25[:, j]],
-                median=[float(v) for v in q50[:, j]],
-                q75=[float(v) for v in q75[:, j]],
-                q975=[float(v) for v in q975[:, j]],
+                q025=[_predictive_value(v) for v in q025[:, j]],
+                q25=[_predictive_value(v) for v in q25[:, j]],
+                median=[_predictive_value(v) for v in q50[:, j]],
+                q75=[_predictive_value(v) for v in q75[:, j]],
+                q975=[_predictive_value(v) for v in q975[:, j]],
                 spaghetti_draws=spaghetti,
             )
         )
@@ -351,57 +352,19 @@ def _compute_test_stats(
 # ---------------------------------------------------------------------------
 
 
-def run_posterior_predictive_checks(
-    samples: dict[str, jnp.ndarray],
+def measure_predictive_checks(
+    y_sim: jnp.ndarray,
     observations: jnp.ndarray,
-    times: jnp.ndarray,
     indicator_ids: Sequence[str],
-    spec: ModelSpec,
-    *,
-    observation_support: ObservationSupportRuntime | None = None,
-    observation_mask: jnp.ndarray | None = None,
-    n_subsample: int = 50,
-    rng_seed: int = 42,
 ) -> PosteriorPredictiveChecks:
-    """Run posterior predictive checks.
-
-    Forward-simulates ``n_subsample`` posterior draws through the *exact* nonlinear
-    vector field (the same Diffrax simulator as prior predictive — never a
-    linearised drift matrix) and compares them to the observed data.
-
-    Args:
-        samples: Posterior samples from ParticleMCMCPosterior.get_samples()
-        observations: (T, n_manifest) observed data
-        times: (T,) observation times
-        indicator_ids: scientific indicator IDs in observation-column order
-        spec: compiled SSM spec — provides the vector field and emission families
-        observation_support: optional compiled interval-summary semantics
-        observation_mask: optional boolean observation schedule mask
-        n_subsample: number of posterior draws to forward-simulate
-        rng_seed: random seed
-
-    Returns:
-        PosteriorPredictiveChecks with diagnostics
-    """
-    from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
-        simulate_posterior_predictive_observations,
-    )
-
-    if len(indicator_ids) != numeric.n_observations(spec) or len(
-        set(indicator_ids)
-    ) != numeric.n_observations(spec):
-        raise ValueError("PPC requires one distinct indicator ID per observation column")
-
-    y_sim, _y_mask = simulate_posterior_predictive_observations(
-        spec,
-        samples,
-        times,
-        observation_support=observation_support,
-        observation_mask=observation_mask,
-        n_subsample=n_subsample,
-        seed=rng_seed,
-    )
-
+    """Measure an existing predictive batch without generating more trajectories."""
+    if y_sim.ndim != 3 or observations.shape != y_sim.shape[1:]:
+        raise ValueError("Predictive checks require aligned draw/time/indicator arrays")
+    if len(indicator_ids) != observations.shape[1] or len(set(indicator_ids)) != len(indicator_ids):
+        raise ValueError("Predictive checks require one distinct ID per observation column")
+    comparable = jnp.where(jnp.isfinite(observations)[None, :, :], y_sim, 0.0)
+    if not bool(jnp.isfinite(comparable).all()):
+        raise ValueError("Predictive comparisons require finite draws at observed positions")
     warnings: list[PPCWarning] = []
     warnings.extend(_check_calibration(y_sim, observations, indicator_ids))
     warnings.extend(_check_residual_autocorrelation(y_sim, observations, indicator_ids))

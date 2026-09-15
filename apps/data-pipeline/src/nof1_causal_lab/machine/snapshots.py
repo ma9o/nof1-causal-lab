@@ -243,17 +243,69 @@ class ModelReader:
                     and owner.kind == "construct"
                 ):
                     decay_estimates[owner.id] = estimate
-        warnings = posterior.ppc.per_variable_warnings
         return Sourced(
             value=FitSummary(
                 report=posterior,
-                predictive_checks_passed=sum(item.passed for item in warnings),
-                predictive_checks_total=len(warnings),
                 edge_estimates=edge_estimates,
                 decay_estimates=decay_estimates,
             ),
             source=read.source,
         )
+
+    def simulation(self):
+        """Return the most recent explicit simulation with its own pinned provenance."""
+        from nof1_causal_lab.artifacts.simulation import SimulationReport
+        from nof1_causal_lab.machine.moves import RunOperation
+
+        for record in reversed(EpisodeJournal(self.workspace_id).read_all()):
+            if record.seq > self.seq or record.status != "applied":
+                continue
+            if not isinstance(record.move, RunOperation) or record.move.operation_id != "simulate":
+                continue
+            report = SimulationReport.model_validate(record.diagnostics["report"])
+            pins = {"model": report.model.version}
+            if report.comparison_panel_version is not None:
+                pins["panel"] = report.comparison_panel_version
+            current = all(
+                self.state.has(aid) and self.state.current[aid].version == version
+                for aid, version in pins.items()
+            )
+            return Sourced(
+                value=report,
+                source=FactSource(
+                    ref=TransitionRef(seq=record.seq),
+                    pointer="/diagnostics/report",
+                    validity=SourceValidity.FRESH if current else SourceValidity.STALE,
+                ),
+            )
+        return None
+
+    def specification(self):
+        """Cheap findings belong to the exact model revision that triggered them."""
+        from nof1_causal_lab.artifacts.checks import SpecificationReport
+
+        for record in reversed(EpisodeJournal(self.workspace_id).read_all()):
+            if record.seq > self.seq or record.status != "applied":
+                continue
+            if not any(
+                info.artifact_id == "model"
+                and self.state.has("model")
+                and info.version == self.state.current["model"].version
+                for info in record.produced
+            ):
+                continue
+            payload = record.diagnostics.get("specification_report")
+            if payload is None:
+                return None
+            return Sourced(
+                value=SpecificationReport.model_validate(payload),
+                source=FactSource(
+                    ref=TransitionRef(seq=record.seq),
+                    pointer="/diagnostics/specification_report",
+                    validity=SourceValidity.FRESH,
+                ),
+            )
+        return None
 
     def snapshot(self) -> ModelSnapshot:
         """Batch the aggregate reads and server-composed table facts at this revision."""
@@ -331,5 +383,7 @@ class ModelReader:
                 prior_predictive=self.prior_predictive(),
                 diagnostics=views.model_diagnostics,
                 fit=self.fit(),
+                simulation=self.simulation(),
+                specification=self.specification(),
             ),
         )

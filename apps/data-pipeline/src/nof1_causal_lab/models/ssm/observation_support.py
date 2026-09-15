@@ -517,3 +517,42 @@ def validate_observation_support(spec: ModelSpec, X: Any) -> None:
 
     if issues:
         raise ValueError("Observation support check failed:\n" + "\n".join(issues))
+
+
+def simulation_observation_support(spec: ModelSpec, times: np.ndarray) -> ObservationSupportRuntime:
+    """Schedule declared indicators on a simulation grid, omitting unavailable prehistory."""
+    from nof1_causal_lab.artifacts.duration import parse_duration_to_hours
+    from nof1_causal_lab.models.ssm import numerics as numeric
+
+    indicators = {indicator.id: indicator for _, indicator in spec.iter_indicators()}
+    ordered = [indicators[identity] for identity in numeric.observation_ids(spec)]
+    names = [indicator.name for indicator in ordered]
+    kinds: list[str | None] = [indicator.support_kind.value for indicator in ordered]
+    windows = [indicator.observation_window or spec.measurement_clock for indicator in ordered]
+    starts = np.broadcast_to(times[:, None], (len(times), len(ordered))).copy()
+    ends = starts.copy()
+    for i, (kind, window) in enumerate(zip(kinds, windows, strict=True)):
+        if kind == "interval":
+            if window is None:
+                raise ValueError("Interval simulation requires a declared measurement window")
+            starts[:, i] -= parse_duration_to_hours(window) / 24
+            absent = starts[:, i] < times[0] - 1e-8
+            starts[absent, i] = np.nan
+            ends[absent, i] = np.nan
+    previous, current, weights, slots = _compile_interval_support_coefficients(
+        times, starts, ends, kinds, names
+    )
+    return ObservationSupportRuntime(
+        anchor_times=times,
+        manifest_names=names,
+        support_kinds=kinds,
+        summary_operators=[indicator.summary_operator.value for indicator in ordered],
+        anchor_policies=[indicator.anchor_policy.value for indicator in ordered],
+        observation_windows=windows,
+        support_start_times=starts,
+        support_end_times=ends,
+        interval_prev_coeffs=previous,
+        interval_curr_coeffs=current,
+        interval_weights=weights,
+        emission_slot_indices=slots,
+    )

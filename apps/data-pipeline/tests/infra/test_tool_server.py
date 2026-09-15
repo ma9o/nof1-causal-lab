@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import replace
-from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
 import jax.numpy as jnp
-import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
@@ -16,23 +13,13 @@ from nof1_causal_lab.artifacts.identification import (
     IdentificationReport,
     IdentifiedTreatmentStatus,
 )
-from nof1_causal_lab.artifacts.identity import ModelRevision
-from nof1_causal_lab.artifacts.scenarios import SimulationResult
-from nof1_causal_lab.models.causal_proofs import (
-    CertifiedCausalAnalysis,
-    certify_identified_estimand,
-)
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior
 from nof1_causal_lab.models.ssm.inference.persistence import condition_model
 from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
-from tests.dynamics_fixtures import decay_term, hill_term, potential_term
 from tests.helpers import fixture_entity_id
 from tests.inference_fixtures import inference_log
 from tests.model_fixtures import (
-    default_t0_chol_block,
-    diagonal_diffusion_block,
-    model_fixture,
     parameter_draws,
 )
 
@@ -47,70 +34,6 @@ def _identification(treatment: str, outcome: str) -> IdentificationReport:
             )
         },
     )
-
-
-def _certified_simulation_context(
-    *,
-    n_draws: int,
-    spec: Any,
-    runtime: Any,
-    treatment: str,
-    outcome: str,
-    latent_paths: jnp.ndarray | None = None,
-    timestamps: list[datetime] | None = None,
-) -> dict[str, Any]:
-    design = spec.revised(default_outcome=fixture_entity_id("construct", outcome))
-    design_ref = ModelRevision(workspace_id="test-workspace", version=2)
-    design = condition_model(
-        design,
-        ParticleMCMCPosterior(
-            draws=JointPosteriorDraws(
-                parameters=parameter_draws(design, n_draws),
-                latent_paths=latent_paths
-                if latent_paths is not None
-                else jnp.zeros(
-                    (
-                        n_draws,
-                        len(runtime.times),
-                        numeric.n_states(design),
-                    )
-                ),
-            )
-        ),
-        times=runtime.times,
-    )
-    record = inference_log(design)
-
-    analysis = CertifiedCausalAnalysis(
-        model=design,
-        identification=_identification(treatment, outcome),
-        model_revision=design_ref,
-        estimands=(
-            certify_identified_estimand(
-                design,
-                _identification(treatment, outcome),
-                model_revision=design_ref,
-                treatment=treatment,
-                outcome=outcome,
-            ),
-        ),
-        inference=record,
-    )
-    return {
-        "_workspace_id": "test",
-        "_causal_analysis": analysis,
-        "_prepared_runtime": runtime,
-        "_simulation": tool_server._LoadedSimulation(
-            design,
-            record,
-            runtime,
-        ),
-        "_identifiable_treatments": [treatment],
-        "_outcome_name": outcome,
-        "_observation_timestamps": timestamps or [],
-        "causal_design": {"causal_design": design.model_dump(mode="json")},
-        "posterior": {"ppc": {"per_variable_warnings": []}},
-    }
 
 
 def test_execute_tool_rejects_invalid_input_before_invoking_tool(monkeypatch):
@@ -309,222 +232,6 @@ def test_build_analysis_context_rehydrates_runtime_from_persisted_spec(monkeypat
     tool_server._load_simulation.cache_clear()
 
 
-def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
-    from nof1_causal_lab.models.ssm.dynamics import DynamicsSpec
-
-    spec = DynamicsSpec(
-        n_latent=2,
-        components=(
-            *(decay_term(target=i) for i in range(2)),
-            hill_term(
-                source=0,
-                target=1,
-            ),
-        ),
-    )
-    n_draws = 2
-    captured_initial_states: list[jnp.ndarray] = []
-
-    def fake_vmap_simulate(
-        vector_field,
-        param_samples,
-        initial_states,
-        clamps,
-        *,
-        time_grid,
-        config,
-    ):
-        del vector_field, clamps
-        captured_initial_states.append(initial_states)
-        n_draws = len(param_samples)
-        n_t = time_grid.shape[0]
-        # n_latent = 2 in this test setup
-        n_latent = 2
-        baseline_per_t = jnp.array([0.5, 5.0], dtype=jnp.float32)
-        effect_per_t = jnp.array([1.5, 3.0], dtype=jnp.float32)
-        baseline = jnp.broadcast_to(baseline_per_t, (n_draws, n_t, n_latent))
-        effect = jnp.broadcast_to(effect_per_t, (n_draws, n_t, n_latent))
-        counterfactual = baseline + effect
-        return baseline, counterfactual, effect
-
-    monkeypatch.setattr(tool_server, "vmap_simulate_clamps_from_state", fake_vmap_simulate)
-
-    runtime = SimpleNamespace(
-        observations=jnp.zeros((3, 2)),
-        times=jnp.array([0.0, 1.0, 2.0]),
-    )
-    ctx = _certified_simulation_context(
-        n_draws=n_draws,
-        spec=model_fixture(
-            n_latent=2,
-            n_manifest=2,
-            dynamics_spec=spec,
-            latent_names=["treat", "outcome"],
-            diffusion_block=diagonal_diffusion_block(2),
-            t0_chol_block=replace(
-                default_t0_chol_block(2), correlation_support=np.zeros((2, 2), dtype=bool)
-            ),
-        ),
-        runtime=runtime,
-        treatment="treat",
-        outcome="outcome",
-        latent_paths=jnp.array(
-            [
-                [[0.0, 0.0], [1.0, 1.0], [2.0, 3.0]],
-                [[0.0, 0.0], [4.0, 5.0], [6.0, 7.0]],
-            ]
-        ),
-        timestamps=[
-            datetime(2024, 1, 1, tzinfo=UTC),
-            datetime(2024, 1, 2, tzinfo=UTC),
-            datetime(2024, 1, 3, tzinfo=UTC),
-        ],
-    )
-    args = {
-        "start": {"kind": "abducted"},
-        "outcome": fixture_entity_id("construct", "outcome"),
-        "clamps": [
-            {
-                "target": fixture_entity_id("construct", "treat"),
-                "mode": "shift",
-                "amount": 1.0,
-            }
-        ],
-        "readout": {"horizon_days": 3},
-    }
-
-    expected_trajectories = {
-        fixture_entity_id("construct", "treat"): {
-            "reference_mean": [0.5, 0.5, 0.5, 0.5],
-            "action_mean": [2.0, 2.0, 2.0, 2.0],
-        },
-        fixture_entity_id("construct", "outcome"): {
-            "reference_mean": [5.0, 5.0, 5.0, 5.0],
-            "action_mean": [8.0, 8.0, 8.0, 8.0],
-        },
-    }
-    expected_start = {
-        "kind": "abducted",
-        "time_index": 2,
-        "time": "2024-01-03T00:00:00+00:00",
-        "state_source": "fitted_latent_paths",
-    }
-
-    end_state = tool_server._execute_simulate(
-        ctx,
-        {**args, "readout": {**args["readout"], "estimand": "end_state"}},
-    )["result"]
-    trajectory = tool_server._execute_simulate(
-        ctx,
-        {**args, "readout": {**args["readout"], "estimand": "trajectory"}},
-    )["result"]
-
-    assert end_state["request"]["readout"]["estimand"] == "end_state"
-    assert end_state["summary"]["mean"] == pytest.approx(3.0)
-    assert end_state["reference_mean"] == pytest.approx(5.0)
-    assert end_state["effect_trajectory"] is None
-    assert "rung" not in end_state
-    assert "provenance" not in end_state
-    assert end_state["start_time_index"] == expected_start["time_index"]
-    assert end_state["start_time"] == expected_start["time"]
-    assert end_state["request"]["start"] == {"kind": "abducted", "time_index": None, "time": None}
-    SimulationResult.model_validate(end_state)
-    SimulationResult.model_validate(trajectory)
-    clamp = end_state["request"]["clamps"][0]
-    assert clamp["mode"] == "shift"
-    assert clamp["amount"] == 1.0
-    assert clamp["target"] == fixture_entity_id("construct", "treat")
-    assert end_state["trajectories"] == expected_trajectories
-    assert end_state["time_grid_days"] == [0.0, 1.0, 2.0, 3.0]
-    assert all(
-        jnp.array_equal(initial_states, jnp.array([[2.0, 3.0], [6.0, 7.0]]))
-        for initial_states in captured_initial_states
-    )
-
-    assert trajectory["request"]["readout"]["estimand"] == "trajectory"
-    assert trajectory["summary"]["mean"] == pytest.approx(3.0)
-    assert trajectory["reference_mean"] == pytest.approx(5.0)
-    assert trajectory["effect_trajectory"] == [
-        {"day": 1.0, "effect": 3.0},
-        {"day": 2.0, "effect": 3.0},
-        {"day": 3.0, "effect": 3.0},
-    ]
-    assert trajectory["start_time_index"] == expected_start["time_index"]
-    assert trajectory["trajectories"] == expected_trajectories
-
-
-@pytest.mark.simulation
-def test_simulate_intervention_matches_nonlinear_hill_response():
-    """Conditioned scientific parameters reach the nonlinear simulation and readout."""
-
-    from nof1_causal_lab.models.ssm.dynamics import DynamicsSpec
-
-    spec = DynamicsSpec(
-        n_latent=2,
-        components=(
-            *(potential_term(target=i, center=0, stiffness=0.5) for i in range(2)),
-            hill_term(
-                source=0,
-                target=1,
-                emax=1.5,
-                ec50=1,
-                n=2,
-            ),
-        ),
-    )
-    runtime = SimpleNamespace(
-        observations=jnp.zeros((3, 2)),
-        times=jnp.array([0.0, 1.0, 2.0]),
-    )
-    ctx = _certified_simulation_context(
-        n_draws=2,
-        spec=model_fixture(
-            n_latent=2,
-            dynamics_spec=spec,
-            latent_names=["src", "tgt"],
-            diffusion_block=diagonal_diffusion_block(2),
-            t0_chol_block=replace(
-                default_t0_chol_block(2), correlation_support=np.zeros((2, 2), dtype=bool)
-            ),
-        ),
-        runtime=runtime,
-        treatment="src",
-        outcome="tgt",
-        timestamps=[
-            datetime(2024, 1, 1, tzinfo=UTC),
-            datetime(2024, 1, 2, tzinfo=UTC),
-            datetime(2024, 1, 3, tzinfo=UTC),
-        ],
-    )
-    args = {
-        "start": {"kind": "baseline"},
-        "outcome": fixture_entity_id("construct", "tgt"),
-        "clamps": [
-            {
-                "target": fixture_entity_id("construct", "src"),
-                "mode": "shift",
-                "amount": 0.5,
-            }
-        ],
-        "readout": {"horizon_days": 3, "estimand": "end_state"},
-    }
-
-    response = tool_server._execute_simulate(ctx, args)
-    result = response["result"]
-    SimulationResult.model_validate(result)
-    assert result["request"]["start"]["kind"] == "baseline"
-    assert result["request"]["readout"]["estimand"] == "end_state"
-    # src is held at 0.5, so Hill(src) = 1.5 * 0.5² / (1 + 0.5²) = 0.3.
-    # tgt' = -0.5*tgt + 0.3, with tgt(0) = 0: tgt(t) = 0.6*(1-exp(-0.5*t)).
-    times = np.arange(4.0)
-    expected = 0.6 * (1.0 - np.exp(-0.5 * times))
-    assert result["summary"]["mean"] == pytest.approx(expected[-1], abs=1e-4)
-    assert result["summary"]["prob_positive"] == pytest.approx(1.0)
-    assert result["reference_mean"] == pytest.approx(0.0, abs=1e-5)
-    trajectory = result["trajectories"][fixture_entity_id("construct", "tgt")]
-    np.testing.assert_allclose(trajectory["action_mean"], expected, atol=1e-4)
-
-
 def test_get_tool_schemas_exposes_declared_result_schema():
     client = TestClient(tool_server.app)
 
@@ -533,32 +240,7 @@ def test_get_tool_schemas_exposes_declared_result_schema():
     assert response.status_code == 200
     tools = {tool["name"]: tool for tool in response.json()}
     assert tools["get_model_info"]["result"] is None
-    assert tools["simulate"]["result"] is not None
-
-
-def test_manifest_effects_include_interval_supported_outcome_indicators():
-    samples = {
-        "lambda": jnp.array(
-            [
-                [
-                    [0.0, -1.0],
-                    [0.0, 0.5],
-                ]
-            ]
-        )
-    }
-
-    effects = tool_server._manifest_effects(
-        samples,
-        outcome_idx=1,
-        effect_mean=0.25,
-        manifest_names=["sleep_problem_search_count", "sleep_duration_hours"],
-    )
-
-    assert effects == {
-        "sleep_problem_search_count": pytest.approx(-0.25),
-        "sleep_duration_hours": pytest.approx(0.125),
-    }
+    assert "simulate" not in tools
 
 
 def test_get_model_info_uses_structure_for_variables_and_treatments():
@@ -584,7 +266,7 @@ def test_get_model_info_uses_structure_for_variables_and_treatments():
     spec = model
     ctx = {
         "model": model.model_dump(mode="json"),
-        "posterior": {"inference_metadata": {"method": "marginal_particle_gibbs"}},
+        "inference_report": {"inference_metadata": {"method": "marginal_particle_gibbs"}},
         "_prepared_runtime": SimpleNamespace(spec=spec),
         "_fitted_artifact": SimpleNamespace(spec=spec),
         "_identifiable_treatments": ["screen_time"],

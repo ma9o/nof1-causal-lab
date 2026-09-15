@@ -1,23 +1,13 @@
-"""Public naming and context layer above the artifact machine."""
+"""Four scientific actions with optional implementation and authoring contexts."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Literal
 
-from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS, ArtifactId, OperationId
-from nof1_causal_lab.machine.graph import (
-    ARTIFACT_GRAPH,
-    DERIVATIONS,
-    ROOT_ARTIFACTS,
-    WRITABLE_ARTIFACTS,
-    transition_spec,
-)
-from nof1_causal_lab.machine.moves import Move, RunOperation, WriteArtifact
+from nof1_causal_lab.artifacts.identity import ArtifactId, ScientificActionId  # noqa: TC001
 
 ContextLayer = Literal["navigator", "registry", "machine", "delegated", "tool"]
-ActionKind = Literal["read", "produce", "check", "query", "driver", "external"]
-ActionMode = Literal["direct", "delegated", "async", "read"]
 
 
 @dataclass(frozen=True)
@@ -32,30 +22,24 @@ class ContextSpec:
 
 
 @dataclass(frozen=True)
-class ToolQuerySpec:
-    context_id: str
-    tool_name: str
-    freshness_checked: bool = True
-
-
-@dataclass(frozen=True)
 class ActionSpec:
-    action_id: str
-    namespace: str
-    name: str
-    kind: ActionKind
-    mode: ActionMode
-    context_id: str
+    action_id: ScientificActionId
+    description: str
     consumes: tuple[ArtifactId, ...] = ()
+    optional_consumes: tuple[ArtifactId, ...] = ()
     produces: tuple[ArtifactId, ...] = ()
     produces_optional: tuple[ArtifactId, ...] = ()
     derives: tuple[ArtifactId, ...] = ()
-    move: Move | None = None
-    query: ToolQuerySpec | None = None
-    lower_context_id: str | None = None
 
 
 CONTEXTS: tuple[ContextSpec, ...] = (
+    ContextSpec(
+        context_id="scientific",
+        layer="tool",
+        label="Scientific actions",
+        parent_id="action-registry",
+        allowed_tools=("edit_model", "prepare_data", "fit", "simulate"),
+    ),
     ContextSpec(
         context_id="navigator",
         layer="navigator",
@@ -139,363 +123,47 @@ CONTEXTS: tuple[ContextSpec, ...] = (
         layer="tool",
         label="Runtime causal queries",
         parent_id="episode-machine",
-        allowed_tools=("get_model_info", "simulate"),
+        allowed_tools=("get_model_info",),
         runtime_state=("identified_treatments", "effect_summaries"),
     ),
 )
 
 
-def _reachable_derivations(artifact_id: ArtifactId) -> tuple[ArtifactId, ...]:
-    found: list[ArtifactId] = []
-    frontier = [artifact_id]
-    while frontier:
-        parent = frontier.pop(0)
-        for spec in DERIVATIONS:
-            if parent not in spec.from_ or spec.produces in found:
-                continue
-            found.append(spec.produces)
-            frontier.append(spec.produces)
-    return tuple(found)
-
-
-def _run_action(
-    action_id: str,
-    namespace: str,
-    name: str,
-    operation_id: OperationId,
-    *,
-    mode: ActionMode,
-    lower_context_id: str,
-) -> ActionSpec:
-    spec = transition_spec(operation_id)
-    return ActionSpec(
-        action_id=action_id,
-        namespace=namespace,
-        name=name,
-        kind="produce",
-        mode=mode,
-        context_id="navigator",
-        consumes=spec.consumes,
-        produces=spec.produces,
-        produces_optional=spec.produces_optional,
-        derives=tuple(
-            dict.fromkeys(
-                derived
-                for output in spec.all_produces
-                for derived in _reachable_derivations(output)
-            )
-        ),
-        move=RunOperation(operation_id=operation_id),
-        lower_context_id=lower_context_id,
-    )
-
-
 ACTIONS: tuple[ActionSpec, ...] = (
     ActionSpec(
-        action_id="nav.state",
-        namespace="nav",
-        name="state",
-        kind="read",
-        mode="read",
-        context_id="navigator",
-    ),
-    ActionSpec(
-        action_id="nav.timeline",
-        namespace="nav",
-        name="timeline",
-        kind="read",
-        mode="read",
-        context_id="navigator",
-    ),
-    ActionSpec(
-        action_id="nav.events",
-        namespace="nav",
-        name="events",
-        kind="read",
-        mode="read",
-        context_id="navigator",
-    ),
-    ActionSpec(
-        action_id="nav.get",
-        namespace="nav",
-        name="get",
-        kind="read",
-        mode="read",
-        context_id="navigator",
-    ),
-    ActionSpec(
-        action_id="nav.versions",
-        namespace="nav",
-        name="versions",
-        kind="read",
-        mode="read",
-        context_id="navigator",
-    ),
-    ActionSpec(
-        action_id="nav.diff",
-        namespace="nav",
-        name="diff",
-        kind="read",
-        mode="read",
-        context_id="navigator",
-    ),
-    ActionSpec(
-        action_id="episode.create",
-        namespace="episode",
-        name="create",
-        kind="produce",
-        mode="direct",
-        context_id="navigator",
+        "edit_model",
+        "Revise scientific definitions and current laws; refresh applicable specification and data-compatibility findings.",
+        optional_consumes=("model", "panel"),
         produces=("model",),
-        move=WriteArtifact(artifact_id="model", expected_model_version=0),
+        derives=("identification_report", "validation_report"),
     ),
     ActionSpec(
-        action_id="episode.attach_data",
-        namespace="episode",
-        name="attach_data",
-        kind="external",
-        mode="direct",
-        context_id="navigator",
-    ),
-    _run_action(
-        "episode.ingest_data",
-        "episode",
-        "ingest_data",
-        "raw_data",
-        mode="delegated",
-        lower_context_id="ingestion",
+        "prepare_data",
+        "Import sources or evaluate declared measurement rules; return versioned data and applicable profiles and checks.",
+        optional_consumes=("raw_data", "model"),
+        produces_optional=("raw_data", "panel"),
+        derives=("data_profile", "validation_report"),
     ),
     ActionSpec(
-        action_id="episode.refresh",
-        namespace="episode",
-        name="refresh",
-        kind="driver",
-        mode="async",
-        context_id="navigator",
-    ),
-    _run_action(
-        "specify.latent_structure",
-        "specify",
-        "latent_structure",
-        "latent_structure",
-        mode="delegated",
-        lower_context_id="latent-structure",
-    ),
-    _run_action(
-        "specify.measurement",
-        "specify",
-        "measurement",
-        "measurement_structure",
-        mode="delegated",
-        lower_context_id="measurement-structure",
-    ),
-    ActionSpec(
-        action_id="specify.edit",
-        namespace="specify",
-        name="edit",
-        kind="produce",
-        mode="direct",
-        context_id="navigator",
-        consumes=("model",),
-        produces=("model",),
-        derives=_reachable_derivations("model"),
-        move=WriteArtifact(artifact_id="model"),
-    ),
-    ActionSpec(
-        action_id="specify.identify",
-        namespace="specify",
-        name="identify",
-        kind="check",
-        mode="direct",
-        context_id="navigator",
-        consumes=("model",),
-        derives=("identification_report",),
-    ),
-    _run_action(
-        "measure.extract",
-        "measure",
-        "extract",
-        "measurements",
-        mode="delegated",
-        lower_context_id="measurement",
-    ),
-    _run_action(
-        "fit.specify",
         "fit",
-        "specify",
-        "statistical_model_spec",
-        mode="delegated",
-        lower_context_id="statistical-model-spec",
-    ),
-    _run_action(
-        "fit.infer",
-        "fit",
-        "infer",
-        "posterior",
-        mode="async",
-        lower_context_id="inference",
-    ),
-    ActionSpec(
-        action_id="fit.check",
-        namespace="fit",
-        name="check",
-        kind="check",
-        mode="direct",
-        context_id="navigator",
-        consumes=("model",),
-    ),
-    ActionSpec(
-        action_id="analyze.simulate",
-        namespace="analyze",
-        name="simulate",
-        kind="query",
-        mode="direct",
-        context_id="navigator",
-        consumes=("model", "panel", "identification_report"),
-        query=ToolQuerySpec(context_id="analysis", tool_name="simulate"),
-    ),
-    ActionSpec(
-        action_id="analyze.counterfactual",
-        namespace="analyze",
-        name="counterfactual",
-        kind="query",
-        mode="direct",
-        context_id="navigator",
-        consumes=("model", "panel", "identification_report"),
-        query=ToolQuerySpec(context_id="analysis", tool_name="simulate"),
-    ),
-    ActionSpec(
-        action_id="analyze.ppc",
-        namespace="analyze",
-        name="ppc",
-        kind="check",
-        mode="direct",
-        context_id="navigator",
+        "Condition the selected model on selected observations; return joint uncertainty and fitting diagnostics.",
         consumes=("model", "panel"),
+        produces=("model",),
+    ),
+    ActionSpec(
+        "simulate",
+        "Generate requested quantities from current model uncertainty and measure the shared predictive batch.",
+        consumes=("model",),
+        optional_consumes=("panel",),
     ),
 )
 
-
-CONTEXTS_BY_ID: dict[str, ContextSpec] = {context.context_id: context for context in CONTEXTS}
-ACTIONS_BY_ID: dict[str, ActionSpec] = {action.action_id: action for action in ACTIONS}
-
-
-def primary_transition_action(operation_id: OperationId) -> ActionSpec:
-    matches = [
-        action
-        for action in ACTIONS
-        if action.move is not None
-        and action.move.kind == "run"
-        and action.move.operation_id == operation_id
-    ]
-    if len(matches) != 1:
-        raise KeyError(
-            f"Expected exactly one primary action for {operation_id}, found {len(matches)}"
-        )
-    return matches[0]
-
-
-def _move_dict(move: Move | None) -> dict[str, object] | None:
-    if move is None:
-        return None
-    return move.model_dump(mode="json")
-
-
-def _query_dict(query: ToolQuerySpec | None) -> dict[str, str | bool] | None:
-    if query is None:
-        return None
-    return {
-        "context_id": query.context_id,
-        "tool_name": query.tool_name,
-        "freshness_checked": query.freshness_checked,
-    }
+ACTIONS_BY_ID = {action.action_id: action for action in ACTIONS}
 
 
 def describe_contexts() -> list[dict[str, object]]:
-    return [
-        {
-            "context_id": context.context_id,
-            "layer": context.layer,
-            "label": context.label,
-            "parent_id": context.parent_id,
-            "owns": list(context.owns),
-            "allowed_tools": list(context.allowed_tools),
-            "runtime_state": list(context.runtime_state),
-        }
-        for context in CONTEXTS
-    ]
+    return [asdict(context) for context in CONTEXTS]
 
 
 def describe_actions() -> list[dict[str, object]]:
-    return [
-        {
-            "action_id": action.action_id,
-            "namespace": action.namespace,
-            "name": action.name,
-            "kind": action.kind,
-            "mode": action.mode,
-            "context_id": action.context_id,
-            "consumes": list(action.consumes),
-            "produces": list(action.produces),
-            "produces_optional": list(action.produces_optional),
-            "derives": list(action.derives),
-            "move": _move_dict(action.move),
-            "query": _query_dict(action.query),
-            "lower_context_id": action.lower_context_id,
-        }
-        for action in ACTIONS
-    ]
-
-
-def _assert_hierarchy_consistent() -> None:
-    transition_ids = {spec.operation_id for spec in ARTIFACT_GRAPH}
-    artifact_ids = set(ARTIFACT_IDS)
-
-    if len(CONTEXTS_BY_ID) != len(CONTEXTS):
-        raise AssertionError("Context ids must be unique")
-    if len(ACTIONS_BY_ID) != len(ACTIONS):
-        raise AssertionError("Action ids must be unique")
-
-    for context in CONTEXTS:
-        if context.parent_id is not None and context.parent_id not in CONTEXTS_BY_ID:
-            raise AssertionError(f"Unknown parent context '{context.parent_id}'")
-        unknown_owned = set(context.owns) - artifact_ids
-        if unknown_owned:
-            raise AssertionError(f"{context.context_id} owns unknown artifacts: {unknown_owned}")
-
-    for artifact_id in transition_ids:
-        primary_transition_action(artifact_id)
-
-    for action in ACTIONS:
-        if action.context_id not in CONTEXTS_BY_ID:
-            raise AssertionError(f"{action.action_id} has unknown context {action.context_id}")
-        if action.lower_context_id is not None and action.lower_context_id not in CONTEXTS_BY_ID:
-            raise AssertionError(
-                f"{action.action_id} has unknown lower context {action.lower_context_id}"
-            )
-        if action.move is not None and action.query is not None:
-            raise AssertionError(f"{action.action_id} cannot have both move and query specs")
-        if action.move is not None:
-            if action.move.kind == "run" and action.move.operation_id not in transition_ids:
-                raise AssertionError(f"{action.action_id} runs unknown transition")
-            if action.move.kind == "write" and action.move.artifact_id not in WRITABLE_ARTIFACTS:
-                raise AssertionError(f"{action.action_id} writes non-writable artifact")
-        if action.query is not None and action.query.context_id not in CONTEXTS_BY_ID:
-            raise AssertionError(f"{action.action_id} queries unknown context")
-        referenced = (
-            *action.consumes,
-            *action.produces,
-            *action.produces_optional,
-            *action.derives,
-        )
-        if set(referenced) - artifact_ids:
-            raise AssertionError(f"{action.action_id} references unknown artifacts")
-
-    writable_produced = {
-        output for spec in ARTIFACT_GRAPH if spec.writable for output in spec.produces
-    }
-    if set(WRITABLE_ARTIFACTS) != set(ROOT_ARTIFACTS) | writable_produced:
-        raise AssertionError("Writable surface must be roots plus writable transitions")
-
-
-_assert_hierarchy_consistent()
+    return [asdict(action) for action in ACTIONS]

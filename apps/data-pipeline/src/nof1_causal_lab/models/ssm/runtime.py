@@ -204,6 +204,20 @@ def prepare_model_runtime(
     model: SSMModel | None = None,
 ) -> PreparedModelRuntime:
     """Canonical entry point for preparing stage data for model work."""
+    wide_data, runtime_rows = project_observation_data(data_for_model, model_spec=model_spec)
+    return prepare_wide_model_runtime(
+        wide_data,
+        model_spec=model_spec,
+        sampler_config=sampler_config,
+        model=model,
+        observation_data=runtime_rows,
+    )
+
+
+def project_observation_data(
+    data_for_model: pl.DataFrame, *, model_spec: ModelSpec
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Resolve indicator identities without compiling parameter laws or fitting."""
     wide_data = pivot_to_wide(data_for_model)
     runtime_rows = data_for_model.rename({"indicator_id": "indicator"})
     labels = {indicator.id: indicator.name for indicator in model_spec.indicators}
@@ -214,13 +228,7 @@ def prepare_model_runtime(
         {iid: name for iid, name in labels.items() if iid in wide_data.columns}
     )
     runtime_rows = runtime_rows.with_columns(pl.col("indicator").replace_strict(labels))
-    return prepare_wide_model_runtime(
-        wide_data,
-        model_spec=model_spec,
-        sampler_config=sampler_config,
-        model=model,
-        observation_data=runtime_rows,
-    )
+    return wide_data, runtime_rows
 
 
 def sample_prior_predictive(

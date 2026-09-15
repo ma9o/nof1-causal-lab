@@ -46,7 +46,7 @@ class TestLegalMoves:
 
     def test_initial_model_enables_latent_structure(self):
         state = _state(_version("model", provenance="human"))
-        assert _runnable(state) == {"raw_data", "latent_structure"}
+        assert _runnable(state) == {"raw_data", "latent_structure", "simulate"}
 
     def test_declared_writes_are_offered(self):
         offered = {

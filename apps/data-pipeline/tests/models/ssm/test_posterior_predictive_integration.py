@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorPredictiveChecks
-from nof1_causal_lab.models.posterior_predictive import run_posterior_predictive_checks
+from nof1_causal_lab.models.posterior_predictive import measure_predictive_checks
 from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
 from nof1_causal_lab.models.ssm.model import SSMModel
 from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
@@ -50,14 +50,7 @@ def test_predictive_draws_feed_mixed_family_diagnostics():
         [[0.2, 1.0], [jnp.nan, 2.0], [-0.1, 0.0], [0.1, 3.0], [-0.2, 2.0], [0.3, 4.0]]
     )
     indicator_ids = ["indicator:signal", "indicator:count"]
-    result = run_posterior_predictive_checks(
-        samples=samples,
-        observations=observations,
-        times=times,
-        indicator_ids=indicator_ids,
-        spec=spec,
-        n_subsample=8,
-    )
+    result = measure_predictive_checks(samples["observations"], observations, indicator_ids)
 
     assert isinstance(result, PosteriorPredictiveChecks)
     assert result.checked is True

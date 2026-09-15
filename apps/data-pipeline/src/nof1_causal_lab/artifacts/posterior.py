@@ -9,8 +9,19 @@ from .posterior_diagnostics import (
     LOODiagnostics,
     PosteriorMarginal,
     PosteriorPair,
-    PosteriorPredictiveChecks,
 )
+
+
+class FitSettingsSpec(BaseModel):
+    """Optional numerical controls applied to the configured particle sampler."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    num_samples: int | None = Field(default=None, ge=1)
+    num_warmup: int | None = Field(default=None, ge=0)
+    num_chains: int | None = Field(default=None, ge=1)
+    n_particles: int | None = Field(default=None, ge=2)
+    seed: int | None = Field(default=None, ge=0)
 
 
 class InferenceMetadata(BaseModel):
@@ -45,7 +56,6 @@ class InferenceReport(BaseModel):
         default_factory=dict,
         description="Engine-reported telemetry for this fit; keys and values are engine-defined.",
     )
-    ppc: PosteriorPredictiveChecks
     loo_diagnostics: LOODiagnostics | None = None
     posterior_marginals: list[PosteriorMarginal] | None = None
     posterior_pairs: list[PosteriorPair] | None = None

@@ -131,21 +131,24 @@ def _scientific_draws(model_spec: ModelSpec) -> JointPosteriorDraws:
     )
 
 
-def model_draws(model_spec: ModelSpec) -> JointPosteriorDraws:
-    """Derive native tensors from the current model's aligned particle distribution."""
+def assemble_parameter_draws(
+    model_spec: ModelSpec,
+    parameters: dict[str, jnp.ndarray],
+    *,
+    count: int,
+) -> dict[str, jnp.ndarray]:
+    """Assemble native tensors from aligned scientific parameter coordinates."""
     bindings, auxiliary = parameter_bindings(model_spec)
-    retained = _scientific_draws(model_spec)
     expected = {identity for binding in bindings for identity in binding.coordinates}
-    if retained.parameters.keys() != expected:
-        raise ValueError("Stored draws do not match the scientific parameters of this ModelSpec")
-    count = retained.describe().n_draws
+    if parameters.keys() != expected:
+        raise ValueError("Draws do not match the scientific parameters of this ModelSpec")
     registry = build_site_registry(model_spec)
     # Padding has no scientific interpretation and is never read by an emission.
     # Its canonical completion is zero; every active coordinate is filled below.
     samples = {}
     for site in registry:
         values = [
-            retained.parameters[identity]
+            parameters[identity]
             for binding in bindings
             for identity, coordinate in binding.coordinates.items()
             if coordinate.site_name == site.name
@@ -158,7 +161,7 @@ def model_draws(model_spec: ModelSpec) -> JointPosteriorDraws:
             samples[coordinate.site_name] = (
                 samples[coordinate.site_name]
                 .at[(slice(None), *coordinate.indices)]
-                .set(retained.parameters[identity])
+                .set(parameters[identity])
             )
             covered.add(coordinate)
     from itertools import product
@@ -173,6 +176,15 @@ def model_draws(model_spec: ModelSpec) -> JointPosteriorDraws:
     if covered != all_coordinates:
         raise ValueError("Scientific draws must cover every active native coordinate")
     samples.update(assemble_deterministics_from_registry(samples, model_spec, n_draws=count))
+    return samples
+
+
+def model_draws(model_spec: ModelSpec) -> JointPosteriorDraws:
+    """Derive native tensors from the current model's aligned particle distribution."""
+    retained = _scientific_draws(model_spec)
+    samples = assemble_parameter_draws(
+        model_spec, retained.parameters, count=retained.describe().n_draws
+    )
     paths = retained.latent_paths
     if paths is not None:
         state_ids = numeric.state_ids(model_spec)

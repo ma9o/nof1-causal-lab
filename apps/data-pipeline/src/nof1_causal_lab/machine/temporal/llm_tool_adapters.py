@@ -538,7 +538,7 @@ def _execute_model_spec_submit_construct(
     annotations: list[str] = []
     results: list[UncheckedJsonObject] = []
     if report is not None and report.name == construct:
-        from nof1_causal_lab.flows.transitions.model_spec.agentic.construct_flow import (
+        from nof1_causal_lab.recipes.incremental_model import (
             _check_result_payload,
         )
 

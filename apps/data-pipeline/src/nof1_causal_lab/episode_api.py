@@ -6,7 +6,7 @@ serve timeline/events from their execution logs without touching Temporal.
 Moves go through the episode workflow's ``propose`` update, which validates,
 executes, and records outcomes durably.
 
-The ``auto`` endpoint is the default navigation policy — run enabled
+The named observational-study recipe is an optional navigation policy — run enabled
 transitions in dependency order while their outputs are missing or stale —
 giving the web "run the pipeline" parity as one background driver. An
 LLM navigator replaces this policy by calling ``moves`` directly.
@@ -23,12 +23,15 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, Query, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 
+from nof1_causal_lab.actions.contracts import ScientificActionRequest  # noqa: TC001
+from nof1_causal_lab.actions.revisions import ModelComparison, RevisionCatalog
 from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
 from nof1_causal_lab.artifacts.identity import ArtifactId, OperationId  # noqa: TC001
 from nof1_causal_lab.artifacts.indicator import IndicatorSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 from nof1_causal_lab.artifacts.posterior import InferenceReport
+from nof1_causal_lab.artifacts.validation_report import DataProfileArtifact
 from nof1_causal_lab.flows.runtime_events import RuntimeEvent, read_events
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.artifacts import ArtifactVersionInfo  # noqa: TC001
@@ -62,6 +65,7 @@ from nof1_causal_lab.machine.snapshots import (
 )
 from nof1_causal_lab.machine.status import EpisodeStatus, MoveOutcome
 from nof1_causal_lab.machine.store import (
+    ArtifactStore,
     EpisodeJournal,
     TransitionRecord,
     derive_current_state,
@@ -188,7 +192,7 @@ def list_workspaces() -> WorkspaceList:
             continue
         workspaces.append(
             WorkspaceEntry(
-                href=f"/analysis/{workspace_id}",
+                href=f"/model/{workspace_id}",
                 question=_workspace_question(workspace_id),
                 workspaceId=workspace_id,
             )
@@ -401,6 +405,22 @@ class AutoRunBody(BaseModel):
     options: ExecOptions = Field(default_factory=ExecOptions)
 
 
+@router.post("/{workspace_id}/actions", response_model=MoveOutcome)
+async def execute_scientific_action(
+    workspace_id: str, body: ScientificActionRequest
+) -> MoveOutcome:
+    """Execute edit_model, prepare_data, fit, or simulate with explicit input revisions."""
+    from nof1_causal_lab.actions.commands import action_command
+
+    _require_moves_enabled()
+    command = action_command(body)
+    result = await _propose(
+        _safe_workspace_id(workspace_id),
+        MoveBody(move=command.move, payload=command.payload, options=command.options),
+    )
+    return MoveOutcome.model_validate(result)
+
+
 # ---------------------------------------------------------------------------
 # Reads: transition-log-backed (no Temporal dependency)
 # ---------------------------------------------------------------------------
@@ -453,6 +473,56 @@ def get_model_snapshot(reader: Annotated[ModelReader, Depends(model_reader)]) ->
     Use the returned `context.seq` for subsequent aggregate or collection reads at the same revision.
     """
     return reader.snapshot()
+
+
+@router.get("/{workspace_id}/revisions", response_model=RevisionCatalog)
+def get_revisions(workspace_id: str) -> RevisionCatalog:
+    """List stored model, observation and source revisions for deliberate selection."""
+    store = ArtifactStore(_safe_workspace_id(workspace_id))
+    return RevisionCatalog(
+        **{
+            field: [store.read_meta(identity, v) for v in store.list_versions(identity)]
+            for field, identity in (
+                ("models", "model"),
+                ("panels", "panel"),
+                ("raw_data", "raw_data"),
+            )
+        }
+    )
+
+
+@router.get("/{workspace_id}/revisions/model/{version}", response_model=ModelSpec)
+def read_model_revision(workspace_id: str, version: Annotated[int, Path(ge=1)]) -> ModelSpec:
+    """Read a historical definition, including the input to an earlier fit."""
+    from nof1_causal_lab.machine.derivations import read_model
+
+    return read_model(ArtifactStore(_safe_workspace_id(workspace_id)), version)
+
+
+@router.get("/{workspace_id}/revisions/compare", response_model=ModelComparison)
+def compare_model_revisions(
+    workspace_id: str, before: Annotated[int, Query(ge=1)], after: Annotated[int, Query(ge=1)]
+) -> ModelComparison:
+    """Compare fixed/free decisions, laws and scientific dependencies in the backend."""
+    from nof1_causal_lab.actions.revisions import compare_models
+
+    return compare_models(ArtifactStore(_safe_workspace_id(workspace_id)), before, after)
+
+
+@router.get(
+    "/{workspace_id}/revisions/data-profile/{panel_version}", response_model=DataProfileArtifact
+)
+def read_data_profile(
+    workspace_id: str, panel_version: Annotated[int, Path(ge=1)]
+) -> DataProfileArtifact:
+    """Read the empirical profile for an observation revision independently of the model."""
+    store = ArtifactStore(_safe_workspace_id(workspace_id))
+    for version in reversed(store.list_versions("data_profile")):
+        if store.read_meta("data_profile", version).derived_from["panel"] == panel_version:
+            return DataProfileArtifact.model_validate(
+                store.read_json_file("data_profile", version, "data_profile.json")
+            )
+    raise HTTPException(404, "This observation revision has no recorded data profile")
 
 
 @router.get("/{workspace_id}/model/definition", response_model=Sourced[ModelSpec] | None)
@@ -809,7 +879,7 @@ async def propose_move(workspace_id: str, body: MoveBody) -> UncheckedJsonObject
 
     The synchronous outcome is the same record the timeline stores. Long transitions
     (statistical model specification, posterior — minutes to hours) can outlive a client timeout; for
-    those prefer `POST /api/episodes/{workspace_id}/auto` plus polling.
+    those prefer `POST /api/episodes/{workspace_id}/recipes/observational-study` plus polling.
     """
     _require_moves_enabled()
     return await _propose(workspace_id, body)
@@ -893,6 +963,8 @@ def _next_auto_move(workspace_id: str, state: EpisodeState) -> RunOperation | No
     )
     specs = {spec.operation_id: spec for spec in ARTIFACT_GRAPH}
     for artifact_id in topological_transition_order():
+        if artifact_id == "simulate":
+            continue  # Prediction requires the agent's explicit design and requested experiment.
         spec = specs[artifact_id]
         move = RunOperation(operation_id=artifact_id)
         if validate_move(state, move) is None and _needs_run(
@@ -925,7 +997,7 @@ async def _auto_drive(workspace_id: str, options: ExecOptions) -> None:
         _AUTO_DRIVERS.pop(workspace_id, None)
 
 
-@router.post("/{workspace_id}/auto", response_model=AutoRunResponse)
+@router.post("/{workspace_id}/recipes/observational-study", response_model=AutoRunResponse)
 async def auto_run(workspace_id: str, body: AutoRunBody) -> UncheckedJsonObject:
     """Start the default navigation policy in the background.
 

@@ -125,7 +125,7 @@ def test_statistical_finalizer_commits_model_and_findings_together(
     from nof1_causal_lab.machine.store import ArtifactStore
     from nof1_causal_lab.machine.temporal import statistical_model_spec_activities as activities
     from nof1_causal_lab.machine.temporal.messages import StatisticalModelSpecFinalizeInput
-    from nof1_causal_lab.models.ssm.construct_admission import AdmissionState
+    from nof1_causal_lab.recipes.construct_authoring import AdmissionState
     from tests.helpers import complete_test_model, make_model, run_async
 
     model = complete_test_model(make_model(["X"]))

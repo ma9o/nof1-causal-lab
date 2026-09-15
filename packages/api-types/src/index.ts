@@ -47,7 +47,7 @@ export interface ArtifactData<T = unknown> {
 
 // Named type aliases inlined in generated types but needed as standalone exports
 export type ValidationSeverity = "error" | "warning" | "info";
-export type CellStatus = "ok" | "warning" | "error";
+export type CellStatus = "ok" | "warning" | "error" | "not_evaluated";
 export type CausalGranularity = "hourly" | "daily" | "weekly" | "monthly" | "yearly";
 
 export { createModelClient } from "./client";

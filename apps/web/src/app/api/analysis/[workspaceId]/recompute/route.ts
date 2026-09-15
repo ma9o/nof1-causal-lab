@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { EpisodeRunError, startAutoRun } from "@/lib/server/episode-runs";
+import { EpisodeRunError, startStudyRecipe } from "@/lib/server/episode-runs";
 import { normalizeWorkspaceId } from "@/lib/workspace-id";
 
 /**
@@ -21,7 +21,7 @@ export async function POST(
   }
 
   try {
-    await startAutoRun(safeWorkspaceId);
+    await startStudyRecipe(safeWorkspaceId);
     return NextResponse.json({ ok: true, workspaceId: safeWorkspaceId });
   } catch (error) {
     if (error instanceof EpisodeRunError) {

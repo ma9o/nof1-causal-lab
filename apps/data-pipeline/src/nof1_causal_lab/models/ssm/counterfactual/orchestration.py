@@ -120,6 +120,8 @@ def vmap_simulate_clamps_from_state(
     *,
     time_grid: Array,
     config: SimulationConfig | None = None,
+    keys: Array | None = None,
+    diffusion_cov: Array | None = None,
 ) -> tuple[Array, Array, Array]:
     """Vmapped baseline / clamped / effect trajectories under a composed clamp list.
 
@@ -132,6 +134,8 @@ def vmap_simulate_clamps_from_state(
     """
     import jax
 
+    if (keys is None) != (diffusion_cov is None):
+        raise ValueError("Process noise requires paired keys and diffusion covariance")
     n_latent = vector_field.n_latent
     if not param_samples:
         empty = jnp.zeros((0, time_grid.shape[0], n_latent))
@@ -147,32 +151,55 @@ def vmap_simulate_clamps_from_state(
 
     n_segments = len(segments)
 
-    def clamped_path(params: tuple[dict[str, Array], ...], y0: Array) -> Array:
+    def clamped_path(
+        params: tuple[dict[str, Array], ...], y0: Array, key=None, covariance=None, active=True
+    ) -> Array:
         segment_paths: list[Array] = []
         state = y0
         for seg_idx, (i0, i1, seg_start_day) in enumerate(segments):
             seg_grid = time_grid[i0 : i1 + 1]
             intervention = Intervention(
                 overrides=_segment_overrides(clamps, y0, grid_start, grid_end, seg_start_day)
+                if active
+                else ()
             )
-            seg_ys = simulate(vector_field, params, intervention, state, seg_grid, config)
+            seg_ys = simulate(
+                vector_field,
+                params,
+                intervention,
+                state,
+                seg_grid,
+                config,
+                key=jax.random.fold_in(key, seg_idx) if key is not None else None,
+                diffusion_cov=covariance,
+            )
             # Carry the integrated boundary state forward, but emit the *next* segment's
             # pinned boundary point so a window opening mid-rollout shows its jump exactly.
             segment_paths.append(seg_ys[:-1] if seg_idx < n_segments - 1 else seg_ys)
             state = seg_ys[-1]
         return jnp.concatenate(segment_paths, axis=0)
 
-    def per_draw(params: tuple[dict[str, Array], ...], y0: Array) -> tuple[Array, Array, Array]:
-        baseline_path = simulate(vector_field, params, Intervention.none(), y0, time_grid, config)
-        action_path = clamped_path(params, y0)
+    def per_draw(
+        params: tuple[dict[str, Array], ...], y0: Array, key=None, covariance=None
+    ) -> tuple[Array, Array, Array]:
+        baseline_path = clamped_path(params, y0, key, covariance, active=False)
+        action_path = clamped_path(params, y0, key, covariance)
         return baseline_path, action_path, action_path - baseline_path
 
     if initial_states is None:
 
-        def per_draw_steady(params):
+        def per_draw_steady(params, key=None, covariance=None):
             y0 = compute_steady_state(vector_field, params, Intervention.none())
-            return per_draw(params, y0)
+            return per_draw(params, y0, key, covariance)
 
-        return jax.vmap(per_draw_steady)(stacked)
+        return (
+            jax.vmap(per_draw_steady)(stacked)
+            if keys is None
+            else jax.vmap(per_draw_steady)(stacked, keys, diffusion_cov)
+        )
 
-    return jax.vmap(per_draw)(stacked, initial_states)
+    return (
+        jax.vmap(per_draw)(stacked, initial_states)
+        if keys is None
+        else jax.vmap(per_draw)(stacked, initial_states, keys, diffusion_cov)
+    )

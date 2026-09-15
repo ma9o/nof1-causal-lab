@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from nof1_causal_lab.actions.contracts import scientific_tool_contracts
 from nof1_causal_lab.flows.transitions.analysis.contracts import (
     ANALYSIS_TOOL_CONTRACTS,
 )
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
     from nof1_causal_lab.flows.contracts_base import ToolDefinition
 
 CONTEXT_TOOLS: dict[str, list[ToolDefinition]] = {
+    "scientific": scientific_tool_contracts(),
     "ingestion": INGESTION_TOOL_CONTRACTS,
     "latent-structure": LATENT_STRUCTURE_TOOL_CONTRACTS,
     "measurement-structure": MEASUREMENT_STRUCTURE_TOOL_CONTRACTS,

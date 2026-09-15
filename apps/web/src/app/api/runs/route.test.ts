@@ -9,11 +9,11 @@ vi.mock("@/lib/server/episode-runs", () => ({
       this.status = status;
     }
   },
-  startAutoRun: vi.fn(),
+  startStudyRecipe: vi.fn(),
   startEpisode: vi.fn(),
 }));
 
-import { EpisodeRunError, startAutoRun, startEpisode } from "@/lib/server/episode-runs";
+import { EpisodeRunError, startStudyRecipe, startEpisode } from "@/lib/server/episode-runs";
 import { POST } from "./route";
 
 describe("POST /api/runs", () => {
@@ -49,9 +49,9 @@ describe("POST /api/runs", () => {
     expect(startEpisode).not.toHaveBeenCalled();
   });
 
-  it("writes the question and starts the auto-run driver", async () => {
+  it("creates the workspace without starting an optional recipe", async () => {
     vi.mocked(startEpisode).mockResolvedValue({} as never);
-    vi.mocked(startAutoRun).mockResolvedValue();
+    vi.mocked(startStudyRecipe).mockResolvedValue();
 
     const response = await POST(
       new Request("http://localhost/api/runs", {
@@ -67,12 +67,11 @@ describe("POST /api/runs", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ workspaceId: "USER123" });
     expect(startEpisode).toHaveBeenCalledWith("USER123", "Why is sleep worse after travel?");
-    expect(startAutoRun).toHaveBeenCalledWith("USER123");
+    expect(startStudyRecipe).not.toHaveBeenCalled();
   });
 
-  it("returns 409 when an auto-run is already active for the workspace", async () => {
-    vi.mocked(startEpisode).mockResolvedValue({} as never);
-    vi.mocked(startAutoRun).mockRejectedValue(
+  it("returns a workspace revision conflict", async () => {
+    vi.mocked(startEpisode).mockRejectedValue(
       new EpisodeRunError(409, "auto-run already active for USER123"),
     );
 
@@ -118,7 +117,7 @@ describe("POST /api/runs", () => {
 
     expect(response.status).toBe(502);
     await expect(response.json()).resolves.toEqual({
-      error: "Failed to trigger pipeline",
+      error: "Failed to create workspace",
     });
   });
 });

@@ -19,7 +19,6 @@ from nof1_causal_lab.machine.graph import transition_spec
 from nof1_causal_lab.machine.moves import (
     ExecOptions,
     TransitionEffects,
-    input_pins,
 )
 from nof1_causal_lab.machine.store import ArtifactStore
 
@@ -40,26 +39,28 @@ async def _run_posterior(
     pins: dict[ArtifactId, int],
     options: ExecOptions,
 ) -> TransitionEffects:
-    from nof1_causal_lab.artifacts.posterior import InferenceReport
-    from nof1_causal_lab.flows.transitions.inference.flow import (
+    from nof1_causal_lab.actions.fit import (
         build_sampler_config,
-        run_inference_with_data,
+        fit,
     )
+    from nof1_causal_lab.artifacts.posterior import InferenceReport
     from nof1_causal_lab.utils.config import get_config
 
     panel = _panel_df(store, pins)
     from functools import cache
 
-    from nof1_causal_lab.machine.inference import read_prior_model
+    from nof1_causal_lab.machine.derivations import read_model
 
-    model_spec = read_prior_model(store, pins["model"])
+    model_spec = read_model(store, pins["model"])
     model_spec.check_execution()
+    sampler_config = build_sampler_config(options.inference_method)
+    sampler_config.update(options.fit_settings.model_dump(exclude_none=True))
 
     result = await asyncio.to_thread(
-        run_inference_with_data,
+        fit,
         model_spec=model_spec,
         data_for_model=panel,
-        sampler_config=build_sampler_config(options.inference_method),
+        sampler_config=sampler_config,
         array_writer=store.write_array,
         array_loader=cache(store.read_array),
         workspace_id=workspace_id,
@@ -86,8 +87,69 @@ async def _run_posterior(
     )
 
 
+async def _run_simulate(
+    workspace_id: str,
+    store: ArtifactStore,
+    pins: dict[ArtifactId, int],
+    options: ExecOptions,
+) -> TransitionEffects:
+    from nof1_causal_lab.actions.simulate import simulate
+    from nof1_causal_lab.artifacts.identity import ModelRevision
+    from nof1_causal_lab.machine.derivations import read_model
+
+    if options.simulation is None:
+        raise ValueError("Simulation requires an explicit design")
+    used_pins: dict[ArtifactId, int] = {"model": pins["model"]}
+    panel = None
+    if options.comparison_panel_version is not None:
+        if pins.get("panel") != options.comparison_panel_version:
+            raise ValueError(
+                "Simulation comparison data does not match the selected panel revision"
+            )
+        used_pins["panel"] = pins["panel"]
+        panel = _panel_df(store, used_pins)
+    from nof1_causal_lab.artifacts.simulation import CausalSimulationSpec
+
+    model = read_model(store, pins["model"])
+    revision = ModelRevision(workspace_id=workspace_id, version=pins["model"])
+    if isinstance(options.simulation, CausalSimulationSpec):
+        from nof1_causal_lab.actions.scenarios import simulate_causal
+        from nof1_causal_lab.machine.inference import inference_record
+        from nof1_causal_lab.machine.store import EpisodeJournal
+
+        if panel is not None:
+            raise ValueError("Causal scenarios do not consume comparison observations")
+        record = inference_record(EpisodeJournal(workspace_id).read_all(), pins["model"])
+        if record is None:
+            raise ValueError(
+                "Causal simulation requires a committed production fit for the selected model"
+            )
+        report = await asyncio.to_thread(
+            simulate_causal,
+            model,
+            options.simulation,
+            revision=revision,
+            store=store,
+            inference=record,
+        )
+    else:
+        report = await asyncio.to_thread(
+            simulate,
+            read_model(store, pins["model"]),
+            options.simulation,
+            revision=ModelRevision(workspace_id=workspace_id, version=pins["model"]),
+            write_array=store.write_array,
+            comparison_data=panel,
+            comparison_panel_version=options.comparison_panel_version,
+        )
+    return TransitionEffects(
+        diagnostics={"input_pins": used_pins, "report": report.model_dump(mode="json")}
+    )
+
+
 _TRANSITION_RUNNERS = {
     "posterior": _run_posterior,
+    "simulate": _run_simulate,
 }
 
 _TEMPORAL_ONLY_TRANSITIONS = frozenset(
@@ -121,7 +183,7 @@ async def execute_transition_locally(
     try:
         run = await runner(workspace_id, store, pins, options)
         effects = complete_computed_transition(store, state, artifact_id, run.produced)
-        effects = effects.model_copy(update={"diagnostics": run.diagnostics})
+        effects = effects.model_copy(update={"diagnostics": effects.diagnostics | run.diagnostics})
     except Exception as exc:
         emit_transition_event(
             workspace_id,
@@ -139,18 +201,20 @@ async def execute_transition(
     artifact_id: OperationId,
     state: EpisodeState,
     options: ExecOptions,
+    selected_inputs: dict[ArtifactId, int] | None = None,
 ) -> TransitionEffects:
     """Run a transition, routing heavy transitions to Modal in production."""
     spec = transition_spec(artifact_id)
-    pins = input_pins(state, spec)
+    from nof1_causal_lab.machine.selection import resolve_input_pins
+
+    pins = resolve_input_pins(ArtifactStore(workspace_id), state, spec, selected_inputs or {})
     if artifact_id in _TEMPORAL_ONLY_TRANSITIONS:
         raise RuntimeError(f"{artifact_id} is implemented only as a Temporal child workflow")
     if os.environ.get("DEPLOYMENT_ENV") == "production" and artifact_id in _MODAL_TRANSITIONS:
         from nof1_causal_lab.flows.modal_runners import run_transition_on_modal
         from nof1_causal_lab.machine.derivations import read_model
-        from nof1_causal_lab.machine.inference import inference_input_version
 
         store = ArtifactStore(workspace_id)
-        read_model(store, inference_input_version(store, pins["model"])).check_execution()
+        read_model(store, pins["model"]).check_execution()
         return await run_transition_on_modal(workspace_id, artifact_id, pins, state, options)
     return await execute_transition_locally(workspace_id, artifact_id, pins, state, options)

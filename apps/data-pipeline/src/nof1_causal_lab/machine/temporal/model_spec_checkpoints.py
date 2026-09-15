@@ -409,14 +409,14 @@ def restore_construct_state(
     target_construct: str | None = None,
 ):
     """Reconstruct reducer state without rerunning accepted admission checks."""
-    from nof1_causal_lab.flows.transitions.model_spec.agentic.construct_flow import (
-        ConstructBuildState,
-        contribution_from_payload,
-    )
-    from nof1_causal_lab.models.ssm.construct_admission import (
+    from nof1_causal_lab.recipes.construct_authoring import (
         build_construct_order,
         build_construct_units,
         trial_admission_state,
+    )
+    from nof1_causal_lab.recipes.incremental_model import (
+        ConstructBuildState,
+        contribution_from_payload,
     )
 
     global_order = build_construct_order(model)
@@ -533,7 +533,7 @@ def rebase_accepted_constructs(
     data_for_model: Any,
 ) -> tuple[Any, list[AcceptedConstructCheckpoint], str | None, str | None]:
     """Replay saved units and invalidate only a failed unit and its descendants."""
-    from nof1_causal_lab.models.ssm.construct_admission import (
+    from nof1_causal_lab.recipes.construct_authoring import (
         build_construct_order,
         build_construct_units,
     )

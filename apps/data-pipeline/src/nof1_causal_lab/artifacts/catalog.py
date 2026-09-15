@@ -9,10 +9,11 @@ from pydantic import BaseModel
 from .identification import IdentificationReport
 from .identity import ArtifactId
 from .model_spec import ModelSpec
-from .validation_report import ValidationReportArtifact
+from .validation_report import DataProfileArtifact, ValidationReportArtifact
 
 ARTIFACT_CONTRACTS: dict[ArtifactId, type[BaseModel]] = {
     "model": ModelSpec,
     "identification_report": IdentificationReport,
+    "data_profile": DataProfileArtifact,
     "validation_report": ValidationReportArtifact,
 }

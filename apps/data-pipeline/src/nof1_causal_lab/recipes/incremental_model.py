@@ -5,7 +5,7 @@ causal DAG's topological order. Each construct is proposed by the LLM through th
 ``submit_construct`` tool (its emission choice + priors keyed by canonical
 parameter name); the cumulative partial model is compiled and gated by the
 **exact** prior-predictive reachability battery
-(:mod:`nof1_causal_lab.models.ssm.construct_admission`). A construct that fails a
+(:mod:`nof1_causal_lab.recipes.construct_authoring`). A construct that fails a
 hard check reopens for revision; a soft failure is a decision (revise, or accept
 the consequence via ``accept``). When every construct is admitted, the
 accumulated :class:`~nof1_causal_lab.artifacts.model_spec.ModelSpec`
@@ -38,17 +38,16 @@ from nof1_causal_lab.flows.runtime_events import emit_model_spec_admission_event
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.models.model_structure import model_for_constructs
 from nof1_causal_lab.models.ssm import numerics as numeric
-from nof1_causal_lab.models.ssm.construct_admission import (
+from nof1_causal_lab.models.ssm.reachability import CHECK_MODES, CheckResult, stage_outcome
+from nof1_causal_lab.models.ssm.simulation_checks import DesignInfo, MeasurementTiming
+from nof1_causal_lab.recipes.construct_authoring import (
     AdmissionState,
-    AdmissionTiming,
     ConstructAdmissionReport,
     ConstructContribution,
-    DesignInfo,
     admit_construct,
     recheck_member,
     trial_admission_state,
 )
-from nof1_causal_lab.models.ssm.reachability import CHECK_MODES, CheckResult, stage_outcome
 from nof1_causal_lab.utils.model_structure import (
     get_edges,
 )
@@ -60,8 +59,9 @@ if TYPE_CHECKING:
 
     from nof1_causal_lab.artifacts.identity import ParameterId
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
-
-    from .parameter_candidates import ParameterMetadata
+    from nof1_causal_lab.flows.transitions.model_spec.agentic.parameter_candidates import (
+        ParameterMetadata,
+    )
 
 # Attempts per construct before the build fails (each attempt is one fresh
 # agent session that must call submit_construct with a revised proposal).
@@ -96,9 +96,10 @@ class ParamCatalog:
 
     @classmethod
     def from_model(cls, source_model: ModelSpec) -> ParamCatalog:
+        from nof1_causal_lab.flows.transitions.model_spec.agentic.parameter_candidates import (
+            describe_parameters,
+        )
         from nof1_causal_lab.models.model_mechanisms import default_model
-
-        from .parameter_candidates import describe_parameters
 
         model = default_model(source_model)
         base = describe_parameters(model)
@@ -465,7 +466,7 @@ def _check_result_payload(result: CheckResult) -> UncheckedJsonObject:
     }
 
 
-def _timing_payload(timing: AdmissionTiming) -> UncheckedJsonObject:
+def _timing_payload(timing: MeasurementTiming) -> UncheckedJsonObject:
     return {
         "phase": timing.phase,
         "label": timing.label,
@@ -630,7 +631,7 @@ class ConstructBuildState:
             # return them as tool feedback so the admission loop can repair the
             # submission instead of crashing the activity.
             return str(exc)
-        design_timing = AdmissionTiming(
+        design_timing = MeasurementTiming(
             phase="design_preparation",
             label="Design preparation",
             duration_ms=(perf_counter_ns() - design_started) / 1_000_000,
@@ -718,7 +719,7 @@ class ConstructBuildState:
             seed=self.seed,
         )
         timings = [
-            AdmissionTiming(
+            MeasurementTiming(
                 phase="design_preparation",
                 label="Design preparation",
                 duration_ms=(perf_counter_ns() - design_started) / 1_000_000,

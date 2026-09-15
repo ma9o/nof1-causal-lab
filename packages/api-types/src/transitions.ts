@@ -84,6 +84,7 @@ export const TRANSITIONS: TransitionMeta[] = [
     description: "Fits the Bayesian model and runs convergence and sensitivity diagnostics.",
     interactive: false,
   },
+  { id: "simulate", label: "Simulation", loadingHint: "Generating nonlinear trajectories…", description: "Simulate selected model uncertainty and measure the resulting draws.", interactive: false },
 ];
 
 export const TRANSITION_META: Record<PipelineSectionId, TransitionMeta> = Object.fromEntries(

@@ -1,62 +1,72 @@
 ---
 name: nof1-episode-api
-description: "Drive or inspect the nof1-causal-lab episode state machine over HTTP with curl: run pipeline stages, write judgment artifacts (latent structure, causal design, priors), read episode state/timeline/artifacts, and invoke stage tools against the tool server. Use when navigating the episode machine as an external agent instead of the web viewer."
+description: "Drive or inspect the nof1-causal-lab episode state machine over HTTP with curl: edit models, prepare data, fit and simulate; inspect revisions, read episode state/timeline/artifacts, and invoke scientific tools and optional recipes against the tool server. Use when navigating the episode machine as an external agent instead of the web viewer."
 ---
 
 # nof1-causal-lab episode API — curl skill
 
 > Auto-generated from `packages/api-types/schemas/openapi.json` (the FastAPI OpenAPI spec) by `apps/data-pipeline/scripts/export_agent_api.py`. Edit the route docstrings, not this file.
 
-The episode machine is the single interface to an N-of-1 causal analysis. An
-external agent drives it entirely over this HTTP API — the same surface the web
-viewer uses. There is no SDK and no MCP server: `curl` is the interface.
+The scientific interface has four actions: `edit_model`, `prepare_data`, `fit`,
+and `simulate`. Requests commit through the serialized episode machine; reads
+come from its versioned artifacts and append-only transition log.
 
-## Orientation
+## Scientific loop
 
-Call `GET /api/machine` once. It returns the static artifact graph — every
-transition with what it consumes, produces, and optionally co-produces — plus
-each transition's creation class and the derivation graph:
+1. Read `GET /api/machine` for action responsibilities, then
+   `GET /api/episodes/{workspace_id}/model` for current model/data versions and findings.
+2. Submit to `POST /api/episodes/{workspace_id}/actions`:
+   - `edit_model`: `{"action":"edit_model","expected_version":0,"model":{"question":"Does workload affect sleep?"}}`.
+     Model structure, measurements, mechanisms, constants, and laws can be edited together.
+     Valid incomplete models are saved with applicable specification findings.
+   - `prepare_data`: `{"action":"prepare_data","source":"files"}` imports uploaded sources.
+     `{"action":"prepare_data","source":"raw_data","raw_data_version":1,"model_version":2}`
+     extracts observations using the selected measurement definitions.
+   - `fit`: `{"action":"fit","model_version":3,"panel_version":1}` conditions the selected
+     model on observations. Returns joint uncertainty and fit diagnostics; predictive
+     simulation is a separate request. Current fitting supports independent scalar laws.
+   - `simulate`: `{"action":"simulate","model_version":3,"design":{"kind":"trajectory","times":[0,1,2,3],"draws":100,"seed":0}}`
+     replicates a study from the selected model's current laws. Independent and joint
+     parameter laws use the same nonlinear generator. Optional `comparison_panel_version`
+     enables predictive comparisons on the matching observation grid; `design.edge_contrasts`
+     adds paired edge-off experiments. Replication draws a new initial state from the
+     model's initial distribution, even when the model contains fitted trajectories.
+3. Read the action outcome and `GET /api/episodes/{workspace_id}/timeline` for
+   `applied`, `rejected`, or `raised` records. Numerical arrays have immutable store references.
+   `GET /api/episodes/{workspace_id}/model` includes separately sourced specification,
+   identification, data-compatibility, fitting, and simulation findings.
 
-- `deterministic` — pure compute, no credentials (e.g. identification).
-- `batch_llm` — bulk LLM compute on the service's ambient key. You trigger it
-  with a `run` move; you never supply a key.
-- `judgment` — proposal work you can do yourself by writing the produced
-  artifact directly. These transitions are flagged `writable`.
+The same requests are available as tools through `GET /api/tools/scientific` and
+`POST /api/tools/scientific/{action}`. HTTP and tool calls share execution contracts.
 
-## The loop
+## Revisions and optional recipes
 
-1. `GET /api/machine` once, then `GET /api/episodes/{workspace_id}` for the live
-   state: per-artifact freshness, the legal moves, and whether an auto-run is
-   active.
-2. Propose a move at `POST /api/episodes/{workspace_id}/moves` — either
-   `{"move": {"kind": "run", "operation_id": "latent_structure"}}` to run a transition, or
-   `{"move": {"kind": "write", "artifact_id": "model", "expected_model_version": 0, "provenance": "llm"}, "payload": {...}}`
-   to create the scientific model directly (use its current version for later writes).
-3. Long transitions (`statistical_model_spec`, `posterior` — minutes to hours) can outlive a client
-   timeout. Prefer `POST /api/episodes/{workspace_id}/auto` (a background driver
-   that runs enabled transitions in dependency order) and poll the state.
-4. Read what happened at `GET /api/episodes/{workspace_id}/timeline`: `applied`,
-   `rejected` (illegal, state unchanged), or `raised` (typed transition error).
+Requests name stored input revisions. Fits check the selected model/data pair; model edits reject base revision conflicts. Read `/revisions` to select history and `/revisions/compare` to compare parameter decisions and recorded evidence.
+An edit does not require prior simulation or an authoring admission. Causal numerical
+claims still require matching identification and production inference evidence.
+Simulation reports retain their own model/data versions; a later edit makes that
+report historical rather than evidence for the edited model.
 
-## Staleness
-
-A `write` becomes a new provenance root and marks everything downstream stale
-until re-run. Numeric tools (`simulate`, `get_model_info`) hard-flag
-stale provenance chains in their warnings — never report numbers past those
-flags.
+The `/moves` endpoint serves internal jobs; `/recipes/observational-study` runs the optional authoring recipe.
+Their stage ordering is not a requirement of the scientific actions. A trajectory design selects
+`initial_state` (new_study, retained, fixed, equilibrium), `state_time` or `state_values`,
+process/observation noise, timed interventions and check criteria. A causal design
+uses `kind: "causal"` and `query` with start, clamps, outcome and readout. It uses the same
+generator and requires identification plus committed production-fit evidence.
+The `analysis` context is read-only model introspection.
 
 ## Data in, results out
 
-Upload raw data at `POST /api/upload` (`multipart/form-data` with `workspaceId`
-and `file`) before running the `raw_data` transition. Read artifact payloads at
-`GET /api/episodes/{workspace_id}/artifacts/{artifact_id}`; binary files
-(parquet, pickle) are served individually from `.../files/{filename}`.
+Upload files at `POST /api/upload` (`multipart/form-data` with `workspaceId` and
+`file`) before `prepare_data` with `source=files`. Read artifact payloads at
+`GET /api/episodes/{workspace_id}/artifacts/{artifact_id}`; binary files are served
+from `.../files/{filename}`. Long jobs may outlive an HTTP client timeout; inspect
+the timeline before submitting another request.
 
 ## Read-only deployments
 
-The hosted viewer's backend serves these same read endpoints against a published
-store with no move plane. `GET /api/capabilities` reports `moves_enabled`; every
-move returns 403 when it is `false`.
+`GET /api/capabilities` reports `moves_enabled`. Read-only deployments reject all
+scientific action submissions and machine writes with 403.
 
 ## Endpoints
 
@@ -104,6 +114,21 @@ so it works even against a published read-only store.
 
 ```bash
 curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID"
+```
+
+### POST `/api/episodes/{workspace_id}/actions`
+
+Execute edit_model, prepare_data, fit, or simulate with explicit input revisions.
+
+**Parameters**
+
+- `workspace_id` (path, required)
+
+```bash
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/actions" \
+  -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"action": "edit_model", "expected_version": 0, "model": {}}'
 ```
 
 ### GET `/api/episodes/{workspace_id}/artifacts/{artifact_id}`
@@ -158,27 +183,6 @@ transition journal, so it works against a published read-only store.
 
 ```bash
 curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/artifacts/ARTIFACT_ID/traces"
-```
-
-### POST `/api/episodes/{workspace_id}/auto`
-
-Start the default navigation policy in the background.
-
-Runs enabled stages in dependency order while their outputs are missing or
-stale, stopping when quiescent or when a move fails. Returns immediately;
-follow progress with `GET /api/episodes/{workspace_id}` (`auto_running`) and
-the timeline. An LLM navigator replaces this policy by proposing `moves`
-itself. 409 if a driver is already active for this workspace.
-
-**Parameters**
-
-- `workspace_id` (path, required)
-
-```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/auto" \
-  -X POST \
-  -H 'Content-Type: application/json' \
-  -d '{}'
 ```
 
 ### GET `/api/episodes/{workspace_id}/events`
@@ -337,7 +341,7 @@ Two kinds:
 
 The synchronous outcome is the same record the timeline stores. Long transitions
 (statistical model specification, posterior — minutes to hours) can outlive a client timeout; for
-those prefer `POST /api/episodes/{workspace_id}/auto` plus polling.
+those prefer `POST /api/episodes/{workspace_id}/recipes/observational-study` plus polling.
 
 **Parameters**
 
@@ -361,6 +365,79 @@ The latest applied operation's traces, independently of later ModelSpec authorsh
 
 ```bash
 curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/operations/OPERATION_ID/traces"
+```
+
+### POST `/api/episodes/{workspace_id}/recipes/observational-study`
+
+Start the default navigation policy in the background.
+
+Runs enabled stages in dependency order while their outputs are missing or
+stale, stopping when quiescent or when a move fails. Returns immediately;
+follow progress with `GET /api/episodes/{workspace_id}` (`auto_running`) and
+the timeline. An LLM navigator replaces this policy by proposing `moves`
+itself. 409 if a driver is already active for this workspace.
+
+**Parameters**
+
+- `workspace_id` (path, required)
+
+```bash
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/recipes/observational-study" \
+  -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{}'
+```
+
+### GET `/api/episodes/{workspace_id}/revisions`
+
+List stored model, observation and source revisions for deliberate selection.
+
+**Parameters**
+
+- `workspace_id` (path, required)
+
+```bash
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/revisions"
+```
+
+### GET `/api/episodes/{workspace_id}/revisions/compare`
+
+Compare fixed/free decisions, laws and scientific dependencies in the backend.
+
+**Parameters**
+
+- `workspace_id` (path, required)
+- `before` (query, required)
+- `after` (query, required)
+
+```bash
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/revisions/compare"
+```
+
+### GET `/api/episodes/{workspace_id}/revisions/data-profile/{panel_version}`
+
+Read the empirical profile for an observation revision independently of the model.
+
+**Parameters**
+
+- `workspace_id` (path, required)
+- `panel_version` (path, required)
+
+```bash
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/revisions/data-profile/PANEL_VERSION"
+```
+
+### GET `/api/episodes/{workspace_id}/revisions/model/{version}`
+
+Read a historical definition, including the input to an earlier fit.
+
+**Parameters**
+
+- `workspace_id` (path, required)
+- `version` (path, required)
+
+```bash
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/revisions/model/VERSION"
 ```
 
 ### GET `/api/episodes/{workspace_id}/timeline`

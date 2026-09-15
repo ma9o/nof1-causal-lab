@@ -26,10 +26,10 @@ def imports():
         LinkFunction,
     )
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.models.ssm.construct_admission import (
+    from nof1_causal_lab.models.ssm.simulation_checks import DesignInfo
+    from nof1_causal_lab.recipes.construct_authoring import (
         AdmissionState,
         ConstructContribution,
-        DesignInfo,
         admit_construct,
         build_construct_order,
     )

@@ -28,10 +28,12 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
   const parameters = parametersForOwner(context.model.model?.value, id);
   const priorParameters = parametersForOwner(context.model.model?.value, id);
   const fitted = posteriorRows(parameters, context.model.findings.fit?.value.report);
+  const simulation = context.model.findings.simulation;
   const checks =
-    context.model.findings.fit?.value.report.ppc.per_variable_warnings.filter(
-      (item) => item.indicator_id === id,
-    ) ?? [];
+    (simulation?.source.validity === "fresh"
+      ? simulation.value.predictive_checks?.per_variable_warnings
+      : []
+    )?.filter((item) => item.indicator_id === id) ?? [];
   const issues = audit?.issues.filter((issue) => issue.severity !== "info") ?? [];
   const checkEntries = audit ? Object.entries(audit.checks) : [];
   const okChecks = checkEntries.filter(([, status]) => status === "ok").length;
@@ -123,17 +125,19 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
           <PriorTable rows={priorRows(priorParameters, context.model.model!.value.distributions)} />
         </Section>
       ) : null}
-      {checks.length > 0 || (parameters.length > 0 && fitted.length > 0) ? (
+      {checks.length > 0 ? (
+        <Section title="Simulation" chips={<FactChip source={simulation?.source} />}>
+          <div className="flex flex-wrap gap-1">
+            {checks.map((check) => (
+              <Tag key={check.check_type} tone={check.passed ? "success" : "destructive"}>
+                {check.check_type} {check.passed ? "✓" : "✗"} {check.value.toFixed(2)}
+              </Tag>
+            ))}
+          </div>
+        </Section>
+      ) : null}
+      {parameters.length > 0 && fitted.length > 0 ? (
         <Section title="Fit" chips={<FactChip source={context.model.findings.fit?.source} />}>
-          {checks.length > 0 ? (
-            <div className="flex flex-wrap gap-1">
-              {checks.map((check) => (
-                <Tag key={check.check_type} tone={check.passed ? "success" : "destructive"}>
-                  {check.check_type} {check.passed ? "✓" : "✗"} {check.value.toFixed(2)}
-                </Tag>
-              ))}
-            </div>
-          ) : null}
           <PosteriorTable rows={fitted} />
         </Section>
       ) : null}

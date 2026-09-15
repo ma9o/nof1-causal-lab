@@ -12,18 +12,20 @@ from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.model_distributions import with_parameter_distributions
 from nof1_causal_lab.models.model_structure import model_for_constructs
 from nof1_causal_lab.models.ssm import numerics as numeric
-from nof1_causal_lab.models.ssm.construct_admission import (
-    AdmissionState,
-    AdmissionTiming,
-    ConstructContribution,
+from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
+from nof1_causal_lab.models.ssm.reachability import CheckResult
+from nof1_causal_lab.models.ssm.simulation_checks import (
     DesignInfo,
+    MeasurementTiming,
     _conditional_variance_for_signal,
-    _run_battery,
+    measure_construct_simulation,
+)
+from nof1_causal_lab.recipes.construct_authoring import (
+    AdmissionState,
+    ConstructContribution,
     admit_construct,
     build_construct_order,
 )
-from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
-from nof1_causal_lab.models.ssm.reachability import CheckResult
 from nof1_causal_lab.utils.model_structure import (
     get_edges,
     get_manifest_indicators,
@@ -147,9 +149,9 @@ def test_build_construct_order_is_topological():
 
 
 def test_admit_construct_records_shared_and_diagnostic_timings(monkeypatch):
-    from nof1_causal_lab.models.ssm import construct_admission as admission_module
+    from nof1_causal_lab.recipes import construct_authoring as admission_module
 
-    diagnostic = AdmissionTiming(
+    diagnostic = MeasurementTiming(
         phase="c1_confinement",
         label="C1 confinement",
         duration_ms=4.0,
@@ -159,7 +161,7 @@ def test_admit_construct_records_shared_and_diagnostic_timings(monkeypatch):
     monkeypatch.setattr(admission_module, "_sample_partial", lambda *_args: {})
     monkeypatch.setattr(
         admission_module,
-        "_run_battery",
+        "measure_construct_simulation",
         lambda *_args: (
             [CheckResult("C1a finiteness", "X", "0%", "0%", True, "ok")],
             [diagnostic],
@@ -253,7 +255,7 @@ def test_time_invariant_construct_omits_temporal_transmission_check():
         ),
     )
 
-    results, _timings = _run_battery(spec, pred, design, target)
+    results, _timings = measure_construct_simulation(spec, pred, design, target)
     checks = {result.check for result in results}
     assert {"C5a location reach", "C5b width"} <= checks
     assert "C5c transmission" not in checks
@@ -451,7 +453,7 @@ def test_fixed_hill_coefficients_participate_in_admission_and_edge_off(monkeypat
         },
         n_draws=draws,
     )
-    results, _ = _run_battery(
+    results, _ = measure_construct_simulation(
         spec,
         predictive,
         design,

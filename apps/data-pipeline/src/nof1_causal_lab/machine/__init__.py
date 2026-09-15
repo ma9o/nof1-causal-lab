@@ -38,7 +38,6 @@ from nof1_causal_lab.machine.hierarchy import (
     CONTEXTS,
     ActionSpec,
     ContextSpec,
-    primary_transition_action,
 )
 from nof1_causal_lab.machine.moves import (
     Move,
@@ -79,7 +78,6 @@ __all__ = [
     "freshness_report",
     "is_stale",
     "legal_moves",
-    "primary_transition_action",
     "transition_spec",
     "validate_move",
 ]

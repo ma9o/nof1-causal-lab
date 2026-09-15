@@ -22,6 +22,10 @@ from nof1_causal_lab.distributions import constraint_domain
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.models.model_mechanisms import default_model
 from nof1_causal_lab.models.model_structure import model_for_constructs
+from nof1_causal_lab.recipes.incremental_model import (
+    AdmissionTurnInventory,
+    render_admission_feedback,
+)
 from nof1_causal_lab.utils.causal_design import (
     choose_reference_indicator,
     get_effective_observation_window,
@@ -36,10 +40,6 @@ from nof1_causal_lab.utils.model_structure import (
 )
 from nof1_causal_lab.utils.observation_semantics import get_observation_semantics
 
-from .construct_flow import (
-    AdmissionTurnInventory,
-    render_admission_feedback,
-)
 from .prompts.shared_fragments import (
     CONTINUOUS_TIME_DYNAMICS_SECTION,
     LINK_FUNCTION_RULES_SECTION,
@@ -49,8 +49,7 @@ from .prompts.shared_fragments import (
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
-
-    from .construct_flow import ConstructBuildState
+    from nof1_causal_lab.recipes.incremental_model import ConstructBuildState
 
 _SYSTEM_TASK = """You are specifying one construct of a continuous-time latent state-space model,
 one construct at a time along the causal graph. For the active construct you author:

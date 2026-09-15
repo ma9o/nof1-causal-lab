@@ -23,7 +23,6 @@ export default function PosteriorView({
       </div>
       <DiagnosticsAccordion
         indicators={indicators}
-        ppc={data.ppc}
         inferenceDiagnostics={data.inference_diagnostics}
         looDiagnostics={data.loo_diagnostics}
         posteriorMarginals={data.posterior_marginals}

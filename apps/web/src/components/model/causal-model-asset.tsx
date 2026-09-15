@@ -27,6 +27,7 @@ import { DetailsPane } from "./details-pane";
 import { ASSET_SELECTION, type ModelSelection } from "./model-selection";
 import { buildModelQueries } from "./queries";
 import type { ScopeContext } from "./scopes/scope-context";
+import { ScientificActions } from "./scientific-actions";
 import { VersionScrubber } from "./version-scrubber";
 
 export interface CausalModelAssetViewProps {
@@ -154,7 +155,7 @@ function ModelRevision({
       entities,
       snapshot,
       current,
-      canSimulate: currentModel.context.can_simulate,
+      canSimulate: !readOnly && model.context.can_simulate,
       ticks,
       artifacts,
       question,
@@ -170,7 +171,7 @@ function ModelRevision({
       entities,
       snapshot,
       current,
-      currentModel.context.can_simulate,
+      readOnly,
       ticks,
       artifacts,
       question,
@@ -186,7 +187,7 @@ function ModelRevision({
   const selectedNode = selection.kind === "construct" ? selection.id : null;
   const status =
     running.length > 0
-      ? `auto-run · ${running.map((id) => TRANSITION_META[id].label).join(", ")} running`
+      ? `running · ${running.map((id) => TRANSITION_META[id].label).join(", ")} running`
       : !isNow
         ? `viewing v${playhead} of v${latest} · read-only`
         : "live · idle";
@@ -218,13 +219,18 @@ function ModelRevision({
               Return to now
             </Button>
           ) : null}
-          {isNow && nextRun && onRun && !readOnly ? (
-            <Button type="button" size="sm" onClick={onRun}>
-              ▶ run {TRANSITION_META[nextRun].label}
-            </Button>
-          ) : null}
         </div>
       </header>
+      {!readOnly && (
+        <ScientificActions
+          workspaceId={workspaceId}
+          currentVersion={currentModel.context.state.current.model?.version ?? 0}
+          panelVersion={currentModel.context.state.current.panel?.version ?? 0}
+          rawVersion={currentModel.context.state.current.raw_data?.version ?? 0}
+          busy={running.length > 0}
+          onRecipe={onRun}
+        />
+      )}
       <VersionScrubber
         ticks={ticks}
         playhead={playhead}

@@ -247,11 +247,10 @@ class TestForwardSimulation:
             _fake_observations,
         )
 
-        registry_runtime.simulate_posterior_predictive_observations(
+        registry_runtime.simulate_predictive_draws(
             spec,
             samples,
             jnp.arange(3, dtype=jnp.float32),
-            n_subsample=n_draws,
         )
 
         np.testing.assert_allclose(

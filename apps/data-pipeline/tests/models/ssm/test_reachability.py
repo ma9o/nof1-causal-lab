@@ -9,7 +9,6 @@ from nof1_causal_lab.models.ssm.reachability import (
     CheckResult,
     check_confinement,
     check_coverage,
-    check_data_availability,
     check_edge_share,
     check_resolvability,
     check_saturation,
@@ -219,17 +218,6 @@ class TestCoverage:
         for check in original:
             assert original[check].passed == relabeled[check].passed
 
-    def test_no_observed_values_is_explicit_soft_failure(self):
-        result = check_data_availability("y")
-        assert result.check == "C5d data availability"
-        assert result.passed is False
-        outcome, annotations = stage_outcome(
-            [result],
-            {("C5d data availability", "y"): "No measurements were available in this panel."},
-        )
-        assert outcome == "ADMITTED with accepted consequences"
-        assert "prior-driven" in annotations[0]
-
 
 class TestTransmission:
     def test_sparse_poisson_rate_movement_does_not_collapse_with_zero_iqr(self):
@@ -318,6 +306,5 @@ def test_every_check_id_has_a_mode():
         "C5a location reach",
         "C5b width",
         "C5c transmission",
-        "C5d data availability",
     }
     assert emitted == set(CHECK_MODES)

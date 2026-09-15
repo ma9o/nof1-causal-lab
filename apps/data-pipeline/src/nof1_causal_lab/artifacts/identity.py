@@ -113,10 +113,14 @@ type ArtifactId = Literal[
     "model",
     "identification_report",
     "panel",
+    "data_profile",
     "validation_report",
 ]
 
 # Operations name work; several operations can enrich the same model artifact.
+type ScientificActionId = Literal["edit_model", "prepare_data", "fit", "simulate"]
+
+
 type OperationId = Literal[
     "raw_data",
     "latent_structure",
@@ -124,6 +128,7 @@ type OperationId = Literal[
     "measurements",
     "statistical_model_spec",
     "posterior",
+    "simulate",
 ]
 
 ARTIFACT_IDS: tuple[ArtifactId, ...] = get_args(ArtifactId.__value__)

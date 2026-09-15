@@ -100,12 +100,12 @@ class PPCOverlay(BaseModel):
 
     indicator_id: IndicatorId
     observed: list[float | None]
-    q025: list[float]
-    q25: list[float]
-    median: list[float]
-    q75: list[float]
-    q975: list[float]
-    spaghetti_draws: list[list[float]] = Field(default_factory=list)
+    q025: list[float | None]
+    q25: list[float | None]
+    median: list[float | None]
+    q75: list[float | None]
+    q975: list[float | None]
+    spaghetti_draws: list[list[float | None]] = Field(default_factory=list)
 
 
 class PPCTestStat(BaseModel):

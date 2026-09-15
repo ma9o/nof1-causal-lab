@@ -7,6 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from nof1_causal_lab.artifacts.checks import SpecificationReport  # noqa: TC001
 from nof1_causal_lab.artifacts.execution import StructuralItemDisposition  # noqa: TC001
 from nof1_causal_lab.artifacts.identification import IdentificationReport  # noqa: TC001
 from nof1_causal_lab.artifacts.identity import (
@@ -20,6 +21,7 @@ from nof1_causal_lab.artifacts.model_spec import ModelSpec  # noqa: TC001
 from nof1_causal_lab.artifacts.posterior import InferenceReport  # noqa: TC001
 from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorEstimate  # noqa: TC001
 from nof1_causal_lab.artifacts.prior_predictive import PriorPredictiveResult  # noqa: TC001
+from nof1_causal_lab.artifacts.simulation import SimulationReport  # noqa: TC001
 from nof1_causal_lab.artifacts.validation_report import ValidationReportArtifact  # noqa: TC001
 from nof1_causal_lab.machine.artifacts import EpisodeState  # noqa: TC001
 from nof1_causal_lab.machine.moves import ArtifactFreshness, is_stale
@@ -62,8 +64,6 @@ class FitSummary(SnapshotValue):
     """A fit read contains the inference log report and server-composed display findings."""
 
     report: InferenceReport
-    predictive_checks_passed: int = Field(ge=0)
-    predictive_checks_total: int = Field(ge=0)
     edge_estimates: dict[EdgeId, PosteriorEstimate] = Field(default_factory=dict)
     decay_estimates: dict[ConstructId, PosteriorEstimate] = Field(default_factory=dict)
 
@@ -99,6 +99,8 @@ class ModelFindings(SnapshotValue):
     prior_predictive: Sourced[PriorPredictiveResult] | None = None
     diagnostics: ModelDiagnostics | None = None
     fit: Sourced[FitSummary] | None = None
+    specification: Sourced[SpecificationReport] | None = None
+    simulation: Sourced[SimulationReport] | None = None
 
 
 class ModelSnapshot(SnapshotValue):
@@ -120,6 +122,8 @@ class ModelSnapshot(SnapshotValue):
             (self.findings.validation_report, "validation_report"),
             (self.findings.prior_predictive, "prior_predictive"),
             (self.findings.fit, "inference"),
+            (self.findings.specification, "specification"),
+            (self.findings.simulation, "simulation"),
         ):
             if read is not None:
                 self._validate_source(read.source, artifact_id)
@@ -175,7 +179,10 @@ class ModelSnapshot(SnapshotValue):
     def _validate_source(self, source: FactSource, artifact_id: str) -> None:
         ref = source.ref
         if isinstance(ref, TransitionRef):
-            if artifact_id not in {"inference", "prior_predictive"} or ref.seq > self.context.seq:
+            if (
+                artifact_id not in {"inference", "prior_predictive", "simulation", "specification"}
+                or ref.seq > self.context.seq
+            ):
                 raise ValueError(
                     "Operation findings must refer to a transition in this snapshot's history"
                 )

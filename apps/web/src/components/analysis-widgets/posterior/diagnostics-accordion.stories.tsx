@@ -5,7 +5,7 @@ const indicators = modelConstructs(demoModelSnapshot.model!.value).flatMap(
 );
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { withContainer } from "@/components/story-decorators";
-import { posterior } from "@/components/__fixtures__/inference-data";
+import { posterior, predictiveChecks } from "@/components/__fixtures__/inference-data";
 import { DiagnosticsAccordion } from "./diagnostics-accordion";
 
 const meta = {
@@ -26,7 +26,7 @@ export const InferenceOnly: Story = {
 
 export const AllSections: Story = {
   args: {
-    ppc: posterior.ppc,
+    ppc: predictiveChecks,
     inferenceDiagnostics: posterior.inference_diagnostics,
     looDiagnostics: posterior.loo_diagnostics,
     posteriorMarginals: posterior.posterior_marginals,
