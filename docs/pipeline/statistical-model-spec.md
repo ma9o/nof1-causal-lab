@@ -4,7 +4,7 @@
 |---|---|---|
 | Semantic | Yes | `ModelSpec` with a native prior on each parameter |
 
-Enriches the [measurement-stage ModelSpec](measurement-structure.md) into a fully specified statistical model by choosing observation-model distributions for ambiguous indicators and eliciting Bayesian priors for every parameter, validated against prior predictive checks.
+This optional authoring recipe enriches the [measurement-stage ModelSpec](measurement-structure.md) into a fully specified statistical model by choosing observation-model distributions for ambiguous indicators and eliciting Bayesian priors for every parameter, validated against prior predictive checks. Direct [`edit_model` submissions](../reference/scientific-actions.md) can interleave these choices and do not require recipe admissions.
 
 For the high-level reducer flow, see the [`statistical_model_spec` construct-admission state machine](../reference/statistical-model-spec/state-machine.md). For its exact prompts, validation, checkpoint, and recovery semantics, see the [LLM-driven specification](../reference/statistical-model-spec/llm-driven-specification.md).
 
@@ -17,7 +17,7 @@ For the high-level reducer flow, see the [`statistical_model_spec` construct-adm
 | `indicator_audits` | [`validation_report` derivation](extraction-validation.md) | Per-indicator [`EmpiricalProfile`](extraction-validation.md#empiricalprofile)s and validation summaries |
 | `enable_literature` | Pipeline config | Whether the `search_literature` tool is offered to the LLM |
 
-`statistical_model_spec` transition is the first point where the pipeline reasons about statistical model form. Earlier transitions defined what to measure and how.
+Within this recipe, `statistical_model_spec` follows measurement authoring and reasons about statistical model form. Direct actions have no such authoring order.
 
 ## Process
 

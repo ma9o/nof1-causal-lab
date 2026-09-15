@@ -4,6 +4,7 @@
 
 | Need | Open |
 |---|---|
+| Four scientific actions, checks and revision selection | [reference/scientific-actions.md](reference/scientific-actions.md) |
 | Artifact pipeline walkthrough | [pipeline.md](pipeline.md) |
 | Contributor and operator workflows | [guides/](guides/.md) |
 | Cross-cutting runtime and modeling references | [reference/](reference/) |
@@ -15,10 +16,11 @@
 | `ModelSpec` | [pipeline/latent-structure.md](pipeline/latent-structure.md) |
 | `IndicatorSpec` and `IdentificationReport` | [pipeline/measurement-structure.md](pipeline/measurement-structure.md) |
 | `ObservationRecord`s and the encoded observation table (`data_for_model`) | [pipeline/extraction.md](pipeline/extraction.md) |
-| `IndicatorAudit` and validation findings | [pipeline/extraction-validation.md](pipeline/extraction-validation.md) |
+| Empirical data profiles and model/data compatibility findings | [pipeline/extraction-validation.md](pipeline/extraction-validation.md) |
 | `ModelSpec`, `LikelihoodSpec`, `ParameterSpec` | [pipeline/statistical-model-spec.md](pipeline/statistical-model-spec.md) |
 | Conditioned `ModelSpec` and inference reports | [pipeline/inference.md](pipeline/inference.md) |
-| Runtime simulation requests and responses | [pipeline/analysis.md](pipeline/analysis.md) |
+| Simulation designs, arrays and reports | [reference/scientific-actions.md](reference/scientific-actions.md#simulation-report) |
+| Certified causal simulation requests and results | [pipeline/analysis.md](pipeline/analysis.md) |
 
 ## Cross-Cutting References
 

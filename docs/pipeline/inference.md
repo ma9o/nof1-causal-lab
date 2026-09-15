@@ -4,28 +4,27 @@
 |---|---|---|
 | Computed | No | A new `ModelSpec` revision with joint uncertainty; an [inference report](#inferencereport) in the transition log |
 
-Conditions the scientific `ModelSpec` from [`statistical_model_spec` transition](statistical-model-spec.md) to the extracted observation data from [`measurements` transition](extraction.md), retaining aligned parameter and latent-state draws. The inference report records engine-defined diagnostic JSON and structured fields for posterior predictive fit and leave-one-out cross-validation. The sampler is `marginal_particle_gibbs`; its proposal controls are described in [inference routing](../reference/inference-routing.md#user-overrides).
+The [`fit` action](../reference/scientific-actions.md) conditions the selected scientific `ModelSpec` on prepared observations, retaining aligned parameter and latent-state draws. Direct model editing and the optional [authoring recipe](statistical-model-spec.md) can both supply the model. The inference report records engine-defined diagnostic JSON, parameter summaries, and leave-one-out cross-validation. The sampler is `marginal_particle_gibbs`; its proposal controls are described in [inference routing](../reference/inference-routing.md#user-overrides).
 
 ## Inputs
 
 | Input | Source | Description |
 |---|---|---|
-| `model` | [`statistical_model_spec` transition](statistical-model-spec.md) | Scientific components and their current parameter distributions |
+| `model` | [Model editing](../reference/scientific-actions.md) or [authoring recipe](statistical-model-spec.md) | Scientific components and their current parameter distributions |
 | `data_for_model` | [`measurements` transition](extraction.md) | Encoded long-format [`ObservationRecord`](extraction.md#observationrecord) table |
 | `inference_method` | Pipeline config | Optional explicit `"marginal_particle_gibbs"`; `null` uses the same [production route](../reference/inference-routing.md#structural-routing) |
 
-`statistical_model_spec` transition provided the compiled model and priors; `posterior` transition is where that model is fitted to data and the posterior is characterized.
+The internal `posterior` job implements `fit`. It requires model and panel inputs; authoring-stage admission is not a prerequisite.
 
 ## Process
 
-`posterior` is a computed operation with no LLM. It produces a new revision of the same `ModelSpec`, replacing its uncertainty with the joint posterior. Parameter and construct references share one native NumPyro law, preserving dependence between parameters and latent trajectories. The report and engine evidence live in the transition log. An explicit refit starts from the original input revision so the same observations are counted once.
+`posterior` is a computed operation with no LLM. It produces a new revision of the same `ModelSpec`, replacing its uncertainty with the joint posterior. Parameter and construct references share one native NumPyro law, preserving dependence between parameters and latent trajectories. The report and engine evidence live in the transition log. A fit consumes the selected model revision without silently restoring an earlier law. The current fitting engine requires independent scalar parameter laws; joint laws remain valid model definitions and support simulation. To refit an earlier unconditioned definition, select its `model_version` directly in the fit request.
 
 ```mermaid
 flowchart LR
     F[Model fitting] --> J[Aligned joint posterior draws]
     J --> S[Posterior summaries]
     F --> D[Engine telemetry]
-    J --> A[Predictive assessment]
     F -- failure --> X([Pipeline halts])
 ```
 
@@ -35,15 +34,15 @@ The [scientific-model compiler](../../apps/data-pipeline/src/nof1_causal_lab/mod
 
 Inference and prior prediction share the same [parameter assembly](../../apps/data-pipeline/src/nof1_causal_lab/models/ssm/execution/parameters.py): declared free sites supply block values, including the initial covariance and static-factor contribution. The NumPyro model retains the covariance constraint factor. Prior prediction draws directly from the compiled distributions using stable per-site random streams.
 
-Prior and posterior prediction construct the same Dynestyx model as inference, sample its initial distribution, and execute its declared nonlinear drift, node potentials, and diffusion. The [observation adapter](../../apps/data-pipeline/src/nof1_causal_lab/models/predictive_simulation.py) samples the model's observation distribution and applies indicator-specific interval summaries and masks. Dynestyx runs deterministic Diffrax paths; the [stochastic simulator](../../apps/data-pipeline/src/nof1_causal_lab/models/ssm/dynamics/simulator.py) retains its Diffrax call to preserve indexed Brownian increments and seeded replay, which the pinned Dynestyx solver cannot accept. Known inputs retain their destination-indexed interval convention in both inference and simulation.
+Simulation constructs the same Dynestyx model as inference and executes its declared nonlinear drift, node potentials and diffusion. The [design](../reference/scientific-actions.md#simulation-designs) selects a fresh, retained, fixed or equilibrium initial state. The [observation adapter](../../apps/data-pipeline/src/nof1_causal_lab/models/predictive_simulation.py) evaluates the model's observation distribution and applies indicator-specific interval summaries and masks. Dynestyx runs deterministic Diffrax paths; the [stochastic simulator](../../apps/data-pipeline/src/nof1_causal_lab/models/ssm/dynamics/simulator.py) retains its Diffrax call to preserve indexed Brownian increments and seeded replay, which the pinned Dynestyx solver cannot accept. Known inputs retain their destination-indexed interval convention in both inference and simulation.
 
 **LOO cross-validation:** The transition computes PSIS-LOO via ArviZ from the true emission factors evaluated on joint particle draws of parameters and latent states. Each held-out unit is one measurement row containing every observed indicator at that time; completely missing rows are excluded. Conditional factors include the sampled latent variables, as described in the [loo guidance for latent-variable models](https://mc-stan.org/loo/articles/loo2-non-factorized.html). PSIS approximates the held-out posterior, with Pareto-k diagnostics assessing the importance weights[^vehtari2017]. This estimates interpolation with all other measurements available, including future rows; leave-future-out forecasting requires a separate validation task[^burkner2020].
 
-**Posterior predictive checks:** The transition forward-simulates observations from posterior parameter draws through the full generative model[^gabry2019] (latent dynamics → discretization → emission sampling) and compares the simulated data to the real observations, producing posterior predictive interval-coverage, autocorrelation, and variance diagnostics for each manifest variable.
+**Predictive checks:** An explicit [`simulate` action](../reference/scientific-actions.md#simulation-report) generates observations through the full nonlinear model and compares them with selected data[^gabry2019]. Fitting does not launch this simulation. Its coverage, residual autocorrelation, spread, overlays, and test statistics belong to a separate simulation report.
 
 ### Example
 
-For a longitudinal study of teacher workload and student outcomes, each retained draw pairs model parameters with a latent trajectory for `Teacher Burnout`, `Instructional Quality`, and `Student Achievement`. Those pairs survive persistence together. PPC overlays and LOO diagnostics assess the fit, while the [analysis transition](analysis.md) reads the joint posterior to evaluate interventions.
+For a longitudinal study of teacher workload and student outcomes, each retained draw pairs model parameters with a latent trajectory for `Teacher Burnout`, `Instructional Quality`, and `Student Achievement`. Those pairs survive persistence together. A separate simulation supplies predictive overlays; LOO diagnostics remain with the fit, while [causal simulation](analysis.md) reads the joint posterior to evaluate interventions.
 
 ## Outputs
 
@@ -61,24 +60,11 @@ The transition log owns this report, the exact input pins, and the production en
 |---|---|
 | `inference_metadata` | Sampling method, sample count, and duration |
 | `inference_diagnostics` | Engine-defined JSON telemetry, including any sampler metrics and traces |
-| `ppc` | [PosteriorPredictiveChecks](#posteriorpredictivechecks): predictive interval coverage, autocorrelation, and variance checks |
 | `loo_diagnostics` | Optional [LOODiagnostics](#loodiagnostics) for held-out measurement rows |
 | `posterior_marginals` | Optional [marginal summaries](#posteriormarginal) keyed by scientific parameter and element IDs |
 | `posterior_pairs` | Optional [paired summaries](#posteriorpair) of aligned parameter draws |
 
 Inference diagnostics remain unchanged in historical or stale reads. Their keys follow the engine implementation; the UI provides a generic expandable viewer. Any interpretation of sampler telemetry belongs in the backend. Scientific parameter references, intervals, and predictive assessments retain their structured contracts.
-
-### `PosteriorPredictiveChecks`
-
-| Field | Type | Description |
-|---|---|---|
-| `per_variable_warnings` | `list[PPCWarning]` | Per-manifest-variable diagnostic warnings |
-
-`PPCWarning` fields: `variable` (str), `check_type`, `message` (str), `value` (float), `passed` (bool). Check types:
-
-- `"calibration"`: empirical 95% posterior predictive interval coverage; flags if coverage < 0.80 or > 0.99
-- `"autocorrelation"`: lag-1 autocorrelation of observed series vs. distribution across replicated datasets
-- `"variance"`: observed variance vs. distribution across replicated datasets
 
 ### `LOODiagnostics`
 
@@ -119,17 +105,6 @@ Inference diagnostics remain unchanged in historical or stale reads. Their keys 
 | `subject_x`, `subject_y` | `ParameterRef` | Scientific scalar elements of the paired draws |
 | `x_values` | `list[float]` | Posterior draws for x |
 | `y_values` | `list[float]` | Posterior draws for y |
-
-### `PPCTestStat`
-
-| Field | Type | Description |
-|---|---|---|
-| `indicator_id` | `IndicatorId` | Persistent identity of the checked [indicator](measurement-structure.md#indicatorspec) |
-| `stat_name` | `str` | Replicated statistic |
-| `observed_value` | `float` | Statistic evaluated on observed values |
-| `rep_values` | `list[float]` | Statistic evaluated on exact posterior predictive draws |
-| `p_value` | `float` \| null | Backend fraction of replicated statistics at least as large as observed |
-| `histogram` | `list[HistogramBin]` | Backend histogram of replicated statistics |
 
 [^vehtari2017]: Vehtari, A., Gelman, A., & Gabry, J. (2017). Practical Bayesian Model Evaluation Using Leave-One-Out Cross-Validation and WAIC. *Statistics and Computing*, 27(5), 1413–1432. [Bibliography entry](../reference/bibliography.md)
 [^burkner2020]: Bürkner, P.-C., Gabry, J., & Vehtari, A. (2020). Approximate Leave-Future-Out Cross-Validation for Bayesian Time Series Models. *Journal of Statistical Computation and Simulation*, 90(14), 2499–2523. [Bibliography entry](../reference/bibliography.md)

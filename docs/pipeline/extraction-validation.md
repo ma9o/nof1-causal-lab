@@ -4,7 +4,7 @@
 |---|---|---|
 | Computed | No | `IndicatorAudit` per indicator, dataset-level issues |
 
-Audits [`measurements` transition](extraction.md) observations against the [`measurement_structure` transition `ModelSpec`](latent-structure.md#modelspec), then computes an [empirical profile](#empiricalprofile) for each indicator that [`statistical_model_spec` transition](statistical-model-spec.md) uses to ground prior elicitation.
+The [submission cascade](../reference/scientific-actions.md#editing-and-data) profiles prepared observations independently of a model, then joins those profiles to the selected [`ModelSpec`](latent-structure.md#modelspec) for compatibility checks. Direct actions and the optional [authoring recipe](statistical-model-spec.md) use these findings to assess data quality and ground prior choices.
 
 ## Inputs
 
@@ -15,7 +15,7 @@ Audits [`measurements` transition](extraction.md) observations against the [`mea
 
 ## Process
 
-`validation_report` derivation runs a fixed set of deterministic validation rules (no LLM involved) over the persisted `measurements` transition [`ObservationRecord`](extraction.md#observationrecord) table, reduces the findings into per-indicator statuses, computes empirical profiles, and packages everything into an `IndicatorAudit` per indicator.
+The `data_profile` derivation computes empirical summaries and applies numeric, timestamp and sample-size rules to the persisted [`ObservationRecord`](extraction.md#observationrecord) table. The `validation_report` derivation reuses those findings and evaluates expected indicators, declared domains, temporal assumptions and fit preflight against the selected model. Neither derivation fits or simulates.
 
 ```mermaid
 flowchart LR
@@ -26,7 +26,7 @@ flowchart LR
 
 **Context assembly:** Parses the [`measurement_clock`](measurement-structure.md#observation_window-and-measurement_clock) from the [`ModelSpec`](latent-structure.md#modelspec) into hours, builds lookup tables for indicator and construct metadata, and validates the table loaded from `measurements` transition. For each indicator it pre-computes an `IndicatorContext`: the numeric `Float64` series after coercion and null removal, observation count, variance, declared `measurement_dtype`, whether the parent construct is time-invariant, and a parsed timestamp series.
 
-**Indicator rules:** Nine rules run in sequence for each indicator. Each rule receives the indicator's data and context and returns zero or more `ValidationIssue`s:
+**Indicator rules:** Nine rules span the data-only and compatibility reports. Each receives its required data and context and returns zero or more `ValidationIssue`s:
 
 | Rule | Checks | Severity | Threshold |
 |---|---|---|---|
@@ -52,7 +52,7 @@ The `dtype_range` rule applies different logic per declared type:
 |---|---|---|
 | `construct_correlations` | For constructs with ≥2 indicators, daily-aggregated Pearson correlation between every indicator pair; negative correlation violates the [reflective measurement assumption](../reference/measurement-structure/assumptions.md#a1-reflective-measurement-structure) | warning (when r < 0, with ≥10 aligned days) |
 
-**Reduce & Profile:** A central reducer aggregates per-indicator findings into two structures: a flat issue list and a health-metrics map keyed by indicator name. For each metric key, the worst severity among matching issues determines the cell status (`ok`, `warning`, or `error`). Rules own threshold logic; the reducer only aggregates.
+**Reduce & Profile:** A central reducer aggregates per-indicator findings into two structures: a flat issue list and a health-metrics map keyed by indicator name. For each evaluated metric, the worst severity among matching issues determines the cell status (`ok`, `warning`, or `error`). Missing prerequisites yield `not_evaluated`. Rules own threshold logic; the reducer only aggregates.
 
 From the same encoded [`ObservationRecord`](extraction.md#observationrecord) table, the transition computes an [`EmpiricalProfile`](#empiricalprofile) for each indicator. Each indicator's profile and validation findings are packaged into an `IndicatorAudit`.
 
@@ -64,9 +64,10 @@ For a study tracking developer productivity where `measurements` transition extr
 
 | Field | Description |
 |---|---|
-| `is_valid` | `true` if no error-severity issues exist across all indicators and dataset checks |
-| `indicators` | Keyed by persistent indicator ID; each entry has an optional [empirical `profile`](#empiricalprofile), an `issues` list, and a `checks` map of metric names to `ok`, `warning`, or `error` |
+| `is_valid` | `true` if no error-severity issues or failed fit-preflight findings exist |
+| `indicators` | Keyed by persistent indicator ID; each entry has an optional [empirical `profile`](#empiricalprofile), an `issues` list, and a `checks` map of metric names to `ok`, `warning`, `error`, or `not_evaluated` |
 | `dataset_issues` | [Issues](#validationissue) not attributable to a single indicator (e.g., negative cross-indicator correlations) |
+| `preflight` | Operation-readiness findings about measurement support, discrete metadata, standardization and eligible location laws; incomplete models remain editable |
 
 ### `ValidationIssue`
 
@@ -102,3 +103,13 @@ For a study tracking developer productivity where `measurements` transition extr
 | `is_unit_interval` | `bool` ∣ `null` | `true` if all values fall in [0, 1] |
 | `looks_integer_valued` | `bool` ∣ `null` | `true` if every value is within 1e-8 of its nearest integer |
 | `variance_to_mean_ratio` | `float` ∣ `null` | Variance / mean (index of dispersion); `null` when mean ≤ 0 |
+
+## Independent data profiles
+
+The submission cascade records a `data_profile` derived only from the observation panel. Model edits reuse this profile. The paired validation report applies the selected model's value domains, time assumptions, expected indicators and fit preflight, using the [separated validation rules](../../apps/data-pipeline/src/nof1_causal_lab/flows/transitions/validation/rules.py). Missing prerequisites are explicitly unevaluated.
+
+| Field | Description |
+| --- | --- |
+| `is_valid` | Whether data-only checks reported errors. |
+| `indicators` | Empirical profiles and data-only findings by indicator identity. |
+| `dataset_issues` | Findings about the whole observation panel. |

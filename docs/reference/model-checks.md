@@ -1,6 +1,6 @@
 # Scientific actions and checks
 
-This catalog maps the current model, data, authoring, inference, and causal-reporting checks onto four proposed actions: `edit_model`, `prepare_data`, `fit`, and `simulate`. The implementation was inspected on 2026-09-15. The action contracts describe the proposed interface; the detailed inventory records existing calculations and their current placement. No runtime migration is implied. Closely related schema and execution validators are grouped by their scientific purpose. Costs are qualitative estimates from the implementation, not benchmark timings. Repository tests, infrastructure health checks, and LLM authoring work are outside this inventory.
+This catalog maps model, data, authoring, inference, and causal-reporting checks onto four scientific actions: `edit_model`, `prepare_data`, `fit`, and `simulate`. The implementation was inspected on 2026-09-15. The [action contracts](scientific-actions.md) describe the implemented first migration and remaining boundaries; the inventory records calculations and their owners. Closely related validators are grouped by scientific purpose. Costs are qualitative implementation estimates, not benchmark timings. Repository tests, infrastructure health checks, and LLM authoring work are outside this inventory.
 
 | Action | Inputs | Outputs and automatic findings |
 | --- | --- | --- |
@@ -13,7 +13,7 @@ Measurement meaning, extraction rules, recording assumptions, and support window
 
 Model-only findings depend on a model revision. Data-only findings depend on a dataset revision. Compatibility findings depend on both and refresh when either relevant input changes. Missing inputs leave a check unevaluated. Check findings and action prerequisites accompany results; these actions do not impose a required sequence of authoring admissions.
 
-The cost of producing a check's inputs is often much greater than the cost of calculating the check. A sampler diagnostic needs a fit, but reading another diagnostic from an existing fit does not require fitting again. Many simulation measurements similarly share one batch. The current implementation separates the [array-based prior measurements](../../apps/data-pipeline/src/nof1_causal_lab/models/ssm/reachability.py) from the [compilation, simulation, and admission decisions](../../apps/data-pipeline/src/nof1_causal_lab/models/ssm/construct_admission.py).
+The cost of producing a check's inputs is often much greater than the cost of calculating the check. A sampler diagnostic needs a fit, but reading another diagnostic from an existing fit does not require fitting again. Many simulation measurements similarly share one batch. The current implementation separates the [array-based prior measurements](../../apps/data-pipeline/src/nof1_causal_lab/models/ssm/reachability.py) from the [compilation, simulation, and admission decisions](../../apps/data-pipeline/src/nof1_causal_lab/recipes/construct_authoring.py).
 
 The cost classes used below distinguish producing evidence from measuring it:
 
@@ -64,7 +64,7 @@ Counts, timestamp ranges, numeric summaries, and missing-value profiles can be c
 | Extraction-output validity | Output shape, known indicators/windows, duplicate window–indicator pairs, dtype compatibility, ordinal codes. [Worker validator](../../apps/data-pipeline/src/nof1_causal_lab/workers/schemas.py). | Measurement definitions and expected extraction windows. | A–B: scan returned rows. |
 | Empty panel / unknown indicator | No usable extraction data, or observations outside the pinned measurement design. [Validation entry point](../../apps/data-pipeline/src/nof1_causal_lab/flows/transitions/validation/flow.py). | Declared indicators for the unknown-indicator verdict. | A–B. |
 | `missing` | Indicator has no extracted rows. | Expected indicators. | B: row counts. |
-| C5d data availability | Indicator has no observed values. Currently a soft finding inside the [prior battery](../../apps/data-pipeline/src/nof1_causal_lab/models/ssm/reachability.py). | Expected indicators; no parameter draws. | B: counts; A once counts exist. |
+| C5d data availability | Indicator has no observed values. Reported by model/data compatibility after submission. | Expected indicators; no parameter draws. | B: counts; A once counts exist. |
 | `no_numeric` | Indicator rows contain no usable numeric values. | None for an existing indicator series. | B: conversion and scan. |
 | `timestamps` | Counts and severity for timestamps that cannot be parsed. | None beyond the time-column designation. | B: timestamp parsing. |
 | `sample_size` | Fewer than 10 observations. | None for an existing indicator series; fixed threshold. | B: count. |
@@ -81,7 +81,7 @@ Counts, timestamp ranges, numeric summaries, and missing-value profiles can be c
 
 The audit also computes profiles such as quantiles, zero fraction, whether values are integers, and variance-to-mean ratio. These are descriptive outputs from the same observations, with B-level cost; they are not additional simulation experiments. See [profile construction](../../apps/data-pipeline/src/nof1_causal_lab/flows/transitions/validation/rules.py).
 
-The fit-preflight and exact-observation rows are classified here because they validate the model/data contract without fitting. Their current execution remains at fit preparation. C5d likewise remains inside the current prior battery; placing it here identifies an opportunity to report it as soon as observations are available. Fit readiness still requires these findings to match the actual prepared inputs used for execution.
+The fit-preflight and exact-observation rows are classified here because they validate the model/data contract without fitting. They run after model/data submissions and again at fit preparation. C5d now runs with model/data compatibility when observations are available. Fit readiness still requires these findings to match the actual prepared inputs used for execution.
 
 ## Fit
 
@@ -122,7 +122,7 @@ The request specifies which quantities to regenerate or condition on, the time a
 
 ### Simulation measurements
 
-The existing prior and posterior predictive entry points share the nonlinear [predictive runtime](../../apps/data-pipeline/src/nof1_causal_lab/models/ssm/predictive/registry_runtime.py) and [Diffrax forward solver](../../apps/data-pipeline/src/nof1_causal_lab/models/ssm/dynamics/simulator.py). The table retains current check labels and rules so the inventory remains traceable. Consolidating the action still requires adapting the separate runners and their reports.
+The explicit simulation action and optional authoring recipe share the nonlinear [predictive runtime](../../apps/data-pipeline/src/nof1_causal_lab/models/ssm/predictive/registry_runtime.py) and [Diffrax forward solver](../../apps/data-pipeline/src/nof1_causal_lab/models/ssm/dynamics/simulator.py). The table retains current check labels and rules so the inventory remains traceable. The action samples current model laws and records a separate simulation report. The optional authoring recipe retains its admission decisions.
 
 | Check or output | Required evidence | Evidence-producing cost | Measurement and current rule |
 | --- | --- | --- | --- |
@@ -140,15 +140,15 @@ The existing prior and posterior predictive entry points share the nonlinear [pr
 | Predictive spread ratio | Same replicated observations and comparison data | Same D batch. | C: average per-draw temporal SD divided by observed SD; current PPC flags ratios outside one-third to three. |
 | Replicated test statistics and overlays | Same replicated observations and comparison data | Same D batch. | C: observed versus replicated mean, SD, minimum, maximum, tail proportions, quantile bands, and selected trajectories. |
 
-C1–C5 calculations and current authoring decisions are in [reachability](../../apps/data-pipeline/src/nof1_causal_lab/models/ssm/reachability.py); the four predictive comparison output groups are in [posterior predictive checks](../../apps/data-pipeline/src/nof1_causal_lab/models/posterior_predictive.py). Their measurements are broadly reusable with suitable draws and designs. Current prior-specific thresholds, messages, and acceptance rules need their scientific context retained: a posterior finding does not automatically warrant the same judgment as a prior-design finding. Comparisons also need to distinguish data used in fitting from held-out data.
+C1–C5 calculations and current authoring decisions are in [reachability](../../apps/data-pipeline/src/nof1_causal_lab/models/ssm/reachability.py); the four predictive comparison output groups are in [posterior predictive checks](../../apps/data-pipeline/src/nof1_causal_lab/models/posterior_predictive.py). Their measurements are broadly reusable with suitable draws and designs. Simulation reports record their context and explicit confinement criteria; acceptance rules belong to the optional authoring recipe: a posterior finding does not automatically warrant the same judgment as a prior-design finding. Comparisons also need to distinguish data used in fitting from held-out data.
 
-C3 remains a design screen based on `tau = 1 / decay`, not a full nonlinear relaxation analysis or an empirical parameter-identification test. The current prior battery has ten checks: its nine rows above plus C5d, cataloged under [Prepare data](#prepare-data) because it needs only indicator declarations and observations. C1a is hard and the other nine findings are soft under the current [CHECK_MODES and stage_outcome](../../apps/data-pipeline/src/nof1_causal_lab/models/ssm/reachability.py).
+C3 remains a design screen based on `tau = 1 / decay`, not a full nonlinear relaxation analysis or an empirical parameter-identification test. The simulation battery has nine checks; C5d is owned by [Prepare data](#prepare-data). C1a is hard and the other eight findings are soft in the optional authoring recipe under the current [CHECK_MODES and stage_outcome](../../apps/data-pipeline/src/nof1_causal_lab/models/ssm/reachability.py).
 
 ### Existing execution costs and result prerequisites
 
-The current [prior battery runner](../../apps/data-pipeline/src/nof1_causal_lab/models/ssm/construct_admission.py) compiles and simulates a candidate; standard authoring requests 200 draws. Its [closed-loop recheck and full-model barrier](../../apps/data-pipeline/src/nof1_causal_lab/models/ssm/construct_admission.py) repeat the battery on a different assembled model. The full-model barrier shares one base simulation across constructs, while edge-off contrasts add simulations. Per-construct admission, loop closure, and repair can multiply the D-level work. [Admission timing records](../../apps/data-pipeline/src/nof1_causal_lab/models/ssm/construct_admission.py) separate compilation, prediction, check phases, and the admission decision.
+The current [prior battery runner](../../apps/data-pipeline/src/nof1_causal_lab/recipes/construct_authoring.py) compiles and simulates a candidate; standard authoring requests 200 draws. Its [closed-loop recheck and full-model barrier](../../apps/data-pipeline/src/nof1_causal_lab/recipes/construct_authoring.py) repeat the battery on a different assembled model. The full-model barrier shares one base simulation across constructs, while edge-off contrasts add simulations. Per-construct admission, loop closure, and repair can multiply the D-level work. [Admission timing records](../../apps/data-pipeline/src/nof1_causal_lab/recipes/construct_authoring.py) separate compilation, prediction, check phases, and the admission decision.
 
-The current [PPC entry point](../../apps/data-pipeline/src/nof1_causal_lab/models/posterior_predictive.py) uses up to 50 posterior draws by default and shares one forward batch across its four output groups. Producing these paths adds D-level work even when the fit already exists. The nonlinear forward simulations use the declared emission families and retain numerical integration error.
+The [simulation action](../../apps/data-pipeline/src/nof1_causal_lab/actions/simulate.py) uses 100 draws by default and passes one generated batch to the [predictive measurements](../../apps/data-pipeline/src/nof1_causal_lab/models/posterior_predictive.py). Producing these paths adds D-level work even when the fit already exists. The nonlinear forward simulations use the declared emission families and retain numerical integration error.
 
 | Result prerequisite | Required evidence | Added cost |
 | --- | --- | --- |

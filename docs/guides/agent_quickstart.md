@@ -18,7 +18,7 @@ for details.
 LLM-backed transitions read the ambient `OPENROUTER_API_KEY` from the service's
 environment — credentials are infra config, never per-move parameters.
 
-## Drive the machine
+## Use the scientific actions
 
 The interface is plain HTTP — the same tool server the web viewer uses
 (`TOOL_SERVER_URL`, default `http://localhost:8100`). There is no SDK and no MCP
@@ -32,22 +32,28 @@ line, generated from the tool server's
 [OpenAPI spec](../../packages/api-types/schemas/openapi.json) so it never drifts
 from the API. The loop in brief:
 
-1. `GET /api/machine` once for the artifact graph and creation classes, then
-   `GET /api/episodes/{workspace_id}` for the live state and legal moves.
-2. Propose moves at `POST /api/episodes/{workspace_id}/moves`: `run` an
-   named operation for compute, or submit a complete scientific Model through
-   `PUT /api/episodes/{workspace_id}/model` with its expected version.
-   After inference, use the [runtime analysis tools](../pipeline/analysis.md) for scenarios.
-3. Long transitions (`statistical_model_spec`, `posterior`) can outlive a client timeout: prefer
-   `POST /api/episodes/{workspace_id}/auto`, then poll
-   `GET /api/episodes/{workspace_id}`.
+1. Read `GET /api/episodes/{workspace_id}` and
+   `GET /api/episodes/{workspace_id}/revisions` for state and available inputs.
+2. Submit `edit_model`, `prepare_data`, `fit`, or `simulate` at
+   `POST /api/episodes/{workspace_id}/actions`. The
+   [action contracts](../reference/scientific-actions.md) define revision pins,
+   simulation designs and returned findings. Structure, measurements, parameters
+   and laws may be interleaved; applicable cheap checks refresh on submission.
+3. Poll state and the timeline while durable work runs. Long computations can
+   outlive an HTTP timeout; inspect their outcome before resubmitting.
 4. Read outcomes from `GET /api/episodes/{workspace_id}/timeline` — a `raised`
    transition carries the typed error; state is unchanged, so re-running is just
    proposing again.
 
 Raw data enters by placing files under `data/{workspace_id}/input/` before
-running the `raw_data` transition. The [integration testing guide](agentic_integration_testing.md)
-has end-to-end curl walkthroughs of the same flows.
+submitting `prepare_data` with `source: "files"`. Sources can be imported before
+authoring a model. [Causal scenarios](../pipeline/analysis.md) use the same
+`simulate` action and retain their results in the journal.
+
+`POST /api/episodes/{workspace_id}/recipes/observational-study` runs the optional
+authoring recipe. Its stages are an automation policy; they are not prerequisites
+for direct actions. The [integration testing guide](agentic_integration_testing.md)
+has curl walkthroughs and service requirements.
 
 ## Publishing a workspace
 

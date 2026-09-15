@@ -29,7 +29,7 @@ joint posterior.
 ## Structural Routing
 
 The route always resolves to `marginal_particle_gibbs`. The runtime may build an
-IEKS/Laplace backend for initialization, proposal construction, and diagnostics,
+IEKS/Laplace backend for initialization and corrected proposal construction,
 but that approximation does not replace the particle posterior target or any
 reported simulation path.
 
@@ -77,11 +77,10 @@ Euler-Maruyama transition target. `condition_model` accepts only
 the latter and writes a new ModelSpec revision; its producing transition log
 retains engine evidence and input pins.
 
-Before numeric causal effects are computed, the analysis boundary validates the
+Before numeric causal effects are computed, the [causal simulation action](../pipeline/analysis.md) validates the
 persisted engine evidence and joins it to an estimand-specific
 `IdentifiedEstimand`. The model revision and the producing inference log must agree on the exact
-scientific value. The resulting `CertifiedCausalAnalysis` is the only input accepted by
-baseline intervention reporting; interactive simulations construct the same
-proof object when loading their artifact context. A warmup result, an
+scientific value. Constructing `CertifiedCausalAnalysis` verifies this evidence
+before the shared nonlinear generator runs. A warmup result, an
 unidentified treatment, or evidence from a different design therefore fails
 before numeric reporting.

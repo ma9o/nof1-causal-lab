@@ -4,7 +4,7 @@ This page defines the exact LLM-facing control semantics of the [`statistical_mo
 
 ## Entry Conditions
 
-The transition consumes exact current versions of these artifacts.
+These controls belong to the optional authoring recipe. Direct [scientific actions](../scientific-actions.md) can edit all model choices together and have their own input contracts. The recipe consumes exact current versions of these artifacts.
 
 | Input | Role |
 |---|---|

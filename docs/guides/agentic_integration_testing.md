@@ -167,7 +167,7 @@ curl -s "http://localhost:8100/api/episodes/$WORKSPACE_ID/events" | jq '.events[
 
 ### 3. Verify via browser automation
 
-Navigate to `http://localhost:3000/analysis/{WORKSPACE_ID}`, screenshot the progress bar, then poll and screenshot each artifact section as it completes through the final "Complete" badge.
+Navigate to `http://localhost:3000/model/{WORKSPACE_ID}` and verify the four action controls, selected input revisions and reported findings. The optional recipe progress view is at `/recipes/observational-study/{WORKSPACE_ID}`.
 
 The persistent model view lives at `http://localhost:3000/model/{WORKSPACE_ID}`: one causal model per workspace with the version scrubber across the top, the graph over the scoped details pane, and the journal as a conversation on the right. Select a scrubber tick to open that move's version scope and its time breakdown; double-click a tick to view the asset as it stood then.
 
@@ -193,7 +193,7 @@ curl -s -X POST http://localhost:8100/api/episodes/$WORKSPACE_ID/moves \
   -d '{"move": {"kind": "run", "operation_id": "statistical_model_spec"}}'
 
 # Or resume the default policy (runs everything enabled and stale/missing)
-curl -s -X POST http://localhost:8100/api/episodes/$WORKSPACE_ID/auto \
+curl -s -X POST http://localhost:8100/api/episodes/$WORKSPACE_ID/recipes/observational-study \
   -H 'Content-Type: application/json' -d '{}'
 ```
 
@@ -204,24 +204,32 @@ The question is retained in each [ModelSpec revision](../pipeline/latent-structu
 Read the current Model and its source version, edit the owned scientific entities, and submit the whole candidate with that expected version. The [model write contract](../design/model-snapshot.md#writes-and-operation-history) validates and commits required derivations atomically. Negative identification findings remain explicit reports. Changed inputs invalidate dependent results without launching another expensive run.
 
 ```bash
-# model-update.json contains {"expected_version": <current version>, "model": <candidate>}
-curl -s -X PUT http://localhost:8100/api/episodes/$WORKSPACE_ID/model \
+# model-update.json contains {"action": "edit_model", "expected_version": <current version>, "model": <candidate>}
+curl -s -X POST http://localhost:8100/api/episodes/$WORKSPACE_ID/actions \
   -H 'Content-Type: application/json' --data-binary @model-update.json
 ```
 
-Use `0` only when creating the first Model. A stale base returns HTTP 409. The [offline conversion guide](additive-model-migration.md) covers retained episodes from the former scientific schemas.
+Use `0` only when creating the first Model. A stale base rejects the action. The [offline conversion guide](additive-model-migration.md) covers retained episodes from the former scientific schemas.
 
-### Valid Operation IDs
+### Scientific Actions and Internal Jobs
+
+Submit `edit_model`, `prepare_data`, `fit`, or `simulate` through `/actions` using
+the [typed contracts](../reference/scientific-actions.md). Explicit revisions let
+you fit an earlier definition or compare simulations without changing the current
+model first. Causal designs use the same simulation action with additional evidence
+requirements.
 
 Dependencies are artifact-level; `GET /api/machine` exposes
 `topological_artifact_order` and `topological_transition_order` from
 [`machine/graph.py`](../../apps/data-pipeline/src/nof1_causal_lab/machine/graph.py).
-The runnable transition ids are:
+The optional observational-study recipe orders these internal jobs:
 
 ```text
 raw_data → latent_structure → measurement_structure → measurements → statistical_model_spec → posterior
 ```
 
-Note the machine is not a tape: any transition whose consumed artifacts exist
-can run. `identification_report` and `panel` are produced only when their
-findings are nonempty, so their absence structurally disables the fit chain.
+The separate `simulate` job runs only when requested. Direct fitting requires
+an executable selected model and compatible observations, without authoring
+admissions or positive causal identification. Negative identification findings
+remain visible and restrict numeric causal claims. Missing inputs produce
+unevaluated checks or an operation-readiness failure.

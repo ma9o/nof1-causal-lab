@@ -11,28 +11,22 @@
 
 The ultimate goal of the project is to facilitate epistemically optimal decision-making at the individual level, using dense digital trace datasets (medical records, chatbot conversation logs, browsing history, etc.) while transparently incorporating existing scientific knowledge, where available, in the form of prior distributions and modeling assumptions.
 
-The user will pose a question in natural language given a dataset of their choosing. First, the system will lay out the causal DAG implied by the question and a measurement structure for the DAG that is compatible with the given dataset. If the causal effect in question is structurally identifiable, the DAG is translated into a continuous-time state-space model and estimated with MCMC. Finally, an LLM will run simulations on the fitted model to estimate the causal effects of interventions and counterfactual scenarios that answer the original question.
+The user supplies a scientific question and observational data. The framework exposes four [scientific actions](docs/reference/scientific-actions.md): edit the model, prepare data, fit, and simulate. Constructs, causal structure, measurements, fixed or estimable parameters, and probability laws can be revised together or incrementally. Applicable specification and data checks run on submission. Fitting conditions the selected continuous-time nonlinear state-space model; simulation samples its current laws before or after fitting. Numeric causal claims require identification and matching production-inference evidence.
 
 ```mermaid
 flowchart LR
-  Q(["Question"])
-  DS(["Dataset"])
-  L["Causal DAG"]
-  M["Measurement\nstructure"]
-  ID{"Identified?"}
-  MS["Statistical model specification\n& estimation"]
-  SIM["Simulation"]
-  R(["Causal effect\nestimate"])
-
-  Q --> L 
-  DS --> M 
-  L --> M --> ETL --> ID
-  ID -- yes --> MS
-  subgraph Bayesian construct-admission state machine
-  MS --> SIM
-  end
-  SIM --> R
-  ID -- no --> L
+  Q([Question]) --> E[Edit model]
+  DS([Sources]) --> P[Prepare data]
+  E --> M[(Model revisions)]
+  M --> P --> D[(Observation revisions)]
+  M --> F[Fit]
+  D --> F --> M
+  M --> S[Simulate]
+  D -. optional comparison .-> S
+  S --> R[Arrays and findings]
+  R --> E
+  S --> G{Causal evidence supports claim?}
+  G -- yes --> C([Causal result])
 ```
 
 In practice, the framework is designed for longitudinal consumer datasets that are easily accessible via data subject access requests (DSARs), from more domain specific ones like Apple Health, Oura, 23andMe, Strava (cardiometabolic health, chronic conditions, performance & adaptation), Anki, Duolingo, YouTube (education & deliberate practice) to more cross cutting ones like Google Takeout, WhatsApp, ChatGPT/Claude logs (mental health, cognition & attention, habit & behavior change) - and, most interestingly, their intersections!
@@ -42,13 +36,13 @@ In practice, the framework is designed for longitudinal consumer datasets that a
 - **Methodological rigor without friction** - An user should be simply able to provide a dataset and a question, and the software should provide the most rigorous possible answer without pushing any methodological decision onto the user.
 - **Interpretability and interactivity** - At any stage, users can inspect and intervene on the LLM outputs in the UI, either by interactively challenging the LLM in conversation or directly overriding its decisions.
 - **Support for large datasets, irregular timestamps and semantic heterogeneity** - via a continuous-discrete nonlinear state-space model — continuous-time latent dynamics observed at discrete, irregular timestamps — with non-Gaussian indicator-specific likelihoods (Poisson, Bernoulli, Beta, etc.).
-- **Robust LLM-based numerical modeling and prior elicitation** - by admitting one construct at a time, checkpointing every accepted contribution, and gating progression on exact prior-predictive reachability checks.
+- **Incremental numerical modeling and prior elicitation** - direct model revisions and explicit simulation support scientific iteration; an optional construct-authoring recipe adds saved proposals and exact prior-predictive checks.
 - **Fast and accurate parameter and state estimation in `jax`** - Exact inference in minutes using [parallel-in-time particle smoothing](https://arxiv.org/pdf/2401.14868) on GPU. Efficient caching ensures that we never waste time waiting for compilation.
 - **Compatible with `codex` and `claude-code`** - Leverage your existing subscription for the interactive stages of the pipeline.
 
 ## Demo
 
-[https://project-n98yx.vercel.app/analysis/DEMO](https://project-n98yx.vercel.app/analysis/DEMO)
+[Open the DEMO model](https://project-n98yx.vercel.app/model/DEMO)
 
 | <img src="docs/assets/stage1b.png" width="400" alt="stage2"><br>Causal design and measurement structure | <img src="docs/assets/stage2.gif" width="400" alt="stage2"><br>Parallel data extraction |
 |:--:|:--:|

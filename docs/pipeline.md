@@ -1,9 +1,14 @@
-# Pipeline Overview
+# Scientific Actions and Optional Pipeline
 
-The authoritative definition of each pipeline artifact lives in the artifact
-doc that introduces it. Execution order is a property of the artifact DAG served
-by `GET /api/machine`; for cross-cutting lenses see
-[reference/pipeline-dimensions.md](reference/pipeline-dimensions.md).
+The primary interface has four [scientific actions](reference/scientific-actions.md):
+`edit_model`, `prepare_data`, `fit`, and `simulate`. Model editing can interleave
+structure, measurements, parameters and laws. Applicable cheap checks refresh on
+submission; fitting and simulation are explicit computations.
+
+The table describes jobs and derivations used by the optional observational-study
+recipe. Its ordering is a navigation policy, separate from direct action readiness.
+Each artifact's definition lives in the doc that introduces it. See
+[pipeline dimensions](reference/pipeline-dimensions.md) for shared concerns.
 
 | Run artifact / derived view | Name | Primary artifact | Modality | Interactive | Stop condition | File |
 |---|---|---|---|---|---|---|
@@ -13,6 +18,10 @@ by `GET /api/machine`; for cross-cutting lenses see
 | `measurements` | Indicator Extraction | `ObservationRecord`s | Hybrid | No | Stops if no `ObservationRecord`s are extracted | [pipeline/extraction.md](pipeline/extraction.md) |
 | `validation_report` | Extraction Validation | Indicator audits | Computed | No | Stops on validation errors | [pipeline/extraction-validation.md](pipeline/extraction-validation.md) |
 | `statistical_model_spec` | Statistical Model Specification and Prior Elicitation | `ModelSpec` + priors | Semantic | Yes | None | [pipeline/statistical-model-spec.md](pipeline/statistical-model-spec.md) |
-| `posterior` | Inference and Diagnostics | Fitted artifact + diagnostics | Computed | No | Stops if model fitting fails | [pipeline/inference.md](pipeline/inference.md) |
+| `posterior` | Inference and Diagnostics | Conditioned `ModelSpec` + fit diagnostics | Computed | No | Stops if model fitting fails | [pipeline/inference.md](pipeline/inference.md) |
+| `data_profile` | Data Profile | Model-independent empirical findings | Computed | No | Reports findings | [pipeline/extraction-validation.md](pipeline/extraction-validation.md#independent-data-profiles) |
+| `simulate` | Simulation | Arrays, measurements and optional causal result | Computed | No | Causal results require identification and production-fit evidence | [reference/scientific-actions.md](reference/scientific-actions.md#simulation-report) |
 
-After inference, [runtime intervention analysis](pipeline/analysis.md) exposes model inspection and simulation through the API. Scenario responses stay in the current session.
+Ordinary simulation can run before or after fitting by sampling the selected model's
+current laws. [Causal simulation](pipeline/analysis.md) uses the same action with
+additional evidence requirements. Its results persist in the journal.

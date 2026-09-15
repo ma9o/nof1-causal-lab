@@ -1,33 +1,33 @@
-# Runtime Intervention Analysis
+# Intervention Simulation
 
-The pipeline ends with [inference](inference.md). Interventional (rung 2) and counterfactual (rung 3) scenarios are runtime API queries against the conditioned model, following Pearl's ladder of causation[^pearl2019] [^pearl2009]. They produce ephemeral responses rather than persisted reports.
+Interventional (rung 2) and counterfactual (rung 3) scenarios use the [`simulate` action](../reference/scientific-actions.md) with a causal design against a selected conditioned model, following Pearl's ladder of causation[^pearl2019] [^pearl2009]. The action persists its design, generated arrays and certified result in the episode journal.
 
 ## Inputs
 
 | Input | Source | Description |
 |---|---|---|
-| `model` | [`posterior` transition](inference.md) | Conditioned ModelSpec with the joint parameter/trajectory law and time grid; exact engine evidence comes from its producing transition log |
-| `identification_report` | [`measurement_structure` transition](measurement-structure.md) | Positive and negative identification findings; numerical effects require a positive treatment verdict |
-| `request` | API caller | Start rule, timed clamps, outcome identity, horizon, and readout |
+| `model_version` | [`fit` result](inference.md) | Selected ModelSpec with the joint parameter/trajectory law and time grid; exact engine evidence comes from its producing transition log |
+| `design.query` | API caller | [ScenarioRequest](#scenariorequest): start rule, timed clamps, outcome identity, horizon, and readout |
+| `design.draws`, `design.seed` | API caller | Draw count and random seed |
+| `design.process_noise`, `design.observation_noise` | API caller | Process diffusion and sampled emissions; both default to `false` for causal designs |
 
-The backend joins the current identification evidence, conditioned model, and committed inference evidence before computing numerical effects. The simulation context is named `analysis`; the web client dispatches its tools through `POST /api/tools/dispatch`. The [tool server](../../apps/data-pipeline/src/nof1_causal_lab/tool_server.py) owns freshness checks and numerical execution.
+Submit `{action: "simulate", model_version: ..., design: {kind: "causal", query: ...}}` through the action endpoint or the matching `scientific` tool. The [causal action](../../apps/data-pipeline/src/nof1_causal_lab/actions/scenarios.py) derives identification from the selected immutable model and joins it to that model's committed production-fit evidence. A positive treatment/outcome verdict and matching exact-engine evidence are required before numeric effects are reported.
 
-## Runtime queries
+## Execution
 
-**Interactive tools:** The fitted model exposes two read-only tools. They require no LLM generation or refit.
+The action requires no LLM generation or refit. A baseline start uses each draw's nonlinear drift equilibrium. An abducted start selects a retained fitted latent state at a model time index or timestamp, defaulting to the last retained state. Parameter and state draws remain paired.
 
-- *`get_model_info`:* Returns the fitted model, variables, identification evidence, diagnostics, and capabilities. An optional `names` filter selects constructs or indicators.
-- *`simulate`:* Accepts one [ScenarioRequest](#scenariorequest) with persistent construct targets. A baseline start uses each posterior draw's deterministic equilibrium. An abducted start selects the retained fitted latent state at an observed index or timestamp, defaulting to the last retained observation. The backend integrates reference and clamped paths over the requested horizon with the true nonlinear drift and returns a [SimulationResult](#simulationresult).
+The common [nonlinear generator](../../apps/data-pipeline/src/nof1_causal_lab/models/ssm/predictive/registry_runtime.py) integrates reference and clamped paths on the same grid. With process noise enabled, the pair shares Brownian streams and integration segments. Observation contrasts use the true emission model, including measurement windows. Windows requiring unavailable prehistory produce absent contrasts and an explicit warning.
 
-These interactive paths include posterior parameter uncertainty and, for abducted starts, retained initial-state uncertainty. They do not sample future process noise. For nonlinear drift, their average is generally different from the stochastic process's expected trajectory. These results must not be described as a full posterior-predictive distribution.
+The default deterministic design includes parameter uncertainty and, for abducted starts, retained initial-state uncertainty, but excludes future process and observation noise. For nonlinear drift, its average generally differs from the stochastic process's expected trajectory. The report records these choices; predictive uncertainty requires the relevant noise choices.
 
-The backend retains at most two loaded fitted contexts per process. Native posterior arrays, packed dynamics and baseline equilibrium solves are reused for the same immutable fit. Every request independently checks current identification and freshness; stale supporting inputs reject simulation even on a cache hit. The shared time grid and resolved observed start travel with the response.
+The `analysis` context retains the read-only `get_model_info` tool for model inspection. All simulations use the four-action surface, including the web viewer's intervention controls.
 
-Requests and responses remain in UI memory. A request can be rerun against the current fit; each response references the exact fitted model revision so the UI can detect older results. Simulation does not write an artifact, advance the episode journal, or add a pipeline transition. The model viewer offers default intervention requests for backend-identified treatments and displays results only after an API call.
+Every successful simulation writes a journal record with immutable array references and the exact supporting revisions. Historical results remain available after later edits. The model viewer offers requests for backend-identified treatments and displays results after their durable action completes.
 
-## Responses
+## Outputs
 
-The [runtime contracts](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/scenarios.py) define the request and response fields below. These values are not registered artifact types.
+The [simulation report](../reference/scientific-actions.md#simulation-report) owns the design, arrays and measurements. Its `causal_result` contains the fields defined by the [scenario contracts](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/scenarios.py) below.
 
 ### `EffectTrajectoryPoint`
 
@@ -54,12 +54,12 @@ The [runtime contracts](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/s
 | `time_grid_days` | Shared output grid for every construct's reference and action means, starting at zero and ending at the requested horizon |
 | `start_time_index`, `start_time` | Resolved abducted start index and available observed timestamp; absent for baseline starts |
 | `labels` | Display names keyed by persistent construct ID at execution time; requests contain identities only |
-| `summary` | Posterior summary of the declared drift-path contrast |
+| `summary` | Posterior summary of the declared endpoint contrast under the selected noise policy |
 | `effect_trajectory` | Optional [`EffectTrajectoryPoint`](#effecttrajectorypoint) list reporting the mean outcome contrast over the forward horizon |
 | `trajectory_peak` | Optional [`EffectTrajectoryPoint`](#effecttrajectorypoint) at the largest absolute departure |
 | `trajectories` | One [`SimulationTrajectory`](#simulationtrajectory) per simulated construct ID, including every requested clamp target and outcome; available for both end-state and trajectory readouts |
-| `manifest_effects` | Optional outcome effects projected through measurement loadings |
-| `reference_mean` | Mean reference outcome across the deterministic drift paths at the final horizon |
+| `manifest_effects` | Optional endpoint indicator contrasts generated by the actual emission model and measurement windows |
+| `reference_mean` | Mean reference outcome across generated paths at the final horizon |
 | `warnings` | Diagnostic warnings |
 
 ### `SimulationTrajectory`

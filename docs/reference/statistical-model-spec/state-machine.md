@@ -1,6 +1,6 @@
 # Model-Spec Construct-Admission State Machine
 
-The `statistical_model_spec` transition is a deterministic, topology-aware construct-admission state machine wrapped in Temporal. There is one production path and no mode toggle.
+The optional `statistical_model_spec` recipe is a deterministic, topology-aware construct-admission state machine wrapped in Temporal. These rules govern its automation; direct [`edit_model`, `fit` and `simulate` actions](../scientific-actions.md) do not require admissions. [Shared simulation measurements](../../../apps/data-pipeline/src/nof1_causal_lab/models/ssm/simulation_checks.py) report findings independently of recipe decisions.
 
 ## What the State Machine Owns
 
