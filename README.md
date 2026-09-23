@@ -13,22 +13,6 @@ The ultimate goal of the project is to facilitate epistemically optimal decision
 
 The user supplies a scientific question and observational data. The framework exposes four [scientific actions](docs/reference/scientific-actions.md): edit the model, prepare data, fit, and simulate. Constructs, causal structure, measurements, fixed or estimable parameters, and probability laws can be revised together or incrementally. Applicable specification and data checks run on submission. Fitting conditions the selected continuous-time nonlinear state-space model; simulation samples its current laws before or after fitting. Numeric causal claims require identification and matching production-inference evidence.
 
-```mermaid
-flowchart LR
-  Q([Question]) --> E[Edit model]
-  DS([Sources]) --> P[Prepare data]
-  E --> M[(Model revisions)]
-  M --> P --> D[(Observation revisions)]
-  M --> F[Fit]
-  D --> F --> M
-  M --> S[Simulate]
-  D -. optional comparison .-> S
-  S --> R[Arrays and findings]
-  R --> E
-  S --> G{Causal evidence supports claim?}
-  G -- yes --> C([Causal result])
-```
-
 In practice, the framework is designed for longitudinal consumer datasets that are easily accessible via data subject access requests (DSARs), from more domain specific ones like Apple Health, Oura, 23andMe, Strava (cardiometabolic health, chronic conditions, performance & adaptation), Anki, Duolingo, YouTube (education & deliberate practice) to more cross cutting ones like Google Takeout, WhatsApp, ChatGPT/Claude logs (mental health, cognition & attention, habit & behavior change) - and, most interestingly, their intersections!
 
 ## Features and Goals
