@@ -10,19 +10,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import {
-  type ColumnDef,
-  type Row,
-  type SortingState,
-  flexRender,
-  getCoreRowModel,
-  getSortedRowModel,
-  useReactTable,
-} from "@tanstack/react-table";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { type ColumnDef, flexRender } from "@tanstack/react-table";
+import { useInfoTable } from "@/lib/tables/use-info-table";
 import { ChevronDown, ChevronUp, ChevronsUpDown, Search } from "lucide-react";
-import { type ReactNode, useMemo, useRef, useState } from "react";
-import { useTableKeyboardNav } from "./use-table-keyboard-nav";
+import type { ReactNode } from "react";
 
 // ---------- Column meta typing ----------
 declare module "@tanstack/react-table" {
@@ -58,14 +49,7 @@ export function HeaderWithTooltip({
   );
 }
 
-// ---------- Flat item for virtualized rendering ----------
-type FlatItem<TData> =
-  | { kind: "group-header"; groupKey: string; rows: TData[] }
-  | { kind: "row"; row: Row<TData> }
-  | { kind: "expanded-row"; row: Row<TData> };
-
 // ---------- InfoTable ----------
-const GROUP_HEADER_HEIGHT = 36;
 
 interface InfoTableProps<TData> {
   columns: ColumnDef<TData, unknown>[];
@@ -97,90 +81,29 @@ export function InfoTable<TData>({
   renderExpandedRow,
 }: InfoTableProps<TData>) {
   "use no memo"; // TODO: remove when TanStack Table supports React Compiler
-  const [sortingState, setSortingState] = useState<SortingState>([]);
-  const [searchQuery, setSearchQuery] = useState("");
-  const parentRef = useRef<HTMLDivElement>(null);
-
-  // Pre-filter data before passing to TanStack Table
-  const filteredData = useMemo(() => {
-    if (!searchQuery) return data;
-    const search = searchQuery.toLowerCase();
-    return data.filter((row) => JSON.stringify(row).toLowerCase().includes(search));
-  }, [data, searchQuery]);
-
-  const table = useReactTable({
-    data: filteredData,
+  const {
+    searchQuery,
+    setSearchQuery,
+    table,
+    flatItems,
+    parentRef,
+    virtualizer,
+    virtualItems,
+    paddingTop,
+    paddingBottom,
+    isFiltered,
+    focusedRowId,
+    containerProps,
+    filteredCount,
+  } = useInfoTable({
     columns,
-    state: enableSorting ? { sorting: sortingState } : undefined,
-    onSortingChange: enableSorting ? setSortingState : undefined,
-    getCoreRowModel: getCoreRowModel(),
-    ...(enableSorting && { getSortedRowModel: getSortedRowModel() }),
+    data,
+    enableSorting,
+    estimateRowHeight,
+    groupBy,
+    hasGroupHeaders: renderGroupHeader !== undefined,
+    isRowExpanded,
   });
-
-  const rows = table.getRowModel().rows;
-
-  // Build flat list: group headers interleaved with data rows
-  const flatItems = useMemo<FlatItem<TData>[]>(() => {
-    if (!groupBy) {
-      const items: FlatItem<TData>[] = [];
-      for (const row of rows) {
-        items.push({ kind: "row", row });
-        if (isRowExpanded?.(row.original)) {
-          items.push({ kind: "expanded-row", row });
-        }
-      }
-      return items;
-    }
-    const map = new Map<string, typeof rows>();
-    for (const row of rows) {
-      const key = groupBy(row.original);
-      const list = map.get(key) ?? [];
-      list.push(row);
-      map.set(key, list);
-    }
-    const items: FlatItem<TData>[] = [];
-    for (const [groupKey, groupRows] of map) {
-      if (renderGroupHeader) {
-        items.push({
-          kind: "group-header",
-          groupKey,
-          rows: groupRows.map((r) => r.original),
-        });
-      }
-      for (const row of groupRows) {
-        items.push({ kind: "row", row });
-        if (isRowExpanded?.(row.original)) {
-          items.push({ kind: "expanded-row", row });
-        }
-      }
-    }
-    return items;
-  }, [groupBy, renderGroupHeader, rows, isRowExpanded]);
-
-  // For small tables, render every row by setting overscan to the full count.
-  // With variable-height cells (e.g. wrapping text) the browser's auto table-layout
-  // recomputes column widths from visible cells, so virtualizing rows in/out can
-  // oscillate column widths → row heights → measurements in an infinite feedback loop.
-  // Keeping all rows mounted breaks the loop; virtualization still helps for large tables.
-  const virtualizer = useVirtualizer({
-    count: flatItems.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: (index) =>
-      flatItems[index].kind === "group-header" ? GROUP_HEADER_HEIGHT : estimateRowHeight,
-    overscan: flatItems.length <= 100 ? flatItems.length : 5,
-  });
-
-  const { focusedRowIndex, containerProps } = useTableKeyboardNav(rows.length);
-
-  const virtualItems = virtualizer.getVirtualItems();
-  const totalSize = virtualizer.getTotalSize();
-
-  // Spacer heights for the padding approach (keeps <table> semantics)
-  const paddingTop = virtualItems.length > 0 ? virtualItems[0].start : 0;
-  const paddingBottom =
-    virtualItems.length > 0 ? totalSize - virtualItems[virtualItems.length - 1].end : 0;
-
-  const isFiltered = searchQuery.length > 0;
 
   return (
     <div className="overflow-hidden rounded-md border">
@@ -196,7 +119,7 @@ export function InfoTable<TData>({
           />
           {isFiltered && (
             <span className="shrink-0 text-xs text-muted-foreground">
-              {filteredData.length} of {data.length}
+              {filteredCount} of {data.length}
             </span>
           )}
         </div>
@@ -301,7 +224,7 @@ export function InfoTable<TData>({
                   key={row.id}
                   className={cn(
                     hasExpandedBelow && "border-b-0",
-                    focusedRowIndex === row.index && "ring-2 ring-ring ring-inset",
+                    focusedRowId === row.id && "ring-2 ring-ring ring-inset",
                     rowClassName?.(row.original, row.index),
                   )}
                   data-index={vi.index}

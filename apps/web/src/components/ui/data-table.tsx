@@ -1,10 +1,8 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { useVirtualizer } from "@tanstack/react-virtual";
-import { useMemo, useRef } from "react";
 import { StatTooltip } from "./stat-tooltip";
-import { useTableKeyboardNav } from "./use-table-keyboard-nav";
+import { useDataTable, COL_MIN_WIDTH } from "@/lib/tables/use-data-table";
 
 interface DataTableProps<T extends object> {
   rows: T[];
@@ -12,38 +10,15 @@ interface DataTableProps<T extends object> {
   columnTooltips?: Record<string, string>;
 }
 
-const ROW_HEIGHT = 28;
-
 export function DataTable<T extends object>({
   rows,
   maxHeight = "max-h-64",
   columnTooltips,
 }: DataTableProps<T>) {
   "use no memo"; // TODO: remove when TanStack Virtual supports React Compiler
-  const columns = useMemo(() => {
-    if (rows.length === 0) return [];
-    const firstRow = rows[0] as Record<string, unknown>;
-    const allKeys = Object.keys(firstRow);
-    return allKeys.filter((key) =>
-      rows.some((row) => (row as Record<string, unknown>)[key] != null),
-    );
-  }, [rows]);
-
-  const parentRef = useRef<HTMLDivElement>(null);
-
-  const virtualizer = useVirtualizer({
-    count: rows.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => ROW_HEIGHT,
-    overscan: 10,
-  });
-
-  const { focusedRowIndex, containerProps } = useTableKeyboardNav(rows.length);
-
+  const { columns, parentRef, virtualizer, focusedRowIndex, containerProps, tableWidth } =
+    useDataTable(rows);
   if (rows.length === 0) return null;
-
-  const COL_MIN_WIDTH = 120;
-  const tableWidth = Math.max(columns.length * COL_MIN_WIDTH, 0);
 
   return (
     <div
