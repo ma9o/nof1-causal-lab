@@ -1,6 +1,6 @@
 import { demoModelSnapshot, demoSnapshotAt } from "@/components/__fixtures__/demo-artifacts";
 import { demoSimulationTrace } from "../__fixtures__/simulation-fixture";
-import { buildSimulationScenarios } from "../simulation-results";
+import { buildSimulationScenarios } from "@/lib/dag/simulation-results";
 import type { ConstructId } from "@nof1-causal-lab/api-types";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
@@ -33,7 +33,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "One stable structural graph with six explicit cumulative artifact layers. Every story uses the canonical DEMO fixture; later layers annotate the structural topology without replacing it.",
+          "Six cumulative artifact layers over the backend-selected graph. Early checkpoints show authored structure; established execution dispositions select the retained constructs and edges. Every story uses the canonical DEMO fixture.",
       },
     },
     svgMaterializer: {

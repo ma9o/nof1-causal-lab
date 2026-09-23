@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useState } from "react";
-import { buildSimulationScenarios } from "@/components/dag/simulation-results";
+import { buildSimulationScenarios } from "@/lib/dag/simulation-results";
 import { withContainer } from "@/components/story-decorators";
 import { LLMTracePanelView } from "@/components/ui/custom/llm-trace-panel-view";
 import {

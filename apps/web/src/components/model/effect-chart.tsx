@@ -1,7 +1,7 @@
-import { DAG_COLORS, signColor } from "@/components/dag/core/palette";
-import type { AnalysisSimulationResult } from "@/components/dag/intervention-dag-types";
-import { formatClampValue } from "@/components/dag/intervention-dag-semantics";
-import { formatSigned } from "./model-selection";
+import { DAG_COLORS, signColor } from "@/lib/dag/palette";
+import type { AnalysisSimulationResult } from "@/lib/dag/simulation-types";
+import { formatClampValue } from "@/lib/dag/simulation";
+import { formatSigned } from "@/lib/model-asset/selection";
 
 /** The effect on the outcome over the horizon, with the 95% interval at the end. */
 export function EffectChart({

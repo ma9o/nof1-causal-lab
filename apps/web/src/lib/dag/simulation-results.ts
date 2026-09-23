@@ -20,8 +20,8 @@ import type {
   PosteriorEstimate,
 } from "@nof1-causal-lab/api-types";
 import type { UIMessage } from "ai";
-import { formatScenarioActionDescription } from "@/components/dag/intervention-dag-semantics";
-import type { AnalysisSimulationResult } from "@/components/dag/intervention-dag-types";
+import { formatScenarioActionDescription } from "@/lib/dag/simulation";
+import type { AnalysisSimulationResult } from "@/lib/dag/simulation-types";
 import { parseSimulationResult } from "@/lib/simulation-result";
 import { traceToUIMessages } from "@/lib/utils/trace-to-ui-messages";
 

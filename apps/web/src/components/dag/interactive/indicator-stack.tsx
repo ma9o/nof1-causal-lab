@@ -1,8 +1,8 @@
 "use client";
 
 import type { IndicatorSpec } from "@nof1-causal-lab/api-types";
-import { DAG_COLORS } from "../core/palette";
-import { CARD_H, CARD_W, IGAP, ISTACK_TOP, MINI_H } from "./build-cone-graph";
+import { DAG_COLORS } from "@/lib/dag/palette";
+import { CARD_H, CARD_W, IGAP, ISTACK_TOP, MINI_H } from "@/lib/dag/build-simulation-graph";
 
 const MINI_W = CARD_W - 12;
 

@@ -1,23 +1,32 @@
 "use client";
 
-import type { ParameterSpec } from "@nof1-causal-lab/api-types";
-import { distributionText } from "@/lib/utils/distribution-format";
+import { useAdmissionView, useAdmissionGraph } from "@/lib/admission/use-admission-view";
+import {
+  titleize,
+  constructLabel,
+  formatCheckDuration,
+  formatPriorSummary,
+  checkpointLabel,
+  truncateDagLabel,
+  statusColorVar,
+  constructColorStatus,
+  statusTintClasses,
+  DAG_PAD,
+  type AdmissionTimelineEntry,
+} from "@/lib/admission/presentation";
 
 import { DagEdge } from "@/components/dag/core/dag-edge";
 import { DagNodeShell } from "@/components/dag/core/dag-node";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { useDagLayout } from "@/lib/hooks/use-dag-layout";
 import {
   type ModelSpecAdmissionCheckResult,
   type ModelSpecAdmissionConstructState,
   type ModelSpecAdmissionConstructStatus,
-  type ModelSpecAdmissionReport,
   type ModelSpecAdmissionReplayState,
   type ModelSpecAdmissionTiming,
   useModelSpecAdmission,
 } from "@/lib/hooks/use-model-spec-admission";
-import type { DagGraphInput } from "@/lib/utils/dag-graph-layout";
 import { cn } from "@/lib/utils";
 import {
   AlertTriangle,
@@ -29,40 +38,7 @@ import {
   RotateCcw,
   XCircle,
 } from "lucide-react";
-import { type KeyboardEvent, useMemo, useState } from "react";
-
-const HARD_CHECKS = new Set(["C1a finiteness", "C5a location reach"]);
-
-function titleize(value: string): string {
-  return value
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function constructLabel(construct: ModelSpecAdmissionConstructState | null | undefined): string {
-  if (!construct) return "Construct admission";
-  return construct.label ?? titleize(construct.name);
-}
-
-/** End-to-end check runtime: "420ms", "1.4s", "12s". */
-function formatCheckDuration(ms: number): string {
-  if (ms > 0 && ms < 1) return "<1ms";
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  const seconds = ms / 1000;
-  return `${seconds >= 10 ? Math.round(seconds) : seconds.toFixed(1)}s`;
-}
-
-/** "Normal(0, 1)" from an authored prior; distribution families are already display-cased. */
-function formatPriorSummary(
-  param: ParameterSpec,
-  distributions: import("@nof1-causal-lab/api-types").ModelSpec["distributions"] | undefined,
-): string {
-  if (param.value != null) return `Fixed: ${param.value}`;
-  return param.distribution && distributions
-    ? distributionText(distributions[param.distribution])
-    : "Not authored";
-}
+import type { KeyboardEvent } from "react";
 
 function StatusIcon({ status }: { status: ModelSpecAdmissionConstructStatus }) {
   if (status === "active") return <Loader2 className="h-3.5 w-3.5 animate-spin" />;
@@ -74,32 +50,6 @@ function StatusIcon({ status }: { status: ModelSpecAdmissionConstructStatus }) {
   }
   if (status === "admitted") return <CheckCircle2 className="h-3.5 w-3.5" />;
   return <Circle className="h-3.5 w-3.5" />;
-}
-
-function checkMode(result: ModelSpecAdmissionCheckResult): "hard" | "soft" {
-  return result.mode ?? (HARD_CHECKS.has(result.check) ? "hard" : "soft");
-}
-
-function reportKeyFor(
-  constructName: string,
-  report: ModelSpecAdmissionReport,
-  index: number,
-): string {
-  return `${constructName}:${report.attempt}:${index}`;
-}
-
-function progressCounts(state: ModelSpecAdmissionReplayState) {
-  const admitted = state.constructs.filter(
-    (construct) =>
-      construct.status === "admitted" || construct.status === "admitted_with_consequences",
-  ).length;
-  const revising = state.constructs.filter((construct) => construct.status === "revising").length;
-  const blocked = state.constructs.filter((construct) => construct.status === "blocked").length;
-  return { admitted, revising, blocked, total: state.constructs.length };
-}
-
-function checkpointLabel(ref: string): string {
-  return ref.split("/").at(-1) ?? ref;
 }
 
 function ResumeSummary({ state }: { state: ModelSpecAdmissionReplayState }) {
@@ -131,47 +81,6 @@ function ResumeSummary({ state }: { state: ModelSpecAdmissionReplayState }) {
   );
 }
 
-function getFeaturedConstruct(state: ModelSpecAdmissionReplayState) {
-  return (
-    state.constructs.find((construct) => construct.name === state.activeConstructs[0]) ??
-    (state.latestReport
-      ? state.constructs.find((construct) => construct.name === state.latestReport?.name)
-      : undefined) ??
-    [...state.constructs].reverse().find((construct) => construct.status !== "pending") ??
-    state.constructs[0] ??
-    null
-  );
-}
-
-function truncateDagLabel(label: string): string {
-  return label.length > 20 ? `${label.slice(0, 17)}...` : label;
-}
-
-// Compact node geometry for the inline DAG strip. ELK lays the nodes out; these
-// are just the box dimensions it packs.
-const DAG_NODE_W = 152;
-const DAG_NODE_H = 40;
-const DAG_PAD = 10;
-
-/** Admission status → theme color token, shared by the node border and its dot. */
-function statusColorVar(status: ModelSpecAdmissionConstructStatus, isSelected: boolean): string {
-  if (isSelected) return "var(--primary)";
-  switch (status) {
-    case "active":
-    case "checking":
-      return "var(--primary)";
-    case "revising":
-    case "admitted_with_consequences":
-      return "var(--warning)";
-    case "admitted":
-      return "var(--success)";
-    case "blocked":
-      return "var(--destructive)";
-    default:
-      return "var(--muted-foreground)";
-  }
-}
-
 /** The single status signal used everywhere: an icon (specific state) in the status color. */
 function StatusIndicator({ status }: { status: ModelSpecAdmissionConstructStatus }) {
   return (
@@ -179,115 +88,6 @@ function StatusIndicator({ status }: { status: ModelSpecAdmissionConstructStatus
       <StatusIcon status={status} />
     </span>
   );
-}
-
-/** Worst outcome of a set of checks → status color: any hard fail = red, any soft fail = amber, else green. */
-function resultsStatus(
-  results: readonly ModelSpecAdmissionCheckResult[],
-): ModelSpecAdmissionConstructStatus {
-  if (results.some((result) => !result.passed && checkMode(result) === "hard")) return "blocked";
-  if (results.some((result) => !result.passed)) return "revising";
-  return "admitted";
-}
-
-/**
- * An attempt's outcome on the shared status color language, mirroring the check-row colors:
- * a hard fail is a hard block (red), a soft-only fail is a revise/decide (amber),
- * admitted-with-consequences is amber, and a clean admit is green.
- */
-function reportStatus(report: ModelSpecAdmissionReport): ModelSpecAdmissionConstructStatus {
-  if (!report.admitted) return resultsStatus(report.results);
-  return report.annotations.length > 0 ? "admitted_with_consequences" : "admitted";
-}
-
-/**
- * The status used to COLOR a construct in the queue and DAG. While it is still being worked
- * (pending/active/checking) we show the live status; once it has attempts we reflect the last
- * attempt's actual outcome, so a hard-failed last attempt reads red rather than amber "revising".
- */
-function constructColorStatus(
-  construct: ModelSpecAdmissionConstructState,
-): ModelSpecAdmissionConstructStatus {
-  if (
-    construct.status === "pending" ||
-    construct.status === "active" ||
-    construct.status === "checking"
-  ) {
-    return construct.status;
-  }
-  const last = construct.reports[construct.reports.length - 1];
-  return last ? reportStatus(last) : construct.status;
-}
-
-/**
- * One entry in a construct's check timeline: either its own admission attempt, or a coupled
- * subsystem recheck that re-validated it when a *later* construct closed a feedback loop.
- */
-type ModelSpecTimelineEntry = {
-  key: string;
-  status: ModelSpecAdmissionConstructStatus;
-  results: ModelSpecAdmissionCheckResult[];
-  timings: ModelSpecAdmissionTiming[];
-} & (
-  | { kind: "attempt"; attempt: number; durationMs?: number }
-  | { kind: "recheck"; originator: string; closingEdges: string[] }
-);
-
-/**
- * A construct's own attempts, followed by the coupled rechecks that re-validate it. A recheck
- * lives on the loop-closing construct's report (its `coupled_recheck`); we surface it under every
- * *other* cycle member it re-checks, attributed to the originator that closed the loop.
- */
-function buildTimeline(
-  state: ModelSpecAdmissionReplayState,
-  construct: ModelSpecAdmissionConstructState,
-): ModelSpecTimelineEntry[] {
-  const attempts: ModelSpecTimelineEntry[] = construct.reports.map((report, index) => ({
-    kind: "attempt",
-    key: reportKeyFor(construct.name, report, index),
-    status: reportStatus(report),
-    results: report.results,
-    timings: report.timings,
-    attempt: report.attempt,
-    durationMs: report.durationMs,
-  }));
-  const rechecks: ModelSpecTimelineEntry[] = [];
-  for (const other of state.constructs) {
-    if (other.name === construct.name) continue;
-    other.reports.forEach((report, index) => {
-      const recheck = report.coupled_recheck;
-      if (recheck?.constructs.includes(construct.name)) {
-        rechecks.push({
-          kind: "recheck",
-          key: `recheck:${other.name}:${report.attempt}:${index}`,
-          status: resultsStatus(recheck.results),
-          results: recheck.results,
-          timings: recheck.timings,
-          originator: other.name,
-          closingEdges: recheck.closing_edges ?? [],
-        });
-      }
-    });
-  }
-  return [...attempts, ...rechecks];
-}
-
-/** Status → tinted card surface (border + subtle bg fill). One rule for every status-bearing list item. */
-function statusTintClasses(status: ModelSpecAdmissionConstructStatus): string {
-  switch (status) {
-    case "active":
-    case "checking":
-      return "border-primary/30 bg-primary/5";
-    case "revising":
-    case "admitted_with_consequences":
-      return "border-warning/40 bg-warning/10";
-    case "admitted":
-      return "border-success/30 bg-success/5";
-    case "blocked":
-      return "border-destructive/30 bg-destructive/5";
-    default:
-      return "border-border bg-muted/20";
-  }
 }
 
 function MiniConstructDag({
@@ -299,31 +99,8 @@ function MiniConstructDag({
   selectedName: string | null | undefined;
   onSelectConstruct: (constructName: string) => void;
 }) {
-  const constructByName = new Map(state.constructs.map((construct) => [construct.name, construct]));
-  const orderByName = new Map(state.constructs.map((construct, index) => [construct.name, index]));
-
-  // Key the ELK layout on the topology only (construct names + edges) so status
-  // ticks recolor in place instead of triggering a full re-layout. Construct and
-  // edge endpoints are `[a-z0-9_]` identifiers, so `|`/`>` are safe delimiters.
-  const nodeKey = state.constructs.map((construct) => construct.name).join("|");
-  const edgeKey = (state.plan?.edges ?? []).map((edge) => `${edge.cause}>${edge.effect}`).join("|");
-  const graph = useMemo<DagGraphInput>(() => {
-    const names = nodeKey ? nodeKey.split("|") : [];
-    const nameSet = new Set(names);
-    return {
-      direction: "RIGHT",
-      nodes: names.map((id) => ({ id, width: DAG_NODE_W, height: DAG_NODE_H })),
-      edges: (edgeKey ? edgeKey.split("|") : []).flatMap((pair, index) => {
-        const [source, target] = pair.split(">");
-        return nameSet.has(source) && nameSet.has(target)
-          ? [{ id: `edge-${index}`, source, target }]
-          : [];
-      }),
-    };
-  }, [nodeKey, edgeKey]);
-
-  const { nodes, edges, width, height, isLayouting } = useDagLayout(graph);
-  const geoByName = new Map(nodes.map((node) => [node.id, node]));
+  const { edges, width, height, isLayouting, geoByName, constructByName, orderByName } =
+    useAdmissionGraph(state);
 
   return (
     <div className="max-h-[320px] overflow-auto rounded-lg border bg-muted/20">
@@ -547,7 +324,7 @@ function AttemptHistory({
   selectedKey,
   onSelect,
 }: {
-  entries: ModelSpecTimelineEntry[];
+  entries: AdmissionTimelineEntry[];
   selectedKey: string | null;
   onSelect: (key: string) => void;
 }) {
@@ -621,7 +398,7 @@ function CheckRow({ result }: { result: ModelSpecAdmissionCheckResult }) {
         "rounded-lg border p-3",
         result.passed
           ? "border-success/25 bg-success/5"
-          : checkMode(result) === "hard"
+          : result.mode === "hard"
             ? "border-destructive/30 bg-destructive/5"
             : "border-warning/30 bg-warning/10",
       )}
@@ -686,7 +463,7 @@ function TimingBreakdown({ timings }: { timings: ModelSpecAdmissionTiming[] }) {
   );
 }
 
-function ReachabilityPanel({ entry }: { entry: ModelSpecTimelineEntry | null }) {
+function ReachabilityPanel({ entry }: { entry: AdmissionTimelineEntry | null }) {
   if (!entry) {
     return (
       <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -744,35 +521,15 @@ export function ModelSpecAdmissionRunningView({
   state: ModelSpecAdmissionReplayState | null;
   showError?: boolean;
 }) {
-  const [selectedConstructName, setSelectedConstructName] = useState<string | null>(null);
-  const [reportSelection, setReportSelection] = useState<{
-    selectedKey: string | null;
-    latestKeyAtSelection: string | null;
-  }>({ selectedKey: null, latestKeyAtSelection: null });
-  const counts = state ? progressCounts(state) : { admitted: 0, revising: 0, blocked: 0, total: 0 };
-  const liveFeaturedConstruct = state ? getFeaturedConstruct(state) : null;
-  const featuredConstruct =
-    state?.constructs.find((construct) => construct.name === selectedConstructName) ??
-    liveFeaturedConstruct;
-  const timeline = useMemo(
-    () => (state && featuredConstruct ? buildTimeline(state, featuredConstruct) : []),
-    [state, featuredConstruct],
-  );
-  const latestEntry = timeline[timeline.length - 1] ?? null;
-  const explicitlySelectedEntry =
-    timeline.find((entry) => entry.key === reportSelection.selectedKey) ?? null;
-  const followsLatest =
-    reportSelection.selectedKey === null ||
-    reportSelection.selectedKey === reportSelection.latestKeyAtSelection;
-  const selectedEntry = followsLatest ? latestEntry : (explicitlySelectedEntry ?? latestEntry);
-  const progress = counts.total > 0 ? Math.round((counts.admitted / counts.total) * 100) : 0;
-  const handleSelectConstruct = (constructName: string) => {
-    setSelectedConstructName(constructName);
-    setReportSelection({ selectedKey: null, latestKeyAtSelection: null });
-  };
-  const handleSelectEntry = (key: string) => {
-    setReportSelection({ selectedKey: key, latestKeyAtSelection: latestEntry?.key ?? null });
-  };
+  const {
+    counts,
+    featuredConstruct,
+    timeline,
+    selectedEntry,
+    progress,
+    handleSelectConstruct,
+    handleSelectEntry,
+  } = useAdmissionView(state);
 
   if (!state?.plan || state.constructs.length === 0) {
     return (

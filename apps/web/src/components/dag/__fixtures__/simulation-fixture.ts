@@ -2,11 +2,8 @@ import type { LLMTrace } from "@nof1-causal-lab/api-types";
 import { demoModelSnapshot } from "@/components/__fixtures__/demo-artifacts";
 import { demoModel } from "../../__fixtures__/demo-artifacts";
 import simulationTrace from "./simulation-trace.json";
-import {
-  buildEdgePosteriors,
-  buildPersistencePosteriors,
-} from "@/components/dag/simulation-results";
-import { constructStatuses } from "../construct-statuses";
+import { buildEdgePosteriors, buildPersistencePosteriors } from "@/lib/dag/simulation-results";
+import { constructStatuses } from "@/lib/dag/construct-statuses";
 import { constructs, edges, indicators } from "./dag-base-fixtures";
 
 export { constructs, edges, indicators };

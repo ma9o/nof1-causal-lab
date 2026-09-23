@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { unrollCausalLinks } from "./unroll";
+import { unrollCausalLinks } from "@/lib/dag/unroll";
 
 describe("unrollCausalLinks", () => {
   it("maps lagged and contemporaneous cross-construct edges to different time slices", () => {

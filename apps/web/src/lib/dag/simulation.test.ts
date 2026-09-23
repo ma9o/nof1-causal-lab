@@ -4,8 +4,8 @@ import {
   getSimulationDays,
   getNodeActionSeries,
   getNodeReferenceSeries,
-} from "./intervention-dag-semantics";
-import type { AnalysisSimulationResult } from "./intervention-dag-types";
+} from "@/lib/dag/simulation";
+import type { AnalysisSimulationResult } from "@/lib/dag/simulation-types";
 
 describe("intervention DAG semantics", () => {
   it("plots end-state responses on their simulation grid and formats clamp labels", () => {

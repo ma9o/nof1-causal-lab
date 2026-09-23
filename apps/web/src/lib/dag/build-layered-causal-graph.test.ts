@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { constructs, edges } from "../__fixtures__/dag-base-fixtures";
+import { constructs, edges } from "@/components/dag/__fixtures__/dag-base-fixtures";
 import { demoModel } from "@/components/__fixtures__/demo-artifacts";
-import { buildLayeredCausalGraph } from "./build-layered-causal-graph";
+import { buildLayeredCausalGraph } from "@/lib/dag/build-layered-causal-graph";
 
 describe("buildLayeredCausalGraph", () => {
   it("keeps authored edges and persistence in distinct temporal slots", () => {

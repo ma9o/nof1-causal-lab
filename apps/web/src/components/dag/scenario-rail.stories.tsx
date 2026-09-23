@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useState } from "react";
-import { buildSimulationScenarios } from "@/components/dag/simulation-results";
+import { buildSimulationScenarios } from "@/lib/dag/simulation-results";
 import { withContainer } from "@/components/story-decorators";
 import { demoSimulationTrace } from "@/components/dag/__fixtures__/simulation-fixture";
 import { ScenarioRail } from "./scenario-rail";

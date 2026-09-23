@@ -1,6 +1,6 @@
 "use client";
 
-import type { SimulationScenario } from "@/components/dag/simulation-results";
+import type { SimulationScenario } from "@/lib/dag/simulation-results";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { formatNumber } from "@/lib/utils/format";

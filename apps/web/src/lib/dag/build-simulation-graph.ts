@@ -1,10 +1,6 @@
 import type { DagDirection, DagGraphInput } from "@/lib/utils/dag-graph-layout";
 import type { CausalEdgeSpec, ConstructSpec, IndicatorSpec } from "@nof1-causal-lab/api-types";
-import { baseId, buildGhostLinks, unrollCausalLinks } from "../unroll";
-
-// Re-exported so existing importers (e.g. interactive-dag) keep their import path
-// while the convention itself lives in the shared ../unroll module.
-export { baseId };
+import { baseId, buildGhostLinks, unrollCausalLinks, DAG_LAYOUT_OPTIONS } from "./unroll";
 
 export const CARD_W = 252;
 export const CARD_H = 152;
@@ -12,15 +8,6 @@ export const HISTORY_H = 64;
 export const MINI_H = 22;
 export const IGAP = 6;
 export const ISTACK_TOP = 16;
-
-/** ELK spacing matching the playground's `elkOptions`. */
-const LAYOUT_OPTIONS: Record<string, string> = {
-  "elk.layered.spacing.nodeNodeBetweenLayers": "56",
-  "elk.spacing.nodeNode": "30",
-  "elk.spacing.edgeNode": "28",
-  "elk.spacing.edgeEdge": "16",
-  "elk.layered.spacing.edgeNodeBetweenLayers": "28",
-};
 
 export interface SimulationGraph {
   graph: DagGraphInput;
@@ -116,7 +103,7 @@ export function buildSimulationGraph(
   });
 
   return {
-    graph: { nodes, edges: elkEdges, direction: opts.dir, layoutOptions: LAYOUT_OPTIONS },
+    graph: { nodes, edges: elkEdges, direction: opts.dir, layoutOptions: DAG_LAYOUT_OPTIONS },
     edgeMeta,
   };
 }

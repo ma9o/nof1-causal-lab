@@ -39,7 +39,7 @@ export interface ModelSpecAdmissionCheckResult {
   passed: boolean;
   note: string;
   diagnosis?: string[];
-  mode?: "hard" | "soft";
+  mode: "hard" | "soft";
 }
 
 export interface ModelSpecAdmissionTiming {
@@ -217,6 +217,8 @@ function parsePlan(payload: Record<string, unknown>): ModelSpecAdmissionPlan | n
 
 function parseCheckResult(value: unknown): ModelSpecAdmissionCheckResult | null {
   if (!isRecord(value) || typeof value.check !== "string") return null;
+  if (value.mode !== "hard" && value.mode !== "soft")
+    throw new Error(`Admission check "${value.check}" has no valid server-provided mode.`);
   return {
     check: value.check,
     target: typeof value.target === "string" ? value.target : "",
@@ -225,7 +227,7 @@ function parseCheckResult(value: unknown): ModelSpecAdmissionCheckResult | null 
     passed: value.passed === true,
     note: typeof value.note === "string" ? value.note : "",
     diagnosis: stringArray(value.diagnosis),
-    mode: value.mode === "hard" || value.mode === "soft" ? value.mode : undefined,
+    mode: value.mode,
   };
 }
 

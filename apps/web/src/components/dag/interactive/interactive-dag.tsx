@@ -1,28 +1,15 @@
 "use client";
 
-import { useDagLayout } from "@/lib/hooks/use-dag-layout";
-import type {
-  CausalEdgeSpec,
-  ConstructSpec,
-  PosteriorEstimate,
-  IndicatorSpec,
-} from "@nof1-causal-lab/api-types";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useInteractiveGraph, type InteractiveGraphOptions } from "@/lib/dag/use-interactive-graph";
+import { baseId } from "@/lib/dag/unroll";
+import { CARD_H, CARD_W } from "@/lib/dag/build-simulation-graph";
+import { getNodeActionSeries, getNodeReferenceSeries } from "@/lib/dag/simulation";
+import { DAG_COLORS, signColor } from "@/lib/dag/palette";
+import { orthoPath } from "@/lib/dag/ortho-path";
 import { DagCanvasFrame, DagSvg } from "../core/dag-canvas";
 import { DagDirectionToggle } from "../core/dag-direction-toggle";
 import { DagZoomControls } from "../core/dag-zoom-controls";
-import { orthoPath } from "../core/ortho-path";
-import { DAG_COLORS, signColor } from "../core/palette";
-import {
-  getSimulationDays,
-  getNodeActionSeries,
-  getNodeReferenceSeries,
-} from "../intervention-dag-semantics";
-import type { AnalysisSimulationResult } from "../intervention-dag-types";
-import type { ConstructStatus } from "../structure-dag";
-import { baseId, buildSimulationGraph, CARD_H, CARD_W } from "./build-cone-graph";
 import { IndicatorStack } from "./indicator-stack";
-import { buildSimulateInput, type SimulateFn } from "./simulate-input";
 import { TrajectoryCard } from "./trajectory-card";
 
 const {
@@ -33,26 +20,7 @@ const {
   intervention: BLUE,
   ink: INK,
 } = DAG_COLORS;
-const ZMIN = 0.4;
-const ZMAX = 2.5;
 const markerFor = (col: string) => (col === TEAL ? "arrPos" : col === RED ? "arrNeg" : "arrZero");
-
-interface InteractiveDagProps {
-  constructs: ConstructSpec[];
-  edges: CausalEdgeSpec[];
-  indicators?: IndicatorSpec[];
-  edgePosteriors?: Record<string, PosteriorEstimate>;
-  persistencePosteriors?: Record<string, PosteriorEstimate>;
-  identifiableTreatments?: string[];
-  result: AnalysisSimulationResult;
-  height?: number;
-  onSimulate?: SimulateFn;
-  /** Controlled indicator visibility. Omit to retain the DAG's local toggle. */
-  indicatorsVisible?: boolean;
-  /** Identification status keeps marginalized theory nodes visible in the fitted graph. */
-  nodeStatuses?: Record<string, ConstructStatus>;
-  onNodeClick?: (constructName: string) => void;
-}
 
 /**
  * Layer the backend's fitted and simulated artifacts over the full scientific
@@ -71,112 +39,51 @@ export function InteractiveDag({
   indicatorsVisible,
   nodeStatuses,
   onNodeClick,
-}: InteractiveDagProps) {
-  const outcome = result.labels[result.request.outcome];
-  const [dir, setDir] = useState<"LR" | "TB">("LR");
-  const [localShowIndicators, setLocalShowIndicators] = useState(false);
-  const showIndicators = indicatorsVisible ?? localShowIndicators;
-  const [zoom, setZoom] = useState(1);
-  const [hoverEdge, setHoverEdge] = useState<string | null>(null);
-
-  // Derive-from-props: a new scenario (result) resets in-progress do() editing.
-  const [prevResult, setPrevResult] = useState(result);
-  const [currentResult, setCurrentResult] = useState(result);
-  if (prevResult !== result) {
-    setPrevResult(result);
-    setCurrentResult(result);
-  }
-
-  const days = useMemo(() => getSimulationDays(currentResult), [currentResult]);
-  const n = days.length;
-  const [day, setDay] = useState(12);
-  const [playing, setPlaying] = useState(false);
-  const clampedDay = Math.max(0, Math.min(n - 1, day));
-  useEffect(() => {
-    if (!playing || n <= 1) return;
-    const id = setInterval(() => setDay((d) => (d >= n - 1 ? 0 : d + 1)), 110);
-    return () => clearInterval(id);
-  }, [playing, n]);
-
-  const byName = useMemo(() => new Map(constructs.map((c) => [c.name, c])), [constructs]);
-  const { graph, edgeMeta } = useMemo(
-    () =>
-      buildSimulationGraph(constructs, edges, {
-        dir: dir === "LR" ? "RIGHT" : "DOWN",
-        showIndicators,
-        showUnroll: true,
-        indicators,
-        persistenceNodes: Object.keys(persistencePosteriors),
-      }),
-    [constructs, edges, dir, showIndicators, indicators, persistencePosteriors],
-  );
-  const { nodes, edges: routed, width: W, height: H, isLayouting } = useDagLayout(graph);
-
-  const identifiableTreatmentSet = useMemo(
-    () => new Set(identifiableTreatments),
-    [identifiableTreatments],
-  );
-  // Active interventions belong to the current resolved query.
-  const interventions = currentResult.request.clamps;
-  const maximumPosteriorMean = useMemo(
-    () =>
-      Math.max(
-        0,
-        ...Object.values(edgePosteriors).map(({ mean }) => Math.abs(mean)),
-        ...Object.values(persistencePosteriors).map(({ mean }) => Math.abs(mean)),
-      ),
-    [edgePosteriors, persistencePosteriors],
-  );
-
-  const setDo = useCallback(
-    async (node: string, value: number) => {
-      const fromDay = days[clampedDay];
-      const horizonDay = days[n - 1];
-      if (!onSimulate || fromDay == null || horizonDay == null) return;
-      const horizonDays = Math.max(horizonDay, 1);
-      const res = await onSimulate(
-        buildSimulateInput(
-          result,
-          [
-            {
-              target: constructs.find((c) => c.name === node)!.id,
-              mode: "set",
-              value,
-              from_day: fromDay,
-            },
-          ],
-          horizonDays,
-        ),
-      );
-      setCurrentResult(res);
-    },
-    [onSimulate, days, clampedDay, n, result, constructs],
-  );
-  const resetScenario = useCallback(() => setCurrentResult(result), [result]);
-
-  const setZoomClamped = (z: number) => setZoom(Math.max(ZMIN, Math.min(ZMAX, z)));
-
-  // column bands — shade alternate real-node layers
-  const columnBands = useMemo(() => {
-    const reals = nodes.filter((nd) => !nd.id.startsWith("G__"));
-    const cols = new Map<number, { min: number; max: number }>();
-    for (const nd of reals) {
-      const key = Math.round(dir === "LR" ? nd.x : nd.y);
-      const span =
-        dir === "LR" ? { lo: nd.x, hi: nd.x + nd.width } : { lo: nd.y, hi: nd.y + nd.height };
-      const cur = cols.get(key);
-      if (cur) {
-        cur.min = Math.min(cur.min, span.lo);
-        cur.max = Math.max(cur.max, span.hi);
-      } else cols.set(key, { min: span.lo, max: span.hi });
-    }
-    return [...cols.entries()]
-      .sort((p, q) => p[0] - q[0])
-      .map(([, v]) => v)
-      .filter((_, i) => i % 2 === 1);
-  }, [nodes, dir]);
-
-  const hoverEndpoints = hoverEdge ? hoverEdge.split(">").map(baseId) : [];
+}: InteractiveGraphOptions) {
+  const {
+    outcome,
+    dir,
+    setDir,
+    showIndicators,
+    setLocalShowIndicators,
+    zoom,
+    setZoomClamped,
+    hoverEdge,
+    setHoverEdge,
+    currentResult,
+    days,
+    n,
+    clampedDay,
+    setDay,
+    playing,
+    setPlaying,
+    byName,
+    edgeMeta,
+    nodes,
+    routed,
+    W,
+    H,
+    isLayouting,
+    identifiableTreatmentSet,
+    interventions,
+    maximumPosteriorMean,
+    setDo,
+    resetScenario,
+    columnBands,
+    hoverEndpoints,
+  } = useInteractiveGraph({
+    constructs,
+    edges,
+    indicators,
+    edgePosteriors,
+    persistencePosteriors,
+    identifiableTreatments,
+    result,
+    onSimulate,
+    indicatorsVisible,
+    nodeStatuses,
+    onNodeClick,
+  });
 
   return (
     <div style={{ fontFamily: "ui-sans-serif, system-ui, sans-serif", color: INK, fontSize: 14 }}>

@@ -114,8 +114,6 @@ export const GLYPH_H = 36;
 /**
  * ELK spacing shared with the analysis interactive DAG so the structural and
  * intervention graphs lay out identically given the same node/edge structure.
- * (build-cone-graph keeps a matching local copy for now; unify when that path
- * is refactored onto this module.)
  */
 export const DAG_LAYOUT_OPTIONS: Record<string, string> = {
   "elk.layered.spacing.nodeNodeBetweenLayers": "56",

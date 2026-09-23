@@ -1,6 +1,6 @@
 "use client";
 
-import { DAG_COLORS } from "../core/palette";
+import { DAG_COLORS } from "@/lib/dag/palette";
 
 interface DriftGlyphProps {
   width: number;

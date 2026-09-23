@@ -1,7 +1,7 @@
 "use client";
 
 import { ManifestProjection } from "@/components/analysis-widgets/posterior/treatment-effect-visuals";
-import type { SimulationScenario } from "@/components/dag/simulation-results";
+import type { SimulationScenario } from "@/lib/dag/simulation-results";
 import type {
   CausalEdgeSpec,
   ConstructSpec,
@@ -13,9 +13,9 @@ import { useMemo } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { InteractiveDag } from "./interactive/interactive-dag";
-import type { SimulateFn } from "./interactive/simulate-input";
+import type { SimulateFn } from "@/lib/dag/simulate-input";
 import { ScenarioRail } from "./scenario-rail";
-import type { ConstructStatus } from "./structure-dag";
+import type { ConstructStatus } from "@/lib/dag/construct-statuses";
 
 export interface SimulationViewerGraph {
   constructs: ConstructSpec[];

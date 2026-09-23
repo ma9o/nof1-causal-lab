@@ -4,7 +4,7 @@ import type { UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
 import { demoModel, demoModelSnapshot } from "@/components/__fixtures__/demo-artifacts";
 import { demoSimulationTrace } from "@/components/dag/__fixtures__/simulation-fixture";
-import { buildSimulationScenarios, buildEdgePosteriors } from "@/components/dag/simulation-results";
+import { buildSimulationScenarios, buildEdgePosteriors } from "@/lib/dag/simulation-results";
 
 const fixtureScenarios = buildSimulationScenarios({ trace: demoSimulationTrace });
 const interventionResult = fixtureScenarios.find((scenario) => scenario.key === "sim-5")?.result;

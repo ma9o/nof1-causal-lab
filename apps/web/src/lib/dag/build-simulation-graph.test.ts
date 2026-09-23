@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { constructs, edges } from "@/components/dag/__fixtures__/dag-base-fixtures";
-import { buildSimulationGraph } from "./build-cone-graph";
+import { buildSimulationGraph } from "@/lib/dag/build-simulation-graph";
 
 describe("buildSimulationGraph", () => {
   it("separates DEMO cross-lagged edges from contemporaneous and fitted persistence edges", () => {

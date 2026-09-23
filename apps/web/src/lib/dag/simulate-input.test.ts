@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { demoSimulationTrace } from "@/components/dag/__fixtures__/simulation-fixture";
-import { buildSimulationScenarios } from "@/components/dag/simulation-results";
-import { buildSimulateInput } from "./simulate-input";
+import { buildSimulationScenarios } from "@/lib/dag/simulation-results";
+import { buildSimulateInput } from "@/lib/dag/simulate-input";
 
 const scenarios = buildSimulationScenarios({ trace: demoSimulationTrace });
 

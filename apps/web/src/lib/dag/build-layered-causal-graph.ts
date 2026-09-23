@@ -5,7 +5,7 @@ import type {
   EdgeId,
 } from "@nof1-causal-lab/api-types";
 import type { DagGraphInput } from "@/lib/utils/dag-graph-layout";
-import { splitEdgesWithGlyphs, ghostId, isGhost } from "../unroll";
+import { splitEdgesWithGlyphs, ghostId, isGhost } from "@/lib/dag/unroll";
 
 export const LAYERED_NODE_WIDTH = 250;
 export const LAYERED_NODE_HEIGHT = 132;
@@ -51,8 +51,8 @@ function constructPartition(construct: ConstructSpec): 0 | 2 {
 }
 
 /**
- * Build the permanent graph geometry exclusively from LatentStructure.
- * Every later artifact layer receives this same graph and can only decorate it.
+ * Lay out the backend-selected constructs and edges for a committed checkpoint.
+ * Comparisons decorate this layout without moving its existing nodes.
  */
 export function buildLayeredCausalGraph(
   constructs: ConstructSpec[],

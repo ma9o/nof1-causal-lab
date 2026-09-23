@@ -1,5 +1,5 @@
 import type { ConstructId } from "@nof1-causal-lab/api-types";
-import type { LatentClamp, AnalysisSimulationResult } from "./intervention-dag-types";
+import type { LatentClamp, AnalysisSimulationResult } from "@/lib/dag/simulation-types";
 
 function formatSignedAmount(value: number, digits = 1): string {
   const magnitude = Math.abs(value).toFixed(digits);

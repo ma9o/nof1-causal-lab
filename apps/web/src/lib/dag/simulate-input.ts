@@ -1,5 +1,5 @@
 import type { ScenarioClamp, ScenarioRequest } from "@nof1-causal-lab/api-types";
-import type { AnalysisSimulationResult } from "../intervention-dag-types";
+import type { AnalysisSimulationResult } from "@/lib/dag/simulation-types";
 
 /** Interactive scenarios always select an explicit outcome. */
 export type SimulateInput = ScenarioRequest;

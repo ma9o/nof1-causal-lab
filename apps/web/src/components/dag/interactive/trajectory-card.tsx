@@ -5,9 +5,9 @@ import { formatPosteriorIntervalLabel } from "@/lib/utils/format";
 import type { PosteriorEstimate, ScenarioClamp } from "@nof1-causal-lab/api-types";
 import { ticks } from "d3-array";
 import { useState } from "react";
-import { DAG_COLORS, signColor } from "../core/palette";
-import { formatClampValue } from "../intervention-dag-semantics";
-import type { ConstructStatus } from "../structure-dag";
+import { DAG_COLORS, signColor } from "@/lib/dag/palette";
+import { formatClampValue } from "@/lib/dag/simulation";
+import type { ConstructStatus } from "@/lib/dag/construct-statuses";
 
 const {
   positive: TEAL,

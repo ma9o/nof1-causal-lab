@@ -7,7 +7,7 @@ import {
   persistencePosteriors,
 } from "@/components/dag/__fixtures__/simulation-fixture";
 import { constructs, edges, indicators } from "../__fixtures__/dag-base-fixtures";
-import { buildSimulationScenarios } from "@/components/dag/simulation-results";
+import { buildSimulationScenarios } from "@/lib/dag/simulation-results";
 import { InteractiveDag } from "./interactive-dag";
 
 const scenarios = buildSimulationScenarios({ trace: demoSimulationTrace });

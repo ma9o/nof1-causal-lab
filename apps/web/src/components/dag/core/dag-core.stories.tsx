@@ -4,7 +4,7 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useMemo, useState } from "react";
 import { DagEdge } from "./dag-edge";
 import { DagNodeShell } from "./dag-node";
-import { DAG_COLORS } from "./palette";
+import { DAG_COLORS } from "@/lib/dag/palette";
 
 interface DemoNode {
   id: string;

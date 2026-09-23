@@ -1,5 +1,5 @@
 import type { ComponentPropsWithoutRef, CSSProperties, ReactNode } from "react";
-import { DAG_COLORS } from "./palette";
+import { DAG_COLORS } from "@/lib/dag/palette";
 
 interface DagSvgProps
   extends Omit<ComponentPropsWithoutRef<"svg">, "width" | "height" | "viewBox"> {

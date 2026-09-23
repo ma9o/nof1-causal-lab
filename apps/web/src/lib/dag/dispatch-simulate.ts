@@ -1,6 +1,6 @@
 import { createModelClient, type SimulationReport } from "@nof1-causal-lab/api-types";
-import type { AnalysisSimulationResult } from "../intervention-dag-types";
-import type { SimulateFn } from "./simulate-input";
+import type { AnalysisSimulationResult } from "@/lib/dag/simulation-types";
+import type { SimulateFn } from "@/lib/dag/simulate-input";
 
 /** Submit an identified scenario through the same durable simulate action. */
 export function createSimulateDispatch(workspaceId: string, modelVersion: number): SimulateFn {

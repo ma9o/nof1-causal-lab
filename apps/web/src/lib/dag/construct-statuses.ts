@@ -1,6 +1,6 @@
 import { modelConstructs } from "@/lib/model-accessors";
 import type { ModelSnapshot } from "@nof1-causal-lab/api-types";
-import type { ConstructStatus } from "./structure-dag";
+export type ConstructStatus = "observed" | "marginalized" | "blocking";
 
 /** Label the backend's construct findings for the graph renderer. */
 export function constructStatuses(snapshot: ModelSnapshot): Record<string, ConstructStatus> {

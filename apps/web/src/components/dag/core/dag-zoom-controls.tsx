@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { DAG_COLORS } from "./palette";
+import { DAG_COLORS } from "@/lib/dag/palette";
 
 interface DagZoomControlsProps {
   zoom: number;

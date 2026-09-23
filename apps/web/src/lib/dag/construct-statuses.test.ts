@@ -1,7 +1,7 @@
 import { modelConstructs } from "@/lib/model-accessors";
 import { describe, expect, it } from "vitest";
 import { demoModelSnapshot } from "@/components/__fixtures__/demo-artifacts";
-import { constructStatuses } from "./construct-statuses";
+import { constructStatuses } from "@/lib/dag/construct-statuses";
 
 describe("constructStatuses", () => {
   it("preserves the backend findings when construct labels change", () => {

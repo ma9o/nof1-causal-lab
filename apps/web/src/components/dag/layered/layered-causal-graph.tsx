@@ -5,30 +5,21 @@ import type {
   ConstructId,
   IndicatorSpec,
   LikelihoodSpec,
-  ModelSnapshot,
   PosteriorEstimate,
-  SimulationResult,
 } from "@nof1-causal-lab/api-types";
 import { Pause, Play } from "lucide-react";
-import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
-import { indexModel } from "@/components/model/asset-data";
+import type { KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button";
-import { useDagLayout } from "@/lib/hooks/use-dag-layout";
-import type { DagLayoutNode } from "@/lib/utils/dag-graph-layout";
 import { formatPosteriorIntervalLabel } from "@/lib/utils/format";
 import { DagCanvasFrame, DagSvg } from "../core/dag-canvas";
 import { DagEdge } from "../core/dag-edge";
 import { DagNodeShell } from "../core/dag-node";
 import { DagZoomControls } from "../core/dag-zoom-controls";
-import { DAG_COLORS, signColor } from "../core/palette";
+import { COMPARISON_COLORS, DAG_COLORS, BLOCKING, MARGINALIZED } from "@/lib/dag/palette";
+import { useLayeredGraph, type LayeredGraphOptions } from "@/lib/dag/use-layered-graph";
+import { getNodeActionSeries, getNodeReferenceSeries } from "@/lib/dag/simulation";
+import type { ConstructStatus } from "@/lib/dag/construct-statuses";
 import {
-  getSimulationDays,
-  getNodeActionSeries,
-  getNodeReferenceSeries,
-} from "../intervention-dag-semantics";
-import type { ConstructStatus } from "../structure-dag";
-import {
-  buildLayeredCausalGraph,
   LAYERED_EDGE_SLOT_HEIGHT,
   LAYERED_EDGE_SLOT_WIDTH,
   LAYERED_HISTORY_HEIGHT,
@@ -36,14 +27,11 @@ import {
   LAYERED_NODE_HEIGHT,
   LAYERED_NODE_WIDTH,
   type LayeredGraphEdgeMeta,
-} from "./build-layered-causal-graph";
-import { availableGraphLayers, type CausalGraphLayerId } from "./layered-causal-graph-model";
+} from "@/lib/dag/build-layered-causal-graph";
+import { boundsForBand, type CausalGraphLayerId } from "@/lib/dag/layered-model";
+import { LayeredComparisonOverlay } from "./layered-comparison-overlay";
 
 const CANVAS_PADDING = 36;
-const MIN_ZOOM = 0.42;
-const MAX_ZOOM = 1.8;
-const BLOCKING = "#dc2626";
-const MARGINALIZED = "#d97706";
 
 const LAYER_LABELS: Record<CausalGraphLayerId, string> = {
   structure: "Structure",
@@ -56,11 +44,7 @@ const LAYER_LABELS: Record<CausalGraphLayerId, string> = {
 
 export type LayeredCausalGraphVariant = "workbench" | "asset";
 
-export interface LayeredCausalGraphProps {
-  model: ModelSnapshot;
-  simulation?: SimulationResult | null;
-  /** Selected construct; the caller owns selection so other panes can scope to it. */
-  selectedNode: ConstructId | null;
+export interface LayeredCausalGraphProps extends LayeredGraphOptions {
   onSelectNode: (construct: ConstructId | null) => void;
   /**
    * `workbench` keeps the layer toggles, simulation timeline and legend around the canvas;
@@ -427,28 +411,6 @@ function EdgeSlot({
   );
 }
 
-interface GraphBand {
-  key: "static" | "history" | "present";
-  label: string;
-  nodes: DagLayoutNode[];
-}
-
-function boundsForBand(
-  band: GraphBand,
-): { x: number; y: number; width: number; height: number } | null {
-  if (band.nodes.length === 0) return null;
-  const minimumX = Math.min(...band.nodes.map((node) => node.x));
-  const minimumY = Math.min(...band.nodes.map((node) => node.y));
-  const maximumX = Math.max(...band.nodes.map((node) => node.x + node.width));
-  const maximumY = Math.max(...band.nodes.map((node) => node.y + node.height));
-  return {
-    x: minimumX - 14,
-    y: minimumY - 28,
-    width: maximumX - minimumX + 28,
-    height: maximumY - minimumY + 42,
-  };
-}
-
 function LayerControls({
   available,
   visible,
@@ -486,208 +448,47 @@ function LayerControls({
 export function LayeredCausalGraph({
   model,
   simulation = null,
+  comparison = null,
   selectedNode,
   onSelectNode,
   variant = "workbench",
 }: LayeredCausalGraphProps) {
-  const available = useMemo(() => availableGraphLayers(model, simulation), [model, simulation]);
-  const [hiddenLayers, setHiddenLayers] = useState<Set<CausalGraphLayerId>>(() => new Set());
-  const [hoveredEdge, setHoveredEdge] = useState<string | null>(null);
-  const [zoom, setZoom] = useState(0.72);
-  // The asset variant fits the whole graph into its pane until the user zooms by hand.
-  const [fitToPane, setFitToPane] = useState(variant === "asset");
-  const paneRef = useRef<HTMLDivElement>(null);
-  const [dayIndex, setDayIndex] = useState(0);
-  const [playing, setPlaying] = useState(false);
-  const visible = useMemo(
-    () => new Set(available.filter((layer) => !hiddenLayers.has(layer))),
-    [available, hiddenLayers],
-  );
-
-  const entities = useMemo(() => indexModel(model), [model]);
-  const topology = useMemo(
-    () => buildLayeredCausalGraph(entities.constructs, entities.edges),
-    [entities],
-  );
-  const { nodes, edges: routedSegments, width, height, isLayouting } = useDagLayout(topology.graph);
-  useEffect(() => {
-    const pane = paneRef.current;
-    if (!fitToPane || !pane || isLayouting || width === 0 || height === 0) return;
-    const fit = () => {
-      const rect = pane.getBoundingClientRect();
-      const inner = 14; // frame border + padding on both sides
-      const next = Math.min(
-        (rect.width - inner) / (width + CANVAS_PADDING * 2),
-        (rect.height - inner) / (height + CANVAS_PADDING * 2),
-      );
-      setZoom(Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, next)));
-    };
-    fit();
-    const observer = new ResizeObserver(fit);
-    observer.observe(pane);
-    return () => observer.disconnect();
-  }, [fitToPane, isLayouting, width, height]);
-
-  const designVisible = visible.has("design");
-  const specificationVisible = visible.has("specification");
-  const fitVisible = visible.has("fit");
-  const simulationVisible = visible.has("simulation");
-  const nodeStatuses = new Map(
-    entities.constructs.map((entity) => [
-      entity.id,
-      designVisible ? model.findings.graph_status[entity.id] : null,
-    ]),
-  );
-  const edgeDispositions = new Map(
-    entities.edges.map((entity) => [
-      entity.id,
-      designVisible
-        ? model.findings.dispositions?.value.find((item) => item.target.id === entity.id)
-            ?.disposition
-        : undefined,
-    ]),
-  );
-  const indicatorsByConstruct = new Map<ConstructId, IndicatorSpec[]>(
-    visible.has("measurement")
-      ? entities.constructs.map((construct) => [construct.id, construct.indicators])
-      : [],
-  );
-  const likelihoodByVariable = new Map(
-    specificationVisible
-      ? entities.indicators.flatMap((indicator) =>
-          indicator.likelihood ? [[indicator.id, indicator.likelihood] as const] : [],
-        )
-      : [],
-  );
-  const warningVariables = new Set(
-    fitVisible && model.findings.simulation?.source.validity === "fresh"
-      ? (model.findings.simulation?.value.predictive_checks?.per_variable_warnings ?? [])
-          .filter((check) => !check.passed)
-          .map((check) => check.indicator_id)
-      : [],
-  );
-  const edgePosteriors = fitVisible ? (model.findings.fit?.value.edge_estimates ?? {}) : {};
-  const persistencePosteriors = fitVisible ? (model.findings.fit?.value.decay_estimates ?? {}) : {};
-  const maximumPosteriorMean = Math.max(
-    0,
-    ...Object.values(edgePosteriors).map((posterior) => Math.abs(posterior.mean)),
-    ...Object.values(persistencePosteriors).map((posterior) => Math.abs(posterior.mean)),
-  );
-
-  const simulationResult = simulationVisible ? simulation : null;
-  const days = useMemo(
-    () => (simulationResult ? getSimulationDays(simulationResult) : []),
-    [simulationResult],
-  );
-  const clampedDayIndex = Math.max(0, Math.min(Math.max(0, days.length - 1), dayIndex));
-  const currentDay = days[clampedDayIndex];
-  useEffect(() => {
-    if (!playing || days.length < 2) return;
-    const timer = window.setInterval(
-      () => setDayIndex((current) => (current >= days.length - 1 ? 0 : current + 1)),
-      180,
-    );
-    return () => window.clearInterval(timer);
-  }, [playing, days.length]);
-
-  const selectedNeighborhood = useMemo(() => {
-    if (!selectedNode) return null;
-    const names = new Set([selectedNode]);
-    for (const edge of entities.edges) {
-      if (edge.cause.id === selectedNode) names.add(edge.effect.id);
-      if (edge.effect.id === selectedNode) names.add(edge.cause.id);
-    }
-    return names;
-  }, [entities.edges, selectedNode]);
-
-  const graphBands = useMemo<GraphBand[]>(() => {
-    const staticNodes: DagLayoutNode[] = [];
-    const historyNodes: DagLayoutNode[] = [];
-    const presentNodes: DagLayoutNode[] = [];
-    for (const node of nodes) {
-      const meta = topology.nodeMeta.get(node.id);
-      if (meta?.kind === "history") historyNodes.push(node);
-      if (meta?.kind === "construct") {
-        if (meta.construct.temporal_status === "time_invariant") staticNodes.push(node);
-        else presentNodes.push(node);
-      }
-    }
-    return [
-      { key: "static", label: "stable context", nodes: staticNodes },
-      { key: "history", label: "t−1", nodes: historyNodes },
-      { key: "present", label: "t", nodes: presentNodes },
-    ];
-  }, [nodes, topology.nodeMeta]);
-
-  const toggleLayer = (layer: CausalGraphLayerId) => {
-    if (layer === "structure") return;
-    setHiddenLayers((current) => {
-      const next = new Set(current);
-      if (next.has(layer)) next.delete(layer);
-      else next.add(layer);
-      return next;
-    });
-  };
-
-  const edgeVisual = (meta: LayeredGraphEdgeMeta) => {
-    const disposition = meta.isSelf
-      ? nodeStatuses.get(meta.cause) === "marginalized"
-        ? "projected_edge"
-        : undefined
-      : edgeDispositions.get(meta.id as import("@nof1-causal-lab/api-types").EdgeId);
-    const posterior = meta.isSelf ? persistencePosteriors[meta.cause] : edgePosteriors[meta.id];
-    const activeClamp =
-      currentDay != null &&
-      simulationResult?.request.clamps.some(
-        (clamp) =>
-          clamp.target === meta.effect &&
-          clamp.from_day <= currentDay &&
-          (clamp.to_day == null || currentDay < clamp.to_day),
-      );
-    const blocking =
-      nodeStatuses.get(meta.cause) === "blocking" || nodeStatuses.get(meta.effect) === "blocking";
-    const marginalized =
-      nodeStatuses.get(meta.cause) === "marginalized" ||
-      nodeStatuses.get(meta.effect) === "marginalized";
-    const color = activeClamp
-      ? DAG_COLORS.pruned
-      : blocking
-        ? BLOCKING
-        : marginalized
-          ? MARGINALIZED
-          : posterior
-            ? signColor(posterior.mean)
-            : disposition === "projected_edge"
-              ? DAG_COLORS.muted
-              : meta.lagged
-                ? DAG_COLORS.lagged
-                : DAG_COLORS.contemporaneous;
-    const width = posterior
-      ? 1.5 +
-        (maximumPosteriorMean > 0 ? (Math.abs(posterior.mean) / maximumPosteriorMean) * 3.5 : 0)
-      : 1.7;
-    const selectedEdge =
-      selectedNode == null || meta.cause === selectedNode || meta.effect === selectedNode;
-    const dimmed = !selectedEdge || (hoveredEdge != null && hoveredEdge !== meta.id);
-    const opacity = dimmed
-      ? 0.1
-      : activeClamp
-        ? 0.45
-        : marginalized || disposition === "projected_edge"
-          ? 0.38
-          : posterior
-            ? 0.92
-            : 0.78;
-    return {
-      disposition,
-      posterior,
-      activeClamp: Boolean(activeClamp),
-      color,
-      width,
-      opacity,
-      dimmed,
-    };
-  };
+  const {
+    available,
+    visible,
+    hoveredEdge,
+    setHoveredEdge,
+    zoom,
+    setZoom,
+    paneRef,
+    paneWidth,
+    topology,
+    nodes,
+    routedSegments,
+    width,
+    isLayouting,
+    difference,
+    designVisible,
+    specificationVisible,
+    fitVisible,
+    simulationVisible,
+    nodeStatuses,
+    indicatorsByConstruct,
+    likelihoodByVariable,
+    warningVariables,
+    persistencePosteriors,
+    simulationResult,
+    days,
+    clampedDayIndex,
+    setDayIndex,
+    playing,
+    setPlaying,
+    currentDay,
+    selectedNeighborhood,
+    graphBands,
+    toggleLayer,
+    edgeVisual,
+  } = useLayeredGraph({ model, simulation, comparison, selectedNode });
 
   const canvas = (
     <DagCanvasFrame fill={variant === "asset"}>
@@ -697,9 +498,20 @@ export function LayeredCausalGraph({
         />
       ) : (
         <DagSvg
-          contentWidth={width + CANVAS_PADDING * 2}
-          contentHeight={height + CANVAS_PADDING * 2}
+          contentWidth={difference.width + CANVAS_PADDING * 2}
+          contentHeight={difference.height + CANVAS_PADDING * 2}
           zoom={zoom}
+          style={
+            variant === "asset"
+              ? {
+                  marginLeft: Math.max(
+                    0,
+                    (paneWidth - 14 - (width + CANVAS_PADDING * 2) * zoom) / 2,
+                  ),
+                  overflow: "visible",
+                }
+              : undefined
+          }
           role="img"
           aria-label="Layered causal graph"
         >
@@ -737,17 +549,18 @@ export function LayeredCausalGraph({
               if (!meta) return null;
               const visual = edgeVisual(meta);
               return (
-                <DagEdge
-                  key={segment.id}
-                  points={segment.points}
-                  color={visual.color}
-                  width={visual.width}
-                  dashed={visual.disposition === "projected_edge"}
-                  opacity={visual.opacity}
-                  markerEnd={segmentMeta.markerEnd && !visual.activeClamp}
-                  highlighted={hoveredEdge === meta.id}
-                  onHoverChange={(hovered) => setHoveredEdge(hovered ? meta.id : null)}
-                />
+                <g key={segment.id} data-edge-id={meta.id} data-change={visual.change}>
+                  <DagEdge
+                    points={segment.points}
+                    color={visual.color}
+                    width={visual.width}
+                    dashed={visual.disposition === "projected_edge"}
+                    opacity={visual.opacity}
+                    markerEnd={segmentMeta.markerEnd && !visual.activeClamp}
+                    highlighted={hoveredEdge === meta.id}
+                    onHoverChange={(hovered) => setHoveredEdge(hovered ? meta.id : null)}
+                  />
+                </g>
               );
             })}
 
@@ -761,6 +574,7 @@ export function LayeredCausalGraph({
                 return (
                   <g
                     key={node.id}
+                    data-node-id={node.id}
                     transform={`translate(${node.x},${node.y})`}
                     onPointerEnter={() => setHoveredEdge(edge.id)}
                     onPointerLeave={() => setHoveredEdge(null)}
@@ -786,7 +600,11 @@ export function LayeredCausalGraph({
                 onSelectNode(selectedNode === construct.id ? null : construct.id);
               if (meta.kind === "history") {
                 return (
-                  <g key={node.id} transform={`translate(${node.x},${node.y})`}>
+                  <g
+                    key={node.id}
+                    data-node-id={node.id}
+                    transform={`translate(${node.x},${node.y})`}
+                  >
                     <HistoryCard
                       construct={construct}
                       status={nodeStatuses.get(construct.id) ?? undefined}
@@ -817,7 +635,12 @@ export function LayeredCausalGraph({
                     );
               const clampLabel = clamp ? `do(${clamp.mode})` : undefined;
               return (
-                <g key={node.id} transform={`translate(${node.x},${node.y})`}>
+                <g
+                  key={node.id}
+                  data-node-id={node.id}
+                  data-change={difference.constructChanges.get(construct.id)}
+                  transform={`translate(${node.x},${node.y})`}
+                >
                   <ConstructCard
                     construct={construct}
                     isOutcome={
@@ -838,9 +661,22 @@ export function LayeredCausalGraph({
                     dimmed={dimmed}
                     onSelect={select}
                   />
+                  {difference.constructChanges.has(construct.id) && (
+                    <rect
+                      x={-3}
+                      y={-3}
+                      width={LAYERED_NODE_WIDTH + 6}
+                      height={LAYERED_NODE_HEIGHT + 6}
+                      rx={12}
+                      fill="none"
+                      stroke={COMPARISON_COLORS[difference.constructChanges.get(construct.id)!]}
+                      strokeWidth={2 / zoom}
+                    />
+                  )}
                 </g>
               );
             })}
+            {comparison && <LayeredComparisonOverlay overlay={difference} zoom={zoom} />}
           </g>
         </DagSvg>
       )}
@@ -852,18 +688,7 @@ export function LayeredCausalGraph({
       <div ref={paneRef} className="relative flex h-full min-h-0 flex-col">
         {canvas}
         <div className="absolute right-3 bottom-2 flex items-center gap-1.5 rounded-lg bg-white/85 px-1.5 py-0.5">
-          <DagZoomControls
-            zoom={zoom}
-            onZoomChange={(next) => {
-              // The reset button asks for 1; in the pane that means "fit again".
-              if (next === 1) {
-                setFitToPane(true);
-                return;
-              }
-              setFitToPane(false);
-              setZoom(Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, next)));
-            }}
-          />
+          <DagZoomControls zoom={zoom} onZoomChange={setZoom} />
         </div>
       </div>
     );
@@ -880,10 +705,7 @@ export function LayeredCausalGraph({
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <LayerControls available={available} visible={visible} onToggle={toggleLayer} />
-          <DagZoomControls
-            zoom={zoom}
-            onZoomChange={(next) => setZoom(Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, next)))}
-          />
+          <DagZoomControls zoom={zoom} onZoomChange={setZoom} />
         </div>
       </div>
 

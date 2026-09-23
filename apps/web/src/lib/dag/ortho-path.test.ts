@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { orthoPath } from "./ortho-path";
+import { orthoPath } from "@/lib/dag/ortho-path";
 
 describe("orthoPath", () => {
   it("returns an empty string for fewer than two points", () => {

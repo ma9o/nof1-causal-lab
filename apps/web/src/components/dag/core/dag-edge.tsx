@@ -1,7 +1,7 @@
 "use client";
 
 import type { Point } from "@/lib/utils/dag-graph-layout";
-import { orthoPath } from "./ortho-path";
+import { orthoPath } from "@/lib/dag/ortho-path";
 
 interface DagEdgeProps {
   /** Routed polyline from the layout: [start, ...bends, end]. */

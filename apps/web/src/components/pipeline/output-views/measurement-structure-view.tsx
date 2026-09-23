@@ -1,7 +1,7 @@
 "use client";
 
 import { modelConstructs } from "@/lib/model-accessors";
-import { constructStatuses } from "@/components/dag/construct-statuses";
+import { constructStatuses } from "@/lib/dag/construct-statuses";
 import { StructureDag } from "@/components/dag/structure-dag";
 import { IndicatorTable } from "@/components/analysis-widgets/measurement-structure/indicator-table";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";

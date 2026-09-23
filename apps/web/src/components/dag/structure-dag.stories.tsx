@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useState } from "react";
 import { constructs, edges, indicators } from "./__fixtures__/dag-base-fixtures";
-import { constructStatuses } from "./construct-statuses";
+import { constructStatuses } from "@/lib/dag/construct-statuses";
 import { demoModelSnapshot } from "@/components/__fixtures__/demo-artifacts";
 import { StructureDag } from "./structure-dag";
 
