@@ -5,6 +5,7 @@
 | Need | Open |
 |---|---|
 | Four scientific actions, checks and revision selection | [reference/scientific-actions.md](reference/scientific-actions.md) |
+| Book's Bayesian workflow in our actions, and what is missing | [assets/bayesian-workflow.svg](assets/bayesian-workflow.svg) |
 | Artifact pipeline walkthrough | [pipeline.md](pipeline.md) |
 | Contributor and operator workflows | [guides/](guides/.md) |
 | Cross-cutting runtime and modeling references | [reference/](reference/) |

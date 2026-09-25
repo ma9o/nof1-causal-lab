@@ -50,6 +50,8 @@ Central literature reference for the nof1-causal-lab documentation. Individual d
 
 ## Bayesian Workflow and Inference
 
+- **Gelman, Vehtari & McElreath (2026).** Gelman, A., Vehtari, A., & McElreath, R., with Simpson, D., Margossian, C. C., Yao, Y., Kennedy, L., Gabry, J., Bürkner, P.-C., Modrák, M., & Leos Barajas, V. (2026). *Bayesian Workflow*. CRC Press. https://users.aalto.fi/~ave/Bayesian-Workflow.pdf
+
 - **Gelman et al. (2020).** Gelman, A., Vehtari, A., Simpson, D., Margossian, C. C., Carpenter, B., Yao, Y., Kennedy, L., Gabry, J., Bürkner, P.-C., & Modrák, M. (2020). Bayesian Workflow. arXiv:2011.01808. https://arxiv.org/abs/2011.01808
 
 - **Gelman et al. (2008).** Gelman, A., Jakulin, A., Pittau, M. G., & Su, Y.-S. (2008). A Weakly Informative Default Prior Distribution for Logistic and Other Regression Models. *The Annals of Applied Statistics*, 2(4), 1360–1383. https://doi.org/10.1214/08-AOAS191
