@@ -22,11 +22,17 @@ Besides the failures each chart lists, any call fails without saving when its re
 
 ## Updating the charts
 
-Each chart is generated from the Mermaid file beside it. Edit the `.mmd` file, then regenerate the Excalidraw scene and SVG with the global `excalidraw-mermaid` tool. Regeneration replaces manual edits to the scenes.
+The detailed `edit_model` chart is maintained as a native Excalidraw scene beside
+its exported SVG. Preserve its individual check nodes when editing it. The other
+three charts use Mermaid sources converted to editable native Excalidraw elements
+with the globally installed `excalidraw-mermaid` tool:
 
 ```bash
-for action in edit-model prepare-data fit simulate; do
+for action in prepare-data fit simulate; do
   excalidraw-mermaid --force --require-native --svg "docs/assets/action-flows/$action.svg" \
     "docs/assets/action-flows/$action.mmd" "docs/assets/action-flows/$action.excalidraw"
 done
 ```
+
+Render and inspect the exported SVGs after changes. Regeneration replaces manual
+scene edits for the three Mermaid-derived charts.
