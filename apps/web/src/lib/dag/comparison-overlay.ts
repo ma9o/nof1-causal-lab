@@ -1,7 +1,7 @@
 import type {
   ConstructId,
   ConstructSpec,
-  ModelComparison,
+  ModelDiffReport,
   ParameterSpec,
 } from "@nof1-causal-lab/api-types";
 import type { DagLayoutNode, Point } from "@/lib/utils/dag-graph-layout";
@@ -34,7 +34,7 @@ interface DifferenceMark {
 
 /** Place additions around the selected layout. Existing coordinates are never recomputed. */
 export function placeComparisonOverlay(
-  comparison: ModelComparison | null,
+  comparison: ModelDiffReport | null,
   topology: LayeredGraphBundle,
   nodes: DagLayoutNode[],
   width: number,
@@ -80,7 +80,7 @@ export function placeComparisonOverlay(
     return { id, x: middle, y: (start.y + end.y) / 2, width: 0, height: 0 };
   };
   const detail = (
-    ids: ModelComparison["graph"]["edges"][number]["parameter_ids"],
+    ids: ModelDiffReport["graph"]["edges"][number]["parameter_ids"],
     text: string,
   ) => {
     if (ids.length === 1) {

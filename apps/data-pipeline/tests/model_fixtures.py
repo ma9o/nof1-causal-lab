@@ -24,6 +24,7 @@ from nof1_causal_lab.artifacts.expressions import (
 from nof1_causal_lab.artifacts.expressions import (
     state as expr_state,
 )
+from nof1_causal_lab.artifacts.likelihood import LinkFunction
 from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
@@ -381,9 +382,13 @@ def model_fixture(
     axes = native_axis_metadata(n_latent, n_manifest, metadata)
     names, ids = axes.pop("latent_names"), axes.pop("latent_ids")
     obs_names, obs_ids = axes.pop("manifest_names"), axes.pop("manifest_ids")
+    authored_families = axes.pop("manifest_dists", [DistributionFamily.GAUSSIAN] * n_manifest)
+    authored_links = axes.pop("manifest_links", None)
     families, links = resolve_manifest_families_and_links(
-        axes.pop("manifest_dists", [DistributionFamily.GAUSSIAN] * n_manifest),
-        manifest_links=axes.pop("manifest_links", None),
+        [DistributionFamily(value) for value in authored_families],
+        manifest_links=[None if value is None else LinkFunction(value) for value in authored_links]
+        if authored_links is not None
+        else None,
     )
     counts = axes.pop("manifest_level_counts", None) or [0] * n_manifest
     standardized = axes.pop("manifest_standardized", None) or [False] * n_manifest

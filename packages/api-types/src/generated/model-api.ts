@@ -104,7 +104,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/episodes/{workspace_id}/revisions/compare": {
+    "/api/episodes/{workspace_id}/model-diff": {
         parameters: {
             query?: never;
             header?: never;
@@ -112,12 +112,43 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Compare Model Revisions
-         * @description Compare the selected graph, decisions and evidence at any two committed checkpoints.
+         * Get Model Diff
+         * @description Compare two model artifact revisions or Git checkpoints containing a model.
+         *
+         *     Returns identity-aligned definition changes, parameter decisions and graph
+         *     differences. Checkpoint selections also include their recorded fit/simulation
+         *     evidence; selecting a model tree alone does not infer an associated run.
          */
-        get: operations["compare_model_revisions_api_episodes__workspace_id__revisions_compare_get"];
+        get: operations["model_diff"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/episodes/{workspace_id}/data-diff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Post Data Diff
+         * @description Compare existing datasets without creating an action, fitting or simulating.
+         *
+         *     Each side accepts a data reference or a nonempty array of references. Panel
+         *     references select artifact revisions; simulation references select applied
+         *     simulation commits and optionally one replicate (otherwise every draw).
+         *     A simulation's optional time_origin maps model day zero to a calendar instant.
+         *     Exact anchors and measurement windows determine which predictive comparisons
+         *     are available. Results preserve each history and report incompatible inputs.
+         */
+        post: operations["data_diff"];
         delete?: never;
         options?: never;
         head?: never;
@@ -512,6 +543,29 @@ export interface components {
          */
         "ConstructSpec-Output": Domain.ConstructSpec;
         /**
+         * DataDiffReport
+         * @description Comparisons of existing data, preserving each history's immutable source reference.
+         */
+        DataDiffReport: Domain.DataDiffReport;
+        /**
+         * DataDiffRequest
+         * @description Compare two immutable data selections, each containing one or more histories.
+         */
+        DataDiffRequest: {
+            left: components["schemas"]["DataSelection"];
+            right: components["schemas"]["DataSelection"];
+        };
+        /**
+         * DataPoint
+         * @description An observed value at an exact calendar anchor and measurement support.
+         */
+        DataPoint: Domain.DataPoint;
+        /**
+         * DataPointChange
+         * @description An added, removed or revised measurement in a single-history comparison.
+         */
+        DataPointChange: Domain.DataPointChange;
+        /**
          * DataPreparationResult
          * @description Prepared observations and their committed revision, with data-quality findings.
          */
@@ -542,7 +596,44 @@ export interface components {
          * @description Model-independent empirical measurements and data-quality findings.
          */
         DataProfileArtifact: Domain.DataProfileArtifact;
+        /**
+         * DataRef
+         * @description A saved panel or simulation; omitting replicate selects every saved simulation draw.
+         */
+        DataRef: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "panel" | "simulation";
+            revision: components["schemas"]["GitOid"];
+            /** Replicate */
+            replicate?: number | null;
+            /**
+             * Time Origin
+             * @description Calendar instant for simulation day zero; omitted uses 1970-01-01 UTC.
+             */
+            time_origin?: string | null;
+        };
+        /** @description A data selection identifies one or more saved observation histories. */
+        DataSelection: components["schemas"]["DataRef"] | components["schemas"]["DataRef"][];
+        /**
+         * DataSeries
+         * @description One variable's recorded measurements in one history; no pooling across replicas.
+         */
+        DataSeries: Domain.DataSeries;
+        /** @description A data source selects uploaded files or one recorded simulation replicate. */
         DataSourceRef: Domain.DataSourceRef;
+        /**
+         * DataStatisticComparison
+         * @description The same descriptive statistic measured independently in every selected history.
+         */
+        DataStatisticComparison: Domain.DataStatisticComparison;
+        /**
+         * DataVariableDiff
+         * @description Definitions, histories and comparisons for one persistent observation identity.
+         */
+        DataVariableDiff: Domain.DataVariableDiff;
         /**
          * DataVariableSpec
          * @description How to produce one observed variable, without any causal or latent model.
@@ -684,6 +775,16 @@ export interface components {
          * @description A fact source locates supporting content within an artifact revision and records its freshness.
          */
         FactSource: Domain.FactSource;
+        /**
+         * FilePreparationSpec
+         * @description Uploaded sources and the complete recipe for preparing their observations.
+         */
+        FilePreparationSpec: {
+            source: components["schemas"]["FileSourceRef"];
+            definition: components["schemas"]["DataPreparationSpec-Input"];
+            /** Max Windows */
+            max_windows?: number | null;
+        };
         /**
          * FileSourceRef
          * @description Explicit uploaded filenames, relative to this study's input directory.
@@ -947,20 +1048,25 @@ export interface components {
          */
         ModelCheckReport: Domain.ModelCheckReport;
         /**
-         * ModelComparison
-         * @description A comparison joins graph, parameter decisions and evidence at two committed checkpoints.
-         */
-        ModelComparison: Domain.ModelComparison;
-        /**
          * ModelData
          * @description Observed evidence paired with its source versions.
          */
         ModelData: Domain.ModelData;
         /**
+         * ModelDefinitionChange
+         * @description One changed field in identity-keyed scientific model definitions.
+         */
+        ModelDefinitionChange: Domain.ModelDefinitionChange;
+        /**
          * ModelDiagnostics
          * @description Server-derived equations and comparisons with pinned observations.
          */
         ModelDiagnostics: Domain.ModelDiagnostics;
+        /**
+         * ModelDiffReport
+         * @description A model diff joins definition changes and evidence at two model revisions or checkpoints.
+         */
+        ModelDiffReport: Domain.ModelDiffReport;
         /**
          * ModelEditResult
          * @description The committed scientific model and checks produced by an edit.
@@ -1138,6 +1244,7 @@ export interface components {
             description: string;
             /**
              * Distribution Transform
+             * @description Mapping from the authored law to the model quantity: identity leaves its scale unchanged; dt_persistence_to_ct_decay maps persistence p to -log(p) / interval; dt_effect_to_ct_rate divides an interval effect by its duration in days; initial_state_correlation applies the correlation support [-1, 1]. Fixed values and joint laws require identity.
              * @default identity
              * @enum {string}
              */
@@ -1149,7 +1256,10 @@ export interface components {
             value?: number | null;
             /** @description Membership in a native law in ModelSpec.distributions; may be joint. */
             distribution?: components["schemas"]["DistributionId"] | null;
-            /** Reference Interval Days */
+            /**
+             * Reference Interval Days
+             * @description Positive duration in days over which an authored persistence or interval-effect law is defined, before conversion to continuous-time decay or rate. When omitted, persistence uses the model measurement clock; interval effects use the edge lag, falling back to that clock.
+             */
             reference_interval_days?: number | null;
         };
         /**
@@ -1195,11 +1305,8 @@ export interface components {
              * @enum {string}
              */
             action: "prepare_data";
-            /** Source */
-            source: components["schemas"]["FileSourceRef"] | components["schemas"]["SimulationReplicateRef"];
-            preparation?: components["schemas"]["DataPreparationSpec-Input"] | null;
-            /** Max Windows */
-            max_windows?: number | null;
+            /** Input */
+            input: components["schemas"]["FilePreparationSpec"] | components["schemas"]["SimulationReplicateRef"];
         };
         /**
          * PreparedDataMetadata
@@ -1245,7 +1352,7 @@ export interface components {
         Role: "endogenous" | "exogenous";
         /**
          * SimulateRequest
-         * @description Generate the selected model through end with optional start and dated interventions.
+         * @description Generate through end with optional start and interventions; compare saved data with data_diff.
          */
         SimulateRequest: {
             /**
@@ -1269,8 +1376,6 @@ export interface components {
              */
             action: "simulate";
             model_revision: components["schemas"]["GitOid"];
-            /** @description Prepared observations to compare on their exact recorded schedule. */
-            comparison_panel_revision?: components["schemas"]["GitOid"] | null;
         };
         /**
          * SimulationObservationLayout
@@ -1631,7 +1736,7 @@ export interface operations {
             };
         };
     };
-    compare_model_revisions_api_episodes__workspace_id__revisions_compare_get: {
+    model_diff: {
         parameters: {
             query: {
                 before: components["schemas"]["GitOid"];
@@ -1651,7 +1756,42 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ModelComparison"];
+                    "application/json": components["schemas"]["ModelDiffReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    data_diff: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DataDiffRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataDiffReport"];
                 };
             };
             /** @description Validation Error */

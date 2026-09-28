@@ -1,7 +1,9 @@
 """Lifecycle collection for scratch runs, telemetry, and caches."""
 
 import os
+from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
@@ -12,6 +14,16 @@ from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
 
 pytestmark = pytest.mark.contract
+
+
+def test_remote_file_metadata_is_normalized_at_storage_boundary(monkeypatch):
+    modified = datetime(2026, 1, 1, tzinfo=UTC)
+    fs = Mock(info=Mock(return_value={"size": 42, "LastModified": modified, "name": "file"}))
+    monkeypatch.setattr(storage, "is_remote", lambda: True)
+    monkeypatch.setattr(storage, "get_fs", lambda: fs)
+
+    assert storage.file_info("s3://bucket/file") == storage.FileInfo(42, modified.timestamp())
+    fs.info.assert_called_once_with("s3://bucket/file")
 
 
 def _workspace(monkeypatch, tmp_path) -> str:

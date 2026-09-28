@@ -135,22 +135,6 @@ def fit_marginal_particle_gibbs(
     This method targets the directly evaluable latent/parameter posterior using
     a collapsed Particle Gibbs update.
     """
-    if init_method not in {"random", "pathfinder"}:
-        raise ValueError(
-            "Unsupported marginal_particle_gibbs init_method "
-            f"{init_method!r}. Supported: 'random' or 'pathfinder'."
-        )
-    if latent_init_method != "predictive":
-        raise ValueError(
-            "Unsupported marginal_particle_gibbs latent_init_method "
-            f"{latent_init_method!r}. Supported: 'predictive'."
-        )
-    if adaptation_scheme not in {"simple", "dual_averaging"}:
-        raise ValueError(
-            "Unsupported marginal_particle_gibbs adaptation_scheme "
-            f"{adaptation_scheme!r}. Supported: 'simple' or 'dual_averaging'."
-        )
-
     overall_t0 = time.monotonic()
     logger.info(
         "marginal_particle_gibbs entry: chains=%d warmup=%d samples=%d T=%d "
@@ -435,7 +419,7 @@ def fit_marginal_particle_gibbs(
             "final_param_step_size": jax.device_get(run_result["final_param_step_size"]).tolist(),
             "initial_latent_delta": jax.device_get(run_result["initial_latent_delta"]).tolist(),
             "final_latent_delta": jax.device_get(run_result["final_latent_delta"]).tolist(),
-            "latent_init_method": "predictive",
+            "latent_init_method": latent_init_method,
             "chain_post_warmup_complete_log_posterior_mean": jax.device_get(
                 run_result["post_warmup_complete_log_posterior_mean"]
             ).tolist(),

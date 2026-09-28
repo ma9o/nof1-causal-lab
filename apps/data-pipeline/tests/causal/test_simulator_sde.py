@@ -8,7 +8,10 @@ import pytest
 from jax import jit, vmap
 
 from nof1_causal_lab.models.ssm.dynamics import (
+    BrownianTreeSpec,
+    IndexedBrownianSpec,
     Intervention,
+    ProcessNoise,
     SimulationConfig,
     VectorField,
     simulate,
@@ -27,7 +30,11 @@ class TestSimulateSDEMode:
     @pytest.mark.parametrize("indexed", [False, True], ids=["brownian-tree", "indexed"])
     def test_replay_and_moments_match_ornstein_uhlenbeck_solution(self, indexed):
         vf, params, y0, time_grid = _linear_setup()
-        config = SimulationConfig(sde_dt=0.02, use_indexed_brownian_path=indexed)
+        config = SimulationConfig(
+            brownian=IndexedBrownianSpec(step_size=0.02)
+            if indexed
+            else BrownianTreeSpec(step_size=0.02)
+        )
         keys = jr.split(jr.PRNGKey(23), 512)
         # Reuse one compiled batch for replay and analytic moment checks. The
         # repeated key is excluded from the independent sample used for moments.
@@ -40,8 +47,7 @@ class TestSimulateSDEMode:
                     y0,
                     time_grid,
                     config=config,
-                    key=key,
-                    diffusion_cov=jnp.eye(1) * 0.2,
+                    noise=ProcessNoise(key=key, diffusion_cov=jnp.eye(1) * 0.2),
                 )
             )
         )(jnp.concatenate((keys, keys[:1])))
@@ -67,15 +73,6 @@ class TestSimulateSDEMode:
             Intervention.none(),
             y0,
             time_grid,
-            key=jr.PRNGKey(42),
-            diffusion_cov=jnp.eye(1) * 1e-10,
+            noise=ProcessNoise(key=jr.PRNGKey(42), diffusion_cov=jnp.eye(1) * 1e-10),
         )
         assert jnp.allclose(det, sde, atol=5e-3)
-
-    @pytest.mark.contract
-    def test_requires_both_key_and_diffusion(self):
-        vf, params, y0, time_grid = _linear_setup()
-        with pytest.raises(ValueError, match="SDE mode requires both"):
-            simulate(vf, params, Intervention.none(), y0, time_grid, key=jr.PRNGKey(0))
-        with pytest.raises(ValueError, match="SDE mode requires both"):
-            simulate(vf, params, Intervention.none(), y0, time_grid, diffusion_cov=jnp.eye(1))

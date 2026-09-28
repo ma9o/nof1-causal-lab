@@ -87,11 +87,12 @@ def test_recorded_replicate_becomes_a_compatible_panel(tmp_path, monkeypatch):
         draws=2,
         seed=0,
         state_ids=tuple(numeric.state_ids(model)),
-        indicator_ids=tuple(numeric.observation_ids(model)),
         parameter_draws={"known_truth": "not-an-observation-array"},
         latent_paths="not-an-observation-array",
         observations=store.write_array(draws),
-        observation_layout=simulation_layout(model, tuple(t + 5 for t in times), np.ones_like(draws, dtype=bool), store.write_array),
+        observation_layout=simulation_layout(
+            model, tuple(t + 5 for t in times), np.ones_like(draws, dtype=bool), store.write_array
+        ),
     )
     simulation_record = TransitionRecord(
         seq=2,
@@ -119,22 +120,20 @@ def test_recorded_replicate_becomes_a_compatible_panel(tmp_path, monkeypatch):
         )
     )
     source = SimulationReplicateRef(revision=source_commit, replicate=1)
-    request = PrepareDataRequest(source=source)
+    request = PrepareDataRequest(input=source)
     command = plan_execution(request)
+    assert command.operation.operation_id == "simulated_measurements"
     with pytest.raises(ValueError, match="applied simulation commit"):
         run_async(
             execute_transition(
                 "TEST",
-                command.operation_id,
-                state,
-                command.options.model_copy(
-                    update={
-                        "simulation_source": source.model_copy(update={"revision": model_commit})
-                    }
+                command.operation.model_copy(
+                    update={"source": source.model_copy(update={"revision": model_commit})}
                 ),
+                state,
             )
         )
-    effects = run_async(execute_transition("TEST", command.operation_id, state, command.options))
+    effects = run_async(execute_transition("TEST", command.operation, state))
     # The operation stages the panel; the enclosing action owns scientific checks.
     assert {info.artifact_id for info in effects.produced} == {"panel"}
     panel_info = next(info for info in effects.produced if info.artifact_id == "panel")
@@ -165,7 +164,7 @@ def test_recorded_replicate_becomes_a_compatible_panel(tmp_path, monkeypatch):
             update={
                 "seq": 4,
                 "action": "prepare_data",
-                "operation_id": command.operation_id,
+                "operation_id": command.operation.operation_id,
                 "inputs": request.model_dump(mode="json", exclude={"action"}),
                 "produced": effects.produced,
                 "diagnostics": effects.diagnostics,
@@ -194,6 +193,7 @@ def test_materialization_preserves_measurement_support_and_numeric_codes(interva
     if not interval:
         values[0, 0] = 2
     arrays = {}
+
     def write_array(value):
         key = str(len(arrays))
         arrays[key] = value
@@ -206,13 +206,14 @@ def test_materialization_preserves_measurement_support_and_numeric_codes(interva
         draws=1,
         seed=0,
         state_ids=tuple(numeric.state_ids(model)),
-        indicator_ids=tuple(numeric.observation_ids(model)),
         parameter_draws={},
         latent_paths="truth",
         observations="observations",
         observation_layout=simulation_layout(model, (0, 1, 2.5), np.isfinite(values), write_array),
     )
-    panel = prepare_simulation_panel(report, 0, read_array=lambda key: values if key == "observations" else arrays[key])
+    panel = prepare_simulation_panel(
+        report, 0, read_array=lambda key: values if key == "observations" else arrays[key]
+    )
     assert panel["value"].drop_nulls().to_list() == [2.0] * (4 if interval else 6)
     assert panel["anchor_time"].min() == datetime(1970, 1, 1)
     if interval:
@@ -222,24 +223,27 @@ def test_materialization_preserves_measurement_support_and_numeric_codes(interva
     else:
         assert panel["support_start"].to_list() == panel["anchor_time"].to_list()
     with pytest.raises(ValueError, match="replicate"):
-        prepare_simulation_panel(report, 1, read_array=lambda key: values if key == "observations" else arrays[key])
+        prepare_simulation_panel(
+            report, 1, read_array=lambda key: values if key == "observations" else arrays[key]
+        )
     values[0, 1, 0] = np.nan
     with pytest.raises(ValueError, match="non-finite emissions"):
-        prepare_simulation_panel(report, 0, read_array=lambda key: values if key == "observations" else arrays[key])
+        prepare_simulation_panel(
+            report, 0, read_array=lambda key: values if key == "observations" else arrays[key]
+        )
 
 
 @pytest.mark.parametrize(
     "payload",
     [
-        {"source": "simulation"},
-        {"source": "simulation", "simulation": {"revision": git_oid(1), "replicate": -1}},
+        {"input": {"source": {"files": ["observations.csv"]}}},
+        {"input": {"revision": git_oid(1), "replicate": -1}},
         {
-            "source": "simulation",
-            "simulation": {"revision": git_oid(1), "replicate": 0},
+            "input": {"revision": git_oid(1), "replicate": 0},
             "model_revision": git_oid(2),
         },
-        {"source": "files", "simulation": {"revision": git_oid(1), "replicate": 0}},
-        {"source": "panel"},
+        {"input": {"revision": git_oid(1), "replicate": 0, "max_windows": 1}},
+        {"input": "panel"},
     ],
 )
 def test_data_sources_require_one_unambiguous_origin(payload):

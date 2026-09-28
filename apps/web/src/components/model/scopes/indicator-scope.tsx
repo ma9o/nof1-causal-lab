@@ -16,7 +16,9 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
   const scope = indicatorPresentation(context, id);
   if (!scope) return null;
   const { indicator, disposition, audit, counts, likelihood, predictive, checks, issues } = scope;
-  const preparation = context.model.data.metadata?.value.preparation?.variables.find((variable) => variable.id === id);
+  const preparation = context.model.data.metadata?.value.preparation?.variables.find(
+    (variable) => variable.id === id,
+  );
   const parameters = parametersForOwner(context.model.model?.value, id);
   return (
     <>
@@ -47,11 +49,13 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
       {preparation && (
         <Section title="Data preparation" source={context.model.data.metadata?.source}>
           <Hint>{preparation.how_to_measure}</Hint>
-          <KeyValue rows={[
-            ["Recording", preparation.recording],
-            ["Extraction", preparation.extraction_mode],
-            ["Source columns", preparation.source_columns.join(", ")],
-          ]} />
+          <KeyValue
+            rows={[
+              ["Recording", preparation.recording],
+              ["Extraction", preparation.extraction_mode],
+              ["Source columns", preparation.source_columns.join(", ")],
+            ]}
+          />
         </Section>
       )}
       {disposition && disposition.disposition !== "manifest" && (

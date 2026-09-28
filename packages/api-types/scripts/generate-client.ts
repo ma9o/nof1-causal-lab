@@ -11,7 +11,7 @@ const names = new Set([...models.matchAll(/export (?:interface|type) (\w+)/g)].m
 // Keep reads and the four action submissions together; request defaults stay optional.
 schema.paths = Object.fromEntries(
   Object.entries(schema.paths).filter(([path]) =>
-    /^\/api\/episodes\/\{workspace_id\}\/(?:model|actions|revisions)(?:\/|$)/.test(path),
+    /^\/api\/episodes\/\{workspace_id\}\/(?:model|model-diff|data-diff|actions|revisions)(?:\/|$)/.test(path),
   ),
 );
 

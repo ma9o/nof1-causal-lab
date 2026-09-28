@@ -18,6 +18,9 @@ LAYERS = {
     "transport": ("Transport", "#e2e8f0"),
 }
 
+# Data preparation and model indicators specialize the same observation identity.
+IDENTITY_OWNERS = {"IndicatorId": "ObservationSpec"}
+
 # Sections group types by subject; layer colors continue to describe their role.
 CONCERNS = {
     "scientific_model": (
@@ -80,6 +83,7 @@ CONCERNS = {
             "actions.contracts",
             "actions.results",
             "actions.revisions",
+            "actions.data_diff",
             "flows.transitions.analysis.contracts",
             "json_types",
             "utils.llm",

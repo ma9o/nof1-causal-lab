@@ -23,5 +23,3 @@ class PredictiveLawProvenance(BaseModel):
         "mixed",
         "unknown",
     ]
-
-

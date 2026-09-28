@@ -12,6 +12,9 @@ from nof1_causal_lab.artifacts.likelihood import DistributionFamily
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
 from nof1_causal_lab.models.ssm.execution.emissions import build_heterogeneous_mean_sample_fn
 from nof1_causal_lab.models.ssm.execution.observation_distributions import point_observation_scales
+from nof1_causal_lab.models.ssm.execution.observation_extra_params import (
+    slice_observation_extra_params,
+)
 from nof1_causal_lab.models.ssm.execution.observation_families import (
     FAMILY_REGISTRY,
     POSTERIOR_PREDICTIVE_SWITCH_BRANCHES,
@@ -21,7 +24,7 @@ from nof1_causal_lab.models.ssm.execution.observation_families import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
     from nof1_causal_lab.artifacts.likelihood import LinkFunction
     from nof1_causal_lab.models.ssm.execution.contracts import LikelihoodExtraParams
@@ -32,54 +35,51 @@ if TYPE_CHECKING:
 
 
 def get_emission_score_weight_fn(
-    manifest_dist: DistributionFamily | str,
+    manifest_dist: DistributionFamily,
     extra_params: LikelihoodExtraParams | None = None,
     *,
-    link: LinkFunction | str | None = None,
+    link: LinkFunction | None = None,
 ) -> ScoreWeightFn | None:
     """Return analytical (score, neg_hess_diag) w.r.t. linear predictor eta."""
     extra_params = extra_params or {}
     dist, link_fn = resolve_family_link(manifest_dist, link)
-    family_spec = FAMILY_REGISTRY.get(dist)
-    if family_spec is None:
-        return None
-    factory = family_spec.score_weight_fns.get(link_fn.value)
-    if factory is None:
-        return None
-    return factory(extra_params)
+    family_spec = FAMILY_REGISTRY[dist]
+    return family_spec.score_weight_fns[link_fn](extra_params)
 
 
 def get_emission_fn(
-    manifest_dist: DistributionFamily | str,
+    manifest_dist: DistributionFamily,
     extra_params: LikelihoodExtraParams | None = None,
     *,
-    link: LinkFunction | str | None = None,
+    link: LinkFunction | None = None,
 ) -> EmissionLogProbFn:
     """Resolve predictor-space log-probability for one valid family/link pair."""
     extra_params = extra_params or {}
     dist, link_fn = resolve_family_link(manifest_dist, link)
     family_spec = FAMILY_REGISTRY[dist]
 
-    factory = family_spec.emission_fns.get(link_fn.value)
-    if factory is None:
-        raise ValueError(
-            f"No emission function for manifest_dist='{manifest_dist}', link='{link_fn.value}'."
-        )
-    return factory(extra_params)
+    return family_spec.emission_fns[link_fn](extra_params)
+
+
+type ObservationSampleFn = Callable[[jax.Array, jnp.ndarray], jnp.ndarray]
 
 
 @dataclass(frozen=True)
-class PredictiveObservationSampler:
-    """Compiled predictive sampler shared by posterior/prior predictive paths."""
+class PointObservationSampler:
+    """Compiled predictor-space sampler shared by predictive paths."""
 
-    sample_point: Callable[[jax.Array, jnp.ndarray], jnp.ndarray]
-    sample_point_trajectory: Callable[[jax.Array, jnp.ndarray], jnp.ndarray]
-    sample_mean_trajectory: Callable[[jax.Array, jnp.ndarray], jnp.ndarray]
-    all_gaussian: bool
-    manifest_dists: tuple[str, ...]
+    sample_point: ObservationSampleFn
+    sample_point_trajectory: ObservationSampleFn
 
 
-def _trajectory_sampler(sample_vector):
+@dataclass(frozen=True)
+class MeanObservationSampler:
+    """Compiled sampler for families with a mean-parameter observation law."""
+
+    sample_mean_trajectory: ObservationSampleFn
+
+
+def _trajectory_sampler(sample_vector: ObservationSampleFn) -> ObservationSampleFn:
     def sample_trajectory(key, trajectory):
         keys = jax.random.split(key, trajectory.shape[0])
         return jax.vmap(sample_vector)(keys, trajectory)
@@ -87,38 +87,45 @@ def _trajectory_sampler(sample_vector):
     return sample_trajectory
 
 
-def build_predictive_observation_sampler(
-    manifest_dists,
+def build_interval_summary_sampler(
+    manifest_dists: Sequence[DistributionFamily],
+    manifest_cov: jnp.ndarray,
+    interval_summary_indices: Sequence[int],
+    *,
+    extra_params: LikelihoodExtraParams | None = None,
+) -> MeanObservationSampler:
+    """Compile a mean-space sampler for the declared interval-summary channels."""
+    indices = jnp.asarray(interval_summary_indices, dtype=jnp.int32)
+    covariance = manifest_cov[jnp.ix_(indices, indices)]
+    mean_sample_fn = build_heterogeneous_mean_sample_fn(
+        [manifest_dists[idx] for idx in interval_summary_indices],
+        slice_observation_extra_params(
+            extra_params,
+            list(interval_summary_indices),
+            source_channel_count=len(manifest_dists),
+        ),
+    )
+
+    def sample_vector(key: jax.Array, means: jnp.ndarray) -> jnp.ndarray:
+        return mean_sample_fn(key, means, covariance)
+
+    return MeanObservationSampler(sample_mean_trajectory=_trajectory_sampler(sample_vector))
+
+
+def build_point_observation_sampler(
+    manifest_dists: Sequence[DistributionFamily],
     manifest_cov: jnp.ndarray,
     *,
-    manifest_links=None,
+    manifest_links: Sequence[LinkFunction | None] | None = None,
     extra_params: LikelihoodExtraParams | None = None,
-) -> PredictiveObservationSampler:
-    """Compile predictive samplers for point observations and mean-space summaries."""
+) -> PointObservationSampler:
+    """Compile predictor-space samplers for point observations."""
     dists, links = resolve_manifest_families_and_links(
         manifest_dists,
         manifest_links=manifest_links,
     )
     n_manifest = len(dists)
     all_gaussian = all(dist == DistributionFamily.GAUSSIAN for dist in dists)
-    manifest_dist_values = tuple(dist.value for dist in dists)
-    try:
-        mean_sample_fn = build_heterogeneous_mean_sample_fn(manifest_dist_values, extra_params)
-    except ValueError as exc:
-        mean_sample_fn = None
-        mean_sampler_error = exc
-    else:
-        mean_sampler_error = None
-
-    def _sample_mean_vector(key, mean_t):
-        if mean_sample_fn is None:
-            raise ValueError(
-                f"Mean-parameter sampler is not defined for manifest_dists={manifest_dist_values}."
-            ) from mean_sampler_error
-        return mean_sample_fn(key, mean_t, manifest_cov)
-
-    sample_mean_trajectory = _trajectory_sampler(_sample_mean_vector)
-
     if all_gaussian:
         manifest_cov_adj = symmetrize_with_jitter(manifest_cov)
         manifest_chol = jnp.linalg.cholesky(manifest_cov_adj)
@@ -128,12 +135,9 @@ def build_predictive_observation_sampler(
 
         sample_point_trajectory = _trajectory_sampler(_sample_point_vector)
 
-        return PredictiveObservationSampler(
+        return PointObservationSampler(
             sample_point=_sample_point_vector,
             sample_point_trajectory=sample_point_trajectory,
-            sample_mean_trajectory=sample_mean_trajectory,
-            all_gaussian=True,
-            manifest_dists=manifest_dist_values,
         )
 
     dist_indices = jnp.asarray(
@@ -216,10 +220,7 @@ def build_predictive_observation_sampler(
 
     sample_point_trajectory = _trajectory_sampler(_sample_point_vector)
 
-    return PredictiveObservationSampler(
+    return PointObservationSampler(
         sample_point=_sample_point_vector,
         sample_point_trajectory=sample_point_trajectory,
-        sample_mean_trajectory=sample_mean_trajectory,
-        all_gaussian=False,
-        manifest_dists=manifest_dist_values,
     )

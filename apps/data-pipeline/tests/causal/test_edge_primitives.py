@@ -20,6 +20,7 @@ import pytest
 
 from nof1_causal_lab.artifacts.identity import scientific_id
 from nof1_causal_lab.models.ssm.dynamics import (
+    ConstantValueFn,
     DiagonalDecay,
     EdgeInputOverride,
     Intercept,
@@ -28,11 +29,10 @@ from nof1_causal_lab.models.ssm.dynamics import (
     VariableOverride,
     VectorField,
     VectorFieldArgs,
-    compute_steady_state,
-    constant_value,
     simulate,
 )
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
+from tests.causal.steady_state_reference import compute_steady_state
 from tests.dynamics_fixtures import hill_term, interaction_term
 
 
@@ -212,7 +212,7 @@ class TestVectorFieldInterventions:
             {"weight": jnp.asarray(0.5)},
         )
         intervention = Intervention(
-            overrides=(VariableOverride(index=0, value_fn=constant_value(jnp.asarray(5.0))),)
+            overrides=(VariableOverride(index=0, value_fn=ConstantValueFn(jnp.asarray(5.0))),)
         )
         steady = compute_steady_state(vf, params, intervention)
         assert float(steady[0]) == pytest.approx(5.0, abs=1e-4)
@@ -240,7 +240,7 @@ class TestVectorFieldInterventions:
         # Replace the source-as-seen-by-target-1 with 10 → dynamics[1] += 0.5*(10-2)
         intervention = Intervention(
             overrides=(
-                EdgeInputOverride(source=0, target=1, value_fn=constant_value(jnp.asarray(10.0))),
+                EdgeInputOverride(source=0, target=1, value_fn=ConstantValueFn(jnp.asarray(10.0))),
             )
         )
         intervened_dynamics = vf(
@@ -278,7 +278,7 @@ class TestEffectCompartment:
             {"weight": jnp.asarray(k_e0)},
         )
         intervention = Intervention(
-            overrides=(VariableOverride(index=0, value_fn=constant_value(jnp.asarray(3.0))),)
+            overrides=(VariableOverride(index=0, value_fn=ConstantValueFn(jnp.asarray(3.0))),)
         )
         steady = compute_steady_state(vf, params, intervention)
         assert float(steady[0]) == pytest.approx(3.0, abs=1e-4)
@@ -298,7 +298,7 @@ class TestEffectCompartment:
             {"weight": jnp.asarray(k_e0)},
         )
         intervention = Intervention(
-            overrides=(VariableOverride(index=0, value_fn=constant_value(jnp.asarray(3.0))),)
+            overrides=(VariableOverride(index=0, value_fn=ConstantValueFn(jnp.asarray(3.0))),)
         )
         half_life = jnp.log(2.0) / k_e0
         time_grid = jnp.linspace(0.0, float(half_life) * 4.0, 41)
@@ -366,7 +366,7 @@ class TestSSRIChain:
         vf, params = self._build()
         intervention = Intervention(
             overrides=(
-                VariableOverride(index=self.DOSE, value_fn=constant_value(jnp.asarray(2.0))),
+                VariableOverride(index=self.DOSE, value_fn=ConstantValueFn(jnp.asarray(2.0))),
             )
         )
         steady = compute_steady_state(vf, params, intervention)
@@ -381,7 +381,7 @@ class TestSSRIChain:
         baseline_steady = compute_steady_state(vf, params, Intervention.none())
         intervention = Intervention(
             overrides=(
-                VariableOverride(index=self.DOSE, value_fn=constant_value(jnp.asarray(2.0))),
+                VariableOverride(index=self.DOSE, value_fn=ConstantValueFn(jnp.asarray(2.0))),
             )
         )
         time_grid = jnp.linspace(0.0, 60.0, 121)

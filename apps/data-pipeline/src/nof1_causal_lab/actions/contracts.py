@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal, Self
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
-from nof1_causal_lab.artifacts.data_preparation import (
-    DataPreparationSpec,
-    FileSourceRef,
+from nof1_causal_lab.artifacts.data_preparation import (  # noqa: TC001
+    FilePreparationSpec,
     SimulationReplicateRef,
 )
 from nof1_causal_lab.artifacts.identity import GitOid  # noqa: TC001
@@ -33,18 +32,7 @@ class PrepareDataRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     action: Literal["prepare_data"] = "prepare_data"
-    source: FileSourceRef | SimulationReplicateRef
-    preparation: DataPreparationSpec | None = None
-    max_windows: int | None = Field(default=None, ge=1)
-
-    @model_validator(mode="after")
-    def source_inputs(self) -> Self:
-        if isinstance(self.source, FileSourceRef):
-            if self.preparation is None:
-                raise ValueError("Uploaded files require data preparation instructions")
-        elif self.preparation is not None or self.max_windows is not None:
-            raise ValueError("Simulation sources use their recorded observations and metadata")
-        return self
+    input: FilePreparationSpec | SimulationReplicateRef
 
 
 class FitRequest(BaseModel):
@@ -59,7 +47,7 @@ class FitRequest(BaseModel):
 
 
 class SimulateRequest(SimulationSpec):
-    """Generate the selected model through end with optional start and dated interventions."""
+    """Generate through end with optional start and interventions; compare saved data with data_diff."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 

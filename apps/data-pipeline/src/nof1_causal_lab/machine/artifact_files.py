@@ -33,7 +33,9 @@ ARTIFACT_FILE_SPECS: dict[ArtifactId, ArtifactFileSpec] = {
     "identification_report": ArtifactFileSpec(
         json={"identification_report": "identification_report.json"}
     ),
-    "panel": ArtifactFileSpec(json={"metadata": "metadata.json"}, parquet={"panel": "panel.parquet"}),
+    "panel": ArtifactFileSpec(
+        json={"metadata": "metadata.json"}, parquet={"panel": "panel.parquet"}
+    ),
     "data_profile": ArtifactFileSpec(json={"data_profile": "data_profile.json"}),
     "validation_report": ArtifactFileSpec(json={"validation_report": "validation_report.json"}),
 }

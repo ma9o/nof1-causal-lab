@@ -1204,6 +1204,172 @@
       "x-concern": "execution_history",
       "description": "An interaction context declares the tools and machine actions available to an agent."
     },
+    "DataDiffReport": {
+      "additionalProperties": false,
+      "description": "Comparisons of existing data, preserving each history's immutable source reference.",
+      "properties": {
+        "left": {
+          "items": {
+            "$ref": "#/$defs/DataRef"
+          },
+          "title": "Left",
+          "type": "array"
+        },
+        "right": {
+          "items": {
+            "$ref": "#/$defs/DataRef"
+          },
+          "title": "Right",
+          "type": "array"
+        },
+        "variables": {
+          "items": {
+            "$ref": "#/$defs/DataVariableDiff"
+          },
+          "title": "Variables",
+          "type": "array"
+        }
+      },
+      "required": [
+        "left",
+        "right",
+        "variables"
+      ],
+      "title": "DataDiffReport",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.actions.data_diff",
+      "x-layer": "transport",
+      "x-concern": "api_tools"
+    },
+    "DataDiffRequest": {
+      "additionalProperties": false,
+      "description": "Compare two immutable data selections, each containing one or more histories.",
+      "properties": {
+        "left": {
+          "$ref": "#/$defs/DataSelection"
+        },
+        "right": {
+          "$ref": "#/$defs/DataSelection"
+        }
+      },
+      "required": [
+        "left",
+        "right"
+      ],
+      "title": "DataDiffRequest",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.actions.data_diff",
+      "x-layer": "transport",
+      "x-concern": "api_tools"
+    },
+    "DataPoint": {
+      "additionalProperties": false,
+      "description": "An observed value at an exact calendar anchor and measurement support.",
+      "properties": {
+        "anchor_time": {
+          "format": "date-time",
+          "title": "Anchor Time",
+          "type": "string"
+        },
+        "support_start": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Support Start"
+        },
+        "support_end": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Support End"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "anchor_time",
+        "support_end",
+        "support_start",
+        "value"
+      ],
+      "title": "DataPoint",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.actions.data_diff",
+      "x-layer": "transport",
+      "x-concern": "api_tools"
+    },
+    "DataPointChange": {
+      "additionalProperties": false,
+      "description": "An added, removed or revised measurement in a single-history comparison.",
+      "properties": {
+        "anchor_time": {
+          "format": "date-time",
+          "title": "Anchor Time",
+          "type": "string"
+        },
+        "change": {
+          "enum": [
+            "added",
+            "removed",
+            "revised"
+          ],
+          "title": "Change",
+          "type": "string"
+        },
+        "left": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DataPoint"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "right": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DataPoint"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "anchor_time",
+        "change",
+        "left",
+        "right"
+      ],
+      "title": "DataPointChange",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.actions.data_diff",
+      "x-layer": "transport",
+      "x-concern": "api_tools"
+    },
     "DataPreparationResult": {
       "additionalProperties": false,
       "description": "Prepared observations and their committed revision, with data-quality findings.",
@@ -1317,6 +1483,109 @@
       "x-layer": "artifacts",
       "x-concern": "scientific_model"
     },
+    "DataRef": {
+      "additionalProperties": false,
+      "description": "A saved panel or simulation; omitting replicate selects every saved simulation draw.",
+      "properties": {
+        "kind": {
+          "enum": [
+            "panel",
+            "simulation"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "revision": {
+          "$ref": "#/$defs/GitOid"
+        },
+        "replicate": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Replicate"
+        },
+        "time_origin": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Calendar instant for simulation day zero; omitted uses 1970-01-01 UTC.",
+          "title": "Time Origin"
+        }
+      },
+      "required": [
+        "kind",
+        "revision"
+      ],
+      "title": "DataRef",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.actions.data_diff",
+      "x-layer": "transport",
+      "x-concern": "api_tools"
+    },
+    "DataSelection": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DataRef"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/DataRef"
+          },
+          "minItems": 1,
+          "type": "array"
+        }
+      ],
+      "description": "A data selection identifies one or more saved observation histories.",
+      "x-python-module": "nof1_causal_lab.actions.data_diff",
+      "x-layer": "transport",
+      "x-concern": "api_tools"
+    },
+    "DataSeries": {
+      "additionalProperties": false,
+      "description": "One variable's recorded measurements in one history; no pooling across replicas.",
+      "properties": {
+        "variable": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ObservationSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "points": {
+          "items": {
+            "$ref": "#/$defs/DataPoint"
+          },
+          "title": "Points",
+          "type": "array"
+        }
+      },
+      "required": [
+        "points",
+        "variable"
+      ],
+      "title": "DataSeries",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.actions.data_diff",
+      "x-layer": "transport",
+      "x-concern": "api_tools"
+    },
     "DataSourceRef": {
       "anyOf": [
         {
@@ -1326,9 +1595,191 @@
           "$ref": "#/$defs/SimulationReplicateRef"
         }
       ],
+      "description": "A data source selects uploaded files or one recorded simulation replicate.",
       "x-python-module": "nof1_causal_lab.artifacts.data_preparation",
       "x-layer": "authored",
       "x-concern": "scientific_model"
+    },
+    "DataStatisticComparison": {
+      "additionalProperties": false,
+      "description": "The same descriptive statistic measured independently in every selected history.",
+      "properties": {
+        "statistic": {
+          "enum": [
+            "observed_count",
+            "missing_count",
+            "mean",
+            "sd",
+            "min",
+            "max",
+            "proportion"
+          ],
+          "title": "Statistic",
+          "type": "string"
+        },
+        "level": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Level"
+        },
+        "left": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Left",
+          "type": "array"
+        },
+        "right": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Right",
+          "type": "array"
+        },
+        "left_histogram": {
+          "items": {
+            "$ref": "#/$defs/HistogramBin"
+          },
+          "title": "Left Histogram",
+          "type": "array"
+        },
+        "right_histogram": {
+          "items": {
+            "$ref": "#/$defs/HistogramBin"
+          },
+          "title": "Right Histogram",
+          "type": "array"
+        }
+      },
+      "required": [
+        "left",
+        "left_histogram",
+        "right",
+        "right_histogram",
+        "statistic"
+      ],
+      "title": "DataStatisticComparison",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.actions.data_diff",
+      "x-layer": "transport",
+      "x-concern": "api_tools"
+    },
+    "DataVariableDiff": {
+      "additionalProperties": false,
+      "description": "Definitions, histories and comparisons for one persistent observation identity.",
+      "properties": {
+        "indicator_id": {
+          "$ref": "#/$defs/IndicatorId"
+        },
+        "left": {
+          "items": {
+            "$ref": "#/$defs/DataSeries"
+          },
+          "title": "Left",
+          "type": "array"
+        },
+        "right": {
+          "items": {
+            "$ref": "#/$defs/DataSeries"
+          },
+          "title": "Right",
+          "type": "array"
+        },
+        "changes": {
+          "items": {
+            "$ref": "#/$defs/DataPointChange"
+          },
+          "title": "Changes",
+          "type": "array"
+        },
+        "statistics": {
+          "items": {
+            "$ref": "#/$defs/DataStatisticComparison"
+          },
+          "title": "Statistics",
+          "type": "array"
+        },
+        "comparison_issues": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Comparison Issues",
+          "type": "array"
+        },
+        "reference_side": {
+          "anyOf": [
+            {
+              "enum": [
+                "left",
+                "right"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reference Side"
+        },
+        "predictive_checks": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PosteriorPredictiveChecks"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "predictive_unavailable_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Predictive Unavailable Reason"
+        }
+      },
+      "required": [
+        "changes",
+        "comparison_issues",
+        "indicator_id",
+        "left",
+        "predictive_checks",
+        "predictive_unavailable_reason",
+        "reference_side",
+        "right",
+        "statistics"
+      ],
+      "title": "DataVariableDiff",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.actions.data_diff",
+      "x-layer": "transport",
+      "x-concern": "api_tools"
     },
     "DataVariableSpec": {
       "additionalProperties": false,
@@ -3539,15 +3990,178 @@
       "x-layer": "findings",
       "x-concern": "scientific_model"
     },
-    "ModelComparison": {
+    "ModelData": {
       "additionalProperties": false,
-      "description": "A comparison joins graph, parameter decisions and evidence at two committed checkpoints.",
+      "description": "Observed evidence paired with its source versions.",
+      "properties": {
+        "raw_data": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Sourced_RawDataData_"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "measurements": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Sourced_MeasurementsData_"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "metadata": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Sourced_PreparedDataMetadata_"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "profile": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Sourced_DataProfileArtifact_"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "ModelData",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.machine.snapshot_models",
+      "x-layer": "read_models",
+      "x-concern": "read_models"
+    },
+    "ModelDefinitionChange": {
+      "additionalProperties": false,
+      "description": "One changed field in identity-keyed scientific model definitions.",
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "change": {
+          "enum": [
+            "added",
+            "removed",
+            "revised"
+          ],
+          "title": "Change",
+          "type": "string"
+        },
+        "before": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "after": {
+          "$ref": "#/$defs/JsonValue"
+        }
+      },
+      "required": [
+        "after",
+        "before",
+        "change",
+        "path"
+      ],
+      "title": "ModelDefinitionChange",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.actions.revisions",
+      "x-layer": "transport",
+      "x-concern": "api_tools"
+    },
+    "ModelDiagnostics": {
+      "additionalProperties": false,
+      "description": "Server-derived equations and comparisons with pinned observations.",
+      "properties": {
+        "confounder_equations": {
+          "items": {
+            "$ref": "#/$defs/StateEquation"
+          },
+          "title": "Confounder Equations",
+          "type": "array"
+        },
+        "state_equations": {
+          "items": {
+            "$ref": "#/$defs/StateEquation"
+          },
+          "title": "State Equations",
+          "type": "array"
+        },
+        "observation_equations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/IndicatorId"
+          },
+          "title": "Observation Equations",
+          "type": "object"
+        },
+        "likelihood_diagnostics": {
+          "additionalProperties": {
+            "$ref": "#/$defs/LikelihoodDiagnostics"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/IndicatorId"
+          },
+          "title": "Likelihood Diagnostics",
+          "type": "object"
+        },
+        "prior_densities": {
+          "additionalProperties": {
+            "items": {
+              "$ref": "#/$defs/DensityPoint"
+            },
+            "type": "array"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/ParameterId"
+          },
+          "title": "Prior Densities",
+          "type": "object"
+        }
+      },
+      "title": "ModelDiagnostics",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.machine.view_models",
+      "x-layer": "read_models",
+      "x-concern": "read_models",
+      "required": [
+        "confounder_equations",
+        "likelihood_diagnostics",
+        "observation_equations",
+        "prior_densities",
+        "state_equations"
+      ]
+    },
+    "ModelDiffReport": {
+      "additionalProperties": false,
+      "description": "A model diff joins definition changes and evidence at two model revisions or checkpoints.",
       "properties": {
         "before": {
           "$ref": "#/$defs/GitRef"
         },
         "after": {
           "$ref": "#/$defs/GitRef"
+        },
+        "definition_changes": {
+          "items": {
+            "$ref": "#/$defs/ModelDefinitionChange"
+          },
+          "title": "Definition Changes",
+          "type": "array"
         },
         "parameters": {
           "items": {
@@ -3623,134 +4237,15 @@
         "before_fit",
         "before_simulation",
         "changed_inputs",
+        "definition_changes",
         "graph",
         "parameters"
       ],
-      "title": "ModelComparison",
+      "title": "ModelDiffReport",
       "type": "object",
       "x-python-module": "nof1_causal_lab.actions.revisions",
       "x-layer": "transport",
       "x-concern": "api_tools"
-    },
-    "ModelData": {
-      "additionalProperties": false,
-      "description": "Observed evidence paired with its source versions.",
-      "properties": {
-        "raw_data": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Sourced_RawDataData_"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "measurements": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Sourced_MeasurementsData_"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "metadata": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Sourced_PreparedDataMetadata_"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "profile": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Sourced_DataProfileArtifact_"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        }
-      },
-      "title": "ModelData",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.snapshot_models",
-      "x-layer": "read_models",
-      "x-concern": "read_models"
-    },
-    "ModelDiagnostics": {
-      "additionalProperties": false,
-      "description": "Server-derived equations and comparisons with pinned observations.",
-      "properties": {
-        "confounder_equations": {
-          "items": {
-            "$ref": "#/$defs/StateEquation"
-          },
-          "title": "Confounder Equations",
-          "type": "array"
-        },
-        "state_equations": {
-          "items": {
-            "$ref": "#/$defs/StateEquation"
-          },
-          "title": "State Equations",
-          "type": "array"
-        },
-        "observation_equations": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "propertyNames": {
-            "$ref": "#/$defs/IndicatorId"
-          },
-          "title": "Observation Equations",
-          "type": "object"
-        },
-        "likelihood_diagnostics": {
-          "additionalProperties": {
-            "$ref": "#/$defs/LikelihoodDiagnostics"
-          },
-          "propertyNames": {
-            "$ref": "#/$defs/IndicatorId"
-          },
-          "title": "Likelihood Diagnostics",
-          "type": "object"
-        },
-        "prior_densities": {
-          "additionalProperties": {
-            "items": {
-              "$ref": "#/$defs/DensityPoint"
-            },
-            "type": "array"
-          },
-          "propertyNames": {
-            "$ref": "#/$defs/ParameterId"
-          },
-          "title": "Prior Densities",
-          "type": "object"
-        }
-      },
-      "title": "ModelDiagnostics",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.view_models",
-      "x-layer": "read_models",
-      "x-concern": "read_models",
-      "required": [
-        "confounder_equations",
-        "likelihood_diagnostics",
-        "observation_equations",
-        "prior_densities",
-        "state_equations"
-      ]
     },
     "ModelEditResult": {
       "additionalProperties": false,
@@ -4997,6 +5492,7 @@
         },
         "distribution_transform": {
           "default": "identity",
+          "description": "Mapping from the authored law to the model quantity: identity leaves its scale unchanged; dt_persistence_to_ct_decay maps persistence p to -log(p) / interval; dt_effect_to_ct_rate divides an interval effect by its duration in days; initial_state_correlation applies the correlation support [-1, 1]. Fixed values and joint laws require identity.",
           "enum": [
             "identity",
             "dt_persistence_to_ct_decay",
@@ -5042,6 +5538,7 @@
             }
           ],
           "default": null,
+          "description": "Positive duration in days over which an authored persistence or interval-effect law is defined, before conversion to continuous-time decay or rate. When omitted, persistence uses the model measurement clock; interval effects use the edge lag, falling back to that clock.",
           "title": "Reference Interval Days"
         }
       },
@@ -5961,13 +6458,6 @@
           "title": "State Ids",
           "type": "array"
         },
-        "indicator_ids": {
-          "items": {
-            "$ref": "#/$defs/IndicatorId"
-          },
-          "title": "Indicator Ids",
-          "type": "array"
-        },
         "parameter_draws": {
           "additionalProperties": {
             "type": "string"
@@ -5985,28 +6475,6 @@
         },
         "observation_layout": {
           "$ref": "#/$defs/SimulationObservationLayout"
-        },
-        "comparison_panel": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/GitRef"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "predictive_checks": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/PosteriorPredictiveChecks"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
         },
         "law": {
           "anyOf": [
@@ -6079,7 +6547,6 @@
         "design",
         "draws",
         "findings",
-        "indicator_ids",
         "latent_paths",
         "model",
         "observation_layout",

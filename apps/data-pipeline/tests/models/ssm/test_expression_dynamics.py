@@ -25,10 +25,10 @@ from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.ssm.dynamics.expression import ExpressionComponentSpec
 from nof1_causal_lab.models.ssm.dynamics.intervention import (
+    ConstantValueFn,
     EdgeInputOverride,
     Intervention,
     VariableOverride,
-    constant_value,
 )
 from nof1_causal_lab.models.ssm.dynamics.spec import (
     DynamicsSpec,
@@ -103,14 +103,14 @@ def test_existing_functions_and_composition_preserve_drift_and_intervention_inpu
     np.testing.assert_allclose(derivative(values, Intervention.none()), [0, expected, 0], rtol=1e-6)
     edges_off = Intervention(
         overrides=(
-            EdgeInputOverride(source=0, target=1, value_fn=constant_value(jnp.asarray(0.0))),
+            EdgeInputOverride(source=0, target=1, value_fn=ConstantValueFn(jnp.asarray(0.0))),
         )
     )
     np.testing.assert_allclose(
         derivative(values, edges_off), [0, -0.7 * 0.5 - 0.2 * 0.5**3 + 0.4, 0], atol=1e-7
     )
     clamped = Intervention(
-        overrides=(VariableOverride(index=1, value_fn=constant_value(jnp.asarray(2.0))),)
+        overrides=(VariableOverride(index=1, value_fn=ConstantValueFn(jnp.asarray(2.0))),)
     )
     assert derivative(values, clamped)[1] == 0
     assert (
@@ -297,7 +297,7 @@ def test_solver_steps_follow_coefficient_meanings_including_fixed_rates():
     site = next(iter(components[0].parameter_sites("vf_0")))[1]
     rates = _predictive_max_rates(compiled, {site.name: jnp.asarray([8, 2, 16])})
     np.testing.assert_array_equal(rates, [8, 4, 16])
-    steps = _predictive_sde_config(rates, 60).sde_dt
+    steps = _predictive_sde_config(rates, 60).brownian.step_size
     assert steps is not None
     assert steps is not None
     np.testing.assert_allclose(np.asarray(steps), 0.25 / np.asarray([8, 4, 16]))

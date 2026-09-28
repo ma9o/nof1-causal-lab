@@ -9,6 +9,7 @@ from nof1_causal_lab.artifacts.construct import (
 )
 from nof1_causal_lab.artifacts.expressions import hill, linear_effect, state
 from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId, scientific_id
+from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
 from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.likelihoods import observation_law
@@ -83,9 +84,9 @@ def test_entities_gain_detail_with_one_owner_and_native_prior():
     before = _model()
     payload = before.model_dump(mode="python")
     graph_constructs(payload)[1]["indicators"][0]["likelihood"] = {
-        "law": observation_law(ConstructId("construct:y"), "gaussian", "identity").model_dump(
-            mode="json"
-        ),
+        "law": observation_law(
+            ConstructId("construct:y"), DistributionFamily.GAUSSIAN, LinkFunction.IDENTITY
+        ).model_dump(mode="json"),
         "reasoning": "Continuous measurement",
     }
     from nof1_causal_lab.models.model_distributions import with_parameter_distributions
@@ -154,7 +155,9 @@ def test_inconsistent_enrichment_is_rejected(change):
         graph_constructs(payload)[0]["indicators"] = graph_constructs(payload)[1]["indicators"]
     else:
         graph_constructs(payload)[1]["indicators"][0]["likelihood"] = {
-            "law": observation_law(ConstructId("construct:y"), "bernoulli", "logit"),
+            "law": observation_law(
+                ConstructId("construct:y"), DistributionFamily.BERNOULLI, LinkFunction.LOGIT
+            ),
             "reasoning": "Wrong type",
         }
     with pytest.raises(ValidationError):

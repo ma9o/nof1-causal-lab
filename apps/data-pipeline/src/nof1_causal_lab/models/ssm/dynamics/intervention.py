@@ -111,29 +111,3 @@ class Intervention(eqx.Module):
 
     def edge_input_overrides(self) -> tuple[EdgeInputOverride, ...]:
         return tuple(o for o in self.overrides if isinstance(o, EdgeInputOverride))
-
-
-def constant_value(value: Array) -> ConstantValueFn:
-    """Factory for ``ConstantValueFn``."""
-    return ConstantValueFn(value=value)
-
-
-def linear_ramp(
-    *,
-    t_start: Array,
-    t_end: Array,
-    value_start: Array,
-    value_end: Array,
-) -> LinearRampValueFn:
-    """Factory for ``LinearRampValueFn``."""
-    return LinearRampValueFn(
-        t_start=t_start,
-        t_end=t_end,
-        value_start=value_start,
-        value_end=value_end,
-    )
-
-
-def precomputed_value(times: Array, values: Array) -> PrecomputedValueFn:
-    """Factory for ``PrecomputedValueFn``."""
-    return PrecomputedValueFn(times=times, values=values)

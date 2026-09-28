@@ -9,18 +9,18 @@ from nof1_causal_lab.models.ssm.counterfactual import (
     summarize_draws,
 )
 from nof1_causal_lab.models.ssm.dynamics import (
+    ConstantValueFn,
     EdgeInputOverride,
     Intervention,
+    LinearRampValueFn,
     SimulationConfig,
     VariableOverride,
     VectorField,
     VectorFieldArgs,
-    compute_steady_state,
-    constant_value,
-    linear_ramp,
     simulate,
 )
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
+from tests.causal.steady_state_reference import compute_steady_state
 
 
 def resolve_action_value(baseline_value, *, mode, value=None, amount=None):
@@ -56,7 +56,7 @@ def vmap_steady_state_effect_dynamics(
         baseline = compute_steady_state(vector_field, params, Intervention.none())
         do_value = resolve_action_value(baseline[treat_idx], mode=mode, value=value, amount=amount)
         intervention = Intervention(
-            overrides=(VariableOverride(index=treat_idx, value_fn=constant_value(do_value)),)
+            overrides=(VariableOverride(index=treat_idx, value_fn=ConstantValueFn(do_value)),)
         )
         intervened = compute_steady_state(
             vector_field, params, intervention, initial_guess=baseline
@@ -90,7 +90,7 @@ class TestDenseLinearRuntime:
         vf = _dense_matrix_vector_field(n_latent=2)
         params = ({"drift": jnp.array([[-1.0, 0.5], [0.0, -2.0]]), "cint": jnp.zeros(2)},)
         intervention = Intervention(
-            overrides=(VariableOverride(index=0, value_fn=constant_value(jnp.asarray(5.0))),)
+            overrides=(VariableOverride(index=0, value_fn=ConstantValueFn(jnp.asarray(5.0))),)
         )
         args = VectorFieldArgs(params=params, intervention=intervention)
         out = vf(jnp.asarray(0.0), jnp.array([5.0, 2.0]), args)
@@ -105,7 +105,7 @@ class TestDenseLinearRuntime:
         baseline_dynamics = vf(jnp.asarray(0.0), eta, baseline_args)
         intervention = Intervention(
             overrides=(
-                EdgeInputOverride(source=0, target=1, value_fn=constant_value(jnp.asarray(10.0))),
+                EdgeInputOverride(source=0, target=1, value_fn=ConstantValueFn(jnp.asarray(10.0))),
             )
         )
         intervened_dynamics = vf(
@@ -117,7 +117,7 @@ class TestDenseLinearRuntime:
     def test_initial_condition_applies_variable_overrides(self):
         vf = _dense_matrix_vector_field(n_latent=2)
         intervention = Intervention(
-            overrides=(VariableOverride(index=1, value_fn=constant_value(jnp.asarray(3.0))),)
+            overrides=(VariableOverride(index=1, value_fn=ConstantValueFn(jnp.asarray(3.0))),)
         )
         args = VectorFieldArgs(
             params=({"drift": -jnp.eye(2), "cint": jnp.zeros(2)},), intervention=intervention
@@ -144,7 +144,7 @@ class TestComputeSteadyState:
         )
         baseline = compute_steady_state(vf, params, Intervention.none())
         intervention = Intervention(
-            overrides=(VariableOverride(index=0, value_fn=constant_value(jnp.asarray(5.0))),)
+            overrides=(VariableOverride(index=0, value_fn=ConstantValueFn(jnp.asarray(5.0))),)
         )
         intervened = compute_steady_state(vf, params, intervention, initial_guess=baseline)
         assert jnp.isclose(intervened[0], 5.0, atol=1e-4)
@@ -163,7 +163,7 @@ class TestSimulate:
         params = ({"drift": -jnp.eye(2), "cint": jnp.array([1.0, 2.0])},)
         time_grid = jnp.linspace(0.0, 5.0, 11)
         intervention = Intervention(
-            overrides=(VariableOverride(index=0, value_fn=constant_value(jnp.asarray(0.0))),)
+            overrides=(VariableOverride(index=0, value_fn=ConstantValueFn(jnp.asarray(0.0))),)
         )
         baseline = compute_steady_state(vf, params, Intervention.none())
         reference = simulate(vf, params, Intervention.none(), baseline, time_grid)
@@ -176,7 +176,7 @@ class TestSimulate:
         params = ({"drift": jnp.array([[-1.0, 0.0], [0.5, -1.0]]), "cint": jnp.zeros(2)},)
         time_grid = jnp.linspace(0.0, 5.0, 11)
         intervention = Intervention(
-            overrides=(VariableOverride(index=0, value_fn=constant_value(jnp.asarray(3.0))),)
+            overrides=(VariableOverride(index=0, value_fn=ConstantValueFn(jnp.asarray(3.0))),)
         )
         traj = simulate(vf, params, intervention, jnp.array([0.0, 0.0]), time_grid)
         assert jnp.allclose(traj[:, 0], 3.0, atol=1e-3)
@@ -208,7 +208,7 @@ class TestSummarizeDraws:
 @pytest.mark.contract
 class TestLinearRamp:
     def test_holds_endpoints(self):
-        ramp = linear_ramp(
+        ramp = LinearRampValueFn(
             t_start=jnp.asarray(1.0),
             t_end=jnp.asarray(3.0),
             value_start=jnp.asarray(10.0),

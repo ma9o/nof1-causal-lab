@@ -1,4 +1,4 @@
-"""Numerical steady-state finder via Optimistix.
+"""Test-only steady-state references for intervention and simulation checks.
 
 Generalises the closed-form ``-A⁻¹c`` to any vector field by solving the
 nonlinear root ``f(0, η*, args) = 0``. For linear vector fields the root
@@ -8,23 +8,22 @@ reasonable initial guess.
 
 import jax.numpy as jnp
 import optimistix as optx
+from jax import Array
 
-from nof1_causal_lab.models.ssm.shapes import Array, Float
-
-from .intervention import Intervention
-from .vector_field import VectorField, VectorFieldArgs
+from nof1_causal_lab.models.ssm.dynamics.intervention import Intervention
+from nof1_causal_lab.models.ssm.dynamics.vector_field import VectorField, VectorFieldArgs
 
 
 def compute_steady_state(
     vector_field: VectorField,
     params: tuple[dict[str, Array], ...],
     intervention: Intervention,
-    initial_guess: Float[Array, " D"] | None = None,
+    initial_guess: Array | None = None,
     *,
     rtol: float = 1e-6,
     atol: float = 1e-8,
     max_steps: int = 256,
-) -> Float[Array, " D"]:
+) -> Array:
     """Find ``η*`` such that ``f(0, η*, args) = 0``.
 
     For a stable linear vector field, this reproduces
@@ -39,7 +38,11 @@ def compute_steady_state(
     initial_guess = vector_field.initial_condition(initial_guess, args)
 
     def residual(eta: Array, residual_args: VectorFieldArgs) -> Array:
-        return vector_field.steady_state_residual(eta, residual_args)
+        value = vector_field(jnp.asarray(0.0), eta, residual_args)
+        for override in residual_args.intervention.variable_overrides():
+            target = override.value_fn(jnp.asarray(0.0))
+            value = value.at[override.index].set(eta[override.index] - target)
+        return value
 
     solver = optx.LevenbergMarquardt(rtol=rtol, atol=atol)
     solution = optx.root_find(

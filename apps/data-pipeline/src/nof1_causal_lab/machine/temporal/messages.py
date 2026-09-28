@@ -7,7 +7,7 @@ polars, or jax.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -17,7 +17,11 @@ from nof1_causal_lab.actions.contracts import (  # noqa: TC001
     ScientificActionRequest,
 )
 from nof1_causal_lab.actions.results import ActionMessage  # noqa: TC001
-from nof1_causal_lab.artifacts.identity import (  # noqa: TC001
+from nof1_causal_lab.artifacts.data_preparation import (  # noqa: TC001
+    FilePreparationSpec,
+    FileSourceRef,
+)
+from nof1_causal_lab.artifacts.identity import (
     ArtifactId,
     GitOid,
     OperationId,
@@ -25,12 +29,17 @@ from nof1_causal_lab.artifacts.identity import (  # noqa: TC001
 )
 from nof1_causal_lab.artifacts.model_checks import ModelCheckReport  # noqa: TC001
 from nof1_causal_lab.json_types import JsonObject  # noqa: TC001
+from nof1_causal_lab.llm_specs import (  # noqa: TC001
+    EmbeddedLLMSpec,
+    HarnessLLMSpec,
+    LLMProfileSpec,
+)
 from nof1_causal_lab.machine.artifacts import (  # noqa: TC001
     ArtifactRecord,
     EpisodeState,
 )
-from nof1_causal_lab.machine.execution import (
-    ExecutionOptions,
+from nof1_causal_lab.machine.execution import (  # noqa: TC001
+    LocalOperation,
     RetractedArtifact,
     TransitionEffects,
 )
@@ -87,10 +96,9 @@ class OperationInput(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     workspace_id: str
-    operation_id: OperationId
+    operation: LocalOperation
     state: EpisodeState
     input_revisions: dict[ArtifactId, GitOid] = Field(default_factory=dict)
-    options: ExecutionOptions = Field(default_factory=ExecutionOptions)
 
 
 class MeasurementsWorkflowInput(BaseModel):
@@ -100,34 +108,7 @@ class MeasurementsWorkflowInput(BaseModel):
     seq: int
     state: EpisodeState
     input_revisions: dict[ArtifactId, GitOid] = Field(default_factory=dict)
-    options: ExecutionOptions = Field(default_factory=ExecutionOptions)
-
-
-class OpenRouterLLMConfig(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    model: str
-    max_tokens: int | None = None
-    timeout: int | None = None
-    reasoning_effort: Literal["none", "minimal", "low", "medium", "high", "xhigh"] | None = None
-
-
-class LLMBackendConfig(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    harness: Literal["none", "claude-code", "codex", "pi"]
-    model: str
-    max_tokens: int | None = None
-    timeout: int | None = None
-    reasoning_effort: Literal["none", "minimal", "low", "medium", "high", "xhigh"] | None = None
-    bin: str | None = None
-    effort: str | None = None
-    max_turns: int | None = None
-    max_budget_usd: float | None = None
-    fallback_model: str | None = None
-    service_tier: str | None = None
-    provider: str | None = None
-    thinking: Literal["off", "minimal", "low", "medium", "high", "xhigh"] | None = None
+    preparation: FilePreparationSpec
 
 
 class LLMToolSpec(BaseModel):
@@ -135,31 +116,16 @@ class LLMToolSpec(BaseModel):
 
     name: str
     description: str
-    param_name: str = ""
-    param_description: str = ""
-    parameters_schema: JsonObject | None = None
+    parameters: JsonObject
     kind: Literal["read_only", "checkpoint", "terminal"] = "terminal"
     executor: Literal[
-        "context_json_validation",
+        "measurement_validation",
         "raw_data_list_files",
         "raw_data_read_file_sample",
         "raw_data_execute_python",
         "raw_data_submit_table",
-    ] = "context_json_validation"
+    ] = "measurement_validation"
     success_output: str | None = "VALID"
-
-    @property
-    def parameters(self) -> JsonObject:
-        if self.parameters_schema is not None:
-            return self.parameters_schema
-        return {
-            "type": "object",
-            "properties": {
-                self.param_name: {"type": "string", "description": self.param_description}
-            },
-            "required": [self.param_name],
-            "additionalProperties": False,
-        }
 
 
 class LLMSubroutineInput(BaseModel):
@@ -170,9 +136,8 @@ class LLMSubroutineInput(BaseModel):
     subroutine_id: str
     context_kind: LLMSubroutineContextKind
     context_ref: str
-    llm: LLMBackendConfig
+    llm: LLMProfileSpec
     max_tool_turns: int
-    require_result: bool = True
 
 
 class LLMSubroutineStartInput(BaseModel):
@@ -275,7 +240,7 @@ class HarnessTurnInput(BaseModel):
     harness_state_ref: str
     harness_tool_ref_base: str
     result_ref: str
-    llm: LLMBackendConfig
+    llm: HarnessLLMSpec
     tools: list[LLMToolSpec] = Field(default_factory=list)
     user_message_index: int
     log_label: str
@@ -322,7 +287,7 @@ class HarnessTurnResult(BaseModel):
 class LLMSubroutineResult(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    result_ref: str | None = None
+    result_ref: str
     conversation_ref: str
     trace_ref: str
     n_llm_calls: int = 0
@@ -353,7 +318,7 @@ class SingleLLMTransitionWorkflowInput(BaseModel):
     seq: int
     transition_id: SingleLLMTransitionId
     state: EpisodeState
-    options: ExecutionOptions = Field(default_factory=ExecutionOptions)
+    source: FileSourceRef
 
 
 class SingleLLMTransitionPlan(BaseModel):
@@ -363,7 +328,7 @@ class SingleLLMTransitionPlan(BaseModel):
     run_id: str
     context_ref: str
     pins: dict[ArtifactId, GitOid]
-    llm: LLMBackendConfig
+    llm: LLMProfileSpec
     max_tool_turns: int
 
 
@@ -375,7 +340,7 @@ class SingleLLMTransitionFinalizeInput(BaseModel):
     state: EpisodeState
     pins: dict[ArtifactId, GitOid]
     context_ref: str
-    result_ref: str | None = None
+    result_ref: str
 
 
 class MeasurementChunkRef(BaseModel):
@@ -397,7 +362,7 @@ class MeasurementsPlan(BaseModel):
     max_concurrent_workers: int
     max_rpm: int
     max_tool_turns: int
-    llm: LLMBackendConfig
+    llm: EmbeddedLLMSpec
 
 
 class ExtractionProgressSnapshot(BaseModel):
@@ -411,21 +376,41 @@ class ExtractionProgressSnapshot(BaseModel):
     llm_requests_last_60s: int = 0
 
 
-class ExtractionProgressEventInput(BaseModel):
+class ExtractionPlanEventInput(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     workspace_id: str
-    kind: Literal["plan", "worker", "snapshot"]
-    total_workers: int | None = None
+    kind: Literal["plan"] = "plan"
+    total_workers: int
     max_concurrent_workers: int | None = None
     max_rpm: int | None = None
-    worker_id: int | None = None
-    state: Literal["pending", "running", "completed", "failed"] | None = None
-    n_windows: int | None = None
+
+
+class ExtractionWorkerEventInput(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    workspace_id: str
+    kind: Literal["worker"] = "worker"
+    worker_id: int
+    state: Literal["pending", "running", "completed", "failed"]
+    n_windows: int
     n_extractions: int | None = None
     n_llm_calls: int | None = None
     error: str | None = None
-    snapshot: ExtractionProgressSnapshot | None = None
+
+
+class ExtractionSnapshotEventInput(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    workspace_id: str
+    kind: Literal["snapshot"] = "snapshot"
+    snapshot: ExtractionProgressSnapshot
+
+
+type ExtractionProgressEventInput = Annotated[
+    ExtractionPlanEventInput | ExtractionWorkerEventInput | ExtractionSnapshotEventInput,
+    Field(discriminator="kind"),
+]
 
 
 class TransitionRuntimeError(BaseModel):
@@ -453,7 +438,7 @@ class ExtractionChunkWorkflowInput(BaseModel):
     n_windows: int
     spec_ref: str
     attempt: int
-    llm: LLMBackendConfig
+    llm: EmbeddedLLMSpec
     max_tool_turns: int
 
 
@@ -464,7 +449,7 @@ class OpenRouterCallInput(BaseModel):
     next_conversation_ref: str
     call_ref: str
     assistant_ref: str
-    llm: OpenRouterLLMConfig
+    llm: EmbeddedLLMSpec
     tools: list[LLMToolSpec] = Field(default_factory=list)
     log_label: str
 
@@ -534,11 +519,11 @@ class EditModelInput(BaseModel):
     state: EpisodeState
 
 
-class EvaluateChecksInput(BaseModel):
+class EvaluateChecksInput[ActionT: ScientificActionId](BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     workspace_id: str
-    action: ScientificActionId
+    action: ActionT
     state: EpisodeState
     effects: TransitionEffects
 

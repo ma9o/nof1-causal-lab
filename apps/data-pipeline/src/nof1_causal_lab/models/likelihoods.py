@@ -191,11 +191,10 @@ def likelihood_terms(law: ObservationLawSpec) -> LikelihoodTerms:
 
 def observation_law(  # noqa: V103 - public editable conditional-law constructor
     construct_id: ConstructId,
-    family: DistributionFamily | str,
-    link: LinkFunction | str,
+    family: DistributionFamily,
+    link: LinkFunction,
 ) -> ObservationLawSpec:
     """Construct an editable scientific formula with explicit unassigned operands."""
-    family, link = DistributionFamily(family), LinkFunction(link)
     if link not in VALID_LINKS_FOR_DISTRIBUTION[family]:
         raise ValueError(f"link {link.value!r} is invalid for {family.value}")
     if family == DistributionFamily.DELTA:

@@ -6,7 +6,6 @@ This file tests CausalDesign composition, computed properties, and utility
 functions that are not exercised through dict validation.
 """
 
-
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
@@ -42,8 +41,6 @@ from nof1_causal_lab.utils.observation_semantics import (
 from tests.helpers import graph_constructs, make_model
 
 pytestmark = pytest.mark.contract
-
-
 
 
 class TestConstruct:
@@ -140,23 +137,27 @@ class TestDataVariable:
     def test_invalid_aggregation(self):
         """Invalid aggregation is rejected."""
         with pytest.raises(ValueError, match="aggregation"):
-            DataVariableSpec(
-                id="indicator:e05e217de7f4442abdc5",
-                name="mood_rating",
-                how_to_measure="Extract mood",
-                measurement_dtype="continuous",
-                aggregation="invalid_agg",
+            DataVariableSpec.model_validate(
+                {
+                    "id": "indicator:e05e217de7f4442abdc5",
+                    "name": "mood_rating",
+                    "how_to_measure": "Extract mood",
+                    "measurement_dtype": "continuous",
+                    "aggregation": "invalid_agg",
+                }
             )
 
     def test_invalid_measurement_dtype(self):
         """Invalid measurement_dtype is rejected."""
         with pytest.raises(ValueError, match="measurement_dtype"):
-            DataVariableSpec(
-                id="indicator:e05e217de7f4442abdc5",
-                name="mood_rating",
-                how_to_measure="Extract mood",
-                measurement_dtype="invalid_type",
-                aggregation="mean",
+            DataVariableSpec.model_validate(
+                {
+                    "id": "indicator:e05e217de7f4442abdc5",
+                    "name": "mood_rating",
+                    "how_to_measure": "Extract mood",
+                    "measurement_dtype": "invalid_type",
+                    "aggregation": "mean",
+                }
             )
 
     def test_ordinal_requires_levels(self):
@@ -263,13 +264,15 @@ class TestDataVariable:
     def test_invalid_extraction_mode(self):
         """Invalid extraction_mode is rejected."""
         with pytest.raises(ValueError, match="extraction_mode"):
-            DataVariableSpec(
-                id="indicator:e05e217de7f4442abdc5",
-                name="mood_rating",
-                how_to_measure="Extract mood",
-                measurement_dtype="continuous",
-                aggregation="mean",
-                extraction_mode="invalid",
+            DataVariableSpec.model_validate(
+                {
+                    "id": "indicator:e05e217de7f4442abdc5",
+                    "name": "mood_rating",
+                    "how_to_measure": "Extract mood",
+                    "measurement_dtype": "continuous",
+                    "aggregation": "mean",
+                    "extraction_mode": "invalid",
+                }
             )
 
     def test_computed_valid(self):

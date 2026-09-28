@@ -9,7 +9,6 @@ from pydantic import TypeAdapter
 
 from nof1_causal_lab.artifacts.identification import IdentificationReport  # noqa: TC001
 from nof1_causal_lab.artifacts.identity import GitOid, GitRef
-from nof1_causal_lab.artifacts.model_checks import ModelPredictiveReport
 from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorEstimate
 from nof1_causal_lab.machine.artifact_files import artifact_file_spec, parquet_filename
@@ -95,12 +94,15 @@ class ModelReader:
             self.state.current[artifact_id].revision,
         )
 
-    def source(self, artifact_id: ArtifactId, pointer: str, *, filename: str | None = None) -> FactSource:
+    def source(
+        self, artifact_id: ArtifactId, pointer: str, *, filename: str | None = None
+    ) -> FactSource:
         return FactSource(
             ref=GitRef(
                 workspace_id=self.workspace_id,
                 revision=self.state.current[artifact_id].revision,
-                path=filename or next(
+                path=filename
+                or next(
                     iter(
                         {
                             **artifact_file_spec(artifact_id).parquet,
@@ -172,7 +174,9 @@ class ModelReader:
     def measurements(self) -> Sourced[MeasurementsData] | None:
         if self._panel is None:
             return None
-        return self.fact(measurements_view(self._panel, set(self._panel["indicator_id"].to_list())), "panel", "")
+        return self.fact(
+            measurements_view(self._panel, set(self._panel["indicator_id"].to_list())), "panel", ""
+        )
 
     @cached_property
     def data_metadata(self):
@@ -180,14 +184,18 @@ class ModelReader:
             return None
         from nof1_causal_lab.actions.data_checks import read_data_metadata
 
-        return Sourced(value=read_data_metadata(self.store, self.state.current["panel"].revision),
-            source=self.source("panel", "", filename="metadata.json"))
+        return Sourced(
+            value=read_data_metadata(self.store, self.state.current["panel"].revision),
+            source=self.source("panel", "", filename="metadata.json"),
+        )
 
     @cached_property
     def data_profile(self):
         if not self.state.has("data_profile"):
             return None
-        return self.fact(cast("DataProfileArtifact", self.selected("data_profile")), "data_profile", "")
+        return self.fact(
+            cast("DataProfileArtifact", self.selected("data_profile")), "data_profile", ""
+        )
 
     @cached_property
     def validation_report(self) -> Sourced[ValidationReportArtifact] | None:
@@ -402,7 +410,9 @@ class ModelReader:
             )
         return None
 
-    def check_finding[T](self, value: T | None, pointer: str) -> Sourced[T] | None:
+    def check_finding[T](
+        self, value: T | None, pointer: str, *, validity: SourceValidity = SourceValidity.FRESH
+    ) -> Sourced[T] | None:
         """Source a check committed with this snapshot, without recomputation."""
         if value is None:
             return None
@@ -413,10 +423,7 @@ class ModelReader:
                     workspace_id=self.workspace_id, revision=self.commit_id, path="checks.json"
                 ),
                 pointer=pointer,
-                validity=SourceValidity.STALE
-                if isinstance(value, ModelPredictiveReport) and value.panel_revision != (
-                    self.state.current["panel"].revision if self.state.has("panel") else None
-                ) else SourceValidity.FRESH,
+                validity=validity,
             ),
         )
 
@@ -498,6 +505,12 @@ class ModelReader:
                 predictive=self.check_finding(
                     self.state.checks.predictive if self.state.checks else None,
                     "/predictive",
+                    validity=SourceValidity.STALE
+                    if self.state.checks is not None
+                    and self.state.checks.predictive is not None
+                    and self.state.checks.predictive.panel_revision
+                    != (self.state.current["panel"].revision if self.state.has("panel") else None)
+                    else SourceValidity.FRESH,
                 ),
             ),
         )

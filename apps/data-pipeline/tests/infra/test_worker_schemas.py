@@ -5,7 +5,6 @@ import pytest
 from polars.testing import assert_frame_equal
 
 from nof1_causal_lab.workers.schemas import _check_dtype_match, validate_worker_output
-from tests.helpers import invalid_dict_payload
 
 pytestmark = pytest.mark.contract
 
@@ -113,7 +112,7 @@ def test_mixed_output_preserves_identity_windows_missingness_and_normalized_valu
 class TestValidateWorkerOutput:
     def test_not_dict_returns_error(self):
         spec = _measurement_structure(("mood", "continuous"))
-        output, errors = validate_worker_output(invalid_dict_payload("not a dict"), spec)
+        output, errors = validate_worker_output("not a dict", spec)
         assert output is None
         assert len(errors) == 1
         assert "dictionary" in errors[0].lower()
@@ -174,6 +173,22 @@ class TestValidateWorkerOutput:
         output, errors = validate_worker_output(data, spec)
         assert output is None
         assert len(errors) >= 2
+
+    def test_structural_errors_collected_before_semantic_lookup(self):
+        output, errors = validate_worker_output(
+            {
+                "extractions": [
+                    {"window_start": [], "indicator_id": "indicator:mood", "value": 1.0},
+                    {"window_start": "2024-01-01", "indicator_id": {}, "value": 2.0},
+                ]
+            },
+            _measurement_structure(("mood", "continuous")),
+            expected_window_starts=["2024-01-01"],
+        )
+        assert output is None
+        assert len(errors) == 2
+        assert "extractions[0]" in errors[0]
+        assert "extractions[1]" in errors[1]
 
     def test_duplicate_window_start_indicator_rejected(self):
         spec = _measurement_structure(("mood", "continuous"))

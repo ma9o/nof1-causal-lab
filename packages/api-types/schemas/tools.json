@@ -2061,6 +2061,7 @@
                     },
                     "distribution_transform": {
                       "default": "identity",
+                      "description": "Mapping from the authored law to the model quantity: identity leaves its scale unchanged; dt_persistence_to_ct_decay maps persistence p to -log(p) / interval; dt_effect_to_ct_rate divides an interval effect by its duration in days; initial_state_correlation applies the correlation support [-1, 1]. Fixed values and joint laws require identity.",
                       "enum": [
                         "identity",
                         "dt_persistence_to_ct_decay",
@@ -2109,6 +2110,7 @@
                         }
                       ],
                       "default": null,
+                      "description": "Positive duration in days over which an authored persistence or interval-effect law is defined, before conversion to continuous-time decay or rate. When omitted, persistence uses the model measurement clock; interval effects use the edge lag, falling back to that clock.",
                       "title": "Reference Interval Days"
                     }
                   },
@@ -3071,6 +3073,7 @@
               },
               "distribution_transform": {
                 "default": "identity",
+                "description": "Mapping from the authored law to the model quantity: identity leaves its scale unchanged; dt_persistence_to_ct_decay maps persistence p to -log(p) / interval; dt_effect_to_ct_rate divides an interval effect by its duration in days; initial_state_correlation applies the correlation support [-1, 1]. Fixed values and joint laws require identity.",
                 "enum": [
                   "identity",
                   "dt_persistence_to_ct_decay",
@@ -3116,6 +3119,7 @@
                   }
                 ],
                 "default": null,
+                "description": "Positive duration in days over which an authored persistence or interval-effect law is defined, before conversion to continuous-time decay or rate. When omitted, persistence uses the model measurement clock; interval effects use the edge lag, falling back to that clock.",
                 "title": "Reference Interval Days"
               }
             },
@@ -3186,7 +3190,7 @@
     },
     {
       "name": "prepare_data",
-      "description": "Import provided sources, extract measurements, or prepare one recorded simulation replicate; return versioned data and applicable profiles and checks. Dispatch returns only attempt_id. Use poll_action for messages and the final result.",
+      "description": "Prepare uploaded files with scoring instructions and semantic workers, or materialize one recorded simulation replicate; return model-independent observations, metadata and numerical data checks. Dispatch returns only attempt_id. Use poll_action for messages and the final result.",
       "parameters": {
         "additionalProperties": false,
         "description": "Prepare uploaded sources or a recorded simulation replicate, without a model.",
@@ -3197,25 +3201,234 @@
             "title": "Action",
             "type": "string"
           },
-          "source": {
+          "input": {
             "anyOf": [
               {
                 "additionalProperties": false,
-                "description": "Explicit uploaded filenames, relative to this study's input directory.",
+                "description": "Uploaded sources and the complete recipe for preparing their observations.",
                 "properties": {
-                  "files": {
-                    "items": {
-                      "type": "string"
+                  "source": {
+                    "additionalProperties": false,
+                    "description": "Explicit uploaded filenames, relative to this study's input directory.",
+                    "properties": {
+                      "files": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1,
+                        "title": "Files",
+                        "type": "array"
+                      }
                     },
-                    "minItems": 1,
-                    "title": "Files",
-                    "type": "array"
+                    "required": [
+                      "files"
+                    ],
+                    "title": "FileSourceRef",
+                    "type": "object"
+                  },
+                  "definition": {
+                    "additionalProperties": false,
+                    "description": "A versioned data definition supplied directly to prepare_data.",
+                    "properties": {
+                      "default_window": {
+                        "title": "Default Window",
+                        "type": "string"
+                      },
+                      "variables": {
+                        "items": {
+                          "additionalProperties": false,
+                          "description": "How to produce one observed variable, without any causal or latent model.",
+                          "properties": {
+                            "id": {
+                              "pattern": "^indicator:[A-Za-z0-9_.-]+$",
+                              "tsType": "`indicator:${string}`",
+                              "type": "string"
+                            },
+                            "name": {
+                              "description": "Indicator name (e.g., 'hrv', 'self_reported_stress')",
+                              "title": "Name",
+                              "type": "string"
+                            },
+                            "measurement_dtype": {
+                              "enum": [
+                                "continuous",
+                                "binary",
+                                "count",
+                                "ordinal",
+                                "categorical"
+                              ],
+                              "type": "string"
+                            },
+                            "aggregation": {
+                              "enum": [
+                                "mean",
+                                "sum",
+                                "min",
+                                "max",
+                                "std",
+                                "var",
+                                "last",
+                                "first",
+                                "count",
+                                "median",
+                                "p10",
+                                "p25",
+                                "p75",
+                                "p90",
+                                "p99",
+                                "skew",
+                                "kurtosis",
+                                "iqr",
+                                "range",
+                                "cv",
+                                "entropy",
+                                "instability",
+                                "trend",
+                                "n_unique"
+                              ],
+                              "type": "string"
+                            },
+                            "observation_window": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "default": null,
+                              "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock.",
+                              "title": "Observation Window"
+                            },
+                            "ordinal_levels": {
+                              "anyOf": [
+                                {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "default": null,
+                              "description": "Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.",
+                              "title": "Ordinal Levels"
+                            },
+                            "categorical_levels": {
+                              "anyOf": [
+                                {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "default": null,
+                              "description": "Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding.",
+                              "title": "Categorical Levels"
+                            },
+                            "how_to_measure": {
+                              "description": "Scoring rubric and extraction instructions.",
+                              "minLength": 1,
+                              "title": "How To Measure",
+                              "type": "string"
+                            },
+                            "recording": {
+                              "default": "samples",
+                              "description": "Source recording semantics within the raw dataset's covered time span. samples: absent readings are unknown. events: a complete event record; empty sum/count windows are zero. changes: a complete change record; the last recorded value persists, with leading gaps unknown. events and changes require computed extraction.",
+                              "enum": [
+                                "samples",
+                                "events",
+                                "changes"
+                              ],
+                              "title": "Recording",
+                              "type": "string"
+                            },
+                            "source_columns": {
+                              "description": "Raw data column names referenced by how_to_measure. Used to project chunks to only relevant columns before extraction.",
+                              "items": {
+                                "type": "string"
+                              },
+                              "title": "Source Columns",
+                              "type": "array"
+                            },
+                            "computed_rule": {
+                              "anyOf": [
+                                {
+                                  "description": "Deterministic support-window expression that returns one scalar per window. Use Python-like syntax over source_columns with arithmetic, comparisons, if/else, and helper functions such as any(), sum(), mean(), std(), first(), last(), count_true(), count_non_null(), lower(), contains(), and contains_any(). Use None for missing values.",
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "default": null,
+                              "description": "Optional deterministic support-window expression for extraction_mode='computed'. Use this when a computed indicator needs formulas, thresholds, or multiple source columns instead of a direct single-column aggregation. The expression must return one scalar per support window."
+                            },
+                            "extraction_mode": {
+                              "default": "semantic",
+                              "description": "'computed' (deterministic pipeline extraction) or 'semantic' (LLM extraction). Use 'computed' when the indicator can be derived deterministically either from a direct source-column aggregation or from a computed_rule support-window expression over the declared source_columns.",
+                              "enum": [
+                                "computed",
+                                "semantic"
+                              ],
+                              "title": "Extraction Mode",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name",
+                            "measurement_dtype",
+                            "aggregation",
+                            "how_to_measure"
+                          ],
+                          "title": "DataVariableSpec",
+                          "type": "object"
+                        },
+                        "minItems": 1,
+                        "title": "Variables",
+                        "type": "array"
+                      },
+                      "context": {
+                        "default": "",
+                        "description": "Optional context for interpreting the source data.",
+                        "title": "Context",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "default_window",
+                      "variables"
+                    ],
+                    "title": "DataPreparationSpec",
+                    "type": "object"
+                  },
+                  "max_windows": {
+                    "anyOf": [
+                      {
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null,
+                    "title": "Max Windows"
                   }
                 },
                 "required": [
-                  "files"
+                  "source",
+                  "definition"
                 ],
-                "title": "FileSourceRef",
+                "title": "FilePreparationSpec",
                 "type": "object"
               },
               {
@@ -3240,216 +3453,11 @@
                 "type": "object"
               }
             ],
-            "title": "Source"
-          },
-          "preparation": {
-            "anyOf": [
-              {
-                "additionalProperties": false,
-                "description": "A versioned data definition supplied directly to prepare_data.",
-                "properties": {
-                  "default_window": {
-                    "title": "Default Window",
-                    "type": "string"
-                  },
-                  "variables": {
-                    "items": {
-                      "additionalProperties": false,
-                      "description": "How to produce one observed variable, without any causal or latent model.",
-                      "properties": {
-                        "id": {
-                          "pattern": "^indicator:[A-Za-z0-9_.-]+$",
-                          "tsType": "`indicator:${string}`",
-                          "type": "string"
-                        },
-                        "name": {
-                          "description": "Indicator name (e.g., 'hrv', 'self_reported_stress')",
-                          "title": "Name",
-                          "type": "string"
-                        },
-                        "measurement_dtype": {
-                          "enum": [
-                            "continuous",
-                            "binary",
-                            "count",
-                            "ordinal",
-                            "categorical"
-                          ],
-                          "type": "string"
-                        },
-                        "aggregation": {
-                          "enum": [
-                            "mean",
-                            "sum",
-                            "min",
-                            "max",
-                            "std",
-                            "var",
-                            "last",
-                            "first",
-                            "count",
-                            "median",
-                            "p10",
-                            "p25",
-                            "p75",
-                            "p90",
-                            "p99",
-                            "skew",
-                            "kurtosis",
-                            "iqr",
-                            "range",
-                            "cv",
-                            "entropy",
-                            "instability",
-                            "trend",
-                            "n_unique"
-                          ],
-                          "type": "string"
-                        },
-                        "observation_window": {
-                          "anyOf": [
-                            {
-                              "type": "string"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ],
-                          "default": null,
-                          "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock.",
-                          "title": "Observation Window"
-                        },
-                        "ordinal_levels": {
-                          "anyOf": [
-                            {
-                              "items": {
-                                "type": "string"
-                              },
-                              "type": "array"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ],
-                          "default": null,
-                          "description": "Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.",
-                          "title": "Ordinal Levels"
-                        },
-                        "categorical_levels": {
-                          "anyOf": [
-                            {
-                              "items": {
-                                "type": "string"
-                              },
-                              "type": "array"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ],
-                          "default": null,
-                          "description": "Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding.",
-                          "title": "Categorical Levels"
-                        },
-                        "how_to_measure": {
-                          "description": "Scoring rubric and extraction instructions.",
-                          "minLength": 1,
-                          "title": "How To Measure",
-                          "type": "string"
-                        },
-                        "recording": {
-                          "default": "samples",
-                          "description": "Source recording semantics within the raw dataset's covered time span. samples: absent readings are unknown. events: a complete event record; empty sum/count windows are zero. changes: a complete change record; the last recorded value persists, with leading gaps unknown. events and changes require computed extraction.",
-                          "enum": [
-                            "samples",
-                            "events",
-                            "changes"
-                          ],
-                          "title": "Recording",
-                          "type": "string"
-                        },
-                        "source_columns": {
-                          "description": "Raw data column names referenced by how_to_measure. Used to project chunks to only relevant columns before extraction.",
-                          "items": {
-                            "type": "string"
-                          },
-                          "title": "Source Columns",
-                          "type": "array"
-                        },
-                        "computed_rule": {
-                          "anyOf": [
-                            {
-                              "description": "Deterministic support-window expression that returns one scalar per window. Use Python-like syntax over source_columns with arithmetic, comparisons, if/else, and helper functions such as any(), sum(), mean(), std(), first(), last(), count_true(), count_non_null(), lower(), contains(), and contains_any(). Use None for missing values.",
-                              "type": "string"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ],
-                          "default": null,
-                          "description": "Optional deterministic support-window expression for extraction_mode='computed'. Use this when a computed indicator needs formulas, thresholds, or multiple source columns instead of a direct single-column aggregation. The expression must return one scalar per support window."
-                        },
-                        "extraction_mode": {
-                          "default": "semantic",
-                          "description": "'computed' (deterministic pipeline extraction) or 'semantic' (LLM extraction). Use 'computed' when the indicator can be derived deterministically either from a direct source-column aggregation or from a computed_rule support-window expression over the declared source_columns.",
-                          "enum": [
-                            "computed",
-                            "semantic"
-                          ],
-                          "title": "Extraction Mode",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "name",
-                        "measurement_dtype",
-                        "aggregation",
-                        "how_to_measure"
-                      ],
-                      "title": "DataVariableSpec",
-                      "type": "object"
-                    },
-                    "minItems": 1,
-                    "title": "Variables",
-                    "type": "array"
-                  },
-                  "context": {
-                    "default": "",
-                    "description": "Optional context for interpreting the source data.",
-                    "title": "Context",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "default_window",
-                  "variables"
-                ],
-                "title": "DataPreparationSpec",
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null
-          },
-          "max_windows": {
-            "anyOf": [
-              {
-                "minimum": 1,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Max Windows"
+            "title": "Input"
           }
         },
         "required": [
-          "source"
+          "input"
         ],
         "title": "PrepareDataRequest",
         "type": "object"
@@ -3595,7 +3603,7 @@
       "description": "Generate requested quantities from current model uncertainty and measure the shared predictive batch. Dispatch returns only attempt_id. Use poll_action for messages and the final result.",
       "parameters": {
         "additionalProperties": false,
-        "description": "Generate the selected model through end with optional start and dated interventions.",
+        "description": "Generate through end with optional start and interventions; compare saved data with data_diff.",
         "properties": {
           "end": {
             "description": "Absolute end time in model days.",
@@ -3656,19 +3664,6 @@
           "model_revision": {
             "pattern": "^[0-9a-f]{40}$",
             "type": "string"
-          },
-          "comparison_panel_revision": {
-            "anyOf": [
-              {
-                "pattern": "^[0-9a-f]{40}$",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "description": "Prepared observations to compare on their exact recorded schedule."
           }
         },
         "required": [
@@ -5791,6 +5786,7 @@
                                 },
                                 "distribution_transform": {
                                   "default": "identity",
+                                  "description": "Mapping from the authored law to the model quantity: identity leaves its scale unchanged; dt_persistence_to_ct_decay maps persistence p to -log(p) / interval; dt_effect_to_ct_rate divides an interval effect by its duration in days; initial_state_correlation applies the correlation support [-1, 1]. Fixed values and joint laws require identity.",
                                   "enum": [
                                     "identity",
                                     "dt_persistence_to_ct_decay",
@@ -5839,6 +5835,7 @@
                                     }
                                   ],
                                   "default": null,
+                                  "description": "Positive duration in days over which an authored persistence or interval-effect law is defined, before conversion to continuous-time decay or rate. When omitted, persistence uses the model measurement clock; interval effects use the edge lag, falling back to that clock.",
                                   "title": "Reference Interval Days"
                                 }
                               },
@@ -7403,7 +7400,8 @@
                                 "title": "SimulationReplicateRef",
                                 "type": "object"
                               }
-                            ]
+                            ],
+                            "description": "A data source selects uploaded files or one recorded simulation replicate."
                           },
                           "variables": {
                             "items": {
@@ -10189,6 +10187,7 @@
                                 },
                                 "distribution_transform": {
                                   "default": "identity",
+                                  "description": "Mapping from the authored law to the model quantity: identity leaves its scale unchanged; dt_persistence_to_ct_decay maps persistence p to -log(p) / interval; dt_effect_to_ct_rate divides an interval effect by its duration in days; initial_state_correlation applies the correlation support [-1, 1]. Fixed values and joint laws require identity.",
                                   "enum": [
                                     "identity",
                                     "dt_persistence_to_ct_decay",
@@ -10237,6 +10236,7 @@
                                     }
                                   ],
                                   "default": null,
+                                  "description": "Positive duration in days over which an authored persistence or interval-effect law is defined, before conversion to continuous-time decay or rate. When omitted, persistence uses the model measurement clock; interval effects use the edge lag, falling back to that clock.",
                                   "title": "Reference Interval Days"
                                 }
                               },
@@ -11053,15 +11053,6 @@
                             "title": "State Ids",
                             "type": "array"
                           },
-                          "indicator_ids": {
-                            "items": {
-                              "pattern": "^indicator:[A-Za-z0-9_.-]+$",
-                              "tsType": "`indicator:${string}`",
-                              "type": "string"
-                            },
-                            "title": "Indicator Ids",
-                            "type": "array"
-                          },
                           "parameter_draws": {
                             "additionalProperties": {
                               "type": "string"
@@ -11214,328 +11205,6 @@
                             ],
                             "title": "SimulationObservationLayout",
                             "type": "object"
-                          },
-                          "comparison_panel": {
-                            "anyOf": [
-                              {
-                                "additionalProperties": false,
-                                "description": "An exact file in a study's Git object database: repository, object, and path.",
-                                "properties": {
-                                  "workspace_id": {
-                                    "minLength": 1,
-                                    "title": "Workspace Id",
-                                    "type": "string"
-                                  },
-                                  "revision": {
-                                    "pattern": "^[0-9a-f]{40}$",
-                                    "type": "string"
-                                  },
-                                  "path": {
-                                    "minLength": 1,
-                                    "pattern": "^[A-Za-z0-9_][A-Za-z0-9_./-]*$",
-                                    "title": "Path",
-                                    "type": "string"
-                                  }
-                                },
-                                "required": [
-                                  "workspace_id",
-                                  "revision",
-                                  "path"
-                                ],
-                                "title": "GitRef",
-                                "type": "object"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ],
-                            "default": null
-                          },
-                          "predictive_checks": {
-                            "anyOf": [
-                              {
-                                "description": "Posterior predictive checks report exact-model checks and their supporting plot data.",
-                                "properties": {
-                                  "per_variable_warnings": {
-                                    "items": {
-                                      "description": "A predictive-check finding records whether one indicator passes a calibration,\ndependence, or variance check.",
-                                      "properties": {
-                                        "indicator_id": {
-                                          "pattern": "^indicator:[A-Za-z0-9_.-]+$",
-                                          "tsType": "`indicator:${string}`",
-                                          "type": "string"
-                                        },
-                                        "check_type": {
-                                          "enum": [
-                                            "calibration",
-                                            "autocorrelation",
-                                            "variance"
-                                          ],
-                                          "title": "Check Type",
-                                          "type": "string"
-                                        },
-                                        "message": {
-                                          "title": "Message",
-                                          "type": "string"
-                                        },
-                                        "value": {
-                                          "title": "Value",
-                                          "type": "number"
-                                        },
-                                        "passed": {
-                                          "default": true,
-                                          "title": "Passed",
-                                          "type": "boolean"
-                                        }
-                                      },
-                                      "required": [
-                                        "indicator_id",
-                                        "check_type",
-                                        "message",
-                                        "value"
-                                      ],
-                                      "title": "PPCWarning",
-                                      "type": "object"
-                                    },
-                                    "title": "Per Variable Warnings",
-                                    "type": "array"
-                                  },
-                                  "checked": {
-                                    "default": false,
-                                    "title": "Checked",
-                                    "type": "boolean"
-                                  },
-                                  "n_subsample": {
-                                    "default": 0,
-                                    "title": "N Subsample",
-                                    "type": "integer"
-                                  },
-                                  "overlays": {
-                                    "items": {
-                                      "description": "A predictive overlay compares observed values with posterior predictive bands for one\nindicator.\n\nProvides the data for Gabry's ppc_dens_overlay / ppc_ribbon plots:\nobserved time series vs posterior predictive quantile bands.\nOptionally includes individual y_rep draw lines for spaghetti plots.",
-                                      "properties": {
-                                        "indicator_id": {
-                                          "pattern": "^indicator:[A-Za-z0-9_.-]+$",
-                                          "tsType": "`indicator:${string}`",
-                                          "type": "string"
-                                        },
-                                        "observed": {
-                                          "items": {
-                                            "anyOf": [
-                                              {
-                                                "type": "number"
-                                              },
-                                              {
-                                                "type": "null"
-                                              }
-                                            ]
-                                          },
-                                          "title": "Observed",
-                                          "type": "array"
-                                        },
-                                        "q025": {
-                                          "items": {
-                                            "anyOf": [
-                                              {
-                                                "type": "number"
-                                              },
-                                              {
-                                                "type": "null"
-                                              }
-                                            ]
-                                          },
-                                          "title": "Q025",
-                                          "type": "array"
-                                        },
-                                        "q25": {
-                                          "items": {
-                                            "anyOf": [
-                                              {
-                                                "type": "number"
-                                              },
-                                              {
-                                                "type": "null"
-                                              }
-                                            ]
-                                          },
-                                          "title": "Q25",
-                                          "type": "array"
-                                        },
-                                        "median": {
-                                          "items": {
-                                            "anyOf": [
-                                              {
-                                                "type": "number"
-                                              },
-                                              {
-                                                "type": "null"
-                                              }
-                                            ]
-                                          },
-                                          "title": "Median",
-                                          "type": "array"
-                                        },
-                                        "q75": {
-                                          "items": {
-                                            "anyOf": [
-                                              {
-                                                "type": "number"
-                                              },
-                                              {
-                                                "type": "null"
-                                              }
-                                            ]
-                                          },
-                                          "title": "Q75",
-                                          "type": "array"
-                                        },
-                                        "q975": {
-                                          "items": {
-                                            "anyOf": [
-                                              {
-                                                "type": "number"
-                                              },
-                                              {
-                                                "type": "null"
-                                              }
-                                            ]
-                                          },
-                                          "title": "Q975",
-                                          "type": "array"
-                                        },
-                                        "spaghetti_draws": {
-                                          "items": {
-                                            "items": {
-                                              "anyOf": [
-                                                {
-                                                  "type": "number"
-                                                },
-                                                {
-                                                  "type": "null"
-                                                }
-                                              ]
-                                            },
-                                            "type": "array"
-                                          },
-                                          "title": "Spaghetti Draws",
-                                          "type": "array"
-                                        }
-                                      },
-                                      "required": [
-                                        "indicator_id",
-                                        "observed",
-                                        "q025",
-                                        "q25",
-                                        "median",
-                                        "q75",
-                                        "q975"
-                                      ],
-                                      "title": "PPCOverlay",
-                                      "type": "object"
-                                    },
-                                    "title": "Overlays",
-                                    "type": "array"
-                                  },
-                                  "test_stats": {
-                                    "items": {
-                                      "description": "A predictive test statistic compares an observed summary with its distribution under\nreplicated data.\n\nProvides the data for Gabry's ppc_stat plots: histogram of T(y_rep)\nwith a vertical line at T(y_observed).",
-                                      "properties": {
-                                        "indicator_id": {
-                                          "pattern": "^indicator:[A-Za-z0-9_.-]+$",
-                                          "tsType": "`indicator:${string}`",
-                                          "type": "string"
-                                        },
-                                        "stat_name": {
-                                          "enum": [
-                                            "mean",
-                                            "sd",
-                                            "min",
-                                            "max"
-                                          ],
-                                          "title": "Stat Name",
-                                          "type": "string"
-                                        },
-                                        "observed_value": {
-                                          "title": "Observed Value",
-                                          "type": "number"
-                                        },
-                                        "rep_values": {
-                                          "items": {
-                                            "type": "number"
-                                          },
-                                          "title": "Rep Values",
-                                          "type": "array"
-                                        },
-                                        "p_value": {
-                                          "anyOf": [
-                                            {
-                                              "type": "number"
-                                            },
-                                            {
-                                              "type": "null"
-                                            }
-                                          ],
-                                          "title": "P Value"
-                                        },
-                                        "histogram": {
-                                          "items": {
-                                            "additionalProperties": false,
-                                            "description": "A histogram bin gives its interval, center, and number of posterior draws.",
-                                            "properties": {
-                                              "bin_center": {
-                                                "title": "Bin Center",
-                                                "type": "number"
-                                              },
-                                              "bin_start": {
-                                                "title": "Bin Start",
-                                                "type": "number"
-                                              },
-                                              "bin_end": {
-                                                "title": "Bin End",
-                                                "type": "number"
-                                              },
-                                              "count": {
-                                                "minimum": 0,
-                                                "title": "Count",
-                                                "type": "integer"
-                                              }
-                                            },
-                                            "required": [
-                                              "bin_center",
-                                              "bin_start",
-                                              "bin_end",
-                                              "count"
-                                            ],
-                                            "title": "HistogramBin",
-                                            "type": "object"
-                                          },
-                                          "title": "Histogram",
-                                          "type": "array"
-                                        }
-                                      },
-                                      "required": [
-                                        "indicator_id",
-                                        "stat_name",
-                                        "observed_value",
-                                        "rep_values",
-                                        "p_value",
-                                        "histogram"
-                                      ],
-                                      "title": "PPCTestStat",
-                                      "type": "object"
-                                    },
-                                    "title": "Test Stats",
-                                    "type": "array"
-                                  }
-                                },
-                                "title": "PosteriorPredictiveChecks",
-                                "type": "object"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ],
-                            "default": null
                           },
                           "law": {
                             "anyOf": [
@@ -11926,7 +11595,6 @@
                           "draws",
                           "seed",
                           "state_ids",
-                          "indicator_ids",
                           "parameter_draws",
                           "latent_paths",
                           "observations",
@@ -12614,7 +12282,8 @@
               {
                 "$ref": "#/$defs/SimulationReplicateRef"
               }
-            ]
+            ],
+            "description": "A data source selects uploaded files or one recorded simulation replicate."
           },
           "DataVariableSpec": {
             "additionalProperties": false,
@@ -14675,6 +14344,7 @@
               },
               "distribution_transform": {
                 "default": "identity",
+                "description": "Mapping from the authored law to the model quantity: identity leaves its scale unchanged; dt_persistence_to_ct_decay maps persistence p to -log(p) / interval; dt_effect_to_ct_rate divides an interval effect by its duration in days; initial_state_correlation applies the correlation support [-1, 1]. Fixed values and joint laws require identity.",
                 "enum": [
                   "identity",
                   "dt_persistence_to_ct_decay",
@@ -14720,6 +14390,7 @@
                   }
                 ],
                 "default": null,
+                "description": "Positive duration in days over which an authored persistence or interval-effect law is defined, before conversion to continuous-time decay or rate. When omitted, persistence uses the model measurement clock; interval effects use the edge lag, falling back to that clock.",
                 "title": "Reference Interval Days"
               }
             },
@@ -15155,13 +14826,6 @@
                 "title": "State Ids",
                 "type": "array"
               },
-              "indicator_ids": {
-                "items": {
-                  "$ref": "#/$defs/IndicatorId"
-                },
-                "title": "Indicator Ids",
-                "type": "array"
-              },
               "parameter_draws": {
                 "additionalProperties": {
                   "type": "string"
@@ -15179,28 +14843,6 @@
               },
               "observation_layout": {
                 "$ref": "#/$defs/SimulationObservationLayout"
-              },
-              "comparison_panel": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/GitRef"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null
-              },
-              "predictive_checks": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/PosteriorPredictiveChecks"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null
               },
               "law": {
                 "anyOf": [
@@ -15276,7 +14918,6 @@
               "draws",
               "seed",
               "state_ids",
-              "indicator_ids",
               "parameter_draws",
               "latent_paths",
               "observations",

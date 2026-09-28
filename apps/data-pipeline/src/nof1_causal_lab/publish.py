@@ -1,21 +1,13 @@
-"""Publish a local workspace to the hosted (R2) store.
+"""Copy missing durable workspace files to the hosted (R2) store.
 
-Publishing is a deliberate act: the hosted read facade serves whatever
-lives under the R2 store, so copying a workspace there makes it — and
-every artifact payload in it — publicly viewable. Raw N-of-1 data is
-personal data: exclude it unless the workspace is synthetic/demo.
-
-The store is append-only with immutable versions and transition-log entries, so
-publishing is an idempotent file copy: keys that already exist are skipped.
-Re-running publish while a local episode executes gives the hosted viewer a
-live tail through its normal polling. The ``scratch/`` and ``cache/`` tiers are
-not published.
+See docs/guides/agentic_integration_testing.md#publishing-a-workspace for
+supported use and the current exclusion and synchronization limits.
 
 Usage (needs the ``cloud`` dependency group and the production R2 env:
 ``R2_ENDPOINT_URL``, ``R2_ACCESS_KEY_ID``, ``R2_SECRET_ACCESS_KEY``,
 ``R2_BUCKET``, ``R2_PREFIX``)::
 
-    uv run nof1-publish WORKSPACE_ID [--exclude raw_data --exclude input]
+    uv run nof1-publish SYNTHETIC_WORKSPACE [--exclude input]
 """
 
 from __future__ import annotations
@@ -91,10 +83,10 @@ def main() -> None:
         "--exclude",
         action="append",
         default=[],
-        metavar="ARTIFACT_ID|input",
+        metavar="NAME",
         help=(
-            "Withhold store/<artifact_id>/ payloads (or the raw 'input' uploads) "
-            "from publication; repeatable."
+            "Withhold input/ for 'input', otherwise only store/<name>/; repeatable. "
+            "Does not filter content-addressed table blobs or Git history."
         ),
     )
     args = parser.parse_args()

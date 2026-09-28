@@ -2,7 +2,7 @@
 
 This package owns the dynamics vocabulary:
 vector-field components, dynamics specs, interventions, stability checks,
-steady states, simulation, and dynamics-spec serialization.
+simulation, and dynamics-spec serialization.
 
 Block-level SSM parameter structure lives in ``ssm.structure``.
 CT-to-DT matrix discretization lives in ``ssm.discretization``.
@@ -21,43 +21,52 @@ from .edges import (
     VectorFieldComponent,
 )
 from .intervention import (
+    ConstantValueFn,
     EdgeInputOverride,
     Intervention,
+    LinearRampValueFn,
     Override,
     PrecomputedValueFn,
     ValueFn,
     VariableOverride,
-    constant_value,
-    linear_ramp,
-    precomputed_value,
 )
 from .linearisation import Linearisation, infer_linearisation
 from .serialization import (
     dynamics_spec_to_dict,
 )
-from .simulator import SimulationConfig, simulate
+from .simulator import (
+    BrownianTreeSpec,
+    IndexedBrownianSpec,
+    ProcessNoise,
+    SimulationConfig,
+    simulate,
+)
 from .spec import (
     CompiledDynamics,
     DynamicsSpec,
     compile_dynamics,
     iter_dynamics_semantic_bindings,
 )
-from .steady_state import compute_steady_state
 from .vector_field import VectorField, VectorFieldArgs
 
 __all__ = [
+    "BrownianTreeSpec",
     "CompiledDynamics",
     "DynamicsSpec",
     "DiagonalDecay",
     "VectorFieldComponent",
+    "ConstantValueFn",
     "EdgeInputOverride",
+    "LinearRampValueFn",
     "Intercept",
     "Intervention",
+    "IndexedBrownianSpec",
     "Linearisation",
     "LinearEdge",
     "Override",
     "DynamicsDraws",
     "PrecomputedValueFn",
+    "ProcessNoise",
     "SimulationConfig",
     "StateDecay",
     "StateIntercept",
@@ -67,12 +76,8 @@ __all__ = [
     "VectorFieldArgs",
     "compile_dynamics",
     "dynamics_spec_to_dict",
-    "compute_steady_state",
-    "constant_value",
     "infer_linearisation",
     "iter_dynamics_semantic_bindings",
-    "linear_ramp",
     "dynamics_from_samples",
-    "precomputed_value",
     "simulate",
 ]

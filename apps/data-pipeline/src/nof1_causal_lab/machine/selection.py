@@ -22,5 +22,8 @@ def resolve_input_pins(
     revisions = [store.read_meta(identity, revision) for identity, revision in selected.items()]
     selected_state = state.with_artifacts(revisions)
     pins = input_pins(selected_state, spec)
-    return {identity: revision for identity, revision in pins.items()
-            if identity in spec.consumes or identity in selected}
+    return {
+        identity: revision
+        for identity, revision in pins.items()
+        if identity in spec.consumes or identity in selected
+    }

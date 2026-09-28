@@ -198,7 +198,7 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
     },
     {
       "action_id": "prepare_data",
-      "description": "Import provided sources, extract measurements, or prepare one recorded simulation replicate; return versioned data and applicable profiles and checks.",
+      "description": "Prepare uploaded files with scoring instructions and semantic workers, or materialize one recorded simulation replicate; return model-independent observations, metadata and numerical data checks.",
       "consumes": [],
       "optional_consumes": [
         "raw_data",

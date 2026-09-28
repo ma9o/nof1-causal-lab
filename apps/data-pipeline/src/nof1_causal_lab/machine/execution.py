@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from nof1_causal_lab.artifacts.data_preparation import (  # noqa: TC001
-    DataPreparationSpec,
-    FileSourceRef,
+    FilePreparationSpec,
     SimulationReplicateRef,
 )
 from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS, ArtifactId, GitOid
@@ -43,19 +42,50 @@ class TransitionEffects(BaseModel):
     checks: ModelCheckReport | None = None
 
 
-class ExecutionOptions(BaseModel):
-    """Per-action execution parameters (infra, not domain state)."""
+class FitOperation(BaseModel):
+    """Condition the selected model on its selected panel."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    inference_method: str | None = None
-    enable_literature: bool | None = None
-    max_windows: int | None = None
-    fit_settings: FitSettingsSpec = Field(default_factory=FitSettingsSpec)
-    simulation: SimulationSpec | None = None
-    simulation_source: SimulationReplicateRef | None = None
-    file_source: FileSourceRef | None = None
-    preparation: DataPreparationSpec | None = None
+    operation_id: Literal["posterior"] = "posterior"
+    settings: FitSettingsSpec = Field(default_factory=FitSettingsSpec)
+
+
+class SimulateOperation(BaseModel):
+    """Generate the declared simulation from the selected model."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    operation_id: Literal["simulate"] = "simulate"
+    design: SimulationSpec
+
+
+class PrepareFilesOperation(BaseModel):
+    """Prepare uploaded observations through the ingestion and extraction workflows."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    operation_id: Literal["measurements"] = "measurements"
+    preparation: FilePreparationSpec
+
+
+class PrepareSimulationOperation(BaseModel):
+    """Materialize one recorded simulation replicate as observations."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    operation_id: Literal["simulated_measurements"] = "simulated_measurements"
+    source: SimulationReplicateRef
+
+
+type LocalOperation = Annotated[
+    FitOperation | SimulateOperation | PrepareSimulationOperation,
+    Field(discriminator="operation_id"),
+]
+type ExecutionOperation = Annotated[
+    FitOperation | SimulateOperation | PrepareSimulationOperation | PrepareFilesOperation,
+    Field(discriminator="operation_id"),
+]
 
 
 def validate_model_base(state: EpisodeState, expected_revision: GitOid | None) -> str | None:

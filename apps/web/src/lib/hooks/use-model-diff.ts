@@ -3,12 +3,12 @@ import { useQuery } from "@tanstack/react-query";
 
 const client = createModelClient();
 
-export function useModelComparison(workspaceId: string, before: string, after: string | null) {
+export function useModelDiff(workspaceId: string, before: string, after: string | null) {
   return useQuery({
-    queryKey: ["scientific-comparison", workspaceId, before, after],
+    queryKey: ["model-diff", workspaceId, before, after],
     enabled: after != null,
     queryFn: async ({ signal }) => {
-      const response = await client.GET("/api/episodes/{workspace_id}/revisions/compare", {
+      const response = await client.GET("/api/episodes/{workspace_id}/model-diff", {
         params: {
           path: { workspace_id: workspaceId },
           query: { before, after: after! },

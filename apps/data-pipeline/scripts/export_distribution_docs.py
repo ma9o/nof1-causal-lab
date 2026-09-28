@@ -58,7 +58,7 @@ PARAMETER_ROLE_SPECS: Final[tuple[ParameterRoleSpec, ...]] = (
         constraint="unit_interval",
         ssm_location="State-decay dynamics site",
         note="model-spec elicits baseline discrete-time persistence absent feedback; "
-        "[compilation](../compilation.md) binds it to the owning decay component "
+        "compilation binds it to the owning decay component "
         "and converts to continuous-time decay scale",
     ),
     ParameterRoleSpec(
@@ -283,7 +283,7 @@ def _export_parameters(*, check: bool) -> bool:
 
     roles_body = "\n".join(
         [
-            "[Component authoring](../../pipeline/statistical-model-spec.md) derives these prompt roles "
+            "Component authoring derives these prompt roles "
             "from the coefficient slots of a concrete model proposal. Fixed slots need no prior; "
             "roles and constraints are not stored again on the parameter definition:",
             "",
@@ -329,10 +329,10 @@ def _export_likelihoods(*, check: bool) -> bool:
 
     dtype_body = "\n".join(
         [
-            "Each indicator's [`measurement_dtype`](../../pipeline/measurement-structure.md#indicatorspec) "
+            "Each indicator's `measurement_dtype` "
             "selects the default conditional law. The family and link names below describe its numerical lowering. "
             "Where the dtype admits only one valid combination, the likelihood is locked "
-            "by [component authoring](../../pipeline/statistical-model-spec.md). "
+            "by component authoring. "
             "Where alternatives exist, the LLM chooses via a decision card.",
             "",
             _render_dtype_likelihood_markdown_table(),

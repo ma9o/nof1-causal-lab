@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import time
-from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
@@ -45,16 +44,6 @@ def _sweep_events(workspace_id: str, *, cutoff_seconds: float) -> int:
     return removed
 
 
-def _modified_seconds(path: str) -> float:
-    info = storage.file_info(path)
-    if storage.is_remote():
-        modified = info["LastModified"]
-        if not isinstance(modified, datetime):
-            raise TypeError(f"Remote object has non-datetime LastModified: {path}")
-        return modified.timestamp()
-    return float(info["mtime"])
-
-
 def _sweep_cache(
     workspace_id: str,
     *,
@@ -62,8 +51,9 @@ def _sweep_cache(
     max_bytes: int,
 ) -> tuple[int, int]:
     entries = [
-        (path, _modified_seconds(path), int(storage.file_info(path)["size"]))
+        (path, info.modified_seconds, info.size)
         for path in storage.walk_files(data_module.cache_dir(workspace_id))
+        for info in (storage.file_info(path),)
     ]
     removed_files = 0
     removed_bytes = 0

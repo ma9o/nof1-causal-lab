@@ -34,7 +34,10 @@ def test_action_contracts_require_explicit_inputs_without_authoring_admission():
     assert (
         plan_execution(
             PrepareDataRequest(
-                source={"files": ["observations.csv"]}, preparation=panel_metadata().preparation
+                input={
+                    "source": {"files": ["observations.csv"]},
+                    "definition": panel_metadata().preparation,
+                }
             )
         ).input_revisions
         == {}
@@ -146,10 +149,13 @@ def test_current_law_sampling_preserves_joint_parameter_atoms():
 
 
 @pytest.mark.inference(concern="simulation")
-@pytest.mark.parametrize("compare", [False, True])
-def test_durable_replication_and_comparisons_without_fitting(tmp_path, monkeypatch, compare):
+@pytest.mark.inference(concern="predictive")
+@pytest.mark.parametrize("fitted_laws", [False, True])
+def test_durable_replication_preserves_current_laws_without_comparison(
+    tmp_path, monkeypatch, fitted_laws
+):
     from nof1_causal_lab.artifacts.simulation import SimulationReport
-    from nof1_causal_lab.machine.execution import ExecutionOptions
+    from nof1_causal_lab.machine.execution import SimulateOperation
     from nof1_causal_lab.machine.history import StudyRepository
     from nof1_causal_lab.machine.runners import execute_transition_locally
     from nof1_causal_lab.machine.snapshots import ModelReader
@@ -169,17 +175,38 @@ def test_durable_replication_and_comparisons_without_fitting(tmp_path, monkeypat
     )
     produced = [definition]
     pins: dict[ArtifactId, GitOid] = {"model": artifact_revision("TEST", "model", 1)}
-    if compare:
-        produced.append(
-            store.write_artifact(
-                "panel",
-                produced_by="run:measurements",
-                derived_from={},
-                json_files={"metadata.json": panel_metadata().model_dump(mode="json")},
-                parquet_files={"panel.parquet": panel_frame(n_days=4)},
-            )
+    produced.append(
+        store.write_artifact(
+            "panel",
+            produced_by="run:measurements",
+            derived_from={},
+            json_files={"metadata.json": panel_metadata().model_dump(mode="json")},
+            parquet_files={"panel.parquet": panel_frame(n_days=4)},
         )
-        pins["panel"] = produced[-1].revision
+    )
+    if fitted_laws:
+        from nof1_causal_lab.models.ssm.inference.persistence import condition_model
+        from nof1_causal_lab.models.ssm.inference.types import (
+            JointPosteriorDraws,
+            ParticleMCMCPosterior,
+        )
+        from tests.model_fixtures import parameter_draws
+
+        model = condition_model(
+            model,
+            ParticleMCMCPosterior(
+                JointPosteriorDraws(parameter_draws(model, 3), jnp.zeros((3, 5, 2)))
+            ),
+            times=jnp.arange(-1.0, 4.0),
+        )
+        fitted = store.write_artifact(
+            "model",
+            produced_by="run:posterior",
+            derived_from={"model": definition.revision, "panel": produced[-1].revision},
+            json_files={"model.json": model.model_dump(mode="json")},
+        )
+        pins["model"] = fitted.revision
+        produced.append(fitted)
     state = EpisodeState().with_artifacts(produced)
     journal.append(
         TransitionRecord(
@@ -196,20 +223,23 @@ def test_durable_replication_and_comparisons_without_fitting(tmp_path, monkeypat
     effects = run_async(
         execute_transition_locally(
             "TEST",
-            "simulate",
+            SimulateOperation(design=SimulationSpec(start=-1.0, end=3.0)),
             pins,
             state,
-            ExecutionOptions(
-                simulation=SimulationSpec(start=-1.0, end=3.0),
-            ),
         )
     )
     report = TypeAdapter(SimulationReport).validate_python(effects.diagnostics["report"])
     assert store.read_array(report.latent_paths).shape == (report.draws, 5, 2)
     assert store.read_array(report.observations).shape == (report.draws, 5, 2)
     assert effects.diagnostics["input_pins"] == pins
-    assert (report.predictive_checks is not None) == compare
-    assert (report.comparison_panel is not None) == compare
+    assert set(pins) == {"model"}
+    assert "predictive_checks" not in report.model_dump()
+    assert "comparison_panel" not in report.model_dump()
+    assert report.law is not None
+    assert report.law.kind == ("fitted" if fitted_laws else "authored")
+    if fitted_laws:
+        assert report.law.interpretation == "posterior_predictive"
+        assert report.law.fitted_panel_revision == produced[1].revision
     assert not effects.produced
     assert any(finding.check.startswith("C5c") for finding in report.findings)
     assert not any(finding.check.startswith("C5d") for finding in report.findings)
@@ -258,12 +288,11 @@ def test_durable_replication_and_comparisons_without_fitting(tmp_path, monkeypat
 
     preparation = plan_execution(
         PrepareDataRequest(
-            source=SimulationReplicateRef(revision=commit_id("TEST", 2), replicate=1),
+            input=SimulationReplicateRef(revision=commit_id("TEST", 2), replicate=1),
         )
     )
-    prepared = run_async(
-        execute_transition("TEST", "simulated_measurements", state, preparation.options)
-    )
+    assert preparation.operation.operation_id == "simulated_measurements"
+    prepared = run_async(execute_transition("TEST", preparation.operation, state))
     panel_info = next(info for info in prepared.produced if info.artifact_id == "panel")
     panel = store.read_parquet_file("panel", panel_info.revision, "panel.parquet")
     from nof1_causal_lab.models.ssm.runtime import project_observation_data
@@ -533,7 +562,9 @@ def test_simulation_selects_checks_before_execution_and_persists_only_parameters
     monkeypatch.setattr(
         action,
         "measure_simulation_batch",
-        lambda model, batch, **_kwargs: original_measure(model, batch, groups=groups, edge_contrasts=True),
+        lambda model, batch, **_kwargs: original_measure(
+            model, batch, groups=groups, edge_contrasts=True
+        ),
     )
     report = action.simulate(
         model,

@@ -223,8 +223,8 @@ class LaplaceModeOptimizationResult:
     optimizer: str
     init_log_posterior_best: float
     optimizer_hess_inv: spo.LbfgsInvHessProduct
+    final_eval_diagnostics: UncheckedJsonObject
     final_grad_norm: float | None = None
-    final_eval_diagnostics: UncheckedJsonObject | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -465,10 +465,9 @@ def _optimize_laplace_parameter_mode(
             init_log_posterior_best,
         )
 
-    cached_x: np.ndarray | None = None
-    cached_fun: float | None = None
-    cached_grad: np.ndarray | None = None
-    cached_aux: UncheckedJsonObject | None = None
+    cached_evaluation: tuple[np.ndarray, tuple[float, np.ndarray, UncheckedJsonObject]] | None = (
+        None
+    )
     eval_count = 0
     optimize_started_at = time.monotonic()
     latent_mode_init: np.ndarray | None = None
@@ -485,13 +484,10 @@ def _optimize_laplace_parameter_mode(
             logger.info("MAP seeded latent warm start before jitted value-and-grad compile")
 
     def _value_and_grad(z_np: np.ndarray) -> tuple[float, np.ndarray, UncheckedJsonObject]:
-        nonlocal cached_x, cached_fun, cached_grad, cached_aux, eval_count, latent_mode_init
+        nonlocal cached_evaluation, eval_count, latent_mode_init
         z_host = np.asarray(z_np, dtype=np.float64)
-        if cached_x is not None and np.array_equal(z_host, cached_x):
-            assert cached_fun is not None
-            assert cached_grad is not None
-            assert cached_aux is not None
-            return cached_fun, cached_grad, cached_aux
+        if cached_evaluation is not None and np.array_equal(z_host, cached_evaluation[0]):
+            return cached_evaluation[1]
 
         z = jnp.asarray(z_host, dtype=z_init.dtype)
         latent_mode_arg = (
@@ -507,15 +503,17 @@ def _optimize_laplace_parameter_mode(
             runtime_neg_log_posterior_with_aux_fn=runtime_neg_log_posterior_with_aux_fn,
         )
         eval_count += 1
-        cached_x = z_host.copy()
-        cached_fun = float(jax.device_get(fun))
-        cached_grad = np.asarray(jax.device_get(grad), dtype=np.float64)
-        cached_aux = _hostify_outer_eval_diagnostics(aux)
+        evaluation = (
+            float(jax.device_get(fun)),
+            np.asarray(jax.device_get(grad), dtype=np.float64),
+            _hostify_outer_eval_diagnostics(aux),
+        )
+        cached_evaluation = (z_host.copy(), evaluation)
         if "latent_mode" in aux:
             latent_mode_init = np.asarray(jax.device_get(aux["latent_mode"])).copy()
         else:
             latent_mode_init = None
-        return cached_fun, cached_grad, cached_aux
+        return evaluation
 
     def _objective(z_np: np.ndarray) -> float:
         fun, _grad, _aux = _value_and_grad(z_np)
@@ -737,11 +735,6 @@ def fit_map(
     posterior, compute the local curvature there, and sample the resulting
     Gaussian approximation in unconstrained parameter space.
     """
-    if parameter_covariance_method not in {"exact_hessian", "optimizer_hess_inv"}:
-        raise ValueError(
-            "parameter_covariance_method must be 'exact_hessian' or 'optimizer_hess_inv'."
-        )
-
     rng_key = random.PRNGKey(seed)
     rng_key, trace_key, init_key, sample_key = random.split(rng_key, 4)
 
@@ -827,7 +820,6 @@ def fit_map(
     nfev = mode_result.n_function_evals
     status = mode_result.status
     success = mode_result.success
-    assert mode_result.final_eval_diagnostics is not None
     mode_eval = mode_result.final_eval_diagnostics
     mode_log_posterior = mode_eval["log_posterior"]
     mode_log_likelihood = mode_eval["log_likelihood"]

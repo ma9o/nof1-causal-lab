@@ -1,12 +1,13 @@
 """Schemas for worker LLM outputs."""
 
-from typing import Any
+from typing import assert_never
 
 import polars as pl
 from pydantic import BaseModel, Field, ValidationError
 
 from nof1_causal_lab.artifacts.identity import IndicatorId
 from nof1_causal_lab.json_types import UncheckedJsonObject
+from nof1_causal_lab.measurement_types import MeasurementDtype
 from nof1_causal_lab.utils.causal_design import (
     get_measurement_indicator_info as _get_measurement_indicator_info,
 )
@@ -50,19 +51,10 @@ class WorkerOutput(BaseModel):
 
         rows = []
         for e in self.extractions:
-            v = e.value
-            if v is None:
-                str_val = None
-            elif isinstance(v, (bool, int, float)):
-                str_val = str(v)
-            elif isinstance(v, str):
-                str_val = v
-            else:
-                str_val = None
             rows.append(
                 {
                     "indicator_id": e.indicator_id,
-                    "value": str_val,
+                    "value": str(e.value) if e.value is not None else None,
                     "timestamp": e.window_start,
                 }
             )
@@ -70,34 +62,41 @@ class WorkerOutput(BaseModel):
         return pl.DataFrame(rows, schema=schema)
 
 
-def _check_dtype_match(value: Any, expected_dtype: str) -> bool:
+def _check_dtype_match(value: object, expected_dtype: MeasurementDtype) -> bool:
     """Check if a value matches the expected measurement_dtype."""
     if value is None:
         return True  # None is always acceptable
 
-    def _is_integer_numeric(v: Any) -> bool:
-        return not isinstance(v, bool) and (
-            isinstance(v, int) or (isinstance(v, float) and v == int(v))
-        )
-
-    dtype_checks = {
-        "continuous": lambda v: isinstance(v, (int, float)),
-        "binary": lambda v: (
-            isinstance(v, bool) or v in (0, 1, "0", "1", "true", "false", "True", "False")
-        ),
-        "count": lambda v: isinstance(v, int) or (isinstance(v, float) and v == int(v) and v >= 0),
-        "ordinal": _is_integer_numeric,
-        "categorical": lambda v: isinstance(v, str),
-    }
-
-    check = dtype_checks.get(expected_dtype)
-    if check is None:
-        return True  # Unknown dtype, don't fail
-    return check(value)
+    match expected_dtype:
+        case "continuous":
+            return isinstance(value, (int, float))
+        case "binary":
+            return isinstance(value, bool) or value in (
+                0,
+                1,
+                "0",
+                "1",
+                "true",
+                "false",
+                "True",
+                "False",
+            )
+        case "count":
+            return isinstance(value, int) or (
+                isinstance(value, float) and value == int(value) and value >= 0
+            )
+        case "ordinal":
+            return not isinstance(value, bool) and (
+                isinstance(value, int) or (isinstance(value, float) and value == int(value))
+            )
+        case "categorical":
+            return isinstance(value, str)
+        case _:
+            assert_never(expected_dtype)
 
 
 def validate_worker_output(
-    data: UncheckedJsonObject,
+    data: object,
     measurement_structure: UncheckedJsonObject,
     expected_window_starts: list[str] | None = None,
 ) -> tuple[WorkerOutput | None, list[str]]:
@@ -129,7 +128,7 @@ def validate_worker_output(
     expected_window_start_set = set(expected_window_starts) if expected_window_starts else None
 
     # Validate each extraction
-    valid_extractions = []
+    valid_extractions: list[WindowExtraction] = []
     seen_pairs: set[tuple[str, str]] = set()
 
     for i, ext_data in enumerate(extractions):
@@ -137,9 +136,21 @@ def validate_worker_output(
             errors.append(f"extractions[{i}]: must be a dictionary")
             continue
 
-        window_start = ext_data.get("window_start", "<missing>")
-        ind_name = ext_data.get("indicator_id", "<missing>")
-        value = ext_data.get("value")
+        try:
+            ext = WindowExtraction.model_validate(
+                {
+                    "window_start": ext_data.get("window_start", "<missing>"),
+                    "indicator_id": ext_data.get("indicator_id", "<missing>"),
+                    "value": ext_data.get("value"),
+                },
+                strict=True,
+            )
+        except ValidationError as exc:
+            errors.append(f"extractions[{i}]: {exc}")
+            continue
+        window_start = ext.window_start
+        ind_name = ext.indicator_id
+        value = ext.value
 
         # Check support window is valid
         if expected_window_start_set is not None and window_start not in expected_window_start_set:
@@ -192,25 +203,11 @@ def validate_worker_output(
                 continue
             value = ordinal_code
 
-        normalized = {
-            "window_start": window_start,
-            "indicator_id": ind_name,
-            "value": value,
-        }
-
-        # Validate via Pydantic
-        try:
-            ext = WindowExtraction.model_validate(normalized)
-            valid_extractions.append(ext)
-        except ValidationError as e:
-            errors.append(f"extractions[{i}] ({ind_name}): {e}")
+        ext.value = value
+        valid_extractions.append(ext)
 
     # If no errors, build and return the output
     if not errors:
-        try:
-            output = WorkerOutput(extractions=valid_extractions)
-            return output, []
-        except ValidationError as e:
-            errors.append(f"Final validation failed: {e}")
+        return WorkerOutput(extractions=valid_extractions), []
 
     return None, errors

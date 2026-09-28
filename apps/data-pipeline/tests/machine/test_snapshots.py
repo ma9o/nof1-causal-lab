@@ -8,6 +8,7 @@ from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
 from nof1_causal_lab.artifacts.execution import StructuralItemDisposition
 from nof1_causal_lab.artifacts.identification import IdentificationReport
 from nof1_causal_lab.artifacts.identity import ConstructId, GitRef, IndicatorId
+from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.simulation import SimulationReport, SimulationSpec
 from nof1_causal_lab.machine.artifact_files import json_filename
@@ -145,10 +146,20 @@ def test_checkpoint_comparison_uses_evidence_from_each_selected_journal_prefix(w
             draws=1,
             seed=seq,
             state_ids=(),
-            indicator_ids=("indicator:y",),
-            observation_layout={"variables": [{"id": "indicator:y", "name": "y",
-                "measurement_dtype": "continuous", "aggregation": "last", "observation_window": "1d"}],
-                "support_start_times": "starts", "support_end_times": "ends", "mask": "mask"},
+            observation_layout={
+                "variables": [
+                    {
+                        "id": "indicator:y",
+                        "name": "y",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "last",
+                        "observation_window": "1d",
+                    }
+                ],
+                "support_start_times": "starts",
+                "support_end_times": "ends",
+                "mask": "mask",
+            },
             parameter_draws={},
             latent_paths=f"simulation-{seq}/latent",
             observations=f"simulation-{seq}/observations",
@@ -168,7 +179,7 @@ def test_checkpoint_comparison_uses_evidence_from_each_selected_journal_prefix(w
         )
     client = TestClient(create_read_facade_app())
     response = client.get(
-        f"/api/episodes/{workspace}/revisions/compare",
+        f"/api/episodes/{workspace}/model-diff",
         params={"before": commit_id(workspace, 1), "after": commit_id(workspace, 2)},
     )
     assert response.status_code == 200
@@ -178,7 +189,7 @@ def test_checkpoint_comparison_uses_evidence_from_each_selected_journal_prefix(w
     assert comparison["before_simulation"] is None
     assert comparison["after_simulation"]["seed"] == 2
     response = client.get(
-        f"/api/episodes/{workspace}/revisions/compare",
+        f"/api/episodes/{workspace}/model-diff",
         params={"before": commit_id(workspace, 3), "after": commit_id(workspace, 2)},
     )
     assert response.status_code == 200
@@ -188,11 +199,24 @@ def test_checkpoint_comparison_uses_evidence_from_each_selected_journal_prefix(w
     assert all(item["change"] == "unchanged" for item in comparison["graph"]["constructs"])
     assert (
         client.get(
-            f"/api/episodes/{workspace}/revisions/compare",
+            f"/api/episodes/{workspace}/model-diff",
             params={"before": git_oid(4), "after": commit_id(workspace, 2)},
         ).status_code
         == 404
     )
+
+    # Exact model artifacts are also valid comparison inputs; no run is inferred.
+    model_revision = artifact_revision(workspace, "model", 1)
+    response = client.get(
+        f"/api/episodes/{workspace}/model-diff",
+        params={"before": model_revision, "after": commit_id(workspace, 2)},
+    )
+    assert response.status_code == 200, response.text
+    comparison = response.json()
+    assert comparison["before"]["path"] == "model.json"
+    assert comparison["definition_changes"] == []
+    assert comparison["before_simulation"] is None
+    assert comparison["after_simulation"]["seed"] == 2
 
 
 def test_snapshot_exists_before_any_compilation(workspace):
@@ -369,9 +393,9 @@ def test_owned_likelihood_survives_reused_names(workspace, monkeypatch):
     _measured(workspace)
     payload = _model().model_dump(mode="json")
     graph_constructs(payload)[1]["indicators"][0]["likelihood"] = {
-        "law": observation_law(ConstructId("construct:y"), "gaussian", "identity").model_dump(
-            mode="json"
-        ),
+        "law": observation_law(
+            ConstructId("construct:y"), DistributionFamily.GAUSSIAN, LinkFunction.IDENTITY
+        ).model_dump(mode="json"),
         "reasoning": "Test",
     }
     _commit(workspace, "model", payload)

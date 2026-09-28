@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from typing import Literal
 
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -63,9 +64,8 @@ async def run_transition_activity(input: OperationInput) -> TransitionEffects:
     try:
         return await execute_transition(
             input.workspace_id,
-            input.operation_id,
+            input.operation,
             input.state,
-            input.options,
             input.input_revisions,
         )
     except TransitionExecutionError as exc:
@@ -90,7 +90,9 @@ async def edit_model_activity(input: EditModelInput) -> TransitionEffects:
 
 
 @activity.defn
-async def evaluate_model_checks_activity(input: EvaluateChecksInput) -> TransitionEffects:
+async def evaluate_model_checks_activity(
+    input: EvaluateChecksInput[Literal["edit_model", "fit"]],
+) -> TransitionEffects:
     from nof1_causal_lab.actions.model_checks import evaluate_model_checks
 
     return await asyncio.to_thread(
@@ -99,7 +101,9 @@ async def evaluate_model_checks_activity(input: EvaluateChecksInput) -> Transiti
 
 
 @activity.defn
-async def evaluate_data_checks_activity(input: EvaluateChecksInput) -> TransitionEffects:
+async def evaluate_data_checks_activity(
+    input: EvaluateChecksInput[Literal["prepare_data"]],
+) -> TransitionEffects:
     from nof1_causal_lab.actions.data_checks import evaluate_data_checks
 
     return await asyncio.to_thread(

@@ -1,7 +1,7 @@
 """Guard tests for the per-construct identification-anchor invariant.
 
 Every retained construct must have exactly one location anchor and one scale
-anchor (docs/reference/statistical-model-spec/identification.md). These tests
+anchor (docs/assumptions.md#parameter-anchors). These tests
 enumerate the family/policy combinations so that any future eligibility change
 that reopens an exact likelihood ridge fails loudly at compile time.
 """
@@ -545,7 +545,9 @@ class TestAnchorSurfaces:
             update={
                 "aggregation": "sum",
                 "likelihood": LikelihoodSpec(
-                    law=observation_law(owner.id, "gaussian", "identity"),
+                    law=observation_law(
+                        owner.id, DistributionFamily.GAUSSIAN, LinkFunction.IDENTITY
+                    ),
                     standardized=False,
                     reasoning="Total quantity",
                 ),

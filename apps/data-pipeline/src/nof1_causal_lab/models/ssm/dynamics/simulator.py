@@ -25,9 +25,30 @@ if TYPE_CHECKING:
     from .vector_field import VectorField
 
 
+class ProcessNoise(eqx.Module):
+    """A process covariance and its random key, optionally batched over draws."""
+
+    key: Array
+    diffusion_cov: Array
+
+
+class BrownianTreeSpec(eqx.Module):
+    """Virtual Brownian tree with an optional fixed solver step size."""
+
+    step_size: float | Array | None = None
+    """``None`` selects ``(t1 - t0) / 200``."""
+    tol: float = 1e-3
+
+
+class IndexedBrownianSpec(eqx.Module):
+    """Replayable integer-step Brownian increments on an explicit fixed grid."""
+
+    step_size: float | Array
+
+
 class SimulationConfig(eqx.Module):
     """Solver configuration. An ``eqx.Module`` (pytree) rather than a plain
-    dataclass so a *traced* ``sde_dt`` array can flow through ``filter_jit``
+    dataclass so a *traced* step-size array can flow through ``filter_jit``
     as a leaf: per-draw CFL-capped step sizes then reuse one compiled
     program instead of baking each value in as a constant (one XLA compile
     per prior draw)."""
@@ -35,12 +56,7 @@ class SimulationConfig(eqx.Module):
     rtol: float = 1e-4
     atol: float = 1e-6
     max_steps: int = 4096
-    sde_dt: float | Array | None = None
-    """Constant step size for the SDE solver. ``None`` → ``(t1 - t0) / 200``."""
-    sde_brownian_tol: float = 1e-3
-    """Tolerance for ``VirtualBrownianTree``; smaller = finer Brownian path."""
-    use_indexed_brownian_path: bool = eqx.field(static=True, default=False)
-    """Use deterministic integer-step Brownian increments for fixed-step simulation."""
+    brownian: BrownianTreeSpec | IndexedBrownianSpec = eqx.field(default_factory=BrownianTreeSpec)
 
 
 class _IndexedBrownianPath(dfx.AbstractBrownianPath[Array | dfx.BrownianIncrement]):
@@ -87,23 +103,20 @@ def simulate(
     time_grid: Array,
     config: SimulationConfig | None = None,
     *,
-    key: Array | None = None,
-    diffusion_cov: Array | None = None,
+    noise: ProcessNoise | None = None,
 ) -> Array:
     """Bind a causal intervention, then simulate its declared Dynestyx evolution."""
     from nof1_causal_lab.models.ssm.execution.dynamical_model import continuous_state_evolution
 
-    if (key is None) != (diffusion_cov is None):
-        raise ValueError("SDE mode requires both 'key' and 'diffusion_cov'")
     args = VectorFieldArgs(params=params, intervention=intervention)
     initial_state = vector_field.initial_condition(initial_state, args, time_grid[0])
     evolution = (
         vector_field.evolution(
             args,
         )
-        if diffusion_cov is None
+        if noise is None
         else continuous_state_evolution(
-            vector_field, params, diffusion_cov, intervention=intervention
+            vector_field, params, noise.diffusion_cov, intervention=intervention
         )
     )
     model = dsx.DynamicalModel(
@@ -117,7 +130,7 @@ def simulate(
         initial_state,
         time_grid,
         config=config,
-        key=key,
+        key=None if noise is None else noise.key,
     )
 
 
@@ -161,22 +174,21 @@ def simulate_model_path(
         )
 
     assert key is not None
-    if cfg.use_indexed_brownian_path:
-        if cfg.sde_dt is None:
-            raise ValueError("Indexed Brownian simulation requires an explicit fixed step size")
+    brownian_spec = cfg.brownian
+    if isinstance(brownian_spec, IndexedBrownianSpec):
         brownian = _IndexedBrownianPath(
             t0=t0,
             t1=t1,
             shape=(n_latent,),
             key=key,
-            step_size=jnp.asarray(cfg.sde_dt),
+            step_size=jnp.asarray(brownian_spec.step_size),
         )
         adjoint = dfx.ForwardMode()
     else:
         brownian = dfx.VirtualBrownianTree(
             t0=t0,
             t1=t1,
-            tol=cfg.sde_brownian_tol,
+            tol=brownian_spec.tol,
             shape=(n_latent,),
             key=key,
         )
@@ -191,7 +203,9 @@ def simulate_model_path(
     )
     term = dfx.MultiTerm(ode_term, diffusion_term)
     solver = dfx.Heun()
-    dt0 = cfg.sde_dt if cfg.sde_dt is not None else float((t1 - t0) / 200.0)
+    dt0 = (
+        brownian_spec.step_size if brownian_spec.step_size is not None else float((t1 - t0) / 200.0)
+    )
     solution = dfx.diffeqsolve(
         term,
         solver,

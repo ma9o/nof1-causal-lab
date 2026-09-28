@@ -3,8 +3,6 @@
 Covers variance functions and build_observation_kernel.
 """
 
-from typing import cast
-
 import jax
 import jax.numpy as jnp
 import pytest
@@ -193,14 +191,6 @@ class TestBuildObservationKernel:
         var = kernel.variance_fn(eta)
         assert var.shape == (1, 1)
         assert var[0, 0] > 0
-
-    @pytest.mark.contract
-    def test_unsupported_link_raises(self):
-        invalid_link = cast("LinkFunction", "nonexistent_link")
-        with pytest.raises(ValueError, match="Unknown link function"):
-            build_observation_kernel(
-                DistributionFamily.GAUSSIAN, invalid_link, manifest_cov=jnp.eye(2)
-            )
 
     @pytest.mark.contract
     def test_recognized_but_invalid_family_link_pair_raises(self):

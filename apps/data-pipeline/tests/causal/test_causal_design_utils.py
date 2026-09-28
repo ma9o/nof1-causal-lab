@@ -16,7 +16,7 @@ import pytest
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.utils.causal_design import (
-    build_digraph_from_edges,
+    build_digraph,
     get_all_treatments,
     get_outcome_name,
     make_measurement_extraction_context,
@@ -154,7 +154,7 @@ class TestBuildDigraph:
             [{"name": name} for name in names],
             [{"cause": cause, "effect": effect} for cause, effect in pairs],
         )
-        graph = build_digraph_from_edges(edges)
+        graph = build_digraph((), edges)
         assert set(graph.nodes) == set(names)
         assert set(graph.edges) == expected_edges
 

@@ -13,6 +13,7 @@ from jax import Array
 
 from nof1_causal_lab.models.ssm.dynamics import (
     Intervention,
+    ProcessNoise,
     SimulationConfig,
     simulate,
 )
@@ -55,19 +56,17 @@ def vmap_simulate_interventions_from_state(
     *,
     time_grid: Array,
     config: SimulationConfig | None = None,
-    keys: Array | None = None,
-    diffusion_cov: Array | None = None,
+    noise: ProcessNoise | None = None,
 ) -> tuple[Array, Array, Array]:
     """Generate paired natural/intervened histories with shared process streams."""
-    if (keys is None) != (diffusion_cov is None):
-        raise ValueError("Process noise requires paired keys and diffusion covariance")
     n_latent = dynamics.vector_field.n_latent
     if initial_states.shape != (dynamics.n_draws, n_latent):
         raise ValueError("Initial states must match the dynamics draw and state axes")
-    if keys is not None and (keys.ndim < 1 or keys.shape[0] != dynamics.n_draws):
-        raise ValueError("Process keys must match the dynamics draw axis")
-    if diffusion_cov is not None and diffusion_cov.shape != (dynamics.n_draws, n_latent, n_latent):
-        raise ValueError("Diffusion covariance must match the dynamics draw and state axes")
+    if noise is not None:
+        if noise.key.ndim < 1 or noise.key.shape[0] != dynamics.n_draws:
+            raise ValueError("Process keys must match the dynamics draw axis")
+        if noise.diffusion_cov.shape != (dynamics.n_draws, n_latent, n_latent):
+            raise ValueError("Diffusion covariance must match the dynamics draw and state axes")
     if dynamics.n_draws == 0:
         empty = jnp.zeros((0, time_grid.shape[0], n_latent))
         return empty, empty, empty
@@ -82,7 +81,7 @@ def vmap_simulate_interventions_from_state(
         for i, time in enumerate(grid)
     }
 
-    def path(params, y0, key, covariance, active):
+    def path(params, y0, process_noise: ProcessNoise | None, active):
         pieces = []
         state = y0
         for segment, (i0, i1) in enumerate(segments):
@@ -95,8 +94,14 @@ def vmap_simulate_interventions_from_state(
                 state,
                 time_grid[i0 : i1 + 1],
                 config,
-                key=jax.random.fold_in(key, segment) if key is not None else None,
-                diffusion_cov=covariance,
+                noise=(
+                    ProcessNoise(
+                        key=jax.random.fold_in(process_noise.key, segment),
+                        diffusion_cov=process_noise.diffusion_cov,
+                    )
+                    if process_noise is not None
+                    else None
+                ),
             )
             pieces.append(ys[:-1] if segment < len(segments) - 1 else ys)
             state = ys[-1]
@@ -106,13 +111,11 @@ def vmap_simulate_interventions_from_state(
             result = result.at[-1].set(_apply_events(result[-1], sets[len(grid) - 1]))
         return result
 
-    def per_draw(params, y0, key=None, covariance=None):
-        reference = path(params, y0, key, covariance, False)
-        action = path(params, y0, key, covariance, True) if interventions else reference
+    def per_draw(params, y0, process_noise: ProcessNoise | None):
+        reference = path(params, y0, process_noise, False)
+        action = path(params, y0, process_noise, True) if interventions else reference
         return reference, action, action - reference
 
-    if keys is None:
-        return jax.vmap(per_draw, axis_size=dynamics.n_draws)(dynamics.parameters, initial_states)
     return jax.vmap(per_draw, axis_size=dynamics.n_draws)(
-        dynamics.parameters, initial_states, keys, diffusion_cov
+        dynamics.parameters, initial_states, noise
     )

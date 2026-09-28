@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, assert_never
 
 import jax
 import jax.numpy as jnp
@@ -32,8 +32,10 @@ from nof1_causal_lab.models.ssm.execution.observation_extra_params import (
 )
 
 from .observation_dispatch import (
-    PredictiveObservationSampler,
-    build_predictive_observation_sampler,
+    MeanObservationSampler,
+    PointObservationSampler,
+    build_interval_summary_sampler,
+    build_point_observation_sampler,
     get_emission_fn,
     get_emission_score_weight_fn,
 )
@@ -102,8 +104,8 @@ class CompiledObservationModel:
     """One compiled family/link interface shared by fitting and prediction."""
 
     kernel: ObservationKernel
-    point_sampler: PredictiveObservationSampler
-    interval_summary_sampler: PredictiveObservationSampler | None
+    point_sampler: PointObservationSampler
+    interval_summary_sampler: MeanObservationSampler | None
     mean_log_prob_fn: MeanLogProbFn | None
     observation_operator: ObservationOperator | None
     manifest_dists: tuple[DistributionFamily, ...]
@@ -278,10 +280,12 @@ def build_observation_kernel(
         emission_grad_hess_fn = _make_student_t_grad_hess(extra_params.get("obs_df", 5.0))
     elif family_spec.grad_hess_strategy == "delta":
         emission_grad_hess_fn = _delta_grad_hess
-    else:  # "glm"
+    elif family_spec.grad_hess_strategy == "glm":
         sw_fn = get_emission_score_weight_fn(dist, extra_params, link=link)
         assert sw_fn is not None, f"No analytical score/weight fn for dist={dist!r}"
         emission_grad_hess_fn = _make_glm_grad_hess(sw_fn)
+    else:
+        assert_never(family_spec.grad_hess_strategy)
 
     return ObservationKernel(
         log_prob_fn=log_prob_fn,
@@ -410,11 +414,11 @@ def build_heterogeneous_observation_kernel(
 
 
 def compile_observation_model(
-    manifest_dists: Sequence[DistributionFamily | str],
+    manifest_dists: Sequence[DistributionFamily],
     *,
     manifest_cov: jnp.ndarray,
     extra_params: LikelihoodExtraParams | None = None,
-    manifest_links: Sequence[LinkFunction | str | None] | None = None,
+    manifest_links: Sequence[LinkFunction | None] | None = None,
     observation_support: ObservationSupportRuntime | None = None,
 ) -> CompiledObservationModel:
     """Compile likelihood, prediction, and support semantics through one pair resolution."""
@@ -457,7 +461,7 @@ def compile_observation_model(
         )
 
     observation_operator = compile_observation_operator(observation_support)
-    point_sampler = build_predictive_observation_sampler(
+    point_sampler = build_point_observation_sampler(
         dists,
         manifest_cov,
         manifest_links=links,
@@ -469,7 +473,6 @@ def compile_observation_model(
         interval_summary_indices = list(observation_operator.interval_summary_indices)
         interval_summary_idx = np.asarray(interval_summary_indices, dtype=np.int32)
         interval_summary_dists = [dists[idx] for idx in interval_summary_indices]
-        interval_summary_links = [links[idx] for idx in interval_summary_indices]
         interval_extra_params = slice_observation_extra_params(
             extra_params,
             interval_summary_indices,
@@ -481,15 +484,15 @@ def compile_observation_model(
             )
         else:
             base_mean_log_prob_fn = build_heterogeneous_mean_log_prob_fn(
-                [dist.value for dist in interval_summary_dists],
+                interval_summary_dists,
                 interval_extra_params,
             )
 
-        interval_summary_sampler = build_predictive_observation_sampler(
-            interval_summary_dists,
-            manifest_cov[np.ix_(interval_summary_idx, interval_summary_idx)],
-            manifest_links=interval_summary_links,
-            extra_params=interval_extra_params,
+        interval_summary_sampler = build_interval_summary_sampler(
+            dists,
+            manifest_cov,
+            interval_summary_indices,
+            extra_params=extra_params,
         )
 
         def mean_log_prob_fn(y_t, mean_t, R, obs_mask_t):

@@ -16,7 +16,7 @@ Each entry fully describes one observation family's behavior at every dispatch s
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import jax
 import jax.numpy as jnp
@@ -57,7 +57,7 @@ from .observation_kernel_helpers import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Iterable, Sequence
 
 type EmissionLogProbFn = Callable[
     [jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray],
@@ -92,20 +92,20 @@ class ObservationFamilySpec:
     """Whether this family requires hydrated manifest_level_counts."""
 
     # --- emissions.py concerns ---
-    emission_fns: dict[str, EmissionFactory]
-    """link_str -> factory(extra_params) -> log_prob(y, eta, R, mask)."""
-    score_weight_fns: dict[str, ScoreWeightFactory]
-    """link_str -> factory(extra_params) -> score_weight_fn | None."""
+    emission_fns: dict[LinkFunction, EmissionFactory]
+    """link -> factory(extra_params) -> log_prob(y, eta, R, mask)."""
+    score_weight_fns: dict[LinkFunction, ScoreWeightFactory]
+    """link -> factory(extra_params) -> score_weight_fn | None."""
 
     # --- kernels.py concerns ---
     make_variance_fn: VarianceFactory
     """(extra_params, manifest_cov) -> variance_fn."""
-    grad_hess_strategy: str
+    grad_hess_strategy: Literal["gaussian", "student_t", "glm", "delta"]
     """One of 'gaussian', 'student_t', 'glm', or 'delta' (no smooth density)."""
     make_response_fn: ResponseFactory | None
     """(extra_params) -> response_fn, or None to use _RESPONSE_FNS[link]."""
-    posterior_predictive_fns: dict[str, PosteriorPredictiveFn]
-    """link_str -> posterior predictive branch used by lax.switch."""
+    posterior_predictive_fns: dict[LinkFunction, PosteriorPredictiveFn]
+    """link -> posterior predictive branch used by lax.switch."""
 
 
 # ---------------------------------------------------------------------------
@@ -173,19 +173,6 @@ def _infer_contiguous_levels(values: np.ndarray) -> int | None:
     return len(unique_levels)
 
 
-def _coerce_distribution_family(
-    dist: DistributionFamily | str,
-) -> DistributionFamily:
-    try:
-        return DistributionFamily(dist)
-    except ValueError as exc:
-        raise ValueError(f"Unknown distribution family: {dist!r}") from exc
-
-
-def _link_key(link: LinkFunction | str) -> str:
-    return str(link)
-
-
 def _ordered_links(
     dist: DistributionFamily,
     default_link: LinkFunction,
@@ -202,17 +189,12 @@ def _build_link_dispatch_map[T: Callable[..., object]](
     default_link: LinkFunction,
     default_fn: T,
     *,
-    overrides: dict[LinkFunction | str, T] | None = None,
-    include_default_key: bool,
-) -> dict[str, T]:
-    mapping: dict[str, T] = {}
-    if include_default_key:
-        mapping["default"] = default_fn
-    for link in _ordered_links(dist, default_link):
-        mapping[link.value] = default_fn
-    for link, fn in (overrides or {}).items():
-        mapping[_link_key(link)] = fn
-    return mapping
+    overrides: dict[LinkFunction, T] | None = None,
+) -> dict[LinkFunction, T]:
+    return {
+        **dict.fromkeys(_ordered_links(dist, default_link), default_fn),
+        **(overrides or {}),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -589,13 +571,11 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
             DistributionFamily.GAUSSIAN,
             LinkFunction.IDENTITY,
             _emission_factory_gaussian,
-            include_default_key=True,
         ),
         score_weight_fns=_build_link_dispatch_map(
             DistributionFamily.GAUSSIAN,
             LinkFunction.IDENTITY,
             _sw_factory_none,
-            include_default_key=True,
         ),
         make_variance_fn=_variance_factory_gaussian_like,
         grad_hess_strategy="gaussian",
@@ -604,7 +584,6 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
             DistributionFamily.GAUSSIAN,
             LinkFunction.IDENTITY,
             _ppc_gaussian,
-            include_default_key=False,
         ),
     ),
     # ---- Student-t ----
@@ -618,13 +597,11 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
             DistributionFamily.STUDENT_T,
             LinkFunction.IDENTITY,
             _emission_factory_student_t,
-            include_default_key=True,
         ),
         score_weight_fns=_build_link_dispatch_map(
             DistributionFamily.STUDENT_T,
             LinkFunction.IDENTITY,
             _sw_factory_none,
-            include_default_key=True,
         ),
         make_variance_fn=_variance_factory_gaussian_like,
         grad_hess_strategy="student_t",
@@ -633,7 +610,6 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
             DistributionFamily.STUDENT_T,
             LinkFunction.IDENTITY,
             _ppc_student_t,
-            include_default_key=False,
         ),
     ),
     # ---- Poisson ----
@@ -647,13 +623,11 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
             DistributionFamily.POISSON,
             LinkFunction.LOG,
             _emission_factory_poisson,
-            include_default_key=True,
         ),
         score_weight_fns=_build_link_dispatch_map(
             DistributionFamily.POISSON,
             LinkFunction.LOG,
             _sw_factory_poisson,
-            include_default_key=True,
         ),
         make_variance_fn=_variance_factory_poisson,
         grad_hess_strategy="glm",
@@ -662,7 +636,6 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
             DistributionFamily.POISSON,
             LinkFunction.LOG,
             _ppc_poisson,
-            include_default_key=False,
         ),
     ),
     # ---- Gamma ----
@@ -677,14 +650,12 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
             LinkFunction.LOG,
             _emission_factory_gamma_log,
             overrides={LinkFunction.INVERSE: _emission_factory_gamma_inverse},
-            include_default_key=True,
         ),
         score_weight_fns=_build_link_dispatch_map(
             DistributionFamily.GAMMA,
             LinkFunction.LOG,
             _sw_factory_gamma_log,
             overrides={LinkFunction.INVERSE: _sw_factory_gamma_inverse},
-            include_default_key=True,
         ),
         make_variance_fn=_variance_factory_gamma,
         grad_hess_strategy="glm",
@@ -694,7 +665,6 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
             LinkFunction.LOG,
             _ppc_gamma_log,
             overrides={LinkFunction.INVERSE: _ppc_gamma_inverse},
-            include_default_key=False,
         ),
     ),
     # ---- Bernoulli ----
@@ -709,14 +679,12 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
             LinkFunction.LOGIT,
             _emission_factory_bernoulli_logit,
             overrides={LinkFunction.PROBIT: _emission_factory_bernoulli_probit},
-            include_default_key=True,
         ),
         score_weight_fns=_build_link_dispatch_map(
             DistributionFamily.BERNOULLI,
             LinkFunction.LOGIT,
             _sw_factory_bernoulli_logit,
             overrides={LinkFunction.PROBIT: _sw_factory_bernoulli_probit},
-            include_default_key=True,
         ),
         make_variance_fn=_variance_factory_bernoulli,
         grad_hess_strategy="glm",
@@ -726,7 +694,6 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
             LinkFunction.LOGIT,
             _ppc_bernoulli_logit,
             overrides={LinkFunction.PROBIT: _ppc_bernoulli_probit},
-            include_default_key=False,
         ),
     ),
     # ---- Negative Binomial ----
@@ -740,13 +707,11 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
             DistributionFamily.NEGATIVE_BINOMIAL,
             LinkFunction.LOG,
             _emission_factory_negbin,
-            include_default_key=True,
         ),
         score_weight_fns=_build_link_dispatch_map(
             DistributionFamily.NEGATIVE_BINOMIAL,
             LinkFunction.LOG,
             _sw_factory_negbin,
-            include_default_key=True,
         ),
         make_variance_fn=_variance_factory_negbin,
         grad_hess_strategy="glm",
@@ -755,7 +720,6 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
             DistributionFamily.NEGATIVE_BINOMIAL,
             LinkFunction.LOG,
             _ppc_negative_binomial,
-            include_default_key=False,
         ),
     ),
     # ---- Beta ----
@@ -770,14 +734,12 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
             LinkFunction.LOGIT,
             _emission_factory_beta_logit,
             overrides={LinkFunction.PROBIT: _emission_factory_beta_probit},
-            include_default_key=True,
         ),
         score_weight_fns=_build_link_dispatch_map(
             DistributionFamily.BETA,
             LinkFunction.LOGIT,
             _sw_factory_beta_logit,
             overrides={LinkFunction.PROBIT: _sw_factory_beta_probit},
-            include_default_key=True,
         ),
         make_variance_fn=_variance_factory_beta,
         grad_hess_strategy="glm",
@@ -787,7 +749,6 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
             LinkFunction.LOGIT,
             _ppc_beta_logit,
             overrides={LinkFunction.PROBIT: _ppc_beta_probit},
-            include_default_key=False,
         ),
     ),
     # ---- Ordered Logistic ----
@@ -801,13 +762,11 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
             DistributionFamily.ORDERED_LOGISTIC,
             LinkFunction.CUMULATIVE_LOGIT,
             _emission_factory_ordered_logistic,
-            include_default_key=True,
         ),
         score_weight_fns=_build_link_dispatch_map(
             DistributionFamily.ORDERED_LOGISTIC,
             LinkFunction.CUMULATIVE_LOGIT,
             _sw_factory_ordered_logistic,
-            include_default_key=True,
         ),
         make_variance_fn=_variance_factory_ordered_logistic,
         grad_hess_strategy="glm",
@@ -816,7 +775,6 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
             DistributionFamily.ORDERED_LOGISTIC,
             LinkFunction.CUMULATIVE_LOGIT,
             _ppc_ordered_logistic,
-            include_default_key=False,
         ),
     ),
     # ---- Categorical ----
@@ -830,13 +788,11 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
             DistributionFamily.CATEGORICAL,
             LinkFunction.SOFTMAX,
             _emission_factory_categorical,
-            include_default_key=True,
         ),
         score_weight_fns=_build_link_dispatch_map(
             DistributionFamily.CATEGORICAL,
             LinkFunction.SOFTMAX,
             _sw_factory_categorical,
-            include_default_key=True,
         ),
         make_variance_fn=_variance_factory_categorical,
         grad_hess_strategy="glm",
@@ -845,7 +801,6 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
             DistributionFamily.CATEGORICAL,
             LinkFunction.SOFTMAX,
             _ppc_categorical,
-            include_default_key=False,
         ),
     ),
     DistributionFamily.DELTA: ObservationFamilySpec(
@@ -858,13 +813,11 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
             DistributionFamily.DELTA,
             LinkFunction.IDENTITY,
             _emission_factory_delta,
-            include_default_key=True,
         ),
         score_weight_fns=_build_link_dispatch_map(
             DistributionFamily.DELTA,
             LinkFunction.IDENTITY,
             _sw_factory_none,
-            include_default_key=True,
         ),
         make_variance_fn=_variance_factory_delta,
         grad_hess_strategy="delta",
@@ -873,7 +826,6 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
             DistributionFamily.DELTA,
             LinkFunction.IDENTITY,
             _ppc_delta,
-            include_default_key=False,
         ),
     ),
 }
@@ -881,20 +833,20 @@ FAMILY_REGISTRY: dict[DistributionFamily, ObservationFamilySpec] = {
 
 def _validate_registry_links() -> None:
     for dist, spec in FAMILY_REGISTRY.items():
-        expected = {link.value for link in VALID_LINKS_FOR_DISTRIBUTION[dist]}
-        if spec.default_link.value not in expected:
+        expected = VALID_LINKS_FOR_DISTRIBUTION[dist]
+        if spec.default_link not in expected:
             raise ValueError(
                 f"ObservationFamilySpec for {dist.value} has default link "
                 f"{spec.default_link.value!r} not in expected {sorted(expected)}"
             )
-        emission_keys = {key for key in spec.emission_fns if key != "default"}
+        emission_keys = set(spec.emission_fns)
         if emission_keys != expected:
             raise ValueError(
                 f"ObservationFamilySpec for {dist.value} has emission links {sorted(emission_keys)} "
                 f"but expected {sorted(expected)}"
             )
 
-        score_weight_keys = {key for key in spec.score_weight_fns if key != "default"}
+        score_weight_keys = set(spec.score_weight_fns)
         if spec.grad_hess_strategy == "glm" and score_weight_keys != expected:
             raise ValueError(
                 f"ObservationFamilySpec for {dist.value} has score-weight links "
@@ -913,13 +865,11 @@ _validate_registry_links()
 
 
 POSTERIOR_PREDICTIVE_SWITCH_ORDER: tuple[tuple[DistributionFamily, LinkFunction], ...] = tuple(
-    (dist, LinkFunction(link))
-    for dist, spec in FAMILY_REGISTRY.items()
-    for link in spec.posterior_predictive_fns
+    (dist, link) for dist, spec in FAMILY_REGISTRY.items() for link in spec.posterior_predictive_fns
 )
 
 POSTERIOR_PREDICTIVE_SWITCH_BRANCHES = tuple(
-    FAMILY_REGISTRY[dist].posterior_predictive_fns[link.value]
+    FAMILY_REGISTRY[dist].posterior_predictive_fns[link]
     for dist, link in POSTERIOR_PREDICTIVE_SWITCH_ORDER
 )
 
@@ -928,34 +878,22 @@ _POSTERIOR_PREDICTIVE_SWITCH_INDEX: dict[tuple[DistributionFamily, LinkFunction]
 }
 
 
-def _coerce_link_function(
-    link: LinkFunction | str | None,
-) -> LinkFunction | None:
-    if link is None:
-        return None
-    try:
-        return LinkFunction(link)
-    except ValueError as exc:
-        raise ValueError(f"Unknown link function: {link!r}") from exc
-
-
 def supported_distribution_families() -> frozenset[DistributionFamily]:
     """Return the set of supported observation families."""
     return frozenset(FAMILY_REGISTRY)
 
 
 def get_family_spec(
-    dist: DistributionFamily | str,
-) -> ObservationFamilySpec | None:
-    """Look up an observation-family spec, accepting enums or serialized strings."""
-    family = _coerce_distribution_family(dist)
-    return FAMILY_REGISTRY.get(family)
+    dist: DistributionFamily,
+) -> ObservationFamilySpec:
+    """Look up the registered behavior for a validated observation family."""
+    return FAMILY_REGISTRY[dist]
 
 
 def get_posterior_predictive_switch_index(
-    dist: DistributionFamily | str,
+    dist: DistributionFamily,
     *,
-    link: LinkFunction | str | None = None,
+    link: LinkFunction | None = None,
 ) -> int:
     """Resolve the lax.switch branch index for posterior predictive sampling."""
     family, link_fn = resolve_family_link(dist, link)
@@ -963,21 +901,19 @@ def get_posterior_predictive_switch_index(
 
 
 def any_family_needs_level_metadata(
-    dists: list[DistributionFamily] | set[DistributionFamily] | set[str],
+    dists: Iterable[DistributionFamily],
 ) -> bool:
     """Return True when any requested family requires hydrated level counts."""
-    return any(
-        spec.needs_level_metadata for dist in dists if (spec := get_family_spec(dist)) is not None
-    )
+    return any(get_family_spec(dist).needs_level_metadata for dist in dists)
 
 
 def resolve_manifest_families_and_links(
-    manifest_dists: Sequence[DistributionFamily | str],
+    manifest_dists: Sequence[DistributionFamily],
     *,
-    manifest_links: Sequence[LinkFunction | str | None] | None = None,
+    manifest_links: Sequence[LinkFunction | None] | None = None,
 ) -> tuple[list[DistributionFamily], list[LinkFunction]]:
     """Resolve per-channel families and links, filling in family defaults when omitted."""
-    dists = [DistributionFamily(dist) for dist in manifest_dists]
+    dists = list(manifest_dists)
     if manifest_links is not None and len(manifest_links) != len(dists):
         raise ValueError(
             "manifest_links length must match manifest_dists: "
@@ -993,20 +929,17 @@ def resolve_manifest_families_and_links(
 
 
 def resolve_family_link(
-    dist: DistributionFamily | str,
-    link: LinkFunction | str | None,
+    dist: DistributionFamily,
+    link: LinkFunction | None,
 ) -> tuple[DistributionFamily, LinkFunction]:
     """Resolve one family/link pair and reject incompatible explicit links."""
-    family = _coerce_distribution_family(dist)
-    link_fn = _coerce_link_function(link)
-    if link_fn is None:
-        link_fn = FAMILY_REGISTRY[family].default_link
+    link_fn = FAMILY_REGISTRY[dist].default_link if link is None else link
 
-    allowed_links = VALID_LINKS_FOR_DISTRIBUTION[family]
+    allowed_links = VALID_LINKS_FOR_DISTRIBUTION[dist]
     if link_fn not in allowed_links:
         expected = ", ".join(sorted(candidate.value for candidate in allowed_links))
         raise ValueError(
-            f"Link '{link_fn.value}' is invalid for observation family '{family.value}'; "
+            f"Link '{link_fn.value}' is invalid for observation family '{dist.value}'; "
             f"expected one of {{{expected}}}."
         )
-    return family, link_fn
+    return dist, link_fn

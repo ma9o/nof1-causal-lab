@@ -10,6 +10,7 @@ import pytest
 from numpyro.distributions import constraints, transforms
 from pydantic import TypeAdapter
 
+from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.models.model_distributions import with_parameter_distributions
 from nof1_causal_lab.numpyro_json import NumPyroDistribution
 from nof1_causal_lab.prior_distributions import (
@@ -90,11 +91,13 @@ def test_different_coordinate_families_have_no_mixture_uncertainty():
 @pytest.mark.contract
 def test_distribution_arguments_are_complete_and_native_validated():
     with pytest.raises(ValueError, match="requires exactly"):
-        distribution_from_params("Gamma", {"concentration": 2.0})
+        distribution_from_params(PriorDistributionFamily.GAMMA, {"concentration": 2.0})
     with pytest.raises(ValueError, match="invalid rate"):
-        distribution_from_params("Gamma", {"concentration": 2.0, "rate": -1.0})
+        distribution_from_params(
+            PriorDistributionFamily.GAMMA, {"concentration": 2.0, "rate": -1.0}
+        )
     with pytest.raises(ValueError, match="lower < upper"):
-        distribution_from_params("Uniform", {"lower": 2.0, "upper": 1.0})
+        distribution_from_params(PriorDistributionFamily.UNIFORM, {"lower": 2.0, "upper": 1.0})
 
 
 @pytest.mark.inference(concern="sampling")
@@ -256,18 +259,24 @@ def test_compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law():
 @pytest.mark.parametrize(
     ("family", "params", "value"),
     [
-        ("Normal", {"mu": 0.2, "sigma": 0.4}, 0.3),
-        ("HalfNormal", {"sigma": 0.4}, 0.3),
-        ("Gamma", {"concentration": 2.0, "rate": 4.0}, 0.3),
-        ("LogNormal", {"mu": 0.2, "sigma": 0.4}, 0.3),
-        ("Exponential", {"rate": 4.0}, 0.3),
-        ("Beta", {"alpha": 2.0, "beta": 4.0}, 0.3),
-        ("Uniform", {"lower": -1.0, "upper": 2.0}, 0.3),
-        ("TruncatedNormal", {"mu": 0.2, "sigma": 0.4, "lower": -1.0, "upper": 2.0}, 0.3),
-        ("Delta", {"value": 0.3}, 0.3),
+        (PriorDistributionFamily.NORMAL, {"mu": 0.2, "sigma": 0.4}, 0.3),
+        (PriorDistributionFamily.HALF_NORMAL, {"sigma": 0.4}, 0.3),
+        (PriorDistributionFamily.GAMMA, {"concentration": 2.0, "rate": 4.0}, 0.3),
+        (PriorDistributionFamily.LOG_NORMAL, {"mu": 0.2, "sigma": 0.4}, 0.3),
+        (PriorDistributionFamily.EXPONENTIAL, {"rate": 4.0}, 0.3),
+        (PriorDistributionFamily.BETA, {"alpha": 2.0, "beta": 4.0}, 0.3),
+        (PriorDistributionFamily.UNIFORM, {"lower": -1.0, "upper": 2.0}, 0.3),
+        (
+            PriorDistributionFamily.TRUNCATED_NORMAL,
+            {"mu": 0.2, "sigma": 0.4, "lower": -1.0, "upper": 2.0},
+            0.3,
+        ),
+        (PriorDistributionFamily.DELTA, {"value": 0.3}, 0.3),
     ],
 )
-def test_approved_family_json_roundtrip_keeps_its_native_density(family, params, value):
+def test_approved_family_json_roundtrip_keeps_its_native_density(
+    family: PriorDistributionFamily, params, value
+):
     law = distribution_from_params(family, params)
     restored = _ADAPTER.validate_json(_ADAPTER.dump_json(law))
     np.testing.assert_allclose(law.log_prob(value), restored.log_prob(value), atol=1e-6)

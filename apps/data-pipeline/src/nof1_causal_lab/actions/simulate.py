@@ -29,7 +29,7 @@ def simulate(
     revision: GitRef,
     write_array: Callable[[np.ndarray], str],
 ) -> SimulationReport:
-    """Generate current model histories; measurements consume the same batch."""
+    """Generate current model histories; data_diff compares the saved observations separately."""
     batch = generate_simulation_batch(model, design)
     findings, _ = measure_simulation_batch(model, batch)
     support = batch.measurement_design.observation_support
@@ -45,7 +45,6 @@ def simulate(
         draws=prediction.n_draws,
         seed=batch.measurement_design.seed,
         state_ids=state_ids,
-        indicator_ids=indicator_ids,
         parameter_draws={
             name: write_array(np.asarray(value)) for name, value in prediction.parameters.items()
         },
@@ -53,10 +52,14 @@ def simulate(
         observations=write_array(np.asarray(prediction.trajectory.observations)),
         observation_layout=SimulationObservationLayout(
             variables=tuple(
-                ObservationSpec.model_validate({
-                    **model.indicator(identity).model_dump(include=set(ObservationSpec.model_fields)),
-                    "observation_window": support.observation_windows[index],
-                })
+                ObservationSpec.model_validate(
+                    {
+                        **model.indicator(identity).model_dump(
+                            include=set(ObservationSpec.model_fields)
+                        ),
+                        "observation_window": support.observation_windows[index],
+                    }
+                )
                 for index, identity in enumerate(indicator_ids)
             ),
             support_start_times=write_array(np.asarray(support.support_start_times)),

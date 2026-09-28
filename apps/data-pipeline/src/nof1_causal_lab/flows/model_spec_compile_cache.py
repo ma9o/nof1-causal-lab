@@ -8,11 +8,10 @@ import logging
 import os
 import tarfile
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated, Literal
 
-from typing_extensions import TypeIs
+from pydantic import BaseModel, Field, TypeAdapter
 
-from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
 
@@ -25,6 +24,30 @@ _MODEL_SPEC_COMPILE_CACHE_SCHEMA_VERSION = 1
 _MODEL_SPEC_COMPILE_CACHE_WAIT_TIMEOUT_SECONDS = 3600
 
 
+class _CompileCacheMetadata(BaseModel):
+    schema_version: int
+    topology_fingerprint: str
+
+
+class PendingCompileCacheMetadata(_CompileCacheMetadata):
+    """A cache warmup that can be awaited through its Modal call."""
+
+    status: Literal["pending"]
+    function_call_id: str = Field(min_length=1)
+
+
+class ReadyCompileCacheMetadata(_CompileCacheMetadata):
+    """A published cache archive ready for restoration."""
+
+    status: Literal["ready"]
+
+
+type CompileCacheMetadata = Annotated[
+    PendingCompileCacheMetadata | ReadyCompileCacheMetadata, Field(discriminator="status")
+]
+_METADATA_ADAPTER = TypeAdapter(CompileCacheMetadata)
+
+
 def _archive_path(workspace_id: str) -> str:
     return storage.join(data_module.cache_dir(workspace_id), "model-spec-jax-cache.tar.gz")
 
@@ -33,13 +56,12 @@ def _metadata_path(workspace_id: str) -> str:
     return storage.join(data_module.cache_dir(workspace_id), "model-spec-jax-cache-metadata.json")
 
 
-def load_model_spec_compile_cache_metadata(workspace_id: str) -> UncheckedJsonObject | None:
+def load_model_spec_compile_cache_metadata(workspace_id: str) -> CompileCacheMetadata | None:
     """Load model-spec compile-cache metadata, if present."""
     path = _metadata_path(workspace_id)
     if not storage.exists(path):
         return None
-    payload = storage.read_json(path)
-    return payload if isinstance(payload, dict) else None
+    return _METADATA_ADAPTER.validate_json(storage.read_text(path))
 
 
 def model_spec_fingerprint(model_spec: ModelSpec) -> str:
@@ -50,13 +72,10 @@ def model_spec_fingerprint(model_spec: ModelSpec) -> str:
     ).hexdigest()
 
 
-def _metadata_matches(
-    metadata: UncheckedJsonObject | None, topology_fingerprint: str
-) -> TypeIs[UncheckedJsonObject]:
+def _metadata_matches(metadata: CompileCacheMetadata, topology_fingerprint: str) -> bool:
     return (
-        metadata is not None
-        and metadata.get("topology_fingerprint") == topology_fingerprint
-        and metadata.get("schema_version") == _MODEL_SPEC_COMPILE_CACHE_SCHEMA_VERSION
+        metadata.topology_fingerprint == topology_fingerprint
+        and metadata.schema_version == _MODEL_SPEC_COMPILE_CACHE_SCHEMA_VERSION
     )
 
 
@@ -85,16 +104,12 @@ def _restore_cache_archive(workspace_id: str) -> bool:
     return True
 
 
-def _wait_for_pending_compile_cache(metadata: UncheckedJsonObject) -> bool:
-    function_call_id = metadata.get("function_call_id")
-    if not isinstance(function_call_id, str) or not function_call_id:
-        return False
-
+def _wait_for_pending_compile_cache(metadata: PendingCompileCacheMetadata) -> bool:
     import modal
     from modal.exception import Error as ModalError
 
     try:
-        modal.FunctionCall.from_id(function_call_id).get(
+        modal.FunctionCall.from_id(metadata.function_call_id).get(
             timeout=_MODEL_SPEC_COMPILE_CACHE_WAIT_TIMEOUT_SECONDS
         )
     except (ModalError, TimeoutError, RuntimeError, OSError, ValueError) as exc:
@@ -115,16 +130,16 @@ def restore_model_spec_compile_cache(
 
     topology_fingerprint = model_spec_fingerprint(model_spec)
     metadata = load_model_spec_compile_cache_metadata(workspace_id)
-    if not _metadata_matches(metadata, topology_fingerprint):
+    if metadata is None or not _metadata_matches(metadata, topology_fingerprint):
         return False
 
-    if metadata.get("status") == "pending" and wait_for_pending:
+    if metadata.status == "pending" and wait_for_pending:
         _wait_for_pending_compile_cache(metadata)
         metadata = load_model_spec_compile_cache_metadata(workspace_id)
 
-    if not _metadata_matches(metadata, topology_fingerprint):
+    if metadata is None or not _metadata_matches(metadata, topology_fingerprint):
         return False
-    if metadata.get("status") != "ready":
+    if metadata.status != "ready":
         return False
 
     restored = _restore_cache_archive(workspace_id)

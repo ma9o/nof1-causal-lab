@@ -11,6 +11,8 @@
  */
 
 /**
+ * A data source selects uploaded files or one recorded simulation replicate.
+ *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "DataSourceRef".
  */
@@ -294,6 +296,13 @@ export type StructuralDisposition =
   | "manifest"
   | "excluded_indicator"
   | "unsupported";
+/**
+ * A data selection identifies one or more saved observation histories.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "DataSelection".
+ */
+export type DataSelection = DataRef | [DataRef, ...DataRef[]];
 /**
  * A runtime event records transition progress, agent activity, or extraction telemetry.
  *
@@ -742,6 +751,9 @@ export interface ParameterSpec {
    * Human-readable description of what this parameter represents
    */
   description: string;
+  /**
+   * Mapping from the authored law to the model quantity: identity leaves its scale unchanged; dt_persistence_to_ct_decay maps persistence p to -log(p) / interval; dt_effect_to_ct_rate divides an interval effect by its duration in days; initial_state_correlation applies the correlation support [-1, 1]. Fixed values and joint laws require identity.
+   */
   distribution_transform:
     | "identity"
     | "dt_persistence_to_ct_decay"
@@ -755,6 +767,9 @@ export interface ParameterSpec {
    * Membership in a native law in ModelSpec.distributions; may be joint.
    */
   distribution?: DistributionId | null;
+  /**
+   * Positive duration in days over which an authored persistence or interval-effect law is defined, before conversion to continuous-time decay or rate. When omitted, persistence uses the model measurement clock; interval effects use the edge lag, falling back to that clock.
+   */
   reference_interval_days?: number | null;
 }
 /**
@@ -1311,15 +1326,12 @@ export interface SimulationReport {
   draws: number;
   seed: number;
   state_ids: ConstructId[];
-  indicator_ids: IndicatorId[];
   parameter_draws: {
     [k: string]: string;
   };
   latent_paths: string;
   observations: string;
   observation_layout: SimulationObservationLayout;
-  comparison_panel?: GitRef | null;
-  predictive_checks?: PosteriorPredictiveChecks | null;
   law?: PredictiveLawProvenance | null;
   reference_latent_paths?: string | null;
   reference_observations?: string | null;
@@ -1758,6 +1770,107 @@ export interface ContextSpec {
   runtime_state: string[];
 }
 /**
+ * Comparisons of existing data, preserving each history's immutable source reference.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "DataDiffReport".
+ */
+export interface DataDiffReport {
+  left: DataRef[];
+  right: DataRef[];
+  variables: DataVariableDiff[];
+}
+/**
+ * A saved panel or simulation; omitting replicate selects every saved simulation draw.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "DataRef".
+ */
+export interface DataRef {
+  kind: "panel" | "simulation";
+  revision: GitOid;
+  replicate?: number | null;
+  /**
+   * Calendar instant for simulation day zero; omitted uses 1970-01-01 UTC.
+   */
+  time_origin?: string | null;
+}
+/**
+ * Definitions, histories and comparisons for one persistent observation identity.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "DataVariableDiff".
+ */
+export interface DataVariableDiff {
+  indicator_id: IndicatorId;
+  left: DataSeries[];
+  right: DataSeries[];
+  changes: DataPointChange[];
+  statistics: DataStatisticComparison[];
+  comparison_issues: string[];
+  reference_side: ("left" | "right") | null;
+  predictive_checks: PosteriorPredictiveChecks | null;
+  predictive_unavailable_reason: string | null;
+}
+/**
+ * One variable's recorded measurements in one history; no pooling across replicas.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "DataSeries".
+ */
+export interface DataSeries {
+  variable: ObservationSpec | null;
+  points: DataPoint[];
+}
+/**
+ * An observed value at an exact calendar anchor and measurement support.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "DataPoint".
+ */
+export interface DataPoint {
+  anchor_time: string;
+  support_start: string | null;
+  support_end: string | null;
+  value: number | null;
+}
+/**
+ * An added, removed or revised measurement in a single-history comparison.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "DataPointChange".
+ */
+export interface DataPointChange {
+  anchor_time: string;
+  change: "added" | "removed" | "revised";
+  left: DataPoint | null;
+  right: DataPoint | null;
+}
+/**
+ * The same descriptive statistic measured independently in every selected history.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "DataStatisticComparison".
+ */
+export interface DataStatisticComparison {
+  statistic: "observed_count" | "missing_count" | "mean" | "sd" | "min" | "max" | "proportion";
+  level?: string | null;
+  left: (number | null)[];
+  right: (number | null)[];
+  left_histogram: HistogramBin[];
+  right_histogram: HistogramBin[];
+}
+/**
+ * Compare two immutable data selections, each containing one or more histories.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "DataDiffRequest".
+ */
+export interface DataDiffRequest {
+  left: DataSelection;
+  right: DataSelection;
+}
+/**
  * A derivation declares an artifact maintained atomically with its input versions.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
@@ -2051,47 +2164,6 @@ export interface MachineTransition {
   creation_class: "deterministic" | "batch_llm" | "judgment";
 }
 /**
- * A comparison joins graph, parameter decisions and evidence at two committed checkpoints.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ModelComparison".
- */
-export interface ModelComparison {
-  before: GitRef;
-  after: GitRef;
-  parameters: ParameterChange[];
-  graph: ModelGraphComparison;
-  changed_inputs: string[];
-  before_checks: SpecificationReport;
-  after_checks: SpecificationReport;
-  before_fit: InferenceReport | null;
-  after_fit: InferenceReport | null;
-  before_simulation: SimulationReport | null;
-  after_simulation: SimulationReport | null;
-}
-/**
- * A parameter change compares one parameter's fixed value or law across model revisions.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ParameterChange".
- */
-export interface ParameterChange {
-  parameter_id: ParameterId;
-  before: ParameterSpec | null;
-  after: ParameterSpec | null;
-  change: string;
-}
-/**
- * Aligned scientific entities for rendering a graph difference without browser inference.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ModelGraphComparison".
- */
-export interface ModelGraphComparison {
-  constructs: ConstructComparison[];
-  edges: EdgeComparison[];
-}
-/**
  * Observed evidence paired with its source versions.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
@@ -2142,6 +2214,60 @@ export interface SourcedPreparedDataMetadata {
 export interface SourcedDataProfileArtifact {
   value: DataProfileArtifact;
   source: FactSource;
+}
+/**
+ * One changed field in identity-keyed scientific model definitions.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ModelDefinitionChange".
+ */
+export interface ModelDefinitionChange {
+  path: string;
+  change: "added" | "removed" | "revised";
+  before: JsonValue;
+  after: JsonValue;
+}
+/**
+ * A model diff joins definition changes and evidence at two model revisions or checkpoints.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ModelDiffReport".
+ */
+export interface ModelDiffReport {
+  before: GitRef;
+  after: GitRef;
+  definition_changes: ModelDefinitionChange[];
+  parameters: ParameterChange[];
+  graph: ModelGraphComparison;
+  changed_inputs: string[];
+  before_checks: SpecificationReport;
+  after_checks: SpecificationReport;
+  before_fit: InferenceReport | null;
+  after_fit: InferenceReport | null;
+  before_simulation: SimulationReport | null;
+  after_simulation: SimulationReport | null;
+}
+/**
+ * A parameter change compares one parameter's fixed value or law across model revisions.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ParameterChange".
+ */
+export interface ParameterChange {
+  parameter_id: ParameterId;
+  before: ParameterSpec | null;
+  after: ParameterSpec | null;
+  change: string;
+}
+/**
+ * Aligned scientific entities for rendering a graph difference without browser inference.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ModelGraphComparison".
+ */
+export interface ModelGraphComparison {
+  constructs: ConstructComparison[];
+  edges: EdgeComparison[];
 }
 /**
  * ModelSpec findings collect identification, validation, and fitted results with their input references.

@@ -3,7 +3,7 @@
 import type {
   ConstructId,
   IndicatorSpec,
-  ModelComparison,
+  ModelDiffReport,
   ModelSnapshot,
 } from "@nof1-causal-lab/api-types";
 
@@ -27,7 +27,7 @@ import { useGraphControls, usePlayback } from "./use-graph-controls";
 export interface LayeredGraphOptions {
   model: ModelSnapshot;
   simulation?: SimulationWithEffects | null;
-  comparison?: ModelComparison | null;
+  comparison?: ModelDiffReport | null;
   selectedNode: ConstructId | null;
 }
 

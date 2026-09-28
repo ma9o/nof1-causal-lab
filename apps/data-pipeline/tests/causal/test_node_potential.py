@@ -7,10 +7,10 @@ import pytest
 
 from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.models.ssm.dynamics import (
+    ConstantValueFn,
     Intervention,
     VariableOverride,
     VectorFieldArgs,
-    constant_value,
     infer_linearisation,
 )
 from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec, compile_dynamics
@@ -69,7 +69,7 @@ def test_clamp_removes_potential_input_forcing_and_process_noise():
             ),
         )
     )
-    intervention = Intervention((VariableOverride(0, constant_value(jnp.array(3.0))),))
+    intervention = Intervention((VariableOverride(0, ConstantValueFn(jnp.array(3.0))),))
     evolution = continuous_state_evolution(
         compiled.vector_field,
         ({}, {}),

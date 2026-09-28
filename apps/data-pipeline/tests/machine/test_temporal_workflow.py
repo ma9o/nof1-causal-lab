@@ -76,9 +76,9 @@ def _measured_model() -> dict[str, Any]:
 @pytest.fixture
 def machine_env(monkeypatch, tmp_path):
     import nof1_causal_lab.utils.openrouter_client as openrouter_client
+    from nof1_causal_lab.llm_specs import EmbeddedLLMSpec
     from nof1_causal_lab.utils import config as config_module
     from nof1_causal_lab.utils import data as data_module
-    from nof1_causal_lab.utils.config import LLMProfileConfig
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
     workspace_id = f"ws-{uuid.uuid4().hex[:8]}"
@@ -96,7 +96,7 @@ def machine_env(monkeypatch, tmp_path):
             config,
             ingestion=dataclasses.replace(
                 config.ingestion,
-                llm=LLMProfileConfig(harness="none", model="openrouter/mock-raw"),
+                llm=EmbeddedLLMSpec(harness="none", model="openrouter/mock-raw"),
             ),
         ),
     )
@@ -237,22 +237,36 @@ def test_episode_workflow_journey(machine_env, monkeypatch):
                     )
                 )
                 assert initial.status == "applied"
-                prepared = await execute(PrepareDataRequest(
-                    source={"files": ["observations.csv"]},
-                    preparation={"default_window": "1d", "variables": [{
-                        "id": "indicator:sleep", "name": "sleep_steps_proxy",
-                        "measurement_dtype": "continuous", "aggregation": "mean",
-                        "how_to_measure": "Read the steps column", "source_columns": ["steps"],
-                        "extraction_mode": "computed",
-                    }]},
-                ))
+                prepared = await execute(
+                    PrepareDataRequest(
+                        input={
+                            "source": {"files": ["observations.csv"]},
+                            "definition": {
+                                "default_window": "1d",
+                                "variables": [
+                                    {
+                                        "id": "indicator:sleep",
+                                        "name": "sleep_steps_proxy",
+                                        "measurement_dtype": "continuous",
+                                        "aggregation": "mean",
+                                        "how_to_measure": "Read the steps column",
+                                        "source_columns": ["steps"],
+                                        "extraction_mode": "computed",
+                                    }
+                                ],
+                            },
+                        },
+                    )
+                )
                 assert prepared.status == "applied", prepared
                 assert prepared.state.has("panel")
                 assert prepared.state.has("data_profile")
-                edited = await execute(EditModelRequest(
-                    expected_revision=initial.state.current["model"].revision,
-                    model=ModelSpec.model_validate(_measured_model()),
-                ))
+                edited = await execute(
+                    EditModelRequest(
+                        expected_revision=initial.state.current["model"].revision,
+                        model=ModelSpec.model_validate(_measured_model()),
+                    )
+                )
                 assert edited.status == "applied", edited
                 model_revision = edited.state.current["model"].revision
                 before = (await handle.query(EpisodeWorkflow.get_state)).current

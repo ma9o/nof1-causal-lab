@@ -20,18 +20,13 @@ if TYPE_CHECKING:
     from nof1_causal_lab.sampler_config import SamplerConfig
 
 
-def build_sampler_config(inference_method: str | None) -> SamplerConfig:
-    """Resolve the sampler configuration from config + optional override."""
+def build_sampler_config() -> SamplerConfig:
+    """Resolve the configured sampler and retain the fitted state paths."""
     from nof1_causal_lab.utils.config import get_config
 
     config = get_config()
-    sampler_config = config.inference.to_sampler_config(method_override=inference_method)
-    if sampler_config.get("method") in {
-        "aux_kalman_mcmc",
-        "pit_particle_mgrad",
-        "marginal_particle_gibbs",
-    }:
-        sampler_config["retain_latent_paths"] = True
+    sampler_config = config.inference.to_sampler_config()
+    sampler_config["retain_latent_paths"] = True
     return sampler_config
 
 

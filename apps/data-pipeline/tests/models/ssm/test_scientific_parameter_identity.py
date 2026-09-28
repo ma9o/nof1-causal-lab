@@ -12,7 +12,7 @@ from nof1_causal_lab.artifacts.expressions import (
     state as expr_state,
 )
 from nof1_causal_lab.artifacts.identity import ConstructRef, EdgeRef, MechanismRef
-from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec
+from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LikelihoodSpec, LinkFunction
 from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
@@ -37,7 +37,11 @@ def _model(*, rename=False, reverse=False, ordinal=False, edges=()):
                     "aggregation": "last",
                     "ordinal_levels": ("low", "mid", "high") if n == 0 else ("absent", "present"),
                     "likelihood": LikelihoodSpec(
-                        law=observation_law(construct.id, "ordered_logistic", "cumulative_logit"),
+                        law=observation_law(
+                            construct.id,
+                            DistributionFamily.ORDERED_LOGISTIC,
+                            LinkFunction.CUMULATIVE_LOGIT,
+                        ),
                         reasoning="Ordered test measurement",
                     ),
                 }
@@ -141,7 +145,7 @@ def test_shared_likelihood_parameter_owns_only_active_channels():
     _, model, _ = _compile(_model())
     first, second = model.constructs
     student = LikelihoodSpec(
-        law=observation_law(first.id, "student_t", "identity"),
+        law=observation_law(first.id, DistributionFamily.STUDENT_T, LinkFunction.IDENTITY),
         reasoning="Test tails",
         standardized=True,
     )
@@ -162,7 +166,9 @@ def test_shared_likelihood_parameter_owns_only_active_channels():
                 second.indicators[0].model_copy(
                     update={
                         "likelihood": LikelihoodSpec(
-                            law=observation_law(second.id, "student_t", "identity"),
+                            law=observation_law(
+                                second.id, DistributionFamily.STUDENT_T, LinkFunction.IDENTITY
+                            ),
                             reasoning="Test tails",
                             standardized=True,
                         )

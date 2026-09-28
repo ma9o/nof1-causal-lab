@@ -31,10 +31,17 @@ def prepare_simulation_panel(
     starts = read_array(layout.support_start_times)
     ends = read_array(layout.support_end_times)
     mask = read_array(layout.mask)
-    if starts.shape != (len(times), len(report.indicator_ids)) or ends.shape != starts.shape:
+    if (
+        starts.shape != (len(times), len(report.observation_layout.indicator_ids))
+        or ends.shape != starts.shape
+    ):
         raise ValueError("Simulation support does not match the recorded observation layout")
     observations = read_array(report.observations)
-    if observations.shape != (report.draws, len(times), len(report.indicator_ids)):
+    if observations.shape != (
+        report.draws,
+        len(times),
+        len(report.observation_layout.indicator_ids),
+    ):
         raise ValueError("Simulation observations do not match the recorded draws and design")
     values = observations[replicate]
     if mask.shape != observations.shape or mask.dtype != np.bool_:
@@ -69,7 +76,7 @@ def prepare_simulation_panel(
             "support_end": _timestamp(ends[t, i]),
         }
         for t, time in enumerate(times)
-        for i, identity in enumerate(report.indicator_ids)
+        for i, identity in enumerate(report.observation_layout.indicator_ids)
     ]
     # Emissions already use the model's numeric codes, including unobserved
     # category levels. Extraction's label encoding must not run a second time.

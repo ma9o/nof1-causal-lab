@@ -128,7 +128,9 @@ type WindowExpression = Annotated[
 class DataVariableSpec(ObservationSpec):
     """How to produce one observed variable, without any causal or latent model."""
 
-    how_to_measure: str = Field(min_length=1, description="Scoring rubric and extraction instructions.")
+    how_to_measure: str = Field(
+        min_length=1, description="Scoring rubric and extraction instructions."
+    )
     recording: Literal["samples", "events", "changes"] = Field(
         default="samples",
         description=(
@@ -232,7 +234,9 @@ class FileSourceRef(BaseModel):
     def validate_filenames(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         if len(set(values)) != len(values):
             raise ValueError("Source filenames must be unique")
-        if any(not value or value in {".", ".."} or "/" in value or "\\" in value for value in values):
+        if any(
+            not value or value in {".", ".."} or "/" in value or "\\" in value for value in values
+        ):
             raise ValueError("Use uploaded filenames, without directory components")
         return values
 
@@ -246,7 +250,10 @@ class SimulationReplicateRef(BaseModel):
     replicate: int = Field(ge=0)
 
 
-type DataSourceRef = FileSourceRef | SimulationReplicateRef
+type DataSourceRef = Annotated[
+    FileSourceRef | SimulationReplicateRef,
+    Field(description="A data source selects uploaded files or one recorded simulation replicate."),
+]
 
 
 class DataPreparationSpec(BaseModel):
@@ -256,7 +263,9 @@ class DataPreparationSpec(BaseModel):
 
     default_window: str
     variables: tuple[DataVariableSpec, ...] = Field(min_length=1)
-    context: str = Field(default="", description="Optional context for interpreting the source data.")
+    context: str = Field(
+        default="", description="Optional context for interpreting the source data."
+    )
 
     @field_validator("default_window")
     @classmethod
@@ -272,10 +281,12 @@ class DataPreparationSpec(BaseModel):
 
     def observation_schema(self) -> tuple[ObservationSpec, ...]:
         return tuple(
-            ObservationSpec.model_validate({
-                **item.model_dump(include=set(ObservationSpec.model_fields)),
-                "observation_window": item.observation_window or self.default_window,
-            })
+            ObservationSpec.model_validate(
+                {
+                    **item.model_dump(include=set(ObservationSpec.model_fields)),
+                    "observation_window": item.observation_window or self.default_window,
+                }
+            )
             for item in self.variables
         )
 
@@ -284,6 +295,16 @@ class DataPreparationSpec(BaseModel):
             "model_clock": self.default_window,
             "indicators": [item.model_dump(mode="json") for item in self.variables],
         }
+
+
+class FilePreparationSpec(BaseModel):
+    """Uploaded sources and the complete recipe for preparing their observations."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    source: FileSourceRef
+    definition: DataPreparationSpec
+    max_windows: int | None = Field(default=None, ge=1)
 
 
 class PreparedDataMetadata(BaseModel):
@@ -302,7 +323,9 @@ class PreparedDataMetadata(BaseModel):
         if any(item.observation_window is None for item in self.variables):
             raise ValueError("Prepared variables must record their resolved observation windows")
         if isinstance(self.source, FileSourceRef) != (self.preparation is not None):
-            raise ValueError("File sources require preparation instructions; simulation sources retain their recorded schema")
+            raise ValueError(
+                "File sources require preparation instructions; simulation sources retain their recorded schema"
+            )
         if self.preparation is not None and self.variables != self.preparation.observation_schema():
             raise ValueError("Prepared schema must match its preparation instructions")
         return self

@@ -278,6 +278,7 @@ def test_model_edit_reports_stale_extraction(workspace):
     )
     from nof1_causal_lab.actions.data_checks import evaluate_data_checks
     from nof1_causal_lab.machine.execution import TransitionEffects
+
     checked_data = evaluate_data_checks(workspace, state, TransitionEffects(produced=[panel]))
     state = state.with_artifacts([*checked_data.produced, validation])
     changed = model.revised(measurement_clock="2d")

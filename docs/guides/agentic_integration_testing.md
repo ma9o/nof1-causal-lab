@@ -125,12 +125,30 @@ lint, type, documentation, and duplicate checks when they apply to the change.
 
 ### Local study history
 
-Existing studies need the one-time [Git history migration](../design/study-history.md#migrating-existing-local-studies). Keep the study offline during migration. New studies initialize their local bare repository on first use. On a fresh checkout, restore the tracked `DEMO` history bundle before using its backend:
+New studies initialize their local bare repository on first use. On a fresh checkout, restore the tracked `DEMO` history bundle before using its backend:
 
 ```bash
 git clone --mirror data/DEMO/episode/history.bundle data/DEMO/episode/history.git
 git --git-dir=data/DEMO/episode/history.git config nof1.format 4
 ```
+
+#### Migrating a local study
+
+Format-3 studies still store extraction instructions on their models. To convert one into a new format-4 copy:
+
+1. Stop work on the study and close its episode workflow.
+2. Run the converter with the original uploaded filenames. The destination must be new and outside the source, and the source is left untouched.
+
+   ```bash
+   uv run --project apps/data-pipeline python apps/data-pipeline/scripts/migrate_data_preparation.py \
+     data/STUDY /tmp/migrated/STUDY --files diary.csv
+   ```
+
+   The converter moves scoring instructions into panel metadata and adds numerical data profiles, without fitting or generating trajectories. It doesn't invent scoring rules or codebooks: variables without retained definitions stay explicit profile findings. `--preparations-json` can supply reviewed panel-revision-to-preparation specs.
+3. Review the migrated snapshots, then select the new workspace while offline.
+4. Restart the workers with the new code and start a fresh episode workflow from the migrated Git state; don't replay the previous workflow. Regenerate any fixture bundle from the migrated repository.
+
+Older numbered-artifact and format-2 histories have no validated route to the current runtime.
 
 ### Local stack
 
@@ -178,13 +196,15 @@ rather than orphaning them. To start genuinely fresh, delete that
 ```text
 data/
 ├── <WORKSPACE_ID>/        # User-facing workspace
-│   ├── input/             # Raw uploaded files for the raw_data transition
+│   ├── input/             # Raw uploaded files for prepare_data
 │   ├── store/             # Content-addressed arrays and external table blobs
 │   ├── episode/           # Local Git history with logs and traces in each commit
 │   ├── cache/             # Evictable compilation and artifact-read reuse
 │   └── scratch/           # UI telemetry and run-scoped execution state
 └── DEMO/                  # Tracked mock fixture workspace (evals + manual sampling)
 ```
+
+Back up the whole workspace directory, including `store/`, because the Git history doesn't hold the numerical arrays. Cache entries are safe to delete at any time. `uv run nof1-sweep WORKSPACE_ID` expires telemetry and caches, and offline maintenance can add `--collect-runs` to remove finished run scratch.
 
 ### Promoting a workspace to the DEMO fixture
 
@@ -214,6 +234,16 @@ Both commands restore the bundle into an isolated temporary repository and use t
 
 The bundle preserves the existing illustrative history and numerical findings. Its original posterior samples were not retained, so the fit remains explicitly report-only. Archived predictive checks belong to that attempt at `logs/predictive_checks.json` and are projected into the fixture directory. Regeneration does not fit, simulate, or invent missing scientific artifacts. Prior plot viewports use a small deterministic draw from the retained prior laws.
 
+### Publishing a workspace
+
+Use the current copier only for a stopped synthetic workspace and a destination with no previous copy. The hosted viewer serves the copied payloads:
+
+```bash
+uv run --project apps/data-pipeline nof1-publish SYNTHETIC_WORKSPACE --exclude input
+```
+
+`--exclude input` withholds uploaded source files only. `--exclude raw_data` matches `store/raw_data/`; it does not remove current raw-table blobs under `store/blobs/` or their Git history. Existing remote files, including mutable Git refs, are skipped, so repeated uploads do not synchronize study history.
+
 ## Step-by-Step Flow
 
 ### 1. Create the workspace and start the run
@@ -231,13 +261,7 @@ curl -s -X POST http://localhost:3000/api/runs \
   -d "{\"workspaceId\":\"$WORKSPACE_ID\",\"query\":\"$QUESTION\"}"
 ```
 
-The facade is the source of truth for action availability. `GET /api/capabilities`
-reports `actions_enabled`, which is false on a read-only facade. Creating the run
-submits `edit_model` with the question. Subsequent preparation, fitting and custom simulation designs require explicit scientific actions. Model edits automatically run applicable predictive checks when a compatible panel is available; a question-only model has no executable simulation.
-Creation returns HTTP `202` with the workspace and `attempt_id`. Poll that attempt
-at `GET /api/episodes/{workspace_id}/actions/{attempt_id}` until `done` is true.
-Direct `/actions` dispatches return only `{attempt_id}`; scientific bodies and
-timestamped labels are available through polling.
+`GET /api/capabilities` reports `actions_enabled`, which is false on a read-only facade. Creating the run submits `edit_model` with the question and returns HTTP `202` with the workspace and `attempt_id`. Poll that attempt until `done` is true. Submit further actions as the [`nof1-episode-api` skill](../../.agents/skills/nof1-episode-api/SKILL.md) describes; the [action charts](../../README.md#documentation) show what each one does.
 
 ### 2. Observe the episode
 
@@ -257,77 +281,19 @@ curl -s "http://localhost:8100/api/episodes/$WORKSPACE_ID/events" | jq '.events[
 
 ### 3. Verify via browser automation
 
-The two interfaces have separate URL namespaces while the workbench is validated against a fresh study:
-
-- `http://localhost:3000/v1/{WORKSPACE_ID}` preserves the stage-by-stage pipeline interface.
-- `http://localhost:3000/v2/{WORKSPACE_ID}` presents the model workbench. This is the default destination from the workspace list and after creating a workspace.
-
-Both read the same backend study. The version links preserve the workspace when switching interfaces. The workbench reads the episode journal and canonical snapshots directly, including an empty initialized study; it does not require a completed recipe or a legacy analysis manifest. Verify the question, graph, owned entity details, data, findings, history, and action log after each backend action. V1 interactivity is not a compatibility requirement. The agent harness submits changes through the backend API; v2 provides read-only inspection and navigation without write controls or a chat composer. Its action log displays timestamped labels from HTTP polling alongside recorded traces.
-
-The persistent model view has a branching timeline across the top, a causal graph in the centre, scoped details beneath the graph, and a chat log at full body height on the right. Selecting a timeline version or recorded chat turn updates the graph, details and chat together. Selecting a graph entity scopes the bottom details pane to that entity. Fit results and simulation evidence are sections of the relevant details. Failed attempts show their recorded error and the unchanged parent version.
-
-Hover or focus another version to overlay its differences directly on the selected graph, including ancestors, other branches and simulation steps. The backend identifies changed constructs, causal connections and owned parameters. Colored outlines and strokes mark additions, removals and revisions; annotations show changes such as `pinned 0 → free` on the affected element. Existing node positions, zoom and scroll remain in place. Added nodes extend the canvas without rearranging the selected graph. The details and chat stay visible. **Keep** holds the overlay; **Escape** or the close button dismisses it. The timeline's small **Compare** control also works by keyboard or touch. Comparisons select Git commit OIDs, so two versions using the same model can carry different simulation evidence.
-
-Before execution dispositions exist, the graph shows the authored structure. Afterwards it shows the backend-selected retained constructs and edges, excluding components disconnected from the default outcome after projection. Compare with an earlier structural version through the same timeline controls to inspect marginalized, unsupported, or disconnected exclusions and their recorded reasons. An identification warning on a retained construct does not hide that construct. Unresolved dependencies of the retained component still fail the backend's specification checks.
-
-Solid lines show Git commit ancestry. **Collapse lineage** shows the selected version's branch in one row, including its shared ancestors and recorded actions; **Expand lineage** restores all branches for comparison. The workbench follows the latest committed work. Agents create branches through the backend API; the UI displays the resulting history. Historical versions remain available for inspection and comparison.
-
-Storybook preserves pipeline stories under **V1 / Pipeline** and has one comprehensive **V2 / Model / Workbench / Complete** story. Extend that scenario when adding workbench features, rather than creating separate feature or state stories. It includes two branches, hover comparison, synchronized version and chat navigation, graph and parameter inspection, and scoped simulation and fit evidence. The story uses isolated mocked API responses and illustrative data. It offers no model writes, scientific job submissions or recipe controls.
-
-The story's pinned model and comparison responses are generated with the production readers by `bun run fixture:workbench`; verify them with `bun run fixture:workbench:check`. This pins one retained DEMO parameter for illustration and runs no fitting or simulation.
+- `http://localhost:3000/v2/{WORKSPACE_ID}` is the model workbench, the default destination from the workspace list. `http://localhost:3000/v1/{WORKSPACE_ID}` keeps the older stage-by-stage interface, whose interactivity is not a compatibility requirement.
+- After each backend action, check that the workbench shows the question, graph, entity details, data, findings, history and action log. The workbench is read-only: the agent submits every change through the backend API.
+- Storybook's **V2 / Model / Workbench / Complete** story covers the workbench with mocked responses. Extend it rather than adding separate stories. `bun run fixture:workbench` regenerates its pinned responses, and `bun run fixture:workbench:check` verifies them.
 
 If the UI behaves unexpectedly, check Next.js devtools MCP errors before debugging the browser script.
 
-## Resuming After a Transition Failure
+## Resuming after a failed action
 
-A failed transition run is a `"raised"` transition in the journal — artifact
-state is unchanged, and the typed error plus diagnostics ride on the record:
+A failed action is a `raised` transition in the journal. The scientific branch is unchanged, and the typed error and diagnostics are on the record:
 
 ```bash
 curl -s http://localhost:8100/api/episodes/$WORKSPACE_ID/timeline \
   | jq '.transitions[] | select(.status=="raised") | {seq, action, error_type, error_message, resume}'
 ```
 
-Inspect the recorded action and its inputs, correct the cause, and resubmit the
-corresponding request to `/actions`. Select fresh revisions when inputs changed.
-There is no generic job-submission or automatic-resume endpoint.
-
-```bash
-# fit-request.json names the selected model_revision and panel_revision.
-curl -s -X POST http://localhost:8100/api/episodes/$WORKSPACE_ID/actions \
-  -H 'Content-Type: application/json' --data-binary @fit-request.json
-```
-
-The question is retained in each [ModelSpec revision](../pipeline/latent-structure.md#modelspec), so subsequent operations read it from their pinned Model input.
-
-## Editing the Model
-
-Read the current Model and its source version, edit the owned scientific entities, and submit the whole candidate with that expected version. The [model write contract](../design/model-snapshot.md#writes-and-operation-history) checks and commits the model with its findings atomically. Negative identification findings remain explicit reports. Relevant changes trigger one automatic exact predictive batch when a compatible prepared panel exists; unchanged checks are reused.
-
-The workbench displays the entity fields the agent harness edits through the API. An edge shows linked endpoint constructs separately from its description, timing, mechanisms, and sources. Construct details expose the shared construct, including its indicators and intrinsic dynamics. Verify that relocating a shared definition within the serialized graph does not change these views, and that selecting a version without the entity clearly reports its absence.
-
-```bash
-# model-update.json contains {"action": "edit_model", "expected_revision": <model tree OID>, "model": <candidate>}
-curl -s -X POST http://localhost:8100/api/episodes/$WORKSPACE_ID/actions \
-  -H 'Content-Type: application/json' --data-binary @model-update.json
-```
-
-Use `null` only when creating the first Model; otherwise supply its Git tree OID. A stale base rejects the action. The [offline conversion guide](additive-model-migration.md) covers retained episodes from the former scientific schemas.
-
-### Scientific Actions and Internal Jobs
-
-Submit `edit_model`, `prepare_data`, `fit`, or `simulate` through `/actions` using
-the [typed contracts](../reference/scientific-actions.md). Explicit revisions let
-you fit an earlier definition or compare simulations without changing the current
-model first. Dated interventions use the same simulation action; causal summaries require identification
-and production-fit evidence.
-
-Dependencies are artifact-level; `GET /api/machine` exposes
-`topological_artifact_order` and `topological_transition_order` from
-[`machine/graph.py`](../../apps/data-pipeline/src/nof1_causal_lab/machine/graph.py).
-The episode workflow chooses private jobs from each typed action request.
-`edit_model` validates the caller's supplied model directly, and runs applicable checks, including automatic whole-model prediction, without an internal authoring prompt builder. Direct fitting requires
-an executable selected model and compatible observations, without authoring
-admissions or positive causal identification. Negative identification findings
-remain visible and restrict numeric causal claims. Missing inputs produce
-unevaluated checks or an operation-readiness failure.
+Correct the cause and resubmit the action to `/actions`, selecting fresh revisions if its inputs changed. There is no automatic-resume endpoint.

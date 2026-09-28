@@ -8,9 +8,10 @@ import pytest
 
 from nof1_causal_lab.actions.contracts import EditModelRequest
 from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS
+from nof1_causal_lab.artifacts.posterior import FitSettingsSpec
 from nof1_causal_lab.compilation_errors import IncompleteModelError
 from nof1_causal_lab.machine.artifacts import EpisodeState
-from nof1_causal_lab.machine.execution import ExecutionOptions
+from nof1_causal_lab.machine.execution import FitOperation
 from nof1_causal_lab.machine.history import StudyRepository
 from nof1_causal_lab.machine.runners import execute_transition
 from nof1_causal_lab.machine.snapshots import ModelReader
@@ -124,7 +125,7 @@ def test_incomplete_model_is_rejected_before_local_or_remote_inference(
     )
     state = EpisodeState().with_artifacts([model, panel])
     with pytest.raises(IncompleteModelError):
-        run_async(execute_transition(workspace, "posterior", state, ExecutionOptions()))
+        run_async(execute_transition(workspace, FitOperation(), state))
     local.assert_not_called()
     remote.assert_not_called()
     assert store.list_revisions("model") == [model.revision]
@@ -271,7 +272,7 @@ def test_refit_after_question_edit_uses_selected_model_and_preserves_current_que
         "model": artifact_revision(workspace, "model", 3),
         "panel": artifact_revision(workspace, "panel", 1),
     }
-    effects = run_async(_run_posterior(workspace, store, pins, ExecutionOptions()))
+    effects = run_async(_run_posterior(workspace, store, pins, FitSettingsSpec()))
     assert effects.produced[0].derived_from == pins
     assert effects.diagnostics["input_pins"] == pins
     assert read_model(store, artifact_revision(workspace, "model", 4)).question == edited.question

@@ -17,10 +17,11 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from nof1_causal_lab.actions.data_diff import DataDiffReport, DataDiffRequest
 from nof1_causal_lab.actions.results import ActionPoll, ActionReceipt
 
 # Import all artifact contracts — this pulls in every nested domain model
-from nof1_causal_lab.actions.revisions import ModelComparison, RevisionCatalog
+from nof1_causal_lab.actions.revisions import ModelDiffReport, RevisionCatalog
 from nof1_causal_lab.artifacts.catalog import ARTIFACT_CONTRACTS
 from nof1_causal_lab.artifacts.effects import EffectSummary
 from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS
@@ -69,7 +70,9 @@ EXPORTED_API_MODELS: tuple[type[BaseModel], ...] = (
     TransitionTraceIndex,
     EventsResponse,
     RevisionCatalog,
-    ModelComparison,
+    ModelDiffReport,
+    DataDiffReport,
+    DataDiffRequest,
     LLMTrace,
     ModelSnapshot,
     ArtifactViewResponse,
@@ -107,9 +110,6 @@ def _make_defaults_required(schema: UncheckedJsonObject) -> UncheckedJsonObject:
     Does NOT touch fields where the default is None and the type includes null
     (those are genuinely optional/nullable).
     """
-    if not isinstance(schema, dict):
-        return schema
-
     # Recurse into $defs
     if "$defs" in schema:
         for name, defn in schema["$defs"].items():
@@ -155,9 +155,6 @@ def _make_defaults_required(schema: UncheckedJsonObject) -> UncheckedJsonObject:
 
 def _is_nullable(prop_schema: UncheckedJsonObject) -> bool:
     """Check if a property schema allows null (e.g., anyOf with null type)."""
-    if not isinstance(prop_schema, dict):
-        return False
-
     # Direct null type
     if prop_schema.get("type") == "null":
         return True
@@ -167,8 +164,8 @@ def _is_nullable(prop_schema: UncheckedJsonObject) -> bool:
         return True
 
     # anyOf contains null
-    any_of = prop_schema.get("anyOf", [])
-    return any(isinstance(item, dict) and item.get("type") == "null" for item in any_of)
+    any_of: list[dict[str, object]] = prop_schema.get("anyOf", [])
+    return any(item.get("type") == "null" for item in any_of)
 
 
 def _collect_model_schema(

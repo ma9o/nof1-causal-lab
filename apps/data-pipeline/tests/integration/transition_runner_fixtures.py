@@ -92,11 +92,22 @@ def panel_metadata():
         FileSourceRef,
         PreparedDataMetadata,
     )
-    preparation = DataPreparationSpec(default_window="1d", variables=tuple(
-        DataVariableSpec(
-            id=fixture_entity_id("indicator", name), name=name,
-            measurement_dtype="continuous", aggregation="mean", how_to_measure="Read " + name,
-        ) for name in ("stress_score", "sleep_score")
-    ))
-    return PreparedDataMetadata(source=FileSourceRef(files=("observations.csv",)),
-        variables=preparation.observation_schema(), preparation=preparation)
+
+    preparation = DataPreparationSpec(
+        default_window="1d",
+        variables=tuple(
+            DataVariableSpec(
+                id=fixture_entity_id("indicator", name),
+                name=name,
+                measurement_dtype="continuous",
+                aggregation="mean",
+                how_to_measure="Read " + name,
+            )
+            for name in ("stress_score", "sleep_score")
+        ),
+    )
+    return PreparedDataMetadata(
+        source=FileSourceRef(files=("observations.csv",)),
+        variables=preparation.observation_schema(),
+        preparation=preparation,
+    )

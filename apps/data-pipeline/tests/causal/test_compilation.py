@@ -7,10 +7,10 @@ import pytest
 from numpyro.handlers import seed, trace
 
 from nof1_causal_lab.models.ssm.dynamics import (
+    ConstantValueFn,
     EdgeInputOverride,
     Intervention,
     VectorFieldArgs,
-    constant_value,
 )
 from nof1_causal_lab.models.ssm.dynamics.spec import (
     DynamicsSpec,
@@ -43,7 +43,7 @@ def test_composed_expression_field_preserves_nonlinearity_and_edge_surgery():
     x = jnp.array([2.0, 3.0, 4.0, 2.0, 1.0])
     natural = compiled.vector_field(jnp.array(0.0), x, VectorFieldArgs(params, Intervention.none()))
     np.testing.assert_allclose(natural, [-2.0, -3.0, -1.0, 0.8, 0.6], atol=1e-6)
-    intervention = Intervention((EdgeInputOverride(2, 3, constant_value(jnp.array(0.0))),))
+    intervention = Intervention((EdgeInputOverride(2, 3, ConstantValueFn(jnp.array(0.0))),))
     changed = compiled.vector_field(jnp.array(0.0), x, VectorFieldArgs(params, intervention))
     np.testing.assert_allclose(changed, [-2.0, -3.0, -1.0, -2.0, 0.6], atol=1e-6)
 

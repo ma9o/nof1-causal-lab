@@ -23,19 +23,6 @@ class InferenceStructurePlan:
     method_override: ResolvedMethod | None
 
 
-def _normalize_method_override(
-    method_override: RequestedMethod | None,
-) -> ResolvedMethod | None:
-    if method_override is None:
-        return None
-    if method_override != "marginal_particle_gibbs":
-        raise ValueError(
-            "Unsupported inference method override "
-            f"{method_override!r}; expected 'marginal_particle_gibbs'."
-        )
-    return method_override
-
-
 def _resolve_default_method(
     *,
     structural_backend: StructuralBackend,
@@ -56,8 +43,7 @@ def plan_inference_structure(
     """Resolve the default inference plan once."""
     del spec
     structural_backend: StructuralBackend = "laplace"
-    normalized_override = _normalize_method_override(method_override)
-    resolved_method = normalized_override or _resolve_default_method(
+    resolved_method = method_override or _resolve_default_method(
         structural_backend=structural_backend,
         observation_support=observation_support,
         n_timepoints=n_timepoints,
@@ -65,5 +51,5 @@ def plan_inference_structure(
     return InferenceStructurePlan(
         structural_backend=structural_backend,
         resolved_method=resolved_method,
-        method_override=normalized_override,
+        method_override=method_override,
     )

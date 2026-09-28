@@ -64,6 +64,7 @@ class ObservationSpec(BaseModel):
             "measurement_dtype='categorical' to ensure correct numeric encoding."
         ),
     )
+
     @field_validator("observation_window")
     @classmethod
     def validate_observation_window(cls, value: str | None) -> str | None:
@@ -103,9 +104,7 @@ class ObservationSpec(BaseModel):
         return self
 
     def _observation_semantics(self) -> IndicatorObservationSemantics:
-        return derive_indicator_observation_semantics(
-            self.aggregation, self.measurement_dtype
-        )
+        return derive_indicator_observation_semantics(self.aggregation, self.measurement_dtype)
 
     @property
     def support_kind(self) -> SupportKind:
@@ -126,4 +125,3 @@ class ObservationSpec(BaseModel):
     def requires_interval_summary_measurement(self) -> bool:
         """Whether this indicator requires an interval-summary measurement equation."""
         return self.support_kind == SupportKind.INTERVAL
-

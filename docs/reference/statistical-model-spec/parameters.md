@@ -1,13 +1,13 @@
 # Parameters and Priors
 
-Defines the parameter roles, prior vocabulary, and default guidance for [`ParameterSpec`](../../pipeline/statistical-model-spec.md#parameterspec) entries with native priors in a [`ModelSpec`](../../pipeline/statistical-model-spec.md#model-statistical-choices).
+Defines the parameter roles, prior vocabulary, and default guidance for `ParameterSpec` entries with native priors in a `ModelSpec`.
 
 > All sections below are generated from `nof1_causal_lab.distributions`.
 > Edit the Python catalog and re-run `uv run python scripts/export_distribution_docs.py` instead of editing them manually.
 
 ## Parameter Roles
 
-[Component authoring](../../pipeline/statistical-model-spec.md) derives these prompt roles from the coefficient slots of a concrete model proposal. Fixed slots need no prior; roles and constraints are not stored again on the parameter definition:
+Component authoring derives these prompt roles from the coefficient slots of a concrete model proposal. Fixed slots need no prior; roles and constraints are not stored again on the parameter definition:
 
 | Role | Symbol | Count | Constraint | SSM location |
 |---|---|---|---|---|
@@ -29,7 +29,7 @@ Defines the parameter roles, prior vocabulary, and default guidance for [`Parame
 
 Constraint notes:
 
-- `ar_coefficient`: model-spec elicits baseline discrete-time persistence absent feedback; [compilation](../compilation.md) binds it to the owning decay component and converts to continuous-time decay scale
+- `ar_coefficient`: model-spec elicits baseline discrete-time persistence absent feedback; compilation binds it to the owning decay component and converts to continuous-time decay scale
 - `fixed_effect`: Causal effects can be positive or negative; compiler binds each coefficient to the owning edge component or known-input effect site
 - `dynamics_parameter`: Used for component-owned dynamics parameters that are not authored as interval-scale effect coefficients.
 - `dynamics_parameter_positive`: Used for positive component-owned dynamics parameters such as Hill Emax and EC50.

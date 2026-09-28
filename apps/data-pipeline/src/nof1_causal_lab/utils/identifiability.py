@@ -55,9 +55,9 @@ def check_identifiability(
 ) -> UncheckedJsonObject:
     """Check which treatment effects are identifiable using y0's ID algorithm.
 
-    Uses 2-timestep unrolling (per A3a and arXiv:2504.20172) to correctly
-    handle lagged confounding. Checks identifiability of X_t → Y_t for each
-    potential treatment X.
+    Applies ID to the selected treatment/outcome query in a 2-timestep graph.
+    The temporal scope and its limitations are documented in
+    docs/assumptions.md#causal-identification.
 
     Args:
         constructs: Canonical construct definitions, including latent confounders
@@ -277,8 +277,8 @@ def unroll_temporal_dag(
 ) -> nx.DiGraph:
     """Unroll a temporal causal graph to a 2-timestep DAG for identification.
 
-    Under AR(1) (A3) and bounded latent reach (A3a), a 2-timestep unrolling
-    suffices to decide identifiability (per arXiv:2504.20172).
+    This constructs the finite graph used by the current identifier. See
+    docs/assumptions.md#causal-identification for its temporal scope.
 
     Node creation:
     - Time-varying constructs → C_t, C_{t-1}
@@ -381,10 +381,9 @@ def dag_to_admg(
 ) -> tuple[NxMixedGraph, set[str]]:
     """Convert a temporal DAG to ADMG via 2-timestep unrolling.
 
-    Uses time-unrolling (per arXiv:2504.20172) to correctly handle lagged
-    confounding, then projects to ADMG using y0's from_latent_variable_dag().
-    CausalEdgeSpec.lagged restricts every edge to zero or one model-clock tick
-    (assumption A3a).
+    Projects the finite graph using y0's from_latent_variable_dag().
+    CausalEdgeSpec.lagged restricts every edge to zero or one model-clock tick.
+    See docs/assumptions.md#causal-identification for the temporal limitation.
 
     Args:
         constructs: Canonical construct definitions

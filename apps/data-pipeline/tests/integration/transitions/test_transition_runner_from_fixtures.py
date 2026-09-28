@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import pytest
 
-from nof1_causal_lab.machine.execution import ExecutionOptions, apply_transition, input_pins
+from nof1_causal_lab.machine.execution import FitOperation, apply_transition, input_pins
 from nof1_causal_lab.machine.graph import transition_spec
 from nof1_causal_lab.machine.inference import inference_is_current
 from nof1_causal_lab.machine.runners import execute_transition_locally
@@ -72,10 +72,9 @@ def test_inference_advances_model_and_uses_the_selected_input(
         effects = run_async(
             execute_transition_locally(
                 integration_workspace,
-                "posterior",
+                FitOperation(),
                 input_pins(state, spec),
                 state,
-                ExecutionOptions(),
             )
         )
         info = next(info for info in effects.produced if info.artifact_id == "model")

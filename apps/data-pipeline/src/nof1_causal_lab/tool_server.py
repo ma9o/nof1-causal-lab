@@ -93,13 +93,15 @@ come from its versioned artifacts and append-only transition log.
    - `edit_model`: `{"action":"edit_model","expected_revision":null,"model":{"question":"Does workload affect sleep?"}}`.
      Model structure, measurements, mechanisms, constants, and laws can be edited together.
      Valid incomplete models are saved with applicable specification findings.
-   - `prepare_data`: `{"action":"prepare_data","source":"files"}` imports uploaded sources.
-     `{"action":"prepare_data","source":"raw_data","raw_data_revision":"<raw-data tree OID>","model_revision":"<model tree OID>"}`
-     extracts observations using the selected measurement definitions.
-     `source="simulation"` with `simulation={"revision":"<simulation commit OID>","replicate":0}`
-     prepares one recorded replicate as an observation panel, preserving its measurement
-     support and generating model reference. The replicate index is zero-based; simulation
-     truths remain in the source report and are not passed to fitting.
+   - `prepare_data`: supply `source={"files":["diary.csv"]}` plus a `preparation` spec
+     containing `default_window`, `variables`, and optional interpretation `context`.
+     Each variable has a stable ID, dtype, summary, scoring rubric, extraction mode,
+     source columns, window and codebook as appropriate. The action ingests and extracts
+     in one call, retaining the semantic worker fan-out and deterministic scoring paths.
+     Alternatively, `source={"revision":"<simulation commit OID>","replicate":0}`
+     selects one recorded simulation draw. Its observations, schema and support layout
+     are already defined, so extraction is skipped. Both branches run numerical data
+     checks without loading a model. Latent paths and parameter truths stay in the source.
    - `fit`: `{"action":"fit","model_revision":"<model tree OID>","panel_revision":"<panel tree OID>"}` conditions the selected
      model on observations. Returns joint uncertainty and fit diagnostics; predictive
      simulation is a separate request. Current fitting supports independent scalar laws.
@@ -110,6 +112,8 @@ come from its versioned artifacts and append-only transition log.
      `{"target":"<construct ID>","time":5,"value":1}` assigns a state at that time,
      then its natural dynamics resume. The framework derives the grid and always includes
      process and observation uncertainty.
+     Compare the saved observations separately with `data_diff`; simulation does not
+     accept comparison data or change its generation rules for predictive checks.
 3. Dispatch returns HTTP 202 with only `{"attempt_id":"<UUID>"}` after durable acceptance.
    Poll `GET /api/episodes/{workspace_id}/actions/{attempt_id}` for `{done, body, messages}`.
    While running, `done` is false and `body` is null. At completion, `body` contains the
@@ -129,14 +133,15 @@ HTTP and tool calls share execution contracts. V2 is a read-only inspector.
 
 ## Revisions and execution
 
-Requests name stored input revisions. Fits check the selected model/data pair; model edits reject base revision conflicts. Read `/revisions` to select history and `/revisions/compare` to compare parameter decisions and recorded evidence.
+Requests name stored input revisions. Fits check the selected model/data pair; model edits reject base revision conflicts. Read `/revisions` to select history. `GET /model-diff?before=...&after=...` compares model trees or Git checkpoints; `POST /data-diff` compares saved data selections in `left` and `right`. Both are read-only inspection operations and create no action attempt.
 An edit does not require prior simulation or an authoring admission. Causal numerical
 claims still require matching identification and production inference evidence.
-Model edits and data preparation automatically run affected checks, including one exact
-whole-model predictive batch when a compatible panel is available. Unchanged checks reuse
+Model edits automatically run affected checks, including one exact whole-model
+predictive batch when a compatible panel is available. Data preparation runs only
+data checks. Unchanged checks reuse
 their recorded results. Scientific failures save as findings; missing prerequisites carry
 not_evaluated reasons. Read predictive details and law provenance in the action body.
-Simulation reports retain their own model/data versions; a later edit makes that
+Simulation reports retain their own generating model revision; a later edit makes that
 report historical rather than evidence for the edited model.
 
 Only the four scientific actions submit scientific work. Execution jobs and
@@ -150,7 +155,7 @@ The `analysis` context is read-only model introspection.
 ## Data in, results out
 
 Upload files at `POST /api/upload` (`multipart/form-data` with `workspaceId` and
-`file`) before `prepare_data` with `source=files`. Read artifact payloads at
+`file`) before `prepare_data` with `source.files` and its preparation spec. Read artifact payloads at
 `GET /api/episodes/{workspace_id}/artifacts/{artifact_id}`; binary files are served
 from `.../files/{filename}`. Long jobs may outlive an HTTP client timeout; inspect
 the timeline before submitting another request.

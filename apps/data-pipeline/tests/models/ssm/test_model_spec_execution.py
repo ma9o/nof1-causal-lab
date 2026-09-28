@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.execution.dynamical_model import (
     HeterogeneousObservation,
@@ -58,7 +59,9 @@ def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
                 "categorical_levels": ("low", "medium", "high"),
                 "aggregation": "last",
                 "likelihood": LikelihoodSpec(
-                    law=observation_law(construct.id, "categorical", "softmax"),
+                    law=observation_law(
+                        construct.id, DistributionFamily.CATEGORICAL, LinkFunction.SOFTMAX
+                    ),
                     reasoning="Joint law with category-specific parameter elements",
                 ),
             }

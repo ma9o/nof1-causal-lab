@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "nof1-causal-lab episode API",
-    "description": "The scientific interface has four actions: `edit_model`, `prepare_data`, `fit`,\nand `simulate`. Requests commit through the serialized episode machine; reads\ncome from its versioned artifacts and append-only transition log.\n\n## Scientific loop\n\n1. Read `GET /api/machine` for action responsibilities, then\n   `GET /api/episodes/{workspace_id}/model` for current model/data versions and findings.\n2. Submit to `POST /api/episodes/{workspace_id}/actions`:\n   - `edit_model`: `{\"action\":\"edit_model\",\"expected_revision\":null,\"model\":{\"question\":\"Does workload affect sleep?\"}}`.\n     Model structure, measurements, mechanisms, constants, and laws can be edited together.\n     Valid incomplete models are saved with applicable specification findings.\n   - `prepare_data`: `{\"action\":\"prepare_data\",\"source\":\"files\"}` imports uploaded sources.\n     `{\"action\":\"prepare_data\",\"source\":\"raw_data\",\"raw_data_revision\":\"<raw-data tree OID>\",\"model_revision\":\"<model tree OID>\"}`\n     extracts observations using the selected measurement definitions.\n     `source=\"simulation\"` with `simulation={\"revision\":\"<simulation commit OID>\",\"replicate\":0}`\n     prepares one recorded replicate as an observation panel, preserving its measurement\n     support and generating model reference. The replicate index is zero-based; simulation\n     truths remain in the source report and are not passed to fitting.\n   - `fit`: `{\"action\":\"fit\",\"model_revision\":\"<model tree OID>\",\"panel_revision\":\"<panel tree OID>\"}` conditions the selected\n     model on observations. Returns joint uncertainty and fit diagnostics; predictive\n     simulation is a separate request. Current fitting supports independent scalar laws.\n   - `simulate`: `{\"action\":\"simulate\",\"model_revision\":\"<model tree OID>\",\"end\":30,\"interventions\":[]}`\n     generates forward from the model's current laws. `start` optionally selects an earlier\n     model time; otherwise generation starts at its latest retained state, or zero when it\n     has only an initial-state law. Times use absolute model days. Interventions are optional:\n     `{\"target\":\"<construct ID>\",\"time\":5,\"value\":1}` assigns a state at that time,\n     then its natural dynamics resume. The framework derives the grid and always includes\n     process and observation uncertainty.\n3. Dispatch returns HTTP 202 with only `{\"attempt_id\":\"<UUID>\"}` after durable acceptance.\n   Poll `GET /api/episodes/{workspace_id}/actions/{attempt_id}` for `{done, body, messages}`.\n   While running, `done` is false and `body` is null. At completion, `body` contains the\n   scientific result, or is null on failure. Messages accumulate as\n   `{timestamp, level, label}` with UTC timestamps, `debug|info|warn|error` levels,\n   and stable `SCREAMING_SNAKE_CASE` labels. Warnings can accompany a saved result;\n   failed actions leave the scientific branch unchanged. Do not redispatch while polling.\n   `GET /api/episodes/{workspace_id}/timeline` retains `applied`, `rejected`, or `raised`\n   attempts and their messages. Numerical arrays have immutable store references.\n   `GET /api/episodes/{workspace_id}/model` includes separately sourced specification,\n   identification, data-compatibility, fitting, and simulation findings.\n\nThe same requests are available as tools through `GET /api/tools/scientific` and\n`POST /api/tools/scientific/{action}`; these tools return the receipt in `result`.\nUse `poll_action` with `{attempt_id}` to read the same poll response in `result`.\nHTTP and tool calls share execution contracts. V2 is a read-only inspector.\n\n## Revisions and execution\n\nRequests name stored input revisions. Fits check the selected model/data pair; model edits reject base revision conflicts. Read `/revisions` to select history and `/revisions/compare` to compare parameter decisions and recorded evidence.\nAn edit does not require prior simulation or an authoring admission. Causal numerical\nclaims still require matching identification and production inference evidence.\nModel edits and data preparation automatically run affected checks, including one exact\nwhole-model predictive batch when a compatible panel is available. Unchanged checks reuse\ntheir recorded results. Scientific failures save as findings; missing prerequisites carry\nnot_evaluated reasons. Read predictive details and law provenance in the action body.\nSimulation reports retain their own model/data versions; a later edit makes that\nreport historical rather than evidence for the edited model.\n\nOnly the four scientific actions submit scientific work. Execution jobs and\nLLM subroutines are private implementation details; callers do not select them.\nSimulation always uses the same nonlinear generator. Paired intervention histories share\njoint parameter/state draws and random streams. Causal effects on the model's default\noutcome are reported only when identification and committed production-fit evidence support\nthat interpretation; otherwise the report keeps its histories with an explicit reason.\nThe `analysis` context is read-only model introspection.\n\n## Data in, results out\n\nUpload files at `POST /api/upload` (`multipart/form-data` with `workspaceId` and\n`file`) before `prepare_data` with `source=files`. Read artifact payloads at\n`GET /api/episodes/{workspace_id}/artifacts/{artifact_id}`; binary files are served\nfrom `.../files/{filename}`. Long jobs may outlive an HTTP client timeout; inspect\nthe timeline before submitting another request.\n\n## Read-only deployments\n\n`GET /api/capabilities` reports `actions_enabled`. Read-only deployments reject scientific action submissions with 403.\n",
+    "description": "The scientific interface has four actions: `edit_model`, `prepare_data`, `fit`,\nand `simulate`. Requests commit through the serialized episode machine; reads\ncome from its versioned artifacts and append-only transition log.\n\n## Scientific loop\n\n1. Read `GET /api/machine` for action responsibilities, then\n   `GET /api/episodes/{workspace_id}/model` for current model/data versions and findings.\n2. Submit to `POST /api/episodes/{workspace_id}/actions`:\n   - `edit_model`: `{\"action\":\"edit_model\",\"expected_revision\":null,\"model\":{\"question\":\"Does workload affect sleep?\"}}`.\n     Model structure, measurements, mechanisms, constants, and laws can be edited together.\n     Valid incomplete models are saved with applicable specification findings.\n   - `prepare_data`: supply `source={\"files\":[\"diary.csv\"]}` plus a `preparation` spec\n     containing `default_window`, `variables`, and optional interpretation `context`.\n     Each variable has a stable ID, dtype, summary, scoring rubric, extraction mode,\n     source columns, window and codebook as appropriate. The action ingests and extracts\n     in one call, retaining the semantic worker fan-out and deterministic scoring paths.\n     Alternatively, `source={\"revision\":\"<simulation commit OID>\",\"replicate\":0}`\n     selects one recorded simulation draw. Its observations, schema and support layout\n     are already defined, so extraction is skipped. Both branches run numerical data\n     checks without loading a model. Latent paths and parameter truths stay in the source.\n   - `fit`: `{\"action\":\"fit\",\"model_revision\":\"<model tree OID>\",\"panel_revision\":\"<panel tree OID>\"}` conditions the selected\n     model on observations. Returns joint uncertainty and fit diagnostics; predictive\n     simulation is a separate request. Current fitting supports independent scalar laws.\n   - `simulate`: `{\"action\":\"simulate\",\"model_revision\":\"<model tree OID>\",\"end\":30,\"interventions\":[]}`\n     generates forward from the model's current laws. `start` optionally selects an earlier\n     model time; otherwise generation starts at its latest retained state, or zero when it\n     has only an initial-state law. Times use absolute model days. Interventions are optional:\n     `{\"target\":\"<construct ID>\",\"time\":5,\"value\":1}` assigns a state at that time,\n     then its natural dynamics resume. The framework derives the grid and always includes\n     process and observation uncertainty.\n     Compare the saved observations separately with `data_diff`; simulation does not\n     accept comparison data or change its generation rules for predictive checks.\n3. Dispatch returns HTTP 202 with only `{\"attempt_id\":\"<UUID>\"}` after durable acceptance.\n   Poll `GET /api/episodes/{workspace_id}/actions/{attempt_id}` for `{done, body, messages}`.\n   While running, `done` is false and `body` is null. At completion, `body` contains the\n   scientific result, or is null on failure. Messages accumulate as\n   `{timestamp, level, label}` with UTC timestamps, `debug|info|warn|error` levels,\n   and stable `SCREAMING_SNAKE_CASE` labels. Warnings can accompany a saved result;\n   failed actions leave the scientific branch unchanged. Do not redispatch while polling.\n   `GET /api/episodes/{workspace_id}/timeline` retains `applied`, `rejected`, or `raised`\n   attempts and their messages. Numerical arrays have immutable store references.\n   `GET /api/episodes/{workspace_id}/model` includes separately sourced specification,\n   identification, data-compatibility, fitting, and simulation findings.\n\nThe same requests are available as tools through `GET /api/tools/scientific` and\n`POST /api/tools/scientific/{action}`; these tools return the receipt in `result`.\nUse `poll_action` with `{attempt_id}` to read the same poll response in `result`.\nHTTP and tool calls share execution contracts. V2 is a read-only inspector.\n\n## Revisions and execution\n\nRequests name stored input revisions. Fits check the selected model/data pair; model edits reject base revision conflicts. Read `/revisions` to select history. `GET /model-diff?before=...&after=...` compares model trees or Git checkpoints; `POST /data-diff` compares saved data selections in `left` and `right`. Both are read-only inspection operations and create no action attempt.\nAn edit does not require prior simulation or an authoring admission. Causal numerical\nclaims still require matching identification and production inference evidence.\nModel edits automatically run affected checks, including one exact whole-model\npredictive batch when a compatible panel is available. Data preparation runs only\ndata checks. Unchanged checks reuse\ntheir recorded results. Scientific failures save as findings; missing prerequisites carry\nnot_evaluated reasons. Read predictive details and law provenance in the action body.\nSimulation reports retain their own generating model revision; a later edit makes that\nreport historical rather than evidence for the edited model.\n\nOnly the four scientific actions submit scientific work. Execution jobs and\nLLM subroutines are private implementation details; callers do not select them.\nSimulation always uses the same nonlinear generator. Paired intervention histories share\njoint parameter/state draws and random streams. Causal effects on the model's default\noutcome are reported only when identification and committed production-fit evidence support\nthat interpretation; otherwise the report keeps its histories with an explicit reason.\nThe `analysis` context is read-only model introspection.\n\n## Data in, results out\n\nUpload files at `POST /api/upload` (`multipart/form-data` with `workspaceId` and\n`file`) before `prepare_data` with `source.files` and its preparation spec. Read artifact payloads at\n`GET /api/episodes/{workspace_id}/artifacts/{artifact_id}`; binary files are served\nfrom `.../files/{filename}`. Long jobs may outlive an HTTP client timeout; inspect\nthe timeline before submitting another request.\n\n## Read-only deployments\n\n`GET /api/capabilities` reports `actions_enabled`. Read-only deployments reject scientific action submissions with 403.\n",
     "version": "0.1.0"
   },
   "paths": {
@@ -361,11 +361,11 @@
         }
       }
     },
-    "/api/episodes/{workspace_id}/revisions/compare": {
+    "/api/episodes/{workspace_id}/model-diff": {
       "get": {
-        "summary": "Compare Model Revisions",
-        "description": "Compare the selected graph, decisions and evidence at any two committed checkpoints.",
-        "operationId": "compare_model_revisions_api_episodes__workspace_id__revisions_compare_get",
+        "summary": "Get Model Diff",
+        "description": "Compare two model artifact revisions or Git checkpoints containing a model.\n\nReturns identity-aligned definition changes, parameter decisions and graph\ndifferences. Checkpoint selections also include their recorded fit/simulation\nevidence; selecting a model tree alone does not infer an associated run.",
+        "operationId": "model_diff",
         "parameters": [
           {
             "name": "workspace_id",
@@ -399,7 +399,57 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ModelComparison"
+                  "$ref": "#/components/schemas/ModelDiffReport"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/episodes/{workspace_id}/data-diff": {
+      "post": {
+        "summary": "Post Data Diff",
+        "description": "Compare existing datasets without creating an action, fitting or simulating.\n\nEach side accepts a data reference or a nonempty array of references. Panel\nreferences select artifact revisions; simulation references select applied\nsimulation commits and optionally one replicate (otherwise every draw).\nA simulation's optional time_origin maps model day zero to a calendar instant.\nExact anchors and measurement windows determine which predictive comparisons\nare available. Results preserve each history and report incompatible inputs.",
+        "operationId": "data_diff",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workspace Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DataDiffRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataDiffReport"
                 }
               }
             }
@@ -3102,6 +3152,160 @@
         ],
         "title": "CreateBranchBody"
       },
+      "DataDiffReport": {
+        "properties": {
+          "left": {
+            "items": {
+              "$ref": "#/components/schemas/DataRef"
+            },
+            "type": "array",
+            "title": "Left"
+          },
+          "right": {
+            "items": {
+              "$ref": "#/components/schemas/DataRef"
+            },
+            "type": "array",
+            "title": "Right"
+          },
+          "variables": {
+            "items": {
+              "$ref": "#/components/schemas/DataVariableDiff"
+            },
+            "type": "array",
+            "title": "Variables"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "left",
+          "right",
+          "variables"
+        ],
+        "title": "DataDiffReport",
+        "description": "Comparisons of existing data, preserving each history's immutable source reference."
+      },
+      "DataDiffRequest": {
+        "properties": {
+          "left": {
+            "$ref": "#/components/schemas/DataSelection"
+          },
+          "right": {
+            "$ref": "#/components/schemas/DataSelection"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "left",
+          "right"
+        ],
+        "title": "DataDiffRequest",
+        "description": "Compare two immutable data selections, each containing one or more histories."
+      },
+      "DataPoint": {
+        "properties": {
+          "anchor_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Anchor Time"
+          },
+          "support_start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Support Start"
+          },
+          "support_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Support End"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "anchor_time",
+          "support_start",
+          "support_end",
+          "value"
+        ],
+        "title": "DataPoint",
+        "description": "An observed value at an exact calendar anchor and measurement support."
+      },
+      "DataPointChange": {
+        "properties": {
+          "anchor_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Anchor Time"
+          },
+          "change": {
+            "type": "string",
+            "enum": [
+              "added",
+              "removed",
+              "revised"
+            ],
+            "title": "Change"
+          },
+          "left": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DataPoint"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "right": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DataPoint"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "anchor_time",
+          "change",
+          "left",
+          "right"
+        ],
+        "title": "DataPointChange",
+        "description": "An added, removed or revised measurement in a single-history comparison."
+      },
       "DataPreparationResult": {
         "properties": {
           "action": {
@@ -3234,6 +3438,98 @@
         "title": "DataProfileArtifact",
         "description": "Model-independent empirical measurements and data-quality findings."
       },
+      "DataRef": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "panel",
+              "simulation"
+            ],
+            "title": "Kind"
+          },
+          "revision": {
+            "$ref": "#/components/schemas/GitOid"
+          },
+          "replicate": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replicate"
+          },
+          "time_origin": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Origin",
+            "description": "Calendar instant for simulation day zero; omitted uses 1970-01-01 UTC."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "revision"
+        ],
+        "title": "DataRef",
+        "description": "A saved panel or simulation; omitting replicate selects every saved simulation draw."
+      },
+      "DataSelection": {
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/DataRef"
+          },
+          {
+            "items": {
+              "$ref": "#/components/schemas/DataRef"
+            },
+            "type": "array",
+            "minItems": 1
+          }
+        ],
+        "description": "A data selection identifies one or more saved observation histories."
+      },
+      "DataSeries": {
+        "properties": {
+          "variable": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ObservationSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/DataPoint"
+            },
+            "type": "array",
+            "title": "Points"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "variable",
+          "points"
+        ],
+        "title": "DataSeries",
+        "description": "One variable's recorded measurements in one history; no pooling across replicas."
+      },
       "DataSourceRef": {
         "anyOf": [
           {
@@ -3242,7 +3538,182 @@
           {
             "$ref": "#/components/schemas/SimulationReplicateRef"
           }
-        ]
+        ],
+        "description": "A data source selects uploaded files or one recorded simulation replicate."
+      },
+      "DataStatisticComparison": {
+        "properties": {
+          "statistic": {
+            "type": "string",
+            "enum": [
+              "observed_count",
+              "missing_count",
+              "mean",
+              "sd",
+              "min",
+              "max",
+              "proportion"
+            ],
+            "title": "Statistic"
+          },
+          "level": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Level"
+          },
+          "left": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Left"
+          },
+          "right": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Right"
+          },
+          "left_histogram": {
+            "items": {
+              "$ref": "#/components/schemas/HistogramBin"
+            },
+            "type": "array",
+            "title": "Left Histogram"
+          },
+          "right_histogram": {
+            "items": {
+              "$ref": "#/components/schemas/HistogramBin"
+            },
+            "type": "array",
+            "title": "Right Histogram"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "statistic",
+          "left",
+          "right",
+          "left_histogram",
+          "right_histogram"
+        ],
+        "title": "DataStatisticComparison",
+        "description": "The same descriptive statistic measured independently in every selected history."
+      },
+      "DataVariableDiff": {
+        "properties": {
+          "indicator_id": {
+            "$ref": "#/components/schemas/IndicatorId"
+          },
+          "left": {
+            "items": {
+              "$ref": "#/components/schemas/DataSeries"
+            },
+            "type": "array",
+            "title": "Left"
+          },
+          "right": {
+            "items": {
+              "$ref": "#/components/schemas/DataSeries"
+            },
+            "type": "array",
+            "title": "Right"
+          },
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/DataPointChange"
+            },
+            "type": "array",
+            "title": "Changes"
+          },
+          "statistics": {
+            "items": {
+              "$ref": "#/components/schemas/DataStatisticComparison"
+            },
+            "type": "array",
+            "title": "Statistics"
+          },
+          "comparison_issues": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Comparison Issues"
+          },
+          "reference_side": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "left",
+                  "right"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Side"
+          },
+          "predictive_checks": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PosteriorPredictiveChecks"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "predictive_unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Predictive Unavailable Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "indicator_id",
+          "left",
+          "right",
+          "changes",
+          "statistics",
+          "comparison_issues",
+          "reference_side",
+          "predictive_checks",
+          "predictive_unavailable_reason"
+        ],
+        "title": "DataVariableDiff",
+        "description": "Definitions, histories and comparisons for one persistent observation identity."
       },
       "DataVariableSpec": {
         "properties": {
@@ -4045,6 +4516,36 @@
         "title": "FactSource",
         "description": "A fact source locates supporting content within an artifact revision and records its freshness.",
         "x-python-module": "nof1_causal_lab.machine.snapshot_models"
+      },
+      "FilePreparationSpec": {
+        "properties": {
+          "source": {
+            "$ref": "#/components/schemas/FileSourceRef"
+          },
+          "definition": {
+            "$ref": "#/components/schemas/DataPreparationSpec-Input"
+          },
+          "max_windows": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Windows"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source",
+          "definition"
+        ],
+        "title": "FilePreparationSpec",
+        "description": "Uploaded sources and the complete recipe for preparing their observations."
       },
       "FileSourceRef": {
         "properties": {
@@ -5552,13 +6053,157 @@
         "title": "ModelCheckReport",
         "description": "Checks selected by their consumed inputs, retained with the study snapshot."
       },
-      "ModelComparison": {
+      "ModelData": {
+        "properties": {
+          "raw_data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Sourced_RawDataData_"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "measurements": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Sourced_MeasurementsData_"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Sourced_PreparedDataMetadata_"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "profile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Sourced_DataProfileArtifact_"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ModelData",
+        "description": "Observed evidence paired with its source versions.",
+        "x-python-module": "nof1_causal_lab.machine.snapshot_models"
+      },
+      "ModelDefinitionChange": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "change": {
+            "type": "string",
+            "enum": [
+              "added",
+              "removed",
+              "revised"
+            ],
+            "title": "Change"
+          },
+          "before": {
+            "$ref": "#/components/schemas/JsonValue-Output"
+          },
+          "after": {
+            "$ref": "#/components/schemas/JsonValue-Output"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "path",
+          "change",
+          "before",
+          "after"
+        ],
+        "title": "ModelDefinitionChange",
+        "description": "One changed field in identity-keyed scientific model definitions."
+      },
+      "ModelDiagnostics": {
+        "properties": {
+          "confounder_equations": {
+            "items": {
+              "$ref": "#/components/schemas/StateEquation"
+            },
+            "type": "array",
+            "title": "Confounder Equations"
+          },
+          "state_equations": {
+            "items": {
+              "$ref": "#/components/schemas/StateEquation"
+            },
+            "type": "array",
+            "title": "State Equations"
+          },
+          "observation_equations": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/IndicatorId"
+            },
+            "type": "object",
+            "title": "Observation Equations"
+          },
+          "likelihood_diagnostics": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/LikelihoodDiagnostics"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/IndicatorId"
+            },
+            "type": "object",
+            "title": "Likelihood Diagnostics"
+          },
+          "prior_densities": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/components/schemas/DensityPoint"
+              },
+              "type": "array"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/ParameterId"
+            },
+            "type": "object",
+            "title": "Prior Densities"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ModelDiagnostics",
+        "description": "Server-derived equations and comparisons with pinned observations."
+      },
+      "ModelDiffReport": {
         "properties": {
           "before": {
             "$ref": "#/components/schemas/GitRef"
           },
           "after": {
             "$ref": "#/components/schemas/GitRef"
+          },
+          "definition_changes": {
+            "items": {
+              "$ref": "#/components/schemas/ModelDefinitionChange"
+            },
+            "type": "array",
+            "title": "Definition Changes"
           },
           "parameters": {
             "items": {
@@ -5629,6 +6274,7 @@
         "required": [
           "before",
           "after",
+          "definition_changes",
           "parameters",
           "graph",
           "changed_inputs",
@@ -5639,112 +6285,8 @@
           "before_simulation",
           "after_simulation"
         ],
-        "title": "ModelComparison",
-        "description": "A comparison joins graph, parameter decisions and evidence at two committed checkpoints."
-      },
-      "ModelData": {
-        "properties": {
-          "raw_data": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/Sourced_RawDataData_"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "measurements": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/Sourced_MeasurementsData_"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "metadata": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/Sourced_PreparedDataMetadata_"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "profile": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/Sourced_DataProfileArtifact_"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "title": "ModelData",
-        "description": "Observed evidence paired with its source versions.",
-        "x-python-module": "nof1_causal_lab.machine.snapshot_models"
-      },
-      "ModelDiagnostics": {
-        "properties": {
-          "confounder_equations": {
-            "items": {
-              "$ref": "#/components/schemas/StateEquation"
-            },
-            "type": "array",
-            "title": "Confounder Equations"
-          },
-          "state_equations": {
-            "items": {
-              "$ref": "#/components/schemas/StateEquation"
-            },
-            "type": "array",
-            "title": "State Equations"
-          },
-          "observation_equations": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "propertyNames": {
-              "$ref": "#/components/schemas/IndicatorId"
-            },
-            "type": "object",
-            "title": "Observation Equations"
-          },
-          "likelihood_diagnostics": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/LikelihoodDiagnostics"
-            },
-            "propertyNames": {
-              "$ref": "#/components/schemas/IndicatorId"
-            },
-            "type": "object",
-            "title": "Likelihood Diagnostics"
-          },
-          "prior_densities": {
-            "additionalProperties": {
-              "items": {
-                "$ref": "#/components/schemas/DensityPoint"
-              },
-              "type": "array"
-            },
-            "propertyNames": {
-              "$ref": "#/components/schemas/ParameterId"
-            },
-            "type": "object",
-            "title": "Prior Densities"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "title": "ModelDiagnostics",
-        "description": "Server-derived equations and comparisons with pinned observations."
+        "title": "ModelDiffReport",
+        "description": "A model diff joins definition changes and evidence at two model revisions or checkpoints."
       },
       "ModelEditResult": {
         "properties": {
@@ -7009,6 +7551,7 @@
               "initial_state_correlation"
             ],
             "title": "Distribution Transform",
+            "description": "Mapping from the authored law to the model quantity: identity leaves its scale unchanged; dt_persistence_to_ct_decay maps persistence p to -log(p) / interval; dt_effect_to_ct_rate divides an interval effect by its duration in days; initial_state_correlation applies the correlation support [-1, 1]. Fixed values and joint laws require identity.",
             "default": "identity"
           },
           "value": {
@@ -7044,7 +7587,8 @@
                 "type": "null"
               }
             ],
-            "title": "Reference Interval Days"
+            "title": "Reference Interval Days",
+            "description": "Positive duration in days over which an authored persistence or interval-effect law is defined, before conversion to continuous-time decay or rate. When omitted, persistence uses the model measurement clock; interval effects use the edge lag, falling back to that clock."
           }
         },
         "additionalProperties": false,
@@ -7396,44 +7940,22 @@
             "title": "Action",
             "default": "prepare_data"
           },
-          "source": {
+          "input": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/FileSourceRef"
+                "$ref": "#/components/schemas/FilePreparationSpec"
               },
               {
                 "$ref": "#/components/schemas/SimulationReplicateRef"
               }
             ],
-            "title": "Source"
-          },
-          "preparation": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/DataPreparationSpec-Input"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "max_windows": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 1.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Max Windows"
+            "title": "Input"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "source"
+          "input"
         ],
         "title": "PrepareDataRequest",
         "description": "Prepare uploaded sources or a recorded simulation replicate, without a model."
@@ -7870,17 +8392,6 @@
           },
           "model_revision": {
             "$ref": "#/components/schemas/GitOid"
-          },
-          "comparison_panel_revision": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/GitOid"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Prepared observations to compare on their exact recorded schedule."
           }
         },
         "additionalProperties": false,
@@ -7890,7 +8401,7 @@
           "model_revision"
         ],
         "title": "SimulateRequest",
-        "description": "Generate the selected model through end with optional start and dated interventions."
+        "description": "Generate through end with optional start and interventions; compare saved data with data_diff."
       },
       "SimulationObservationLayout": {
         "properties": {
@@ -7978,13 +8489,6 @@
             "type": "array",
             "title": "State Ids"
           },
-          "indicator_ids": {
-            "items": {
-              "$ref": "#/components/schemas/IndicatorId"
-            },
-            "type": "array",
-            "title": "Indicator Ids"
-          },
           "parameter_draws": {
             "additionalProperties": {
               "type": "string"
@@ -8002,26 +8506,6 @@
           },
           "observation_layout": {
             "$ref": "#/components/schemas/SimulationObservationLayout"
-          },
-          "comparison_panel": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/GitRef"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "predictive_checks": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/PosteriorPredictiveChecks"
-              },
-              {
-                "type": "null"
-              }
-            ]
           },
           "law": {
             "anyOf": [
@@ -8094,7 +8578,6 @@
           "draws",
           "seed",
           "state_ids",
-          "indicator_ids",
           "parameter_draws",
           "latent_paths",
           "observations",

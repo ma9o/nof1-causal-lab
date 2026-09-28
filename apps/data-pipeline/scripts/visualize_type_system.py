@@ -31,6 +31,7 @@ import networkx as nx
 from scripts.type_system_catalog import (
     CONCERNS,
     CORE_DOMAIN_OBJECTS,
+    IDENTITY_OWNERS,
     LAYERS,
 )
 
@@ -163,6 +164,8 @@ def with_entity_references(graph: nx.DiGraph) -> nx.DiGraph:
         identity = next(iter(identities))
         key = graph.nodes[identity]
         if key["layer"] != "identity" or key["schema"].get("type") != "string":
+            continue
+        if identity in IDENTITY_OWNERS and name != IDENTITY_OWNERS[identity]:
             continue
         if identity in owners:
             raise ValueError(f"Identity {identity} has multiple authored owners")

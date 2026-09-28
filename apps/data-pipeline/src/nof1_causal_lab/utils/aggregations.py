@@ -696,15 +696,20 @@ def _encode_non_continuous(
                     len(subset),
                 )
         else:
-            levels = (ordinal_levels_lookup if dtype == "ordinal" else categorical_levels_lookup)[name]
+            levels = (ordinal_levels_lookup if dtype == "ordinal" else categorical_levels_lookup)[
+                name
+            ]
             label_map = {label.strip().lower(): index for index, label in enumerate(levels)}
             max_code = len(levels) - 1
             subset = subset.with_columns(
-                pl.col("value").map_elements(
-                    lambda value, _labels=label_map, _maximum=max_code:
-                        _coerce_ordinal_code(value, _labels, _maximum),
+                pl.col("value")
+                .map_elements(
+                    lambda value, _labels=label_map, _maximum=max_code: _coerce_ordinal_code(
+                        value, _labels, _maximum
+                    ),
                     return_dtype=pl.Int64,
-                ).alias("value")
+                )
+                .alias("value")
             )
 
         # Cast value back to Utf8 for consistency with remaining data

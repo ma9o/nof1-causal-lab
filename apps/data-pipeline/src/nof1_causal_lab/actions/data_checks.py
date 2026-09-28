@@ -31,11 +31,21 @@ def data_binding_issues(model: ModelSpec, metadata: PreparedDataMetadata) -> lis
         if variable is None:
             issues.append(f"No prepared variable for model indicator {indicator.id}")
             continue
-        for field in ("measurement_dtype", "aggregation", "ordinal_levels", "categorical_levels"):
-            if getattr(indicator, field) != getattr(variable, field):
+        for field, expected, actual in (
+            ("measurement_dtype", indicator.measurement_dtype, variable.measurement_dtype),
+            ("aggregation", indicator.aggregation, variable.aggregation),
+            ("ordinal_levels", indicator.ordinal_levels, variable.ordinal_levels),
+            ("categorical_levels", indicator.categorical_levels, variable.categorical_levels),
+        ):
+            if expected != actual:
                 issues.append(f"Observation {indicator.id} has incompatible {field}")
         window = indicator.observation_window or model.measurement_clock
-        if window is None or parse_duration_to_hours(window) != parse_duration_to_hours(variable.observation_window):
+        assert (
+            variable.observation_window is not None
+        )  # PreparedDataMetadata resolves every window.
+        if window is None or parse_duration_to_hours(window) != parse_duration_to_hours(
+            variable.observation_window
+        ):
             issues.append(f"Observation {indicator.id} has an incompatible observation window")
     return issues
 
@@ -54,15 +64,23 @@ def evaluate_data_checks(
 
     store = ArtifactStore(workspace_id)
     selected = apply_transition(state, effects.produced, effects.retracted)
-    panel = selected.current["panel"]
+    panel = selected.get("panel")
+    if panel is None:
+        raise ValueError("Data preparation produced no usable observations")
     metadata = read_data_metadata(store, panel.revision)
     data = store.read_parquet_file("panel", panel.revision, parquet_filename("panel", "panel"))
     profile = profile_data(data, metadata=metadata)
     report = store.write_artifact(
-        "data_profile", derived_from={"panel": panel.revision}, produced_by="check:data_profile",
+        "data_profile",
+        derived_from={"panel": panel.revision},
+        produced_by="check:data_profile",
         json_files={json_filename("data_profile", "data_profile"): profile.model_dump(mode="json")},
     )
     retracted = list(effects.retracted)
     if selected.has("validation_report"):
-        retracted.append(RetractedArtifact(artifact_id="validation_report", reason_ref="panel.changed"))
-    return effects.model_copy(update={"produced": [*effects.produced, report], "retracted": retracted})
+        retracted.append(
+            RetractedArtifact(artifact_id="validation_report", reason_ref="panel.changed")
+        )
+    return effects.model_copy(
+        update={"produced": [*effects.produced, report], "retracted": retracted}
+    )

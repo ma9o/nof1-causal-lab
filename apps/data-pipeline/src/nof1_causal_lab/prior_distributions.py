@@ -57,11 +57,10 @@ def authored_argument_names(family: PriorDistributionFamily) -> dict[str, str]:
 
 
 def distribution_from_params(
-    family: PriorDistributionFamily | str,
+    family: PriorDistributionFamily,
     params: Mapping[str, Any],
 ) -> dist.Distribution:
     """Validate a complete authored parameter mapping and construct its law."""
-    family = PriorDistributionFamily(family)
     arguments = authored_argument_names(family)
     expected = set(arguments.values())
     if set(params) != expected:

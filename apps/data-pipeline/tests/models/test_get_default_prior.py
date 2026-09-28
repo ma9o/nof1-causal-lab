@@ -7,6 +7,7 @@ from evaluation.fixtures.prior_planning import default_parameter_prior
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.identity import ConstructRef, IndicatorRef
+from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
 from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
 from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 from nof1_causal_lab.models.likelihoods import observation_law
@@ -93,7 +94,9 @@ def test_default_law(quantity, support, transform, polarity, expected):
             update={
                 "likelihood": with_likelihood_coefficients(
                     LikelihoodSpec(
-                        law=observation_law(construct.id, "gaussian", "identity"),
+                        law=observation_law(
+                            construct.id, DistributionFamily.GAUSSIAN, LinkFunction.IDENTITY
+                        ),
                         reasoning="Test",
                     ),
                     {"loading": parameter.id},

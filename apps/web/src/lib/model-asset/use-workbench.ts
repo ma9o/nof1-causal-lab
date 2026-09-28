@@ -4,7 +4,7 @@ import type { ModelSnapshot, StudyRevision } from "@nof1-causal-lab/api-types";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PipelineProgress } from "@/lib/hooks/pipeline-progress";
-import { useModelComparison } from "@/lib/hooks/use-model-comparison";
+import { useModelDiff } from "@/lib/hooks/use-model-diff";
 import { hasCausalEffects } from "@/lib/simulation-report";
 import { indexModel } from "./entities";
 import { journalTicks, latestSeq } from "./journal";
@@ -88,7 +88,7 @@ export function useWorkbench({
   const modelRevision = model.context.state.current.model?.revision;
   const focusSeq = selection?.kind === "revision" ? selection.seq : playhead;
   const activeComparison = comparison?.before === playhead ? comparison : null;
-  const compared = useModelComparison(
+  const compared = useModelDiff(
     workspaceId,
     model.context.commit_id,
     transitions.find((record) => record.seq === activeComparison?.after)?.commit_id ?? null,

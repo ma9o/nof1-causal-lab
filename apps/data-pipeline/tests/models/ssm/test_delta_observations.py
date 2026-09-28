@@ -13,7 +13,12 @@ from pydantic import ValidationError
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.expressions import state
 from nof1_causal_lab.artifacts.identity import ConstructId
-from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec, ObservationLawSpec
+from nof1_causal_lab.artifacts.likelihood import (
+    DistributionFamily,
+    LikelihoodSpec,
+    LinkFunction,
+    ObservationLawSpec,
+)
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.machine.equations import observation_equations
 from nof1_causal_lab.models.likelihoods import observation_law
@@ -46,7 +51,7 @@ def exact_model():
         update={
             "aggregation": "last",
             "likelihood": LikelihoodSpec(
-                law=observation_law(owner.id, "delta", "identity"),
+                law=observation_law(owner.id, DistributionFamily.DELTA, LinkFunction.IDENTITY),
                 reasoning="The recorded setting is exact at its observation anchor.",
             ),
         }
@@ -101,7 +106,9 @@ def test_delta_constructor_requires_only_its_exact_value():
 @pytest.mark.contract
 def test_authored_affine_delta_keeps_its_calibration_coefficients(exact_model):
     owner = exact_model.constructs[0]
-    predictor = observation_law(owner.id, "gaussian", "identity").arguments["loc"]
+    predictor = observation_law(
+        owner.id, DistributionFamily.GAUSSIAN, LinkFunction.IDENTITY
+    ).arguments["loc"]
     likelihood = LikelihoodSpec(
         law=ObservationLawSpec(distribution="Delta", arguments={"v": predictor}),
         reasoning="Exact measurement with an unknown calibration offset.",
@@ -148,7 +155,8 @@ def test_exact_measurement_is_available_but_never_selected_by_default(dtype, def
 
     assert VALID_LIKELIHOODS_FOR_DTYPE[indicator.measurement_dtype][0] == default_family
     exact = LikelihoodSpec(
-        law=observation_law(owner.id, "delta", "identity"), reasoning="Explicit exact measurement"
+        law=observation_law(owner.id, DistributionFamily.DELTA, LinkFunction.IDENTITY),
+        reasoning="Explicit exact measurement",
     )
     model.revised(
         edges=replace_constructs(
@@ -166,7 +174,9 @@ def test_exact_measurement_is_available_but_never_selected_by_default(dtype, def
 @pytest.mark.inference(concern="predictive")
 def test_mixed_delta_density_draws_and_missingness_remain_exact():
     covariance = jnp.eye(2) * 100.0
-    compiled = compile_observation_model(["delta", "poisson"], manifest_cov=covariance)
+    compiled = compile_observation_model(
+        [DistributionFamily.DELTA, DistributionFamily.POISSON], manifest_cov=covariance
+    )
     kernel = compiled.kernel
     predictor = jnp.array([-2.0, jnp.log(3.0)])
     observed = jnp.array([-2.0, 2.0])
@@ -208,7 +218,7 @@ def test_exact_window_mean_constrains_the_summary_without_pinning_the_path():
     )
     covariance = jnp.zeros((1, 1))
     compiled = compile_observation_model(
-        ["delta"], manifest_cov=covariance, observation_support=support
+        [DistributionFamily.DELTA], manifest_cov=covariance, observation_support=support
     )
     assert compiled.observation_operator is not None
     assert compiled.mean_log_prob_fn is not None
@@ -241,7 +251,9 @@ def test_unsupported_delta_constraints_fail_before_parameter_initialization(
                     law=ObservationLawSpec(
                         distribution="Delta",
                         arguments={
-                            "v": observation_law(owner.id, "gaussian", "identity").arguments["loc"]
+                            "v": observation_law(
+                                owner.id, DistributionFamily.GAUSSIAN, LinkFunction.IDENTITY
+                            ).arguments["loc"]
                         },
                     ),
                     reasoning="An affine equality needs a different constraint parameterization.",

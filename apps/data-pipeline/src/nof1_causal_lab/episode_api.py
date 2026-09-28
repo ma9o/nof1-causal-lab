@@ -14,8 +14,9 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, Respons
 from pydantic import BaseModel, ConfigDict, Field
 
 from nof1_causal_lab.actions.contracts import ScientificActionRequest  # noqa: TC001
+from nof1_causal_lab.actions.data_diff import DataDiffReport, DataDiffRequest
 from nof1_causal_lab.actions.results import ActionPoll, ActionReceipt
-from nof1_causal_lab.actions.revisions import ModelComparison, RevisionCatalog
+from nof1_causal_lab.actions.revisions import ModelDiffReport, RevisionCatalog
 from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
 from nof1_causal_lab.artifacts.identity import (
     SCIENTIFIC_ACTION_IDS,
@@ -490,19 +491,47 @@ def read_model_revision(workspace_id: str, revision: GitOid) -> ModelSpec:
     return read_model(ArtifactStore(_safe_workspace_id(workspace_id)), revision)
 
 
-@router.get("/{workspace_id}/revisions/compare", response_model=ModelComparison)
-def compare_model_revisions(
+@router.get("/{workspace_id}/model-diff", response_model=ModelDiffReport, operation_id="model_diff")
+def get_model_diff(
     workspace_id: str,
     before: GitOid,
     after: GitOid,
-) -> ModelComparison:
-    """Compare the selected graph, decisions and evidence at any two committed checkpoints."""
-    from nof1_causal_lab.actions.revisions import compare_checkpoints
+) -> ModelDiffReport:
+    """Compare two model artifact revisions or Git checkpoints containing a model.
+
+    Returns identity-aligned definition changes, parameter decisions and graph
+    differences. Checkpoint selections also include their recorded fit/simulation
+    evidence; selecting a model tree alone does not infer an associated run.
+    """
+    from nof1_causal_lab.actions.revisions import model_diff
 
     try:
-        return compare_checkpoints(_safe_workspace_id(workspace_id), before, after)
+        return model_diff(_safe_workspace_id(workspace_id), before, after)
     except SnapshotRevisionNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/{workspace_id}/data-diff", response_model=DataDiffReport, operation_id="data_diff")
+def post_data_diff(workspace_id: str, request: DataDiffRequest) -> DataDiffReport:
+    """Compare existing datasets without creating an action, fitting or simulating.
+
+    Each side accepts a data reference or a nonempty array of references. Panel
+    references select artifact revisions; simulation references select applied
+    simulation commits and optionally one replicate (otherwise every draw).
+    A simulation's optional time_origin maps model day zero to a calendar instant.
+    Exact anchors and measurement windows determine which predictive comparisons
+    are available. Results preserve each history and report incompatible inputs.
+    """
+    from nof1_causal_lab.actions.data_diff import read_data_diff
+
+    try:
+        return read_data_diff(_safe_workspace_id(workspace_id), request)
+    except (KeyError, FileNotFoundError) as exc:
+        raise HTTPException(
+            status_code=404, detail="Data revision or its recorded arrays were not found"
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get(

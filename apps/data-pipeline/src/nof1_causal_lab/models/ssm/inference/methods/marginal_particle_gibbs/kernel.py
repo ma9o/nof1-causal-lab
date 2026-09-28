@@ -33,7 +33,7 @@ MALA step of ``h = 0.1`` corresponds to ``param_step_size = 0.025`` here.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Literal, NamedTuple
 
 import jax
 import jax.numpy as jnp
@@ -45,7 +45,6 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._conte
 )
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._contract import (
     _DSMC_LEAF_PROPOSAL_PAID_MIX,
-    _DSMC_LEAF_PROPOSALS,
     _LATENT_SMOOTHER_DSMC,
     DSMCLeafProposal,
     MPGibbsLatentSmoother,
@@ -151,8 +150,8 @@ def build_marginal_particle_gibbs_kernel(
     min_scale: float = _DEFAULT_MIN_SCALE,
     max_scale: float = _DEFAULT_MAX_SCALE,
     parameter_preconditioner_chol: jnp.ndarray | None = None,
-    parameter_proposal: str = "pseudo_langevin",
-    latent_smoother: str = _LATENT_SMOOTHER_DSMC,
+    parameter_proposal: Literal["random_walk", "pseudo_langevin"] = "pseudo_langevin",
+    latent_smoother: Literal["dsmc"] = _LATENT_SMOOTHER_DSMC,
     latent_delta: float = 0.2,
     amala_delta_init: float = _DEFAULT_AMALA_DELTA_INIT,
     amala_delta_min: float = _DEFAULT_AMALA_DELTA_MIN,
@@ -196,11 +195,6 @@ def build_marginal_particle_gibbs_kernel(
             "marginal_particle_gibbs min_scale must be <= max_scale; "
             f"got {min_scale} > {max_scale}."
         )
-    if parameter_proposal not in ("random_walk", "pseudo_langevin"):
-        raise ValueError(
-            "marginal_particle_gibbs parameter_proposal must be 'random_walk' or "
-            f"'pseudo_langevin'; got {parameter_proposal!r}."
-        )
     if amala_delta_init <= 0.0:
         raise ValueError(
             f"marginal_particle_gibbs amala_delta_init must be positive; got {amala_delta_init}."
@@ -242,12 +236,6 @@ def build_marginal_particle_gibbs_kernel(
     if amala_grad_clip <= 0.0:
         raise ValueError(
             f"marginal_particle_gibbs amala_grad_clip must be positive; got {amala_grad_clip}."
-        )
-    if dsmc_leaf_proposal not in _DSMC_LEAF_PROPOSALS:
-        allowed = ", ".join(repr(candidate) for candidate in _DSMC_LEAF_PROPOSALS)
-        raise ValueError(
-            "marginal_particle_gibbs dsmc_leaf_proposal must be one of "
-            f"{allowed}; got {dsmc_leaf_proposal!r}."
         )
     if latent_block_coords is not None and latent_block_coords < 1:
         raise ValueError(

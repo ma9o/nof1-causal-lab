@@ -12,7 +12,7 @@ from nof1_causal_lab.models.ssm.counterfactual import (
     build_segment_bounds,
     vmap_simulate_interventions_from_state,
 )
-from nof1_causal_lab.models.ssm.dynamics import DynamicsDraws, VectorField
+from nof1_causal_lab.models.ssm.dynamics import DynamicsDraws, ProcessNoise, VectorField
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
 
 # var1 is driven by var0; both stable. Baseline steady state is η* = -A⁻¹c = [1, 1].
@@ -138,7 +138,11 @@ def test_event_simulation_rejects_misaligned_draw_inputs(bad_axis):
     covariances = jnp.zeros((3, 1, 1)) if bad_axis == "covariance" else jnp.zeros((3, 2, 2))
     with pytest.raises(ValueError, match="must match the dynamics"):
         vmap_simulate_interventions_from_state(
-            draws, initial, [], time_grid=_TIME_GRID, keys=keys, diffusion_cov=covariances
+            draws,
+            initial,
+            [],
+            time_grid=_TIME_GRID,
+            noise=ProcessNoise(key=keys, diffusion_cov=covariances),
         )
 
 
@@ -151,8 +155,10 @@ def test_stochastic_paths_share_noise_before_a_noninteger_event():
         _STEADY_STATE,
         [intervention],
         time_grid=grid,
-        keys=jax.random.split(jax.random.key(0), 1),
-        diffusion_cov=jnp.eye(2)[None] * 0.1,
+        noise=ProcessNoise(
+            key=jax.random.split(jax.random.key(0), 1),
+            diffusion_cov=jnp.eye(2)[None] * 0.1,
+        ),
     )
     assert jnp.array_equal(baseline[:, :2], action[:, :2])
     assert action[0, 2, 0] == 3.0

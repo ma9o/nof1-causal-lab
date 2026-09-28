@@ -39,7 +39,7 @@ def compile_exact_state_constraints(
 ) -> ExactStateConstraints | None:
     """Condition direct state bindings without discarding their dynamics density."""
     exact = [
-        (index, indicator)
+        (index, indicator, indicator.likelihood)
         for index, indicator in enumerate(numeric.observed_indicators(spec))
         if indicator.likelihood is not None and indicator.likelihood.law.distribution == "Delta"
     ]
@@ -48,9 +48,8 @@ def compile_exact_state_constraints(
     observed = np.asarray(observations)
     values = np.full((len(observed), numeric.n_states(spec)), np.nan, dtype=observed.dtype)
     state_indices = {identity: index for index, identity in enumerate(spec.state_order)}
-    for column, indicator in exact:
-        assert indicator.likelihood is not None
-        expression = indicator.likelihood.law.arguments["v"]
+    for column, indicator, likelihood in exact:
+        expression = likelihood.law.arguments["v"]
         if indicator.support_kind != "point" or not isinstance(expression, StateExpression):
             raise ValueError(
                 f"Delta indicator {indicator.name!r} requires a direct point binding "

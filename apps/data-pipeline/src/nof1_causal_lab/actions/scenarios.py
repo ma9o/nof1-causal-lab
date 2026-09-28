@@ -81,7 +81,7 @@ def summarize_causal_simulation(
     )
     manifest: dict[str, float] = {
         identity: float(difference[:, -1, i].mean())
-        for i, identity in enumerate(report.indicator_ids)
+        for i, identity in enumerate(report.observation_layout.indicator_ids)
         if np.isfinite(difference[:, -1, i]).all()
     }
     result = CausalEffectResult(
@@ -101,7 +101,7 @@ def summarize_causal_simulation(
         manifest_effects=manifest,
         reference_mean=float(reference[:, -1, report.state_ids.index(outcome)].mean()),
         warnings=[]
-        if len(manifest) == len(report.indicator_ids)
+        if len(manifest) == len(report.observation_layout.indicator_ids)
         else [
             "Some indicator contrasts are unavailable because their measurement windows extend before simulation start."
         ],

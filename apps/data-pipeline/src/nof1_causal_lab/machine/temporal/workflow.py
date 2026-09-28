@@ -162,7 +162,7 @@ class EpisodeWorkflow:
         seq = self._seq
         action = request.request
         plan = None if isinstance(action, EditModelRequest) else plan_execution(action)
-        operation_id = plan.operation_id if plan is not None else None
+        operation_id = plan.operation.operation_id if plan is not None else None
 
         self._branch = request.branch
         self._base = await workflow.execute_activity(
@@ -197,7 +197,7 @@ class EpisodeWorkflow:
                     start_to_close_timeout=_WRITE_TIMEOUT,
                     retry_policy=_ACTIVITY_RETRY,
                 )
-            elif plan is not None and plan.operation_id == "measurements":
+            elif plan is not None and plan.operation.operation_id == "measurements":
                 raw_effects = await workflow.execute_child_workflow(
                     "SingleLLMTransitionWorkflow",
                     SingleLLMTransitionWorkflowInput(
@@ -205,7 +205,7 @@ class EpisodeWorkflow:
                         seq=seq,
                         transition_id="raw_data",
                         state=self._state,
-                        options=plan.options,
+                        source=plan.operation.preparation.source,
                     ),
                     id=f"raw-data-{self._workspace_id}-{seq:06d}",
                     result_type=TransitionEffects,
@@ -223,8 +223,7 @@ class EpisodeWorkflow:
                         workspace_id=self._workspace_id,
                         seq=seq,
                         state=apply_transition(self._state, raw_effects.produced),
-                        input_revisions=plan.input_revisions,
-                        options=plan.options,
+                        preparation=plan.operation.preparation,
                     ),
                     id=f"measurements-{self._workspace_id}-{seq:06d}",
                     result_type=TransitionEffects,
@@ -236,19 +235,20 @@ class EpisodeWorkflow:
                         "action": action.action,
                     },
                 )
-                effects = effects.model_copy(update={
-                    "produced": [*raw_effects.produced, *effects.produced],
-                })
+                effects = effects.model_copy(
+                    update={
+                        "produced": [*raw_effects.produced, *effects.produced],
+                    }
+                )
             else:
                 assert plan is not None
                 effects = await workflow.execute_activity(
                     "run_transition_activity",
                     OperationInput(
                         workspace_id=self._workspace_id,
-                        operation_id=plan.operation_id,
+                        operation=plan.operation,
                         state=self._state,
                         input_revisions=plan.input_revisions,
-                        options=plan.options,
                     ),
                     result_type=TransitionEffects,
                     start_to_close_timeout=_RUN_TRANSITION_TIMEOUT,
@@ -256,8 +256,11 @@ class EpisodeWorkflow:
                 )
             if action.action in {"edit_model", "prepare_data", "fit"}:
                 message = ActionMessage(
-                    timestamp=workflow.now(), level="info",
-                    label="DATA_CHECKS_STARTED" if action.action == "prepare_data" else "MODEL_CHECKS_STARTED"
+                    timestamp=workflow.now(),
+                    level="info",
+                    label="DATA_CHECKS_STARTED"
+                    if action.action == "prepare_data"
+                    else "MODEL_CHECKS_STARTED",
                 )
                 self._messages = (*self._messages, message)
                 self._attempts[request.attempt_id] = ActionPoll(done=False, messages=self._messages)
@@ -274,7 +277,9 @@ class EpisodeWorkflow:
                     retry_policy=_JOURNAL_RETRY,
                 )
                 effects = await workflow.execute_activity(
-                    "evaluate_data_checks_activity" if action.action == "prepare_data" else "evaluate_model_checks_activity",
+                    "evaluate_data_checks_activity"
+                    if action.action == "prepare_data"
+                    else "evaluate_model_checks_activity",
                     EvaluateChecksInput(
                         workspace_id=self._workspace_id,
                         action=action.action,

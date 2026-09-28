@@ -112,22 +112,22 @@ class ExpressionValue(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
 
-    def __add__(self, other: ExpressionValue | float) -> BinaryExpression:
+    def __add__(self: Expression, other: Expression | float) -> BinaryExpression:
         return BinaryExpression(operator="add", left=self, right=expression(other))
 
-    def __sub__(self, other: ExpressionValue | float) -> BinaryExpression:
+    def __sub__(self: Expression, other: Expression | float) -> BinaryExpression:
         return BinaryExpression(operator="subtract", left=self, right=expression(other))
 
-    def __mul__(self, other: ExpressionValue | float) -> BinaryExpression:
+    def __mul__(self: Expression, other: Expression | float) -> BinaryExpression:
         return BinaryExpression(operator="multiply", left=self, right=expression(other))
 
-    def __truediv__(self, other: ExpressionValue | float) -> BinaryExpression:
+    def __truediv__(self: Expression, other: Expression | float) -> BinaryExpression:
         return BinaryExpression(operator="divide", left=self, right=expression(other))
 
-    def __pow__(self, other: ExpressionValue | float) -> BinaryExpression:
+    def __pow__(self: Expression, other: Expression | float) -> BinaryExpression:
         return BinaryExpression(operator="power", left=self, right=expression(other))
 
-    def __neg__(self) -> BinaryExpression:
+    def __neg__(self: Expression) -> BinaryExpression:
         return LiteralExpression(value=-1) * self
 
 
@@ -207,21 +207,10 @@ type Expression = Annotated[
 ]
 
 
-def expression(value: ExpressionValue | float) -> Expression:
-    if isinstance(
-        value,
-        (
-            LiteralExpression,
-            StateExpression,
-            CoefficientExpression,
-            BinaryExpression,
-            CallExpression,
-        ),
-    ):
-        return value
+def expression(value: Expression | float) -> Expression:
     if isinstance(value, (float, int)):
         return LiteralExpression(value=value)
-    raise TypeError("Arithmetic requires a concrete scalar expression or finite number")
+    return value
 
 
 def state(identity: ConstructId) -> StateExpression:

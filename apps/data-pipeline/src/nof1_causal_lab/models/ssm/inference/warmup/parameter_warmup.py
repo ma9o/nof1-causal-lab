@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import jax
 import jax.numpy as jnp
@@ -145,11 +145,11 @@ def prepare_parameter_warmup(
     seed: int,
     n_ieks_iters: int,
     num_chains: int,
-    init_method: str,
+    init_method: Literal["random", "pathfinder"],
     initial_positions_override: jnp.ndarray | None,
     init_scale: float,
     parameter_preconditioner_chol: jnp.ndarray | None,
-    auto_preconditioner_method: str,
+    auto_preconditioner_method: Literal["map", "none", "pathfinder"],
     auto_preconditioner_maxiter: int,
     pathfinder_num_elbo_samples: int,
     pathfinder_maxiter: int,
@@ -166,17 +166,6 @@ def prepare_parameter_warmup(
     initialization and preconditioning, this function runs the fit once and hands
     the same best-ELBO Gaussian to both consumers.
     """
-    if init_method not in {"random", "pathfinder"}:
-        raise ValueError(
-            f"Unsupported {method_label} init_method {init_method!r}. "
-            "Supported: 'random' or 'pathfinder'."
-        )
-    if auto_preconditioner_method not in {"map", "none", "pathfinder"}:
-        raise ValueError(
-            f"Unsupported auto_preconditioner_method {auto_preconditioner_method!r}. "
-            "Supported: 'map', 'none', or 'pathfinder'."
-        )
-
     total_t0 = time.monotonic()
     dim = int(bundle.initial_position.shape[0])
     dtype = bundle.initial_position.dtype

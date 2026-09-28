@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 import numpyro.distributions as dist
 
+from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
 from nof1_causal_lab.models.predictive_simulation import sample_model_observations
 from nof1_causal_lab.models.ssm.execution.contracts import MeasurementParams
 from nof1_causal_lab.models.ssm.execution.dynamical_model import HeterogeneousObservation
@@ -48,7 +49,12 @@ def sample_observation_fixture(
         return jnp.broadcast_to(value, (n_use, *value.shape))
 
     families, links = resolve_manifest_families_and_links(
-        manifest_dists or ["gaussian"] * channels, manifest_links=manifest_links
+        [DistributionFamily(value) for value in manifest_dists]
+        if manifest_dists is not None
+        else [DistributionFamily.GAUSSIAN] * channels,
+        manifest_links=[None if value is None else LinkFunction(value) for value in manifest_links]
+        if manifest_links is not None
+        else None,
     )
     if manifest_level_counts is None and any_family_needs_level_metadata(families):
         raise ValueError("manifest_level_counts is required for discrete observation fixtures")

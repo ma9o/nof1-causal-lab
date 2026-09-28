@@ -37,8 +37,8 @@ def indicator_has_additive_location_support(
 
 
 def should_auto_standardize_indicator(  # noqa: V103 - explicit authoring policy for callers; never applied by edit_model
-    distribution: DistributionFamily | str,
-    link: LinkFunction | str,
+    distribution: DistributionFamily,
+    link: LinkFunction,
     support_kind: str | None,
     summary_operator: str | None,
 ) -> bool:
@@ -52,21 +52,20 @@ def should_auto_standardize_indicator(  # noqa: V103 - explicit authoring policy
     would have their support broken by any affine data transform.
     """
     return (
-        DistributionFamily(distribution) in _LOCATION_FAMILIES
-        and LinkFunction(link) == LinkFunction.IDENTITY
+        distribution in _LOCATION_FAMILIES
+        and link == LinkFunction.IDENTITY
         and indicator_has_additive_location_support(support_kind, summary_operator)
     )
 
 
 def indicator_requires_observation_intercept(
-    distribution: DistributionFamily | str,
-    link: LinkFunction | str,
+    distribution: DistributionFamily,
+    link: LinkFunction,
     *,
     standardized: bool,
 ) -> bool:
     """Return whether a manifest channel needs a free observation intercept."""
-    family = DistributionFamily(distribution)
-    resolved_link = LinkFunction(link)
+    family = distribution
 
     if family in _THRESHOLD_FAMILIES:
         return False
@@ -76,7 +75,7 @@ def indicator_requires_observation_intercept(
 
     if (
         family in _LOCATION_FAMILIES or family == DistributionFamily.DELTA
-    ) and resolved_link == LinkFunction.IDENTITY:
+    ) and link == LinkFunction.IDENTITY:
         return not standardized
 
     return False

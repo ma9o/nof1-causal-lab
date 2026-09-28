@@ -10,7 +10,11 @@ import argparse
 import json
 from pathlib import Path
 
-from nof1_causal_lab.actions.revisions import compare_model_graph, compare_parameters
+from nof1_causal_lab.actions.revisions import (
+    compare_model_definitions,
+    compare_model_graph,
+    compare_parameters,
+)
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.model_inputs import input_fingerprints
 
@@ -56,6 +60,9 @@ def build_outputs():
             parameters = compare_parameters(left, right)
             before = input_fingerprints(left)
             comparisons[f"{before_version}:{after_version}"] = {
+                "definition_changes": [
+                    item.model_dump(mode="json") for item in compare_model_definitions(left, right)
+                ],
                 "parameters": [item.model_dump(mode="json") for item in parameters],
                 "graph": compare_model_graph(left, right, parameters).model_dump(mode="json"),
                 "changed_inputs": [

@@ -70,10 +70,16 @@ def completion_messages(
             if report.non_identifiable:
                 labels["TARGET_NOT_IDENTIFIED"] = "warn"
         elif artifact.artifact_id == "data_profile":
-            profile = DataProfileArtifact.model_validate(store.read_json_file(
-                "data_profile", artifact.revision, "data_profile.json",
-            ))
-            issues = profile.dataset_issues + [issue for audit in profile.indicators.values() for issue in audit.issues]
+            profile = DataProfileArtifact.model_validate(
+                store.read_json_file(
+                    "data_profile",
+                    artifact.revision,
+                    "data_profile.json",
+                )
+            )
+            issues = profile.dataset_issues + [
+                issue for audit in profile.indicators.values() for issue in audit.issues
+            ]
             if any(issue.severity in {"error", "warning"} for issue in issues):
                 labels["DATA_QUALITY_FINDINGS"] = "warn"
         elif artifact.artifact_id == "validation_report":
@@ -97,10 +103,7 @@ def completion_messages(
         labels["EXTRACTION_PARTIAL"] = "warn"
     if action == "simulate":
         simulation = TypeAdapter(SimulationReport).validate_python(diagnostics["report"])
-        if any(finding.passed is False for finding in simulation.findings) or (
-            simulation.predictive_checks is not None
-            and any(not finding.passed for finding in simulation.predictive_checks.per_variable_warnings)
-        ):
+        if any(finding.passed is False for finding in simulation.findings):
             labels["PREDICTIVE_CHECK_FAILED"] = "warn"
         if any(finding.passed is None for finding in simulation.findings):
             labels["SIMULATION_CHECK_NOT_EVALUATED"] = "info"

@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import jax.scipy.stats as jstats
 import pytest
 
+from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
 from nof1_causal_lab.models.ssm.execution.emissions import (
     emission_log_prob_bernoulli,
     emission_log_prob_bernoulli_probit,
@@ -181,7 +182,7 @@ class TestGammaEmission:
         z = jnp.array([jnp.log(2.0)])
         y = jnp.array([0.0])
         mask = jnp.ones(1)
-        fn = get_emission_fn("gamma", extra_params={"obs_shape": 2.0})
+        fn = get_emission_fn(DistributionFamily.GAMMA, extra_params={"obs_shape": 2.0})
         lp = fn(y, H @ z + d, R, mask)
         assert jnp.isneginf(lp)
 
@@ -330,7 +331,7 @@ class TestBetaEmission:
 @pytest.mark.inference(concern="sampling")
 class TestMeanParamLogProb:
     def test_gamma_invalid_support_returns_negative_infinity(self):
-        fn = get_mean_param_log_prob_fn("gamma", extra_params={"obs_shape": 2.0})
+        fn = get_mean_param_log_prob_fn(DistributionFamily.GAMMA, extra_params={"obs_shape": 2.0})
         lp = fn(
             jnp.array([0.0], dtype=jnp.float32),
             jnp.array([2.0], dtype=jnp.float32),
@@ -340,7 +341,9 @@ class TestMeanParamLogProb:
         assert jnp.isneginf(lp)
 
     def test_beta_invalid_mean_returns_negative_infinity(self):
-        fn = get_mean_param_log_prob_fn("beta", extra_params={"obs_concentration": 10.0})
+        fn = get_mean_param_log_prob_fn(
+            DistributionFamily.BETA, extra_params={"obs_concentration": 10.0}
+        )
         lp = fn(
             jnp.array([0.5], dtype=jnp.float32),
             jnp.array([1.2], dtype=jnp.float32),
@@ -358,12 +361,12 @@ class TestMeanParamLogProb:
 class TestGetEmissionFn:
     @pytest.mark.inference(concern="sampling")
     def test_bernoulli_probit(self):
-        fn = get_emission_fn("bernoulli", link="probit")
+        fn = get_emission_fn(DistributionFamily.BERNOULLI, link=LinkFunction.PROBIT)
         assert fn is emission_log_prob_bernoulli_probit
 
     @pytest.mark.inference(concern="sampling")
     def test_student_t_wraps_df(self):
-        fn = get_emission_fn("student_t", extra_params={"obs_df": 10.0})
+        fn = get_emission_fn(DistributionFamily.STUDENT_T, extra_params={"obs_df": 10.0})
         H = jnp.eye(1)
         z = jnp.array([0.0])
         y = jnp.array([1.0])
@@ -377,7 +380,7 @@ class TestGetEmissionFn:
 
     @pytest.mark.inference(concern="sampling")
     def test_gamma_default_log_matches_direct(self):
-        fn = get_emission_fn("gamma", extra_params={"obs_shape": 2.0})
+        fn = get_emission_fn(DistributionFamily.GAMMA, extra_params={"obs_shape": 2.0})
         H = jnp.eye(1)
         z = jnp.array([jnp.log(3.0)])
         y = jnp.array([2.0])
@@ -391,7 +394,9 @@ class TestGetEmissionFn:
 
     @pytest.mark.inference(concern="sampling")
     def test_gamma_inverse_matches_direct(self):
-        fn = get_emission_fn("gamma", extra_params={"obs_shape": 2.0}, link="inverse")
+        fn = get_emission_fn(
+            DistributionFamily.GAMMA, extra_params={"obs_shape": 2.0}, link=LinkFunction.INVERSE
+        )
         H = jnp.eye(1)
         z = jnp.array([0.5])
         y = jnp.array([1.5])
@@ -405,7 +410,7 @@ class TestGetEmissionFn:
 
     @pytest.mark.inference(concern="sampling")
     def test_negative_binomial_matches_direct(self):
-        fn = get_emission_fn("negative_binomial", extra_params={"obs_r": 5.0})
+        fn = get_emission_fn(DistributionFamily.NEGATIVE_BINOMIAL, extra_params={"obs_r": 5.0})
         H = jnp.eye(1)
         z = jnp.array([jnp.log(3.0)])
         y = jnp.array([2.0])
@@ -419,7 +424,7 @@ class TestGetEmissionFn:
 
     @pytest.mark.inference(concern="sampling")
     def test_beta_default_logit_matches_direct(self):
-        fn = get_emission_fn("beta", extra_params={"obs_concentration": 10.0})
+        fn = get_emission_fn(DistributionFamily.BETA, extra_params={"obs_concentration": 10.0})
         H = jnp.eye(1)
         z = jnp.array([0.0])
         y = jnp.array([0.5])
@@ -433,7 +438,11 @@ class TestGetEmissionFn:
 
     @pytest.mark.inference(concern="sampling")
     def test_beta_probit_matches_direct(self):
-        fn = get_emission_fn("beta", extra_params={"obs_concentration": 10.0}, link="probit")
+        fn = get_emission_fn(
+            DistributionFamily.BETA,
+            extra_params={"obs_concentration": 10.0},
+            link=LinkFunction.PROBIT,
+        )
         H = jnp.eye(1)
         z = jnp.array([0.0])
         y = jnp.array([0.5])
@@ -450,12 +459,12 @@ class TestGetEmissionFn:
         cutpoints = jnp.array([[-1.0, 1.0]])
         level_counts = jnp.array([3])
         fn = get_emission_fn(
-            "ordered_logistic",
+            DistributionFamily.ORDERED_LOGISTIC,
             extra_params={
                 "obs_level_counts": level_counts,
                 "obs_ordered_cutpoints": cutpoints,
             },
-            link="cumulative_logit",
+            link=LinkFunction.CUMULATIVE_LOGIT,
         )
         H = jnp.eye(1)
         z = jnp.array([0.0])
@@ -474,13 +483,13 @@ class TestGetEmissionFn:
         slopes = jnp.array([[0.2, -0.4]])
         level_counts = jnp.array([3])
         fn = get_emission_fn(
-            "categorical",
+            DistributionFamily.CATEGORICAL,
             extra_params={
                 "obs_level_counts": level_counts,
                 "obs_cat_intercepts": intercepts,
                 "obs_cat_slopes": slopes,
             },
-            link="softmax",
+            link=LinkFunction.SOFTMAX,
         )
         H = jnp.eye(1)
         z = jnp.array([0.7])
@@ -494,11 +503,11 @@ class TestGetEmissionFn:
         assert jnp.isclose(lp_dispatch, lp_direct)
 
     @pytest.mark.contract
-    def test_unsupported_raises(self):
-        with pytest.raises(ValueError, match="Unknown distribution family"):
-            get_emission_fn("unsupported_distribution")
+    def test_unsupported_family_rejected_at_parse_boundary(self):
+        with pytest.raises(ValueError, match="is not a valid DistributionFamily"):
+            DistributionFamily("unsupported_distribution")
 
     @pytest.mark.contract
     def test_explicit_invalid_family_link_pair_raises(self):
         with pytest.raises(ValueError, match="invalid for observation family 'gaussian'"):
-            get_emission_fn("gaussian", link="log")
+            get_emission_fn(DistributionFamily.GAUSSIAN, link=LinkFunction.LOG)

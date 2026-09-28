@@ -57,7 +57,7 @@ def assemble_sampled_extra_params(
 
         # Cutpoints are NOT centered: the threshold base is the channel-side
         # location parameter, identified against the construct's latent-side
-        # location anchor (see docs/reference/statistical-model-spec/identification.md).
+        # location anchor (see docs/assumptions.md#parameter-anchors).
         # Centering here would both kill the base (it cancels exactly) and
         # over-anchor constructs whose location is already pinned elsewhere.
         raw_cutpoints = jnp.concatenate(
@@ -84,7 +84,7 @@ def assemble_sampled_extra_params(
         if any(numeric.categorical_anchors(spec)):
             # Scale/sign anchor for all-categorical constructs: the anchor
             # channel's first non-baseline slope is pinned to +1 (see
-            # docs/reference/statistical-model-spec/identification.md).
+            # docs/assumptions.md#parameter-anchors).
             anchor_rows = jnp.asarray(numeric.categorical_anchors(spec), dtype=bool)
             anchor_entries = anchor_rows[:, None] & (jnp.arange(max_cutpoints)[None, :] == 0)
             cat_slopes = jnp.where(anchor_entries, 1.0, cat_slopes)

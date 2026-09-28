@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import functools
 import time
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, Literal, TypedDict
 
 import jax
 import jax.numpy as jnp
@@ -133,7 +133,7 @@ def run_marginal_particle_gibbs(
     initial_latent_trajectories: jnp.ndarray | None = None,
     compute_latent_posterior_summary: bool = True,
     # Both adaptation policies stop updating after warmup.
-    adaptation_scheme: str = "simple",
+    adaptation_scheme: Literal["simple", "dual_averaging"] = "simple",
     profile_dir: str | None = None,
     profile_compile_analysis: bool = True,
     profile_runtime_trace: bool = True,
@@ -141,10 +141,6 @@ def run_marginal_particle_gibbs(
     profile_trace_steps: int = 3,
 ) -> ParticleChainResult:
     """Run marginalized Particle Gibbs chains."""
-    if adaptation_scheme not in {"simple", "dual_averaging"}:
-        raise ValueError(
-            f"Unknown adaptation_scheme {adaptation_scheme!r}; expected 'simple' or 'dual_averaging'."
-        )
     if profile_trace_start_step < 0:
         raise ValueError("profile_trace_start_step must be non-negative.")
     if profile_trace_steps <= 0:

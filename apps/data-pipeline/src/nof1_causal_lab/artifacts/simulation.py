@@ -50,6 +50,11 @@ class SimulationObservationLayout(BaseModel):
     support_end_times: str
     mask: str
 
+    @property
+    def indicator_ids(self) -> tuple[IndicatorId, ...]:
+        """The observation axis is owned by the ordered variable definitions."""
+        return tuple(item.id for item in self.variables)
+
     @model_validator(mode="after")
     def resolved_variables(self) -> Self:
         if len({item.id for item in self.variables}) != len(self.variables):
@@ -70,7 +75,6 @@ class SimulationReport(BaseModel):
     draws: int = Field(ge=1)
     seed: int = Field(ge=0)
     state_ids: tuple[ConstructId, ...]
-    indicator_ids: tuple[IndicatorId, ...]
     parameter_draws: dict[str, str]
     latent_paths: str
     observations: str
@@ -84,8 +88,6 @@ class SimulationReport(BaseModel):
 
     @model_validator(mode="after")
     def validate_histories(self) -> Self:
-        if self.indicator_ids != tuple(item.id for item in self.observation_layout.variables):
-            raise ValueError("Simulation observation schema must match its indicator order")
         if any(b <= a for a, b in pairwise(self.times)) or self.times[-1] != self.design.end:
             raise ValueError("Simulation times must increase through the requested end")
         if self.design.start is not None and self.times[0] != self.design.start:

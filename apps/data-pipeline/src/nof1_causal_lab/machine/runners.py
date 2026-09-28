@@ -11,13 +11,16 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, assert_never
 
 from pydantic import TypeAdapter
 
 from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
 from nof1_causal_lab.machine.execution import (
-    ExecutionOptions,
+    FitOperation,
+    LocalOperation,
+    PrepareSimulationOperation,
+    SimulateOperation,
     TransitionEffects,
     run_retractions,
 )
@@ -27,7 +30,10 @@ from nof1_causal_lab.machine.store import ArtifactStore
 if TYPE_CHECKING:
     import polars as pl
 
-    from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid, OperationId
+    from nof1_causal_lab.artifacts.data_preparation import SimulationReplicateRef
+    from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid
+    from nof1_causal_lab.artifacts.posterior import FitSettingsSpec
+    from nof1_causal_lab.artifacts.simulation import SimulationSpec
     from nof1_causal_lab.machine.artifacts import EpisodeState
 
 
@@ -39,7 +45,7 @@ async def _run_posterior(
     workspace_id: str,
     store: ArtifactStore,
     pins: dict[ArtifactId, GitOid],
-    options: ExecutionOptions,
+    settings: FitSettingsSpec,
 ) -> TransitionEffects:
     from nof1_causal_lab.actions.fit import (
         build_sampler_config,
@@ -58,8 +64,8 @@ async def _run_posterior(
     from nof1_causal_lab.actions.data_checks import require_data_binding
 
     require_data_binding(store, model_spec, pins["panel"])
-    sampler_config = build_sampler_config(options.inference_method)
-    sampler_config.update(options.fit_settings.model_dump(exclude_none=True))
+    sampler_config = build_sampler_config()
+    sampler_config.update(settings.model_dump(exclude_none=True))
 
     result = await asyncio.to_thread(
         fit,
@@ -95,17 +101,14 @@ async def _run_simulate(
     workspace_id: str,
     store: ArtifactStore,
     pins: dict[ArtifactId, GitOid],
-    options: ExecutionOptions,
+    design: SimulationSpec,
 ) -> TransitionEffects:
+    from nof1_causal_lab.actions.scenarios import summarize_causal_simulation
     from nof1_causal_lab.actions.simulate import simulate
     from nof1_causal_lab.artifacts.identity import GitRef
-    from nof1_causal_lab.machine.store import read_model
-
-    if options.simulation is None:
-        raise ValueError("Simulation requires an explicit design")
-    from nof1_causal_lab.actions.scenarios import summarize_causal_simulation
     from nof1_causal_lab.machine.history import StudyRepository
     from nof1_causal_lab.machine.inference import inference_record
+    from nof1_causal_lab.machine.store import read_model
 
     model = read_model(store, pins["model"])
     from nof1_causal_lab.actions.predictive_checks import law_provenance
@@ -113,13 +116,20 @@ async def _run_simulate(
     report = await asyncio.to_thread(
         simulate,
         model,
-        options.simulation,
+        design,
         revision=GitRef(workspace_id=workspace_id, revision=pins["model"], path="model.json"),
         write_array=store.write_array,
     )
-    report = report.model_copy(update={"law": law_provenance(
-        store, store.read_meta("model", pins["model"]), model, None,
-    )})
+    report = report.model_copy(
+        update={
+            "law": law_provenance(
+                store,
+                store.read_meta("model", pins["model"]),
+                model,
+                None,
+            )
+        }
+    )
     report = summarize_causal_simulation(
         model,
         report,
@@ -138,7 +148,7 @@ async def _run_simulated_measurements(
     workspace_id: str,
     store: ArtifactStore,
     pins: dict[ArtifactId, GitOid],
-    options: ExecutionOptions,
+    source: SimulationReplicateRef,
 ) -> TransitionEffects:
     from nof1_causal_lab.actions.prepare_data import prepare_simulation_panel
     from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
@@ -146,9 +156,6 @@ async def _run_simulated_measurements(
     from nof1_causal_lab.machine.history import StudyRepository
 
     del pins  # The explicit simulation source owns all scientific input selections.
-    source = options.simulation_source
-    if source is None:
-        raise ValueError("Preparing simulated data requires a simulation revision and replicate")
     record = StudyRepository(workspace_id).record(source.revision)
     if record.status != "applied" or record.operation_id != "simulate":
         raise ValueError("The source revision must be an applied simulation commit")
@@ -166,9 +173,12 @@ async def _run_simulated_measurements(
         "panel",
         derived_from=used_pins,
         produced_by="run:simulated_measurements",
-        json_files={json_filename("panel", "metadata"): PreparedDataMetadata(
-            source=source, variables=report.observation_layout.variables,
-        ).model_dump(mode="json")},
+        json_files={
+            json_filename("panel", "metadata"): PreparedDataMetadata(
+                source=source,
+                variables=report.observation_layout.variables,
+            ).model_dump(mode="json")
+        },
         parquet_files={parquet_filename("panel", "panel"): panel},
     )
     return TransitionEffects(
@@ -181,75 +191,60 @@ async def _run_simulated_measurements(
     )
 
 
-_TRANSITION_RUNNERS = {
-    "posterior": _run_posterior,
-    "simulate": _run_simulate,
-    "simulated_measurements": _run_simulated_measurements,
-}
-
-_TEMPORAL_ONLY_TRANSITIONS = frozenset(
-    {
-        "raw_data",
-        "measurements",
-    }
-)
-
-_MODAL_TRANSITIONS = frozenset({"posterior"})
-
-
 async def execute_transition_locally(
     workspace_id: str,
-    artifact_id: OperationId,
+    operation: LocalOperation,
     pins: dict[ArtifactId, GitOid],
     state: EpisodeState,
-    options: ExecutionOptions,
 ) -> TransitionEffects:
     """Run a transition on this process against pinned input versions."""
     from nof1_causal_lab.flows.runtime_events import emit_transition_event
 
     store = ArtifactStore(workspace_id)
-    if artifact_id in _TEMPORAL_ONLY_TRANSITIONS:
-        raise RuntimeError(f"{artifact_id} is implemented only as a Temporal child workflow")
-    runner = _TRANSITION_RUNNERS[artifact_id]
-    emit_transition_event(workspace_id, artifact_id, "running")
+    operation_id = operation.operation_id
+    emit_transition_event(workspace_id, operation_id, "running")
     try:
-        run = await runner(workspace_id, store, pins, options)
+        if isinstance(operation, FitOperation):
+            run = await _run_posterior(workspace_id, store, pins, operation.settings)
+        elif isinstance(operation, SimulateOperation):
+            run = await _run_simulate(workspace_id, store, pins, operation.design)
+        elif isinstance(operation, PrepareSimulationOperation):
+            run = await _run_simulated_measurements(workspace_id, store, pins, operation.source)
+        else:
+            assert_never(operation)
         effects = run.model_copy(
             update={
-                "retracted": run_retractions(state, transition_spec(artifact_id), run.produced),
+                "retracted": run_retractions(state, transition_spec(operation_id), run.produced),
             }
         )
     except Exception as exc:
         emit_transition_event(
             workspace_id,
-            artifact_id,
+            operation_id,
             "failed",
             error={"type": type(exc).__name__, "message": str(exc)},
         )
         raise
-    emit_transition_event(workspace_id, artifact_id, "completed")
+    emit_transition_event(workspace_id, operation_id, "completed")
     return effects
 
 
 async def execute_transition(
     workspace_id: str,
-    artifact_id: OperationId,
+    operation: LocalOperation,
     state: EpisodeState,
-    options: ExecutionOptions,
     selected_inputs: dict[ArtifactId, GitOid] | None = None,
 ) -> TransitionEffects:
     """Run a transition, routing heavy transitions to Modal in production."""
-    spec = transition_spec(artifact_id)
+    spec = transition_spec(operation.operation_id)
     from nof1_causal_lab.machine.selection import resolve_input_pins
 
     pins = resolve_input_pins(ArtifactStore(workspace_id), state, spec, selected_inputs or {})
-    if artifact_id in _TEMPORAL_ONLY_TRANSITIONS:
-        raise RuntimeError(f"{artifact_id} is implemented only as a Temporal child workflow")
-    if os.environ.get("DEPLOYMENT_ENV") == "production" and artifact_id in _MODAL_TRANSITIONS:
+    if os.environ.get("DEPLOYMENT_ENV") == "production" and isinstance(operation, FitOperation):
         from nof1_causal_lab.flows.modal_runners import run_transition_on_modal
         from nof1_causal_lab.machine.store import read_model
 
         store = ArtifactStore(workspace_id)
         read_model(store, pins["model"]).check_execution()
-        return await run_transition_on_modal(workspace_id, artifact_id, pins, state, options)
-    return await execute_transition_locally(workspace_id, artifact_id, pins, state, options)
+        return await run_transition_on_modal(workspace_id, operation, pins, state)
+    return await execute_transition_locally(workspace_id, operation, pins, state)

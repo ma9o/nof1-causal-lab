@@ -430,8 +430,6 @@ def validate_discrete_manifest_metadata(spec: ModelSpec, X: pl.DataFrame) -> Non
         strict=True,
     ):
         family_spec = get_family_spec(family)
-        if family_spec is None:
-            raise ValueError(f"Unsupported emission family {family}")
         if not family_spec.needs_level_metadata:
             continue
         if count < 2:
@@ -465,8 +463,6 @@ def validate_observation_support(spec: ModelSpec, X: pl.DataFrame) -> None:
             continue
 
         family_spec = get_family_spec(dist)
-        if family_spec is None:
-            continue
         invalid = family_spec.validate_support(values)
         if not np.any(invalid):
             continue

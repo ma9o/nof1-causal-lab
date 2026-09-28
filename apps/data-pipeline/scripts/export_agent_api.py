@@ -49,7 +49,7 @@ def _example_from_schema(
     The authoritative, hand-written body examples live in the app description;
     this is just a shape hint next to each endpoint.
     """
-    if depth > _MAX_EXAMPLE_DEPTH or not isinstance(schema, dict):
+    if depth > _MAX_EXAMPLE_DEPTH:
         return {}
 
     ref = schema.get("$ref")

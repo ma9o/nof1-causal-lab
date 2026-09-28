@@ -17,11 +17,17 @@ def test_simulation_defaults_to_an_unintervened_model_continuation():
     assert set(request.model_dump()) == {
         "action",
         "model_revision",
-        "comparison_panel_revision",
         "start",
         "end",
         "interventions",
     }
+    with pytest.raises(ValidationError, match="Extra inputs"):
+        SimulateRequest.model_validate(
+            {
+                **request.model_dump(),
+                "comparison_panel_revision": "b" * 40,
+            }
+        )
 
 
 def test_interventions_round_trip_with_absolute_times():
@@ -94,11 +100,19 @@ def _response():
         "seed": 0,
         "model": {"workspace_id": "QUERY", "revision": "a" * 40, "path": "model.json"},
         "state_ids": ["construct:x", "construct:y"],
-        "indicator_ids": ["indicator:y"],
         "observation_layout": {
-            "variables": [{"id": "indicator:y", "name": "y", "measurement_dtype": "continuous",
-                "aggregation": "last", "observation_window": "1d"}],
-            "support_start_times": "starts", "support_end_times": "ends", "mask": "mask",
+            "variables": [
+                {
+                    "id": "indicator:y",
+                    "name": "y",
+                    "measurement_dtype": "continuous",
+                    "aggregation": "last",
+                    "observation_window": "1d",
+                }
+            ],
+            "support_start_times": "starts",
+            "support_end_times": "ends",
+            "mask": "mask",
         },
         "parameter_draws": {},
         "latent_paths": "paths",

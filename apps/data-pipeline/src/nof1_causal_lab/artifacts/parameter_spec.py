@@ -25,7 +25,16 @@ class ParameterSpec(BaseModel):
         PriorAuthoringTransform.DT_PERSISTENCE_TO_CT_DECAY,
         PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE,
         PriorAuthoringTransform.INITIAL_STATE_CORRELATION,
-    ] = PriorAuthoringTransform.IDENTITY
+    ] = Field(
+        default=PriorAuthoringTransform.IDENTITY,
+        description=(
+            "Mapping from the authored law to the model quantity: identity leaves its scale "
+            "unchanged; dt_persistence_to_ct_decay maps persistence p to -log(p) / interval; "
+            "dt_effect_to_ct_rate divides an interval effect by its duration in days; "
+            "initial_state_correlation applies the correlation support [-1, 1]. "
+            "Fixed values and joint laws require identity."
+        ),
+    )
     value: FiniteFloat | None = Field(
         default=None,
         description="Known constant on the model quantity scale, exclusive with a distribution.",
@@ -34,7 +43,16 @@ class ParameterSpec(BaseModel):
         default=None,
         description="Membership in a native law in ModelSpec.distributions; may be joint.",
     )
-    reference_interval_days: float | None = Field(default=None, gt=0)
+    reference_interval_days: float | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "Positive duration in days over which an authored persistence or interval-effect "
+            "law is defined, before conversion to continuous-time decay or rate. "
+            "When omitted, persistence uses the model measurement clock; interval effects "
+            "use the edge lag, falling back to that clock."
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_definition(self) -> ParameterSpec:

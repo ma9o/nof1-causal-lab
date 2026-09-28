@@ -1,6 +1,6 @@
 import type {
   ArtifactRecord,
-  ModelComparison,
+  ModelDiffReport,
   ModelSnapshot,
   ModelSpec,
   SimulationReport,
@@ -23,7 +23,7 @@ const freeInputs = demoModelSnapshot.context.state.current.model!.model_inputs;
 const pinnedInputs = comparisonFixture.pinned_inputs;
 const definitionComparisons = comparisonFixture.comparisons as unknown as Record<
   string,
-  Pick<ModelComparison, "graph" | "parameters" | "changed_inputs">
+  Pick<ModelDiffReport, "graph" | "parameters" | "changed_inputs" | "definition_changes">
 >;
 const checks: SpecificationReport = {
   findings: [
@@ -101,9 +101,12 @@ function simulation(revision: string): SimulationReport {
     draws: 100,
     seed: 0,
     state_ids: [],
-    indicator_ids: [],
-    observation_layout: { variables: [], support_start_times: "storybook/starts",
-      support_end_times: "storybook/ends", mask: "storybook/mask" },
+    observation_layout: {
+      variables: [],
+      support_start_times: "storybook/starts",
+      support_end_times: "storybook/ends",
+      mask: "storybook/mask",
+    },
     parameter_draws: {},
     latent_paths: "storybook/latent-paths",
     observations: "storybook/observations",
@@ -352,7 +355,7 @@ export function workbenchHandlers() {
         ? HttpResponse.json(snapshot)
         : HttpResponse.json({ error: "Unknown story version" }, { status: 404 });
     }),
-    http.get(`/api/episodes/${WORKBENCH_WORKSPACE}/revisions/compare`, async ({ request }) => {
+    http.get(`/api/episodes/${WORKBENCH_WORKSPACE}/model-diff`, async ({ request }) => {
       const query = new URL(request.url).searchParams;
       await delay(180);
       const before = snapshotByCommit(query.get("before"));
@@ -381,7 +384,7 @@ export function workbenchHandlers() {
           after.findings.simulation?.source.validity === "fresh"
             ? after.findings.simulation.value
             : null,
-      } satisfies ModelComparison);
+      } satisfies ModelDiffReport);
     }),
   ];
 }

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, assert_never, cast
 from uuid import uuid4
 
 from pydantic import ValidationError
@@ -394,7 +394,7 @@ async def run_harness_turn_activity(input: HarnessTurnInput) -> HarnessTurnResul
             max_turns=input.llm.max_turns,
             max_budget_usd=input.llm.max_budget_usd,
             fallback_model=input.llm.fallback_model,
-            timeout_seconds=float(input.llm.timeout or 900),
+            timeout_seconds=900.0,
             log_label=input.log_label,
             session_id=session_id,
             initial_events=raw_events,
@@ -460,7 +460,7 @@ async def run_harness_turn_activity(input: HarnessTurnInput) -> HarnessTurnResul
                 "session_jsonl": session.session_jsonl,
             }
     else:
-        raise ValueError(f"harness turn activity received backend {input.llm.harness!r}")
+        assert_never(input.llm)
 
     write_subroutine_json(input.harness_state_ref, next_state)
     trace_ref = storage.join(

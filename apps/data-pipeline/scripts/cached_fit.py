@@ -478,14 +478,11 @@ def _prepare_pathfinder_warmup(
         seed=seed,
         n_ieks_iters=n_ieks_iters,
         num_chains=num_chains,
-        init_method=cast("str", sampler_config["init_method"]),
+        init_method="pathfinder",
         initial_positions_override=None,
         init_scale=float(sampler_config["init_scale"]),
         parameter_preconditioner_chol=None,
-        auto_preconditioner_method=cast(
-            "str",
-            sampler_config["auto_preconditioner_method"],
-        ),
+        auto_preconditioner_method="pathfinder",
         auto_preconditioner_maxiter=int(sampler_config["auto_preconditioner_maxiter"]),
         pathfinder_num_elbo_samples=int(sampler_config["pathfinder_num_elbo_samples"]),
         pathfinder_maxiter=int(sampler_config["pathfinder_maxiter"]),
@@ -550,7 +547,7 @@ def _deserialize_panel(payload: bytes, panel_format: PanelFormat) -> Any:
 def _resolved_sampler_config(overrides: JsonDict) -> JsonDict:
     from nof1_causal_lab.actions.fit import build_sampler_config
 
-    resolved = dict(build_sampler_config(None))
+    resolved = dict(build_sampler_config())
     unknown = sorted(set(overrides) - set(resolved))
     if unknown:
         raise ValueError("Unknown sampler override fields: " + ", ".join(unknown))

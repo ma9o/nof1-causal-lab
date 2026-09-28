@@ -23,7 +23,6 @@ dependencies = [
     "jaxtyping>=0.3.0",
     "mcp>=1.0.0",
     "openai>=2.20.0",
-    "optimistix>=0.0.9",
     "networkx>=3.6",
     "numpy>=2.3.3",
     "numpyro>=0.21.0",
@@ -72,6 +71,7 @@ dev = [
     "matplotlib>=3.10.0",
     "nbconvert>=7.16.6",
     "nbformat>=5.10.4",
+    "optimistix>=0.0.9",
     "plotly>=6.7.0",
     # slim[openai], NOT full pydantic-ai: the full meta-package pulls every
     # provider extra, whose combined pins cap resolution at 1.38.0 — below
@@ -251,7 +251,7 @@ replace-imports-with-any = [
 ]
 
 [tool.pytest.ini_options]
-addopts = "-n auto -m 'not (inference or workflow)' --strict-markers --tb=short -ra --instafail --timeout=300 --durations=10 --jaxtyping-packages=nof1_causal_lab.models.ssm.covariance_utils,nof1_causal_lab.models.ssm.dynamics.steady_state,nof1_causal_lab.models.ssm.dynamics.vector_field,nof1_causal_lab.models.ssm.execution.emissions,nof1_causal_lab.models.ssm.execution.observation_kernel_helpers,nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math,nof1_causal_lab.models.ssm.inference.targets.transitions,beartype.beartype"
+addopts = "-n auto -m 'not (inference or workflow)' --strict-markers --tb=short -ra --instafail --timeout=300 --durations=10 --jaxtyping-packages=nof1_causal_lab.models.ssm.covariance_utils,nof1_causal_lab.models.ssm.dynamics.vector_field,nof1_causal_lab.models.ssm.execution.emissions,nof1_causal_lab.models.ssm.execution.observation_kernel_helpers,nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math,nof1_causal_lab.models.ssm.inference.targets.transitions,beartype.beartype"
 markers = [
     "contract: isolated routing, validation, schema, identity, and projection without scientific numerical execution",
     "inference(concern): scientific numerical execution; concern must be sampling, warmup, simulation, predictive, or recovery",

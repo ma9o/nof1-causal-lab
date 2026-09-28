@@ -14,10 +14,14 @@ def open_repository(workspace_id: str, path: Path | None = None) -> pygit2.Repos
     if destination.exists():
         repository = pygit2.Repository(str(destination))
         if "nof1.format" not in repository.config or repository.config.get_int("nof1.format") != 4:
-            raise ValueError("Migrate this study with scripts/migrate_data_preparation.py")
+            raise ValueError(
+                "Migrate this study following docs/guides/agentic_integration_testing.md#migrating-a-local-study (format 4)"
+            )
         return repository
     if (destination.parent / "journal").exists():
-        raise ValueError("Migrate this study with scripts/migrate_data_preparation.py")
+        raise ValueError(
+            "Migrate this study following docs/guides/agentic_integration_testing.md#migrating-a-local-study (format 4)"
+        )
     destination.parent.mkdir(parents=True, exist_ok=True)
     repository = pygit2.init_repository(str(destination), bare=True, initial_head="main")
     repository.config["nof1.format"] = 4

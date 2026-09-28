@@ -337,8 +337,7 @@ def test_indexed_sde_keeps_its_brownian_path_and_uses_dynestyx_evolution(monkeyp
         Intervention.none(),
         initial,
         grid,
-        config=simulator.SimulationConfig(sde_dt=0.01, use_indexed_brownian_path=True),
-        key=key,
-        diffusion_cov=covariance,
+        config=simulator.SimulationConfig(brownian=simulator.IndexedBrownianSpec(step_size=0.01)),
+        noise=simulator.ProcessNoise(key=key, diffusion_cov=covariance),
     )
     assert actual is paths

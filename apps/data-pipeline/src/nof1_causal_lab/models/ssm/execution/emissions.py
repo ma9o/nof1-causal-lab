@@ -521,11 +521,11 @@ def _mean_log_prob(family, values, mean, covariance, mask, extra_params):
 
 
 def get_mean_param_log_prob_fn(
-    manifest_dist: DistributionFamily | str,
+    manifest_dist: DistributionFamily,
     extra_params: LikelihoodExtraParams | None = None,
 ) -> MeanLogProbFn:
     """Density in observation mean space, including interval-summary measurements."""
-    family = DistributionFamily(manifest_dist)
+    family = manifest_dist
     if family == DistributionFamily.GAUSSIAN:
         return emission_log_prob_gaussian
     if family in {DistributionFamily.CATEGORICAL, DistributionFamily.ORDERED_LOGISTIC}:
@@ -534,11 +534,11 @@ def get_mean_param_log_prob_fn(
 
 
 def get_mean_param_sample_fn(
-    manifest_dist: DistributionFamily | str,
+    manifest_dist: DistributionFamily,
     extra_params: LikelihoodExtraParams | None = None,
 ) -> MeanSampleFn:
     """Draw from the same native law used by the observation likelihood."""
-    family = DistributionFamily(manifest_dist)
+    family = manifest_dist
     if family == DistributionFamily.GAUSSIAN:
         return lambda key, mean, R: gaussian_distribution(mean, R).sample(key)
     if family in {DistributionFamily.CATEGORICAL, DistributionFamily.ORDERED_LOGISTIC}:
@@ -549,13 +549,13 @@ def get_mean_param_sample_fn(
 
 
 def build_heterogeneous_mean_log_prob_fn(
-    manifest_dists: Sequence[DistributionFamily | str],
+    manifest_dists: Sequence[DistributionFamily],
     extra_params: LikelihoodExtraParams | None = None,
 ) -> MeanLogProbFn:
     """Build an observation-space log-prob for heterogeneous manifest families."""
     from nof1_causal_lab.artifacts.likelihood import DistributionFamily
 
-    dists = [DistributionFamily(dist) for dist in manifest_dists]
+    dists = list(manifest_dists)
     if len(set(dists)) == 1:
         return get_mean_param_log_prob_fn(dists[0], extra_params)
 
@@ -596,13 +596,13 @@ def build_heterogeneous_mean_log_prob_fn(
 
 
 def build_heterogeneous_mean_sample_fn(
-    manifest_dists: Sequence[DistributionFamily | str],
+    manifest_dists: Sequence[DistributionFamily],
     extra_params: LikelihoodExtraParams | None = None,
 ) -> MeanSampleFn:
     """Build an observation-space sampler for heterogeneous manifest families."""
     from nof1_causal_lab.artifacts.likelihood import DistributionFamily
 
-    dists = [DistributionFamily(dist) for dist in manifest_dists]
+    dists = list(manifest_dists)
     if len(set(dists)) == 1:
         return get_mean_param_sample_fn(dists[0], extra_params)
 

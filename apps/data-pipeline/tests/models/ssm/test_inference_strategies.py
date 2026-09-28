@@ -6,7 +6,6 @@ and particle sampling with ``inference``. Recovery checks live in
 """
 
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, cast
 
 import jax
 import jax.numpy as jnp
@@ -62,7 +61,6 @@ from nof1_causal_lab.models.ssm.inference.utils import _discover_sites
 from nof1_causal_lab.models.ssm.inference.warmup.map import (
     _build_map_laplace_bundle,
 )
-from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 from nof1_causal_lab.models.ssm.structure import (
     ManifestCholBlockSpec,
     SparseMatrixBlockSpec,
@@ -75,9 +73,6 @@ from tests.model_fixtures import (
     make_observation_support_runtime,
     model_fixture,
 )
-
-if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.inference.types import InferenceMethod
 
 
 def _dense_matrix_dynamics_spec(
@@ -918,20 +913,6 @@ class TestInferenceCaching:
 class TestDefaultMethodRouting:
     """Regression tests for default inference routing."""
 
-    @staticmethod
-    def _non_point_support() -> ObservationSupportRuntime:
-        return make_observation_support_runtime(
-            anchor_times=np.array([0.0, 1.0]),
-            manifest_names=["y"],
-            support_kinds=["interval"],
-            observation_windows=["1d"],
-            support_start_times=np.array([[np.nan], [0.0]]),
-            support_end_times=np.array([[np.nan], [1.0]]),
-            interval_prev_coeffs=np.array([[0.0], [0.5]]),
-            interval_curr_coeffs=np.array([[0.0], [0.5]]),
-            interval_weights=np.array([[0.0], [1.0]]),
-        )
-
     def test_default_always_routes_to_marginal_particle_gibbs(self):
         """Default routing resolves to marginalized Particle Gibbs for all model types."""
         from nof1_causal_lab.models.ssm.execution.planning import plan_inference_structure
@@ -966,21 +947,6 @@ class TestDefaultMethodRouting:
         result = fit(model, observations=observations, times=times)
 
         assert result.method == "marginal_particle_gibbs"
-
-    def test_public_fit_rejects_map(self):
-        spec = _one_dim_block_spec()
-        model = SSMModel(spec)
-        model.set_observation_support(self._non_point_support())
-        observations = jnp.array([[jnp.nan], [0.2]], dtype=jnp.float32)
-        times = jnp.array([0.0, 1.0], dtype=jnp.float32)
-
-        with pytest.raises(ValueError, match="Unknown inference method"):
-            fit(
-                model,
-                observations=observations,
-                times=times,
-                method=cast("InferenceMethod", "map"),
-            )
 
 
 def _make_aux_kalman_mcmc_smoke_spec(

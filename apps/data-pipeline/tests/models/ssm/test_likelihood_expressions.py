@@ -18,7 +18,12 @@ from nof1_causal_lab.artifacts.expressions import (
     state,
 )
 from nof1_causal_lab.artifacts.identity import ConstructId, scientific_id
-from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec, ObservationLawSpec
+from nof1_causal_lab.artifacts.likelihood import (
+    DistributionFamily,
+    LikelihoodSpec,
+    LinkFunction,
+    ObservationLawSpec,
+)
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.compilation_errors import IncompleteModelError
@@ -203,7 +208,10 @@ def test_completion_binding_equations_and_migration_follow_the_same_cross_loadin
 @pytest.mark.contract
 def test_partial_law_is_explicit_and_unsupported_formulas_fail_before_execution():
     likelihood = LikelihoodSpec(
-        law=observation_law(ConstructId("construct:x"), "gaussian", "identity"), reasoning="Partial"
+        law=observation_law(
+            ConstructId("construct:x"), DistributionFamily.GAUSSIAN, LinkFunction.IDENTITY
+        ),
+        reasoning="Partial",
     )
     assert all(operand.value is None for operand in likelihood.terms.operands)
     with pytest.raises(ValidationError, match="affine"):
@@ -226,7 +234,8 @@ def test_partial_law_is_explicit_and_unsupported_formulas_fail_before_execution(
     owner = model.constructs[0]
     indicator = owner.indicators[0]
     partial = LikelihoodSpec(
-        law=observation_law(owner.id, "gaussian", "identity"), reasoning="Partial"
+        law=observation_law(owner.id, DistributionFamily.GAUSSIAN, LinkFunction.IDENTITY),
+        reasoning="Partial",
     )
 
     def with_law(law):
@@ -249,7 +258,10 @@ def test_partial_law_is_explicit_and_unsupported_formulas_fail_before_execution(
     with pytest.raises(ValidationError, match="unknown constructs"):
         with_law(likelihood)
     wrong_owner = LikelihoodSpec(
-        law=observation_law(model.constructs[1].id, "gaussian", "identity"), reasoning="Wrong owner"
+        law=observation_law(
+            model.constructs[1].id, DistributionFamily.GAUSSIAN, LinkFunction.IDENTITY
+        ),
+        reasoning="Wrong owner",
     )
     with pytest.raises(ValidationError, match="must include its measured construct"):
         with_law(wrong_owner)

@@ -3,13 +3,35 @@
 import numpyro.distributions as dist
 import pytest
 
-from nof1_causal_lab.actions.revisions import compare_model_graph, compare_parameters
+from nof1_causal_lab.actions.revisions import (
+    compare_model_definitions,
+    compare_model_graph,
+    compare_parameters,
+)
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.models.model_parameters import referenced_parameter_ids
 from nof1_causal_lab.models.model_structure import model_graph_entities
 from tests.helpers import complete_test_model, make_model
 
 pytestmark = pytest.mark.contract
+
+
+def test_complete_definition_diff_includes_laws_and_question_without_list_order_noise():
+    model = complete_test_model(make_model(["X", "Y", "Z"], [("X", "Y"), ("X", "Z")]))
+    parameter = model.parameters[0]
+    revised = model.revised(
+        question="A revised scientific question",
+        distributions={**model.distributions, parameter.distribution: dist.Normal(2.0, 1.0)},
+    )
+    changes = compare_model_definitions(model, revised)
+    assert any(item.path == "/question" and item.after == revised.question for item in changes)
+    assert any(
+        item.path.startswith(f"/distributions/{parameter.distribution}/") for item in changes
+    )
+    reordered = model.revised(
+        edges=tuple(reversed(model.edges)), parameters=tuple(reversed(model.parameters))
+    )
+    assert compare_model_definitions(model, reordered) == []
 
 
 def test_parameter_decisions_and_law_changes_highlight_only_owning_mechanisms():

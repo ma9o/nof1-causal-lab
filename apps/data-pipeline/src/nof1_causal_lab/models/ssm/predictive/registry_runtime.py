@@ -27,7 +27,12 @@ from nof1_causal_lab.models.predictive_simulation import (
 )
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.dynamics.serialization import dynamics_spec_to_dict
-from nof1_causal_lab.models.ssm.dynamics.simulator import SimulationConfig, simulate_model_path
+from nof1_causal_lab.models.ssm.dynamics.simulator import (
+    IndexedBrownianSpec,
+    ProcessNoise,
+    SimulationConfig,
+    simulate_model_path,
+)
 from nof1_causal_lab.models.ssm.dynamics.spec import (
     compile_dynamics,
 )
@@ -204,9 +209,8 @@ def _predictive_sde_config(max_rate: jnp.ndarray, span: float) -> SimulationConf
     if span <= 0.0:
         return SimulationConfig()
     return SimulationConfig(
-        sde_dt=_predictive_sde_step(max_rate, span),
+        brownian=IndexedBrownianSpec(step_size=_predictive_sde_step(max_rate, span)),
         max_steps=_SDE_MAX_STEPS + 16,
-        use_indexed_brownian_path=True,
     )
 
 
@@ -510,8 +514,10 @@ def simulate_latent_histories(spec, samples, times, key, initial_states, interve
         list(interventions),
         time_grid=times,
         config=_predictive_sde_config(jnp.max(max_rates), span),
-        keys=jax.vmap(lambda k: random.split(k)[1])(draw_keys),
-        diffusion_cov=samples["diffusion"] @ jnp.swapaxes(samples["diffusion"], -1, -2),
+        noise=ProcessNoise(
+            key=jax.vmap(lambda k: random.split(k)[1])(draw_keys),
+            diffusion_cov=samples["diffusion"] @ jnp.swapaxes(samples["diffusion"], -1, -2),
+        ),
     )
     predictors = eqx.filter_vmap(
         lambda model, path: jax.vmap(model.observation_model.linear_predictor)(path)

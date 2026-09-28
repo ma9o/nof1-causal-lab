@@ -193,9 +193,8 @@ class LaplaceLikelihood:
         obs_mask: jnp.ndarray | None = None,
         extra_params: LikelihoodExtraParams | None = None,
         latent_mode_init: jnp.ndarray | None = None,
-        include_aux: bool,
         allow_stateful_cache: bool,
-    ) -> tuple[jnp.ndarray, dict[str, jnp.ndarray] | None]:
+    ) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
         """Shared Laplace likelihood implementation with explicit cache control."""
 
         if obs_mask is None:
@@ -272,7 +271,7 @@ class LaplaceLikelihood:
                         )
                         if can_reuse_support_mode:
                             self._support_mode_cache = jax.device_get(inner_eval_aux["latent_mode"])
-                    return log_lik, inner_eval_aux if include_aux else None
+                    return log_lik, inner_eval_aux
 
                 can_cache_window_derivatives = allow_stateful_cache and not _tree_contains_tracer(
                     (measurement_params.manifest_cov, extra_params)
@@ -306,7 +305,7 @@ class LaplaceLikelihood:
                     )
                     if can_reuse_support_mode:
                         self._support_mode_cache = jax.device_get(z_mode)
-                return log_lik, inner_eval_aux if include_aux else None
+                return log_lik, inner_eval_aux
 
             def _build_support_measurement_objects(
                 manifest_cov: jnp.ndarray,
@@ -364,7 +363,7 @@ class LaplaceLikelihood:
                         self.observation_support,
                         self.n_ieks_iters,
                     )
-                return log_lik, inner_eval_aux if include_aux else None
+                return log_lik, inner_eval_aux
             with jax.named_scope("map/support_aware_backend"):
                 window_derivatives = self._get_support_window_derivatives(
                     observation_model,
@@ -397,7 +396,7 @@ class LaplaceLikelihood:
                 )
                 if can_reuse_support_mode:
                     self._support_mode_cache = jax.device_get(z_mode)
-                return log_lik, inner_eval_aux if include_aux else None
+                return log_lik, inner_eval_aux
 
         cache_inputs = (
             dynamics,
@@ -482,7 +481,7 @@ class LaplaceLikelihood:
             if can_reuse_point_mode:
                 self._point_mode_cache = jax.device_get(z_mode)
 
-        return log_lik, inner_eval_aux if include_aux else None
+        return log_lik, inner_eval_aux
 
     def compute_log_likelihood(
         self,
@@ -509,7 +508,6 @@ class LaplaceLikelihood:
             obs_mask=obs_mask,
             extra_params=extra_params,
             latent_mode_init=latent_mode_init,
-            include_aux=False,
             allow_stateful_cache=False,
         )
         return log_lik
@@ -535,10 +533,8 @@ class LaplaceLikelihood:
             obs_mask=obs_mask,
             extra_params=extra_params,
             latent_mode_init=latent_mode_init,
-            include_aux=True,
             allow_stateful_cache=True,
         )
-        assert inner_eval_aux is not None
         return log_lik, inner_eval_aux
 
 

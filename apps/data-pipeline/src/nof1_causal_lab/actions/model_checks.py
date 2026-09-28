@@ -14,7 +14,7 @@ from nof1_causal_lab.machine.store import ArtifactStore, read_model
 if TYPE_CHECKING:
     import polars as pl
 
-    from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid, ScientificActionId
+    from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid
     from nof1_causal_lab.artifacts.model_checks import CheckGroup
     from nof1_causal_lab.machine.artifacts import ArtifactRecord, EpisodeState
 
@@ -27,15 +27,13 @@ def evaluate_model_checks(
     state: EpisodeState,
     effects: TransitionEffects,
     *,
-    action: ScientificActionId,
+    action: Literal["edit_model", "fit"],
 ) -> TransitionEffects:
     """Finish one edit or fit before its model and findings commit together.
 
     This is a fixed sequence, not an artifact scheduler. Reuse is scoped to the
     selected snapshot and keyed independently for each family of scientific checks.
     """
-    if action not in {"edit_model", "fit"}:
-        raise ValueError("Model checks belong to edit_model and fit")
     selected = apply_transition(state, effects.produced, effects.retracted)
     if not selected.has("model"):
         return effects
@@ -168,10 +166,14 @@ def _write_validation(
     from nof1_causal_lab.actions.data_checks import data_binding_issues, read_data_metadata
 
     for issue in data_binding_issues(model, read_data_metadata(store, pins["panel"])):
-        audit_result["dataset_issues"].append({
-            "indicator_id": None, "issue_type": "measurement_definitions",
-            "severity": "error", "message": issue,
-        })
+        audit_result["dataset_issues"].append(
+            {
+                "indicator_id": None,
+                "issue_type": "measurement_definitions",
+                "severity": "error",
+                "message": issue,
+            }
+        )
     from nof1_causal_lab.actions.checks import check_model_data
 
     preflight = check_model_data(model, panel)

@@ -10,7 +10,7 @@ import numpy as np
 import numpyro.distributions as dist
 import pytest
 
-from nof1_causal_lab.artifacts.likelihood import DistributionFamily
+from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
 from nof1_causal_lab.models.ssm.execution.emissions import (
     emission_log_prob_bernoulli,
     get_mean_param_log_prob_fn,
@@ -29,39 +29,53 @@ if TYPE_CHECKING:
 @pytest.mark.parametrize(
     ("family", "link", "predictor", "mean", "extra_params", "std"),
     [
-        ("delta", "identity", -0.4, -0.4, {}, 0.0),
-        ("student_t", "identity", 0.4, 0.4, {"obs_df": 4.0}, 0.7),
-        ("poisson", "log", 0.4, float(jnp.exp(0.4)), {}, 1.0),
-        ("gamma", "log", 0.4, float(jnp.exp(0.4)), {"obs_shape": 2.0}, 1.0),
-        ("gamma", "inverse", 2.0, 0.5, {"obs_shape": 2.0}, 1.0),
-        ("bernoulli", "logit", 0.4, float(jax.nn.sigmoid(0.4)), {}, 1.0),
+        (DistributionFamily.DELTA, LinkFunction.IDENTITY, -0.4, -0.4, {}, 0.0),
+        (DistributionFamily.STUDENT_T, LinkFunction.IDENTITY, 0.4, 0.4, {"obs_df": 4.0}, 0.7),
+        (DistributionFamily.POISSON, LinkFunction.LOG, 0.4, float(jnp.exp(0.4)), {}, 1.0),
         (
-            "bernoulli",
-            "probit",
+            DistributionFamily.GAMMA,
+            LinkFunction.LOG,
+            0.4,
+            float(jnp.exp(0.4)),
+            {"obs_shape": 2.0},
+            1.0,
+        ),
+        (DistributionFamily.GAMMA, LinkFunction.INVERSE, 2.0, 0.5, {"obs_shape": 2.0}, 1.0),
+        (
+            DistributionFamily.BERNOULLI,
+            LinkFunction.LOGIT,
+            0.4,
+            float(jax.nn.sigmoid(0.4)),
+            {},
+            1.0,
+        ),
+        (
+            DistributionFamily.BERNOULLI,
+            LinkFunction.PROBIT,
             0.4,
             float(jax.scipy.stats.norm.cdf(0.4)),
             {},
             1.0,
         ),
         (
-            "negative_binomial",
-            "log",
+            DistributionFamily.NEGATIVE_BINOMIAL,
+            LinkFunction.LOG,
             0.4,
             float(jnp.exp(0.4)),
             {"obs_r": 3.0},
             1.0,
         ),
         (
-            "beta",
-            "logit",
+            DistributionFamily.BETA,
+            LinkFunction.LOGIT,
             0.4,
             float(jax.nn.sigmoid(0.4)),
             {"obs_concentration": 8.0},
             1.0,
         ),
         (
-            "beta",
-            "probit",
+            DistributionFamily.BETA,
+            LinkFunction.PROBIT,
             0.4,
             float(jax.scipy.stats.norm.cdf(0.4)),
             {"obs_concentration": 8.0},
@@ -70,15 +84,15 @@ if TYPE_CHECKING:
     ],
 )
 def test_predictor_and_mean_samplers_use_the_same_draw(
-    family: str,
-    link: str,
+    family: DistributionFamily,
+    link: LinkFunction,
     predictor: float,
     mean: float,
     extra_params: LikelihoodExtraParams,
     std: float,
 ) -> None:
     key = jax.random.PRNGKey(42)
-    point_fn = FAMILY_REGISTRY[DistributionFamily(family)].posterior_predictive_fns[link]
+    point_fn = FAMILY_REGISTRY[family].posterior_predictive_fns[link]
     point_draw = point_fn(
         jnp.asarray(predictor),
         key,
@@ -105,15 +119,15 @@ def test_predictor_and_mean_samplers_use_the_same_draw(
 @pytest.mark.parametrize(
     ("family", "extra_params", "invalid_mean"),
     [
-        ("poisson", {}, -1.0),
-        ("gamma", {"obs_shape": 2.0}, 0.0),
-        ("bernoulli", {}, 1.1),
-        ("negative_binomial", {"obs_r": 3.0}, -1.0),
-        ("beta", {"obs_concentration": 8.0}, 0.0),
+        (DistributionFamily.POISSON, {}, -1.0),
+        (DistributionFamily.GAMMA, {"obs_shape": 2.0}, 0.0),
+        (DistributionFamily.BERNOULLI, {}, 1.1),
+        (DistributionFamily.NEGATIVE_BINOMIAL, {"obs_r": 3.0}, -1.0),
+        (DistributionFamily.BETA, {"obs_concentration": 8.0}, 0.0),
     ],
 )
 def test_mean_samplers_surface_invalid_domains_as_nan(
-    family: str,
+    family: DistributionFamily,
     extra_params: LikelihoodExtraParams,
     invalid_mean: float,
 ) -> None:
@@ -147,9 +161,9 @@ def test_beta_sampler_and_density_preserve_small_authored_shapes():
     key = jax.random.PRNGKey(12)
     native = dist.Beta(mean * concentration, (1.0 - mean) * concentration)
     extras: LikelihoodExtraParams = {"obs_concentration": concentration}
-    sample = get_mean_param_sample_fn("beta", extras)(key, mean, jnp.eye(1))
+    sample = get_mean_param_sample_fn(DistributionFamily.BETA, extras)(key, mean, jnp.eye(1))
     np.testing.assert_array_equal(sample, native.sample(key))
-    density = get_mean_param_log_prob_fn("beta", extras)(
+    density = get_mean_param_log_prob_fn(DistributionFamily.BETA, extras)(
         jnp.array([0.2]), mean, jnp.eye(1), jnp.ones(1)
     )
     np.testing.assert_allclose(density, native.log_prob(0.2).sum(), atol=1e-6)
@@ -158,12 +172,13 @@ def test_beta_sampler_and_density_preserve_small_authored_shapes():
 @pytest.mark.inference(concern="sampling")
 @pytest.mark.inference(concern="predictive")
 def test_binary_boundaries_and_predictor_tails_remain_exact():
-    likelihood = get_mean_param_log_prob_fn("bernoulli")
+    likelihood = get_mean_param_log_prob_fn(DistributionFamily.BERNOULLI)
     mean = jnp.array([0.0, 1.0])
     assert likelihood(mean, mean, jnp.eye(2), jnp.ones(2)) == 0.0
     assert jnp.isneginf(likelihood(1.0 - mean, mean, jnp.eye(2), jnp.ones(2)))
     np.testing.assert_array_equal(
-        get_mean_param_sample_fn("bernoulli")(jax.random.key(9), mean, jnp.eye(2)), mean
+        get_mean_param_sample_fn(DistributionFamily.BERNOULLI)(jax.random.key(9), mean, jnp.eye(2)),
+        mean,
     )
     assert float(
         emission_log_prob_bernoulli(jnp.zeros(1), jnp.array([100.0]), jnp.eye(1), jnp.ones(1))
@@ -172,7 +187,7 @@ def test_binary_boundaries_and_predictor_tails_remain_exact():
 
 @pytest.mark.inference(concern="sampling")
 def test_negative_binomial_density_has_the_exact_mean_gradient():
-    likelihood = get_mean_param_log_prob_fn("negative_binomial", {"obs_r": 3.0})
+    likelihood = get_mean_param_log_prob_fn(DistributionFamily.NEGATIVE_BINOMIAL, {"obs_r": 3.0})
     y, mean = jnp.array([0.0, 4.0]), jnp.array([1.5, 8.0])
 
     def fn(mu):
@@ -184,9 +199,13 @@ def test_negative_binomial_density_has_the_exact_mean_gradient():
 
 @pytest.mark.inference(concern="sampling")
 @pytest.mark.parametrize(
-    ("family", "extras"), [("gamma", {"obs_shape": 2.0}), ("beta", {"obs_concentration": 3.0})]
+    ("family", "extras"),
+    [
+        (DistributionFamily.GAMMA, {"obs_shape": 2.0}),
+        (DistributionFamily.BETA, {"obs_concentration": 3.0}),
+    ],
 )
-def test_missing_invalid_observation_has_zero_gradient(family, extras):
+def test_missing_invalid_observation_has_zero_gradient(family: DistributionFamily, extras):
     likelihood = get_mean_param_log_prob_fn(family, extras)
 
     def fn(mu):

@@ -15,17 +15,9 @@ if TYPE_CHECKING:
 
     from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
     from nof1_causal_lab.artifacts.identity import ConstructId
+    from nof1_causal_lab.artifacts.indicator import IndicatorSpec
     from nof1_causal_lab.json_types import UncheckedJsonObject
-
-
-def get_indicator_polarity(indicator: UncheckedJsonObject) -> str:
-    """Return the declared indicator polarity, failing loudly when absent."""
-    polarity = indicator.get("construct_polarity")
-    if polarity not in {"positive", "negative"}:
-        raise ValueError(
-            f"Indicator {indicator.get('name')!r} is missing a valid construct_polarity"
-        )
-    return str(polarity)
+    from nof1_causal_lab.measurement_types import MeasurementDtype
 
 
 # How strongly a pinned reference loading anchors the latent scale, by dtype:
@@ -33,7 +25,7 @@ def get_indicator_polarity(indicator: UncheckedJsonObject) -> str:
 # channels pin scale through the fixed logistic link, binary/count pin scale
 # through their link but carry less information, and a pinned categorical
 # loading anchors nothing because the free class slopes absorb it.
-_REFERENCE_DTYPE_TIERS = {
+_REFERENCE_DTYPE_TIERS: dict[MeasurementDtype, int] = {
     "continuous": 0,
     "ordinal": 1,
     "binary": 2,
@@ -43,22 +35,19 @@ _REFERENCE_DTYPE_TIERS = {
 
 
 def choose_reference_indicator(
-    indicators: list[UncheckedJsonObject],
-) -> UncheckedJsonObject | None:
+    indicators: Sequence[IndicatorSpec],
+) -> IndicatorSpec:
     """Choose a deterministic marker indicator for one construct.
 
     Prefer the dtype whose fixed loading anchors the latent scale most strongly
     (see ``_REFERENCE_DTYPE_TIERS``); within a tier prefer positive polarity so
     the latent orientation matches the construct name, then declaration order.
     """
-    if not indicators:
-        return None
 
-    def _rank(item: tuple[int, UncheckedJsonObject]) -> tuple[int, int, int]:
+    def _rank(item: tuple[int, IndicatorSpec]) -> tuple[int, int, int]:
         declaration_index, indicator = item
-        dtype = str(indicator.get("measurement_dtype") or "")
-        tier = _REFERENCE_DTYPE_TIERS.get(dtype, 2)
-        polarity_rank = 0 if get_indicator_polarity(indicator) == "positive" else 1
+        tier = _REFERENCE_DTYPE_TIERS[indicator.measurement_dtype]
+        polarity_rank = 0 if indicator.construct_polarity == "positive" else 1
         return (tier, polarity_rank, declaration_index)
 
     return min(enumerate(indicators), key=_rank)[1]
@@ -170,11 +159,6 @@ def build_digraph(
     graph.add_nodes_from(construct.name for construct in constructs)
     graph.add_edges_from((edge.cause.name, edge.effect.name) for edge in edges)
     return graph
-
-
-def build_digraph_from_edges(edges: Sequence[CausalEdgeSpec]) -> nx.DiGraph:
-    """Build a simple DiGraph from canonical causal edge endpoints."""
-    return build_digraph((), edges)
 
 
 def get_all_treatments(

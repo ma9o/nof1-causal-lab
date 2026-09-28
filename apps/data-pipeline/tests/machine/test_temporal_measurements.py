@@ -1,11 +1,13 @@
 import json
 import uuid
-from typing import Any
+from typing import Any, cast
 
 import polars as pl
 import pyarrow as pa
 import pytest
+from pydantic import TypeAdapter, ValidationError
 
+from nof1_causal_lab.llm_specs import EmbeddedLLMSpec, HarnessLLMSpec
 from nof1_causal_lab.machine.temporal.llm_subroutine_activities import (
     append_llm_repair_message_activity,
     execute_llm_tool_calls_activity,
@@ -18,17 +20,62 @@ from nof1_causal_lab.machine.temporal.measurement_workflow import ExtractionChun
 from nof1_causal_lab.machine.temporal.messages import (
     AppendLLMRepairMessageInput,
     ExtractionChunkWorkflowInput,
-    LLMBackendConfig,
+    ExtractionProgressEventInput,
     LLMSubroutineInput,
     LLMToolExecutionInput,
     LLMToolSpec,
     OpenRouterCallInput,
-    OpenRouterLLMConfig,
 )
 from nof1_causal_lab.utils import storage
 from tests.helpers import run_async
 
 pytestmark = pytest.mark.timeout(240)
+
+
+@pytest.mark.contract
+@pytest.mark.parametrize(
+    ("payload", "required_fields"),
+    [
+        ({"kind": "plan", "total_workers": 2}, ("total_workers",)),
+        (
+            {"kind": "worker", "worker_id": 0, "state": "running", "n_windows": 2},
+            ("worker_id", "state", "n_windows"),
+        ),
+        (
+            {
+                "kind": "snapshot",
+                "snapshot": {
+                    "total_workers": 2,
+                    "pending_workers": 1,
+                    "running_workers": 1,
+                    "completed_workers": 0,
+                    "failed_workers": 0,
+                },
+            },
+            ("snapshot",),
+        ),
+    ],
+)
+def test_progress_event_variants_round_trip_through_temporal(payload, required_fields):
+    from temporalio.contrib.pydantic import pydantic_data_converter
+
+    adapter = TypeAdapter(ExtractionProgressEventInput)
+    raw = {"workspace_id": "test", **payload}
+    event = adapter.validate_python(raw)
+
+    async def round_trip():
+        encoded = await pydantic_data_converter.encode([event])
+        # Temporal annotates hints as classes; its Pydantic converter also accepts unions.
+        return await pydantic_data_converter.decode(
+            encoded, [cast("type", ExtractionProgressEventInput)]
+        )
+
+    assert run_async(round_trip()) == [event]
+    for field in required_fields:
+        with pytest.raises(ValidationError):
+            adapter.validate_python({name: value for name, value in raw.items() if name != field})
+    with pytest.raises(ValidationError):
+        adapter.validate_python({**raw, "model": "unrelated field"})
 
 
 @pytest.mark.contract
@@ -64,13 +111,19 @@ def test_call_openrouter_activity_reuses_persisted_call_result(monkeypatch, tmp_
         next_conversation_ref=next_conversation_ref,
         call_ref=call_ref,
         assistant_ref=assistant_ref,
-        llm=OpenRouterLLMConfig(model="openrouter/mock", timeout=120),
+        llm=EmbeddedLLMSpec(model="openrouter/mock", timeout=120),
         tools=[
             LLMToolSpec(
                 name="validate_extractions",
                 description="Validate output.",
-                param_name="output_json",
-                param_description="Worker output JSON.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "output_json": {"type": "string", "description": "Worker output JSON."}
+                    },
+                    "required": ["output_json"],
+                    "additionalProperties": False,
+                },
             )
         ],
         log_label="test",
@@ -168,14 +221,32 @@ def test_execute_llm_tool_calls_activity_dispatches_by_tool_name(tmp_path):
                     LLMToolSpec(
                         name="validate_extractions",
                         description="Validate worker extraction output JSON.",
-                        param_name="output_json",
-                        param_description="The JSON string containing the worker output.",
+                        parameters={
+                            "type": "object",
+                            "properties": {
+                                "output_json": {
+                                    "type": "string",
+                                    "description": "The JSON string containing the worker output.",
+                                }
+                            },
+                            "required": ["output_json"],
+                            "additionalProperties": False,
+                        },
                     ),
                     LLMToolSpec(
                         name="submit_extractions",
                         description="Submit worker extraction output JSON.",
-                        param_name="output_json",
-                        param_description="The JSON string containing the worker output.",
+                        parameters={
+                            "type": "object",
+                            "properties": {
+                                "output_json": {
+                                    "type": "string",
+                                    "description": "The JSON string containing the worker output.",
+                                }
+                            },
+                            "required": ["output_json"],
+                            "additionalProperties": False,
+                        },
                     ),
                 ],
             )
@@ -186,6 +257,28 @@ def test_execute_llm_tool_calls_activity_dispatches_by_tool_name(tmp_path):
     assert result.result_ref == result_ref
     assert result.tool_calls_fired == ["submit_extractions"]
     assert storage.read_json(result_ref)["extractions"][0]["value"] == 1000
+
+
+@pytest.mark.contract
+@pytest.mark.parametrize("descriptions", ["[]", '{"timestamp": 42}', '{"timestamp": null}', "{"])
+def test_raw_table_rejects_untyped_column_descriptions(tmp_path, descriptions):
+    from nof1_causal_lab.machine.temporal.llm_tool_adapters import (
+        _execute_raw_data_submit_table,
+    )
+
+    dataframe_ref = str(tmp_path / "frame.ipc")
+    pl.DataFrame({"timestamp": [1]}).write_ipc(dataframe_ref)
+    context_ref = str(tmp_path / "context.json")
+    storage.write_text(context_ref, json.dumps({"dataframe_ref": dataframe_ref}))
+    result_ref = str(tmp_path / "result.json")
+
+    output, result = _execute_raw_data_submit_table(
+        context_ref, result_ref, {"column_descriptions_json": descriptions}
+    )
+
+    assert "mapping column names to string descriptions" in output
+    assert result is None
+    assert not storage.exists(result_ref)
 
 
 @pytest.mark.contract
@@ -270,8 +363,17 @@ def test_execute_llm_tool_calls_activity_persists_raw_data_submit_table(
                     LLMToolSpec(
                         name="submit_table",
                         description="Validate and finalize the ingested DataFrame.",
-                        param_name="column_descriptions_json",
-                        param_description="JSON object mapping column names to descriptions.",
+                        parameters={
+                            "type": "object",
+                            "properties": {
+                                "column_descriptions_json": {
+                                    "type": "string",
+                                    "description": "JSON object mapping column names to descriptions.",
+                                }
+                            },
+                            "required": ["column_descriptions_json"],
+                            "additionalProperties": False,
+                        },
                         executor="raw_data_submit_table",
                     )
                 ],
@@ -375,7 +477,7 @@ def test_execute_llm_tool_calls_activity_executes_raw_python_locally(tmp_path):
                         description="Execute Python.",
                         kind="checkpoint",
                         executor="raw_data_execute_python",
-                        parameters_schema={
+                        parameters={
                             "type": "object",
                             "properties": {"code": {"type": "string"}},
                             "required": ["code"],
@@ -442,6 +544,12 @@ def test_execute_llm_tool_calls_activity_returns_recoverable_tool_exception(tmp_
                     LLMToolSpec(
                         name="submit_table",
                         description="Submit table.",
+                        parameters={
+                            "type": "object",
+                            "properties": {"column_descriptions_json": {"type": "string"}},
+                            "required": ["column_descriptions_json"],
+                            "additionalProperties": False,
+                        },
                         executor="raw_data_submit_table",
                     )
                 ],
@@ -476,6 +584,12 @@ def test_append_llm_repair_message_activity_persists_repair_turn(tmp_path):
                     LLMToolSpec(
                         name="submit_table",
                         description="Submit table.",
+                        parameters={
+                            "type": "object",
+                            "properties": {"column_descriptions_json": {"type": "string"}},
+                            "required": ["column_descriptions_json"],
+                            "additionalProperties": False,
+                        },
                         executor="raw_data_submit_table",
                     )
                 ],
@@ -551,7 +665,7 @@ def test_execute_llm_tool_calls_activity_terminal_without_result_ref(tmp_path):
                         kind="terminal",
                         executor="raw_data_list_files",
                         success_output=None,
-                        parameters_schema={
+                        parameters={
                             "type": "object",
                             "properties": {"path": {"type": "string"}},
                             "required": [],
@@ -660,7 +774,7 @@ def test_extraction_chunk_workflow_runs_shared_llm_subroutine(monkeypatch, tmp_p
                         n_windows=1,
                         spec_ref=spec_ref,
                         attempt=1,
-                        llm=LLMBackendConfig(
+                        llm=EmbeddedLLMSpec(
                             harness="none",
                             model="openrouter/mock-extraction",
                             timeout=120,
@@ -896,10 +1010,9 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
                         subroutine_id="measurement-extraction",
                         context_kind="measurement_extraction",
                         context_ref=context_ref,
-                        llm=LLMBackendConfig(
-                            harness=harness,
-                            model=model,
-                            timeout=10,
+                        llm=TypeAdapter(HarnessLLMSpec).validate_python(
+                            {"harness": harness, "model": model}
+                            | ({"timeout": 10} if harness != "claude-code" else {})
                         ),
                         max_tool_turns=1,
                     ),

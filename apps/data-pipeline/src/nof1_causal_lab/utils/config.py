@@ -9,12 +9,20 @@ import shutil
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, assert_never
 
 import yaml
 from dotenv import load_dotenv
+from pydantic import ConfigDict, TypeAdapter, with_config
 
-from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+from nof1_causal_lab.llm_specs import (  # noqa: TC001 - resolved by Pydantic at the YAML boundary
+    EmbeddedLLMSpec,
+    EmbeddedReasoningEffort,
+    HarnessEffort,
+    HarnessName,
+    LLMProfileSpec,
+    PiThinking,
+)
 
 if TYPE_CHECKING:
     from nof1_causal_lab.sampler_config import SamplerConfig
@@ -28,50 +36,50 @@ load_dotenv(Path(__file__).parent.parent.parent.parent.parent.parent / ".env")
 # LLM backend defaults (global)
 # ---------------------------------------------------------------------------
 
-HARNESS_VALUES = ("none", "claude-code", "codex", "pi")
-EMBEDDED_REASONING_EFFORT_VALUES = ("none", "minimal", "low", "medium", "high", "xhigh")
-HARNESS_EFFORT_VALUES = ("low", "medium", "high", "xhigh", "max")
-PI_THINKING_VALUES = ("off", "minimal", "low", "medium", "high", "xhigh")
 
-
+@with_config(ConfigDict(extra="forbid"))
 @dataclass(frozen=True)
 class EmbeddedLLMDefaults:
     """Defaults for ``harness: none`` (OpenRouter) contexts."""
 
     max_tokens: int = 65536
     timeout: int = 900
-    reasoning_effort: str = "xhigh"
+    reasoning_effort: EmbeddedReasoningEffort = "xhigh"
 
 
+@with_config(ConfigDict(extra="forbid"))
 @dataclass(frozen=True)
 class ClaudeCodeDefaults:
     """Defaults for ``harness: claude-code`` contexts."""
 
     bin: str = "claude"
-    effort: str = "high"
+    effort: HarnessEffort = "high"
     max_turns: int = 40
     max_budget_usd: float | None = None
     fallback_model: str | None = None
 
 
+@with_config(ConfigDict(extra="forbid"))
 @dataclass(frozen=True)
 class CodexDefaults:
     """Defaults for ``harness: codex`` contexts."""
 
     bin: str = "codex"
-    reasoning_effort: str = "xhigh"
+    reasoning_effort: HarnessEffort = "xhigh"
     service_tier: str = "fast"
 
 
+@with_config(ConfigDict(extra="forbid"))
 @dataclass(frozen=True)
 class PiDefaults:
     """Defaults for ``harness: pi`` contexts."""
 
     bin: str = "pi"
     provider: str = "openai-codex"
-    thinking: str = "high"
+    thinking: PiThinking = "high"
 
 
+@with_config(ConfigDict(extra="forbid"))
 @dataclass(frozen=True)
 class LLMDefaults:
     """Global LLM backend defaults (one section per backend)."""
@@ -82,62 +90,33 @@ class LLMDefaults:
     pi: PiDefaults = field(default_factory=PiDefaults)
 
 
-@dataclass(frozen=True)
-class LLMProfileConfig:
-    """Per-context LLM selection and optional overrides.
-
-    ``harness`` discriminates the backend. ``model`` is always required.
-    The remaining fields are optional and override the corresponding
-    :class:`LLMDefaults` section when set. A given field is valid only
-    for a subset of harness values; :func:`validate_config` rejects
-    incompatible combinations.
-    """
-
-    harness: str
-    model: str
-    # embedded overrides
-    max_tokens: int | None = None
-    timeout: int | None = None
-    # embedded + codex share reasoning_effort (different scales)
-    reasoning_effort: str | None = None
-    # codex overrides
-    service_tier: str | None = None
-    # pi overrides
-    provider: str | None = None
-    thinking: str | None = None
-    # claude-code overrides
-    effort: str | None = None
-    max_turns: int | None = None
-    max_budget_usd: float | None = None
-    fallback_model: str | None = None
-    # shared
-    bin: str | None = None
-
-
 # ---------------------------------------------------------------------------
 # Agentic context configs
 # ---------------------------------------------------------------------------
 
 
+@with_config(ConfigDict(extra="forbid"))
 @dataclass(frozen=True)
 class IngestionConfig:
     """ingestion: Agentic Data Ingestion."""
 
-    llm: LLMProfileConfig
+    llm: LLMProfileSpec
     max_tool_turns: int = 40
 
 
+@with_config(ConfigDict(extra="forbid"))
 @dataclass(frozen=True)
 class StructureProposalConfig:
     """Structure Proposal (orchestrator contexts)."""
 
-    llm: LLMProfileConfig
+    llm: LLMProfileSpec
     sample_chunks: int = 10
     chunk_size: int = 100
     latent_max_tool_turns: int = 40
     measurement_max_tool_turns: int = 40
 
 
+@with_config(ConfigDict(extra="forbid"))
 @dataclass(frozen=True)
 class ExtractionWorkersConfig:
     """extraction: Support-Window Extraction (Workers).
@@ -147,7 +126,7 @@ class ExtractionWorkersConfig:
     through a harness CLI is economically and latency-wise untenable.
     """
 
-    llm: LLMProfileConfig
+    llm: EmbeddedLLMSpec
     windows_per_chunk: int = 1
     max_concurrent_workers: int = 4
     max_events_per_window: int = 300
@@ -158,6 +137,7 @@ class ExtractionWorkersConfig:
     max_free_windows: int = 100
 
 
+@with_config(ConfigDict(extra="forbid"))
 @dataclass(frozen=True)
 class LiteratureSearchConfig:
     """Literature search configuration for grounding priors."""
@@ -165,11 +145,12 @@ class LiteratureSearchConfig:
     enabled: bool = True
 
 
+@with_config(ConfigDict(extra="forbid"))
 @dataclass(frozen=True)
 class PriorElicitationConfig:
     """model-spec: Statistical Model Specification & Prior Elicitation."""
 
-    llm: LLMProfileConfig
+    llm: LLMProfileSpec
     max_tool_turns: int = 40
     literature_search: LiteratureSearchConfig = field(default_factory=LiteratureSearchConfig)
 
@@ -179,6 +160,7 @@ class PriorElicitationConfig:
 # ---------------------------------------------------------------------------
 
 
+@with_config(ConfigDict(extra="forbid"))
 @dataclass(frozen=True)
 class MAPConfig:
     """Internal IEKS/Laplace settings used by MCMC initializers."""
@@ -186,6 +168,7 @@ class MAPConfig:
     n_ieks_iters: int = 6
 
 
+@with_config(ConfigDict(extra="forbid"))
 @dataclass(frozen=True)
 class MarginalParticleGibbsConfig:
     """Marginalized Particle Gibbs inference settings."""
@@ -245,6 +228,7 @@ class MarginalParticleGibbsConfig:
     compute_latent_posterior_summary: bool = True
 
 
+@with_config(ConfigDict(extra="forbid"))
 @dataclass(frozen=True)
 class InferenceConfig:
     """Inference configuration (method + sampler settings)."""
@@ -260,15 +244,13 @@ class InferenceConfig:
         default_factory=MarginalParticleGibbsConfig
     )
 
-    def to_sampler_config(self, method_override: str | None = None) -> SamplerConfig:
+    def to_sampler_config(
+        self, method_override: Literal["marginal_particle_gibbs"] | None = None
+    ) -> SamplerConfig:
         """Build a flat sampler config dict for SSM inference."""
         from nof1_causal_lab.sampler_config import validate_sampler_config
 
         method = method_override or self.method
-        if method != "marginal_particle_gibbs":
-            raise ValueError(
-                f"Unsupported inference method {method!r}; expected 'marginal_particle_gibbs'."
-            )
         config = {
             "method": method,
             "num_warmup": self.num_warmup,
@@ -290,11 +272,13 @@ class InferenceConfig:
 # ---------------------------------------------------------------------------
 
 
+@with_config(ConfigDict(extra="forbid"))
 @dataclass(frozen=True)
 class PipelineBehaviorConfig:
     """Pipeline-level behavioral settings."""
 
 
+@with_config(ConfigDict(extra="forbid"))
 @dataclass(frozen=True)
 class PipelineConfig:
     """Full pipeline configuration."""
@@ -338,49 +322,6 @@ def _find_config_path() -> Path:
     raise FileNotFoundError("config.yaml not found in any parent directory")
 
 
-def _parse_profile_llm(raw: UncheckedJsonObject, context_name: str) -> LLMProfileConfig:
-    """Parse a per-context llm: block into a LLMProfileConfig."""
-    if not isinstance(raw, dict):
-        raise ValueError(f"{context_name}.llm must be a mapping")
-    if "harness" not in raw:
-        raise ValueError(f"{context_name}.llm.harness is required")
-    if "model" not in raw:
-        raise ValueError(f"{context_name}.llm.model is required")
-    return LLMProfileConfig(**raw)
-
-
-def _parse_llm_defaults(raw: UncheckedJsonObject) -> LLMDefaults:
-    """Parse the global llm: section into LLMDefaults."""
-    embedded_raw = raw.get("embedded", {}) or {}
-    claude_code_raw = raw.get("claude_code", {}) or {}
-    codex_raw = raw.get("codex", {}) or {}
-    pi_raw = raw.get("pi", {}) or {}
-    return LLMDefaults(
-        embedded=EmbeddedLLMDefaults(**embedded_raw) if embedded_raw else EmbeddedLLMDefaults(),
-        claude_code=ClaudeCodeDefaults(**claude_code_raw)
-        if claude_code_raw
-        else ClaudeCodeDefaults(),
-        codex=CodexDefaults(**codex_raw) if codex_raw else CodexDefaults(),
-        pi=PiDefaults(**pi_raw) if pi_raw else PiDefaults(),
-    )
-
-
-def _parse_inference(raw: UncheckedJsonObject) -> InferenceConfig:
-    """Parse the inference: section into InferenceConfig."""
-    inference_raw = dict(raw)
-    map_raw = inference_raw.pop("map", {}) or {}
-    marginal_particle_gibbs_raw = inference_raw.pop("marginal_particle_gibbs", {}) or {}
-    return InferenceConfig(
-        **inference_raw,
-        map=MAPConfig(**map_raw) if map_raw else MAPConfig(),
-        marginal_particle_gibbs=(
-            MarginalParticleGibbsConfig(**marginal_particle_gibbs_raw)
-            if marginal_particle_gibbs_raw
-            else MarginalParticleGibbsConfig()
-        ),
-    )
-
-
 @lru_cache(maxsize=1)
 def load_config(config_path: Path | None = None) -> PipelineConfig:
     """Load, parse, and validate the pipeline configuration."""
@@ -388,54 +329,7 @@ def load_config(config_path: Path | None = None) -> PipelineConfig:
     with config_path.open() as f:
         raw = yaml.safe_load(f) or {}
 
-    llm_defaults = _parse_llm_defaults(raw.get("llm", {}) or {})
-    inference_config = _parse_inference(raw.get("inference", {}) or {})
-
-    ingestion_raw = raw.get("ingestion", {}) or {}
-    ingestion_config = IngestionConfig(
-        llm=_parse_profile_llm(ingestion_raw["llm"], "ingestion"),
-        max_tool_turns=ingestion_raw.get("max_tool_turns", 40),
-    )
-
-    structure_raw = raw.get("structure_proposal", {}) or {}
-    structure_llm = _parse_profile_llm(structure_raw["llm"], "structure_proposal")
-    structure_config = StructureProposalConfig(
-        llm=structure_llm,
-        sample_chunks=structure_raw.get("sample_chunks", 10),
-        chunk_size=structure_raw.get("chunk_size", 100),
-        latent_max_tool_turns=structure_raw.get("latent_max_tool_turns", 40),
-        measurement_max_tool_turns=structure_raw.get("measurement_max_tool_turns", 40),
-    )
-
-    extraction_raw = dict(raw.get("extraction_workers", {}) or {})
-    extraction_llm = _parse_profile_llm(extraction_raw.pop("llm"), "extraction_workers")
-    extraction_config = ExtractionWorkersConfig(llm=extraction_llm, **extraction_raw)
-
-    prior_raw = dict(raw.get("prior_elicitation", {}) or {})
-    prior_llm = _parse_profile_llm(prior_raw.pop("llm"), "prior_elicitation")
-    lit_search_raw = prior_raw.pop("literature_search", {}) or {}
-    prior_config = PriorElicitationConfig(
-        llm=prior_llm,
-        max_tool_turns=prior_raw.get("max_tool_turns", 40),
-        literature_search=LiteratureSearchConfig(**lit_search_raw)
-        if lit_search_raw
-        else LiteratureSearchConfig(),
-    )
-
-    pipeline_raw = raw.get("pipeline", {}) or {}
-    pipeline_config = (
-        PipelineBehaviorConfig(**pipeline_raw) if pipeline_raw else PipelineBehaviorConfig()
-    )
-
-    config = PipelineConfig(
-        ingestion=ingestion_config,
-        structure_proposal=structure_config,
-        extraction_workers=extraction_config,
-        prior_elicitation=prior_config,
-        inference=inference_config,
-        llm=llm_defaults,
-        pipeline=pipeline_config,
-    )
+    config = TypeAdapter(PipelineConfig).validate_python(raw)
 
     schema_errors = validate_config(config)
     if schema_errors:
@@ -455,7 +349,7 @@ def get_config() -> PipelineConfig:
 # ---------------------------------------------------------------------------
 
 
-def _iter_profile_llms(config: PipelineConfig) -> list[tuple[str, LLMProfileConfig]]:
+def _iter_profile_llms(config: PipelineConfig) -> list[tuple[str, LLMProfileSpec]]:
     return [
         ("ingestion", config.ingestion.llm),
         ("structure_proposal", config.structure_proposal.llm),
@@ -465,141 +359,12 @@ def _iter_profile_llms(config: PipelineConfig) -> list[tuple[str, LLMProfileConf
 
 
 def validate_config(config: PipelineConfig) -> list[str]:
-    """Validate the config's schema and cross-field constraints.
-
-    Returns a list of error strings (empty on success). Each error is
-    prefixed with the config path (e.g. ``extraction_workers.llm.harness``).
-    """
-    errors: list[str] = []
-
-    for name, llm in _iter_profile_llms(config):
-        path = f"{name}.llm"
-        if llm.harness not in HARNESS_VALUES:
-            errors.append(f"{path}.harness: {llm.harness!r} not in {list(HARNESS_VALUES)}")
-            continue
-
-        # extraction fan-out constraint
-        if name == "extraction_workers" and llm.harness != "none":
-            errors.append(
-                f"{path}.harness: must be 'none' for extraction workers "
-                "(harness cold-start × thousands of workers is untenable); "
-                f"got {llm.harness!r}"
-            )
-
-        # Harness-specific field compatibility
-        if llm.harness != "pi":
-            if llm.provider is not None:
-                errors.append(f"{path}.provider: only valid for harness=pi")
-            if llm.thinking is not None:
-                errors.append(f"{path}.thinking: only valid for harness=pi")
-
-        if llm.harness == "none":
-            if llm.effort is not None:
-                errors.append(
-                    f"{path}.effort: only valid for harness=claude-code; "
-                    "use reasoning_effort for harness=none"
-                )
-            if llm.max_turns is not None:
-                errors.append(f"{path}.max_turns: only valid for harness=claude-code")
-            if llm.max_budget_usd is not None:
-                errors.append(f"{path}.max_budget_usd: only valid for harness=claude-code")
-            if llm.fallback_model is not None:
-                errors.append(f"{path}.fallback_model: only valid for harness=claude-code")
-            if llm.bin is not None:
-                errors.append(f"{path}.bin: only valid for a subprocess harness")
-            if llm.service_tier is not None:
-                errors.append(f"{path}.service_tier: only valid for harness=codex")
-            if (
-                llm.reasoning_effort is not None
-                and llm.reasoning_effort not in EMBEDDED_REASONING_EFFORT_VALUES
-            ):
-                errors.append(
-                    f"{path}.reasoning_effort: {llm.reasoning_effort!r} not in "
-                    f"{list(EMBEDDED_REASONING_EFFORT_VALUES)}"
-                )
-            if not llm.model.startswith("openrouter/"):
-                errors.append(
-                    f"{path}.model: {llm.model!r} should start with 'openrouter/' for harness=none"
-                )
-
-        elif llm.harness == "claude-code":
-            if llm.reasoning_effort is not None:
-                errors.append(f"{path}.reasoning_effort: use 'effort' for harness=claude-code")
-            if llm.max_tokens is not None:
-                errors.append(f"{path}.max_tokens: not configurable for harness=claude-code")
-            if llm.timeout is not None:
-                errors.append(f"{path}.timeout: not configurable for harness=claude-code")
-            if llm.service_tier is not None:
-                errors.append(f"{path}.service_tier: only valid for harness=codex")
-            if llm.effort is not None and llm.effort not in HARNESS_EFFORT_VALUES:
-                errors.append(f"{path}.effort: {llm.effort!r} not in {list(HARNESS_EFFORT_VALUES)}")
-
-        elif llm.harness == "codex":
-            if llm.effort is not None:
-                errors.append(f"{path}.effort: only valid for harness=claude-code")
-            if llm.max_turns is not None:
-                errors.append(f"{path}.max_turns: only valid for harness=claude-code")
-            if llm.max_budget_usd is not None:
-                errors.append(f"{path}.max_budget_usd: only valid for harness=claude-code")
-            if llm.fallback_model is not None:
-                errors.append(f"{path}.fallback_model: only valid for harness=claude-code")
-            if llm.max_tokens is not None:
-                errors.append(f"{path}.max_tokens: not configurable for harness=codex")
-            # ``timeout`` is honoured as a per-turn ceiling when opening the
-            # codex session (see :func:`open_codex_harness_session`), so the
-            # field is meaningful for this harness and must not be rejected.
-            if (
-                llm.reasoning_effort is not None
-                and llm.reasoning_effort not in HARNESS_EFFORT_VALUES
-            ):
-                errors.append(
-                    f"{path}.reasoning_effort: {llm.reasoning_effort!r} not in "
-                    f"{list(HARNESS_EFFORT_VALUES)}"
-                )
-
-        elif llm.harness == "pi":
-            if llm.max_tokens is not None:
-                errors.append(f"{path}.max_tokens: not configurable for harness=pi")
-            if llm.reasoning_effort is not None:
-                errors.append(f"{path}.reasoning_effort: use 'thinking' for harness=pi")
-            if llm.service_tier is not None:
-                errors.append(f"{path}.service_tier: only valid for harness=codex")
-            if llm.effort is not None:
-                errors.append(f"{path}.effort: only valid for harness=claude-code")
-            if llm.max_turns is not None:
-                errors.append(f"{path}.max_turns: only valid for harness=claude-code")
-            if llm.max_budget_usd is not None:
-                errors.append(f"{path}.max_budget_usd: only valid for harness=claude-code")
-            if llm.fallback_model is not None:
-                errors.append(f"{path}.fallback_model: only valid for harness=claude-code")
-            if llm.thinking is not None and llm.thinking not in PI_THINKING_VALUES:
-                errors.append(
-                    f"{path}.thinking: {llm.thinking!r} not in {list(PI_THINKING_VALUES)}"
-                )
-
-    # Global LLM defaults: enum checks
-    embedded = config.llm.embedded
-    if embedded.reasoning_effort not in EMBEDDED_REASONING_EFFORT_VALUES:
-        errors.append(
-            f"llm.embedded.reasoning_effort: {embedded.reasoning_effort!r} not in "
-            f"{list(EMBEDDED_REASONING_EFFORT_VALUES)}"
-        )
-    if config.llm.claude_code.effort not in HARNESS_EFFORT_VALUES:
-        errors.append(
-            f"llm.claude_code.effort: {config.llm.claude_code.effort!r} not in "
-            f"{list(HARNESS_EFFORT_VALUES)}"
-        )
-    if config.llm.codex.reasoning_effort not in HARNESS_EFFORT_VALUES:
-        errors.append(
-            f"llm.codex.reasoning_effort: {config.llm.codex.reasoning_effort!r} not in "
-            f"{list(HARNESS_EFFORT_VALUES)}"
-        )
-    if config.llm.pi.thinking not in PI_THINKING_VALUES:
-        errors.append(
-            f"llm.pi.thinking: {config.llm.pi.thinking!r} not in {list(PI_THINKING_VALUES)}"
-        )
-
-    return errors
+    """Check model naming after backend field validation at the YAML boundary."""
+    return [
+        f"{name}.llm.model: {llm.model!r} should start with 'openrouter/' for harness=none"
+        for name, llm in _iter_profile_llms(config)
+        if llm.harness == "none" and not llm.model.startswith("openrouter/")
+    ]
 
 
 def _check_embedded_prereqs() -> list[str]:
@@ -663,10 +428,10 @@ def _check_pi_prereqs(config: PipelineConfig) -> list[str]:
     return errors
 
 
-_verified_harnesses: set[str] = set()
+_verified_harnesses: set[HarnessName] = set()
 
 
-def ensure_harness_prereqs(harness: str) -> None:
+def ensure_harness_prereqs(harness: HarnessName) -> None:
     """Run the prereq check for ``harness``, once per process, or raise.
 
     Harness openers call this on first invocation so a pipeline with a
@@ -686,7 +451,7 @@ def ensure_harness_prereqs(harness: str) -> None:
     elif harness == "pi":
         errors = _check_pi_prereqs(config)
     else:
-        raise ValueError(f"Unknown harness: {harness!r}")
+        assert_never(harness)
     if errors:
         raise RuntimeError(
             f"Harness {harness!r} prereqs not satisfied:\n" + "\n".join(f"  - {e}" for e in errors)

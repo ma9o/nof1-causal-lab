@@ -18,11 +18,13 @@ from __future__ import annotations
 import json
 import os
 from contextlib import contextmanager
+from dataclasses import dataclass
+from datetime import datetime  # noqa: TC003 - Pydantic resolves the remote metadata at runtime.
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
-from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+from pydantic import TypeAdapter
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -175,18 +177,26 @@ def walk_files(path: str) -> list[str]:
     return [str(entry) for entry in root.rglob("*") if entry.is_file()]
 
 
-def file_info(path: str) -> UncheckedJsonObject:
-    """Return file metadata (size, type, last_modified / mtime)."""
+@dataclass(frozen=True)
+class FileInfo:
+    """Backend-independent size and modification time for a stored file."""
+
+    size: int
+    modified_seconds: float
+
+
+class _RemoteFileInfo(TypedDict):
+    size: int
+    LastModified: datetime
+
+
+def file_info(path: str) -> FileInfo:
+    """Normalize filesystem metadata at the storage boundary."""
     if is_remote():
-        return get_fs().info(path)
-    p = Path(path)
-    stat = p.stat()
-    return {
-        "name": str(p),
-        "size": stat.st_size,
-        "type": "file" if p.is_file() else "directory",
-        "mtime": stat.st_mtime,
-    }
+        info = TypeAdapter(_RemoteFileInfo).validate_python(get_fs().info(path), strict=True)
+        return FileInfo(size=info["size"], modified_seconds=info["LastModified"].timestamp())
+    stat = Path(path).stat()
+    return FileInfo(size=stat.st_size, modified_seconds=stat.st_mtime)
 
 
 @contextmanager

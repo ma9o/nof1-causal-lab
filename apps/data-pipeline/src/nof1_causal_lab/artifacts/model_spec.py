@@ -180,11 +180,8 @@ class ModelSpec(BaseModel):
 
         references = {}
         for identity in self.state_order:
-            indicator = choose_reference_indicator(
-                [item.model_dump(mode="json") for item in self.get_construct(identity).indicators]
-            )
-            assert indicator is not None
-            references[identity] = indicator["id"]
+            indicator = choose_reference_indicator(self.get_construct(identity).indicators)
+            references[identity] = indicator.id
         return references
 
     @cached_property
@@ -406,11 +403,6 @@ class ModelSpec(BaseModel):
 
             validate_distribution_memberships(self)
         return self
-
-    def require_question(self) -> str:
-        if self.question is None:
-            raise IncompleteModelError("Authoring and extraction require a research question")
-        return self.question
 
     def require_measurements(self) -> None:
         if self.measurement_clock is None or not self.indicators:

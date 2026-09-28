@@ -62,7 +62,6 @@ async def _run_single_llm_transition(
                 context_ref=plan.context_ref,
                 llm=plan.llm,
                 max_tool_turns=plan.max_tool_turns,
-                require_result=True,
             ),
             id=(
                 f"llm-{input.transition_id.replace('_', '-')}-{input.workspace_id}-{input.seq:06d}"
@@ -81,8 +80,6 @@ async def _run_single_llm_transition(
                 "run_id": plan.run_id,
             },
         )
-        if subroutine.result_ref is None:
-            raise RuntimeError(f"{summary} subroutine completed without a result ref")
         finalize_input = SingleLLMTransitionFinalizeInput(
             workspace_id=input.workspace_id,
             transition_id=input.transition_id,

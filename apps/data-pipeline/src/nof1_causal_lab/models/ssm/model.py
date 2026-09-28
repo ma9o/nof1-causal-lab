@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.models.ssm.compile.bindings import CompiledParameterBinding
+    from nof1_causal_lab.models.ssm.execution.contracts import InitializationLikelihoodBackend
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
 from nof1_causal_lab.models.ssm.constants import MIN_DT
@@ -99,11 +100,6 @@ class SSMModel:
         self._artifact_cache: dict[tuple[object, ...], object] = {}
         self.observation_support: ObservationSupportRuntime | None = None
         self._prior_runtime_bundle = prior_runtime_bundle
-        self._prior_site_index = (
-            {site.name: site for site in prior_runtime_bundle.registry}
-            if prior_runtime_bundle is not None
-            else None
-        )
 
     def get_cached_artifact[T](
         self,
@@ -130,7 +126,7 @@ class SSMModel:
         """Unified dynamics representation as a :class:`VectorField`.
 
         The vector field derives from the scientific mechanisms and is what consumers
-        (``compute_steady_state``, ``simulate``, the per-step linearisation in
+        (``simulate``, the per-step linearisation in
         the IEKS/Laplace warmup backend, …) all consume uniformly.
         """
 
@@ -165,17 +161,16 @@ class SSMModel:
                     edge_lag_days=numeric.edge_lag_days(self.spec),
                 )
             self._prior_runtime_bundle = build_prior_runtime_bundle(self.spec, priors)
-            self._prior_site_index = {
-                site.name: site for site in self._prior_runtime_bundle.registry
-            }
         return self._prior_runtime_bundle
+
+    @cached_property
+    def _prior_site_names(self) -> frozenset[str]:
+        return frozenset(site.name for site in self.get_prior_runtime_bundle().registry)
 
     def _prior_distribution(self, site_name: str) -> dist.Distribution:
         """Resolve a sample-site prior from canonical runtime semantics."""
         runtime = self.get_prior_runtime_bundle()
-        assert self._prior_site_index is not None
-        site = self._prior_site_index.get(site_name)
-        if site is None:
+        if site_name not in self._prior_site_names:
             raise ValueError(f"Prior runtime bundle has no site named {site_name!r}")
         return runtime.priors[site_name]
 
@@ -225,7 +220,7 @@ class SSMModel:
         self,
         observations: jnp.ndarray,
         times: jnp.ndarray,
-        likelihood_backend=None,
+        likelihood_backend: InitializationLikelihoodBackend,
     ) -> None:
         """NumPyro model function.
 
@@ -235,11 +230,6 @@ class SSMModel:
             likelihood_backend: Laplace likelihood backend instance. Required —
                 construct it in the inference warmup layer.
         """
-        if likelihood_backend is None:
-            raise ValueError(
-                "likelihood_backend is required. Construct it in the inference warmup layer."
-            )
-
         spec = self.spec
         sampled = self._sample_parameters()
 

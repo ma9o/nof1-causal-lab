@@ -1,22 +1,22 @@
 """Particle configuration and initialization contracts without compiling a sampler."""
 
-from typing import Literal, cast
 from unittest.mock import Mock
 
 import jax.numpy as jnp
 import numpy as np
 import pytest
 from dynestyx.inference.particle_runtime import ParticleRuntime
+from pydantic import ValidationError
 
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs import (
-    fit_marginal_particle_gibbs,
     runner,
 )
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.kernel import (
     MarginalParticleGibbsKernel,
     build_marginal_particle_gibbs_kernel,
 )
-from nof1_causal_lab.models.ssm.model import SSMModel
+from nof1_causal_lab.sampler_config import validate_sampler_config
+from nof1_causal_lab.utils.config import InferenceConfig
 
 pytestmark = pytest.mark.contract
 
@@ -24,8 +24,6 @@ pytestmark = pytest.mark.contract
 @pytest.mark.parametrize(
     ("options", "error"),
     [
-        ({"parameter_proposal": "bogus"}, "parameter_proposal"),
-        ({"latent_smoother": "bogus"}, "latent_smoother"),
         ({"dsmc_leaf_proposal": "paid_mix"}, "requires pilot"),
     ],
 )
@@ -42,14 +40,23 @@ def test_kernel_rejects_invalid_configuration_before_accessing_target(options, e
         )
 
 
-def test_fit_rejects_unknown_adaptation_before_building_model():
-    with pytest.raises(ValueError, match="adaptation_scheme"):
-        fit_marginal_particle_gibbs(
-            Mock(spec_set=SSMModel),
-            jnp.zeros((2, 1)),
-            jnp.array([0.0, 1.0]),
-            adaptation_scheme=cast("Literal['simple', 'dual_averaging']", "bogus"),
-        )
+@pytest.mark.parametrize(
+    "field",
+    [
+        "method",
+        "parameter_proposal",
+        "latent_smoother",
+        "dsmc_leaf_proposal",
+        "adaptation_scheme",
+        "init_method",
+        "latent_init_method",
+        "auto_preconditioner_method",
+    ],
+)
+def test_sampler_boundary_rejects_unknown_modes(field):
+    raw = {**InferenceConfig().to_sampler_config(), field: "bogus"}
+    with pytest.raises(ValidationError, match=field):
+        validate_sampler_config(raw)
 
 
 @pytest.mark.parametrize(

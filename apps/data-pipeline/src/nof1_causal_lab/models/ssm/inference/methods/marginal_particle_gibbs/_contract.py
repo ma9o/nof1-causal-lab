@@ -26,25 +26,19 @@ type TransitionLogProbFn = Callable[
 ]
 
 _LATENT_SMOOTHER_DSMC = "dsmc"
-_DSMC_LEAF_PROPOSAL_AMALA_EXACT = "amala_exact"
 # Paid mixture leaf: the amala_exact z-anchored component plus a FIXED pilot
 # component (IEKS warmup moments) and a wide tail, all inside one paid proposal
 # density. Any component that is useless on a given fit costs only its share of
 # proposal mass — never correctness — so the mixture strictly generalizes
 # amala_exact (its z-component alone).
 _DSMC_LEAF_PROPOSAL_PAID_MIX = "paid_mix"
-_DSMC_LEAF_PROPOSALS = (
-    _DSMC_LEAF_PROPOSAL_AMALA_EXACT,
-    _DSMC_LEAF_PROPOSAL_PAID_MIX,
-)
-_LATENT_SMOOTHERS = (_LATENT_SMOOTHER_DSMC,)
 type DSMCLeafProposal = Literal["amala_exact", "paid_mix"]
 
 
 class MPGibbsLatentSmoother(NamedTuple):
     """Static metadata for an MPGibbs latent smoother implementation."""
 
-    name: str
+    name: Literal["dsmc"]
     algorithm: str
     family: str
     selection: str
@@ -61,19 +55,14 @@ class MPGibbsLatentSmootherResult(NamedTuple):
     diagnostics: dict[str, jnp.ndarray]
 
 
-def _resolve_latent_smoother(name: str) -> MPGibbsLatentSmoother:
-    if name == _LATENT_SMOOTHER_DSMC:
-        return MPGibbsLatentSmoother(
-            name=name,
-            algorithm="conditional_desequentialized_smc",
-            family="posterior_mixture_dsmc",
-            selection="tree_stitch_combination",
-            parallel=True,
-            backward_sampling=False,
-        )
-    allowed = ", ".join(repr(candidate) for candidate in _LATENT_SMOOTHERS)
-    raise ValueError(
-        f"marginal_particle_gibbs latent_smoother must be one of {allowed}; got {name!r}."
+def _resolve_latent_smoother(name: Literal["dsmc"]) -> MPGibbsLatentSmoother:
+    return MPGibbsLatentSmoother(
+        name=name,
+        algorithm="conditional_desequentialized_smc",
+        family="posterior_mixture_dsmc",
+        selection="tree_stitch_combination",
+        parallel=True,
+        backward_sampling=False,
     )
 
 

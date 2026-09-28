@@ -221,7 +221,7 @@ def test_build_analysis_context_rehydrates_runtime_from_persisted_spec(monkeypat
     assert loads == 1
     new_panel = store.write_artifact(
         "panel",
-        derived_from={"model": artifact_revision("user-123", "model", 1)},
+        derived_from={},
         produced_by="run:measurements",
     )
     journal.append(

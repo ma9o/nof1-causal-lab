@@ -13,8 +13,6 @@ def with_column_descriptions(table: pa.Table, descriptions: Mapping[str, str]) -
     extra = [name for name in descriptions if name not in table.column_names]
     if extra:
         raise ValueError(f"Descriptions for non-existent columns: {extra}")
-    if any(not isinstance(description, str) for description in descriptions.values()):
-        raise ValueError("Column descriptions must be strings.")
     schema = pa.schema(
         [
             field.with_metadata(

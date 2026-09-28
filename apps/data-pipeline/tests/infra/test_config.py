@@ -3,8 +3,11 @@
 import textwrap
 
 import pytest
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
+from nof1_causal_lab.llm_specs import CodexLLMSpec, EmbeddedLLMSpec, LLMProfileSpec, PiLLMSpec
+from nof1_causal_lab.machine.temporal.backend_config import llm_backend_config
+from nof1_causal_lab.machine.temporal.messages import LLMSubroutineInput
 from nof1_causal_lab.sampler_config import validate_sampler_config
 from nof1_causal_lab.utils.config import (
     ClaudeCodeDefaults,
@@ -14,7 +17,6 @@ from nof1_causal_lab.utils.config import (
     InferenceConfig,
     IngestionConfig,
     LLMDefaults,
-    LLMProfileConfig,
     MarginalParticleGibbsConfig,
     PiDefaults,
     PipelineBehaviorConfig,
@@ -60,8 +62,8 @@ class TestToSamplerConfig:
 
     def test_unknown_method_raises(self):
         cfg = InferenceConfig()
-        with pytest.raises(ValueError, match="Unsupported inference method"):
-            cfg.to_sampler_config("hmc")
+        with pytest.raises(ValidationError, match="method"):
+            validate_sampler_config({**cfg.to_sampler_config(), "method": "hmc"})
 
     def test_custom_chains_and_seed(self):
         cfg = InferenceConfig(num_chains=8, seed=42)
@@ -223,6 +225,24 @@ FULL_CONFIG = textwrap.dedent("""\
 
 
 class TestLoadConfig:
+    @pytest.mark.parametrize(
+        "invalid",
+        [
+            "llm:\n  embedded:\n    reasoning_effort: invalid\n",
+            "llm:\n  codex:\n    reasoning_effort: invalid\n",
+            "inference:\n  method: map\n",
+            "inference:\n  marginal_particle_gibbs:\n    init_method: invalid\n",
+            "inference:\n  num_chains: many\n",
+            "inference:\n  unknown_setting: true\n",
+        ],
+    )
+    def test_rejects_invalid_yaml_before_returning_typed_config(self, tmp_path, invalid):
+        path = tmp_path / "config.yaml"
+        path.write_text(MINIMAL_CONFIG + invalid)
+        load_config.cache_clear()
+        with pytest.raises(ValidationError):
+            load_config(path)
+
     def test_load_minimal(self, tmp_path, monkeypatch):
         config_file = tmp_path / "config.yaml"
         config_file.write_text(MINIMAL_CONFIG)
@@ -334,10 +354,10 @@ class TestLoadConfig:
 def _make_pipeline_config(**profile_llm_overrides) -> PipelineConfig:
     """Build a valid PipelineConfig with optional per-context llm overrides."""
     defaults = {
-        "ingestion": LLMProfileConfig(harness="none", model="openrouter/x"),
-        "structure_proposal": LLMProfileConfig(harness="none", model="openrouter/x"),
-        "extraction_workers": LLMProfileConfig(harness="none", model="openrouter/x"),
-        "prior_elicitation": LLMProfileConfig(harness="none", model="openrouter/x"),
+        "ingestion": EmbeddedLLMSpec(harness="none", model="openrouter/x"),
+        "structure_proposal": EmbeddedLLMSpec(harness="none", model="openrouter/x"),
+        "extraction_workers": EmbeddedLLMSpec(harness="none", model="openrouter/x"),
+        "prior_elicitation": EmbeddedLLMSpec(harness="none", model="openrouter/x"),
     }
     defaults.update(profile_llm_overrides)
     return PipelineConfig(
@@ -360,77 +380,41 @@ class TestValidateConfig:
         config = _make_pipeline_config()
         assert validate_config(config) == []
 
-    def test_stage2_harness_claude_code_rejected(self):
-        config = _make_pipeline_config(
-            extraction_workers=LLMProfileConfig(harness="claude-code", model="sonnet"),
-        )
-        errors = validate_config(config)
-        assert any("extraction_workers.llm.harness" in e for e in errors)
-        assert any("must be 'none'" in e for e in errors)
-
-    def test_stage2_harness_codex_rejected(self):
-        config = _make_pipeline_config(
-            extraction_workers=LLMProfileConfig(harness="codex", model="gpt-5.4"),
-        )
-        errors = validate_config(config)
-        assert any("extraction_workers.llm.harness" in e for e in errors)
-        assert any("must be 'none'" in e for e in errors)
-
-    def test_unknown_harness_value_rejected(self):
-        config = _make_pipeline_config(
-            ingestion=LLMProfileConfig(harness="anthropic", model="openrouter/x"),
-        )
-        errors = validate_config(config)
-        assert any("ingestion.llm.harness" in e for e in errors)
+    @pytest.mark.parametrize("harness", ["claude-code", "codex", "pi"])
+    def test_extraction_workers_require_embedded_backend(self, harness):
+        with pytest.raises(ValidationError, match=r"llm\.harness"):
+            TypeAdapter(ExtractionWorkersConfig).validate_python(
+                {"llm": {"harness": harness, "model": "worker-model"}}
+            )
 
     def test_embedded_model_must_be_openrouter_prefix(self):
         config = _make_pipeline_config(
-            ingestion=LLMProfileConfig(harness="none", model="gpt-5.4"),
+            ingestion=EmbeddedLLMSpec(model="gpt-5.4"),
         )
-        errors = validate_config(config)
-        assert any("openrouter/" in e for e in errors)
+        assert any("openrouter/" in error for error in validate_config(config))
 
-    def test_effort_only_valid_for_claude_code(self):
-        config = _make_pipeline_config(
-            ingestion=LLMProfileConfig(harness="none", model="openrouter/x", effort="high"),
-        )
-        errors = validate_config(config)
-        assert any(".effort" in e for e in errors)
-
-    def test_service_tier_only_valid_for_codex(self):
-        config = _make_pipeline_config(
-            ingestion=LLMProfileConfig(harness="none", model="openrouter/x", service_tier="fast"),
-        )
-        errors = validate_config(config)
-        assert any(".service_tier" in e for e in errors)
-
-    def test_claude_code_rejects_reasoning_effort(self):
-        config = _make_pipeline_config(
-            ingestion=LLMProfileConfig(
-                harness="claude-code", model="sonnet", reasoning_effort="high"
-            ),
-        )
-        errors = validate_config(config)
-        assert any(".reasoning_effort" in e and "claude-code" in e for e in errors)
-
-    def test_claude_code_effort_enum(self):
-        config = _make_pipeline_config(
-            ingestion=LLMProfileConfig(harness="claude-code", model="sonnet", effort="ultra"),
-        )
-        errors = validate_config(config)
-        assert any(".effort" in e and "'ultra'" in e for e in errors)
-
-    def test_codex_rejects_claude_only_fields(self):
-        config = _make_pipeline_config(
-            ingestion=LLMProfileConfig(harness="codex", model="gpt-5.4", max_budget_usd=5.0),
-        )
-        errors = validate_config(config)
-        assert any(".max_budget_usd" in e for e in errors)
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {"harness": "anthropic"},
+            {"harness": "none", "effort": "high"},
+            {"harness": "none", "service_tier": "fast"},
+            {"harness": "none", "reasoning_effort": "max"},
+            {"harness": "claude-code", "reasoning_effort": "high"},
+            {"harness": "claude-code", "effort": "ultra"},
+            {"harness": "codex", "max_budget_usd": 5.0},
+            {"harness": "codex", "reasoning_effort": "minimal"},
+            {"harness": "pi", "reasoning_effort": "high"},
+            {"harness": "pi", "thinking": "max"},
+        ],
+    )
+    def test_profile_schema_rejects_incompatible_backend_fields(self, payload):
+        with pytest.raises(ValidationError):
+            TypeAdapter(LLMProfileSpec).validate_python({"model": "openrouter/x", **payload})
 
     def test_pi_accepts_provider_model_and_thinking(self):
         config = _make_pipeline_config(
-            ingestion=LLMProfileConfig(
-                harness="pi",
+            ingestion=PiLLMSpec(
                 provider="openai-codex",
                 model="gpt-5.4-mini",
                 thinking="high",
@@ -439,27 +423,28 @@ class TestValidateConfig:
         )
         assert validate_config(config) == []
 
-    def test_pi_rejects_codex_reasoning_effort(self):
-        config = _make_pipeline_config(
-            ingestion=LLMProfileConfig(
-                harness="pi",
-                model="gpt-5.4-mini",
-                reasoning_effort="high",
-            ),
+    def test_codex_max_effort_survives_default_resolution_and_transport(self):
+        llm = llm_backend_config(
+            CodexLLMSpec(model="codex-test", reasoning_effort="max"),
+            LLMDefaults(codex=CodexDefaults(bin="custom-codex")),
+            max_tool_turns=None,
         )
-        errors = validate_config(config)
-        assert any(".reasoning_effort" in error and "thinking" in error for error in errors)
-
-    def test_pi_thinking_enum(self):
-        config = _make_pipeline_config(
-            ingestion=LLMProfileConfig(
-                harness="pi",
-                model="gpt-5.4-mini",
-                thinking="max",
-            ),
+        request = LLMSubroutineInput(
+            workspace_id="test",
+            run_id="run",
+            subroutine_id="raw_data",
+            context_kind="raw_data_ingestion",
+            context_ref="context.json",
+            llm=llm,
+            max_tool_turns=5,
         )
-        errors = validate_config(config)
-        assert any(".thinking" in error and "'max'" in error for error in errors)
+        restored = LLMSubroutineInput.model_validate_json(request.model_dump_json())
+        assert restored.llm == CodexLLMSpec(
+            model="codex-test",
+            bin="custom-codex",
+            reasoning_effort="max",
+            service_tier="fast",
+        )
 
     def test_load_config_raises_on_stage2_harness_violation(self, tmp_path, monkeypatch):
         bad_config = textwrap.dedent("""\
@@ -548,10 +533,3 @@ class TestEnsureHarnessPrereqs:
         monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
         # Still cached — does not raise.
         ensure_harness_prereqs("none")
-
-    def test_unknown_harness_raises_value_error(self):
-        from nof1_causal_lab.utils.config import ensure_harness_prereqs
-
-        self._reset()
-        with pytest.raises(ValueError, match="Unknown harness"):
-            ensure_harness_prereqs("bedrock")

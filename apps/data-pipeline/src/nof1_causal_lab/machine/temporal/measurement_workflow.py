@@ -15,8 +15,11 @@ with workflow.unsafe.imports_passed_through():
         ExtractionChunkFinalizeInput,
         ExtractionChunkResult,
         ExtractionChunkWorkflowInput,
+        ExtractionPlanEventInput,
         ExtractionProgressEventInput,
         ExtractionProgressSnapshot,
+        ExtractionSnapshotEventInput,
+        ExtractionWorkerEventInput,
         LLMSubroutineInput,
         LLMSubroutineResult,
         MeasurementChunkRef,
@@ -74,7 +77,6 @@ class ExtractionChunkWorkflow:
                 context_ref=input.spec_ref,
                 llm=input.llm,
                 max_tool_turns=input.max_tool_turns,
-                require_result=True,
             ),
             id=(
                 f"llm-measurement-{input.workspace_id}-{input.run_id}-"
@@ -97,8 +99,6 @@ class ExtractionChunkWorkflow:
                 "subroutine_id": subroutine_id,
             },
         )
-        if subroutine.result_ref is None:
-            raise RuntimeError("measurement extraction subroutine completed without a result ref")
         return await workflow.execute_activity(
             "finalize_extraction_chunk_activity",
             ExtractionChunkFinalizeInput(
@@ -134,7 +134,7 @@ class MeasurementsWorkflow:
                 summary="Plan measurements extraction",
             )
             await _emit_extraction_event(
-                ExtractionProgressEventInput(
+                ExtractionPlanEventInput(
                     workspace_id=input.workspace_id,
                     kind="plan",
                     total_workers=len(plan.chunks),
@@ -155,7 +155,7 @@ class MeasurementsWorkflow:
                 cutoff = now - timedelta(seconds=60)
                 llm_call_times[:] = [ts for ts in llm_call_times if ts >= cutoff]
                 await _emit_extraction_event(
-                    ExtractionProgressEventInput(
+                    ExtractionSnapshotEventInput(
                         workspace_id=input.workspace_id,
                         kind="snapshot",
                         snapshot=ExtractionProgressSnapshot(
@@ -179,7 +179,7 @@ class MeasurementsWorkflow:
                     pending_workers -= 1
                     running_workers += 1
                     await _emit_extraction_event(
-                        ExtractionProgressEventInput(
+                        ExtractionWorkerEventInput(
                             workspace_id=input.workspace_id,
                             kind="worker",
                             worker_id=chunk.worker_id,
@@ -240,7 +240,7 @@ class MeasurementsWorkflow:
                     now = workflow.now()
                     llm_call_times.extend([now] * result.n_llm_calls)
                     await _emit_extraction_event(
-                        ExtractionProgressEventInput(
+                        ExtractionWorkerEventInput(
                             workspace_id=input.workspace_id,
                             kind="worker",
                             worker_id=result.worker_id,

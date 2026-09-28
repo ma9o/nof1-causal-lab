@@ -5,6 +5,7 @@ import jax.random as random
 import numpy as np
 import pytest
 
+from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
 from nof1_causal_lab.models.posterior_predictive import (
     _check_calibration,
     _check_residual_autocorrelation,
@@ -72,15 +73,17 @@ class TestForwardSimulation:
         )
 
     @pytest.mark.contract
-    def test_switch_index_unknown_dist_raises(self):
-        """Unknown distribution family raises ValueError."""
-        with pytest.raises(ValueError, match="Unknown distribution family"):
-            get_posterior_predictive_switch_index("nonexistent_distribution")
+    def test_unknown_family_rejected_at_parse_boundary(self):
+        """Serialized distribution names are validated before predictive dispatch."""
+        with pytest.raises(ValueError, match="is not a valid DistributionFamily"):
+            DistributionFamily("nonexistent_distribution")
 
     @pytest.mark.contract
     def test_switch_index_invalid_family_link_pair_raises(self):
         with pytest.raises(ValueError, match="invalid for observation family 'gaussian'"):
-            get_posterior_predictive_switch_index("gaussian", link="log")
+            get_posterior_predictive_switch_index(
+                DistributionFamily.GAUSSIAN, link=LinkFunction.LOG
+            )
 
     @pytest.mark.inference(concern="predictive")
     def test_mixed_families_preserve_means_and_sample_domains(self):

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import assert_never
+
 from nof1_causal_lab.machine.temporal.llm_subroutine_storage import read_subroutine_json
 from nof1_causal_lab.machine.temporal.messages import LLMSubroutineContextKind, LLMToolSpec
 
@@ -34,8 +36,17 @@ def subroutine_context_messages(
                 LLMToolSpec(
                     name="validate_extractions",
                     description="Validate worker extraction output JSON.",
-                    param_name="output_json",
-                    param_description="The JSON string containing the worker output.",
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "output_json": {
+                                "type": "string",
+                                "description": "The JSON string containing the worker output.",
+                            }
+                        },
+                        "required": ["output_json"],
+                        "additionalProperties": False,
+                    },
                 )
             ],
         )
@@ -52,7 +63,7 @@ def subroutine_context_messages(
                     description="List files in the prepared input directory.",
                     kind="read_only",
                     executor="raw_data_list_files",
-                    parameters_schema={
+                    parameters={
                         "type": "object",
                         "properties": {
                             "path": {
@@ -70,7 +81,7 @@ def subroutine_context_messages(
                     description="Read a sample of lines from a file to understand its format.",
                     kind="read_only",
                     executor="raw_data_read_file_sample",
-                    parameters_schema={
+                    parameters={
                         "type": "object",
                         "properties": {
                             "path": {
@@ -92,7 +103,7 @@ def subroutine_context_messages(
                     description="Execute Python code in the local pipeline process to parse files into a Polars DataFrame.",
                     kind="checkpoint",
                     executor="raw_data_execute_python",
-                    parameters_schema={
+                    parameters={
                         "type": "object",
                         "properties": {
                             "code": {
@@ -110,12 +121,21 @@ def subroutine_context_messages(
                 LLMToolSpec(
                     name="submit_table",
                     description="Validate and finalize the ingested DataFrame with column descriptions.",
-                    param_name="column_descriptions_json",
-                    param_description="JSON object mapping column names to descriptions.",
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "column_descriptions_json": {
+                                "type": "string",
+                                "description": "JSON object mapping column names to descriptions.",
+                            }
+                        },
+                        "required": ["column_descriptions_json"],
+                        "additionalProperties": False,
+                    },
                     kind="terminal",
                     executor="raw_data_submit_table",
                 ),
             ],
         )
 
-    raise ValueError(f"unknown LLM subroutine context kind {context_kind!r}")
+    assert_never(context_kind)

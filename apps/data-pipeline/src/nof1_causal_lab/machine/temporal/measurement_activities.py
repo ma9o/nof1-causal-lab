@@ -8,13 +8,13 @@ runtime event emission.
 from __future__ import annotations
 
 import json
-from dataclasses import replace
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, assert_never, cast
 
 from temporalio import activity
 
 from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+from nof1_causal_lab.llm_specs import EmbeddedLLMSpec
 from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
 from nof1_causal_lab.machine.execution import TransitionEffects
 from nof1_causal_lab.machine.graph import transition_spec
@@ -27,7 +27,6 @@ from nof1_causal_lab.machine.temporal.messages import (
     ExtractionChunkFinalizeInput,
     ExtractionChunkResult,
     ExtractionProgressEventInput,
-    LLMBackendConfig,
     MeasurementChunkRef,
     MeasurementsFinalizeInput,
     MeasurementsPlan,
@@ -77,8 +76,6 @@ async def emit_extraction_progress_event_activity(input: ExtractionProgressEvent
     )
 
     if input.kind == "plan":
-        if input.total_workers is None:
-            raise ValueError("plan events require total_workers")
         emit_extraction_plan_event(
             input.workspace_id,
             total_workers=input.total_workers,
@@ -88,8 +85,6 @@ async def emit_extraction_progress_event_activity(input: ExtractionProgressEvent
         return
 
     if input.kind == "worker":
-        if input.worker_id is None or input.state is None or input.n_windows is None:
-            raise ValueError("worker events require worker_id, state, and n_windows")
         emit_extraction_worker_event(
             input.workspace_id,
             worker_id=input.worker_id,
@@ -102,15 +97,13 @@ async def emit_extraction_progress_event_activity(input: ExtractionProgressEvent
         return
 
     if input.kind == "snapshot":
-        if input.snapshot is None:
-            raise ValueError("snapshot events require snapshot")
         emit_extraction_snapshot_event(
             input.workspace_id,
             snapshot=input.snapshot.model_dump(mode="json"),
         )
         return
 
-    raise ValueError(f"unknown extraction progress event kind {input.kind!r}")
+    assert_never(input)
 
 
 @activity.defn
@@ -135,17 +128,15 @@ async def plan_measurements_activity(input: MeasurementsWorkflowInput) -> Measur
         parquet_filename("raw_data", "raw"),
     )
     raw_df = pl.DataFrame(raw_table)
-    preparation = input.options.preparation
-    if preparation is None or input.options.file_source is None:
-        raise ValueError("Extraction requires a data preparation specification and file source")
+    preparation = input.preparation.definition
     question = preparation.context
     measurement_structure = preparation.extraction_context()
 
     config = get_config()
     extraction_workers = config.extraction_workers
-    model_clock = measurement_structure["model_clock"]
+    model_clock = preparation.default_window
     time_col = "timestamp"
-    all_indicators = list(measurement_structure.get("indicators", []))
+    all_indicators = [variable.model_dump(mode="json") for variable in preparation.variables]
     computed_inds = [i for i in all_indicators if i.get("extraction_mode") == "computed"]
     semantic_inds = [
         i for i in all_indicators if i.get("extraction_mode", "semantic") == "semantic"
@@ -166,7 +157,7 @@ async def plan_measurements_activity(input: MeasurementsWorkflowInput) -> Measur
             time_col=time_col,
             windows_per_chunk=extraction_workers.windows_per_chunk,
             max_events_per_window=extraction_workers.max_events_per_window,
-            max_windows=input.options.max_windows,
+            max_windows=input.preparation.max_windows,
         )
         for worker_id, (chunk_text, window_starts, chunk_context) in enumerate(
             zip(chunk_texts, chunk_window_starts, chunk_contexts, strict=True)
@@ -190,16 +181,13 @@ async def plan_measurements_activity(input: MeasurementsWorkflowInput) -> Measur
                 )
             )
 
-    extraction_llm = replace(
-        extraction_workers.llm,
-        timeout=extraction_workers.worker_timeout,
-    )
+    extraction_llm = extraction_workers.llm
     embedded_defaults = config.llm.embedded
-    llm = LLMBackendConfig(
+    llm = EmbeddedLLMSpec(
         harness="none",
         model=extraction_llm.model,
         max_tokens=first_config_value(extraction_llm.max_tokens, embedded_defaults.max_tokens),
-        timeout=first_config_value(extraction_llm.timeout, embedded_defaults.timeout),
+        timeout=extraction_workers.worker_timeout,
         reasoning_effort=first_config_value(
             extraction_llm.reasoning_effort,
             embedded_defaults.reasoning_effort,
@@ -216,7 +204,7 @@ async def plan_measurements_activity(input: MeasurementsWorkflowInput) -> Measur
             "question": question,
             "measurement_structure": measurement_structure,
             "metadata": PreparedDataMetadata(
-                source=input.options.file_source,
+                source=input.preparation.source,
                 variables=preparation.observation_schema(),
                 preparation=preparation,
             ).model_dump(mode="json"),

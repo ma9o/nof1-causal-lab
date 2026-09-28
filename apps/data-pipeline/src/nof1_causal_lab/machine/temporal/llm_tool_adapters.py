@@ -12,7 +12,7 @@ import math
 import re
 import traceback
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, assert_never
 
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.temporal.llm_subroutine_storage import (
@@ -48,28 +48,24 @@ _RAW_EXEC_NAMESPACE_NAMES = frozenset(
 )
 
 
-def _validate_tool_payload(
+def _validate_measurement_payload(
     *,
-    context_kind: str,
     context_ref: str,
     data: UncheckedJsonObject,
 ) -> tuple[UncheckedJsonObject | None, str]:
-    if context_kind == "measurement_extraction":
-        from nof1_causal_lab.workers.schemas import validate_worker_output
+    from nof1_causal_lab.workers.schemas import validate_worker_output
 
-        spec = read_subroutine_json(context_ref)
-        output, errors = validate_worker_output(
-            data,
-            spec["measurement_structure"],
-            spec["window_starts"],
-        )
-        if errors:
-            return None, "VALIDATION ERRORS:\n" + "\n".join(f"- {error}" for error in errors)
-        if output is None:
-            return None, "VALIDATION ERRORS:\n- validator returned no output"
-        return data, "VALID"
-
-    raise ValueError(f"unknown LLM subroutine context kind {context_kind!r}")
+    spec = read_subroutine_json(context_ref)
+    output, errors = validate_worker_output(
+        data,
+        spec["measurement_structure"],
+        spec["window_starts"],
+    )
+    if errors:
+        return None, "VALIDATION ERRORS:\n" + "\n".join(f"- {error}" for error in errors)
+    if output is None:
+        return None, "VALIDATION ERRORS:\n- validator returned no output"
+    return data, "VALID"
 
 
 def _raw_data_context(context_ref: str) -> UncheckedJsonObject:
@@ -258,6 +254,7 @@ def _execute_raw_data_submit_table(
 ) -> tuple[str, str | None]:
     import polars as pl
     import pyarrow as pa
+    from pydantic import TypeAdapter, ValidationError
 
     from nof1_causal_lab.artifacts.raw_data import with_column_descriptions
 
@@ -274,13 +271,11 @@ def _execute_raw_data_submit_table(
         return "DataFrame is empty (0 rows). Parse more data before submitting.", None
 
     try:
-        col_descs = json.loads(str(args["column_descriptions_json"]))
-    except json.JSONDecodeError as exc:
-        return f"Invalid JSON for column_descriptions: {exc}", None
-
-    if not isinstance(col_descs, dict):
+        col_descs = TypeAdapter(dict[str, str]).validate_json(args["column_descriptions_json"])
+    except ValidationError as exc:
         return (
-            "column_descriptions_json must be a JSON object mapping column names to descriptions.",
+            "column_descriptions_json must be a JSON object mapping column names to string "
+            f"descriptions: {exc}",
             None,
         )
 
@@ -316,10 +311,9 @@ async def execute_subroutine_tool(
     args: UncheckedJsonObject,
     result_ref: str,
 ) -> tuple[str, str | None]:
-    if tool.executor == "context_json_validation":
-        data = json.loads(str(args[tool.param_name]))
-        context_output, feedback = _validate_tool_payload(
-            context_kind=input.context_kind,
+    if tool.executor == "measurement_validation":
+        data = json.loads(str(args["output_json"]))
+        context_output, feedback = _validate_measurement_payload(
             context_ref=input.context_ref,
             data=data,
         )
@@ -336,4 +330,4 @@ async def execute_subroutine_tool(
         return _execute_raw_data_python(input.context_ref, args)
     if tool.executor == "raw_data_submit_table":
         return _execute_raw_data_submit_table(input.context_ref, result_ref, args)
-    raise ValueError(f"Unsupported tool executor: {tool.executor}")
+    assert_never(tool.executor)

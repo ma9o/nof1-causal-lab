@@ -309,3 +309,28 @@ def test_entity_identity_links_survive_compaction_and_follow_typed_reference_pat
     dot = graph_dot(compact, "Types")
     assert "Green dotted: entity reference by ID" in dot
     assert 'style=dotted, color="#0f766e"' in dot
+
+
+def test_observation_identity_links_target_the_shared_definition():
+    definitions: JsonObject = {
+        "IndicatorId": {
+            "description": "An observation has a persistent identity.",
+            "type": "string",
+            "x-layer": "identity",
+            "x-concern": "identity",
+        },
+        **{
+            name: {
+                "description": "A definition describes an observed variable.",
+                "type": "object",
+                "x-layer": "authored",
+                "x-concern": "scientific_model",
+                "properties": {"id": {"$ref": "#/$defs/IndicatorId"}},
+            }
+            for name in ("DataVariableSpec", "IndicatorSpec", "ObservationSpec")
+        },
+    }
+    graph = with_entity_references(build_type_graph({"$defs": definitions}))
+    assert graph.edges["DataVariableSpec", "ObservationSpec"]["reference_fields"] == {"id"}
+    assert graph.edges["IndicatorSpec", "ObservationSpec"]["reference_fields"] == {"id"}
+    assert not graph.has_edge("ObservationSpec", "ObservationSpec")

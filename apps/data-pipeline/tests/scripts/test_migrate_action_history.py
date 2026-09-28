@@ -123,6 +123,19 @@ def test_migration_preserves_science_and_rewrites_all_reference_kinds(tmp_path):
     assert "move" in old_record
     assert old_record["produced"][0]["provenance"] == "llm"
 
+    # Format 3 is an intermediate history contract. Exercise the required data migration
+    # before reading it through the format-4 runtime.
+    import shutil
+
+    from scripts.migrate_data_preparation import migrate_workspace
+
+    intermediate = tmp_path / "format3"
+    (intermediate / "episode").mkdir(parents=True)
+    shutil.copytree(destination, intermediate / "episode/history.git")
+    current = tmp_path / "format4"
+    next_mapping = migrate_workspace(intermediate, current, files=("observations.csv",))
+    mapping = {old: next_mapping[new] for old, new in mapping.items()}
+    destination = current / "episode/history.git"
     migrated = StudyRepository("MIGRATED", repository_path=destination)
     store = ArtifactStore("MIGRATED", repository_path=destination)
     assert migrated.branches() == {"main": mapping[str(main)], "alternative": mapping[str(fork)]}

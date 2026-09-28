@@ -7,6 +7,7 @@ from typing import Any, Literal, overload
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.identity import ConstructId, EdgeId, IndicatorId, MechanismId
+from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
 
 
 @overload
@@ -144,7 +145,9 @@ def complete_test_model(model, *, self_limiting=(), hill_edges=()):
                             else i.model_copy(
                                 update={
                                     "likelihood": LikelihoodSpec(
-                                        law=observation_law(c.id, "gaussian", "identity"),
+                                        law=observation_law(
+                                            c.id, DistributionFamily.GAUSSIAN, LinkFunction.IDENTITY
+                                        ),
                                         reasoning="Test Gaussian emission",
                                         standardized=True,
                                     )

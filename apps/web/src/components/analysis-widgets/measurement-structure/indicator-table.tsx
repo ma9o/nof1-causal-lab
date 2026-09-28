@@ -25,7 +25,6 @@ const columns = [
       <span className="text-sm text-muted-foreground">{info.getValue() ?? "model_clock"}</span>
     ),
   }),
-
 ];
 
 export function IndicatorTable({

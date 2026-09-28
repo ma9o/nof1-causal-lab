@@ -11,11 +11,11 @@ import jax.random as random
 import numpy as np
 
 from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
+from nof1_causal_lab.models.ssm.execution.observation_dispatch import (
+    build_interval_summary_sampler,
+)
 from nof1_causal_lab.models.ssm.execution.observation_families import (
     resolve_manifest_families_and_links,
-)
-from nof1_causal_lab.models.ssm.execution.observation_model import (
-    compile_observation_model,
 )
 from nof1_causal_lab.models.ssm.execution.observation_operator import (
     compile_observation_operator,
@@ -112,8 +112,8 @@ def _apply_observation_mask(
 def _raise_if_log_link_mean_overflow(
     linear_predictors: jnp.ndarray,
     *,
-    manifest_dists: Sequence[DistributionFamily | str],
-    manifest_links: Sequence[LinkFunction | str | None] | None,
+    manifest_dists: Sequence[DistributionFamily],
+    manifest_links: Sequence[LinkFunction | None] | None,
     manifest_names: list[str] | None,
 ) -> None:
     """Fail fast when a log-link predictive mean would overflow before sampling."""
@@ -190,15 +190,13 @@ def _sample_observations_for_draw(
 
     interval_summary_indices = list(observation_operator.interval_summary_indices)
     interval_summary_idx = jnp.asarray(interval_summary_indices, dtype=jnp.int32)
-    interval_model = compile_observation_model(
+    interval_sampler = build_interval_summary_sampler(
         observation_model.families,
-        manifest_cov=observation_model.measurement.manifest_cov,
-        manifest_links=observation_model.links,
+        observation_model.measurement.manifest_cov,
+        interval_summary_indices,
         extra_params=observation_model.extra_params,
-        observation_support=observation_operator.observation_support,
     )
-    assert interval_model.interval_summary_sampler is not None
-    sampled_interval_summary = interval_model.interval_summary_sampler.sample_mean_trajectory(
+    sampled_interval_summary = interval_sampler.sample_mean_trajectory(
         key_interval_summary,
         expected_means[:, interval_summary_idx],
     )

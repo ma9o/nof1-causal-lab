@@ -1,6 +1,5 @@
 """Tests for shared ingestion staging helpers."""
 
-import os
 import zipfile
 
 import pytest
@@ -35,39 +34,6 @@ class TestSafeResolve:
 
         with pytest.raises(ValueError, match="Path traversal blocked"):
             _safe_resolve(base, "../base_evil")
-
-
-class TestFindRawInput:
-    def test_finds_most_recent_text_file_regardless_of_extension(self, tmp_path, monkeypatch):
-        import nof1_causal_lab.flows.transitions.ingestion.flow as mod
-        from nof1_causal_lab.flows.transitions.ingestion.flow import _find_raw_input
-
-        workspace_dir = tmp_path / "test_workspace"
-        workspace_dir.mkdir()
-        older = workspace_dir / "data.zip"
-        newer = workspace_dir / "notes.txt"
-
-        with zipfile.ZipFile(older, "w") as zf:
-            zf.writestr("test.txt", "hello")
-        newer.write_text("screen time, sleep quality\n")
-
-        os.utime(older, (1_700_000_000, 1_700_000_000))
-        os.utime(newer, (1_700_000_100, 1_700_000_100))
-
-        monkeypatch.setattr(mod, "input_dir", lambda workspace_id: str(tmp_path / workspace_id))
-        result = _find_raw_input("test_workspace")
-        assert result.endswith("/notes.txt")
-
-    def test_no_files_raises(self, tmp_path, monkeypatch):
-        import nof1_causal_lab.flows.transitions.ingestion.flow as mod
-        from nof1_causal_lab.flows.transitions.ingestion.flow import _find_raw_input
-
-        workspace_dir = tmp_path / "empty_workspace"
-        workspace_dir.mkdir()
-
-        monkeypatch.setattr(mod, "input_dir", lambda workspace_id: str(tmp_path / workspace_id))
-        with pytest.raises(FileNotFoundError):
-            _find_raw_input("empty_workspace")
 
 
 class TestPrepareRawInput:

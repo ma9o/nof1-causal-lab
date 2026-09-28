@@ -73,10 +73,16 @@ def read_action_body(workspace_id: str, record: StudyRevision) -> ActionBody:
     profile = reader.state.current["data_profile"]
     return DataPreparationResult(
         commit_id=record.commit_id,
-        data_revision=GitRef(workspace_id=workspace_id, revision=artifact.revision, path="panel.parquet"),
+        data_revision=GitRef(
+            workspace_id=workspace_id, revision=artifact.revision, path="panel.parquet"
+        ),
         data=measurements_view(panel, set(panel["indicator_id"].to_list())),
         metadata=read_data_metadata(reader.store, artifact.revision),
-        profile=DataProfileArtifact.model_validate(reader.store.read_json_file(
-            "data_profile", profile.revision, json_filename("data_profile", "data_profile"),
-        )),
+        profile=DataProfileArtifact.model_validate(
+            reader.store.read_json_file(
+                "data_profile",
+                profile.revision,
+                json_filename("data_profile", "data_profile"),
+            )
+        ),
     )

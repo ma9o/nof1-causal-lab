@@ -214,9 +214,13 @@ class ModelSnapshot(SnapshotValue):
                 raise ValueError("Check source must identify this snapshot's recorded findings")
             predictive = self.context.state.checks.predictive
             panel = self.context.state.get("panel")
-            expected = "stale" if artifact_id == "predictive" and predictive is not None and (
-                predictive.panel_revision != (panel.revision if panel else None)
-            ) else "fresh"
+            expected = (
+                "stale"
+                if artifact_id == "predictive"
+                and predictive is not None
+                and (predictive.panel_revision != (panel.revision if panel else None))
+                else "fresh"
+            )
             if source.validity != expected:
                 raise ValueError("Check validity differs from its selected observation revision")
             return

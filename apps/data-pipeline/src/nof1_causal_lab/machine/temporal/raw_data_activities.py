@@ -57,10 +57,7 @@ async def plan_raw_data_activity(
     storage.makedirs(upload_dir)
     storage.makedirs(extract_dir)
 
-    source = input.options.file_source
-    if source is None:
-        raise ValueError("File preparation requires explicit uploaded filenames")
-    for index, raw_name in enumerate(source.files):
+    for index, raw_name in enumerate(input.source.files):
         raw_storage_path = storage.join(data_module.input_dir(input.workspace_id), raw_name)
         local_raw = Path(upload_dir) / raw_name
         with storage.open_file(raw_storage_path, "rb") as uploaded:
@@ -94,8 +91,6 @@ async def finalize_raw_data_activity(input: SingleLLMTransitionFinalizeInput) ->
     import pyarrow as pa
 
     try:
-        if input.result_ref is None:
-            raise RuntimeError("raw-data subroutine completed without a result ref")
         result = _read_raw_data_json(input.result_ref)
         with storage.open_file(result["table_ref"], "rb") as file:
             table = pa.ipc.open_file(file).read_all()
