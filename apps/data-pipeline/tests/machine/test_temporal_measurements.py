@@ -31,6 +31,7 @@ from tests.helpers import run_async
 pytestmark = pytest.mark.timeout(240)
 
 
+@pytest.mark.contract
 def test_call_openrouter_activity_reuses_persisted_call_result(monkeypatch, tmp_path):
     import nof1_causal_lab.utils.openrouter_client as openrouter_client
 
@@ -84,6 +85,7 @@ def test_call_openrouter_activity_reuses_persisted_call_result(monkeypatch, tmp_
     assert storage.exists(call_ref)
 
 
+@pytest.mark.contract
 def test_execute_llm_tool_calls_activity_dispatches_by_tool_name(tmp_path):
     context_ref = str(tmp_path / "context.json")
     assistant_ref = str(tmp_path / "assistant.json")
@@ -186,17 +188,17 @@ def test_execute_llm_tool_calls_activity_dispatches_by_tool_name(tmp_path):
     assert storage.read_json(result_ref)["extractions"][0]["value"] == 1000
 
 
+@pytest.mark.contract
 @pytest.mark.parametrize("remote", [False, True])
 def test_execute_llm_tool_calls_activity_persists_raw_data_submit_table(
     tmp_path, monkeypatch, remote
 ):
     from nof1_causal_lab.artifacts.raw_data import column_descriptions
-    from nof1_causal_lab.flows.pipeline_helpers import format_schema_for_llm
     from nof1_causal_lab.machine.artifacts import EpisodeState
     from nof1_causal_lab.machine.store import ArtifactStore
     from nof1_causal_lab.machine.temporal.messages import SingleLLMTransitionFinalizeInput
     from nof1_causal_lab.machine.temporal.raw_data_activities import finalize_raw_data_activity
-    from nof1_causal_lab.machine.views import read_artifact_views
+    from nof1_causal_lab.machine.views import raw_data_view
     from nof1_causal_lab.utils import data as data_module
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
@@ -300,16 +302,16 @@ def test_execute_llm_tool_calls_activity_persists_raw_data_submit_table(
     )
     store = ArtifactStore("ws-test")
     raw = effects.produced[0]
-    reloaded = store.read_parquet_table("raw_data", raw.version, "raw.parquet")
+    reloaded = store.read_parquet_table("raw_data", raw.revision, "raw.parquet")
     assert reloaded.equals(table, check_metadata=True)
-    assert not storage.exists(store.file_path("raw_data", raw.version, "profile.json"))
-    assert "step count — daily" in format_schema_for_llm(reloaded)
-    view = read_artifact_views(store, EpisodeState().with_versions(effects.produced)).raw_data
+    assert "profile.json" not in store.filenames("raw_data", raw.revision)
+    view = raw_data_view(reloaded)
     assert view is not None
     assert view.n_records == 2
     assert {column.name: column.description for column in view.column_descriptions} == descriptions
 
 
+@pytest.mark.contract
 def test_execute_llm_tool_calls_activity_executes_raw_python_locally(tmp_path):
     context_ref = str(tmp_path / "context.json")
     assistant_ref = str(tmp_path / "assistant.json")
@@ -392,6 +394,7 @@ def test_execute_llm_tool_calls_activity_executes_raw_python_locally(tmp_path):
     assert dataframe["steps"].to_list() == [1000]
 
 
+@pytest.mark.contract
 def test_execute_llm_tool_calls_activity_returns_recoverable_tool_exception(tmp_path):
     context_ref = str(tmp_path / "context.json")
     assistant_ref = str(tmp_path / "assistant.json")
@@ -451,6 +454,7 @@ def test_execute_llm_tool_calls_activity_returns_recoverable_tool_exception(tmp_
     assert result.feedback_preview.startswith("Tool execution failed:")
 
 
+@pytest.mark.contract
 def test_append_llm_repair_message_activity_persists_repair_turn(tmp_path):
     conversation_ref = str(tmp_path / "conversation.json")
     next_conversation_ref = str(tmp_path / "conversation-repair.json")
@@ -486,6 +490,7 @@ def test_append_llm_repair_message_activity_persists_repair_turn(tmp_path):
     assert "submit_table" in messages[-1]["content"]
 
 
+@pytest.mark.contract
 def test_execute_llm_tool_calls_activity_terminal_without_result_ref(tmp_path):
     context_ref = str(tmp_path / "context.json")
     assistant_ref = str(tmp_path / "assistant.json")
@@ -563,6 +568,7 @@ def test_execute_llm_tool_calls_activity_terminal_without_result_ref(tmp_path):
     assert storage.exists(result_ref) is False
 
 
+@pytest.mark.workflow
 def test_extraction_chunk_workflow_runs_shared_llm_subroutine(monkeypatch, tmp_path):
     from temporalio.testing import WorkflowEnvironment
 
@@ -688,11 +694,12 @@ def test_extraction_chunk_workflow_runs_shared_llm_subroutine(monkeypatch, tmp_p
     assert trace.usage.input_tokens == 3
 
 
+@pytest.mark.workflow
 @pytest.mark.parametrize(
     ("harness", "model"),
     [
-        ("claude-code", "claude/mock-latent"),
-        ("codex", "codex/mock-latent"),
+        ("claude-code", "claude/mock-extraction"),
+        ("codex", "codex/mock-extraction"),
         ("pi", "gpt-5.4-mini"),
     ],
 )
@@ -718,28 +725,12 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
     from nof1_causal_lab.utils.llm import LLMTrace, TraceMessage, TraceUsage
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
-    valid_structure = {
-        "default_outcome": "construct:cdc0b2958a9512b2abad",
-        "edges": [
+    valid_extractions = {
+        "extractions": [
             {
-                "cause": {
-                    "id": "construct:c665e6cdc48fc83e0915",
-                    "name": "exercise",
-                    "description": "exercise level",
-                    "role": "exogenous",
-                    "temporal_status": "time_varying",
-                },
-                "effect": {
-                    "id": "construct:cdc0b2958a9512b2abad",
-                    "name": "sleep",
-                    "description": "sleep quality",
-                    "role": "endogenous",
-                    "temporal_status": "time_varying",
-                },
-                "id": "edge:ee04dac06187e4b97ab3",
-                "description": "exercise can affect sleep",
-                "lagged": True,
-                "sources": [],
+                "window_start": "2026-01-01T00:00:00",
+                "indicator_id": "indicator:steps",
+                "value": 1000,
             }
         ],
     }
@@ -754,7 +745,9 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
 
         async def turn(self, user_message):
             del user_message
-            self._tool_output = await self._tools[0].execute(model_json=json.dumps(valid_structure))
+            self._tool_output = await self._tools[0].execute(
+                output_json=json.dumps(valid_extractions)
+            )
             self.raw_events.append(
                 {
                     "type": "assistant",
@@ -762,7 +755,7 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
                         "content": [
                             {
                                 "type": "tool_use",
-                                "name": "validate_latent_structure",
+                                "name": "validate_extractions",
                             }
                         ]
                     },
@@ -783,9 +776,9 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
             )
             return TurnResult(
                 completion="",
-                terminal_tool_name="validate_latent_structure",
+                terminal_tool_name="validate_extractions",
                 terminal_tool_output=self._tool_output,
-                tool_calls_fired=["validate_latent_structure"],
+                tool_calls_fired=["validate_extractions"],
             )
 
         @property
@@ -801,14 +794,14 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
                                 {
                                     "id": "fake-tool-call",
                                     "type": "function",
-                                    "function": {"name": "validate_latent_structure"},
+                                    "function": {"name": "validate_extractions"},
                                 }
                             ],
                         ),
                         TraceMessage(
                             role="tool",
                             content=self._tool_output,
-                            tool_name="validate_latent_structure",
+                            tool_name="validate_extractions",
                             tool_result=self._tool_output,
                         ),
                     ],
@@ -816,7 +809,7 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
                     total_time_seconds=0.1,
                     usage=TraceUsage(input_tokens=1, output_tokens=1),
                 ),
-                terminal_tool_name="validate_latent_structure",
+                terminal_tool_name="validate_extractions",
                 terminal_tool_output=self._tool_output,
             )
 
@@ -857,13 +850,28 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
     }[harness]
 
     workspace_id = f"ws-{uuid.uuid4().hex[:8]}"
-    context_ref = str(tmp_path / "latent-context.json")
+    context_ref = str(tmp_path / "measurement-context.json")
     storage.write_text(
         context_ref,
         json.dumps(
             {
-                "system_prompt": "Propose a latent structure.",
-                "user_messages": ["Use the validation tool."],
+                "question": "does exercise improve sleep?",
+                "window_text": "2026-01-01T00:00:00: steps were 1000",
+                "window_starts": ["2026-01-01T00:00:00"],
+                "measurement_structure": {
+                    "indicators": [
+                        {
+                            "id": "indicator:steps",
+                            "name": "steps",
+                            "construct_id": "construct:exercise",
+                            "measurement_dtype": "continuous",
+                            "aggregation": "mean",
+                            "support_kind": "interval",
+                            "summary_operator": "mean",
+                            "anchor_policy": "window_end",
+                        }
+                    ],
+                },
             }
         ),
     )
@@ -885,8 +893,8 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
                     LLMSubroutineInput(
                         workspace_id=workspace_id,
                         run_id="seq-000001",
-                        subroutine_id="latent-structure",
-                        context_kind="latent_structure",
+                        subroutine_id="measurement-extraction",
+                        context_kind="measurement_extraction",
                         context_ref=context_ref,
                         llm=LLMBackendConfig(
                             harness=harness,
@@ -895,7 +903,7 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
                         ),
                         max_tool_turns=1,
                     ),
-                    id=f"harness-latent-{workspace_id}",
+                    id=f"harness-measurement-{workspace_id}",
                     task_queue="test-episodes",
                 )
                 result = await handle.result()
@@ -914,15 +922,11 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
     assert result.result_ref is not None
     assert result.n_harness_turns == 1
     assert "execute_harness_tool_request_activity" in activity_names
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
-
-    assert ModelSpec.model_validate(
-        storage.read_json(result.result_ref)
-    ) == ModelSpec.model_validate(valid_structure)
+    assert storage.read_json(result.result_ref) == valid_extractions
     tool_root = storage.join(
         data_module.scratch_run_dir(workspace_id, "seq-000001"),
         "llm",
-        "latent-structure",
+        "measurement-extraction",
         "harness-tools",
         "user-001",
     )
@@ -931,5 +935,5 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
     assert len(requests) == 1
     assert len(responses) == 1
     response = storage.read_json(responses[0])
-    assert response["tool_name"] == "validate_latent_structure"
+    assert response["tool_name"] == "validate_extractions"
     assert response["success"] is True

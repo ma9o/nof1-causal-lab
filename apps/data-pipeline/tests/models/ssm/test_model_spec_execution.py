@@ -1,4 +1,4 @@
-"""ModelSpec execution and stored identity checks without inference or simulation."""
+"""ModelSpec identity, parameter draws, and native model execution."""
 
 import dynestyx as dsx
 import jax
@@ -7,7 +7,6 @@ import numpy as np
 import pytest
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
-from nof1_causal_lab.models.model_structure import model_for_constructs
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.execution.dynamical_model import (
     HeterogeneousObservation,
@@ -19,7 +18,6 @@ from nof1_causal_lab.models.ssm.parameterization import (
     assemble_deterministics_from_registry,
     build_site_registry,
 )
-from nof1_causal_lab.recipes.construct_authoring import AdmissionState
 from tests.dynamics_fixtures import decay_term, interaction_term, linear_term
 from tests.helpers import complete_test_model, make_model
 
@@ -32,26 +30,59 @@ def model():
     )
 
 
+@pytest.mark.inference(concern="predictive")
+@pytest.mark.parametrize("categorical", [False, True])
 def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
-    model, tmp_path, monkeypatch
+    model, tmp_path, monkeypatch, categorical
 ):
     from functools import cache
 
+    from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.machine.derivations import read_model
-    from nof1_causal_lab.machine.store import ArtifactStore
+    from nof1_causal_lab.machine.store import ArtifactStore, read_model
+    from nof1_causal_lab.models.likelihoods import observation_law
     from nof1_causal_lab.models.model_inputs import input_fingerprints
-    from nof1_causal_lab.numpyro_json import empirical_atoms
+    from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
+    from nof1_causal_lab.models.ssm.predictive.parameters import sample_model_laws
+    from nof1_causal_lab.numpyro_json import empirical_atoms, empirical_distribution
     from nof1_causal_lab.utils import data as data_module
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path))
     store = ArtifactStore("TEST")
+    if categorical:
+        model = make_model(["A", "B"], [("A", "B")])
+        construct = model.constructs[1]
+        indicator = construct.indicators[0].model_copy(
+            update={
+                "measurement_dtype": "categorical",
+                "categorical_levels": ("low", "medium", "high"),
+                "aggregation": "last",
+                "likelihood": LikelihoodSpec(
+                    law=observation_law(construct.id, "categorical", "softmax"),
+                    reasoning="Joint law with category-specific parameter elements",
+                ),
+            }
+        )
+        model = complete_test_model(
+            model.revised(
+                edges=replace_constructs(
+                    model.edges, (construct.model_copy(update={"indicators": (indicator,)}),)
+                )
+            )
+        )
     count = 3
     samples = {
-        site.name: jnp.arange(count, dtype=float).reshape((count,) + (1,) * len(site.shape))
-        + jnp.full((count, *site.shape), 0.5)
-        for site in build_site_registry(model)
+        site.name: 100 * (index + 1)
+        + jnp.arange(count * np.prod(site.shape), dtype=float).reshape(count, *site.shape)
+        for index, site in enumerate(build_site_registry(model))
     }
+    bindings, auxiliary = parameter_bindings(model)
+    if categorical:
+        assert any(len(binding.coordinates) > 1 for binding in bindings)
+    for coordinate in auxiliary:
+        samples[coordinate.site_name] = (
+            samples[coordinate.site_name].at[(slice(None), *coordinate.indices)].set(0)
+        )
     samples.update(assemble_deterministics_from_registry(samples, model))
     paths = jnp.arange(count * 4 * 2, dtype=float).reshape(count, 4, 2)
     result = ParticleMCMCPosterior(
@@ -76,20 +107,26 @@ def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
     payload = conditioned.model_dump(mode="json")
     assert not {"posterior", "prior", "provenance", "diagnostics", "result"} & payload.keys()
     assert "array_ref" in conditioned.model_dump_json()
-    info = store.write_version(
+    info = store.write_artifact(
         "model",
-        provenance="computed",
         derived_from={},
         produced_by="run:posterior",
         json_files={"model.json": payload},
     )
-    loaded = read_model(store, info.version)
+    loaded = read_model(store, info.revision)
     assert loaded == conditioned
     assert input_fingerprints(model)["compilation"] == input_fingerprints(loaded)["compilation"]
     restored = model_draws(loaded)
     for name, values in samples.items():
         np.testing.assert_array_equal(restored.parameters[name], values)
     np.testing.assert_array_equal(restored.latent_paths, paths)
+    sampled = sample_model_laws(loaded, draws=12, key=jax.random.PRNGKey(4))
+    assert sampled.latent_paths is not None
+    for draw in range(12):
+        atom = int(sampled.latent_paths[draw, 0, 0] // 8)
+        np.testing.assert_array_equal(sampled.latent_paths[draw], paths[atom])
+        for name, values in samples.items():
+            np.testing.assert_array_equal(sampled.parameters[name][draw], values[atom])
     # Entity/parameter list order carries no joint distribution coordinates.
     reordered = loaded.revised(parameters=tuple(reversed(loaded.parameters)))
     for name, values in restored.parameters.items():
@@ -102,8 +139,36 @@ def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
         empirical_atoms(next(iter(loaded.distributions.values()))),
         empirical_atoms(next(iter(conditioned.distributions.values()))),
     )
+    identity, law = next(iter(loaded.distributions.items()))
+    with pytest.raises(ValueError, match="one event coordinate per scientific quantity"):
+        loaded.revised(
+            distributions={identity: empirical_distribution(empirical_atoms(law)[:, :-1])}
+        )
+    with pytest.raises(ValueError, match="identity does not match"):
+        loaded.revised(time_points=(0.0, 1.0, 2.0, 5.0))
+    if categorical:
+        construct = loaded.constructs[1]
+        indicator = construct.indicators[0]
+        with pytest.raises(ValueError, match="identity does not match"):
+            loaded.revised(
+                edges=replace_constructs(
+                    loaded.edges,
+                    (
+                        construct.model_copy(
+                            update={
+                                "indicators": (
+                                    indicator.model_copy(
+                                        update={"categorical_levels": ("medium", "low", "high")}
+                                    ),
+                                )
+                            }
+                        ),
+                    ),
+                )
+            )
 
 
+@pytest.mark.inference(concern="simulation")
 def test_numerical_function_constructs_dynestyx_model(model):
     samples = {site.name: jnp.full((1, *site.shape), 0.5) for site in build_site_registry(model)}
     samples.update(assemble_deterministics_from_registry(samples, model))
@@ -119,6 +184,7 @@ def test_numerical_function_constructs_dynestyx_model(model):
     assert native.state_evolution.drift(jnp.ones(2), jnp.empty(0), 0.0).shape == (2,)
 
 
+@pytest.mark.inference(concern="predictive")
 def test_predictive_runtime_uses_native_initial_and_observation_laws(model):
     """Exercise model batching and prediction at one time point, without a trajectory solve."""
     from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
@@ -159,6 +225,7 @@ def test_predictive_runtime_uses_native_initial_and_observation_laws(model):
     assert not np.any(mask[:, :, 1])
 
 
+@pytest.mark.inference(concern="simulation")
 def test_predictive_edge_off_reaches_the_native_state_evolution(model, monkeypatch):
     """Inspect the declared derivative at the solver boundary, without integrating a path."""
     from dataclasses import replace
@@ -210,16 +277,7 @@ def test_predictive_edge_off_reaches_the_native_state_evolution(model, monkeypat
     )
 
 
-def test_admission_scope_is_derived_from_the_scientific_value(model):
-    model_for_constructs(model, {"A"})
-    partial = AdmissionState(model=model, names=("A",)).completed_model(restrict=True)
-    assert numeric.state_names(partial) == ["A"]
-    assert numeric.observation_names(partial) == ["A_obs"]
-    assert numeric.loading_block(partial).template.shape == (1, 1)
-    partial.check_execution()
-    assert numeric.state_names(model) == ["A", "B"]
-
-
+@pytest.mark.contract
 def test_model_equality_does_not_depend_on_execution_cache(model):
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
@@ -229,6 +287,7 @@ def test_model_equality_does_not_depend_on_execution_cache(model):
     assert restored == model
 
 
+@pytest.mark.inference(concern="simulation")
 def test_nonlinear_fixture_declares_the_same_drift_and_measurements():
     """Compare a single true drift evaluation; no simulator or inference is run."""
     from evaluation.fixtures import synthetic_nonlinear as fixture
@@ -269,17 +328,19 @@ def test_nonlinear_fixture_declares_the_same_drift_and_measurements():
     )
 
 
+@pytest.mark.contract
 def test_fixed_quantities_and_interactions_remain_effective_in_edge_off_checks(monkeypatch):
     from nof1_causal_lab.artifacts.expressions import LiteralExpression, linear_coefficient
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.parameter import SiteKind
     from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
     from nof1_causal_lab.models.ssm.predictive import registry_runtime
+    from nof1_causal_lab.models.ssm.predictive.types import PredictiveDraws, PredictiveTrajectory
     from nof1_causal_lab.models.ssm.simulation_checks import (
+        ConstructSimulationTarget,
         _incoming_edge_off_target,
         _resimulate_edge_off,
     )
-    from nof1_causal_lab.recipes.construct_authoring import ConstructContribution
     from tests.model_fixtures import model_fixture, parameter_draws
 
     source = model_fixture(
@@ -318,16 +379,25 @@ def test_fixed_quantities_and_interactions_remain_effective_in_edge_off_checks(m
     assert not terms[3].parameters
     target = _incoming_edge_off_target(
         source,
-        ConstructContribution(construct=source.constructs[2], edge_parents=("A", "B")),
+        ConstructSimulationTarget(construct=source.constructs[2], edge_parents=("A", "B")),
         numeric.state_names(source),
         2,
     )
     assert target.components == (3, 4)
     calls = []
-    original_samples = {**parameter_draws(source, 2), "latents": jnp.ones((2, 3, 3))}
+    original_samples = parameter_draws(source, 2)
+    paths = jnp.ones((2, 3, 3))
+    prediction = PredictiveDraws(
+        parameters=original_samples,
+        likelihood_parameters={},
+        trajectory=PredictiveTrajectory(
+            paths, paths, paths, jnp.ones_like(paths, dtype=bool), paths
+        ),
+    )
 
     def capture(model, samples, times, *, dynamics, **_kwargs):
         assert model is source
+        assert samples is prediction.parameters
         for index in (3, 4):
             assert dynamics.components[index].expression == LiteralExpression(value=0)
         for name, value in original_samples.items():
@@ -338,7 +408,7 @@ def test_fixed_quantities_and_interactions_remain_effective_in_edge_off_checks(m
     monkeypatch.setattr(registry_runtime, "_simulate_vector_field_predictive_latents", capture)
     _resimulate_edge_off(
         source,
-        original_samples,
+        prediction,
         jnp.arange(3),
         target,
         seed=0,

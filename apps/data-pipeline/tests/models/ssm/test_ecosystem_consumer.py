@@ -17,7 +17,7 @@ from nof1_causal_lab.models.ssm.model import SSMModel
 from tests.dynamics_fixtures import potential_term
 from tests.model_fixtures import default_lambda_block, model_fixture
 
-pytestmark = pytest.mark.inference
+pytestmark = pytest.mark.inference(concern="sampling")
 
 
 def nonlinear_model():

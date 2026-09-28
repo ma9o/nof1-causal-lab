@@ -14,9 +14,6 @@ from nof1_causal_lab.models.model_semantics import (
     indicator_requires_observation_intercept,
 )
 from nof1_causal_lab.utils.model_structure import (
-    get_constructs,
-    get_edges,
-    get_indicators,
     get_model_clock,
     get_reference_indicator_lookup,
     get_reference_indicator_polarities,
@@ -58,17 +55,14 @@ def build_structural_support_from_model(
     """Build block/component support arrays and edge lag metadata from causal structure."""
 
     try:
-        edges = get_edges(model)
+        edges = model.execution_edges
     except ValueError as exc:
         raise NumericalSupportError([str(exc)]) from exc
-    latent_construct_lookup = {construct["name"]: construct for construct in get_constructs(model)}
-    indicators = get_indicators(model)
+    latent_construct_lookup = {construct.name: construct for construct in model.constructs}
+    indicators = model.indicators
     errors: list[str] = []
 
-    indicator_names = {
-        (indicator.get("name") if isinstance(indicator, dict) else indicator.name)
-        for indicator in indicators
-    }
+    indicator_names = {indicator.name for indicator in indicators}
     unknown_likelihoods = sorted(set(manifest_cols) - indicator_names)
     if unknown_likelihoods:
         errors.append(
@@ -79,21 +73,21 @@ def build_structural_support_from_model(
     latent_idx = {name: idx for idx, name in enumerate(latent_names)}
     state_dynamics_support = np.zeros((n_latent, n_latent), dtype=bool)
     for latent_name, latent_idx_value in latent_idx.items():
-        construct = latent_construct_lookup.get(latent_name) or {}
-        if construct.get("temporal_status") != "time_invariant":
+        construct = latent_construct_lookup[latent_name]
+        if construct.temporal_status != "time_invariant":
             state_dynamics_support[latent_idx_value, latent_idx_value] = True
     edge_lag_days: dict[tuple[int, int], float] = {}
     model_dt_days = get_construct_dt_days(model)
 
     for edge in edges:
-        cause = edge["cause"]
-        effect = edge["effect"]
+        cause = edge.cause.name
+        effect = edge.effect.name
         if effect not in latent_idx:
             continue
-        if latent_construct_lookup.get(effect, {}).get("temporal_status") == "time_invariant":
+        if edge.effect.temporal_status == "time_invariant":
             errors.append(
                 "ModelSpec contains an unsupported static-target edge that should "
-                f"have failed planning: {edge.get('source_id')!r} ({cause!r} -> {effect!r})."
+                f"have failed planning: {edge.id!r} ({cause!r} -> {effect!r})."
             )
             continue
         effect_idx = latent_idx[effect]
@@ -102,8 +96,7 @@ def build_structural_support_from_model(
         cause_idx = latent_idx[cause]
         state_dynamics_support[effect_idx, cause_idx] = True
 
-        lagged = edge.get("lagged", True) if isinstance(edge, dict) else edge.lagged
-        lag_hours = model_dt_days * 24.0 if lagged else 0.0
+        lag_hours = model_dt_days * 24.0 if edge.lagged else 0.0
         if lag_hours > 0:
             edge_lag_days[(effect_idx, cause_idx)] = lag_hours / 24.0
 
@@ -117,8 +110,8 @@ def build_structural_support_from_model(
     construct_channels: dict[str, list[int]] = {}
 
     for indicator in indicators:
-        ind_name = indicator.get("name") if isinstance(indicator, dict) else indicator.name
-        construct_name = indicator["construct_name"]
+        ind_name = indicator.name
+        construct_name = model.indicator_owner(indicator.id).name
         if ind_name not in manifest_idx:
             continue
         if construct_name not in latent_idx:
@@ -215,15 +208,15 @@ def build_manifest_variance_from_model(
         dtype=bool,
     )
 
-    indicators = get_indicators(model)
+    indicators = model.indicators
     latent_name_set = set(latent_names)
     manifest_idx = {name: idx for idx, name in enumerate(manifest_cols)}
     manifest_to_construct: dict[str, str] = {}
     indicators_per_construct: dict[str, int] = {}
 
     for indicator in indicators:
-        ind_name = indicator.get("name") if isinstance(indicator, dict) else indicator.name
-        construct_name = indicator["construct_name"]
+        ind_name = indicator.name
+        construct_name = model.indicator_owner(indicator.id).name
         if ind_name not in manifest_idx or construct_name not in latent_name_set:
             continue
         manifest_to_construct[ind_name] = construct_name
@@ -262,10 +255,7 @@ def build_manifest_level_counts_from_model(
     if not needs_level_metadata:
         return None
 
-    indicator_lookup = {
-        (indicator.get("name") if isinstance(indicator, dict) else indicator.name): indicator
-        for indicator in get_indicators(model)
-    }
+    indicator_lookup = {indicator.name: indicator for indicator in model.indicators}
     level_counts = [0] * len(manifest_cols)
     errors: list[str] = []
 
@@ -282,11 +272,13 @@ def build_manifest_level_counts_from_model(
             if dist == DistributionFamily.ORDERED_LOGISTIC
             else "categorical_levels"
         )
-        levels = (
-            indicator.get(levels_field)
-            if isinstance(indicator, dict)
-            else getattr(indicator, levels_field, None)
-        )
+        levels = None
+        if indicator is not None:
+            levels = (
+                indicator.ordinal_levels
+                if dist == DistributionFamily.ORDERED_LOGISTIC
+                else indicator.categorical_levels
+            )
         if not levels or len(levels) < 2:
             errors.append(
                 f"Indicator '{manifest_name}' uses {dist.value} but model is missing "
@@ -308,7 +300,7 @@ def _build_manifest_intercept_support(
     """Bind only observation intercepts active for the locked likelihood semantics."""
     requested_ids = {
         owner.id
-        for parameter in model.parameters
+        for parameter in model.execution_parameters
         if model.parameter_context(parameter.id).quantity == SiteKind.MANIFEST_MEANS
         and parameter.value is None
         for owner in model.parameter_context(parameter.id).owners
@@ -375,8 +367,10 @@ def _build_static_factor_structure(
                         raise ValueError(
                             "A marginalized factor loading requires one fixed linear coefficient"
                         )
-                    coefficient = linear_coefficient(edge.mechanisms[0].expression, source)
-                    if not isinstance(coefficient, (int, float)):
+                    coefficient = coefficient_value(
+                        model, linear_coefficient(edge.mechanisms[0].expression, source)
+                    )
+                    if coefficient is None:
                         raise ValueError(
                             "A marginalized factor loading requires one fixed linear coefficient"
                         )

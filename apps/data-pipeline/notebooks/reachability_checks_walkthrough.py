@@ -19,8 +19,6 @@ def imports():
 
     from nof1_causal_lab.flows.transitions.validation.checks import data_availability_issue
     from nof1_causal_lab.models.ssm.reachability import (
-        CHECK_CONSEQUENCES,
-        CHECK_MODES,
         check_confinement,
         check_coverage,
         check_edge_share,
@@ -28,13 +26,10 @@ def imports():
         check_saturation,
         check_scale,
         check_transmission,
-        stage_outcome,
     )
 
     return (
         data_availability_issue,
-        CHECK_CONSEQUENCES,
-        CHECK_MODES,
         check_confinement,
         check_coverage,
         check_edge_share,
@@ -45,7 +40,6 @@ def imports():
         np,
         nx,
         plt,
-        stage_outcome,
     )
 
 
@@ -69,14 +63,13 @@ def intro(mo):
 
     1. **What statistic crossed which band?**
     2. **What modeling choice created that geometry?**
-    3. **Must the fragment be revised, or can a soft consequence be accepted and carried
-       forward?**
+    3. **What does the finding mean, and which modeling choice should be revisited?**
     """)
     return
 
 
 @app.cell
-def utilities(CHECK_CONSEQUENCES, CHECK_MODES, mo, np, stage_outcome):
+def utilities(mo, np):
     def sigmoid(values):
         return 1.0 / (1.0 + np.exp(-np.asarray(values)))
 
@@ -101,19 +94,9 @@ def utilities(CHECK_CONSEQUENCES, CHECK_MODES, mo, np, stage_outcome):
             axis.grid(axis="y", color="#ececec", linewidth=0.7, zorder=0)
 
     def result_panel(title, result, increment, mechanism, revision, accept_when):
-        mode = CHECK_MODES[result.check]
-        pending_outcome, _ = stage_outcome([result], {})
-        if mode == "hard":
-            decision = "**Accept?** No. A hard failure blocks the fragment; there is no override."
-        else:
-            accepted_outcome, _ = stage_outcome(
-                [result], {(result.check, result.target): "substantive rationale recorded"}
-            )
-            consequence = CHECK_CONSEQUENCES[result.check].format(target=result.target)
-            decision = (
-                f"**Accept only when:** {accept_when}  \n"
-                f"If accepted: `{accepted_outcome}` and carry: *{consequence}*."
-            )
+        mode = "scientific finding"
+        pending_outcome = "saved with findings" if result.passed is False else "saved"
+        decision = f"**Interpretation to consider:** {accept_when}. The next edit remains the modeler's decision."
         diagnosis = "\n".join(f"- {line}" for line in result.diagnosis)
         markdown = "\n\n".join(
             [
@@ -121,7 +104,7 @@ def utilities(CHECK_CONSEQUENCES, CHECK_MODES, mo, np, stage_outcome):
                 f"**Increment.** {increment}",
                 "\n".join(
                     [
-                        "| mode | statistic | required band | verdict | stage outcome before a decision |",
+                        "| mode | statistic | required band | verdict | saved result |",
                         "|---|---|---|---|---|",
                         f"| {mode} | {result.value} | {result.band} | "
                         f"{'🔴 red' if not result.passed else '🟢 green'} | "
@@ -390,7 +373,7 @@ def evaluate_healthy_model(
 
 
 @app.cell(hide_code=True)
-def healthy_dashboard(CHECK_MODES, healthy_results, mo, plt):
+def healthy_dashboard(healthy_results, mo, plt):
     _order = [
         "C1a finiteness",
         "C1b confinement",
@@ -403,7 +386,7 @@ def healthy_dashboard(CHECK_MODES, healthy_results, mo, plt):
         "C5c transmission",
     ]
     _rows = "\n".join(
-        f"| {_name} | {CHECK_MODES[_name]} | {healthy_results[_name].value} | "
+        f"| {_name} | finding | {healthy_results[_name].value} | "
         f"{healthy_results[_name].band} | 🟢 |"
         for _name in _order
     )
@@ -1240,68 +1223,15 @@ def show_c5d(c5d_case, mo, np, plt, times):
 
 
 @app.cell(hide_code=True)
-def closing_contract(
-    c1a_case,
-    c1b_case,
-    c3_case,
-    mo,
-    stage_outcome,
-):
-    _blocked, _ = stage_outcome(
-        [c1a_case["result"]],
-        {(c1a_case["result"].check, c1a_case["result"].target): "attempted override"},
-    )
-    _c1b_accepted, _c1b_annotations = stage_outcome(
-        [c1b_case["result"]],
-        {
-            (
-                c1b_case["result"].check,
-                c1b_case["result"].target,
-            ): "rare excursion is substantively intended; re-check post-fit"
-        },
-    )
-    _c3_accepted, _c3_annotations = stage_outcome(
-        [c3_case["result"]],
-        {
-            (
-                c3_case["result"].check,
-                c3_case["result"].target,
-            ): "sub-day stress dynamics are intentionally below daily resolution"
-        },
-    )
-    mo.md(
-        f"""
-        ## 7. The two-way contract
+def closing_contract(mo):
+    mo.md("""
+    ## Checks guide the next edit
 
-        The examples reveal one contract read in opposite directions. **Elicitation rules build
-        a coherent fragment; reachability checks audit whether the fragment actually has the
-        geometry those rules intended.**
-
-        | Elicitation choice | Check that audits it | Failure says |
-        |---|---|---|
-        | confining drift / self-limit and bounded coefficient priors | C1a, C1b | paths cannot be computed or do not settle |
-        | `sigma ≈ anchor × sqrt(2 / tau)` with a declared loading convention | C2 | latent dynamics and emission scale disagree |
-        | timescale prior read against every actual observation gap and the span | C3 | the schedule cannot resolve the posited dynamics |
-        | `edge scale ∝ (1 / tau_child) × child_anchor / parent_anchor` | C4b | the child is slaved to its parent |
-        | EC50 centered on the parent's realized scale | C4c | the nonlinear bend is not exercised |
-        | manifest intercept from the inverse-link median | C5a | prior predictive location misses the data |
-        | family-specific noise / dispersion elicitation | C5b | replicate width or shape misses the data |
-        | loading and link operating point | C5c | noise, not the latent trajectory, explains variation |
-        | panel scan before authoring emissions | C5d | a declared channel contributes no likelihood |
-
-        Soft reds are **decisions, not exceptions**. The production outcome logic demonstrates
-        the distinction:
-
-        - Trying to “accept” C1a still yields **`{_blocked}`**.
-        - Recording a rationale for C1b yields **`{_c1b_accepted}`** and carries:
-          *{_c1b_annotations[0]}*
-        - Recording a design rationale for C3 yields **`{_c3_accepted}`** and carries:
-          *{_c3_annotations[0]}*
-
-        A soft acceptance therefore never turns a red measurement green. It preserves the red,
-        records why the modeler kept it, and constrains what the fitted analysis may later claim.
-        """
-    )
+    Each check reports a measurement and its applicable band. Failed checks remain
+    attached to a saved model. Missing prerequisites produce `not_evaluated`;
+    implementation failures fail the action. Fit and causal reporting enforce their
+    own execution and evidence requirements. There is no admission or acceptance state.
+    """)
     return
 
 

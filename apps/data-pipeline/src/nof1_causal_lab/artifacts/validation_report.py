@@ -1,8 +1,15 @@
 """Measurement validation findings and empirical profiles."""
 
-from typing import Literal
+from typing import Literal, Self, override
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ModelWrapValidatorHandler,
+    computed_field,
+    model_validator,
+)
 
 from .base import ArtifactPayload
 from .checks import SpecificationReport
@@ -66,20 +73,48 @@ class IndicatorAudit(BaseModel):
     checks: dict[str, Literal["ok", "warning", "error", "not_evaluated"]]
 
 
-class ValidationReportArtifact(ArtifactPayload):
-    """A validation report summarizes whether extracted measurements satisfy the required data
-    checks.
-    """
-
-    preflight: SpecificationReport = Field(default_factory=lambda: SpecificationReport(findings=()))
-    is_valid: bool
-    indicators: dict[IndicatorId, IndicatorAudit]
-    dataset_issues: list[ValidationIssue]
-
-
 class DataProfileArtifact(ArtifactPayload):
     """Model-independent empirical measurements and data-quality findings."""
 
-    is_valid: bool
     indicators: dict[IndicatorId, IndicatorAudit]
     dataset_issues: list[ValidationIssue]
+
+    def _has_errors(self) -> bool:
+        return any(issue.severity == "error" for issue in self.dataset_issues) or any(
+            any(issue.severity == "error" for issue in audit.issues)
+            or "error" in audit.checks.values()
+            for audit in self.indicators.values()
+        )
+
+    @computed_field
+    @property
+    def is_valid(self) -> bool:
+        """Read-only verdict derived from the report's current findings."""
+        return not self._has_errors()
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def validate_serialized_verdict(
+        cls, value: object, handler: ModelWrapValidatorHandler[Self]
+    ) -> Self:
+        """Verify the derived verdict when reading a serialized report."""
+        if isinstance(value, dict) and "is_valid" in value:
+            payload = dict(value)
+            verdict = payload.pop("is_valid")
+            report = handler(payload)
+            if verdict is not report.is_valid:
+                raise ValueError("is_valid must match the verdict derived from the report findings")
+            return report
+        return handler(value)
+
+
+class ValidationReportArtifact(DataProfileArtifact):
+    """Measurement findings augmented with model-dependent execution checks."""
+
+    preflight: SpecificationReport = Field(default_factory=lambda: SpecificationReport(findings=()))
+
+    @override
+    def _has_errors(self) -> bool:
+        return super()._has_errors() or any(
+            finding.status == "failed" for finding in self.preflight.findings
+        )

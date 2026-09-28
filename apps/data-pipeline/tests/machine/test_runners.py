@@ -3,19 +3,18 @@
 import pytest
 
 from nof1_causal_lab.machine.artifacts import EpisodeState
-from nof1_causal_lab.machine.moves import ExecOptions
+from nof1_causal_lab.machine.execution import ExecutionOptions
 from nof1_causal_lab.machine.runners import execute_transition_locally
 from tests.helpers import run_async
+
+pytestmark = pytest.mark.contract
 
 
 @pytest.mark.parametrize(
     "artifact_id",
     [
         "raw_data",
-        "latent_structure",
-        "measurement_structure",
         "measurements",
-        "statistical_model_spec",
     ],
 )
 def test_temporal_only_transitions_reject_local_execution(monkeypatch, tmp_path, artifact_id):
@@ -29,6 +28,6 @@ def test_temporal_only_transitions_reject_local_execution(monkeypatch, tmp_path,
                 artifact_id,
                 {},
                 EpisodeState(),
-                ExecOptions(),
+                ExecutionOptions(),
             )
         )

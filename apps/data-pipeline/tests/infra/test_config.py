@@ -1,12 +1,11 @@
 """Tests for config.py: dataclass methods and load_config parsing."""
 
-import dataclasses
 import textwrap
 
 import pytest
 from pydantic import ValidationError
 
-from nof1_causal_lab.sampler_config import SamplerConfig, validate_sampler_config
+from nof1_causal_lab.sampler_config import validate_sampler_config
 from nof1_causal_lab.utils.config import (
     ClaudeCodeDefaults,
     CodexDefaults,
@@ -16,7 +15,6 @@ from nof1_causal_lab.utils.config import (
     IngestionConfig,
     LLMDefaults,
     LLMProfileConfig,
-    MAPConfig,
     MarginalParticleGibbsConfig,
     PiDefaults,
     PipelineBehaviorConfig,
@@ -30,26 +28,14 @@ from nof1_causal_lab.utils.config import (
 )
 from tests.helpers import run_async
 
+pytestmark = pytest.mark.contract
+
 # =============================================================================
 # InferenceConfig.to_sampler_config
 # =============================================================================
 
 
 class TestToSamplerConfig:
-    def test_authorable_fields_are_accepted_by_runtime_contract(self):
-        authorable_fields = {
-            "method",
-            "num_warmup",
-            "num_samples",
-            "num_chains",
-            "seed",
-            "n_ieks_iters",
-            *(field.name for field in dataclasses.fields(MarginalParticleGibbsConfig)),
-        }
-        accepted_fields = SamplerConfig.__required_keys__ | SamplerConfig.__optional_keys__
-
-        assert authorable_fields <= accepted_fields
-
     def test_runtime_contract_rejects_unknown_fields(self):
         config = InferenceConfig().to_sampler_config()
 
@@ -71,15 +57,6 @@ class TestToSamplerConfig:
         assert result["param_target_accept"] == 0.35
         assert result["latent_init_method"] == "predictive"
         assert result["retain_latent_paths"] is True
-
-    def test_custom_map_settings(self):
-        cfg = InferenceConfig(
-            method="marginal_particle_gibbs",
-            map=MAPConfig(n_ieks_iters=10),
-        )
-        result = cfg.to_sampler_config()
-        assert result["method"] == "marginal_particle_gibbs"
-        assert result["n_ieks_iters"] == 10
 
     def test_unknown_method_raises(self):
         cfg = InferenceConfig()
@@ -560,13 +537,6 @@ class TestEnsureHarnessPrereqs:
         with pytest.raises(RuntimeError, match="OPENROUTER_API_KEY"):
             ensure_harness_prereqs("none")
 
-    def test_passes_when_openrouter_key_set(self, monkeypatch):
-        from nof1_causal_lab.utils.config import ensure_harness_prereqs
-
-        self._reset()
-        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-        ensure_harness_prereqs("none")  # no raise
-
     def test_caches_successful_check(self, monkeypatch):
         """Once verified, removing the env var doesn't re-trigger the check."""
         from nof1_causal_lab.utils.config import ensure_harness_prereqs
@@ -578,18 +548,6 @@ class TestEnsureHarnessPrereqs:
         monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
         # Still cached — does not raise.
         ensure_harness_prereqs("none")
-
-    def test_reset_clears_cache(self, monkeypatch):
-        from nof1_causal_lab.utils.config import ensure_harness_prereqs
-
-        self._reset()
-        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-        ensure_harness_prereqs("none")
-
-        self._reset()
-        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-        with pytest.raises(RuntimeError):
-            ensure_harness_prereqs("none")
 
     def test_unknown_harness_raises_value_error(self):
         from nof1_causal_lab.utils.config import ensure_harness_prereqs

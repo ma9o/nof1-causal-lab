@@ -11,6 +11,8 @@ from nof1_causal_lab.utils.harness.pi_tool_bridge import serve_pi_tools_http
 from nof1_causal_lab.utils.openrouter_client import Tool
 from tests.helpers import run_async
 
+pytestmark = pytest.mark.contract
+
 
 def _echo_tool() -> Tool:
     async def execute(message: str) -> str:

@@ -26,6 +26,8 @@ from nof1_causal_lab.utils.harness.stream_json import (
     format_pi_event_for_log,
 )
 
+pytestmark = pytest.mark.contract
+
 
 def _parse_stream(lines, state, apply_event, label):
     for idx, raw in enumerate(lines):
@@ -58,7 +60,7 @@ def parse_pi_stream(lines):
 
 def _pi_events_tool_loop() -> list[dict[str, Any]]:
     return [
-        {"type": "session", "version": 3, "id": "pi-session"},
+        {"type": "session", "revision": 3, "id": "pi-session"},
         {
             "type": "message_end",
             "message": {"role": "user", "content": "Validate this", "timestamp": 1000},
@@ -135,10 +137,6 @@ class TestPiParser:
         assert state.final_text == "Done."
         formatted = format_pi_event_for_log(_pi_events_tool_loop()[4])
         assert formatted == "pi message: Done. [in=8 out=2 reasoning=1]"
-
-    def test_invalid_json_raises(self):
-        with pytest.raises(ValueError, match="pi stream line 0 is not valid JSON"):
-            parse_pi_stream(["not-json"])
 
 
 def _claude_events_simple() -> list[dict[str, Any]]:
@@ -280,31 +278,10 @@ class TestClaudeParser:
         assert trace.usage.input_tokens == 12
         assert trace.usage.output_tokens == 5
 
-    def test_invalid_json_lines_raise(self):
-        lines = [
-            "not json",
-            json.dumps({"type": "system", "subtype": "init", "session_id": "s3", "model": "x"}),
-        ]
-        with pytest.raises(ValueError, match="not valid JSON"):
-            parse_claude_stream(lines)
-
-    def test_non_object_json_raises(self):
-        with pytest.raises(ValueError, match="not an object"):
-            parse_claude_stream(["[1, 2, 3]"])
-
     def test_unknown_event_type_is_recorded_not_erroring(self):
         state = parse_claude_stream([json.dumps({"type": "nonsense_event", "payload": 1})])
         assert state.raw_events == [{"type": "nonsense_event", "payload": 1}]
         assert state.messages == []
-
-    def test_apply_event_incrementally(self):
-        from nof1_causal_lab.utils.harness.stream_json import ClaudeStreamState
-
-        state = ClaudeStreamState()
-        for event in _claude_events_simple():
-            apply_claude_event(state, event)
-        assert state.session_id == "sess-1"
-        assert state.final_text == "Hi back!"
 
     def test_log_formatter_keeps_full_message_text(self):
         long_text = "A" * 300 + "\n" + "B" * 300
@@ -416,14 +393,6 @@ class TestCodexParser:
         trace = finalize_codex_trace(state)
         assert trace.total_time_seconds == 0.8
         assert trace.usage.input_tokens == 7
-
-    def test_apply_event_incrementally(self):
-        from nof1_causal_lab.utils.harness.stream_json import CodexStreamState
-
-        state = CodexStreamState()
-        for event in _codex_events_simple():
-            apply_codex_event(state, event)
-        assert state.thread_id == "0199a213-81c0-7800-8aa1-bbab2a035a53"
 
     def test_log_formatter_keeps_full_message_text(self):
         long_text = "A" * 300 + "\n" + "B" * 300

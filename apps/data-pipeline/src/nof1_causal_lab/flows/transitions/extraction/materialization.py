@@ -36,7 +36,14 @@ def materialize_panel(
             for ind in measurement_structure.get("indicators", [])
             if ind.get("ordinal_levels")
         }
-        data_for_model = _encode_non_continuous(data_for_model, dtype_lookup, ordinal_levels_lookup)
+        categorical_levels_lookup = {
+            ind["id"]: ind["categorical_levels"]
+            for ind in measurement_structure.get("indicators", [])
+            if ind.get("categorical_levels")
+        }
+        data_for_model = _encode_non_continuous(
+            data_for_model, dtype_lookup, ordinal_levels_lookup, categorical_levels_lookup
+        )
         data_for_model = data_for_model.with_columns(
             pl.col("value").cast(pl.Float64, strict=False).alias("value"),
             pl.col("anchor_time")

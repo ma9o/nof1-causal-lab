@@ -12,6 +12,7 @@ from nof1_causal_lab.artifacts.expressions import (
     map_expression,
 )
 from nof1_causal_lab.compilation_errors import IncompleteModelError
+from nof1_causal_lab.models.model_parameters import coefficient_value
 from nof1_causal_lab.models.ssm.dynamics.expression import ExpressionComponentSpec
 
 if TYPE_CHECKING:
@@ -24,14 +25,15 @@ if TYPE_CHECKING:
 
 
 def _is_projected_loading(
+    model: ModelSpec,
     owner: ConstructSpec | CausalEdgeSpec,
     mechanism: DynamicsMechanismSpec,
     retained_states: Collection[str],
 ) -> bool:
     if not isinstance(owner, CausalEdgeSpec) or owner.cause.id in retained_states:
         return False
-    weight = linear_coefficient(mechanism.expression, owner.cause.id)
-    if not isinstance(weight, (int, float)):
+    weight = coefficient_value(model, linear_coefficient(mechanism.expression, owner.cause.id))
+    if weight is None:
         raise ValueError("Marginalized confounders support fixed linear loadings")
     return True
 
@@ -43,7 +45,10 @@ def lower_mechanisms(model: ModelSpec) -> tuple[ExpressionComponentSpec, ...]:
     modeled_edges: set[str] = set()
     modeled_nodes: set[str] = set()
     for owner, mechanism in model.iter_mechanisms():
-        if _is_projected_loading(owner, mechanism, states):
+        target = owner.effect.id if isinstance(owner, CausalEdgeSpec) else owner.id
+        if target not in states:
+            continue
+        if _is_projected_loading(model, owner, mechanism, states):
             continue
         if isinstance(owner, CausalEdgeSpec):
             if owner.id not in retained_edges:
@@ -80,13 +85,17 @@ def iter_mechanism_components(
 
     def resolve_constant(node):
         if isinstance(node, CoefficientExpression) and isinstance(node.value, str):
-            value = model.parameter(node.value).value
+            value = coefficient_value(model, node.value)
             if value is not None:
-                return CoefficientExpression(role=node.role, value=value)
+                node.validate_value(value)
+                return node.model_copy(update={"value": value})
         return node
 
     for owner, mechanism in model.iter_mechanisms():
-        if _is_projected_loading(owner, mechanism, state_index):
+        target_id = owner.effect.id if isinstance(owner, CausalEdgeSpec) else owner.id
+        if target_id not in state_index:
+            continue
+        if _is_projected_loading(model, owner, mechanism, state_index):
             continue
         if isinstance(owner, CausalEdgeSpec):
             target = state_index[owner.effect.id]

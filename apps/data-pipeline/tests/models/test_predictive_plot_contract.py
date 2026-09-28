@@ -1,8 +1,11 @@
 """Reported predictive plots contain server-computed statistics, including exact bin totals."""
 
 import jax.numpy as jnp
+import pytest
 
 from nof1_causal_lab.models.posterior_predictive import _compute_test_stats
+
+pytestmark = pytest.mark.inference(concern="predictive")
 
 
 def test_predictive_stat_p_value_and_histogram_use_replications():

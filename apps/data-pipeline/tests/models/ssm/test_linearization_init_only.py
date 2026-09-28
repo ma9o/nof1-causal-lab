@@ -15,6 +15,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.contract
+
 _SRC = Path(__file__).resolve().parents[3] / "src" / "nof1_causal_lab"
 
 # Symbols that construct/return the linearised (EKF/IEKS + Laplace) marginal-

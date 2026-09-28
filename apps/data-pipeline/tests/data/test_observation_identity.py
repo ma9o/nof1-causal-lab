@@ -11,6 +11,8 @@ from nof1_causal_lab.utils.data import annotate_observation_rows
 from nof1_causal_lab.workers.schemas import validate_worker_output
 from tests.helpers import make_model
 
+pytestmark = pytest.mark.contract
+
 
 def _measurement(name="Mood"):
     return {
@@ -62,8 +64,8 @@ def test_observation_producers_reject_owners_outside_the_pinned_measurement():
     )
     with pytest.raises(ValueError, match="unknown indicators"):
         annotate_observation_rows(rows, _measurement())
-    with pytest.raises(ValueError, match="outside the pinned design"):
-        validate_extraction(make_model(["mood"]), [rows])
+    report = validate_extraction(make_model(["mood"]), [rows])
+    assert not report["is_valid"]
     worker, errors = validate_worker_output(
         {
             "extractions": [

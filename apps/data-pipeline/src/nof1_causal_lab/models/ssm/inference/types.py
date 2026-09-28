@@ -110,6 +110,14 @@ class InferenceDiagnostics(TypedDict, total=False):
     all_complete_log_posterior_history: jnp.ndarray
 
 
+class PosteriorDiagnostics(TypedDict, total=False):
+    """JSON-ready findings emitted by the production posterior."""
+
+    mcmc: JsonObject
+    smc: JsonObject
+    marginal_particle_gibbs: JsonObject
+
+
 @dataclass(frozen=True, slots=True)
 class ParticleMCMCEvidence:
     """Proof that samples came from the production particle-MCMC target."""
@@ -190,9 +198,9 @@ class ParticleMCMCPosterior:
         """Return parameter draws aligned with the retained latent trajectories."""
         return self.draws.parameters
 
-    def get_inference_diagnostics(self) -> JsonObject:
+    def get_inference_diagnostics(self) -> PosteriorDiagnostics:
         """Report engine telemetry without a public sampler-specific schema."""
-        result: JsonObject = {}
+        result: PosteriorDiagnostics = {}
         mcmc = self.get_mcmc_diagnostics()
         if mcmc is not None:
             result["mcmc"] = mcmc
@@ -219,17 +227,9 @@ class ParticleMCMCPosterior:
             chain_samples = _filter_public_samples(chain_samples, set(public_sites))
 
         summ = numpyro_summary(chain_samples)
-        import arviz_base as az_base
         from arviz_stats.sampling_diagnostics import ess, mcse
 
-        if getattr(mcmc, "backend", None) in {
-            "aux_kalman_mcmc",
-            "pit_particle_mgrad",
-            "marginal_particle_gibbs",
-        }:
-            idata = _arviz_idata_from_posterior(chain_samples)
-        else:
-            idata = az_base.from_numpyro(mcmc)
+        idata = _arviz_idata_from_posterior(chain_samples)
         ess_tail = ess(idata, method="tail")
         mcse_mean = mcse(idata, method="mean")
 

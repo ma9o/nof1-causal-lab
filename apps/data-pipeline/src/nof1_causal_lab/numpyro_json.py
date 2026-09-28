@@ -10,7 +10,7 @@ import inspect
 import re
 from collections.abc import Callable
 from functools import cached_property
-from typing import Annotated, Any, cast
+from typing import Annotated, Any, cast, overload
 
 import jax
 import numpy as np
@@ -256,6 +256,14 @@ def rebuild_distribution(distribution: dist.Distribution) -> dist.Distribution:
     return rebuild(distribution)
 
 
+@overload
+def _encode(value: dist.Distribution) -> dict[str, JsonValue]: ...
+
+
+@overload
+def _encode(value: object) -> JsonValue: ...
+
+
 def _encode(value: object) -> JsonValue:
     if isinstance(value, _StoredDistribution):
         return value.constructor
@@ -339,9 +347,7 @@ def _decode(value: JsonValue, array_loader: ArrayLoader | None = None) -> Any:
 
 def encode_distribution(value: dist.Distribution) -> dict[str, JsonValue]:
     """Serialize a native law without flattening batch/event dimensions or mixtures."""
-    encoded = _encode(value)
-    assert isinstance(encoded, dict)
-    return encoded
+    return _encode(value)
 
 
 def decode_distribution(

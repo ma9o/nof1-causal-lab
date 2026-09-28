@@ -1,4 +1,5 @@
 import logging
+from typing import TYPE_CHECKING
 
 import polars as pl
 
@@ -13,6 +14,9 @@ from nof1_causal_lab.utils.observation_semantics import (
 from nof1_causal_lab.utils.storage import get_base_uri, join
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 SECONDS_PER_DAY = 86400.0
 
@@ -70,13 +74,8 @@ def store_dir(workspace_id: str) -> str:
 
 
 def episode_dir(workspace_id: str) -> str:
-    """Ledger tier: transition journal + promoted traces at ``data/{workspace_id}/episode/``."""
+    """Ledger tier: local Git snapshots and commit-local logs at ``data/{workspace_id}/episode/``."""
     return join(_DATA_URI, workspace_id, "episode")
-
-
-def episode_traces_dir(workspace_id: str) -> str:
-    """Ledger tier: per-transition LLM traces promoted at journal-append time."""
-    return join(_DATA_URI, workspace_id, "episode", "traces")
 
 
 def cache_dir(workspace_id: str) -> str:
@@ -170,9 +169,10 @@ def bucket_by_clock(
     }
     empty_events = df.head(0)
     result = []
-    for tick_dt in tick_frame["__tick__"].to_list():
+    tick_datetimes: list[datetime] = tick_frame["__tick__"].to_list()
+    for tick_dt in tick_datetimes:
         events = groups.get(tick_dt, empty_events)
-        tick_id = tick_dt.isoformat() if hasattr(tick_dt, "isoformat") else str(tick_dt)
+        tick_id = tick_dt.isoformat()
         result.append((tick_id, events))
 
     return result

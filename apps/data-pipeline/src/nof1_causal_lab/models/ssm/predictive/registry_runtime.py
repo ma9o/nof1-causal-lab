@@ -32,9 +32,6 @@ from nof1_causal_lab.models.ssm.dynamics.spec import (
     compile_dynamics,
 )
 from nof1_causal_lab.models.ssm.execution.dynamical_model import build_dynamical_model
-from nof1_causal_lab.models.ssm.execution.observation_families import (
-    any_family_needs_level_metadata,
-)
 from nof1_causal_lab.models.ssm.parameterization import (
     PriorRuntimeBundle,
     assemble_deterministics_from_registry,
@@ -42,6 +39,8 @@ from nof1_causal_lab.models.ssm.parameterization import (
     build_site_registry,
     sample_prior_parameters,
 )
+
+from .types import PredictiveDraws, PredictiveTrajectory
 
 if TYPE_CHECKING:
     import dynestyx as dsx
@@ -66,16 +65,6 @@ def predictive_keys(seed: int) -> PredictiveKeys:
     return PredictiveKeys(parameter_key, latent_key, observation_key)
 
 
-def _ensure_discrete_metadata(spec: ModelSpec) -> None:
-    """Require hydrated level counts before sampling discrete emissions."""
-    needs_levels = any_family_needs_level_metadata(numeric.observation_families(spec))
-    if needs_levels and numeric.observation_level_counts(spec) is None:
-        raise ValueError(
-            "Prior predictive for ordered/categorical emissions requires hydrated "
-            "manifest_level_counts."
-        )
-
-
 def _assemble_extra_params_batched(
     spec: ModelSpec,
     constrained_samples: dict[str, jnp.ndarray],
@@ -98,14 +87,13 @@ def _assemble_extra_params_batched(
 
 def _ensure_gaussian_process_diffusion(spec: ModelSpec) -> None:
     non_gaussian = [
-        str(dist.value if isinstance(dist, DistributionFamily) else dist)
+        dist.value
         for dist in numeric.diffusion_families(spec)
-        if DistributionFamily(dist) != DistributionFamily.GAUSSIAN
+        if dist != DistributionFamily.GAUSSIAN
     ]
     if non_gaussian:
         raise ValueError(
-            "Vector-field prior predictive simulation currently requires Gaussian process "
-            f"diffusion; got {non_gaussian}."
+            f"Forward simulation currently requires Gaussian process diffusion; got {non_gaussian}."
         )
 
 
@@ -349,17 +337,7 @@ def sample_prior_parameters_from_runtime(
         spec,
         n_draws=num_samples,
     )
-    extra_params = _assemble_extra_params_batched(
-        spec,
-        constrained_samples,
-        runtime.registry,
-        n_draws=num_samples,
-    )
-    return {
-        **constrained_samples,
-        **deterministic_samples,
-        **extra_params,
-    }
+    return {**constrained_samples, **deterministic_samples}
 
 
 def simulate_predictive_latents(
@@ -415,10 +393,8 @@ def sample_prior_predictive_from_runtime(
     observation_mask: jnp.ndarray | None = None,
     num_samples: int = 100,
     seed: int = 0,
-) -> dict[str, jnp.ndarray]:
+) -> PredictiveDraws:
     """Sample prior predictive draws from a prepared runtime bundle."""
-    _ensure_discrete_metadata(spec)
-
     keys = predictive_keys(seed)
 
     samples = sample_prior_parameters_from_runtime(
@@ -446,29 +422,18 @@ def simulate_predictive_draws(
     observation_mask: jnp.ndarray | None = None,
     seed: int = 0,
     initial_states: jax.Array | None = None,
-    process_noise: bool = True,
-    observation_noise: bool = True,
-    clamps=(),
-) -> dict[str, jnp.ndarray]:
+    interventions=(),
+) -> PredictiveDraws:
     """Generate one shared path/observation batch from aligned parameter draws."""
-    if process_noise:
-        _ensure_gaussian_process_diffusion(spec)
-    _ensure_discrete_metadata(spec)
+    _ensure_gaussian_process_diffusion(spec)
     n_draws = int(next(iter(samples.values())).shape[0])
-    samples = dict(samples)
-    samples.update(
-        _assemble_extra_params_batched(spec, samples, build_site_registry(spec), n_draws=n_draws)
+    likelihood_parameters = _assemble_extra_params_batched(
+        spec, samples, build_site_registry(spec), n_draws=n_draws
     )
     keys = predictive_keys(seed)
-    reference_latents = None
-    if initial_states is not None or not process_noise or clamps:
-        latents, linear_predictors, reference_latents = _simulate_designed_latents(
-            spec, samples, times, keys.latents, initial_states, process_noise, clamps
-        )
-    else:
-        latents, linear_predictors = simulate_predictive_latents(
-            spec, samples, times, rng_key=keys.latents
-        )
+    latents, linear_predictors, reference_latents = simulate_latent_histories(
+        spec, samples, times, random.fold_in(keys.latents, 0), initial_states, interventions
+    )
     observations, observations_mask, expected_observations = sample_predictive_emissions(
         spec,
         samples,
@@ -479,17 +444,20 @@ def simulate_predictive_draws(
         num_samples=n_draws,
         rng_key=keys.observations,
     )
-    samples["latents"] = latents
-    samples["linear_predictors"] = linear_predictors
-    samples["observations"] = observations if observation_noise else expected_observations
-    samples["observations_mask"] = observations_mask
-    samples["expected_observations"] = expected_observations
+    trajectory = PredictiveTrajectory(
+        latents=latents,
+        linear_predictors=linear_predictors,
+        observations=observations,
+        observations_mask=observations_mask,
+        expected_observations=expected_observations,
+    )
+    reference = None
     if reference_latents is not None:
         models = _predictive_models(spec, samples, times)
         reference_predictors = eqx.filter_vmap(
             lambda model, path: jax.vmap(model.observation_model.linear_predictor)(path)
         )(models, reference_latents)
-        reference_observations, _, reference_means = sample_predictive_emissions(
+        reference_observations, reference_mask, reference_means = sample_predictive_emissions(
             spec,
             samples,
             reference_predictors,
@@ -499,19 +467,32 @@ def simulate_predictive_draws(
             num_samples=n_draws,
             rng_key=keys.observations,
         )
-        samples["reference_latents"] = reference_latents
-        samples["reference_observations"] = (
-            reference_observations if observation_noise else reference_means
+        reference = PredictiveTrajectory(
+            latents=reference_latents,
+            linear_predictors=reference_predictors,
+            observations=reference_observations,
+            observations_mask=reference_mask,
+            expected_observations=reference_means,
         )
-    return samples
-
-
-def _simulate_designed_latents(spec, samples, times, key, initial_states, process_noise, clamps):
-    """Execute the same nonlinear field with explicit starts, noise and paired do-operations."""
-    from nof1_causal_lab.models.ssm.counterfactual.orchestration import (
-        vmap_simulate_clamps_from_state,
+    return PredictiveDraws(
+        parameters=dict(samples),
+        likelihood_parameters=likelihood_parameters,
+        trajectory=trajectory,
+        reference=reference,
     )
-    from nof1_causal_lab.models.ssm.dynamics.posterior import posterior_dynamics_from_samples
+
+
+def simulate_latent_histories(spec, samples, times, key, initial_states, interventions):
+    """Execute the same nonlinear field with explicit starts, noise and paired do-operations."""
+    if initial_states is None and not interventions:
+        # The initial-law case retains caching and microbatching of the same exact solver.
+        latents, predictors = simulate_predictive_latents(spec, samples, times, rng_key=key)
+        return latents, predictors, None
+
+    from nof1_causal_lab.models.ssm.counterfactual.orchestration import (
+        vmap_simulate_interventions_from_state,
+    )
+    from nof1_causal_lab.models.ssm.dynamics.draws import dynamics_from_samples
 
     models = _predictive_models(spec, samples, times)
     draw_keys = random.split(key, next(iter(samples.values())).shape[0])
@@ -519,25 +500,20 @@ def _simulate_designed_latents(spec, samples, times, key, initial_states, proces
         initial_states = eqx.filter_vmap(
             lambda model, k: model.initial_condition.sample(random.split(k)[0])
         )(models, draw_keys)
-    dynamics = posterior_dynamics_from_samples(spec, samples)
+    dynamics = dynamics_from_samples(spec, samples, n_draws=draw_keys.shape[0])
     span = float(times[-1] - times[0])
     max_rates = _predictive_max_rates(compile_dynamics(numeric.dynamics_components(spec)), samples)
     # Paired paths use identical step sizes and random streams in each segment.
-    reference, latents, _ = vmap_simulate_clamps_from_state(
-        dynamics.vector_field,
-        dynamics.param_samples,
+    reference, latents, _ = vmap_simulate_interventions_from_state(
+        dynamics,
         initial_states,
-        list(clamps),
+        list(interventions),
         time_grid=times,
-        config=_predictive_sde_config(jnp.max(max_rates), span)
-        if process_noise
-        else SimulationConfig(),
-        keys=jax.vmap(lambda k: random.split(k)[1])(draw_keys) if process_noise else None,
-        diffusion_cov=samples["diffusion"] @ jnp.swapaxes(samples["diffusion"], -1, -2)
-        if process_noise
-        else None,
+        config=_predictive_sde_config(jnp.max(max_rates), span),
+        keys=jax.vmap(lambda k: random.split(k)[1])(draw_keys),
+        diffusion_cov=samples["diffusion"] @ jnp.swapaxes(samples["diffusion"], -1, -2),
     )
     predictors = eqx.filter_vmap(
         lambda model, path: jax.vmap(model.observation_model.linear_predictor)(path)
     )(models, latents)
-    return latents, predictors, reference if clamps else None
+    return latents, predictors, reference if interventions else None

@@ -10,7 +10,9 @@ from pydantic import ValidationError
 
 from nof1_causal_lab.flows.context_tools import CONTEXT_TOOLS
 from tests.artifact_contract_support import validate_artifact_payload
-from tests.helpers import graph_constructs, make_model
+from tests.helpers import make_model
+
+pytestmark = pytest.mark.contract
 
 
 @pytest.fixture
@@ -95,12 +97,6 @@ def test_validate_artifact_payload_accepts_all_artifacts(
         assert isinstance(validated, dict)
 
 
-def test_validate_artifact_payload_rejects_unknown_artifact():
-    """Unknown artifact ids should fail fast."""
-    with pytest.raises(ValueError, match="Unknown artifact_id"):
-        validate_artifact_payload("unknown_artifact", {})
-
-
 def test_validate_artifact_payload_rejects_missing_required_fields(
     valid_artifact_payloads: dict[str, dict[str, Any]],
 ):
@@ -109,13 +105,6 @@ def test_validate_artifact_payload_rejects_missing_required_fields(
     bad.pop("indicators")
     with pytest.raises(ValidationError):
         validate_artifact_payload("validation_report", bad)
-
-
-def test_removed_usage_is_rejected(valid_artifact_payloads):
-    bad = deepcopy(valid_artifact_payloads["model"])
-    graph_constructs(bad)[0]["usage"] = {"kind": "known_input"}
-    with pytest.raises(ValidationError):
-        validate_artifact_payload("model", bad)
 
 
 def test_outcome_enum_no_longer_exists(

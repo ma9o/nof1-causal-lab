@@ -140,6 +140,7 @@ def _one_dim_block_spec():
     )
 
 
+@pytest.mark.contract
 def test_compile_observation_operator_keeps_point_support_without_interval_summary_mode():
     support = make_observation_support_runtime(
         anchor_times=np.array([0.0, 1.0]),
@@ -165,6 +166,7 @@ def test_compile_observation_operator_keeps_point_support_without_interval_summa
     )
 
 
+@pytest.mark.contract
 def test_expected_observation_mean_dispatches_by_summary_operator():
     support = make_observation_support_runtime(
         anchor_times=np.array([0.0]),
@@ -197,7 +199,7 @@ def test_expected_observation_mean_dispatches_by_summary_operator():
 # =============================================================================
 
 
-@pytest.mark.warmup
+@pytest.mark.inference(concern="warmup")
 class TestLaplaceEMBlockSolver:
     """Numerical checks for the block-tridiagonal IEKS rewrite."""
 
@@ -309,7 +311,7 @@ class TestLaplaceEMBlockSolver:
         assert jnp.isfinite(log_lik).all()
 
 
-@pytest.mark.inference
+@pytest.mark.inference(concern="sampling")
 class TestSupportAwareTrajectoryObservationLogProb:
     def test_window_average_matches_manual_gaussian_average(self):
         support = make_observation_support_runtime(
@@ -436,6 +438,7 @@ class TestSupportAwareTrajectoryObservationLogProb:
 
 
 class TestLaplaceSupportAware:
+    @pytest.mark.contract
     def test_infer_support_groups_ignores_reused_slot_history(self):
         support = make_observation_support_runtime(
             anchor_times=np.array([0.0, 1.0, 2.0, 3.0, 4.0, 5.0]),
@@ -463,6 +466,7 @@ class TestLaplaceSupportAware:
         assert windows.max_state_len == 2
         assert bandwidth == 1
 
+    @pytest.mark.contract
     def test_infer_support_groups_buckets_by_state_length(self):
         support = make_observation_support_runtime(
             anchor_times=np.array([0.0, 1.0, 2.0, 3.0]),
@@ -485,7 +489,7 @@ class TestLaplaceSupportAware:
         np.testing.assert_array_equal(np.asarray(row_upper_bandwidths), np.array([3, 2, 1, 0]))
         assert bandwidth == 3
 
-    @pytest.mark.warmup
+    @pytest.mark.inference(concern="warmup")
     def test_profile_masked_banded_cholesky_matches_full_banded_solver(self):
         row_upper_bandwidths = jnp.array([3, 2, 1, 1, 0], dtype=jnp.int32)
         row_lower_bandwidths = jnp.asarray(
@@ -539,7 +543,7 @@ class TestLaplaceSupportAware:
             atol=1e-6,
         )
 
-    @pytest.mark.warmup
+    @pytest.mark.inference(concern="warmup")
     def test_predictive_latent_init_rolls_forward_mean_dynamics(self):
         Ad = jnp.array(
             [
@@ -559,7 +563,7 @@ class TestLaplaceSupportAware:
             np.array([2.5, 6.0, 16.0], dtype=np.float32),
         )
 
-    @pytest.mark.warmup
+    @pytest.mark.inference(concern="warmup")
     def test_support_window_gauss_newton_matches_linear_gaussian_exact_blocks(self):
         support = make_observation_support_runtime(
             anchor_times=np.array([0.0, 1.0]),
@@ -638,7 +642,7 @@ class TestLaplaceSupportAware:
 class TestLaplaceBackendCaching:
     """Backend-cache reuse, invalidation, and support-window derivative caching."""
 
-    @pytest.mark.warmup
+    @pytest.mark.inference(concern="warmup")
     def test_block_profile_logdet_cotangent_matches_direct_autodiff(self):
         row_upper_bandwidths = jnp.array([2, 2, 1, 0], dtype=jnp.int32)
         row_lower_bandwidths = jnp.asarray(
@@ -694,6 +698,7 @@ class TestLaplaceBackendCaching:
             atol=1e-4,
         )
 
+    @pytest.mark.contract
     def test_laplace_backend_reuses_point_mode_cache_across_runtime_evals(self, monkeypatch):
         backend = LaplaceLikelihood(
             n_latent=1,
@@ -761,6 +766,7 @@ class TestLaplaceBackendCaching:
         assert cached_init is not None
         np.testing.assert_allclose(cached_init, np.asarray(returned_mode))
 
+    @pytest.mark.contract
     def test_laplace_backend_caches_support_window_derivative_builders(self, monkeypatch):
         support = make_observation_support_runtime(
             anchor_times=np.array([0.0, 1.0, 2.0]),
@@ -823,11 +829,13 @@ class TestLaplaceBackendCaching:
         assert len(built) == 4
 
 
+@pytest.mark.contract
 def test_support_solver_routes_small_and_large_latent_paths():
     assert _should_use_dense_support_laplace(n_time=3, n_latent=1)
     assert not _should_use_dense_support_laplace(n_time=18, n_latent=10)
 
 
+@pytest.mark.inference(concern="sampling")
 class TestObservationKernelMissingData:
     """Tests for Gaussian observation masking in shared emission kernels."""
 
@@ -868,6 +876,7 @@ class TestObservationKernelMissingData:
 class TestInferenceCaching:
     """Low-risk caching behavior for default inference helpers."""
 
+    @pytest.mark.contract
     def test_model_reuses_backend_instances(self):
         spec = _one_dim_block_spec()
         model = SSMModel(spec)
@@ -882,6 +891,7 @@ class TestInferenceCaching:
         assert laplace_a is laplace_b
         assert laplace_a is not laplace_c
 
+    @pytest.mark.inference(concern="sampling")
     def test_discover_sites_uses_dummy_backend_for_structural_trace(self):
         spec = _one_dim_block_spec()
         model = SSMModel(spec)
@@ -904,6 +914,7 @@ class TestInferenceCaching:
         assert "manifest_var_diag_free" in site_info
 
 
+@pytest.mark.contract
 class TestDefaultMethodRouting:
     """Regression tests for default inference routing."""
 
@@ -1064,7 +1075,7 @@ def _assert_small_particle_mcmc_result(result, *, method: str, num_samples: int)
     assert latent_paths.shape == (num_samples, 3, 1)
 
 
-@pytest.mark.inference
+@pytest.mark.inference(concern="sampling")
 def test_particle_fit_preserves_public_draws_and_sign_flip_moves(monkeypatch):
     from nof1_causal_lab.models.ssm.inference.warmup import latent_init
 
@@ -1133,6 +1144,7 @@ def test_particle_fit_preserves_public_draws_and_sign_flip_moves(monkeypatch):
     assert 0.0 <= flip_accept_rate <= 1.0
 
 
+@pytest.mark.inference(concern="warmup")
 def test_support_aware_step_halving_search_backtracks_to_improving_step():
     z_start = jnp.array([0.0], dtype=jnp.float32)
     step_direction = jnp.array([3.0], dtype=jnp.float32)
@@ -1154,21 +1166,13 @@ def test_support_aware_step_halving_search_backtracks_to_improving_step():
     assert float(objective_next) > float(objective_fn(z_start))
 
 
+@pytest.mark.contract
 def test_map_bundle_reuses_runtime_objectives_across_same_shape_datasets(monkeypatch):
     observations_a = jnp.array([[0.0], [1.0]], dtype=jnp.float32)
     observations_b = jnp.array([[2.0], [3.0]], dtype=jnp.float32)
     times_a = jnp.array([0.0, 1.0], dtype=jnp.float32)
     times_b = jnp.array([0.0, 2.0], dtype=jnp.float32)
     counters = {"discover": 0, "build_eval_fns": 0}
-
-    class _FakeModel:
-        def __init__(self):
-            self._artifact_cache: dict[tuple[object, ...], object] = {}
-
-        def get_cached_artifact(self, cache_key, factory):
-            if cache_key not in self._artifact_cache:
-                self._artifact_cache[cache_key] = factory()
-            return self._artifact_cache[cache_key]
 
     def fake_prepare_parameters(_model, _observations, _times, _trace_key, reparam):
         del reparam
@@ -1228,7 +1232,7 @@ def test_map_bundle_reuses_runtime_objectives_across_same_shape_datasets(monkeyp
         fake_build_eval_fns,
     )
 
-    model = _FakeModel()
+    model = SSMModel(_make_aux_kalman_mcmc_smoke_spec())
     backend = SimpleNamespace()
     bundle_a = _build_map_laplace_bundle(
         model,

@@ -7,6 +7,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import pytest
+
+pytestmark = pytest.mark.contract
+
 
 def _load_checker() -> Any:
     module_name = "check_type_boundaries_under_test"

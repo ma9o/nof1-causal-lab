@@ -8,6 +8,8 @@ import pytest
 
 from nof1_causal_lab.utils.harness.streaming import drain_newline_delimited_stream
 
+pytestmark = pytest.mark.contract
+
 
 class _ChunkedReader:
     def __init__(self, chunks: list[bytes]) -> None:

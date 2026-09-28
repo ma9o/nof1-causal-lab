@@ -35,8 +35,6 @@ from .mechanism import DynamicsMechanismSpec  # noqa: TC001
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
 
-    from nof1_causal_lab.json_types import JsonObject
-
 
 class Role(StrEnum):
     """A construct role states whether the variable is modeled as endogenous or treated as
@@ -92,7 +90,7 @@ class ConstructSpec(BaseModel):
             None,
         )
 
-    def with_coefficients(self, *operands: CoefficientExpression) -> ConstructSpec:
+    def with_coefficients(self, *operands: CoefficientExpression) -> ConstructSpec:  # noqa: V105 - public immutable construct editing API
         """Replace the specified uses while preserving other authored coefficients."""
         values = {(operand.role, operand.construct_ids): operand for operand in self.coefficients}
         values.update({(operand.role, operand.construct_ids): operand for operand in operands})
@@ -224,10 +222,8 @@ def endpoint_validation_scope(
                 elif (
                     isinstance(endpoint, dict)
                     and "name" in endpoint
-                    and isinstance(endpoint.get("id"), str)
+                    and isinstance(identity := endpoint.get("id"), str)
                 ):
-                    identity = endpoint.get("id")
-                    assert isinstance(identity, str)
                     scope.definitions.setdefault(identity, endpoint)
     token = _endpoint_scope.set(scope)
     try:
@@ -244,15 +240,6 @@ def endpoint_serialization_scope(referenced: Iterable[ConstructId] = ()) -> Iter
         yield
     finally:
         _serialized_endpoints.reset(token)
-
-
-def serialize_edge_references(edges: Iterable[CausalEdgeSpec]) -> list[JsonObject]:
-    """An authoring view of edge updates whose endpoint definitions belong to the base graph."""
-    edges = tuple(edges)
-    with endpoint_serialization_scope(
-        endpoint.id for edge in edges for endpoint in (edge.cause, edge.effect)
-    ):
-        return [edge.model_dump(mode="json") for edge in edges]
 
 
 def replace_constructs(

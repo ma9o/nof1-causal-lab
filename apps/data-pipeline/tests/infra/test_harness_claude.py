@@ -19,6 +19,8 @@ from tests.infra.harness_fakes import jsonl as _jsonl
 from tests.infra.harness_fakes import make_terminal_tool
 from tests.infra.harness_fakes import patch_subprocess as _patch_subprocess
 
+pytestmark = pytest.mark.contract
+
 
 def _make_terminal_tool():
     return make_terminal_tool(

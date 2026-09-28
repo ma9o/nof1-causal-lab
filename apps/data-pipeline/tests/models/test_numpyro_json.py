@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import numpy as np
 import numpyro.distributions as dist
 import pytest
-from notebooks.prior_specification_support import model_with_prior_payloads
+from notebooks.predictive_support import model_with_prior_payloads
 from pydantic import TypeAdapter, ValidationError
 
 from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
@@ -18,6 +18,7 @@ from tests.helpers import complete_test_model, make_model
 _ADAPTER = TypeAdapter(NumPyroDistribution)
 
 
+@pytest.mark.inference(concern="sampling")
 @pytest.mark.parametrize(
     ("law", "value"),
     [
@@ -52,6 +53,7 @@ def test_native_json_roundtrip_preserves_law_and_dimensions(law, value):
     assert json.loads(_ADAPTER.dump_json(restored)) == json.loads(encoded)
 
 
+@pytest.mark.contract
 @pytest.mark.parametrize(
     "payload",
     [
@@ -69,6 +71,7 @@ def test_invalid_native_constructors_are_rejected(payload):
         _ADAPTER.validate_python(payload)
 
 
+@pytest.mark.contract
 def test_parameter_changes_distribution_without_keeping_authoring_history():
     model = complete_test_model(make_model(["X"]))
     parameter = model.parameters[0]
@@ -112,6 +115,7 @@ def test_parameter_changes_distribution_without_keeping_authoring_history():
         ParameterSpec.model_validate({**parameter.model_dump(), "distribution": dist.Normal(0, 1)})
 
 
+@pytest.mark.contract
 def test_parameter_tool_boundary_validates_the_reference_interval():
     model = complete_test_model(make_model(["X"]))
     with pytest.raises(ValidationError):
@@ -127,9 +131,11 @@ def test_parameter_tool_boundary_validates_the_reference_interval():
         )
 
 
+@pytest.mark.contract
 def test_completed_model_requires_a_prior_on_each_parameter():
+    from evaluation.fixtures.prior_planning import complete_parameter_priors
+
     from nof1_causal_lab.compilation_errors import IncompleteModelError
-    from nof1_causal_lab.models.prior_planning import complete_parameter_priors
     from tests.helpers import complete_test_model, make_model
 
     science = complete_test_model(make_model(["X"]))
@@ -148,6 +154,7 @@ def test_completed_model_requires_a_prior_on_each_parameter():
     assert all(p.distribution is None for p in draft.parameters)
 
 
+@pytest.mark.contract
 def test_law_memberships_reject_dangling_unused_and_accidentally_shared_scalar_laws():
     model = complete_test_model(make_model(["X"]))
     first, second = model.parameters[:2]
@@ -172,6 +179,7 @@ def test_law_memberships_reject_dangling_unused_and_accidentally_shared_scalar_l
         )
 
 
+@pytest.mark.contract
 def test_offline_inline_law_conversion_preserves_constructors_and_source():
     from copy import deepcopy
 

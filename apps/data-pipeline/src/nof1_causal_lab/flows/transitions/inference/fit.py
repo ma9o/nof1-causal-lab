@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import TYPE_CHECKING, Any, Unpack
+from typing import TYPE_CHECKING, Literal, TypedDict, Unpack
 
 import jax.numpy as jnp
 
@@ -19,13 +19,37 @@ if TYPE_CHECKING:
     import polars as pl
 
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.json_types import JsonObject
     from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior
+    from nof1_causal_lab.models.ssm.inference.types import PosteriorDiagnostics
+    from nof1_causal_lab.models.ssm.model import SSMModel
     from nof1_causal_lab.sampler_config import (
         MarginalParticleGibbsOptions,
         SamplerConfigInput,
     )
 
 logger = logging.getLogger(__name__)
+
+
+class FittedModelResult(TypedDict):
+    """Successful production inference, including its aligned runtime inputs."""
+
+    fitted: Literal[True]
+    duration_seconds: float
+    result: ParticleMCMCPosterior
+    runtime: PreparedModelRuntime
+    inference_diagnostics: PosteriorDiagnostics
+    loo_diagnostics: JsonObject | None
+    posterior_marginals: list[JsonObject]
+    posterior_pairs: list[JsonObject]
+
+
+class ModelFitFailure(TypedDict):
+    """Unavailable inference with no posterior to persist."""
+
+    fitted: Literal[False]
+    error: str
+    duration_seconds: float
 
 
 def fit_prepared_model(
@@ -89,11 +113,11 @@ def fit_model(
     model_spec: ModelSpec,
     data_for_model: pl.DataFrame,
     sampler_config: SamplerConfigInput | None = None,
-    model: Any = None,
+    model: SSMModel | None = None,
     workspace_id: str | None = None,
     wait_for_compile_cache: bool = False,
     compute_loo_diagnostics: bool = True,
-) -> Any:
+) -> FittedModelResult | ModelFitFailure:
     """Fit the SSM model to data.
 
     Args:
@@ -200,27 +224,17 @@ def fit_model(
         posterior_marginals, posterior_pairs = reference_posterior_findings(
             model_spec, posterior_marginals, posterior_pairs
         )
-        samples = result.get_samples()
-        n_samples = (
-            int(next(iter(samples.values())).shape[0])
-            if isinstance(samples, dict) and samples
-            else 0
-        )
         logger.info(
             "Posterior summaries ready in %.1fs: n_samples=%d",
             _fit_elapsed_seconds(t0),
-            n_samples,
+            result.draws.describe().n_draws,
         )
 
         return {
             "fitted": True,
-            "inference_type": result.method,
-            "n_samples": n_samples,
             "duration_seconds": _fit_elapsed_seconds(t0),
             "result": result,
-            "spec": runtime.spec,
             "runtime": runtime,
-            "times": runtime.times,
             "inference_diagnostics": inference_diagnostics,
             "loo_diagnostics": loo_diag,
             "posterior_marginals": posterior_marginals,

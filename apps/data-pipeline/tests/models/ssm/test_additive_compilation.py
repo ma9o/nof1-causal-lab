@@ -15,9 +15,13 @@ from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.model_structure import StructuralCompilationError
 from nof1_causal_lab.models.ssm import numerics as numeric
-from nof1_causal_lab.models.ssm.simulation_checks import _incoming_edge_off_target
-from nof1_causal_lab.recipes.construct_authoring import ConstructContribution
+from nof1_causal_lab.models.ssm.simulation_checks import (
+    ConstructSimulationTarget,
+    _incoming_edge_off_target,
+)
 from tests.helpers import complete_test_model, make_model
+
+pytestmark = pytest.mark.contract
 
 
 @pytest.fixture(scope="module")
@@ -90,9 +94,7 @@ def test_edge_off_targets_every_additive_contribution_without_running_a_simulati
     native = model
     target = model.get_construct(edge.effect.id)
     source = model.get_construct(edge.cause.id)
-    contribution = ConstructContribution(
-        construct=target, edges=model.edges, edge_parents=(source.name,)
-    )
+    contribution = ConstructSimulationTarget(construct=target, edge_parents=(source.name,))
     assert numeric.state_names(native) is not None
     off = _incoming_edge_off_target(
         native,

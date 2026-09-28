@@ -32,7 +32,7 @@ import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
 import jax
 import jax.numpy as jnp
@@ -47,7 +47,36 @@ if TYPE_CHECKING:
 
     from dynestyx.inference.particle_runtime import ParticleRuntime
 
+    from nof1_causal_lab.json_types import JsonObject
+    from nof1_causal_lab.models.ssm.model import SSMModel
+
 logger = logging.getLogger(__name__)
+
+
+class PathfinderDiagnostics(TypedDict):
+    """Completed Pathfinder initialization telemetry."""
+
+    n_pathfinder_starts: int
+    n_pathfinder_starts_finite: int
+    pathfinder_parallel_workers: int
+    pathfinder_setup_seconds: float
+    pathfinder_jax_compile_seconds: float
+    pathfinder_jax_compile_batch_sizes: list[int]
+    pathfinder_runtime_seconds: float
+    pathfinder_total_seconds: float
+    best_pathfinder_elbo: float
+    pathfinder_elbo: float
+    pathfinder_elbo_min: float
+    pathfinder_elbo_max: float
+    pathfinder_elbo_spread: float
+    pathfinder_elbos: list[float]
+    pathfinder_maxiter: int
+    pathfinder_lbfgs_memory: int
+    pathfinder_elbo_samples: int
+    pathfinder_elbo_screen_samples: int
+    pathfinder_elbo_refine_candidates: int
+    pathfinder_elbo_candidate_batch_size: int
+    pathfinder_per_start: list[JsonObject]
 
 
 @dataclass(frozen=True)
@@ -454,10 +483,10 @@ def _run_pathfinder_start(
         start_idx + 1,
         n_starts,
         time.monotonic() - start_t0,
-        int(getattr(opt_result, "nit", 0)),
-        int(getattr(opt_result, "nfev", -1)),
-        bool(getattr(opt_result, "success", False)),
-        int(getattr(opt_result, "status", -1)),
+        int(opt_result.nit),
+        int(opt_result.nfev),
+        bool(opt_result.success),
+        int(opt_result.status),
         float(-opt_result.fun),
     )
 
@@ -468,16 +497,14 @@ def _run_pathfinder_start(
     candidate_means: list[np.ndarray] = []
     candidate_chols: list[np.ndarray] = []
     try:
-        hess_inv_op = getattr(opt_result, "hess_inv", None)
-        if hess_inv_op is not None:
-            hess_inv_final = np.asarray(hess_inv_op.todense(), dtype=np.float64)
-            hess_inv_final = 0.5 * (hess_inv_final + hess_inv_final.T)
-            hess_inv_final = hess_inv_final + jitter * np.eye(dim, dtype=np.float64)
-            l_final = np.linalg.cholesky(hess_inv_final)
-            x_final = np.asarray(opt_result.x, dtype=np.float64).copy()
-            candidate_means.append(x_final)
-            candidate_chols.append(l_final)
-    except (np.linalg.LinAlgError, ValueError, AttributeError):
+        hess_inv_final = np.asarray(opt_result.hess_inv.todense(), dtype=np.float64)
+        hess_inv_final = 0.5 * (hess_inv_final + hess_inv_final.T)
+        hess_inv_final = hess_inv_final + jitter * np.eye(dim, dtype=np.float64)
+        l_final = np.linalg.cholesky(hess_inv_final)
+        x_final = np.asarray(opt_result.x, dtype=np.float64).copy()
+        candidate_means.append(x_final)
+        candidate_chols.append(l_final)
+    except (np.linalg.LinAlgError, ValueError):
         pass
 
     # Iterate along the accepted L-BFGS iterates, forming H^{-1} at each
@@ -710,7 +737,7 @@ def scipy_pathfinder(
 
 
 def run_scipy_pathfinder_approximation(
-    model,
+    model: SSMModel,
     observations: jnp.ndarray,
     times: jnp.ndarray,
     *,
@@ -726,7 +753,7 @@ def run_scipy_pathfinder_approximation(
     elbo_refine_candidates: int = 16,
     elbo_candidate_batch_size: int = 8,
     init_scale: float = 0.1,
-) -> tuple[ScipyPathfinderResult, UncheckedJsonObject]:
+) -> tuple[ScipyPathfinderResult, PathfinderDiagnostics]:
     """Run scipy Pathfinder on the IEKS-marginal log-posterior for parameters."""
     if n_pathfinder_starts < 1:
         raise ValueError("n_pathfinder_starts must be >= 1.")
@@ -813,7 +840,7 @@ def run_scipy_pathfinder_approximation(
         for item in result.diagnostics["per_start"]
         if item["best_elbo_this_start"] is not None
     ]
-    diagnostics = {
+    diagnostics: PathfinderDiagnostics = {
         "n_pathfinder_starts": int(n_pathfinder_starts),
         "n_pathfinder_starts_finite": int(result.diagnostics["n_starts_finite"]),
         "pathfinder_parallel_workers": int(result.diagnostics["parallel_workers"]),
@@ -843,7 +870,7 @@ def run_scipy_pathfinder_approximation(
 
 def sample_scipy_pathfinder_init_positions(
     pathfinder_state: ScipyPathfinderResult,
-    pathfinder_diagnostics: UncheckedJsonObject,
+    pathfinder_diagnostics: PathfinderDiagnostics,
     *,
     sample_key: jnp.ndarray,
     num_chains: int,

@@ -8,23 +8,27 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from nof1_causal_lab.artifacts.checks import SpecificationReport  # noqa: TC001
+from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata  # noqa: TC001
 from nof1_causal_lab.artifacts.execution import StructuralItemDisposition  # noqa: TC001
 from nof1_causal_lab.artifacts.identification import IdentificationReport  # noqa: TC001
-from nof1_causal_lab.artifacts.identity import (
-    ArtifactId,
-    ArtifactRef,
+from nof1_causal_lab.artifacts.identity import (  # noqa: TC001
     ConstructId,
     EdgeId,
-    TransitionRef,
+    GitOid,
+    GitRef,
 )
+from nof1_causal_lab.artifacts.model_checks import ModelPredictiveReport  # noqa: TC001
 from nof1_causal_lab.artifacts.model_spec import ModelSpec  # noqa: TC001
 from nof1_causal_lab.artifacts.posterior import InferenceReport  # noqa: TC001
 from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorEstimate  # noqa: TC001
 from nof1_causal_lab.artifacts.prior_predictive import PriorPredictiveResult  # noqa: TC001
 from nof1_causal_lab.artifacts.simulation import SimulationReport  # noqa: TC001
-from nof1_causal_lab.artifacts.validation_report import ValidationReportArtifact  # noqa: TC001
+from nof1_causal_lab.artifacts.validation_report import (  # noqa: TC001
+    DataProfileArtifact,
+    ValidationReportArtifact,
+)
 from nof1_causal_lab.machine.artifacts import EpisodeState  # noqa: TC001
-from nof1_causal_lab.machine.moves import ArtifactFreshness, is_stale
+from nof1_causal_lab.machine.execution import ArtifactFreshness, is_stale
 from nof1_causal_lab.machine.view_models import (  # noqa: TC001
     MeasurementsData,
     ModelDiagnostics,
@@ -46,15 +50,15 @@ class SourceValidity(StrEnum):
 
 
 class FactSource(SnapshotValue):
-    """A fact source locates supporting content within an artifact version and records its freshness."""
+    """A fact source locates supporting content within an artifact revision and records its freshness."""
 
-    ref: ArtifactRef | TransitionRef
+    ref: GitRef
     pointer: str = Field(pattern=r"^(?:/.*)?$")
     validity: SourceValidity
 
 
 class Sourced[T](SnapshotValue):
-    """A sourced read pairs a canonical aggregate or derived finding with its artifact version."""
+    """A sourced read pairs a canonical aggregate or derived finding with its artifact revision."""
 
     value: T
     source: FactSource
@@ -69,15 +73,15 @@ class FitSummary(SnapshotValue):
 
 
 class SnapshotContext(SnapshotValue):
-    """A snapshot context identifies the selected journal revision and its artifact versions."""
+    """A snapshot context identifies the selected Git commit and its artifact versions."""
 
     workspace_id: str = Field(min_length=1)
     seq: int = Field(ge=0)
+    commit_id: GitOid
+    branch: str = "main"
     can_simulate: bool = False
     state: EpisodeState
     artifacts: list[ArtifactFreshness] = Field(default_factory=list)
-    installed_at: dict[ArtifactId, int] = Field(default_factory=dict)
-    retracted: list[ArtifactId] = Field(default_factory=list)
 
 
 class ModelData(SnapshotValue):
@@ -85,22 +89,33 @@ class ModelData(SnapshotValue):
 
     raw_data: Sourced[RawDataData] | None = None
     measurements: Sourced[MeasurementsData] | None = None
+    metadata: Sourced[PreparedDataMetadata] | None = None
+    profile: Sourced[DataProfileArtifact] | None = None
+
+
+class ModelGraphView(SnapshotValue):
+    """Scientific entity identities selected for the graph at this authoring checkpoint."""
+
+    construct_ids: tuple[ConstructId, ...] = ()
+    edge_ids: tuple[EdgeId, ...] = ()
+    status: dict[ConstructId, Literal["observed", "marginalized", "blocking"]] = Field(
+        default_factory=dict
+    )
 
 
 class ModelFindings(SnapshotValue):
-    """ModelSpec findings collect identification, validation, and fitted results with their provenance."""
+    """ModelSpec findings collect identification, validation, and fitted results with their input references."""
 
     identification: Sourced[IdentificationReport] | None = None
     dispositions: Sourced[tuple[StructuralItemDisposition, ...]] | None = None
-    graph_status: dict[ConstructId, Literal["observed", "marginalized", "blocking"]] = Field(
-        default_factory=dict
-    )
+    graph: ModelGraphView = Field(default_factory=ModelGraphView)
     validation_report: Sourced[ValidationReportArtifact] | None = None
     prior_predictive: Sourced[PriorPredictiveResult] | None = None
     diagnostics: ModelDiagnostics | None = None
     fit: Sourced[FitSummary] | None = None
     specification: Sourced[SpecificationReport] | None = None
     simulation: Sourced[SimulationReport] | None = None
+    predictive: Sourced[ModelPredictiveReport] | None = None
 
 
 class ModelSnapshot(SnapshotValue):
@@ -119,11 +134,14 @@ class ModelSnapshot(SnapshotValue):
             (self.findings.dispositions, "model"),
             (self.data.raw_data, "raw_data"),
             (self.data.measurements, "panel"),
+            (self.data.metadata, "panel"),
+            (self.data.profile, "data_profile"),
             (self.findings.validation_report, "validation_report"),
             (self.findings.prior_predictive, "prior_predictive"),
             (self.findings.fit, "inference"),
             (self.findings.specification, "specification"),
             (self.findings.simulation, "simulation"),
+            (self.findings.predictive, "predictive"),
         ):
             if read is not None:
                 self._validate_source(read.source, artifact_id)
@@ -133,22 +151,26 @@ class ModelSnapshot(SnapshotValue):
         indicators = {item.id for item in model.indicators} if model else set()
         parameters = {item.id for item in model.parameters} if model else set()
         findings = self.findings
+        if (
+            not set(findings.graph.construct_ids) <= constructs
+            or not set(findings.graph.edge_ids) <= edges
+        ):
+            raise ValueError("Graph view references an entity outside the snapshot")
         if findings.dispositions and any(
             item.target.id not in constructs | edges | indicators
             for item in findings.dispositions.value
         ):
             raise ValueError("Disposition owner does not exist in the snapshot")
-        if not findings.graph_status.keys() <= constructs:
+        if not findings.graph.status.keys() <= constructs:
             raise ValueError("Graph status owner does not exist in the snapshot")
         if findings.identification:
             if model is None:
                 raise ValueError("Identification requires its scientific model")
             findings.identification.value.validate_model(model)
-        if (
-            self.data.measurements
-            and not self.data.measurements.value.per_indicator_counts.keys() <= indicators
-        ):
-            raise ValueError("Observation owner does not exist in the snapshot")
+        if self.data.measurements and self.data.metadata is None:
+            raise ValueError("Prepared observations require their data-owned metadata")
+        # Counts describe the stored table, including data-quality problems.
+        # Undeclared variables are reported by preparation checks, never hidden here.
         if (
             findings.validation_report
             and not findings.validation_report.value.indicators.keys() <= indicators
@@ -177,19 +199,43 @@ class ModelSnapshot(SnapshotValue):
         return self
 
     def _validate_source(self, source: FactSource, artifact_id: str) -> None:
+        from nof1_causal_lab.machine.artifact_files import artifact_file_spec
+
         ref = source.ref
-        if isinstance(ref, TransitionRef):
+        if ref.workspace_id != self.context.workspace_id:
+            raise ValueError("Fact source belongs to another study")
+        if ref.path == "checks.json":
             if (
-                artifact_id not in {"inference", "prior_predictive", "simulation", "specification"}
-                or ref.seq > self.context.seq
+                artifact_id not in {"specification", "predictive"}
+                or ref.revision != self.context.commit_id
+                or self.context.state.checks is None
+                or source.pointer != f"/{artifact_id}"
             ):
-                raise ValueError(
-                    "Operation findings must refer to a transition in this snapshot's history"
-                )
+                raise ValueError("Check source must identify this snapshot's recorded findings")
+            predictive = self.context.state.checks.predictive
+            panel = self.context.state.get("panel")
+            expected = "stale" if artifact_id == "predictive" and predictive is not None and (
+                predictive.panel_revision != (panel.revision if panel else None)
+            ) else "fresh"
+            if source.validity != expected:
+                raise ValueError("Check validity differs from its selected observation revision")
             return
-        current = self.context.state.get(ref.artifact_id)
-        if ref.artifact_id != artifact_id or current is None or current.version != ref.version:
-            raise ValueError("Fact source does not belong to the selected artifact snapshot")
-        expected = "stale" if is_stale(self.context.state, ref.artifact_id) else "fresh"
+        if ref.path == "logs/transition.json":
+            if artifact_id not in {"inference", "prior_predictive", "simulation", "specification"}:
+                raise ValueError("Only operation findings refer to action logs")
+            # The repository reader selects these logs through Git ancestry.
+            return
+        current = self.context.state.current.get(artifact_id)
+        if current is None or current.revision != ref.revision:
+            raise ValueError("Fact source does not belong to the selected artifact tree")
+        if (
+            ref.path
+            not in {
+                **artifact_file_spec(current.artifact_id).parquet,
+                **artifact_file_spec(current.artifact_id).json,
+            }.values()
+        ):
+            raise ValueError("Fact source does not identify a declared artifact payload")
+        expected = "stale" if is_stale(self.context.state, current.artifact_id) else "fresh"
         if source.validity != expected:
-            raise ValueError("Fact validity differs from its snapshot provenance")
+            raise ValueError("Fact validity differs from its snapshot input references")

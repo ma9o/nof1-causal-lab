@@ -24,9 +24,12 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
 import jax
+
+if TYPE_CHECKING:
+    from jax.stages import Wrapped
 
 _PROFILE_DIR_ENV = "NOF1_PROFILE_DIR"
 
@@ -94,18 +97,6 @@ def stop_trace(profile_dir: Path | None) -> None:
     jax.profiler.stop_trace()
 
 
-def _json_ready(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {str(key): _json_ready(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_json_ready(item) for item in value]
-    if isinstance(value, (str, int, float, bool)) or value is None:
-        return value
-    if hasattr(value, "item"):
-        return value.item()
-    return repr(value)
-
-
 def _summarize_access_patterns(hlo_text: str) -> dict[str, int]:
     """Count producer instructions per op in the optimized HLO.
 
@@ -116,11 +107,11 @@ def _summarize_access_patterns(hlo_text: str) -> dict[str, int]:
 
 
 def dump_compiled_analysis(
-    jitted_fn: Any,
-    *call_args: Any,
+    jitted_fn: Wrapped,
+    *call_args: object,
     profile_dir: Path | None,
     label: str,
-    **call_kwargs: Any,
+    **call_kwargs: object,
 ) -> None:
     """Lower + compile ``jitted_fn`` for one call and dump its HLO + cost analysis.
 
@@ -137,9 +128,11 @@ def dump_compiled_analysis(
         return
     compiled = jitted_fn.lower(*call_args, **call_kwargs).compile()
     hlo_text = compiled.as_text()
+    if hlo_text is None:
+        raise RuntimeError("The JAX backend did not expose compiled HLO text")
     (profile_dir / f"{label}.hlo.txt").write_text(hlo_text)
     (profile_dir / f"{label}.cost.json").write_text(
-        json.dumps(_json_ready(compiled.cost_analysis()), indent=2, sort_keys=True)
+        json.dumps(compiled.cost_analysis(), indent=2, sort_keys=True)
     )
     (profile_dir / f"{label}.access_patterns.json").write_text(
         json.dumps(_summarize_access_patterns(hlo_text), indent=2, sort_keys=True)

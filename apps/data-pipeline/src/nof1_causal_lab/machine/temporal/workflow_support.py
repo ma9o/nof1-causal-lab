@@ -46,8 +46,8 @@ def temporal_failure_details(
     """Unwrap a Temporal cause chain into a stable runtime error payload."""
     cause = exc
     while not isinstance(cause, ApplicationError):
-        next_cause = getattr(cause, "cause", None)
-        if not isinstance(next_cause, BaseException):
+        next_cause = cause.__cause__
+        if next_cause is None:
             break
         cause = next_cause
     if isinstance(cause, ApplicationError):

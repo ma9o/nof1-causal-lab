@@ -10,14 +10,14 @@ from .estimands import (
     summarize_draws,
 )
 from .orchestration import (
-    ClampSpec,
+    ResolvedIntervention,
     build_segment_bounds,
-    vmap_simulate_clamps_from_state,
+    vmap_simulate_interventions_from_state,
 )
 
 __all__ = [
-    "ClampSpec",
+    "ResolvedIntervention",
     "build_segment_bounds",
     "summarize_draws",
-    "vmap_simulate_clamps_from_state",
+    "vmap_simulate_interventions_from_state",
 ]

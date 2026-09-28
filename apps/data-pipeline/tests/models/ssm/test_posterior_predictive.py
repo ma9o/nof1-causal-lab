@@ -25,23 +25,6 @@ from tests.models.ssm._support import complex_mixed_family_config
 from tests.predictive_fixtures import sample_observation_fixture
 
 
-def get_relevant_manifest_variables(
-    lambda_mat: jnp.ndarray,
-    treat_idx: int | None,
-    outcome_idx: int | None,
-    manifest_names: list[str],
-    threshold: float = 0.01,
-) -> set[str]:
-    relevant = set()
-    for idx in (treat_idx, outcome_idx):
-        if idx is None:
-            continue
-        for row in range(lambda_mat.shape[0]):
-            if abs(float(lambda_mat[row, idx])) >= threshold and row < len(manifest_names):
-                relevant.add(manifest_names[row])
-    return relevant
-
-
 def _make_lp_and_samples(
     n_draws: int,
     n_timepoints: int,
@@ -88,16 +71,18 @@ class TestForwardSimulation:
             emission_slot_indices=np.array([[-1], [-1], [0]], dtype=np.int64),
         )
 
+    @pytest.mark.contract
     def test_switch_index_unknown_dist_raises(self):
         """Unknown distribution family raises ValueError."""
         with pytest.raises(ValueError, match="Unknown distribution family"):
             get_posterior_predictive_switch_index("nonexistent_distribution")
 
+    @pytest.mark.contract
     def test_switch_index_invalid_family_link_pair_raises(self):
         with pytest.raises(ValueError, match="invalid for observation family 'gaussian'"):
             get_posterior_predictive_switch_index("gaussian", link="log")
 
-    @pytest.mark.predictive
+    @pytest.mark.inference(concern="predictive")
     def test_mixed_families_preserve_means_and_sample_domains(self):
         families, links, levels, _ = complex_mixed_family_config()
         families += ["bernoulli", "gamma"]
@@ -150,7 +135,7 @@ class TestForwardSimulation:
         assert bool(((categories >= 0) & (categories <= 3)).all())
         np.testing.assert_array_equal(categories, jnp.floor(categories))
 
-    @pytest.mark.predictive
+    @pytest.mark.inference(concern="predictive")
     def test_forward_simulate_support_aware_window_average_respects_emission_schedule(self):
         """Interval-summary PPC emits only on anchor rows and uses aggregated means."""
         # Latent held at 1.0, so the observation linear predictor is 1.0 every row.
@@ -178,6 +163,7 @@ class TestForwardSimulation:
         assert jnp.isnan(expected[0, 1, 0])
         assert float(expected[0, 2, 0]) == pytest.approx(1.0)
 
+    @pytest.mark.contract
     def test_forward_simulate_raises_on_log_link_mean_overflow(self):
         """Overflowing log-link means fail before observation sampling."""
         lp, samples = _make_lp_and_samples(
@@ -196,6 +182,7 @@ class TestForwardSimulation:
                 rng_key=random.PRNGKey(0),
             )
 
+    @pytest.mark.contract
     def test_posterior_runtime_assembles_ordered_cutpoints_from_sample_sites(self, monkeypatch):
         """Posterior PPC derives cutpoints from sampled threshold bases and gaps."""
         from nof1_causal_lab.models.ssm.parameterization import (
@@ -259,6 +246,7 @@ class TestForwardSimulation:
         )
 
 
+@pytest.mark.inference(concern="predictive")
 class TestDiagnosticChecks:
     """Known arrays separate diagnostic decisions from observation simulation."""
 
@@ -340,59 +328,7 @@ class TestDiagnosticChecks:
         assert [warning.passed for warning in warnings] == [False, True, False]
 
 
-class TestGetRelevantManifestVariables:
-    """Tests for get_relevant_manifest_variables."""
-
-    def test_identity_lambda(self):
-        """Identity lambda maps each manifest to its latent."""
-        lambda_mat = jnp.eye(3)
-        names = ["x", "y", "z"]
-
-        result = get_relevant_manifest_variables(lambda_mat, 0, 1, names)
-        assert result == {"x", "y"}
-
-    def test_extra_loadings(self):
-        """Extra manifest variables with nonzero loadings are included."""
-        # 4 manifest, 2 latent
-        lambda_mat = jnp.array(
-            [
-                [1.0, 0.0],
-                [0.0, 1.0],
-                [0.5, 0.0],  # loads on latent 0
-                [0.0, 0.3],  # loads on latent 1
-            ]
-        )
-        names = ["a", "b", "c", "d"]
-
-        result = get_relevant_manifest_variables(lambda_mat, 0, 1, names)
-        assert result == {"a", "b", "c", "d"}
-
-    def test_threshold_filtering(self):
-        """Loadings below threshold are excluded."""
-        lambda_mat = jnp.array(
-            [
-                [1.0, 0.0],
-                [0.0, 1.0],
-                [0.005, 0.0],  # below default threshold 0.01
-            ]
-        )
-        names = ["a", "b", "c"]
-
-        result = get_relevant_manifest_variables(lambda_mat, 0, 1, names)
-        assert result == {"a", "b"}
-
-    def test_none_indices(self):
-        """None indices should be safely skipped."""
-        lambda_mat = jnp.eye(2)
-        names = ["x", "y"]
-
-        result = get_relevant_manifest_variables(lambda_mat, None, 1, names)
-        assert result == {"y"}
-
-        result = get_relevant_manifest_variables(lambda_mat, None, None, names)
-        assert result == set()
-
-
+@pytest.mark.inference(concern="predictive")
 def test_overlays_preserve_quantiles_observations_and_selected_trajectories():
     # Draws are deliberately unordered, with different scales across time and
     # variables. Quantiles below are hand-computed linear interpolations.
@@ -436,6 +372,7 @@ def test_overlays_preserve_quantiles_observations_and_selected_trajectories():
         np.testing.assert_array_equal(overlay.spaghetti_draws, draws[jnp.array([0, 3]), :, column])
 
 
+@pytest.mark.inference(concern="predictive")
 def test_single_draw_has_exact_bands_and_caps_requested_trajectories():
     draws = jnp.array([[[2.0, -1.0], [4.0, 8.0]]])
     result = _compute_overlays(
@@ -449,6 +386,7 @@ def test_single_draw_has_exact_bands_and_caps_requested_trajectories():
         np.testing.assert_array_equal(overlay.spaghetti_draws, draws[:, :, column])
 
 
+@pytest.mark.inference(concern="predictive")
 def test_test_stats_match_masked_observations_and_each_replicate():
     # Huge values at missing observation rows must be ignored in each replicate.
     # The final variable has only two observed rows and must be omitted.
@@ -483,6 +421,7 @@ def test_test_stats_match_masked_observations_and_each_replicate():
         assert stat.p_value == pytest.approx(p_value)
 
 
+@pytest.mark.contract
 @pytest.mark.parametrize(
     "compute", [_compute_overlays, _compute_test_stats], ids=["overlays", "stats"]
 )

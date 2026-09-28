@@ -85,6 +85,7 @@ def _build_test_evaluators(monkeypatch, *, runtime: bool, backend: _RecordingBac
     return functions, assembled_samples, bound_observations, bound_times
 
 
+@pytest.mark.contract
 @pytest.mark.parametrize("runtime", [False, True])
 def test_eval_fns_share_preparation_and_backend_semantics(monkeypatch, runtime: bool) -> None:
     backend = _RecordingBackend(jnp.asarray([1.0, 2.0, 4.0]))
@@ -127,6 +128,7 @@ def test_eval_fns_share_preparation_and_backend_semantics(monkeypatch, runtime: 
     assert first_call["kwargs"]["extra_params"] == {"obs_df": 5.0}
 
 
+@pytest.mark.contract
 @pytest.mark.parametrize(
     ("lnc", "expected"),
     [(jnp.asarray(2.5), 2.5), (jnp.asarray([0.0, jnp.nan]), -jnp.inf)],
@@ -147,6 +149,7 @@ def test_eval_fns_normalize_scalar_and_nonfinite_results(monkeypatch, lnc, expec
         assert float(result) == expected
 
 
+@pytest.mark.contract
 def test_aux_evaluator_is_not_checkpointed(monkeypatch) -> None:
     checkpointed: list[Any] = []
     monkeypatch.setattr(
@@ -205,6 +208,7 @@ def _eval_model(model_fn, params_dict, observations, times):
     return log_lik, log_prior
 
 
+@pytest.mark.inference(concern="sampling")
 class TestPureJaxLikelihoodEvaluator:
     """The pure-JAX likelihood path should match NumPyro replay exactly."""
 

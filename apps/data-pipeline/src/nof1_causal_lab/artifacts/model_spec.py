@@ -139,9 +139,12 @@ class ModelSpec(BaseModel):
 
     @cached_property
     def state_order(self) -> tuple[ConstructId, ...]:
-        """Execution axes reference the existing measured constructs."""
+        """Execution axes retain measured constructs connected to the selected outcome."""
+        from nof1_causal_lab.models.model_structure import retained_construct_ids
+
         self.require_measurements()
-        retained = [item for item in self.constructs if item.indicators]
+        selected = retained_construct_ids(self)
+        retained = [item for item in self.constructs if item.id in selected]
         return tuple(
             item.id
             for static in (False, True)
@@ -155,6 +158,14 @@ class ModelSpec(BaseModel):
         return tuple(
             edge for edge in self.edges if edge.cause.id in states and edge.effect.id in states
         )
+
+    @cached_property
+    def execution_parameters(self) -> tuple[ParameterSpec, ...]:
+        """Parameters referenced by the retained numerical model."""
+        from nof1_causal_lab.models.model_parameters import execution_coefficient_uses
+
+        referenced = {use.value for use in execution_coefficient_uses(self)}
+        return tuple(parameter for parameter in self.parameters if parameter.id in referenced)
 
     @cached_property
     def manifest_indicator_order(self) -> tuple[IndicatorId, ...]:
@@ -408,7 +419,7 @@ class ModelSpec(BaseModel):
     def require_priors(self) -> None:
         missing = [
             parameter.id
-            for parameter in self.parameters
+            for parameter in self.execution_parameters
             if parameter.distribution is None and parameter.value is None
         ]
         if missing:

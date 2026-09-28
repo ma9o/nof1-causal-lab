@@ -1,12 +1,10 @@
 """Declarative action/context hierarchy semantics."""
 
+import pytest
+
 from nof1_causal_lab.flows.context_tools import CONTEXT_TOOLS
 from nof1_causal_lab.machine.graph import (
     ARTIFACT_GRAPH,
-    DERIVATIONS,
-    ROOT_ARTIFACTS,
-    ROOTS,
-    WRITABLE_ARTIFACTS,
 )
 from nof1_causal_lab.machine.hierarchy import (
     ACTIONS,
@@ -15,6 +13,8 @@ from nof1_causal_lab.machine.hierarchy import (
     describe_actions,
     describe_contexts,
 )
+
+pytestmark = pytest.mark.contract
 
 
 def test_context_tree_is_closed():
@@ -52,23 +52,6 @@ def test_public_context_tools_are_allowed_by_their_context():
         assert declared.issubset(context.allowed_tools)
 
 
-def test_writable_surface_is_roots_plus_writable_transitions():
-    writable_produced = {
-        output for spec in ARTIFACT_GRAPH if spec.writable for output in spec.produces
-    }
-    assert set(WRITABLE_ARTIFACTS) == set(ROOT_ARTIFACTS) | writable_produced
-    assert set(ROOT_ARTIFACTS).issubset(WRITABLE_ARTIFACTS)
-
-    derived_ids = {spec.produces for spec in DERIVATIONS}
-    assert not derived_ids.intersection(WRITABLE_ARTIFACTS)
-    assert "identification_report" in derived_ids
-
-
-def test_roots_declare_their_write_pins():
-    roots = {root.artifact_id: root for root in ROOTS}
-    assert roots["model"].write_pins == ()
-
-
 def test_registry_descriptions_are_json_ready():
     action_payload = describe_actions()
     context_payload = describe_contexts()
@@ -84,6 +67,11 @@ def test_registry_descriptions_are_json_ready():
         "identification_report",
         "validation_report",
     )
-    assert next(
-        context for context in CONTEXTS if context.context_id == "statistical-model-spec"
-    ).runtime_state
+    for context in CONTEXTS:
+        if context.context_id in {
+            "latent-structure",
+            "measurement-structure",
+            "statistical-model-spec",
+        }:
+            assert context.layer == "tool"
+            assert not context.runtime_state

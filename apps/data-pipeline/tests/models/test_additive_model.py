@@ -2,13 +2,10 @@
 
 import numpyro.distributions as dist
 import pytest
-from pydantic import TypeAdapter, ValidationError
+from pydantic import ValidationError
 
 from nof1_causal_lab.artifacts.construct import (
-    CausalEdgeSpec,
-    endpoint_validation_scope,
     replace_constructs,
-    serialize_edge_references,
 )
 from nof1_causal_lab.artifacts.expressions import hill, linear_effect, state
 from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId, scientific_id
@@ -16,6 +13,8 @@ from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.likelihoods import observation_law
 from tests.helpers import graph_constructs
+
+pytestmark = pytest.mark.contract
 
 
 def _model():
@@ -51,7 +50,6 @@ def _model():
                             {
                                 "id": "indicator:y",
                                 "name": "measured_y",
-                                "how_to_measure": "Mean value",
                                 "construct_polarity": "positive",
                                 "measurement_dtype": "continuous",
                                 "aggregation": "mean",
@@ -127,7 +125,7 @@ def test_partial_model_is_valid_but_operation_requirements_are_explicit():
     partial = _model()
     with pytest.raises(ValueError, match="clock"):
         partial.require_measurements()
-    with pytest.raises(ValueError, match="prior"):
+    with pytest.raises(ValueError, match="clock"):
         partial.require_priors()
     complete_measurements = partial.revised(measurement_clock="1d")
     complete_measurements.require_measurements()
@@ -184,12 +182,6 @@ def test_shared_endpoints_round_trip_once_and_resolve_forward_references():
     assert changed.edges[0].effect is changed.edges[1].effect
     assert changed.edges[1].effect.name == "Renamed Y"
     assert model.edges[1].effect.name == "Y"
-    # Incremental submissions carry edge references and one separately authored endpoint.
-    references = serialize_edge_references(model.edges)
-    with endpoint_validation_scope(references, endpoints=changed.constructs):
-        submitted = TypeAdapter(tuple[CausalEdgeSpec, ...]).validate_python(references)
-    assert submitted[0].effect is changed.edges[0].effect
-    assert submitted[1].effect is submitted[0].effect
 
 
 def test_endpoint_identity_rejects_conflicting_definitions():

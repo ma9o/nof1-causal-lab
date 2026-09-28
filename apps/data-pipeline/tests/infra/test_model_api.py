@@ -1,21 +1,30 @@
-"""HTTP model writes share machine validation; operation traces survive later authorship."""
+"""Scientific edits are the sole model mutation contract; history remains inspectable."""
+
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from temporalio.client import WorkflowUpdateStage
 
 from nof1_causal_lab import episode_api
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.machine.moves import RunOperation, WriteArtifact, validate_move
-from nof1_causal_lab.machine.store import (
-    ArtifactStore,
-    EpisodeJournal,
-    TransitionRecord,
-    derive_current_state,
-)
-from nof1_causal_lab.machine.writes import execute_write
+from nof1_causal_lab.actions.contracts import EditModelRequest
+from nof1_causal_lab.actions.messages import completion_messages
+from nof1_causal_lab.actions.results import ActionMessage, ActionPoll
+from nof1_causal_lab.machine.errors import ArtifactWriteRejected
+from nof1_causal_lab.machine.history import StudyRepository
+from nof1_causal_lab.machine.store import ArtifactStore, TransitionRecord, read_current_state
 from nof1_causal_lab.read_facade import create_read_facade_app
 from nof1_causal_lab.utils import data as data_module
+from tests.action_fixtures import edit_and_check
+from tests.git_fixtures import artifact_revision, commit_id
 from tests.helpers import make_model
+
+pytestmark = pytest.mark.contract
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.identity import OperationId
 
 
 @pytest.fixture
@@ -23,179 +32,239 @@ def model_api(monkeypatch, tmp_path):
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
     monkeypatch.setenv("EPISODE_FACADE_READ_ONLY", "0")
     calls = []
+    pending = {}
 
-    async def local_propose(workspace, body):
-        calls.append(body)
-        state = derive_current_state(workspace)
-        reason = validate_move(state, body.move)
-        if reason is not None:
-            return {"status": "rejected", "reason": reason}
-        effects = execute_write(
-            workspace,
-            "model",
-            body.payload,
-            body.move.provenance,
-            state,
-            expected_model_version=body.move.expected_model_version,
-        )
-        journal = EpisodeJournal(workspace)
-        seq = journal.latest_seq() + 1
-        journal.append(
-            TransitionRecord(
-                seq=seq,
-                ts="2026-01-01T00:00:00+00:00",
-                move=body.move,
-                status="applied",
-                produced=effects.produced,
-                retracted=effects.retracted,
-                trace_ids=[],
-                resume=None,
+    class Handle:
+        def __init__(self, workspace):
+            self.workspace = workspace
+
+        async def start_update(self, method, envelope, *, id, wait_for_stage):
+            assert id == str(envelope.attempt_id)
+            assert wait_for_stage == WorkflowUpdateStage.ACCEPTED
+            calls.append(envelope)
+            pending[envelope.attempt_id] = (self.workspace, envelope)
+
+        async def query(self, method, attempt_id):
+            return ActionPoll(done=False) if attempt_id in pending else None
+
+        def complete(self, attempt_id):
+            workspace, envelope = pending.pop(UUID(attempt_id))
+            assert workspace == self.workspace
+            request = envelope.request
+            assert isinstance(request, EditModelRequest)
+            state = read_current_state(self.workspace, branch=envelope.branch)
+            journal = StudyRepository(self.workspace)
+            seq = journal.latest_seq() + 1
+            try:
+                effects = edit_and_check(self.workspace, request, state)
+                record = TransitionRecord(
+                    seq=seq,
+                    attempt_id=envelope.attempt_id,
+                    branch=envelope.branch,
+                    ts="2026-01-01T00:00:00Z",
+                    action=request.action,
+                    inputs=request.model_dump(mode="json", exclude={"action"}),
+                    status="applied",
+                    produced=effects.produced,
+                    retracted=effects.retracted,
+                    diagnostics=effects.diagnostics,
+                    checks=effects.checks,
+                    trace_ids=[],
+                    resume=None,
+                )
+            except ArtifactWriteRejected as exc:
+                record = TransitionRecord(
+                    seq=seq,
+                    attempt_id=envelope.attempt_id,
+                    branch=envelope.branch,
+                    ts="2026-01-01T00:00:00Z",
+                    action=request.action,
+                    status="rejected",
+                    reason=str(exc),
+                    trace_ids=[],
+                    resume=None,
+                )
+            timestamp = datetime.now(UTC)
+            record = record.model_copy(
+                update={
+                    "messages": (
+                        ActionMessage(
+                            timestamp=timestamp, level="info", label="EDIT_MODEL_STARTED"
+                        ),
+                        *(
+                            completion_messages(
+                                self.workspace,
+                                record.action,
+                                record.produced,
+                                record.diagnostics,
+                                timestamp,
+                                checks=record.checks,
+                            )
+                            if record.status == "applied"
+                            else ()
+                        ),
+                        ActionMessage(
+                            timestamp=timestamp,
+                            level="info" if record.status == "applied" else "error",
+                            label="ACTION_COMPLETED"
+                            if record.status == "applied"
+                            else "REVISION_CONFLICT",
+                        ),
+                    )
+                }
             )
-        )
-        return {
-            "status": "applied",
-            "seq": seq,
-            "state": derive_current_state(workspace).model_dump(mode="json"),
-        }
+            journal.append(record)
 
-    monkeypatch.setattr(episode_api, "_propose", local_propose)
-    return TestClient(create_read_facade_app()), calls
+    async def handle(workspace):
+        return Handle(workspace)
+
+    monkeypatch.setattr(episode_api, "_episode_handle", handle)
+
+    class Client:
+        def get_workflow_handle(self, workflow_id):
+            return Handle(workflow_id.removeprefix("episode-"))
+
+    async def get_client():
+        return Client()
+
+    monkeypatch.setattr(episode_api, "_get_client", get_client)
+    return TestClient(create_read_facade_app()), calls, Handle("API").complete
 
 
-def test_model_put_validates_identity_and_expected_revision_before_publication(model_api):
-    client, calls = model_api
-    url = "/api/episodes/API/model"
-    first = client.put(
+def test_edit_action_validates_identity_and_base_before_publication(model_api, monkeypatch):
+    client, calls, complete = model_api
+    url = "/api/episodes/API/actions"
+    first = client.post(
         url,
         json={
-            "expected_version": 0,
+            "action": "edit_model",
+            "expected_revision": None,
             "model": {"question": "  Does X change Y?  "},
         },
     )
-    assert first.status_code == 200
-    assert first.json()["model"]["source"]["ref"]["version"] == 1
-    assert first.json()["context"]["seq"] == 1
-    initial = first.json()["model"]["value"]
-    assert initial["question"] == "Does X change Y?"
-    assert initial["edges"] == []
-    stale = client.put(
+    assert first.status_code == 202
+    assert set(first.json()) == {"attempt_id"}
+    attempt_url = f"{url}/{first.json()['attempt_id']}"
+    assert client.get(attempt_url).json() == {"done": False, "body": None, "messages": []}
+    assert not read_current_state("API").has("model")
+    complete(first.json()["attempt_id"])
+    result = client.get(attempt_url).json()
+    assert result["done"] is True
+    assert result["body"]["action"] == "edit_model"
+    assert result["body"]["model"]["question"] == "Does X change Y?"
+    assert "MODEL_INCOMPLETE" in {message["label"] for message in result["messages"]}
+    assert all(message["timestamp"] for message in result["messages"])
+    assert client.get(f"{url}/{uuid4()}").status_code == 404
+    initial = client.get("/api/episodes/API/model").json()
+    assert initial["context"]["seq"] == 1
+    assert initial["model"]["value"]["question"] == "Does X change Y?"
+    revision = artifact_revision("API", "model", 1)
+    stale = client.post(
         url,
         json={
-            "expected_version": 0,
-            "model": make_model(["X", "Y"], [("X", "Y")]).model_dump(mode="json"),
+            "action": "edit_model",
+            "expected_revision": None,
+            "model": {"question": "A conflicting edit"},
         },
     )
-    assert stale.status_code == 409
-    invalid = client.put(
+    assert stale.status_code == 202
+    complete(stale.json()["attempt_id"])
+    failed = client.get(f"{url}/{stale.json()['attempt_id']}").json()
+    assert failed["done"] is True
+    assert failed["body"] is None
+    assert failed["messages"][-1]["level"] == "error"
+    assert (
+        client.get("/api/episodes/API/model").json()["context"]["commit_id"]
+        == initial["context"]["commit_id"]
+    )
+    invalid = client.post(
         url,
         json={
-            "expected_version": 1,
-            "model": {
-                **make_model(["X", "Y"], [("X", "Y")]).model_dump(mode="json"),
-                "default_outcome": "construct:absent",
-            },
+            "action": "edit_model",
+            "expected_revision": revision,
+            "model": {"default_outcome": "construct:absent"},
         },
     )
     assert invalid.status_code == 422
     assert len(calls) == 2
-    assert ArtifactStore("API").list_versions("model") == [1]
-    enriched = make_model(["X", "Y"], [("X", "Y")]).revised(question=initial["question"])
-    second = client.put(
+    assert ArtifactStore("API").list_revisions("model") == [revision]
+    model = make_model(["X", "Y"], [("X", "Y")]).revised(question="Does X change Y?")
+    second = client.post(
         url,
         json={
-            "expected_version": 1,
-            "model": enriched.model_dump(mode="json"),
+            "action": "edit_model",
+            "expected_revision": revision,
+            "model": model.model_dump(mode="json"),
         },
     )
-    assert second.status_code == 200
-    assert second.json()["model"]["source"]["ref"]["version"] == 2
-    assert client.get(url, params={"at_seq": 1}).json()["model"]["source"]["ref"]["version"] == 1
-    assert ModelSpec.model_validate(second.json()["model"]["value"]) == enriched
-    assert client.get(url, params={"at_seq": 1}).json()["model"]["value"] == initial
+    assert second.status_code == 202
+    complete(second.json()["attempt_id"])
+    assert client.get("/api/episodes/API/model").json()["model"]["value"] == model.model_dump(
+        mode="json"
+    )
+    assert (
+        client.get(
+            "/api/episodes/API/model", params={"at": initial["context"]["commit_id"]}
+        ).json()["model"]["value"]
+        == initial["model"]["value"]
+    )
+    records = client.get("/api/episodes/API/timeline").json()["transitions"]
+    assert [entry["action"] for entry in records] == ["edit_model"] * 3
+    assert all("move" not in entry for entry in records)
+    assert all("provenance" not in item for entry in records for item in entry["produced"])
+    monkeypatch.setenv("EPISODE_FACADE_READ_ONLY", "1")
+    assert client.get(attempt_url).json() == result
+    assert client.get(f"{url}/{uuid4()}").status_code == 404
 
 
-def test_operation_trace_index_retains_each_authoring_operation(model_api):
-    client, _ = model_api
-    store, journal = ArtifactStore("TRACES"), EpisodeJournal("TRACES")
-    moves = [
-        RunOperation(operation_id="latent_structure"),
-        RunOperation(operation_id="measurement_structure"),
-        WriteArtifact(artifact_id="model", expected_model_version=2),
-    ]
-    for seq, move in enumerate(moves, 1):
-        info = store.write_version(
+def test_only_four_scientific_actions_are_exposed(model_api):
+    client, calls, _ = model_api
+    schema = client.get("/openapi.json").json()
+    paths = schema["paths"]
+    assert "/api/episodes/{workspace_id}/moves" not in paths
+    assert "/api/episodes/{workspace_id}/recipes/observational-study" not in paths
+    assert "put" not in paths["/api/episodes/{workspace_id}/model"]
+    assert "/api/episodes" not in paths
+    body = {"action": "edit_model", "expected_revision": None, "model": {}}
+    assert (
+        client.post("/api/episodes/API/actions", json={**body, "provenance": "human"}).status_code
+        == 422
+    )
+    assert (
+        client.post("/api/episodes/API/actions", json={"action": "latent_structure"}).status_code
+        == 422
+    )
+    assert not calls
+    assert "Provenance" not in schema["components"]["schemas"]
+    assert "Move" not in schema["components"]["schemas"]
+
+
+def test_operation_trace_index_retains_recorded_authoring_jobs(model_api):
+    client, _, _ = model_api
+    store, journal = ArtifactStore("TRACES"), StudyRepository("TRACES")
+    operations: list[OperationId | None] = ["latent_structure", "measurement_structure", None]
+    for seq, operation in enumerate(operations, 1):
+        info = store.write_artifact(
             "model",
-            provenance="computed" if seq < 3 else "human",
             derived_from={},
-            produced_by="test",
+            produced_by="edit_model",
             json_files={"model.json": make_model(["X", "Y"], [("X", "Y")]).model_dump(mode="json")},
         )
         journal.append(
             TransitionRecord(
                 seq=seq,
-                ts="2026-01-01T00:00:00+00:00",
-                move=move,
+                ts="2026-01-01T00:00:00Z",
+                action="edit_model",
+                operation_id=operation,
                 status="applied",
                 produced=[info],
                 trace_ids=[f"trace-{seq}"],
                 resume=None,
             )
         )
-    for seq, operation in enumerate(("latent_structure", "measurement_structure"), 1):
+    for seq, operation in enumerate(operations[:2], 1):
         response = client.get(f"/api/episodes/TRACES/operations/{operation}/traces")
         assert response.status_code == 200
-        assert response.json()["seq"] == seq
-        assert response.json()["trace_ids"] == [f"trace-{seq}"]
+        assert response.json()["commit_id"] == commit_id("TRACES", seq)
     latest = client.get("/api/episodes/TRACES/artifacts/model/traces")
-    assert latest.status_code == 200
-    assert latest.json()["seq"] == 3
-
-    journal.append(
-        TransitionRecord(
-            seq=4,
-            ts="2026-01-01T00:00:00Z",
-            move=RunOperation(operation_id="measurements"),
-            status="applied",
-            produced=[],
-            trace_ids=["empty-extraction"],
-            resume=None,
-        )
-    )
-    empty = client.get("/api/episodes/TRACES/operations/measurements/traces")
-    assert empty.status_code == 200
-    assert empty.json() == {"workspace_id": "TRACES", "seq": 4, "trace_ids": ["empty-extraction"]}
-
-
-def test_episode_question_creates_and_revises_the_model(model_api, monkeypatch):
-    from unittest.mock import AsyncMock
-
-    client, calls = model_api
-    monkeypatch.setattr(episode_api, "_episode_handle", AsyncMock())
-    response = client.post(
-        "/api/episodes", json={"workspace_id": "QUESTION", "question": "Does X change Y?"}
-    )
-    assert response.status_code == 200
-    assert calls[-1].move == WriteArtifact(artifact_id="model", expected_model_version=0)
-    initial = client.get("/api/episodes/QUESTION/model").json()
-    assert initial["model"]["value"]["question"] == "Does X change Y?"
-    assert initial["model"]["value"]["edges"] == []
-    graph = make_model(["X", "Y"], [("X", "Y")]).revised(question="Does X change Y?")
-    assert (
-        client.put(
-            "/api/episodes/QUESTION/model",
-            json={"expected_version": 1, "model": graph.model_dump(mode="json")},
-        ).status_code
-        == 200
-    )
-    assert (
-        client.post(
-            "/api/episodes", json={"workspace_id": "QUESTION", "question": "How does X change Y?"}
-        ).status_code
-        == 200
-    )
-    revised = client.get("/api/episodes/QUESTION/model").json()["model"]
-    assert calls[-1].move.expected_model_version == 2
-    assert revised["source"]["ref"]["version"] == 3
-    assert revised["value"]["question"] == "How does X change Y?"
-    assert revised["value"]["edges"] == graph.model_dump(mode="json")["edges"]
-    assert client.get("/api/episodes/QUESTION/model?at_seq=1").json() == initial
+    assert latest.json()["commit_id"] == commit_id("TRACES", 3)

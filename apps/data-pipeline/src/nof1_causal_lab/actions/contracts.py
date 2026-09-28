@@ -6,9 +6,15 @@ from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from nof1_causal_lab.artifacts.data_preparation import (
+    DataPreparationSpec,
+    FileSourceRef,
+    SimulationReplicateRef,
+)
+from nof1_causal_lab.artifacts.identity import GitOid  # noqa: TC001
 from nof1_causal_lab.artifacts.model_spec import ModelSpec  # noqa: TC001
 from nof1_causal_lab.artifacts.posterior import FitSettingsSpec
-from nof1_causal_lab.artifacts.simulation import SimulationDesign  # noqa: TC001
+from nof1_causal_lab.artifacts.simulation import SimulationSpec
 
 
 class EditModelRequest(BaseModel):
@@ -17,31 +23,27 @@ class EditModelRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     action: Literal["edit_model"] = "edit_model"
-    expected_version: int = Field(ge=0)
+    expected_revision: GitOid | None
     model: ModelSpec
 
 
 class PrepareDataRequest(BaseModel):
-    """Import uploaded files or extract measurements from a pinned source table."""
+    """Prepare uploaded sources or a recorded simulation replicate, without a model."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     action: Literal["prepare_data"] = "prepare_data"
-    source: Literal["files", "raw_data"]
-    raw_data_version: int | None = Field(default=None, ge=1)
-    model_version: int | None = Field(default=None, ge=1)
+    source: FileSourceRef | SimulationReplicateRef
+    preparation: DataPreparationSpec | None = None
     max_windows: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
     def source_inputs(self) -> Self:
-        if self.source == "raw_data":
-            if self.raw_data_version is None or self.model_version is None:
-                raise ValueError("Extraction requires raw_data_version and model_version")
-        elif any(
-            value is not None
-            for value in (self.raw_data_version, self.model_version, self.max_windows)
-        ):
-            raise ValueError("File import does not consume a model, source table, or window limit")
+        if isinstance(self.source, FileSourceRef):
+            if self.preparation is None:
+                raise ValueError("Uploaded files require data preparation instructions")
+        elif self.preparation is not None or self.max_windows is not None:
+            raise ValueError("Simulation sources use their recorded observations and metadata")
         return self
 
 
@@ -51,20 +53,18 @@ class FitRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     action: Literal["fit"] = "fit"
-    model_version: int = Field(ge=1)
-    panel_version: int = Field(ge=1)
+    model_revision: GitOid = Field()
+    panel_revision: GitOid = Field()
     settings: FitSettingsSpec = Field(default_factory=FitSettingsSpec)
 
 
-class SimulateRequest(BaseModel):
-    """Simulate current model uncertainty, optionally comparing with observations."""
+class SimulateRequest(SimulationSpec):
+    """Generate the selected model through end with optional start and dated interventions."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     action: Literal["simulate"] = "simulate"
-    model_version: int = Field(ge=1)
-    design: SimulationDesign
-    comparison_panel_version: int | None = Field(default=None, ge=1)
+    model_revision: GitOid = Field()
 
 
 type ScientificActionRequest = Annotated[
@@ -75,16 +75,24 @@ type ScientificActionRequest = Annotated[
 
 def scientific_tool_contracts():
     """Expose the same typed requests through the tool and episode transports."""
+    from nof1_causal_lab.actions.results import ActionPoll, ActionReceipt, PollActionRequest
     from nof1_causal_lab.flows.contracts_base import ToolDefinition
     from nof1_causal_lab.machine.hierarchy import ACTIONS_BY_ID
-    from nof1_causal_lab.machine.status import MoveOutcome
 
     return [
         ToolDefinition(
             name=request.model_fields["action"].default,
-            description=ACTIONS_BY_ID[request.model_fields["action"].default].description,
+            description=ACTIONS_BY_ID[request.model_fields["action"].default].description
+            + " Dispatch returns only attempt_id. Use poll_action for messages and the final result.",
             input_schema=request,
-            output_schema=MoveOutcome,
+            output_schema=ActionReceipt,
         )
         for request in (EditModelRequest, PrepareDataRequest, FitRequest, SimulateRequest)
+    ] + [
+        ToolDefinition(
+            name="poll_action",
+            description="Read messages and the final body of a dispatched scientific action.",
+            input_schema=PollActionRequest,
+            output_schema=ActionPoll,
+        )
     ]

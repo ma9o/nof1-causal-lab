@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from nof1_causal_lab.models.ssm.execution.contracts import (
     LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS,
@@ -48,6 +49,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from dynestyx import StochasticContinuousTimeStateEvolution
+    from jaxtyping import PyTree
 
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
@@ -372,28 +374,31 @@ def _block_banded_matvec(
     return result
 
 
-def _negate_cotangent_tree(tree):
+type Cotangent = jax.Array | np.ndarray | None
+
+
+def _negate_cotangent_tree(tree: PyTree[Cotangent]) -> PyTree[Cotangent]:
     """Negate a cotangent pytree while preserving `None` and `float0` leaves."""
 
-    def _negate_leaf(leaf):
-        if leaf is None or getattr(leaf, "dtype", None) == jax.dtypes.float0:
+    def _negate_leaf(leaf: Cotangent) -> Cotangent:
+        if leaf is None or leaf.dtype == jax.dtypes.float0:
             return leaf
         return -leaf
 
     return jax.tree_util.tree_map(_negate_leaf, tree)
 
 
-def _add_cotangent_trees(lhs, rhs):
+def _add_cotangent_trees(lhs: PyTree[Cotangent], rhs: PyTree[Cotangent]) -> PyTree[Cotangent]:
     """Add cotangent pytrees while preserving `None` and `float0` leaves."""
 
-    def _add_leaves(left, right):
+    def _add_leaves(left: Cotangent, right: Cotangent) -> Cotangent:
         if left is None:
             return right
         if right is None:
             return left
-        if getattr(left, "dtype", None) == jax.dtypes.float0:
+        if left.dtype == jax.dtypes.float0:
             return right
-        if getattr(right, "dtype", None) == jax.dtypes.float0:
+        if right.dtype == jax.dtypes.float0:
             return left
         return left + right
 

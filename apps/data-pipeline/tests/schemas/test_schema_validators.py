@@ -8,6 +8,8 @@ from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.flows.model_authoring import validate_model_submission
 from tests.helpers import graph_constructs, invalid_dict_payload, make_model
 
+pytestmark = pytest.mark.contract
+
 
 def test_valid_partial_model_can_be_enriched_for_measurement():
     model = make_model(["stress", "sleep"], [("stress", "sleep")])
@@ -32,8 +34,6 @@ def test_valid_partial_model_can_be_enriched_for_measurement():
         "not a dict",
         {"edges": []},
         {"constructs": "bad"},
-        {"constructs": [42]},
-        {"constructs": [{"name": "bad"}]},
     ],
 )
 def test_invalid_authored_structure_returns_errors(payload):

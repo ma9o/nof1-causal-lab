@@ -98,7 +98,6 @@ def _model_payload() -> dict[str, Any]:
                             "id": "indicator:0f93ce57e1f1d1c96f5c",
                             "name": "x1",
                             "construct_polarity": "positive",
-                            "how_to_measure": "measure x",
                             "measurement_dtype": "continuous",
                             "aggregation": "mean",
                         },
@@ -106,7 +105,6 @@ def _model_payload() -> dict[str, Any]:
                             "id": "indicator:27a6125b251378d8dd23",
                             "name": "x2",
                             "construct_polarity": "positive",
-                            "how_to_measure": "measure x alt",
                             "measurement_dtype": "continuous",
                             "aggregation": "mean",
                         },
@@ -123,7 +121,6 @@ def _model_payload() -> dict[str, Any]:
                             "id": "indicator:dec7b4916899d2109674",
                             "name": "y1",
                             "construct_polarity": "positive",
-                            "how_to_measure": "measure y",
                             "measurement_dtype": "continuous",
                             "aggregation": "mean",
                         }
@@ -146,7 +143,6 @@ def _model_payload() -> dict[str, Any]:
                             "id": "indicator:c26d752dbca8b5a287ac",
                             "name": "z1",
                             "construct_polarity": "positive",
-                            "how_to_measure": "measure z",
                             "measurement_dtype": "continuous",
                             "aggregation": "mean",
                         }
@@ -172,6 +168,7 @@ def _make_model() -> ModelSpec:
 # ═══════════════════════════════════════════════════════════════════════
 
 
+@pytest.mark.inference(concern="sampling")
 class TestDynamicsMask:
     """Test that component translation constrains linear edge sampling."""
 
@@ -254,6 +251,7 @@ class TestDynamicsMask:
 # ═══════════════════════════════════════════════════════════════════════
 
 
+@pytest.mark.inference(concern="sampling")
 class TestLambdaMask:
     """Test that lambda_support constrains factor loadings."""
 
@@ -358,6 +356,7 @@ class TestPerElementPriors:
             site_kind=SiteKind.DYNAMICS_WEIGHT,
         )
 
+    @pytest.mark.contract
     def test_make_prior_dist_scalar(self):
         """Scalar mu/sigma produces scalar Normal."""
         site = self._real_site(())
@@ -370,6 +369,7 @@ class TestPerElementPriors:
         d = state[site.name]
         assert d.batch_shape == ()
 
+    @pytest.mark.contract
     def test_make_prior_dist_array(self):
         """Array mu/sigma produces batched Normal."""
         site = self._real_site((3,))
@@ -383,6 +383,7 @@ class TestPerElementPriors:
         d = state[site.name]
         assert d.batch_shape == (3,)
 
+    @pytest.mark.contract
     def test_make_prior_batch_scalar_expand(self):
         """Scalar prior expanded to batch shape."""
         site = self._real_site((5,))
@@ -395,6 +396,7 @@ class TestPerElementPriors:
         d = state[site.name]
         assert d.batch_shape == (5,)
 
+    @pytest.mark.contract
     def test_make_prior_batch_array_passthrough(self):
         """Array prior with correct shape passes through."""
         site = self._real_site((2,))
@@ -408,6 +410,7 @@ class TestPerElementPriors:
         d = state[site.name]
         assert d.batch_shape == (2,)
 
+    @pytest.mark.contract
     def test_make_prior_batch_mismatch_raises(self):
         """Array prior with wrong shape raises."""
         site = self._real_site((3,))
@@ -420,6 +423,7 @@ class TestPerElementPriors:
         with pytest.raises(ValueError, match="broadcast"):
             resolve_site_priors([site], priors)
 
+    @pytest.mark.inference(concern="sampling")
     def test_per_element_prior_in_model(self):
         """Per-element dynamics priors are used in sampling."""
         offdiag_support = np.zeros((2, 2), dtype=bool)
@@ -467,6 +471,7 @@ class TestPerElementPriors:
 # ═══════════════════════════════════════════════════════════════════════
 
 
+@pytest.mark.contract
 class TestRuntimeStructuralSupport:
     """Test that compilation constructs correct block support from ModelSpec."""
 
@@ -581,7 +586,6 @@ class TestRuntimeStructuralSupport:
                                         "id": "indicator:3696aef3ff6f446744e5",
                                         "name": "stress_score",
                                         "construct_polarity": "positive",
-                                        "how_to_measure": "measure stress",
                                         "measurement_dtype": "continuous",
                                         "aggregation": "mean",
                                     }
@@ -603,7 +607,6 @@ class TestRuntimeStructuralSupport:
                                         "id": "indicator:7f807162156d3eb1b611",
                                         "name": "sleep_score",
                                         "construct_polarity": "positive",
-                                        "how_to_measure": "measure sleep",
                                         "measurement_dtype": "continuous",
                                         "aggregation": "mean",
                                     }
@@ -753,6 +756,7 @@ class TestRuntimeStructuralSupport:
 # ═══════════════════════════════════════════════════════════════════════
 
 
+@pytest.mark.contract
 class TestSiteRegistryMasks:
     """Test that the canonical site registry respects SSM masks."""
 
@@ -848,6 +852,7 @@ class TestSiteRegistryMasks:
 class TestGradualBuildComponents:
     """Quartic self-limitation and Hill edges materialize from the ModelSpec."""
 
+    @pytest.mark.contract
     def test_quartic_freed_only_for_self_limiting_construct(self):
 
         from nof1_causal_lab.artifacts.expressions import expression_coefficients
@@ -867,6 +872,7 @@ class TestGradualBuildComponents:
         assert quartics[0] == 0
         assert quartics[2] == 0
 
+    @pytest.mark.contract
     def test_hill_edge_emitted_for_saturating_edge(self):
         from nof1_causal_lab.artifacts.expressions import hill_applications
 
@@ -879,6 +885,7 @@ class TestGradualBuildComponents:
         assert (1, 2) in [(item.source, item.target) for item in linear]
         assert (0, 1) not in [(item.source, item.target) for item in linear]
 
+    @pytest.mark.inference(concern="sampling")
     def test_freed_quartic_and_hill_sites_sample_finite(self):
 
         plan = _make_model()

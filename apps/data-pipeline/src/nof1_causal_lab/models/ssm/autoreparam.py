@@ -33,7 +33,7 @@ Usage::
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, cast, override
+from typing import TYPE_CHECKING, Any, NotRequired, TypedDict, overload, override
 
 import numpyro
 import numpyro.distributions as dist
@@ -45,10 +45,16 @@ from numpyro.infer.reparam import (
     TransformReparam,
 )
 
-from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
-
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+
+class ReparamSite(TypedDict):
+    """NumPyro sample-site fields consumed by reparameterization strategies."""
+
+    name: str
+    fn: dist.Distribution
+    is_observed: NotRequired[bool]
 
 
 class Strategy(ABC):
@@ -68,7 +74,7 @@ class Strategy(ABC):
         self.config: dict[str, Reparam | None] = {}
 
     @abstractmethod
-    def configure(self, msg: UncheckedJsonObject) -> Reparam | None:
+    def configure(self, msg: ReparamSite) -> Reparam | None:
         """Input a sample site and return a Reparam or None.
 
         Called only on first model execution per site; subsequent
@@ -83,9 +89,15 @@ class Strategy(ABC):
         """
         raise NotImplementedError
 
+    @overload
+    def __call__(self, msg_or_fn: ReparamSite) -> Reparam | None: ...
+
+    @overload
+    def __call__[**P, R](self, msg_or_fn: Callable[P, R]) -> Callable[P, R]: ...
+
     def __call__(
         self,
-        msg_or_fn: UncheckedJsonObject | Callable[..., Any],
+        msg_or_fn: ReparamSite | Callable[..., Any],
     ) -> Any:
         """Use as config callable or model decorator.
 
@@ -95,18 +107,14 @@ class Strategy(ABC):
         When called with a callable (as decorator), wraps the model
         with handlers.reparam using this strategy.
         """
-        if isinstance(msg_or_fn, dict):
-            msg = cast("dict[str, object]", msg_or_fn)
-            name = msg.get("name")
-            if not isinstance(name, str):
-                raise ValueError("Reparameterization messages must include a string site name")
-            if name in self.config:
-                return self.config[name]
-            result = self.configure(msg)
-            self.config[name] = result
-            return result
-        fn = msg_or_fn
-        return numpyro.handlers.reparam(fn, config=self)
+        if callable(msg_or_fn):
+            return numpyro.handlers.reparam(msg_or_fn, config=self)
+        name = msg_or_fn["name"]
+        if name in self.config:
+            return self.config[name]
+        result = self.configure(msg_or_fn)
+        self.config[name] = result
+        return result
 
 
 class AutoReparam(Strategy):
@@ -145,7 +153,7 @@ class AutoReparam(Strategy):
         self.centered = centered
 
     @override
-    def configure(self, msg: UncheckedJsonObject) -> Reparam | None:
+    def configure(self, msg: ReparamSite) -> Reparam | None:
         fn = msg["fn"]
         if not msg.get("is_observed", False):
             # Unwrap through known wrapper types only (Independent,
@@ -220,8 +228,8 @@ def _minimal_reparam(fn: dist.Distribution, is_observed: bool) -> Reparam | None
     return None
 
 
-def _is_unconstrained(constraint) -> bool:
+def _is_unconstrained(constraint: constraints.Constraint) -> bool:
     """Check if a constraint is unconstrained (real-valued)."""
-    while hasattr(constraint, "base_constraint"):
+    while isinstance(constraint, constraints.independent):
         constraint = constraint.base_constraint
     return constraint is constraints.real

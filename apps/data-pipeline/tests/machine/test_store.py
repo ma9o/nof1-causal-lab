@@ -3,14 +3,13 @@
 import polars as pl
 import pytest
 
-from nof1_causal_lab.machine.moves import RetractedArtifact, RunOperation, WriteArtifact
-from nof1_causal_lab.machine.store import (
-    ArtifactStore,
-    EpisodeJournal,
-    TransitionRecord,
-    derive_current_state,
-)
+from nof1_causal_lab.machine.execution import RetractedArtifact
+from nof1_causal_lab.machine.history import StudyRepository
+from nof1_causal_lab.machine.store import ArtifactStore, TransitionRecord, read_current_state
+from tests.git_fixtures import git_oid
 from tests.helpers import make_model
+
+pytestmark = pytest.mark.contract
 
 
 @pytest.fixture
@@ -22,86 +21,81 @@ def workspace(monkeypatch, tmp_path):
 
 
 class TestArtifactStore:
-    def test_versions_are_append_only_and_monotonic(self, workspace):
+    def test_artifacts_are_immutable_git_trees(self, workspace):
         store = ArtifactStore(workspace)
-        first = store.write_version(
+        first = store.write_artifact(
             "model",
-            provenance="human",
             derived_from={},
             produced_by=None,
             json_files={"model.json": {"question": "does exercise improve sleep?"}},
         )
-        second = store.write_version(
+        second = store.write_artifact(
             "model",
-            provenance="human",
             derived_from={},
             produced_by=None,
             json_files={"model.json": {"question": "does caffeine harm sleep?"}},
         )
-        assert (first.version, second.version) == (1, 2)
-        assert store.list_versions("model") == [1, 2]
-        # Old version stays readable — nothing is overwritten.
-        assert store.read_json_file("model", 1, "model.json")["question"].startswith(
+        assert first.revision != second.revision
+        assert all(len(info.revision) == 40 for info in (first, second))
+        assert not list(__import__("pathlib").Path(store._root).glob("*/v*"))
+        assert store.list_revisions("model") == [first.revision, second.revision]
+        # Old revision stays readable — nothing is overwritten.
+        assert store.read_json_file("model", first.revision, "model.json")["question"].startswith(
             "does exercise"
         )
-        assert store.read_json_file("model", 2, "model.json")["question"].startswith(
+        assert store.read_json_file("model", second.revision, "model.json")["question"].startswith(
             "does caffeine"
         )
 
     def test_meta_roundtrip(self, workspace):
         store = ArtifactStore(workspace)
-        info = store.write_version(
+        info = store.write_artifact(
             "model",
-            provenance="computed",
-            derived_from={"raw_data": 2},
+            derived_from={"raw_data": git_oid(10)},
             produced_by="run:measurement_structure",
             json_files={"model.json": make_model(["X", "Y"], [("X", "Y")]).model_dump(mode="json")},
         )
-        loaded = store.read_meta("model", info.version)
+        loaded = store.read_meta("model", info.revision)
         assert loaded == info
-        assert loaded.derived_from["raw_data"] == 2
+        assert loaded.derived_from["raw_data"] == git_oid(10)
         assert loaded.created_at
 
     def test_parquet_payload(self, workspace):
         store = ArtifactStore(workspace)
         df = pl.DataFrame({"indicator": ["mood"], "value": [3.5]})
-        info = store.write_version(
+        info = store.write_artifact(
             "panel",
-            provenance="computed",
             derived_from={},
             produced_by="run:measurements",
             parquet_files={"panel.parquet": df},
         )
-        loaded_df = store.read_parquet_file("panel", info.version, "panel.parquet")
+        loaded_df = store.read_parquet_file("panel", info.revision, "panel.parquet")
         assert loaded_df.equals(df)
 
     def test_empty_artifact_has_no_versions(self, workspace):
         store = ArtifactStore(workspace)
-        assert store.list_versions("model") == []
-        assert store.next_version("model") == 1
+        assert store.list_revisions("model") == []
 
 
-class TestEpisodeJournal:
-    def _record(self, seq, move, status="applied", **kwargs):
+class TestStudyRepository:
+    def _record(self, seq, action, status="applied", **kwargs):
         kwargs.setdefault("trace_ids", [])
         kwargs.setdefault("resume", None)
         return TransitionRecord(
             seq=seq,
             ts="2026-07-03T00:00:00+00:00",
-            move=move,
+            action=action,
             status=status,
             **kwargs,
         )
 
     def test_append_and_read_back_in_order(self, workspace):
-        journal = EpisodeJournal(workspace)
-        journal.append(
-            self._record(1, WriteArtifact(artifact_id="model", expected_model_version=0))
-        )
+        journal = StudyRepository(workspace)
+        journal.append(self._record(1, "edit_model"))
         journal.append(
             self._record(
                 2,
-                RunOperation(operation_id="measurement_structure"),
+                "edit_model",
                 status="rejected",
                 reason=(
                     "measurement_structure requires artifacts that do not exist: "
@@ -112,56 +106,53 @@ class TestEpisodeJournal:
         journal.append(
             self._record(
                 3,
-                RunOperation(operation_id="posterior"),
+                "fit",
                 status="raised",
                 error_type="ModelFitError",
                 error_message="sampler diverged",
                 diagnostics={"rhat_max": 2.4},
             )
         )
-        records = journal.read_all()
+        records = journal.attempts()
         assert [r.seq for r in records] == [1, 2, 3]
         assert records[1].status == "rejected"
         assert records[1].reason is not None
         assert "raw_data" in records[1].reason
         assert records[2].error_type == "ModelFitError"
         assert records[2].diagnostics["rhat_max"] == 2.4
-        # Move discriminated union round-trips.
-        assert records[0].move.kind == "write"
-        assert isinstance(records[2].move, RunOperation)
-        assert records[2].move.operation_id == "posterior"
+        # Scientific action identifiers round-trip.
+        assert records[0].action == "edit_model"
+        assert records[2].action == "fit"
 
     def test_identical_duplicate_seq_is_idempotent(self, workspace):
-        journal = EpisodeJournal(workspace)
-        record = self._record(1, WriteArtifact(artifact_id="model", expected_model_version=0))
+        journal = StudyRepository(workspace)
+        record = self._record(1, "edit_model")
         journal.append(record)
         journal.append(record)
-        assert journal.read_all() == [record]
+        assert [
+            item.model_dump(exclude={"commit_id", "parent_ids"}) for item in journal.attempts()
+        ] == [record.model_dump()]
 
     def test_different_duplicate_seq_refused(self, workspace):
-        journal = EpisodeJournal(workspace)
-        journal.append(
-            self._record(1, WriteArtifact(artifact_id="model", expected_model_version=0))
-        )
+        journal = StudyRepository(workspace)
+        journal.append(self._record(1, "edit_model"))
         with pytest.raises(FileExistsError):
-            journal.append(self._record(1, RunOperation(operation_id="raw_data")))
+            journal.append(self._record(1, "prepare_data"))
 
     def test_latest_seq_reads_max_entry_without_state_manifest(self, workspace):
-        journal = EpisodeJournal(workspace)
+        journal = StudyRepository(workspace)
         assert journal.latest_seq() == 0
-        journal.append(
-            self._record(3, WriteArtifact(artifact_id="model", expected_model_version=0))
-        )
+        journal.append(self._record(3, "edit_model"))
         assert journal.latest_seq() == 3
 
 
 class TestDerivedCurrentState:
-    def _append(self, workspace, seq, move, *, produced=None, retracted=None, status="applied"):
-        EpisodeJournal(workspace).append(
+    def _append(self, workspace, seq, action, *, produced=None, retracted=None, status="applied"):
+        StudyRepository(workspace).append(
             TransitionRecord(
                 seq=seq,
                 ts="2026-07-03T00:00:00+00:00",
-                move=move,
+                action=action,
                 status=status,
                 produced=produced or [],
                 retracted=retracted or [],
@@ -172,9 +163,8 @@ class TestDerivedCurrentState:
 
     def test_current_state_replays_only_applied_versions(self, workspace):
         store = ArtifactStore(workspace)
-        first = store.write_version(
+        first = store.write_artifact(
             "model",
-            provenance="human",
             derived_from={},
             produced_by=None,
             json_files={"model.json": {"question": "first"}},
@@ -182,67 +172,63 @@ class TestDerivedCurrentState:
         self._append(
             workspace,
             1,
-            WriteArtifact(artifact_id="model", expected_model_version=0),
+            "edit_model",
             produced=[first],
         )
-        second = store.write_version(
+        second = store.write_artifact(
             "model",
-            provenance="human",
             derived_from={},
             produced_by=None,
             json_files={"model.json": {"question": "second"}},
         )
 
-        # Persisting a version is not the commit boundary. Until an applied
+        # Persisting a revision is not the commit boundary. Until an applied
         # transition records it, readers continue to see the prior state.
-        assert derive_current_state(workspace).get("model") == first
+        assert read_current_state(workspace).get("model") == first
 
         self._append(
             workspace,
             2,
-            WriteArtifact(artifact_id="model", expected_model_version=0),
+            "edit_model",
             produced=[second],
         )
 
-        assert derive_current_state(workspace).get("model") == second
+        assert read_current_state(workspace).get("model") == second
 
     def test_rejected_and_raised_effects_are_not_current(self, workspace):
         store = ArtifactStore(workspace)
-        rejected = store.write_version(
+        rejected = store.write_artifact(
             "model",
-            provenance="human",
             derived_from={},
             produced_by=None,
             json_files={"model.json": {"question": "rejected"}},
         )
-        raised = store.write_version(
+        raised = store.write_artifact(
             "raw_data",
-            provenance="computed",
             derived_from={},
             produced_by="run:raw_data",
         )
         self._append(
             workspace,
             1,
-            WriteArtifact(artifact_id="model", expected_model_version=0),
+            "edit_model",
             produced=[rejected],
             status="rejected",
         )
         self._append(
             workspace,
             2,
-            RunOperation(operation_id="raw_data"),
+            "prepare_data",
             produced=[raised],
             status="raised",
         )
 
-        assert derive_current_state(workspace).current == {}
+        assert read_current_state(workspace).current == {}
 
     def test_applied_retraction_removes_optional_output(self, workspace):
         store = ArtifactStore(workspace)
-        panel_v1 = store.write_version(
+        panel_v1 = store.write_artifact(
             "panel",
-            provenance="computed",
             derived_from={},
             produced_by="run:measurements",
             parquet_files={"panel.parquet": pl.DataFrame({"indicator": ["m"], "value": [1.0]})},
@@ -250,17 +236,17 @@ class TestDerivedCurrentState:
         self._append(
             workspace,
             1,
-            RunOperation(operation_id="measurements"),
+            "prepare_data",
             produced=[panel_v1],
         )
 
-        state_with_panel = derive_current_state(workspace)
+        state_with_panel = read_current_state(workspace)
         assert state_with_panel.get("panel") == panel_v1
 
         self._append(
             workspace,
             2,
-            RunOperation(operation_id="measurements"),
+            "prepare_data",
             produced=[],
             retracted=[
                 RetractedArtifact(
@@ -270,5 +256,5 @@ class TestDerivedCurrentState:
             ],
         )
 
-        state_without_panel = derive_current_state(workspace)
+        state_without_panel = read_current_state(workspace)
         assert state_without_panel.get("panel") is None

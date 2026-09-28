@@ -32,10 +32,14 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import modal
 import numpy as np
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.flows.transitions.inference.fit import FittedModelResult
+    from nof1_causal_lab.models.ssm.runtime import PreparedModelRuntime
 
 PIPELINE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PIPELINE_ROOT / "src"))
@@ -421,7 +425,9 @@ def load_cached_warmup(
     return artifact
 
 
-def _prepare_pathfinder_warmup(runtime: Any, sampler_config: JsonDict) -> CachedWarmup:
+def _prepare_pathfinder_warmup(
+    runtime: PreparedModelRuntime, sampler_config: JsonDict
+) -> CachedWarmup:
     """Run production warmup primitives and capture their reusable outputs."""
     import jax.random as random
 
@@ -526,7 +532,7 @@ def _prepare_pathfinder_warmup(runtime: Any, sampler_config: JsonDict) -> Cached
             if initial_latent_trajectories is not None
             else None
         ),
-        diagnostics=warmup.pathfinder_diagnostics,
+        diagnostics=dict(warmup.pathfinder_diagnostics),
     )
 
 
@@ -617,7 +623,7 @@ def _validate_label(label: str) -> str:
 def _persist_inference(
     *,
     result_dir: Path,
-    fitted: JsonDict,
+    fitted: FittedModelResult,
     model_payload: JsonDict,
     panel_payload: bytes,
     panel_format: PanelFormat,
@@ -664,7 +670,7 @@ def _persist_inference(
     conditioned = condition_model(
         ModelSpec.model_validate(model_payload),
         result,
-        times=fitted["times"],
+        times=fitted["runtime"].times,
         array_writer=partial(write_array, str(result_dir / "arrays")),
         array_loader=cache(partial(read_array, str(result_dir / "arrays"))),
     )
@@ -779,10 +785,11 @@ def run_cached_fit(
             wait_for_compile_cache=False,
             compute_loo_diagnostics=False,
         )
-        if not fitted.get("fitted", False):
-            raise RuntimeError(f"Production fit failed: {fitted.get('error')}")
+        if not fitted["fitted"]:
+            raise RuntimeError(f"Production fit failed: {fitted['error']}")
 
         result = fitted["result"]
+        runtime = fitted["runtime"]
         run_tag = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         result_name = f"{run_tag}--{label}--{input_fingerprint[:12]}"
         result_dir = _RESULTS_ROOT / "runs" / result_name
@@ -818,22 +825,21 @@ def run_cached_fit(
         )
         results_volume.commit()
 
-        predictive_indices = np.linspace(
-            0, fitted["n_samples"] - 1, min(50, fitted["n_samples"])
-        ).astype(int)
+        n_samples = result.draws.describe().n_draws
+        predictive_indices = np.linspace(0, n_samples - 1, min(50, n_samples)).astype(int)
         ppc = (
             measure_predictive_checks(
                 simulate_predictive_draws(
-                    fitted["spec"],
+                    runtime.spec,
                     {
                         name: values[predictive_indices]
                         for name, values in result.get_samples().items()
                     },
-                    fitted["times"],
-                    observation_support=fitted["runtime"].observation_support,
-                )["observations"],
-                fitted["runtime"].observations,
-                numerics.observation_ids(fitted["spec"]),
+                    runtime.times,
+                    observation_support=runtime.observation_support,
+                ).trajectory.observations,
+                runtime.observations,
+                numerics.observation_ids(runtime.spec),
             )
             if run_ppc_checks
             else PosteriorPredictiveChecks(checked=False, per_variable_warnings=[])

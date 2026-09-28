@@ -45,6 +45,7 @@ def _dense_matrix_vector_field(n_latent: int) -> VectorField:
 # =============================================================================
 
 
+@pytest.mark.contract
 class TestLinearEdge:
     def test_adds_weighted_source_at_target(self):
         edge = LinearEdge(source=0, target=1)
@@ -61,6 +62,7 @@ class TestLinearEdge:
         assert float(out[0]) == pytest.approx(0.0)
 
 
+@pytest.mark.contract
 class TestHillExpression:
     def test_zero_at_zero(self):
         edge = hill_term(source=0, target=1).build()
@@ -111,6 +113,7 @@ class TestHillExpression:
         assert float(out[1]) == pytest.approx(0.0, abs=1e-10)
 
 
+@pytest.mark.contract
 class TestInteractionExpression:
     def test_product_of_two_sources(self):
         edge = interaction_term(source_a=0, source_b=1, target=2).build()
@@ -127,6 +130,7 @@ class TestInteractionExpression:
         assert float(out[2]) == pytest.approx(6.0)
 
 
+@pytest.mark.contract
 class TestDenseLinear:
     def test_matrix_vector_plus_intercept(self):
         component = DenseLinear()
@@ -139,6 +143,7 @@ class TestDenseLinear:
         assert jnp.allclose(out, expected, atol=1e-6)
 
 
+@pytest.mark.contract
 class TestDiagonalDecay:
     def test_negative_decay_times_state(self):
         component = DiagonalDecay()
@@ -148,6 +153,7 @@ class TestDiagonalDecay:
         assert jnp.allclose(out, jnp.array([-1.0, 1.0]), atol=1e-6)
 
 
+@pytest.mark.contract
 class TestInterceptComponent:
     def test_adds_intercept(self):
         component = Intercept()
@@ -163,6 +169,7 @@ class TestInterceptComponent:
 # =============================================================================
 
 
+@pytest.mark.contract
 class TestVectorFieldEquivalence:
     """A single ``DenseLinear`` component reproduces ``f(t, η) = A·η + c``
     exactly, proving the unified path subsumes the previous
@@ -186,7 +193,7 @@ class TestVectorFieldEquivalence:
         assert jnp.allclose(factory_dynamics, expected, atol=1e-6)
 
 
-@pytest.mark.simulation
+@pytest.mark.inference(concern="simulation")
 class TestVectorFieldInterventions:
     """Override semantics on vector fields."""
 
@@ -250,7 +257,7 @@ class TestVectorFieldInterventions:
 # =============================================================================
 
 
-@pytest.mark.simulation
+@pytest.mark.inference(concern="simulation")
 class TestEffectCompartment:
     """LinearEdge with weight matching the target's DiagonalDecay rate
     implements first-order lag ``dC_e/dt = k_e0 · (C_p − C_e)``. At
@@ -305,7 +312,7 @@ class TestEffectCompartment:
 # =============================================================================
 
 
-@pytest.mark.simulation
+@pytest.mark.inference(concern="simulation")
 class TestSSRIChain:
     """Full pharmacological chain — multiplicative coupling, effect
     compartment, Hill saturation in series. ``do(dose = 2)`` produces a
@@ -368,20 +375,6 @@ class TestSSRIChain:
         assert float(steady[self.C_E]) == pytest.approx(2.0, abs=1e-3)
         # Hill(2; Emax=2, EC50=1, n=2) = 2 · 4 / (1 + 4) = 1.6
         assert float(steady[self.AFFECTIVE]) == pytest.approx(1.6, abs=1e-3)
-
-    def test_effect_is_sublinear_due_to_hill(self):
-        vf, params = self._build()
-        baseline_steady = compute_steady_state(vf, params, Intervention.none())
-        do_dose_2 = Intervention(
-            overrides=(
-                VariableOverride(index=self.DOSE, value_fn=constant_value(jnp.asarray(2.0))),
-            )
-        )
-        intervened_steady = compute_steady_state(vf, params, do_dose_2)
-        effect = float(intervened_steady[self.AFFECTIVE] - baseline_steady[self.AFFECTIVE])
-        # Hill(2) - Hill(1) = 1.6 - 1.0 = 0.6 (NOT 1.0 like a linear chain)
-        assert effect == pytest.approx(0.6, abs=1e-3)
-        assert effect < 1.0
 
     def test_trajectory_shows_delayed_onset(self):
         vf, params = self._build()

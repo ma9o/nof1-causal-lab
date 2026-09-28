@@ -1,25 +1,12 @@
-"""The episode entity workflow: durable shell around the pure machine.
-
-One workflow per workspace episode. Local state (current artifact
-versions, move counter) survives crashes and redeploys by replay; the
-``propose`` update is the single entry point for moves. It always
-accepts and validates *inside* the handler — a Temporal update-validator
-rejection would leave no trace in history, and rejected proposals are
-exactly what the timeline scrubber wants to show. Every attempt
-(applied, rejected, raised) is projected into the episode journal by an
-activity before the outcome returns to the caller.
-
-Handlers stay thin (validate → execute activity → journal → apply) so
-workflow-code versioning churn stays small; all semantics live in the
-pure functions, all I/O in activities (referenced by name so the
-sandbox never imports storage/polars/jax).
-"""
+"""Serialize the four scientific actions and commit every attempted outcome."""
 
 from __future__ import annotations
 
 import asyncio
+import re
 from datetime import timedelta
-from typing import Any, TypeGuard
+from typing import Any
+from uuid import UUID  # noqa: TC003
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
@@ -28,56 +15,49 @@ from temporalio.exceptions import ActivityError, ApplicationError, ChildWorkflow
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 
 with workflow.unsafe.imports_passed_through():
+    from nof1_causal_lab.actions.contracts import EditModelRequest, ScientificActionRequest
+    from nof1_causal_lab.actions.execution import plan_execution
+    from nof1_causal_lab.actions.results import ActionMessage, ActionPoll
+    from nof1_causal_lab.artifacts.identity import SCIENTIFIC_ACTION_IDS, OperationId
+    from nof1_causal_lab.artifacts.model_checks import ModelCheckReport  # noqa: TC001
     from nof1_causal_lab.machine.artifacts import (
-        ArtifactVersionInfo,
+        ArtifactRecord,
         EpisodeState,
     )
-    from nof1_causal_lab.machine.moves import (
-        Move,
+    from nof1_causal_lab.machine.execution import (
         RetractedArtifact,
-        RunOperation,
         TransitionEffects,
-        WriteArtifact,
         apply_transition,
         freshness_report,
-        legal_moves,
-        validate_move,
+        validate_model_base,
     )
-    from nof1_causal_lab.machine.status import EpisodeStatus, MoveOutcome
+    from nof1_causal_lab.machine.history_models import BranchBase
+    from nof1_causal_lab.machine.status import ActionOutcome, EpisodeStatus
     from nof1_causal_lab.machine.store import ResumeRef
+    from nof1_causal_lab.machine.temporal.client import MODEL_CHECKS_TASK_QUEUE
     from nof1_causal_lab.machine.temporal.messages import (
+        ActionRequest,
+        EditModelInput,
+        EmitActionMessageInput,
         EpisodeInit,
+        EvaluateChecksInput,
         JournalInput,
         JournalStatus,
         MeasurementsWorkflowInput,
-        MoveRequest,
-        RunOperationInput,
-        SingleLLMTransitionId,
+        OperationInput,
+        ReadBranchInput,
         SingleLLMTransitionWorkflowInput,
-        StatisticalModelSpecWorkflowInput,
-        WriteArtifactInput,
     )
 
 _RUN_TRANSITION_TIMEOUT = timedelta(hours=4)
 _WRITE_TIMEOUT = timedelta(minutes=5)
+_CHECK_TIMEOUT = timedelta(hours=1)
 _JOURNAL_TIMEOUT = timedelta(minutes=1)
 _RUN_COLLECTION_TIMEOUT = timedelta(minutes=10)
-_SINGLE_LLM_TRANSITIONS: frozenset[SingleLLMTransitionId] = frozenset(
-    {
-        "raw_data",
-        "latent_structure",
-        "measurement_structure",
-    }
-)
-
-
-def _is_single_llm_transition(artifact_id: str) -> TypeGuard[SingleLLMTransitionId]:
-    return artifact_id in _SINGLE_LLM_TRANSITIONS
-
-
 _NON_RETRYABLE_ERRORS = [
     "TransitionExecutionError",
     "ModelCompileError",
+    "IncompleteModelError",
     "ModelFitError",
     "ArtifactWriteRejected",
     "ValueError",
@@ -103,15 +83,19 @@ class EpisodeWorkflow:
         # workflow.init: updates can be dispatched before the run method's
         # first line executes, and every handler needs workspace_id.
         self._workspace_id = init.workspace_id
-        # Seed from durable applied transition effects when resuming a lost
-        # workflow; empty state / seq 0 for a new episode. The facade
-        # reconstructs the seed (I/O can't happen here in the deterministic
-        # workflow) and passes it as a start argument, so replay stays
-        # deterministic.
+        # Queries start at the persisted snapshot; actions capture their own branch
+        # through an activity so storage I/O remains outside deterministic replay.
         self._state = init.initial_state if init.initial_state is not None else EpisodeState()
         self._seq = init.initial_seq
+        self._branch = "main"
+        self._base: BranchBase | None = None
+        self._commit_id: str | None = None
+        self._head_id: str | None = None
         self._closed = False
         self._lock = asyncio.Lock()
+        self._attempts: dict[UUID, ActionPoll] = {}
+        self._active_attempt_id: UUID | None = None
+        self._messages: tuple[ActionMessage, ...] = ()
 
     @workflow.run
     async def run(self, init: EpisodeInit) -> EpisodeState:
@@ -119,176 +103,261 @@ class EpisodeWorkflow:
         await workflow.wait_condition(lambda: self._closed)
         return self._state
 
-    # -- moves -----------------------------------------------------------
+    # -- actions -----------------------------------------------------------
 
     @workflow.update
-    async def propose(self, request: MoveRequest) -> MoveOutcome:
-        # Serialize moves: one transition at a time per episode. Validation
+    async def execute_action(self, request: ActionRequest) -> ActionOutcome:
+        # Serialize actions: one transition at a time per episode. Validation
         # happens inside the accepted update so rejections reach history
         # and the journal (scrubber requirement).
+        self._attempts[request.attempt_id] = ActionPoll(done=False)
         async with self._lock:
-            self._seq += 1
-            seq = self._seq
-            move = request.move
-
-            reason = validate_move(self._state, move)
-            if reason is None and isinstance(move, WriteArtifact) and request.payload is None:
-                reason = "write moves require a payload"
-            if reason is not None:
-                await self._journal(seq, move, status="rejected", reason=reason)
-                return self._outcome(seq, status="rejected", reason=reason)
-
             try:
-                if isinstance(move, RunOperation) and _is_single_llm_transition(move.operation_id):
-                    effects = await workflow.execute_child_workflow(
-                        "SingleLLMTransitionWorkflow",
-                        SingleLLMTransitionWorkflowInput(
-                            workspace_id=self._workspace_id,
-                            seq=seq,
-                            transition_id=move.operation_id,
-                            state=self._state,
-                            options=request.options,
-                        ),
-                        id=(
-                            f"{move.operation_id.replace('_', '-')}-{self._workspace_id}-{seq:06d}"
-                        ),
-                        result_type=TransitionEffects,
-                        execution_timeout=_RUN_TRANSITION_TIMEOUT,
-                        static_summary=f"Run {move.operation_id}",
-                        static_details=(
-                            f"workspace={self._workspace_id}; seq={seq}; "
-                            f"artifact={move.operation_id}; workflow=single_llm_transition"
-                        ),
-                        memo={
-                            "workspace_id": self._workspace_id,
-                            "seq": seq,
-                            "artifact_id": move.operation_id,
-                            "workflow_kind": "single_llm_transition",
-                        },
-                    )
-                elif isinstance(move, RunOperation) and move.operation_id == "measurements":
-                    effects = await workflow.execute_child_workflow(
-                        "MeasurementsWorkflow",
-                        MeasurementsWorkflowInput(
-                            workspace_id=self._workspace_id,
-                            seq=seq,
-                            state=self._state,
-                            input_versions=move.input_versions,
-                            options=request.options,
-                        ),
-                        id=f"measurements-{self._workspace_id}-{seq:06d}",
-                        result_type=TransitionEffects,
-                        execution_timeout=_RUN_TRANSITION_TIMEOUT,
-                        static_summary="Run measurements",
-                        static_details=(
-                            f"workspace={self._workspace_id}; seq={seq}; "
-                            "artifact=measurements; workflow=batch_llm_transition"
-                        ),
-                        memo={
-                            "workspace_id": self._workspace_id,
-                            "seq": seq,
-                            "operation_id": "measurements",
-                            "workflow_kind": "batch_llm_transition",
-                        },
-                    )
-                elif (
-                    isinstance(move, RunOperation) and move.operation_id == "statistical_model_spec"
-                ):
-                    effects = await workflow.execute_child_workflow(
-                        "StatisticalModelSpecWorkflow",
-                        StatisticalModelSpecWorkflowInput(
-                            workspace_id=self._workspace_id,
-                            seq=seq,
-                            state=self._state,
-                            options=request.options,
-                        ),
-                        id=f"statistical-model-spec-{self._workspace_id}-{seq:06d}",
-                        result_type=TransitionEffects,
-                        execution_timeout=_RUN_TRANSITION_TIMEOUT,
-                        static_summary="Run statistical model spec",
-                        static_details=(
-                            f"workspace={self._workspace_id}; seq={seq}; "
-                            "operation=statistical_model_spec; workflow=construct_admission"
-                        ),
-                        memo={
-                            "workspace_id": self._workspace_id,
-                            "seq": seq,
-                            "operation_id": "statistical_model_spec",
-                            "workflow_kind": "construct_admission",
-                        },
-                    )
-                elif isinstance(move, RunOperation):
-                    effects = await workflow.execute_activity(
-                        "run_transition_activity",
-                        RunOperationInput(
-                            workspace_id=self._workspace_id,
-                            operation_id=move.operation_id,
-                            state=self._state,
-                            input_versions=move.input_versions,
-                            options=request.options,
-                        ),
-                        result_type=TransitionEffects,
-                        start_to_close_timeout=_RUN_TRANSITION_TIMEOUT,
-                        retry_policy=_ACTIVITY_RETRY,
-                    )
-                else:
-                    effects = await workflow.execute_activity(
-                        "write_artifact_activity",
-                        WriteArtifactInput(
-                            workspace_id=self._workspace_id,
-                            artifact_id=move.artifact_id,
-                            payload=request.payload or {},
-                            provenance=move.provenance,
-                            expected_model_version=move.expected_model_version,
-                            state=self._state,
-                        ),
-                        result_type=TransitionEffects,
-                        start_to_close_timeout=_WRITE_TIMEOUT,
-                        retry_policy=_ACTIVITY_RETRY,
-                    )
-                produced = effects.produced
-                retracted = effects.retracted
+                return await self._execute_action(request)
             except (ActivityError, ChildWorkflowError) as exc:
-                error_type, error_message, diagnostics, resume = _unwrap_temporal_failure(exc)
-                await self._journal(
-                    seq,
-                    move,
-                    status="raised",
-                    error_type=error_type,
-                    error_message=error_message,
-                    diagnostics=diagnostics,
-                    resume=resume,
+                # Infrastructure can fail before a branch is captured or while
+                # committing logs. The accepted update must still terminate.
+                error_type, message, diagnostics, _ = _unwrap_temporal_failure(exc)
+                progress = self._attempts[request.attempt_id]
+                self._attempts[request.attempt_id] = ActionPoll(
+                    done=True,
+                    messages=(
+                        *progress.messages,
+                        ActionMessage(
+                            timestamp=workflow.now(), level="error", label=_error_label(error_type)
+                        ),
+                    ),
                 )
                 return self._outcome(
-                    seq,
+                    self._seq,
                     status="raised",
                     error_type=error_type,
-                    error_message=error_message,
+                    error_message=message,
                     diagnostics=diagnostics,
                 )
 
+    async def _execute_action(self, request: ActionRequest) -> ActionOutcome:
+        self._active_attempt_id = request.attempt_id
+        self._messages = (
+            ActionMessage(
+                timestamp=workflow.now(),
+                level="info",
+                label=f"{request.request.action.upper()}_STARTED",
+            ),
+        )
+        self._attempts[request.attempt_id] = ActionPoll(done=False, messages=self._messages)
+        await workflow.execute_activity(
+            "emit_action_message_activity",
+            EmitActionMessageInput(
+                workspace_id=self._workspace_id,
+                attempt_id=request.attempt_id,
+                action=request.request.action,
+                index=0,
+                message=self._messages[0],
+            ),
+            start_to_close_timeout=_JOURNAL_TIMEOUT,
+            retry_policy=_JOURNAL_RETRY,
+        )
+        self._seq += 1
+        seq = self._seq
+        action = request.request
+        plan = None if isinstance(action, EditModelRequest) else plan_execution(action)
+        operation_id = plan.operation_id if plan is not None else None
+
+        self._branch = request.branch
+        self._base = await workflow.execute_activity(
+            "read_branch_activity",
+            ReadBranchInput(workspace_id=self._workspace_id, branch=request.branch),
+            result_type=BranchBase,
+            start_to_close_timeout=_JOURNAL_TIMEOUT,
+            retry_policy=_ACTIVITY_RETRY,
+        )
+        self._state = self._base.state
+        self._commit_id = self._base.commit_id
+        self._head_id = self._base.commit_id
+        reason = (
+            "Branch conflict: head changed; reload the selected branch before retrying"
+            if request.expected_head is not None and request.expected_head != self._base.commit_id
+            else validate_model_base(self._state, action.expected_revision)
+            if isinstance(action, EditModelRequest)
+            else None
+        )
+        if reason is not None:
+            await self._journal(seq, action, operation_id, status="rejected", reason=reason)
+            return self._outcome(seq, status="rejected", reason=reason)
+
+        try:
+            if isinstance(action, EditModelRequest):
+                effects = await workflow.execute_activity(
+                    "edit_model_activity",
+                    EditModelInput(
+                        workspace_id=self._workspace_id, request=action, state=self._state
+                    ),
+                    result_type=TransitionEffects,
+                    start_to_close_timeout=_WRITE_TIMEOUT,
+                    retry_policy=_ACTIVITY_RETRY,
+                )
+            elif plan is not None and plan.operation_id == "measurements":
+                raw_effects = await workflow.execute_child_workflow(
+                    "SingleLLMTransitionWorkflow",
+                    SingleLLMTransitionWorkflowInput(
+                        workspace_id=self._workspace_id,
+                        seq=seq,
+                        transition_id="raw_data",
+                        state=self._state,
+                        options=plan.options,
+                    ),
+                    id=f"raw-data-{self._workspace_id}-{seq:06d}",
+                    result_type=TransitionEffects,
+                    execution_timeout=_RUN_TRANSITION_TIMEOUT,
+                    static_summary="Prepare source data",
+                    memo={
+                        "workspace_id": self._workspace_id,
+                        "seq": seq,
+                        "action": action.action,
+                    },
+                )
+                effects = await workflow.execute_child_workflow(
+                    "MeasurementsWorkflow",
+                    MeasurementsWorkflowInput(
+                        workspace_id=self._workspace_id,
+                        seq=seq,
+                        state=apply_transition(self._state, raw_effects.produced),
+                        input_revisions=plan.input_revisions,
+                        options=plan.options,
+                    ),
+                    id=f"measurements-{self._workspace_id}-{seq:06d}",
+                    result_type=TransitionEffects,
+                    execution_timeout=_RUN_TRANSITION_TIMEOUT,
+                    static_summary="Prepare observations",
+                    memo={
+                        "workspace_id": self._workspace_id,
+                        "seq": seq,
+                        "action": action.action,
+                    },
+                )
+                effects = effects.model_copy(update={
+                    "produced": [*raw_effects.produced, *effects.produced],
+                })
+            else:
+                assert plan is not None
+                effects = await workflow.execute_activity(
+                    "run_transition_activity",
+                    OperationInput(
+                        workspace_id=self._workspace_id,
+                        operation_id=plan.operation_id,
+                        state=self._state,
+                        input_revisions=plan.input_revisions,
+                        options=plan.options,
+                    ),
+                    result_type=TransitionEffects,
+                    start_to_close_timeout=_RUN_TRANSITION_TIMEOUT,
+                    retry_policy=_ACTIVITY_RETRY,
+                )
+            if action.action in {"edit_model", "prepare_data", "fit"}:
+                message = ActionMessage(
+                    timestamp=workflow.now(), level="info",
+                    label="DATA_CHECKS_STARTED" if action.action == "prepare_data" else "MODEL_CHECKS_STARTED"
+                )
+                self._messages = (*self._messages, message)
+                self._attempts[request.attempt_id] = ActionPoll(done=False, messages=self._messages)
+                await workflow.execute_activity(
+                    "emit_action_message_activity",
+                    EmitActionMessageInput(
+                        workspace_id=self._workspace_id,
+                        attempt_id=request.attempt_id,
+                        action=action.action,
+                        index=len(self._messages) - 1,
+                        message=message,
+                    ),
+                    start_to_close_timeout=_JOURNAL_TIMEOUT,
+                    retry_policy=_JOURNAL_RETRY,
+                )
+                effects = await workflow.execute_activity(
+                    "evaluate_data_checks_activity" if action.action == "prepare_data" else "evaluate_model_checks_activity",
+                    EvaluateChecksInput(
+                        workspace_id=self._workspace_id,
+                        action=action.action,
+                        state=self._state,
+                        effects=effects,
+                    ),
+                    result_type=TransitionEffects,
+                    task_queue=MODEL_CHECKS_TASK_QUEUE,
+                    start_to_close_timeout=_CHECK_TIMEOUT,
+                    retry_policy=_ACTIVITY_RETRY,
+                )
+            produced = effects.produced
+            retracted = effects.retracted
+        except (ActivityError, ChildWorkflowError) as exc:
+            error_type, error_message, diagnostics, resume = _unwrap_temporal_failure(exc)
             await self._journal(
                 seq,
-                move,
-                status="applied",
-                diagnostics=effects.diagnostics,
-                produced=produced,
-                retracted=retracted,
+                action,
+                operation_id,
+                status="raised",
+                error_type=error_type,
+                error_message=error_message,
+                diagnostics=diagnostics,
+                resume=resume,
             )
-            self._state = apply_transition(self._state, produced, retracted)
             return self._outcome(
                 seq,
+                status="raised",
+                error_type=error_type,
+                error_message=error_message,
+                diagnostics=diagnostics,
+            )
+
+        try:
+            await self._journal(
+                seq,
+                action,
+                operation_id,
                 status="applied",
+                diagnostics=effects.diagnostics,
                 produced=produced,
                 retracted=retracted,
+                checks=effects.checks,
+            )
+        except ActivityError as exc:
+            error_type, message, _, _ = _unwrap_temporal_failure(exc)
+            if error_type != "BranchConflict":
+                raise
+            await self._journal(
+                seq,
+                action,
+                operation_id,
+                status="raised",
+                error_type=error_type,
+                error_message=message,
                 diagnostics=effects.diagnostics,
             )
+            return self._outcome(
+                seq,
+                status="raised",
+                error_type=error_type,
+                error_message=message,
+                diagnostics=effects.diagnostics,
+            )
+        self._state = apply_transition(self._state, produced, retracted, effects.checks)
+        return self._outcome(
+            seq,
+            status="applied",
+            produced=produced,
+            retracted=retracted,
+            diagnostics=effects.diagnostics,
+        )
 
     @workflow.signal
     def close(self) -> None:
         self._closed = True
 
     # -- queries ---------------------------------------------------------
+
+    @workflow.query
+    def action_progress(self, attempt_id: UUID) -> ActionPoll | None:
+        """Accepted updates remain queryable while they wait or execute."""
+        return self._attempts.get(attempt_id)
 
     @workflow.query
     def get_state(self) -> EpisodeState:
@@ -298,50 +367,84 @@ class EpisodeWorkflow:
     def get_status(self) -> EpisodeStatus:
         return EpisodeStatus(
             workspace_id=self._workspace_id,
+            branch=self._branch,
+            commit_id=self._head_id,
             seq=self._seq,
             state=self._state,
             artifacts=freshness_report(self._state),
-            legal=legal_moves(self._state),
+            actions=list(SCIENTIFIC_ACTION_IDS),
         )
 
     # -- internals -------------------------------------------------------
 
-    def _outcome(self, seq: int, **kwargs: Any) -> MoveOutcome:
-        return MoveOutcome(seq=seq, state=self._state, **kwargs)
+    def _outcome(self, seq: int, **kwargs: Any) -> ActionOutcome:
+        return ActionOutcome(
+            seq=seq, state=self._state, branch=self._branch, commit_id=self._commit_id, **kwargs
+        )
 
     async def _journal(
         self,
         seq: int,
-        move: Move,
+        request: ScientificActionRequest,
+        operation_id: OperationId | None,
         *,
         status: JournalStatus,
         reason: str | None = None,
         error_type: str | None = None,
         error_message: str | None = None,
         diagnostics: UncheckedJsonObject | None = None,
-        produced: list[ArtifactVersionInfo] | None = None,
+        produced: list[ArtifactRecord] | None = None,
         retracted: list[RetractedArtifact] | None = None,
+        checks: ModelCheckReport | None = None,
         resume: ResumeRef | None = None,
     ) -> None:
-        await workflow.execute_activity(
+        assert self._base is not None
+        label = (
+            "ACTION_COMPLETED"
+            if status == "applied"
+            else "REVISION_CONFLICT"
+            if status == "rejected" or error_type == "BranchConflict"
+            else _error_label(error_type or "ActionError")
+        )
+        messages = (
+            *self._messages,
+            ActionMessage(
+                timestamp=workflow.now(),
+                level="info" if status == "applied" else "error",
+                label=label,
+            ),
+        )
+        commit_id = await workflow.execute_activity(
             "journal_activity",
             JournalInput(
                 workspace_id=self._workspace_id,
+                branch=self._branch,
+                expected_head=self._base.commit_id,
+                event_cursor=self._base.event_cursor,
                 seq=seq,
-                move=move,
+                action=request.action,
+                inputs=request.model_dump(mode="json", exclude={"action"}),
+                operation_id=operation_id,
                 status=status,
                 reason=reason,
                 error_type=error_type,
                 error_message=error_message,
                 diagnostics=diagnostics or {},
+                checks=checks,
                 produced=produced or [],
                 retracted=retracted or [],
                 resume=resume,
+                attempt_id=self._active_attempt_id,
+                messages=messages,
             ),
+            result_type=str,
             start_to_close_timeout=_JOURNAL_TIMEOUT,
             retry_policy=_JOURNAL_RETRY,
         )
-        # Run collection is lifecycle hygiene, never part of the move commit.
+        self._commit_id = commit_id
+        if status == "applied":
+            self._head_id = commit_id
+        # Run collection is lifecycle hygiene, never part of the action commit.
         try:
             await workflow.execute_activity(
                 "collect_completed_runs_activity",
@@ -351,6 +454,11 @@ class EpisodeWorkflow:
             )
         except ActivityError as exc:
             workflow.logger.warning("run scratch collection failed after seq %d: %s", seq, exc)
+
+
+def _error_label(error_type: str) -> str:
+    words = re.sub(r"(?<!^)(?=[A-Z][a-z])|(?<=[a-z])(?=[A-Z])", "_", error_type)
+    return "ACTION_FAILED_" + re.sub(r"[^A-Za-z0-9]+", "_", words).strip("_").upper()
 
 
 def _unwrap_temporal_failure(

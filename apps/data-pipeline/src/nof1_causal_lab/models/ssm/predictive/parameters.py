@@ -14,11 +14,34 @@ from nof1_causal_lab.models.ssm.compile.prior_compilation import compile_paramet
 from nof1_causal_lab.models.ssm.compile.prior_indexing import build_semantic_prior_bindings
 from nof1_causal_lab.models.ssm.inference.persistence import assemble_parameter_draws
 from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
+from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
+from nof1_causal_lab.numpyro_json import distribution_shape
 
 if TYPE_CHECKING:
     import jax
 
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
+
+
+def validate_simulation_laws(model: ModelSpec) -> None:
+    """Check the general simulator's law capabilities without sampling or fitting."""
+    model.require_priors()
+    semantics = build_semantic_prior_bindings(model).by_parameter
+    for parameter in model.execution_parameters:
+        if parameter.value is not None:
+            continue
+        assert parameter.distribution is not None
+        law = model.distributions[parameter.distribution]
+        if not any(distribution_shape(law)):
+            compile_parameter_law(
+                model, parameter, semantics[parameter.id], numeric.edge_lag_days(model)
+            )
+        elif parameter.distribution_transform != PriorAuthoringTransform.IDENTITY:
+            raise ValueError("Joint probability laws must use native scientific coordinates")
+    retained = {c.id for c in model.constructs if c.distribution is not None}
+    state_ids = set(numeric.state_ids(model))
+    if retained & state_ids and not state_ids <= retained:
+        raise ValueError("Conditional simulation requires a joint draw for every state")
 
 
 def sample_model_laws(model: ModelSpec, *, draws: int, key: jax.Array) -> JointPosteriorDraws:
@@ -33,11 +56,23 @@ def sample_model_laws(model: ModelSpec, *, draws: int, key: jax.Array) -> JointP
     semantics = build_semantic_prior_bindings(model).by_parameter
     values: dict[str, jnp.ndarray] = {}
     paths: dict[str, jnp.ndarray] = {}
-    for index, (identity, law) in enumerate(sorted(model.distributions.items())):
-        members = sorted(
-            (parameter for parameter in model.parameters if parameter.distribution == identity),
-            key=lambda parameter: parameter.id,
+    state_ids = tuple(numeric.state_ids(model))
+    active_laws = {
+        member.distribution
+        for member in (
+            *model.execution_parameters,
+            *(model.get_construct(identity) for identity in state_ids),
         )
+        if member.distribution is not None
+    }
+    for index, (identity, law) in enumerate(sorted(model.distributions.items())):
+        if identity not in active_laws:
+            continue
+        members = [
+            parameter
+            for parameter in model.execution_parameters
+            if parameter.distribution == identity
+        ]
         law_key = random.fold_in(key, index)
         if not law.batch_shape and not law.event_shape:
             parameter = members[0]
@@ -55,18 +90,15 @@ def sample_model_laws(model: ModelSpec, *, draws: int, key: jax.Array) -> JointP
         ):
             raise ValueError("Joint probability laws must use native scientific coordinates")
         sampled = law.sample(law_key, sample_shape=(draws,))
-        offset = 0
-        for parameter in members:
-            coordinates = sorted(bindings[parameter.id].coordinates)
-            for coordinate in coordinates:
-                values[coordinate] = sampled[:, offset]
-                offset += 1
-        for construct in sorted(
-            (c for c in model.constructs if c.distribution == identity), key=lambda c: c.id
-        ):
-            paths[construct.id] = sampled[:, offset : offset + len(model.time_points)]
-            offset += len(model.time_points)
-    state_ids = tuple(numeric.state_ids(model))
+        layout = JointLawLayout.from_bindings(
+            bindings.values(),
+            parameters=[parameter.id for parameter in members],
+            constructs=[c.id for c in model.constructs if c.distribution == identity],
+            time_points=model.time_points,
+        )
+        parameter_draws, trajectories = layout.unpack(sampled)
+        values.update(parameter_draws.items())
+        paths.update(trajectories.items())
     if paths and set(paths) != set(state_ids):
         raise ValueError("Conditional simulation requires a joint draw for every state")
     return JointPosteriorDraws(

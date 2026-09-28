@@ -1,11 +1,21 @@
 """Graph and observation helpers for canonical operation input projections."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import networkx as nx
 
-from nof1_causal_lab.json_types import UncheckedJsonObject
 from nof1_causal_lab.utils.observation_semantics import (
     get_observation_semantics,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
+    from nof1_causal_lab.artifacts.identity import ConstructId
+    from nof1_causal_lab.json_types import UncheckedJsonObject
 
 
 def get_indicator_polarity(indicator: UncheckedJsonObject) -> str:
@@ -72,8 +82,8 @@ def get_measurement_indicator_info(
         sem = get_observation_semantics(ind)
         result[ind["id"]] = {
             "dtype": ind.get("measurement_dtype"),
-            "construct_id": ind["construct_id"],
             "ordinal_levels": ind.get("ordinal_levels"),
+            "categorical_levels": ind.get("categorical_levels"),
             "support_kind": sem.support_kind.value,
             "summary_operator": sem.summary_operator.value,
             "anchor_policy": sem.anchor_policy.value,
@@ -92,6 +102,7 @@ _WORKER_INDICATOR_KEYS = (
     "recording",
     "observation_window",
     "ordinal_levels",
+    "categorical_levels",
 )
 
 
@@ -129,20 +140,21 @@ def make_measurement_extraction_context(
 
 
 def get_outcome_construct(
-    graph_input: UncheckedJsonObject,
-) -> UncheckedJsonObject | None:
-    """Resolve the outcome in a canonical graph input projection."""
-    latent = graph_input
-    target = latent.get("default_outcome")
-    if target is None:
+    constructs: Sequence[ConstructSpec],
+    default_outcome: ConstructId | None,
+) -> ConstructSpec | None:
+    """Resolve the selected outcome from its canonical construct identity."""
+    if default_outcome is None:
         return None
-    return next((item for item in latent["constructs"] if item["id"] == target), None)
+    return next((item for item in constructs if item.id == default_outcome), None)
 
 
-def get_outcome_name(graph_input: UncheckedJsonObject) -> str | None:
-    """Resolve the selected outcome display name from the graph input."""
-    outcome = get_outcome_construct(graph_input)
-    return outcome["name"] if outcome else None
+def get_outcome_name(
+    constructs: Sequence[ConstructSpec], default_outcome: ConstructId | None
+) -> str | None:
+    """Resolve the selected outcome display name from its construct."""
+    outcome = get_outcome_construct(constructs, default_outcome)
+    return outcome.name if outcome is not None else None
 
 
 # ---------------------------------------------------------------------------
@@ -150,74 +162,29 @@ def get_outcome_name(graph_input: UncheckedJsonObject) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def build_digraph(latent_structure: UncheckedJsonObject) -> nx.DiGraph:
-    """Build a simple DiGraph from a latent structure's edge list.
-
-    Args:
-        latent_structure: Dict with 'edges' list of {cause, effect} dicts
-
-    Returns:
-        nx.DiGraph with one node per referenced construct
-    """
-    names = {item["id"]: item["name"] for item in latent_structure["constructs"]}
+def build_digraph(
+    constructs: Sequence[ConstructSpec], edges: Sequence[CausalEdgeSpec]
+) -> nx.DiGraph:
+    """Build a directed graph including constructs with no incident edges."""
     graph = nx.DiGraph()
-    graph.add_nodes_from(names.values())
-    graph.add_edges_from(
-        (names[edge["cause_id"]], names[edge["effect_id"]]) for edge in latent_structure["edges"]
-    )
+    graph.add_nodes_from(construct.name for construct in constructs)
+    graph.add_edges_from((edge.cause.name, edge.effect.name) for edge in edges)
     return graph
 
 
-def build_digraph_from_edges(edges: list[UncheckedJsonObject]) -> nx.DiGraph:
-    """Build a simple DiGraph from an edge list."""
-    G = nx.DiGraph()
-    for edge in edges:
-        G.add_edge(edge["cause"], edge["effect"])
-    return G
+def build_digraph_from_edges(edges: Sequence[CausalEdgeSpec]) -> nx.DiGraph:
+    """Build a simple DiGraph from canonical causal edge endpoints."""
+    return build_digraph((), edges)
 
 
-def _get_treatments_from_graph(
-    *,
-    node_names: list[str],
-    edges: list[UncheckedJsonObject],
-    outcome: str | None,
+def get_all_treatments(
+    constructs: Sequence[ConstructSpec],
+    edges: Sequence[CausalEdgeSpec],
+    default_outcome: ConstructId | None,
 ) -> list[str]:
-    """Return nodes with a directed path to the outcome within the given graph."""
-    if not outcome:
+    """Return construct names with a directed path to the selected outcome."""
+    outcome = get_outcome_name(constructs, default_outcome)
+    if outcome is None:
         return []
-
-    G = build_digraph_from_edges(edges)
-    G.add_nodes_from(node_names)
-    if outcome not in G:
-        return []
-
-    return sorted(
-        node
-        for node in node_names
-        if node != outcome and G.has_node(node) and nx.has_path(G, node, outcome)
-    )
-
-
-def get_all_treatments(latent_structure: UncheckedJsonObject) -> list[str]:
-    """Get all potential treatments from latent structure.
-
-    A treatment is any construct that has a causal path to the outcome.
-
-    Args:
-        latent_structure: Dict with 'constructs' and 'edges'
-
-    Returns:
-        Sorted list of treatment construct names
-    """
-    return _get_treatments_from_graph(
-        node_names=[
-            construct["name"]
-            for construct in latent_structure.get("constructs", [])
-            if construct.get("name")
-        ],
-        edges=[
-            {"cause": cause, "effect": effect}
-            for cause, effect in build_digraph(latent_structure).edges
-        ],
-        outcome=get_outcome_name(latent_structure),
-    )
+    graph = build_digraph(constructs, edges)
+    return sorted(nx.ancestors(graph, outcome))

@@ -4,7 +4,7 @@ Serves the same journal-backed read endpoints as the full tool server —
 same code, same projections — against whatever store the environment
 selects (R2 in production), without importing the tool-execution/SSM
 stack. Deployments set ``EPISODE_FACADE_READ_ONLY=1`` so the move plane
-403s and ``/api/capabilities`` advertises ``moves_enabled: false``; no
+403s and ``/api/capabilities`` advertises ``actions_enabled: false``; no
 Temporal, no tool execution, no LLM anywhere. A published workspace is
 viewable (including live, while a local service is still writing to it)
 without any hosted stateful service.

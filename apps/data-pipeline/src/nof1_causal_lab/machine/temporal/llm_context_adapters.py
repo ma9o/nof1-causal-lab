@@ -40,42 +40,6 @@ def subroutine_context_messages(
             ],
         )
 
-    if context_kind == "latent_structure":
-        context = read_subroutine_json(context_ref)
-        return (
-            context["system_prompt"],
-            list(context["user_messages"]),
-            [
-                LLMToolSpec(
-                    name="validate_latent_structure",
-                    description="Validate latent structure JSON.",
-                    param_name="model_json",
-                    param_description="The JSON string containing the latent structure.",
-                )
-            ],
-        )
-
-    if context_kind == "measurement_structure":
-        context = read_subroutine_json(context_ref)
-        return (
-            context["system_prompt"],
-            list(context["user_messages"]),
-            [
-                LLMToolSpec(
-                    name="validate_measurement_structure",
-                    description=(
-                        "Validate measurement structure, known-input declarations, "
-                        "and compiler constraints."
-                    ),
-                    param_name="model_json",
-                    param_description=(
-                        "The JSON string containing the measurement structure and "
-                        "known-input declarations."
-                    ),
-                )
-            ],
-        )
-
     if context_kind == "raw_data_ingestion":
         from nof1_causal_lab.flows.transitions.ingestion.flow import SYSTEM_PROMPT, USER_PROMPT
 
@@ -153,52 +117,5 @@ def subroutine_context_messages(
                 ),
             ],
         )
-
-    if context_kind == "model_spec_construct":
-        context = read_subroutine_json(context_ref)
-        tools = [
-            LLMToolSpec(
-                name="submit_construct",
-                description=(
-                    "Submit one construct: its indicator emission choices and priors keyed "
-                    "by canonical parameter name. The cumulative model is compiled and "
-                    "gated by the exact prior-predictive reachability battery."
-                ),
-                kind="terminal",
-                executor="model_spec_submit_construct",
-                success_output=None,
-                parameters_schema=context["submit_construct_schema"],
-            )
-        ]
-        if context.get("enable_literature"):
-            tools.append(
-                LLMToolSpec(
-                    name="search_literature",
-                    description="Search for empirical literature about effect sizes for model parameters.",
-                    kind="read_only",
-                    executor="model_spec_search_literature",
-                    parameters_schema={
-                        "type": "object",
-                        "properties": {
-                            "query": {
-                                "type": "string",
-                                "description": (
-                                    "Search query for empirical literature about effect sizes."
-                                ),
-                            },
-                            "parameter_name": {
-                                "type": "string",
-                                "description": (
-                                    "Name of the parameter this search is for "
-                                    "(e.g. 'beta_stress_sleep')."
-                                ),
-                            },
-                        },
-                        "required": ["query", "parameter_name"],
-                        "additionalProperties": False,
-                    },
-                )
-            )
-        return context["system_prompt"], list(context["user_messages"]), tools
 
     raise ValueError(f"unknown LLM subroutine context kind {context_kind!r}")

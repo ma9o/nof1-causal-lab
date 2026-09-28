@@ -13,8 +13,9 @@ import pytest
 from nof1_causal_lab.utils.llm import (
     _validate_json_and_format,
 )
-from tests.agent._support import make_worker_tool as _make_worker_tool
 from tests.helpers import run_async as _run
+
+pytestmark = pytest.mark.contract
 
 
 def _require_mapping(value: object) -> dict[str, Any]:
@@ -93,13 +94,6 @@ class TestValidateJsonAndFormat:
         assert "test" not in capture
 
 
-class TestWorkerValidationTools:
-    def test_validate_worker_tool_stops_on_valid_output(self):
-        tool, _capture = _make_worker_tool()
-        assert tool.stop_on_success is True
-        assert tool.success_output == "VALID"
-
-
 class _FakeChatCompletions:
     def __init__(self, response: Mapping[str, object], seen: dict[str, object]):
         self._response = response
@@ -120,6 +114,49 @@ class _FakeOpenRouterClient:
 
 
 class TestOpenRouterClient:
+    def test_sdk_response_preserves_reasoning_extensions_and_usage(self):
+        from openai.types.chat import ChatCompletion
+
+        from nof1_causal_lab.utils import openrouter_client
+
+        response = ChatCompletion.model_validate(
+            {
+                "id": "completion-1",
+                "created": 0,
+                "model": "test-model",
+                "object": "chat.completion",
+                "choices": [
+                    {
+                        "index": 0,
+                        "finish_reason": "stop",
+                        "message": {
+                            "role": "assistant",
+                            "content": "answer",
+                            "reasoning": "explanation",
+                            "reasoning_details": [{"type": "reasoning.text", "text": "detail"}],
+                        },
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 11,
+                    "completion_tokens": 7,
+                    "total_tokens": 18,
+                    "completion_tokens_details": {"reasoning_tokens": 3},
+                },
+            }
+        )
+        parsed = openrouter_client._OpenRouterResponse.model_validate(response)
+        message = openrouter_client._assistant_message(parsed.choices[0].message)
+
+        assert message["content"] == "answer"
+        assert message["reasoning"] == "explanation"
+        assert message["reasoning_details"] == [{"type": "reasoning.text", "text": "detail"}]
+        assert openrouter_client._usage_from_response(parsed) == {
+            "input_tokens": 11,
+            "output_tokens": 7,
+            "reasoning_tokens": 3,
+        }
+
     def test_call_model_enforces_local_timeout(self, monkeypatch):
         from nof1_causal_lab.utils import openrouter_client
 

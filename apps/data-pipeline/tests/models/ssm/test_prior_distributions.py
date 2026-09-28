@@ -23,6 +23,7 @@ from nof1_causal_lab.prior_distributions import (
 _ADAPTER = TypeAdapter(NumPyroDistribution)
 
 
+@pytest.mark.inference(concern="sampling")
 def test_beta_persistence_has_exact_density_and_jacobian():
     prior = persistence_to_decay(dist.Beta(2.0, 3.0), 7.0)
     decay = 0.2
@@ -35,6 +36,7 @@ def test_beta_persistence_has_exact_density_and_jacobian():
     assert bool(prior.support(decay))
 
 
+@pytest.mark.inference(concern="predictive")
 def test_persistence_draw_is_the_exact_pushforward():
     base = dist.Beta(2.0, 3.0)
     prior = persistence_to_decay(base, 3.0)
@@ -43,6 +45,7 @@ def test_persistence_draw_is_the_exact_pushforward():
     np.testing.assert_array_equal(prior.sample(key, (3,)), expected)
 
 
+@pytest.mark.contract
 @pytest.mark.parametrize(
     "base", [dist.Normal(0.5, 0.1), dist.Uniform(-0.1, 1.0), dist.Uniform(0.0, 1.1)]
 )
@@ -51,6 +54,7 @@ def test_persistence_requires_an_authored_law_on_the_unit_interval(base):
         persistence_to_decay(base, 1.0)
 
 
+@pytest.mark.inference(concern="sampling")
 def test_interval_effect_preserves_uniform_family_and_bounds():
     prior = interval_effect_to_rate(dist.Uniform(-2.0, 4.0), 2.0)
     assert float(prior.support.lower_bound) == -1.0
@@ -58,6 +62,7 @@ def test_interval_effect_preserves_uniform_family_and_bounds():
     assert float(prior.log_prob(0.5)) == pytest.approx(-math.log(3.0))
 
 
+@pytest.mark.inference(concern="sampling")
 def test_transformed_vector_prior_roundtrip_preserves_density_and_positive_support():
     coordinates = [persistence_to_decay(dist.Beta(2.0, 3.0), interval) for interval in [1.0, 7.0]]
     prior = batch_prior_distributions(coordinates, (2,), support=constraints.positive)
@@ -70,6 +75,7 @@ def test_transformed_vector_prior_roundtrip_preserves_density_and_positive_suppo
     assert abstract.shape == (2,)
 
 
+@pytest.mark.inference(concern="sampling")
 def test_different_coordinate_families_have_no_mixture_uncertainty():
     coordinates = [dist.Normal(0.0, 1.0), dist.Uniform(-2.0, 2.0)]
     prior = batch_prior_distributions(coordinates, (2,), support=constraints.real)
@@ -81,6 +87,7 @@ def test_different_coordinate_families_have_no_mixture_uncertainty():
     np.testing.assert_allclose(restored.log_prob(values), expected)
 
 
+@pytest.mark.contract
 def test_distribution_arguments_are_complete_and_native_validated():
     with pytest.raises(ValueError, match="requires exactly"):
         distribution_from_params("Gamma", {"concentration": 2.0})
@@ -90,6 +97,8 @@ def test_distribution_arguments_are_complete_and_native_validated():
         distribution_from_params("Uniform", {"lower": 2.0, "upper": 1.0})
 
 
+@pytest.mark.inference(concern="sampling")
+@pytest.mark.inference(concern="predictive")
 @pytest.mark.parametrize(
     ("coordinates", "values", "support"),
     [
@@ -124,11 +133,14 @@ def test_mixed_coordinate_gradients_and_roundtrip_ignore_inactive_laws(
     )
 
 
+@pytest.mark.contract
 def test_expanded_transformed_reference_is_an_anchor_not_a_claimed_mean():
     law = persistence_to_decay(dist.Beta(2.0, 2.0), 1.0).expand((3,))
     np.testing.assert_allclose(prior_reference_value(law), jnp.full(3, math.log(2.0)))
 
 
+@pytest.mark.inference(concern="sampling")
+@pytest.mark.inference(concern="predictive")
 @pytest.mark.parametrize(
     "law_for",
     [
@@ -160,6 +172,7 @@ def test_native_parameter_trees_batch_without_a_family_or_transform_registry(law
     np.testing.assert_array_equal(restored.sample(key, (3,)), prior.sample(key, (3,)))
 
 
+@pytest.mark.inference(concern="sampling")
 def test_native_batching_preserves_gradients_with_respect_to_constructor_parameters():
     def log_prob(loc):
         law = batch_prior_distributions(
@@ -170,6 +183,7 @@ def test_native_batching_preserves_gradients_with_respect_to_constructor_paramet
     assert float(jax.grad(log_prob)(0.1)) == pytest.approx(0.0, abs=1e-6)
 
 
+@pytest.mark.contract
 def test_mixture_reference_uses_its_weights_instead_of_treating_components_as_coordinates():
     law = dist.MixtureGeneral(
         dist.Categorical(probs=jnp.array([0.25, 0.75])),
@@ -178,6 +192,8 @@ def test_mixture_reference_uses_its_weights_instead_of_treating_components_as_co
     assert float(prior_reference_value(law)) == pytest.approx(2.0)
 
 
+@pytest.mark.inference(concern="sampling")
+@pytest.mark.inference(concern="predictive")
 def test_scientific_roundtrip_preserves_distinct_native_coordinate_laws():
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.parameter import SiteKind
@@ -201,6 +217,7 @@ def test_scientific_roundtrip_preserves_distinct_native_coordinate_laws():
     np.testing.assert_array_equal(after.sample(key, (3,)), before.sample(key, (3,)))
 
 
+@pytest.mark.inference(concern="sampling")
 def test_compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law():
     from numpyro import handlers
 
@@ -235,6 +252,7 @@ def test_compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law():
     assert np.isfinite(jax.grad(law.log_prob)(value))
 
 
+@pytest.mark.inference(concern="sampling")
 @pytest.mark.parametrize(
     ("family", "params", "value"),
     [

@@ -13,10 +13,11 @@ import pytest
 
 from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec, replace_constructs
 from nof1_causal_lab.flows.transitions.validation.flow import (
-    derive_validation_status,
     validate_extraction,
 )
 from tests.helpers import fixture_entity_id, make_model
+
+pytestmark = pytest.mark.contract
 
 
 @pytest.fixture
@@ -113,38 +114,54 @@ def _make_spec(
 class TestValidateExtraction:
     """Test validate_extraction semantic checks."""
 
-    def test_derive_validation_status_maps_issue_severity_to_validity(self):
-        """Stage-level status should reduce directly from local issue severities."""
-        assert derive_validation_status([]) == {
-            "is_valid": True,
-            "has_warnings": False,
-        }
-        assert derive_validation_status(
-            [
-                {
-                    "indicator_id": "indicator:3696aef3ff6f446744e5",
-                    "issue_type": "low_n",
-                    "severity": "warning",
-                    "message": "Only 3 observations",
-                }
-            ]
-        ) == {
-            "is_valid": True,
-            "has_warnings": True,
-        }
-        assert derive_validation_status(
-            [
-                {
-                    "indicator_id": "indicator:3696aef3ff6f446744e5",
-                    "issue_type": "no_numeric",
-                    "severity": "error",
-                    "message": "No numeric values extracted",
-                }
-            ]
-        ) == {
-            "is_valid": False,
-            "has_warnings": False,
-        }
+    @pytest.mark.parametrize(("severity", "expected"), [("warning", True), ("error", False)])
+    def test_verdict_is_derived_and_verified_on_round_trip(self, severity, expected):
+        from nof1_causal_lab.artifacts.validation_report import ValidationReportArtifact
+
+        report = ValidationReportArtifact.model_validate(
+            {
+                "indicators": {},
+                "dataset_issues": [
+                    {
+                        "issue_type": "sample_size",
+                        "severity": severity,
+                        "message": "Sample size finding",
+                    }
+                ],
+            }
+        )
+        assert report.is_valid is expected
+        serialized = report.model_dump(mode="json")
+        assert serialized["is_valid"] is expected
+        assert ValidationReportArtifact.model_validate(serialized) == report
+        with pytest.raises(ValueError, match="is_valid must match"):
+            ValidationReportArtifact.model_validate({**serialized, "is_valid": not expected})
+
+    def test_verdict_includes_indicator_checks_and_preflight(self):
+        from nof1_causal_lab.artifacts.validation_report import ValidationReportArtifact
+
+        report = ValidationReportArtifact.model_validate(
+            {
+                "indicators": {},
+                "dataset_issues": [],
+                "preflight": {
+                    "findings": [
+                        {"check": "execution", "status": "failed", "message": "Incomplete model"}
+                    ]
+                },
+            }
+        )
+        assert report.is_valid is False
+        assert (
+            ValidationReportArtifact.model_validate_json(report.model_dump_json()).is_valid is False
+        )
+        report = ValidationReportArtifact.model_validate(
+            {
+                "indicators": {"indicator:x": {"issues": [], "checks": {"dtype": "error"}}},
+                "dataset_issues": [],
+            }
+        )
+        assert report.is_valid is False
 
     def test_empty_results_returns_error(self, simple_causal_design):
         """Empty worker results returns error."""

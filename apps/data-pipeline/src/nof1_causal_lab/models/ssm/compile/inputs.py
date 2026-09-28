@@ -67,7 +67,7 @@ def compile_ssm_inputs_from_model(
     numeric.validate_execution(model)
     edge_lag_days = numeric.edge_lag_days(model)
     index_maps = build_semantic_prior_bindings(model)
-    bindings, auxiliary = bind_parameters(index_maps, model, model.parameters)
+    bindings, auxiliary = bind_parameters(index_maps, model, model.execution_parameters)
     prior_registry, _, diagnostics = compile_priors(model, edge_lag_days=edge_lag_days)
     diagnostics = _attach_compile_binding_provenance(diagnostics, bindings)
     return prior_registry, bindings, diagnostics, edge_lag_days, auxiliary

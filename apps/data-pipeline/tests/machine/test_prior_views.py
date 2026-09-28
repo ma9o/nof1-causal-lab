@@ -6,11 +6,17 @@ from itertools import pairwise
 import jax.numpy as jnp
 import numpy as np
 import numpyro.distributions as dist
+import pytest
 from pydantic import TypeAdapter
 
 from nof1_causal_lab.machine.prior_views import prior_density
 from nof1_causal_lab.numpyro_json import NumPyroDistribution
 from nof1_causal_lab.prior_distributions import interval_effect_to_rate
+
+pytestmark = [
+    pytest.mark.inference(concern="sampling"),
+    pytest.mark.inference(concern="predictive"),
+]
 
 
 def test_prior_curves_preserve_native_gamma_and_transforms_without_mutating_the_law():

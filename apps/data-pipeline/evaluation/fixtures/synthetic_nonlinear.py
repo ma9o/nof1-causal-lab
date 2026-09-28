@@ -23,7 +23,7 @@ from nof1_causal_lab.artifacts.identity import ConstructId
 from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
 from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.artifacts.parameter import SiteKind
+from nof1_causal_lab.artifacts.parameter import ParameterCoordinate, SiteKind
 from nof1_causal_lab.models.likelihoods import observation_law, revise_law
 from nof1_causal_lab.models.ssm.model import SSMModel
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
@@ -243,6 +243,7 @@ class SyntheticNonlinearData:
 
 def build_synthetic_nonlinear_spec(*, diffusion_scale: float = 1.0) -> ModelSpec:
     """Author the nonlinear recovery fixture as one scientific definition."""
+    from evaluation.fixtures.prior_planning import complete_model
     from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
     from nof1_causal_lab.artifacts.expressions import coefficient
     from nof1_causal_lab.artifacts.identity import (
@@ -255,7 +256,6 @@ def build_synthetic_nonlinear_spec(*, diffusion_scale: float = 1.0) -> ModelSpec
     from nof1_causal_lab.artifacts.indicator import IndicatorSpec
     from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec
     from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
-    from nof1_causal_lab.models.prior_planning import complete_model
 
     definitions = {}
 
@@ -307,7 +307,6 @@ def build_synthetic_nonlinear_spec(*, diffusion_scale: float = 1.0) -> ModelSpec
                 IndicatorSpec(
                     id=indicator_id,
                     name=obs_name,
-                    how_to_measure="Read the synthetic observation",
                     construct_polarity="negative" if TRUE_LOADINGS[row, column] < 0 else "positive",
                     measurement_dtype=dtype,
                     aggregation="last",
@@ -437,7 +436,6 @@ def build_synthetic_nonlinear_spec(*, diffusion_scale: float = 1.0) -> ModelSpec
                 ),
                 reasoning="Synthetic driver values are observed exactly at each anchor.",
             ),
-            how_to_measure="Read the exact synthetic driver",
             construct_polarity="positive",
             measurement_dtype="continuous",
             aggregation="last",
@@ -780,26 +778,43 @@ def _scalar_recovery_targets() -> dict[str, float]:
 
 SCALAR_RECOVERY_TARGETS = _scalar_recovery_targets()
 
+
+@dataclass(frozen=True)
+class RecoveryTargetSpec:
+    """A scalar truth and its coordinate in a retained posterior sample site."""
+
+    coordinate: ParameterCoordinate
+    true_value: float
+    scale: float
+
+
 MEASUREMENT_MEAN_RECOVERY_TARGETS = {
-    f"manifest_mean_{MANIFEST_NAMES[manifest_idx]}": {
-        "site": "manifest_means_free",
-        "index": idx,
-        "true": TRUE_MANIFEST_MEANS[manifest_idx],
-    }
+    f"manifest_mean_{MANIFEST_NAMES[manifest_idx]}": RecoveryTargetSpec(
+        coordinate=ParameterCoordinate(site_name="manifest_means_free", indices=(idx,)),
+        true_value=float(TRUE_MANIFEST_MEANS[manifest_idx]),
+        scale=float(TRUE_MANIFEST_SD[manifest_idx]),
+    )
     for idx, manifest_idx in enumerate(MEASUREMENT_MEANS_FREE_POSITIONS)
 }
 
 MEASUREMENT_LOADING_RECOVERY_TARGETS = {
-    f"loading_{MANIFEST_NAMES[row]}_{LATENT_NAMES[col]}": {
-        "site": "lambda_free",
-        "index": idx,
-        "true": TRUE_LOADINGS[row, col],
-    }
+    f"loading_{MANIFEST_NAMES[row]}_{LATENT_NAMES[col]}": RecoveryTargetSpec(
+        coordinate=ParameterCoordinate(site_name="lambda_free", indices=(idx,)),
+        true_value=float(TRUE_LOADINGS[row, col]),
+        scale=max(abs(float(TRUE_LOADINGS[row, col])), 1.0),
+    )
     for idx, (row, col) in enumerate(MEASUREMENT_LOADINGS_FREE_POSITIONS)
 }
 
-RECOVERY_TARGETS = {
-    **SCALAR_RECOVERY_TARGETS,
+RECOVERY_TARGETS: dict[str, RecoveryTargetSpec] = {
+    **{
+        site: RecoveryTargetSpec(
+            coordinate=ParameterCoordinate(site_name=site, indices=()),
+            true_value=value,
+            scale=max(abs(value), 1.0),
+        )
+        for site, value in SCALAR_RECOVERY_TARGETS.items()
+    },
     **MEASUREMENT_MEAN_RECOVERY_TARGETS,
     **MEASUREMENT_LOADING_RECOVERY_TARGETS,
 }

@@ -186,7 +186,7 @@ async def execute_llm_tool_calls_activity(input: LLMToolExecutionInput) -> LLMTo
     captured_result_ref: str | None = None
     tool_by_name = {tool.name: tool for tool in input.tools}
 
-    for tool_index, tool_call in enumerate(assistant_message.get("tool_calls") or []):
+    for _tool_index, tool_call in enumerate(assistant_message.get("tool_calls") or []):
         fn = tool_call.get("function") or {}
         tool_name = str(fn.get("name") or tool_call.get("name", ""))
         tool_calls_fired.append(tool_name)
@@ -207,7 +207,6 @@ async def execute_llm_tool_calls_activity(input: LLMToolExecutionInput) -> LLMTo
                 tool=tool,
                 args=args,
                 result_ref=input.result_ref,
-                request_id=str(tool_call.get("id") or f"{input.execution_ref}:{tool_index}"),
             )
         except json.JSONDecodeError as exc:
             result_text = f"JSON parse error: {exc}"
@@ -342,7 +341,6 @@ async def execute_harness_tool_request_activity(
                 tool=input.tool,
                 args=input.arguments,
                 result_ref=input.result_ref,
-                request_id=input.request_id,
             )
         except json.JSONDecodeError as exc:
             output = f"JSON parse error: {exc}"

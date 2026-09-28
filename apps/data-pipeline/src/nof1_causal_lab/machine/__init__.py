@@ -4,10 +4,10 @@ The pipeline is a state machine the navigating LLM traverses freely,
 constrained only by artifact-level dependencies. This package holds the
 engine-agnostic core:
 
-- :mod:`artifacts` — artifact taxonomy, versions, provenance stamps
+- :mod:`artifacts` — artifact taxonomy, versions, input metadata
 - :mod:`graph` — the artifact-level dependency DAG
 - :mod:`hierarchy` — public actions, contexts, execution classes, write effects
-- :mod:`moves` — ``legal_moves`` / ``apply_transition`` / staleness / freshness
+- :mod:`execution` — result installation and artifact freshness
 - :mod:`errors` — typed transition-execution exceptions
 
 Everything here is pure (no I/O, no engine imports) so it can run inside a
@@ -17,17 +17,22 @@ engine wiring lives in :mod:`nof1_causal_lab.machine.temporal`.
 """
 
 from nof1_causal_lab.artifacts.identity import ArtifactId
-from nof1_causal_lab.machine.artifacts import ArtifactVersionInfo, EpisodeState, Provenance
+from nof1_causal_lab.machine.artifacts import ArtifactRecord, EpisodeState
 from nof1_causal_lab.machine.errors import (
     ArtifactWriteRejected,
     ModelFitError,
     TransitionExecutionError,
 )
+from nof1_causal_lab.machine.execution import (
+    RetractedArtifact,
+    apply_transition,
+    freshness_report,
+    is_stale,
+)
 from nof1_causal_lab.machine.graph import (
     ARTIFACT_GRAPH,
     DERIVATIONS,
     ROOTS,
-    WRITABLE_ARTIFACTS,
     Derivation,
     Root,
     Transition,
@@ -39,24 +44,13 @@ from nof1_causal_lab.machine.hierarchy import (
     ActionSpec,
     ContextSpec,
 )
-from nof1_causal_lab.machine.moves import (
-    Move,
-    RetractedArtifact,
-    RunOperation,
-    WriteArtifact,
-    apply_transition,
-    freshness_report,
-    is_stale,
-    legal_moves,
-    validate_move,
-)
 
 __all__ = [
     "ARTIFACT_GRAPH",
     "ACTIONS",
     "ActionSpec",
     "ArtifactId",
-    "ArtifactVersionInfo",
+    "ArtifactRecord",
     "ArtifactWriteRejected",
     "CONTEXTS",
     "ContextSpec",
@@ -64,20 +58,13 @@ __all__ = [
     "Derivation",
     "EpisodeState",
     "ModelFitError",
-    "Move",
-    "Provenance",
     "ROOTS",
     "Root",
     "RetractedArtifact",
-    "RunOperation",
     "Transition",
     "TransitionExecutionError",
-    "WRITABLE_ARTIFACTS",
-    "WriteArtifact",
     "apply_transition",
     "freshness_report",
     "is_stale",
-    "legal_moves",
     "transition_spec",
-    "validate_move",
 ]

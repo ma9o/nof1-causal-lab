@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 def _standardize_manifest_columns(
     wide_data: pl.DataFrame,
     manifest_cols: list[str],
-    manifest_standardized: list[bool] | None,
+    manifest_standardized: list[bool],
 ) -> pl.DataFrame:
     """Apply deterministic standardization to manifest columns marked standardized.
 
@@ -50,7 +50,7 @@ def _standardize_manifest_columns(
     sd is 0 or undefined every centered value is already 0, so any divisor yields
     identical data; 1 is the canonical completion, not a fallback.
     """
-    if manifest_standardized is None or not any(manifest_standardized):
+    if not any(manifest_standardized):
         return wide_data
 
     standardized_exprs = []
@@ -120,11 +120,7 @@ def prepare_fit_inputs(
 ) -> tuple[jnp.ndarray, jnp.ndarray, list[str], pl.DataFrame]:
     """Extract observations, times, manifest order, and standardized wide data."""
     manifest_cols = numeric.observation_names(spec)
-    manifest_standardized = (
-        list(numeric.observation_standardized(spec))
-        if numeric.observation_standardized(spec) is not None
-        else None
-    )
+    manifest_standardized = numeric.observation_standardized(spec)
     standardized_data = _standardize_manifest_columns(
         wide_data, manifest_cols, manifest_standardized
     )
@@ -218,52 +214,12 @@ def project_observation_data(
     data_for_model: pl.DataFrame, *, model_spec: ModelSpec
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Resolve indicator identities without compiling parameter laws or fitting."""
-    wide_data = pivot_to_wide(data_for_model)
-    runtime_rows = data_for_model.rename({"indicator_id": "indicator"})
     labels = {indicator.id: indicator.name for indicator in model_spec.indicators}
-    unknown = set(data_for_model["indicator_id"].unique()) - labels.keys()
-    if unknown:
-        raise ValueError(f"Observations reference unknown indicators: {sorted(unknown)}")
+    selected = data_for_model.filter(pl.col("indicator_id").is_in(list(labels)))
+    wide_data = pivot_to_wide(selected)
+    runtime_rows = selected.rename({"indicator_id": "indicator"})
     wide_data = wide_data.rename(
         {iid: name for iid, name in labels.items() if iid in wide_data.columns}
     )
     runtime_rows = runtime_rows.with_columns(pl.col("indicator").replace_strict(labels))
     return wide_data, runtime_rows
-
-
-def sample_prior_predictive(
-    model: SSMModel,
-    *,
-    samples: int = 500,
-    times: jnp.ndarray | None = None,
-    observation_support: ObservationSupportRuntime | None = None,
-    observation_mask: jnp.ndarray | None = None,
-) -> dict[str, jnp.ndarray]:
-    """Sample prior predictive draws from a live model and optional prepared schedule."""
-    from nof1_causal_lab.models.ssm.execution.observation_families import (
-        any_family_needs_level_metadata,
-    )
-    from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
-        sample_prior_predictive_from_runtime,
-    )
-
-    spec = model.spec
-    if (
-        any_family_needs_level_metadata(numeric.observation_families(spec))
-        and numeric.observation_level_counts(spec) is None
-    ):
-        raise ValueError(
-            "Prior predictive for ordered/categorical emissions requires hydrated "
-            "manifest_level_counts. Build the model with data first."
-        )
-
-    if times is None:
-        times = jnp.arange(10, dtype=jnp.float32)
-    return sample_prior_predictive_from_runtime(
-        spec,
-        model.get_prior_runtime_bundle(),
-        times,
-        observation_support=observation_support,
-        observation_mask=observation_mask,
-        num_samples=samples,
-    )

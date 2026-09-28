@@ -23,6 +23,8 @@ from nof1_causal_lab.models.ssm.inference.problem import ParticleProblem
 from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws, ParticleMCMCPosterior
 from nof1_causal_lab.models.ssm.inference.utils import extract_constrained_samples
 
+pytestmark = pytest.mark.contract
+
 
 def _no_numerical_execution(*_args) -> Never:
     raise AssertionError("This boundary check must not execute the numerical model")

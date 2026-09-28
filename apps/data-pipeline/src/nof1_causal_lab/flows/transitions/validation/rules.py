@@ -5,8 +5,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass, field
-from datetime import timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import polars as pl
 
@@ -25,7 +24,7 @@ from nof1_causal_lab.flows.transitions.validation.checks import (
 from nof1_causal_lab.json_types import JsonObject, UncheckedJsonObject
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -99,10 +98,9 @@ class ValidationContext:
 
 
 @dataclass(frozen=True)
-class ValidationRule:
+class ValidationRule[Input]:
     name: str
-    scope: str
-    check: Any
+    check: Callable[[Input], ValidationFindings]
 
 
 def issue_payload(issue: Issue) -> JsonObject:
@@ -136,30 +134,22 @@ def issues_from_raw(
     return issues
 
 
-def derive_validation_status(issues: list[UncheckedJsonObject]) -> dict[str, bool]:
-    """Validation errors invalidate the report; warnings are diagnostics.
-
-    ``is_valid`` is information for the navigator, never control flow —
-    model-spec consumes the report either way and decides what to do with it.
-    """
-    has_error = any(issue.get("severity") == "error" for issue in issues)
-    has_warning = any(issue.get("severity") == "warning" for issue in issues)
-    return {"is_valid": not has_error, "has_warnings": has_warning}
-
-
 def no_data_validation_result() -> UncheckedJsonObject:
-    return {
-        "is_valid": False,
-        "indicators": {},
-        "dataset_issues": [
-            {
-                "indicator_id": None,
-                "issue_type": "no_data",
-                "severity": "error",
-                "message": "No data extracted",
-            }
-        ],
-    }
+    from nof1_causal_lab.artifacts.validation_report import DataProfileArtifact
+
+    return DataProfileArtifact.model_validate(
+        {
+            "indicators": {},
+            "dataset_issues": [
+                {
+                    "indicator_id": None,
+                    "issue_type": "no_data",
+                    "severity": "error",
+                    "message": "No data extracted",
+                }
+            ],
+        }
+    ).model_dump(mode="json")
 
 
 def _rule_missing(entry: IndicatorRuleInput) -> ValidationFindings:
@@ -236,7 +226,7 @@ def _rule_variance(entry: IndicatorRuleInput) -> ValidationFindings:
             Issue(
                 ctx.name,
                 "no_variance",
-                "error",
+                "warning",
                 f"Zero variance (constant value = {ctx.values.first()})",
                 cell_key="variance",
             )
@@ -303,29 +293,26 @@ def _rule_hallucination_signals(entry: IndicatorRuleInput) -> ValidationFindings
     )
 
 
-def _rule_construct_correlations(
-    combined: pl.DataFrame,
-    indicators: list[ArtifactRecord],
-) -> ValidationFindings:
-    raw_issues = check_construct_correlations(combined, indicators)
+def _rule_construct_correlations(ctx: ValidationContext) -> ValidationFindings:
+    raw_issues = check_construct_correlations(ctx.combined, ctx.indicators)
     return ValidationFindings(issues=issues_from_raw(raw_issues, cell_key=""))
 
 
-RULES: list[ValidationRule] = [
-    ValidationRule("missing", "indicator_id", _rule_missing),
-    ValidationRule("no_numeric", "indicator_id", _rule_no_numeric),
-    ValidationRule("timestamps", "indicator_id", _rule_timestamps),
-    ValidationRule("sample_size", "indicator_id", _rule_sample_size),
-    ValidationRule("variance", "indicator_id", _rule_variance),
-    ValidationRule("dtype_range", "indicator_id", _rule_dtype_range),
-    ValidationRule("time_coverage", "indicator_id", _rule_time_coverage),
-    ValidationRule("timestamp_gaps", "indicator_id", _rule_timestamp_gaps),
-    ValidationRule("hallucination_signals", "indicator_id", _rule_hallucination_signals),
-    ValidationRule("construct_correlations", "dataset", _rule_construct_correlations),
+DATA_RULES: list[ValidationRule[IndicatorRuleInput]] = [
+    ValidationRule("missing", _rule_missing),
+    ValidationRule("no_numeric", _rule_no_numeric),
+    ValidationRule("timestamps", _rule_timestamps),
+    ValidationRule("sample_size", _rule_sample_size),
+    ValidationRule("variance", _rule_variance),
+    ValidationRule("dtype_range", _rule_dtype_range),
+    ValidationRule("time_coverage", _rule_time_coverage),
+    ValidationRule("timestamp_gaps", _rule_timestamp_gaps),
+    ValidationRule("hallucination_signals", _rule_hallucination_signals),
 ]
 
-DATA_RULES = [rule for rule in RULES if rule.name in {"no_numeric", "timestamps", "sample_size"}]
-COMPATIBILITY_RULES = [rule for rule in RULES if rule not in DATA_RULES]
+COMPATIBILITY_RULES: list[ValidationRule[ValidationContext]] = [
+    ValidationRule("construct_correlations", _rule_construct_correlations),
+]
 
 
 CELL_STATUS_KEYS = frozenset(
@@ -392,16 +379,16 @@ def _build_indicator_context(
     values = values_df["value"]
     variance: float | None = None
     try:
-        raw_variance = values.var()
-        if isinstance(raw_variance, timedelta):
-            variance = raw_variance.total_seconds()
-        elif raw_variance is not None:
-            variance = float(raw_variance)
+        variance = cast("float | None", values.var())
     except (ValueError, ZeroDivisionError, ArithmeticError):
         logger.info("Variance calculation failed for indicator %s", indicator_id, exc_info=True)
 
     indicator_meta = indicator_lookup.get(indicator_id, {})
     dtype = indicator_meta.get("measurement_dtype")
+    if window := indicator_meta.get("observation_window"):
+        from nof1_causal_lab.artifacts.duration import parse_duration_to_hours
+
+        model_clock_hours = parse_duration_to_hours(window)
     construct_id = indicator_meta.get("construct_id")
     construct_meta = construct_lookup.get(construct_id, {}) if construct_id else {}
     is_time_invariant = construct_meta.get("temporal_status") == "time_invariant"
@@ -526,12 +513,11 @@ def build_indicator_audits(
 
 
 def run_rules(
-    rules: list[ValidationRule],
     ctx: ValidationContext,
+    *,
+    indicator_rules: Sequence[ValidationRule[IndicatorRuleInput]] = (),
+    dataset_rules: Sequence[ValidationRule[ValidationContext]] = (),
 ) -> tuple[list[RawIssue], dict[str, UncheckedJsonObject], list[RawIssue]]:
-    indicator_rules = [rule for rule in rules if rule.scope == "indicator_id"]
-    dataset_rules = [rule for rule in rules if rule.scope == "dataset"]
-
     indicator_findings: dict[str, list[ValidationFindings]] = {}
     for indicator_id, ind_data, indicator_ctx in ctx.iter_indicators():
         rule_input = IndicatorRuleInput(indicator_id, ind_data, indicator_ctx)
@@ -539,7 +525,7 @@ def run_rules(
 
     dataset_issues: list[RawIssue] = []
     for rule in dataset_rules:
-        findings = rule.check(ctx.combined, ctx.indicators)
+        findings = rule.check(ctx)
         dataset_issues.extend(issue_payload(issue) for issue in findings.issues)
 
     indicator_issues, indicator_health = reduce_findings(indicator_findings)

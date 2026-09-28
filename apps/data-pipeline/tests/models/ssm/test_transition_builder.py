@@ -128,7 +128,7 @@ def _interval_mean_support_runtime() -> ObservationSupportRuntime:
     )
 
 
-@pytest.mark.warmup
+@pytest.mark.inference(concern="warmup")
 def test_constant_vector_field_local_linearization_matches_affine_view():
     dynamics = _constant_runtime_dynamics()
     affine = _expected_affine_drift()
@@ -144,6 +144,7 @@ def test_constant_vector_field_local_linearization_matches_affine_view():
     np.testing.assert_allclose(cint, affine.b, rtol=1e-6, atol=1e-6)
 
 
+@pytest.mark.contract
 def test_transition_builder_requires_states_for_trajectory_dependent_dynamics():
     dynamics = _trajectory_runtime_dynamics()
     time_intervals = jnp.array([0.20, 0.50, 1.10], dtype=jnp.float32)
@@ -152,6 +153,7 @@ def test_transition_builder_requires_states_for_trajectory_dependent_dynamics():
         build_discrete_transitions(dynamics, time_intervals)
 
 
+@pytest.mark.contract
 def test_point_dynamic_linearization_states_use_interval_starts():
     init_mean = jnp.array([0.20, -0.10], dtype=jnp.float32)
     latent_trajectory = jnp.array(
@@ -176,7 +178,7 @@ def test_point_dynamic_linearization_states_use_interval_starts():
     np.testing.assert_array_equal(states, expected)
 
 
-@pytest.mark.warmup
+@pytest.mark.inference(concern="warmup")
 @pytest.mark.parametrize("solver", ["point", "dense", "banded"])
 def test_nonlinear_laplace_backends_match_finite_difference(monkeypatch, solver):
     """Check nonlinear parameter gradients and diagnostics at each solver boundary."""

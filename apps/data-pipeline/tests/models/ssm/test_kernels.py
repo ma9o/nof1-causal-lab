@@ -17,26 +17,18 @@ from nof1_causal_lab.models.ssm.execution.observation_model import (
     build_observation_kernel,
     compile_observation_model,
 )
-from tests.model_fixtures import full_dense_matrix_dynamics_spec, model_fixture
 
 
 class TestBuildObservationKernel:
+    @pytest.mark.contract
     def test_likelihood_constructor_rejects_invalid_family_link_pair(self):
         with pytest.raises(ValueError, match="invalid for gaussian"):
             observation_law(
                 ConstructId("construct:x"), DistributionFamily.GAUSSIAN, LinkFunction.LOG
             )
 
-    def test_direct_ssm_spec_rejects_invalid_family_link_pair(self):
-        with pytest.raises(ValueError, match="invalid for observation family 'gaussian'"):
-            model_fixture(
-                n_latent=1,
-                dynamics_spec=full_dense_matrix_dynamics_spec(1),
-                manifest_dists=[DistributionFamily.GAUSSIAN],
-                manifest_links=[LinkFunction.LOG],
-            )
-
-    @pytest.mark.predictive
+    @pytest.mark.inference(concern="sampling")
+    @pytest.mark.inference(concern="predictive")
     def test_compiled_model_shares_predictor_semantics_for_likelihood_and_sampling(self):
         manifest_cov = jnp.eye(1)
         model = compile_observation_model(
@@ -62,6 +54,7 @@ class TestBuildObservationKernel:
         assert draws[0, 0] >= 0
         assert jnp.isclose(draws[0, 0], jnp.rint(draws[0, 0]))
 
+    @pytest.mark.contract
     def test_gaussian_is_gaussian(self):
         R = jnp.eye(2)
         kernel = build_observation_kernel(
@@ -69,10 +62,12 @@ class TestBuildObservationKernel:
         )
         assert kernel.is_gaussian
 
+    @pytest.mark.contract
     def test_poisson_not_gaussian(self):
         kernel = build_observation_kernel(DistributionFamily.POISSON, LinkFunction.LOG)
         assert not kernel.is_gaussian
 
+    @pytest.mark.contract
     def test_student_t_not_gaussian(self):
         R = jnp.eye(2)
         kernel = build_observation_kernel(
@@ -80,6 +75,7 @@ class TestBuildObservationKernel:
         )
         assert not kernel.is_gaussian
 
+    @pytest.mark.inference(concern="predictive")
     def test_bernoulli_kernel(self):
         kernel = build_observation_kernel(DistributionFamily.BERNOULLI, LinkFunction.LOGIT)
         assert not kernel.is_gaussian
@@ -89,6 +85,7 @@ class TestBuildObservationKernel:
         assert var.shape == (2, 2)
         assert jnp.isclose(var[0, 0], 0.25)  # 0.5 * 0.5
 
+    @pytest.mark.inference(concern="predictive")
     def test_poisson_variance(self):
         kernel = build_observation_kernel(DistributionFamily.POISSON, LinkFunction.LOG)
         mean = jnp.array([3.0, 5.0])
@@ -96,6 +93,7 @@ class TestBuildObservationKernel:
         assert var.shape == (2, 2)
         assert jnp.isclose(var[0, 0], 3.0)  # Var = mean for Poisson
 
+    @pytest.mark.inference(concern="predictive")
     def test_negative_binomial_variance(self):
         kernel = build_observation_kernel(
             DistributionFamily.NEGATIVE_BINOMIAL,
@@ -107,6 +105,7 @@ class TestBuildObservationKernel:
         # Var = mu + mu^2 / r = 5 + 25/10 = 7.5
         assert jnp.isclose(var[0, 0], 7.5)
 
+    @pytest.mark.inference(concern="predictive")
     def test_gamma_variance(self):
         kernel = build_observation_kernel(
             DistributionFamily.GAMMA,
@@ -118,6 +117,7 @@ class TestBuildObservationKernel:
         # Var = mean^2 / shape = 16 / 2 = 8
         assert jnp.isclose(var[0, 0], 8.0)
 
+    @pytest.mark.inference(concern="predictive")
     def test_beta_variance(self):
         kernel = build_observation_kernel(
             DistributionFamily.BETA,
@@ -129,6 +129,7 @@ class TestBuildObservationKernel:
         # Var = p(1-p) / (phi+1) = 0.25 / 10 = 0.025
         assert jnp.isclose(var[0, 0], 0.025)
 
+    @pytest.mark.inference(concern="predictive")
     def test_beta_kernel_accepts_traced_positive_site(self):
         @jax.jit
         def _build_variance(obs_concentration):
@@ -142,6 +143,7 @@ class TestBuildObservationKernel:
         var = _build_variance(jnp.array(9.0))
         assert jnp.isclose(var[0, 0], 0.025)
 
+    @pytest.mark.contract
     def test_beta_kernel_rejects_nonpositive_concrete_site(self):
         with pytest.raises(ValueError, match="obs_concentration must be positive"):
             build_observation_kernel(
@@ -150,6 +152,7 @@ class TestBuildObservationKernel:
                 extra_params={"obs_concentration": 0.0},
             )
 
+    @pytest.mark.contract
     def test_gamma_inverse_response_marks_invalid_eta_as_nan(self):
         kernel = build_observation_kernel(
             DistributionFamily.GAMMA,
@@ -160,6 +163,7 @@ class TestBuildObservationKernel:
         assert jnp.isclose(response[0], 0.5)
         assert jnp.isnan(response[1])
 
+    @pytest.mark.inference(concern="predictive")
     def test_ordered_logistic_variance(self):
         kernel = build_observation_kernel(
             DistributionFamily.ORDERED_LOGISTIC,
@@ -174,6 +178,7 @@ class TestBuildObservationKernel:
         assert var.shape == (2, 2)
         assert jnp.all(jnp.diag(var) > 0)
 
+    @pytest.mark.inference(concern="predictive")
     def test_categorical_variance(self):
         kernel = build_observation_kernel(
             DistributionFamily.CATEGORICAL,
@@ -189,6 +194,7 @@ class TestBuildObservationKernel:
         assert var.shape == (1, 1)
         assert var[0, 0] > 0
 
+    @pytest.mark.contract
     def test_unsupported_link_raises(self):
         invalid_link = cast("LinkFunction", "nonexistent_link")
         with pytest.raises(ValueError, match="Unknown link function"):
@@ -196,6 +202,7 @@ class TestBuildObservationKernel:
                 DistributionFamily.GAUSSIAN, invalid_link, manifest_cov=jnp.eye(2)
             )
 
+    @pytest.mark.contract
     def test_recognized_but_invalid_family_link_pair_raises(self):
         with pytest.raises(ValueError, match="invalid for observation family 'gaussian'"):
             build_observation_kernel(
@@ -204,6 +211,7 @@ class TestBuildObservationKernel:
                 manifest_cov=jnp.eye(2),
             )
 
+    @pytest.mark.contract
     def test_gaussian_response_is_identity(self):
         R = jnp.eye(2)
         kernel = build_observation_kernel(
@@ -212,6 +220,7 @@ class TestBuildObservationKernel:
         x = jnp.array([1.0, -2.0])
         assert jnp.allclose(kernel.response_fn(x), x)
 
+    @pytest.mark.contract
     def test_gaussian_without_cov_raises_on_variance_call(self):
         kernel = build_observation_kernel(DistributionFamily.GAUSSIAN, LinkFunction.IDENTITY)
         with pytest.raises(RuntimeError, match="requires manifest_cov"):

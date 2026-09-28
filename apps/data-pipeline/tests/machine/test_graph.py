@@ -12,19 +12,16 @@ from nof1_causal_lab.machine.graph import (
     transition_spec,
 )
 
+pytestmark = pytest.mark.contract
 
-def test_model_is_one_root_with_several_authoring_operations():
+
+def test_model_is_authored_directly_and_conditioned_by_fitting():
     assert set(ROOT_ARTIFACTS) == {"model"}
     writers = [s.operation_id for s in ARTIFACT_GRAPH if "model" in s.produces]
-    assert writers == [
-        "latent_structure",
-        "measurement_structure",
-        "statistical_model_spec",
-        "posterior",
-    ]
+    assert writers == ["posterior"]
     assert len({s.operation_id for s in ARTIFACT_GRAPH}) == len(ARTIFACT_GRAPH)
     assert set(topological_artifact_order()) == set(ARTIFACT_IDS)
-    assert topological_transition_order()[-1] == "posterior"
+    assert set(topological_transition_order()) == {s.operation_id for s in ARTIFACT_GRAPH}
     assert "baseline_report" not in ARTIFACT_IDS
 
 
@@ -47,7 +44,7 @@ def test_derived_outputs_depend_on_the_canonical_definition():
 
 
 def test_scientific_gates_are_declared():
-    assert "identification_report" in transition_spec("statistical_model_spec").consumes
+    assert set(transition_spec("posterior").consumes) == {"model", "panel"}
     assert "panel" in transition_spec("posterior").consumes
     assert transition_spec("measurements").produces_optional == ("panel",)
 

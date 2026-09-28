@@ -11,6 +11,7 @@ Prior/predictive validation lives in ``ssm.predictive``.
 
 from __future__ import annotations
 
+from .draws import DynamicsDraws, dynamics_from_samples
 from .edges import (
     DiagonalDecay,
     Intercept,
@@ -31,11 +32,6 @@ from .intervention import (
     precomputed_value,
 )
 from .linearisation import Linearisation, infer_linearisation
-from .posterior import (
-    PosteriorDynamicsSamples,
-    component_param_samples_from_site_samples,
-    posterior_dynamics_from_samples,
-)
 from .serialization import (
     dynamics_spec_to_dict,
 )
@@ -60,7 +56,7 @@ __all__ = [
     "Linearisation",
     "LinearEdge",
     "Override",
-    "PosteriorDynamicsSamples",
+    "DynamicsDraws",
     "PrecomputedValueFn",
     "SimulationConfig",
     "StateDecay",
@@ -71,13 +67,12 @@ __all__ = [
     "VectorFieldArgs",
     "compile_dynamics",
     "dynamics_spec_to_dict",
-    "component_param_samples_from_site_samples",
     "compute_steady_state",
     "constant_value",
     "infer_linearisation",
     "iter_dynamics_semantic_bindings",
     "linear_ramp",
-    "posterior_dynamics_from_samples",
+    "dynamics_from_samples",
     "precomputed_value",
     "simulate",
 ]

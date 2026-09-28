@@ -3,6 +3,7 @@
 import jax.numpy as jnp
 import numpy as np
 import numpyro.distributions as dist
+import pytest
 from numpyro.handlers import seed, trace
 
 from nof1_causal_lab.models.ssm.dynamics import (
@@ -17,6 +18,8 @@ from nof1_causal_lab.models.ssm.dynamics.spec import (
     pack_component_params_from_samples,
 )
 from tests.dynamics_fixtures import decay_term, hill_term, interaction_term, linear_term
+
+pytestmark = pytest.mark.contract
 
 
 def test_composed_expression_field_preserves_nonlinearity_and_edge_surgery():

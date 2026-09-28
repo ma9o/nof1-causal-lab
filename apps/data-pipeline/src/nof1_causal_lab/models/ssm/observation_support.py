@@ -3,22 +3,19 @@
 from __future__ import annotations
 
 import heapq
-import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import numpy as np
 import polars as pl
 
 from nof1_causal_lab.models.ssm import numerics as numeric
 
-logger = logging.getLogger(__name__)
-
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.likelihood import DistributionFamily
+    from jax import Array
+
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
-NON_MANIFEST_COLUMNS = {"time"}
 SECONDS_PER_DAY = 86400.0
 
 
@@ -57,11 +54,6 @@ class ObservationSupportRuntime:
     def max_active_windows(self) -> int:
         """Maximum number of concurrent interval-summary windows per manifest."""
         return int(self.interval_prev_coeffs.shape[2]) if self.interval_prev_coeffs.ndim == 3 else 0
-
-
-def default_manifest_columns(X: Any) -> list[str]:
-    """Infer manifest columns from a wide dataframe-like object."""
-    return [c for c in X.columns if c not in NON_MANIFEST_COLUMNS and not str(c).endswith("_lag1")]
 
 
 def _datetime_expr(df: pl.DataFrame, column: str) -> pl.Expr:
@@ -421,39 +413,9 @@ def augment_wide_data_with_support_boundaries(
     return pl.concat([wide_data, missing_rows], how="vertical_relaxed").sort("time")
 
 
-def resolve_manifest_metadata(
-    spec: ModelSpec,
-    X: Any,
-) -> tuple[list[str], list[DistributionFamily]]:
-    """Resolve manifest column names and per-channel distribution families."""
-    manifest_dists = list(numeric.observation_families(spec))
-    manifest_cols = numeric.observation_names(spec) or default_manifest_columns(X)
-    if len(manifest_cols) != numeric.n_observations(spec):
-        raise ValueError(
-            "Wide data columns do not match ModelSpec manifest dimensionality: "
-            f"{len(manifest_cols)} vs {numeric.n_observations(spec)}"
-        )
-    return manifest_cols, manifest_dists
-
-
-def extract_numeric_column_values(X: Any, column: str) -> np.ndarray:
+def extract_numeric_column_values(X: pl.DataFrame, column: str) -> np.ndarray:
     """Extract one manifest column as float64, dropping nulls but not infinities."""
-    if isinstance(X, pl.DataFrame):
-        values = X.select(pl.col(column).cast(pl.Float64, strict=False)).to_series().to_numpy()
-    else:
-        series = X[column]
-        if hasattr(series, "to_numpy"):
-            try:
-                values = series.to_numpy(dtype=np.float64, na_value=np.nan)
-            except TypeError:
-                logger.info(
-                    "to_numpy() does not accept dtype/na_value for column %r; falling back", column
-                )
-                values = series.to_numpy()
-        else:
-            values = np.asarray(series)
-        values = np.asarray(values, dtype=np.float64)
-
+    values = X.select(pl.col(column).cast(pl.Float64, strict=False)).to_series().to_numpy()
     return values[~np.isnan(values)]
 
 
@@ -484,11 +446,12 @@ def validate_discrete_manifest_metadata(spec: ModelSpec, X: pl.DataFrame) -> Non
             )
 
 
-def validate_observation_support(spec: ModelSpec, X: Any) -> None:
+def validate_observation_support(spec: ModelSpec, X: pl.DataFrame) -> None:
     """Reject likelihoods whose support is incompatible with observed data."""
     from nof1_causal_lab.models.ssm.execution.observation_families import get_family_spec
 
-    manifest_cols, manifest_dists = resolve_manifest_metadata(spec, X)
+    manifest_cols = numeric.observation_names(spec)
+    manifest_dists = numeric.observation_families(spec)
 
     issues: list[str] = []
     for column, dist in zip(manifest_cols, manifest_dists, strict=False):
@@ -556,3 +519,33 @@ def simulation_observation_support(spec: ModelSpec, times: np.ndarray) -> Observ
         interval_weights=weights,
         emission_slot_indices=slots,
     )
+
+
+def prepare_simulation_observations(
+    model: ModelSpec,
+    times: np.ndarray,
+    *,
+    comparison_data: pl.DataFrame | None = None,
+) -> tuple[Array | None, ObservationSupportRuntime | None]:
+    """Resolve the same observation schedule for generation and replicate materialization."""
+    if comparison_data is None:
+        return None, simulation_observation_support(model, times)
+
+    observations, observed_times, support = prepare_comparison_observations(model, comparison_data)
+    if observed_times.shape != times.shape or not np.allclose(observed_times, times):
+        raise ValueError("Comparison data and simulation design must have the same time grid")
+    return observations, support
+
+
+def prepare_comparison_observations(
+    model: ModelSpec, comparison_data: pl.DataFrame
+) -> tuple[Array, Array, ObservationSupportRuntime | None]:
+    """Use actual observation anchors and support boundaries for predictive comparisons."""
+    from nof1_causal_lab.models.ssm.runtime import prepare_fit_inputs, project_observation_data
+
+    wide, rows = project_observation_data(comparison_data, model_spec=model)
+    wide = augment_wide_data_with_support_boundaries(rows, wide, numeric.observation_names(model))
+    validate_discrete_manifest_metadata(model, wide)
+    validate_observation_support(model, wide)
+    observations, times, names, wide = prepare_fit_inputs(model, wide)
+    return observations, times, compile_observation_support_runtime(rows, wide, names)

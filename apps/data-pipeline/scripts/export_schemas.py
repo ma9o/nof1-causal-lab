@@ -17,6 +17,8 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from nof1_causal_lab.actions.results import ActionPoll, ActionReceipt
+
 # Import all artifact contracts — this pulls in every nested domain model
 from nof1_causal_lab.actions.revisions import ModelComparison, RevisionCatalog
 from nof1_causal_lab.artifacts.catalog import ARTIFACT_CONTRACTS
@@ -24,19 +26,16 @@ from nof1_causal_lab.artifacts.effects import EffectSummary
 from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS
 from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.artifacts.scenarios import (
+    CausalEffectResult,
     EffectTrajectoryPoint,
-    ScenarioRequest,
-    SimulationResult,
     SimulationTrajectory,
 )
 from nof1_causal_lab.distributions import OBSERVATION_FAMILY_SPECS
 from nof1_causal_lab.episode_api import (
     ArtifactEnvelope,
-    AutoRunResponse,
     CapabilitiesResponse,
     EventsResponse,
     MachineDescription,
-    StartEpisodeResponse,
     TimelineResponse,
     TransitionTraceIndex,
     UploadResponse,
@@ -48,8 +47,8 @@ from nof1_causal_lab.flows.context_tools import CONTEXT_TOOLS
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.artifact_files import ARTIFACT_FILE_SPECS
 from nof1_causal_lab.machine.snapshot_models import ModelSnapshot
-from nof1_causal_lab.machine.status import EpisodeStatus, MoveOutcome
-from nof1_causal_lab.machine.view_models import ArtifactViewResponse, ArtifactViews
+from nof1_causal_lab.machine.status import EpisodeStatus
+from nof1_causal_lab.machine.view_models import ArtifactViewResponse
 from nof1_causal_lab.utils.llm import LLMTrace
 from scripts.type_system_catalog import annotate_definitions
 
@@ -69,24 +68,21 @@ EXPORTED_API_MODELS: tuple[type[BaseModel], ...] = (
     TimelineResponse,
     TransitionTraceIndex,
     EventsResponse,
-    StartEpisodeResponse,
-    AutoRunResponse,
     RevisionCatalog,
     ModelComparison,
     LLMTrace,
     ModelSnapshot,
-    ArtifactViews,
     ArtifactViewResponse,
     EpisodeStatus,
-    MoveOutcome,
+    ActionReceipt,
+    ActionPoll,
 )
 
 EXPORTED_TOOL_MODELS: tuple[type[BaseModel], ...] = (
     EffectSummary,
     EffectTrajectoryPoint,
     SimulationTrajectory,
-    SimulationResult,
-    ScenarioRequest,
+    CausalEffectResult,
 )
 
 INTERACTIVE_CONTEXTS = frozenset(

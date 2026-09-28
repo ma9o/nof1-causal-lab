@@ -6,17 +6,19 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import pytest
 
-from nof1_causal_lab.episode_api import _needs_run
-from nof1_causal_lab.machine.derivations import read_model
+from nof1_causal_lab.machine.execution import ExecutionOptions, apply_transition, input_pins
 from nof1_causal_lab.machine.graph import transition_spec
 from nof1_causal_lab.machine.inference import inference_is_current
-from nof1_causal_lab.machine.moves import ExecOptions, apply_transition, input_pins
 from nof1_causal_lab.machine.runners import execute_transition_locally
+from nof1_causal_lab.machine.store import read_model
 from nof1_causal_lab.models.ssm.inference.persistence import model_draws
 from tests.helpers import run_async
 from tests.integration import transition_runner_fixtures as fx
 from tests.model_fixtures import parameter_draws
+
+pytestmark = pytest.mark.contract
 
 if TYPE_CHECKING:
     from nof1_causal_lab.machine.store import ArtifactStore
@@ -35,7 +37,7 @@ def test_inference_advances_model_and_uses_the_selected_input(
     from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
 
     original = fx.seed_model(artifact_store)
-    panel = fx.seed_panel(artifact_store)
+    panel = fx.seed_panel(artifact_store, model_revision=original.revision)
     authored = fx.scientific_model()
     telemetry = {"new_kernel": {"accepted": [True, False], "tuning": {"step": 0.25}}, "note": None}
     parameters = parameter_draws(authored, 4)
@@ -47,17 +49,15 @@ def test_inference_advances_model_and_uses_the_selected_input(
         fitted_inputs.append(model.model_dump(mode="json"))
         return {
             "fitted": True,
-            "inference_type": "marginal_particle_gibbs",
-            "n_samples": 4,
             "duration_seconds": 0.01,
             "result": ParticleMCMCPosterior(
                 draws=JointPosteriorDraws(
                     parameters=parameters, latent_paths=paths, state_ids=states
                 )
             ),
-            "spec": model,
-            "runtime": SimpleNamespace(observation_support=None),
-            "times": jnp.array([0.0, 1.0], dtype=jnp.float32),
+            "runtime": SimpleNamespace(
+                times=jnp.array([0.0, 1.0], dtype=jnp.float32),
+            ),
             "inference_diagnostics": telemetry,
             "loo_diagnostics": None,
             "posterior_marginals": None,
@@ -67,25 +67,30 @@ def test_inference_advances_model_and_uses_the_selected_input(
     monkeypatch.setattr(stage5_fit, "fit_model", fake_fit_model)
     state = fx.state_from(original, panel)
     spec = transition_spec("posterior")
-    for version in (2, 3):
+    revisions = [original.revision]
+    for _ in range(2):
         effects = run_async(
             execute_transition_locally(
                 integration_workspace,
                 "posterior",
                 input_pins(state, spec),
                 state,
-                ExecOptions(),
+                ExecutionOptions(),
             )
         )
         info = next(info for info in effects.produced if info.artifact_id == "model")
-        assert info.version == version
+        assert info.revision not in revisions
+        revisions.append(info.revision)
         # Both provenance and computation follow the selected model revision.
-        assert info.derived_from == {"model": version - 1, "panel": 1}
+        assert info.derived_from == {
+            "model": state.current["model"].revision,
+            "panel": panel.revision,
+        }
         assert effects.diagnostics["input_pins"] == info.derived_from
         assert effects.diagnostics["report"]["inference_diagnostics"] == telemetry
         assert effects.diagnostics["report"]["inference_metadata"]["n_samples"] == 4
         assert effects.diagnostics["engine_evidence"]["latent_transition"] == "euler_maruyama"
-        conditioned = read_model(artifact_store, version)
+        conditioned = read_model(artifact_store, info.revision)
         assert type(conditioned) is type(authored)
         assert conditioned.distributions
         assert "inference_diagnostics" not in conditioned.model_dump()
@@ -95,10 +100,8 @@ def test_inference_advances_model_and_uses_the_selected_input(
             np.testing.assert_array_equal(retained.parameters[name], values)
         state = apply_transition(state, effects.produced, effects.retracted)
         assert inference_is_current(state)
-        assert not _needs_run(state, spec, conditioned)
-        assert not _needs_run(state, transition_spec("statistical_model_spec"), conditioned)
     assert fitted_inputs == [
-        read_model(artifact_store, version).model_dump(mode="json") for version in (1, 2)
+        read_model(artifact_store, revision).model_dump(mode="json") for revision in revisions[:2]
     ]
-    assert read_model(artifact_store, 1).model_dump(mode="json") == fitted_inputs[0]
-    assert artifact_store.list_versions("model") == [1, 2, 3]
+    assert read_model(artifact_store, original.revision).model_dump(mode="json") == fitted_inputs[0]
+    assert artifact_store.list_revisions("model") == revisions

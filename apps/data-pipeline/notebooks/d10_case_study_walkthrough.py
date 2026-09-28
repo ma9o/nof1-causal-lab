@@ -20,6 +20,7 @@ def imports():
     import jax.numpy as jnp
     import matplotlib.pyplot as plt
     import numpy as np
+    from predictive_support import ConstructEditSpec, evaluate_case_study
 
     from nof1_causal_lab.artifacts.likelihood import (
         DistributionFamily,
@@ -28,24 +29,16 @@ def imports():
     )
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.models.ssm.simulation_checks import DesignInfo
-    from nof1_causal_lab.recipes.construct_authoring import (
-        AdmissionState,
-        ConstructContribution,
-        admit_construct,
-        build_construct_order,
-    )
 
     return (
-        AdmissionState,
-        ConstructContribution,
+        ConstructEditSpec,
+        evaluate_case_study,
         DesignInfo,
         DistributionFamily,
         ModelSpec,
         LikelihoodSpec,
         LinkFunction,
         Path,
-        admit_construct,
-        build_construct_order,
         cs,
         jnp,
         math,
@@ -57,18 +50,13 @@ def imports():
 @app.cell(hide_code=True)
 def intro(mo):
     mo.md(r"""
-    # A blind D = 10 case study, run through the *production* Stage-4 battery
+    # A blind D = 10 case study with whole-model predictive checks
 
-    This notebook stress-tests the gradual construct-admission workflow — build the model one
-    construct at a time along the causal arrows, gating every admission with an **exact**
-    prior-predictive reachability battery on the cumulative partial model — on a **larger,
-    blind** problem. Unlike the earlier from-scratch labs, it drives the *production* code
-    directly: `nof1_causal_lab.models.ssm.construct_admission` (the admission engine) and
-    `nof1_causal_lab.models.ssm.reachability` (the checks). Every number below therefore comes
-    from the same compiler, the same exact Diffrax prior predictive, and the same C1–C5c
-    battery that Stage 4 runs in the pipeline — the notebook is a live end-to-end validation of
-    that path, not a re-implementation of it. The only notebook-local code is the elicitation
-    (turning the brief into canonical priors) and the report rendering (`case_study_support`).
+    This notebook assembles every authored construct and mechanism before running one
+    exact predictive batch. The shared production generator uses the current model laws,
+    nonlinear Diffrax dynamics and the declared emission density. The same C1–C5 reducers
+    used by scientific actions measure the resulting paths. Findings remain visible for
+    the next model revision; there are no construct admissions or repair loops.
 
     **The blind protocol.** A separate agent designed a hidden D = 10 continuous-time
     **nonlinear, non-Gaussian** ground truth (a single-subject behavioral/physiological
@@ -78,17 +66,12 @@ def intro(mo):
     `data/d10_case_study/hidden/` and were **never opened**, so the priors here are a genuine
     blind elicitation, not reverse-engineered from the answer.
 
-    **What "success" means here.** Passing all checks does **not** mean the priors match the
-    hidden truth — we cannot see it. It means the priors are internally consistent and
-    data-reachable *before any fit*: every construct is on a plausible scale, its dynamics are
-    visible at the sampling cadence, its edges are detectable without overwhelming it, and its
-    indicator carries information about it. That is exactly what a prior-predictive gate can
-    certify. Whether the priors *recover* the truth is a separate, post-fit question.
+    **Interpreting findings.** These are prior-design screens against the observed data.
+    Passing them does not establish recovery of the hidden truth, practical parameter
+    identification, or causal identification. Those require separate evidence.
 
-    **A note on runtime.** Each admission compiles the growing partial model and runs a batch of
-    exact SDE prior-predictive draws through Diffrax (the step is refined per draw to resolve the
-    fastest construct's relaxation), so a full 10-construct build takes on the order of
-    10–20 minutes — the cost of validating the real engine rather than a fast surrogate.
+    **Runtime.** The base batch is shared across all constructs. This notebook also requests
+    paired edge-knockout experiments, so each checked edge adds another trajectory batch.
     """)
     return
 
@@ -258,7 +241,6 @@ def scientific_model(EDGES, INDICATORS, ORDER, ModelSpec):
                         "id": f"indicator:{_ind}",
                         "name": _ind,
                         "construct_polarity": "positive",
-                        "how_to_measure": _ind,
                         "measurement_dtype": _dtype,
                         "aggregation": "last",
                     }
@@ -392,7 +374,7 @@ def elicitation_md(mo):
 @app.cell
 def elicitation(
     SCIENTIFIC_MODEL,
-    ConstructContribution,
+    ConstructEditSpec,
     DistributionFamily,
     INDICATORS,
     LikelihoodSpec,
@@ -402,15 +384,15 @@ def elicitation(
     math,
     np,
 ):
-    from prior_specification_support import model_with_prior_payloads as _model_with_prior_payloads
+    from notebooks.model_mechanisms import declare_dynamics as _declare_dynamics
+    from notebooks.parameter_planning import (
+        complete_component_slots as _complete_slots,
+    )
+    from predictive_support import model_with_prior_payloads as _model_with_prior_payloads
 
     from nof1_causal_lab.artifacts.construct import replace_constructs as _replace_constructs
     from nof1_causal_lab.models.likelihoods import observation_law as _observation_law
-    from nof1_causal_lab.models.model_mechanisms import declare_dynamics as _declare_dynamics
     from nof1_causal_lab.models.model_parameters import referenced_parameter_ids as _parameter_ids
-    from nof1_causal_lab.models.parameter_planning import (
-        complete_component_slots as _complete_slots,
-    )
 
     _hill_choices = set()
 
@@ -520,7 +502,7 @@ def elicitation(
         _entity = _proposal.get_construct(_entity.id)
         _edges = tuple(edge for edge in _proposal.edges if edge.effect.id == _entity.id)
         _referenced = _parameter_ids(_entity, *_edges)
-        return ConstructContribution(
+        return ConstructEditSpec(
             construct=_entity,
             edges=_edges,
             parameters=tuple(_p for _p in _proposal.parameters if _p.id in _referenced),
@@ -537,70 +519,22 @@ def elicitation(
 
 @app.cell(hide_code=True)
 def build_md(mo):
-    mo.md(r"""
-    ## 4. The staged build
+    mo.md("""
+    ## Full-model predictive checks
 
-    Each construct is admitted in topological order (roots and the unobserved node first), its
-    checks run on the cumulative partial model by exact Diffrax prior-predictive simulation.
-    Every observed construct brings its emission — and thus its data anchor — at admission.
-    Soft-check consequences that are physically honest (a genuinely fast root the design cannot
-    resolve; a slow child that is legitimately parent-driven) are **accepted** and recorded on
-    the build state; hard checks (finite sim, reachable data location) must pass to admit.
+    All authored definitions are assembled before one exact batch.
+    Failed findings remain visible for the next edit.
     """)
     return
 
 
 @app.cell
-def run_build(
-    AdmissionState,
-    MODEL,
-    admit_construct,
-    build_construct_order,
-    contribution,
-    data,
-    design,
-):
-    # Soft checks are a "revise or accept" decision. In a real interactive build the proposer
-    # decides each one; to keep this notebook a single deterministic pass we accept every soft
-    # consequence up front, with a curated rationale where we have a physical one and a generic
-    # note otherwise. An accepted soft check only leaves an annotation when it actually fails,
-    # so passing checks still render green — the board below shows exactly what was accepted.
-    _SOFT = [
-        "C1b confinement",
-        "C2 latent scale",
-        "C3 resolvability",
-        "C4b edge overwhelm",
-        "C4c saturation",
-        "C5b width",
-        "C5c transmission",
+def run_checks(MODEL, contribution, data, design, evaluate_case_study):
+    _edits = [
+        contribution(construct.name, data) for construct in MODEL.constructs if construct.indicators
     ]
-    _RATIONALE = {
-        ("CaffeineIntake", "C3 resolvability"): "day-to-day caffeine intake is near-day-specific; "
-        "its fast self-timescale is below what once-daily sampling resolves — kept honest, "
-        "confirmed post-fit.",
-        ("CognitiveFocus", "C1b confinement"): "a small tail (~1%) of prior draws let this deep, "
-        "multi-parent node grow late in the window while the median path stays confined; accepted "
-        "as a negligible-frequency excursion, re-checked on the posterior.",
-    }
-
-    def _accept_for(c):
-        return {
-            (chk, c): _RATIONALE.get((c, chk), "accepted for this single-pass walkthrough")
-            for chk in _SOFT
-        }
-
-    _state = AdmissionState(model=MODEL)
-    reports = {}
-    for _c in build_construct_order(MODEL):
-        _state, _report = admit_construct(
-            _state,
-            contribution(_c, data),
-            design,
-            accepted=_accept_for(_c),
-        )
-        reports[_c] = _report
-    final_state = _state
-    return final_state, reports
+    checked_model, reports = evaluate_case_study(MODEL, _edits, design)
+    return checked_model, reports
 
 
 @app.cell
@@ -616,7 +550,7 @@ def r_arousal(mo):
 
     The structural compiler marginalizes this explicit scientific-DAG root instead of admitting
     an unanchored latent state. Its shared-child dependence is represented by the compiled
-    innovation structure, so it has no standalone admission report.
+    innovation structure, so it has no standalone retained-state report.
     """)
     return
 
@@ -680,7 +614,7 @@ def summary_md(mo):
     mo.md(r"""
     ## 5. Outcome
 
-    The board below is read straight off the live `ConstructAdmissionReport` objects — every verdict is
+    The board below is read straight off the live `ConstructPredictiveReport` objects — every verdict is
     the production battery's, not a narrated recollection.
     """)
     return
@@ -695,32 +629,21 @@ def summary_table(ORDER, mo, reports):
             continue
         _r = reports[_nm]
         _reds = [c.check for c in _r.results if not c.passed]
-        _outcome = _r.outcome.split("—")[0].strip()
+        _outcome = "findings" if any(item.passed is False for item in _r.results) else "passed"
         _rows.append(f"| {_nm} | {len(_r.results)} | {_outcome} | {', '.join(_reds) or '—'} |")
     mo.md("| construct | # checks | outcome | reds |\n|---|---|---|---|\n" + "\n".join(_rows))
     return
 
 
 @app.cell(hide_code=True)
-def closing(final_state, mo):
+def closing(checked_model, reports, mo):
+    _failed = sum(
+        result.passed is False for report in reports.values() for result in report.results
+    )
     mo.md(
-        "## 6. What this run demonstrates\n\n"
-        "- **The production Stage-4 engine scales to a blind ten-construct scientific DAG.** "
-        "The structural compiler marginalizes its unobserved root into induced dependence, "
-        "then the same "
-        "construct-admission loop, exact prior predictive, and C1–C5c battery that the pipeline "
-        "runs drove the nine-state executable build with heterogeneous emissions (Gaussian "
-        "identity, Beta/logit slider, Poisson count) — no engine changes, only elicitation.\n"
-        "- **The gate is honest about what it certifies.** Every green is a statement about the "
-        "*prior*: on-scale, dynamics visible at cadence, edges detectable but not overwhelming, "
-        "links informative — all before a single fit. Accepted soft consequences (recorded on "
-        "the build state) mark exactly where the design, not the prior, is the limit.\n"
-        "- **Recovery is the next question.** Whether these priors *recover* the hidden "
-        "parameters is answerable only by fitting and comparing against `hidden/` — which this "
-        "exercise deliberately never opened.\n\n"
-        f"Final build state: **{len(final_state.names)} constructs admitted**, "
-        f"**{len(final_state.annotations)} accepted consequence(s)** carried forward for "
-        "post-fit follow-up."
+        f"The whole authored model retains {len(checked_model.constructs)} constructs. "
+        f"Its shared exact predictive batch produced {_failed} failed checks. "
+        "Findings guide the next edit; they do not admit constructs or certify causal claims."
     )
     return
 

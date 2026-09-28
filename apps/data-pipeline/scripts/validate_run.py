@@ -13,13 +13,14 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import ValidationError
 
 from nof1_causal_lab.artifacts.catalog import ARTIFACT_CONTRACTS
+from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
 from nof1_causal_lab.artifacts.identification import IdentificationReport
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.posterior import InferenceReport
 from nof1_causal_lab.artifacts.raw_data import column_descriptions
 from nof1_causal_lab.machine.artifact_files import ARTIFACT_FILE_SPECS, parquet_filename
 from nof1_causal_lab.machine.graph import topological_artifact_order
-from nof1_causal_lab.machine.store import ArtifactStore, derive_current_state
+from nof1_causal_lab.machine.store import ArtifactStore, read_current_state
 from nof1_causal_lab.utils import storage
 
 if TYPE_CHECKING:
@@ -52,12 +53,12 @@ class RunContext:
 
     def input(self, output: ArtifactId, dependency: ArtifactId) -> UncheckedJsonObject:
         """Read an original pin, even if the selected model has since changed."""
-        version = self.state.current[output].derived_from[dependency]
+        revision = self.state.current[output].derived_from[dependency]
         selected = self.state.get(dependency)
-        if selected is not None and selected.version == version and dependency in self.artifacts:
+        if selected is not None and selected.revision == revision and dependency in self.artifacts:
             return self.artifacts[dependency]
         filename = next(iter(ARTIFACT_FILE_SPECS[dependency].json.values()))
-        return ArtifactStore(self.workspace_id).read_json_file(dependency, version, filename)
+        return ArtifactStore(self.workspace_id).read_json_file(dependency, revision, filename)
 
 
 def load_parquet(path: str):
@@ -72,7 +73,7 @@ def load_run_context(workspace_id: str, *, up_to: str | None) -> RunContext:
         if up_to not in order:
             raise ValueError(f"Unknown artifact {up_to!r}. Expected one of: {', '.join(order)}")
         order = order[: order.index(up_to) + 1]
-    state = derive_current_state(workspace_id)
+    state = read_current_state(workspace_id)
     store = ArtifactStore(workspace_id)
     artifacts = {}
     paths = {}
@@ -82,19 +83,19 @@ def load_run_context(workspace_id: str, *, up_to: str | None) -> RunContext:
         if info is None or not files:
             continue
         filename = next(iter(files.values()))
-        artifacts[artifact_id] = store.read_json_file(artifact_id, info.version, filename)
-        paths[artifact_id] = store.file_path(artifact_id, info.version, filename)
+        artifacts[artifact_id] = store.read_json_file(artifact_id, info.revision, filename)
+        paths[artifact_id] = store.file_path(artifact_id, info.revision, filename)
     model_indicators = None
     if "panel" in order and (panel := state.get("panel")) is not None:
         frame = load_parquet(
-            store.file_path("panel", panel.version, parquet_filename("panel", "panel"))
+            store.file_path("panel", panel.revision, parquet_filename("panel", "panel"))
         )
         model_indicators = set(frame["indicator_id"].unique().to_list())
     raw_columns = None
     raw_table = None
     if "raw_data" in order and (raw := state.get("raw_data")) is not None:
         raw_table = store.read_parquet_table(
-            "raw_data", raw.version, parquet_filename("raw_data", "raw")
+            "raw_data", raw.revision, parquet_filename("raw_data", "raw")
         )
         raw_columns = set(raw_table.column_names)
     return RunContext(
@@ -118,12 +119,14 @@ def rule_contract_conformance(ctx: RunContext) -> list[LineageIssue]:
 
 
 def rule_source_columns_in_raw_data(ctx: RunContext) -> list[LineageIssue]:
-    if ctx.raw_input_columns is None or "model" not in ctx.artifacts:
+    if ctx.raw_input_columns is None or "panel" not in ctx.artifacts:
         return []
-    model = ModelSpec.model_validate(ctx.artifacts["model"])
+    metadata = PreparedDataMetadata.model_validate(ctx.artifacts["panel"])
+    if metadata.preparation is None:
+        return []
     unknown = {
         i.id: sorted(set(i.source_columns) - ctx.raw_input_columns)
-        for i in model.indicators
+        for i in metadata.preparation.variables
         if set(i.source_columns) - ctx.raw_input_columns
     }
     return (
@@ -131,7 +134,7 @@ def rule_source_columns_in_raw_data(ctx: RunContext) -> list[LineageIssue]:
             LineageIssue(
                 "source-columns-in-raw-data",
                 "error",
-                ("model", "raw_data"),
+                ("panel", "raw_data"),
                 f"Indicator source columns absent from raw parquet: {unknown}",
             )
         ]
@@ -143,14 +146,14 @@ def rule_source_columns_in_raw_data(ctx: RunContext) -> list[LineageIssue]:
 def rule_indicators_in_panel(ctx: RunContext) -> list[LineageIssue]:
     if not ctx.state.has("panel") or ctx.model_indicators is None:
         return []
-    model = ModelSpec.model_validate(ctx.input("panel", "model"))
-    missing = {i.id for i in model.indicators} - ctx.model_indicators
+    metadata = PreparedDataMetadata.model_validate(ctx.artifacts["panel"])
+    missing = {i.id for i in metadata.variables} - ctx.model_indicators
     return (
         [
             LineageIssue(
                 "indicators-in-panel",
                 "warning",
-                ("model", "panel"),
+                ("panel",),
                 f"No extracted observations for declared indicators: {sorted(missing)}",
             )
         ]
@@ -191,11 +194,11 @@ def rule_pinned_model_contracts(ctx: RunContext) -> list[LineageIssue]:
 
 
 def rule_posterior_bindings(ctx: RunContext) -> list[LineageIssue]:
+    from nof1_causal_lab.machine.history import StudyRepository
     from nof1_causal_lab.machine.inference import inference_report_record
-    from nof1_causal_lab.machine.store import EpisodeJournal
     from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
 
-    record = inference_report_record(EpisodeJournal(ctx.workspace_id).read_all(), ctx.state)
+    record = inference_report_record(StudyRepository(ctx.workspace_id).attempts(), ctx.state)
     if record is None:
         return []
     posterior = InferenceReport.model_validate(record.diagnostics["report"])

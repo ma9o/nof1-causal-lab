@@ -13,19 +13,21 @@ import logging
 from temporalio.worker import Worker
 from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner, SandboxRestrictions
 
-from nof1_causal_lab.machine.temporal.activities import ALL_ACTIVITIES
+from nof1_causal_lab.machine.temporal.activities import (
+    ALL_ACTIVITIES,
+    evaluate_data_checks_activity,
+    evaluate_model_checks_activity,
+)
 from nof1_causal_lab.machine.temporal.client import (
     EPISODE_TASK_QUEUE,
     HARNESS_CLAUDE_TASK_QUEUE,
     HARNESS_CODEX_TASK_QUEUE,
     HARNESS_PI_TASK_QUEUE,
-    MODEL_SPEC_SIMULATION_TASK_QUEUE,
+    MODEL_CHECKS_TASK_QUEUE,
     OPENROUTER_TASK_QUEUE,
     connect_client,
 )
 from nof1_causal_lab.machine.temporal.llm_subroutine_activities import (
-    execute_harness_tool_request_activity,
-    execute_llm_tool_calls_activity,
     run_harness_turn_activity,
 )
 from nof1_causal_lab.machine.temporal.llm_subroutine_workflow import LLMSubroutineWorkflow
@@ -34,13 +36,6 @@ from nof1_causal_lab.machine.temporal.measurement_activities import call_openrou
 from nof1_causal_lab.machine.temporal.measurement_workflow import (
     ExtractionChunkWorkflow,
     MeasurementsWorkflow,
-)
-from nof1_causal_lab.machine.temporal.statistical_model_spec_activities import (
-    plan_statistical_model_spec_activity,
-    validate_statistical_model_spec_barrier_activity,
-)
-from nof1_causal_lab.machine.temporal.statistical_model_spec_workflow import (
-    StatisticalModelSpecWorkflow,
 )
 from nof1_causal_lab.machine.temporal.workflow import EpisodeWorkflow
 
@@ -54,10 +49,12 @@ def episode_workflow_runner() -> SandboxedWorkflowRunner:
     re-importing jaxlib inside the sandbox aborts the process. Passing the
     package through is safe here because workflow determinism is carried
     by construction (the workflow only calls the pure machine functions).
+    Typed model requests run deterministic NetworkX graph validation during
+    payload decoding; its import-time backend configuration stays outside replay.
     """
     return SandboxedWorkflowRunner(
         restrictions=SandboxRestrictions.default.with_passthrough_modules(
-            "nof1_causal_lab", "pydantic"
+            "nof1_causal_lab", "pydantic", "networkx"
         )
     )
 
@@ -70,7 +67,6 @@ def build_worker(client, task_queue: str = EPISODE_TASK_QUEUE) -> Worker:
             EpisodeWorkflow,
             SingleLLMTransitionWorkflow,
             MeasurementsWorkflow,
-            StatisticalModelSpecWorkflow,
             ExtractionChunkWorkflow,
             LLMSubroutineWorkflow,
         ],
@@ -102,20 +98,15 @@ def build_harness_worker(
     )
 
 
-def build_model_spec_simulation_worker(
+def build_model_checks_worker(
     client,
-    task_queue: str = MODEL_SPEC_SIMULATION_TASK_QUEUE,
+    task_queue: str = MODEL_CHECKS_TASK_QUEUE,
 ) -> Worker:
-    """Serialize exact Stage 4 simulations without limiting harness turns."""
+    """Serialize automatic exact check batches independently of ingestion workers."""
     return Worker(
         client,
         task_queue=task_queue,
-        activities=[
-            execute_harness_tool_request_activity,
-            execute_llm_tool_calls_activity,
-            plan_statistical_model_spec_activity,
-            validate_statistical_model_spec_barrier_activity,
-        ],
+        activities=[evaluate_model_checks_activity, evaluate_data_checks_activity],
         max_concurrent_activities=1,
     )
 
@@ -136,15 +127,15 @@ async def run_worker() -> None:
         client,
         HARNESS_PI_TASK_QUEUE,
     )
-    model_spec_simulation_worker = build_model_spec_simulation_worker(client)
+    model_checks_worker = build_model_checks_worker(client)
     logger.info("Episode worker started on task queue %s", EPISODE_TASK_QUEUE)
     logger.info("OpenRouter worker started on task queue %s", OPENROUTER_TASK_QUEUE)
     logger.info("Claude harness worker started on task queue %s", HARNESS_CLAUDE_TASK_QUEUE)
     logger.info("Codex harness worker started on task queue %s", HARNESS_CODEX_TASK_QUEUE)
     logger.info("Pi harness worker started on task queue %s", HARNESS_PI_TASK_QUEUE)
     logger.info(
-        "Model-spec simulation worker started on task queue %s",
-        MODEL_SPEC_SIMULATION_TASK_QUEUE,
+        "Model checks worker started on task queue %s",
+        MODEL_CHECKS_TASK_QUEUE,
     )
     await asyncio.gather(
         episode_worker.run(),
@@ -152,7 +143,7 @@ async def run_worker() -> None:
         claude_worker.run(),
         codex_worker.run(),
         pi_worker.run(),
-        model_spec_simulation_worker.run(),
+        model_checks_worker.run(),
     )
 
 

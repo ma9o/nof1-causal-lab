@@ -30,6 +30,8 @@ from tests.helpers import declare_test_dynamics, fixture_entity_id, make_model
 from tests.model_fixtures import model_fixture
 from tests.slot_fixtures import fixture_parameter_id, with_likelihood_coefficients
 
+pytestmark = pytest.mark.contract
+
 # ═══════════════════════════════════════════════════════════════════════
 # Fixture builders
 # ═══════════════════════════════════════════════════════════════════════
@@ -47,7 +49,6 @@ def _indicator(
         "construct_id": fixture_entity_id("construct", construct_name),
         "name": name,
         "construct_polarity": polarity,
-        "how_to_measure": f"measure {name}",
         "measurement_dtype": dtype,
         "aggregation": "mean" if dtype == "continuous" else "last",
     }
@@ -152,7 +153,7 @@ def _with_likelihoods(
             ),
         )
     )
-    from nof1_causal_lab.models.parameter_planning import complete_component_slots
+    from notebooks.parameter_planning import complete_component_slots
 
     declared = declare_test_dynamics(model, centered_states=centered_states)
     replacements = {p.name: p for p in parameters or ()}
@@ -192,8 +193,9 @@ def _manifest_mean(variable: str, *, plan: ModelSpec) -> ParameterSpec:
 
 
 def _center(plan: ModelSpec) -> ParameterSpec:
+    from notebooks.model_mechanisms import default_mechanism_id
+
     from nof1_causal_lab.artifacts.identity import MechanismRef
-    from nof1_causal_lab.models.model_mechanisms import default_mechanism_id
 
     cid = plan.state_order[0]
     owners = (ConstructRef(id=cid), MechanismRef(id=default_mechanism_id(cid, "node_potential")))
@@ -535,7 +537,7 @@ class TestAnchorSurfaces:
         assert numeric.loading_block(spec).free_support[ordinal_row, 0]
 
     def test_raw_gaussian_sum_authors_an_intercept_slot(self):
-        from nof1_causal_lab.models.parameter_planning import complete_component_slots
+        from notebooks.parameter_planning import complete_component_slots
 
         plan = _structure(["dose"], [_indicator("fill_quantity", "dose", "continuous")])
         owner = plan.constructs[0]

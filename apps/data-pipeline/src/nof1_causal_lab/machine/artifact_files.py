@@ -1,8 +1,8 @@
-"""Canonical file layout for versioned machine artifacts.
+"""Canonical file layout within an immutable artifact's Git tree.
 
 The artifact graph names semantic dependencies such as ``panel`` or
 ``model``. This module is the single map from those artifact ids to the
-files inside ``store/{artifact_id}/v{N}/``. UI projections, fixture seeders,
+payload names within each artifact tree. UI projections, fixture seeders,
 stage runners, and tool contexts should refer to this map instead of spelling
 filenames independently.
 """
@@ -33,7 +33,7 @@ ARTIFACT_FILE_SPECS: dict[ArtifactId, ArtifactFileSpec] = {
     "identification_report": ArtifactFileSpec(
         json={"identification_report": "identification_report.json"}
     ),
-    "panel": ArtifactFileSpec(parquet={"panel": "panel.parquet"}),
+    "panel": ArtifactFileSpec(json={"metadata": "metadata.json"}, parquet={"panel": "panel.parquet"}),
     "data_profile": ArtifactFileSpec(json={"data_profile": "data_profile.json"}),
     "validation_report": ArtifactFileSpec(json={"validation_report": "validation_report.json"}),
 }

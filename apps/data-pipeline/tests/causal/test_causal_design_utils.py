@@ -25,7 +25,10 @@ from nof1_causal_lab.utils.model_structure import (
     get_marginalized_scales,
     get_state_names,
 )
-from tests.helpers import make_model
+from tests.causal.graph_fixtures import make_graph
+from tests.helpers import fixture_entity_id, make_model
+
+pytestmark = pytest.mark.contract
 
 
 def _full_spec():
@@ -131,206 +134,85 @@ class TestMakeMeasurementExtractionContext:
 
 
 class TestBuildDigraph:
-    def test_simple_chain(self):
-        model = {
-            "edges": [
-                {"cause": "A", "effect": "B"},
-                {"cause": "B", "effect": "C"},
-            ]
-        }
-        graph = build_digraph_from_edges((model)["edges"])
-        assert set(graph.nodes()) == {"A", "B", "C"}
-        assert graph.has_edge("A", "B")
-        assert graph.has_edge("B", "C")
-        assert not graph.has_edge("A", "C")
-
-    def test_empty_edges(self):
-        assert len(build_digraph_from_edges(({"edges": []})["edges"]).nodes()) == 0
-
-    def test_diamond_topology(self):
-        graph = build_digraph_from_edges(
+    @pytest.mark.parametrize(
+        ("names", "pairs", "expected_edges"),
+        [
+            (["A", "B", "C"], [("A", "B"), ("B", "C")], {("A", "B"), ("B", "C")}),
+            ([], [], set()),
             (
-                {
-                    "edges": [
-                        {"cause": "A", "effect": "B"},
-                        {"cause": "A", "effect": "C"},
-                        {"cause": "B", "effect": "D"},
-                        {"cause": "C", "effect": "D"},
-                    ]
-                }
-            )["edges"]
+                ["A", "B", "C", "D"],
+                [("A", "B"), ("A", "C"), ("B", "D"), ("C", "D")],
+                {("A", "B"), ("A", "C"), ("B", "D"), ("C", "D")},
+            ),
+            (["A"], [("A", "A")], {("A", "A")}),
+            (["A", "B"], [("A", "B"), ("A", "B")], {("A", "B")}),
+        ],
+        ids=["chain", "empty", "diamond", "self_loop", "duplicate_edges"],
+    )
+    def test_edge_topologies(self, names, pairs, expected_edges):
+        _, edges = make_graph(
+            [{"name": name} for name in names],
+            [{"cause": cause, "effect": effect} for cause, effect in pairs],
         )
-        assert set(graph.nodes()) == {"A", "B", "C", "D"}
-        assert len(graph.edges()) == 4
-
-    def test_self_loop(self):
-        graph = build_digraph_from_edges(({"edges": [{"cause": "A", "effect": "A"}]})["edges"])
-        assert set(graph.nodes()) == {"A"}
-        assert graph.has_edge("A", "A")
-
-    def test_duplicate_edges(self):
-        graph = build_digraph_from_edges(
-            (
-                {
-                    "edges": [
-                        {"cause": "A", "effect": "B"},
-                        {"cause": "A", "effect": "B"},
-                    ]
-                }
-            )["edges"]
-        )
-        assert len(graph.edges()) == 1
+        graph = build_digraph_from_edges(edges)
+        assert set(graph.nodes) == set(names)
+        assert set(graph.edges) == expected_edges
 
 
 class TestGetOutcomeName:
     def test_finds_outcome(self):
-        assert (
-            get_outcome_name(
-                {
-                    "default_outcome": "construct:Y",
-                    "constructs": [
-                        {"id": "construct:X", "name": "X"},
-                        {"id": "construct:Y", "name": "Y"},
-                    ],
-                }
-            )
-            == "Y"
-        )
+        constructs, _ = make_graph([{"name": "X"}, {"name": "Y"}], [])
+        assert get_outcome_name(constructs, fixture_entity_id("construct", "Y")) == "Y"
 
     def test_no_outcome(self):
-        assert (
-            get_outcome_name(
-                {
-                    "constructs": [
-                        {"name": "X"},
-                        {"name": "Z"},
-                    ]
-                }
-            )
-            is None
-        )
+        constructs, _ = make_graph([{"name": "X"}, {"name": "Z"}], [])
+        assert get_outcome_name(constructs, None) is None
 
     def test_empty_constructs(self):
-        assert get_outcome_name({"constructs": []}) is None
-
-    def test_missing_constructs_key(self):
-        assert get_outcome_name({}) is None
+        assert get_outcome_name((), None) is None
 
 
 class TestGetAllTreatments:
-    def test_chain_treatments(self):
-        treatments = get_all_treatments(
-            {
-                "default_outcome": "construct:Y",
-                "constructs": [
-                    {"id": "construct:A", "name": "A"},
-                    {"id": "construct:B", "name": "B"},
-                    {"id": "construct:Y", "name": "Y"},
-                ],
-                "edges": [
-                    {"cause_id": "construct:A", "effect_id": "construct:B"},
-                    {"cause_id": "construct:B", "effect_id": "construct:Y"},
-                ],
-            }
+    @pytest.mark.parametrize(
+        ("names", "pairs", "outcome", "expected"),
+        [
+            (["A", "B", "Y"], [("A", "B"), ("B", "Y")], "Y", ["A", "B"]),
+            (["X", "Y", "Z"], [("X", "Y")], "Y", ["X"]),
+            (["A", "B"], [("A", "B")], None, []),
+            (
+                ["Zebra", "Apple", "Outcome"],
+                [("Zebra", "Outcome"), ("Apple", "Outcome")],
+                "Outcome",
+                ["Apple", "Zebra"],
+            ),
+            (["X", "Y", "Z"], [("X", "Y"), ("X", "Z")], "Y", ["X"]),
+            (
+                ["A", "B", "C", "D"],
+                [("A", "B"), ("A", "C"), ("B", "D"), ("C", "D")],
+                "D",
+                ["A", "B", "C"],
+            ),
+            ([], [], None, []),
+            (["Y"], [], "Y", []),
+        ],
+        ids=[
+            "chain",
+            "disconnected",
+            "no_outcome",
+            "sorted",
+            "fork",
+            "diamond",
+            "empty",
+            "outcome_only",
+        ],
+    )
+    def test_treatments(self, names, pairs, outcome, expected):
+        constructs, edges = make_graph(
+            [{"name": name} for name in names],
+            [{"cause": cause, "effect": effect} for cause, effect in pairs],
         )
-        assert treatments == ["A", "B"]
-
-    def test_disconnected_not_treatment(self):
-        treatments = get_all_treatments(
-            {
-                "default_outcome": "construct:Y",
-                "constructs": [
-                    {"id": "construct:X", "name": "X"},
-                    {"id": "construct:Y", "name": "Y"},
-                    {"id": "construct:Z", "name": "Z"},
-                ],
-                "edges": [{"cause_id": "construct:X", "effect_id": "construct:Y"}],
-            }
-        )
-        assert treatments == ["X"]
-
-    def test_no_outcome_returns_empty(self):
-        assert (
-            get_all_treatments(
-                {
-                    "constructs": [
-                        {"id": "construct:A", "name": "A"},
-                        {"id": "construct:B", "name": "B"},
-                    ],
-                    "edges": [{"cause_id": "construct:A", "effect_id": "construct:B"}],
-                }
-            )
-            == []
-        )
-
-    def test_sorted_output(self):
-        treatments = get_all_treatments(
-            {
-                "default_outcome": "construct:Outcome",
-                "constructs": [
-                    {"id": "construct:Zebra", "name": "Zebra"},
-                    {"id": "construct:Apple", "name": "Apple"},
-                    {"id": "construct:Outcome", "name": "Outcome"},
-                ],
-                "edges": [
-                    {"cause_id": "construct:Zebra", "effect_id": "construct:Outcome"},
-                    {"cause_id": "construct:Apple", "effect_id": "construct:Outcome"},
-                ],
-            }
-        )
-        assert treatments == ["Apple", "Zebra"]
-
-    def test_fork_topology(self):
-        treatments = get_all_treatments(
-            {
-                "default_outcome": "construct:Y",
-                "constructs": [
-                    {"id": "construct:X", "name": "X"},
-                    {"id": "construct:Y", "name": "Y"},
-                    {"id": "construct:Z", "name": "Z"},
-                ],
-                "edges": [
-                    {"cause_id": "construct:X", "effect_id": "construct:Y"},
-                    {"cause_id": "construct:X", "effect_id": "construct:Z"},
-                ],
-            }
-        )
-        assert treatments == ["X"]
-
-    def test_diamond_all_treatments(self):
-        treatments = get_all_treatments(
-            {
-                "default_outcome": "construct:D",
-                "constructs": [
-                    {"id": "construct:A", "name": "A"},
-                    {"id": "construct:B", "name": "B"},
-                    {"id": "construct:C", "name": "C"},
-                    {"id": "construct:D", "name": "D"},
-                ],
-                "edges": [
-                    {"cause_id": "construct:A", "effect_id": "construct:B"},
-                    {"cause_id": "construct:A", "effect_id": "construct:C"},
-                    {"cause_id": "construct:B", "effect_id": "construct:D"},
-                    {"cause_id": "construct:C", "effect_id": "construct:D"},
-                ],
-            }
-        )
-        assert treatments == ["A", "B", "C"]
-
-    def test_empty_model(self):
-        assert get_all_treatments({"constructs": [], "edges": []}) == []
-
-    def test_outcome_only(self):
-        assert (
-            get_all_treatments(
-                {
-                    "default_outcome": "construct:Y",
-                    "constructs": [{"id": "construct:Y", "name": "Y"}],
-                    "edges": [],
-                }
-            )
-            == []
-        )
+        default_outcome = fixture_entity_id("construct", outcome) if outcome is not None else None
+        assert get_all_treatments(constructs, edges, default_outcome) == expected
 
 
 class TestModelSpecAccessors:

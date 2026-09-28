@@ -1,20 +1,10 @@
-"""Tests for worker core helper functions.
-
-Covers: _format_indicators, WorkerMessages, run_worker_extraction.
-"""
-
-import json
-import logging
+"""Tests for worker indicator formatting and extraction prompts."""
 
 import pytest
 
-from tests.helpers import make_mock_session_factory
-from tests.helpers import run_async as _run
-from tests.transitions.extraction._worker import (
-    WorkerMessages,
-    _format_indicators,
-    run_worker_extraction,
-)
+from nof1_causal_lab.workers.messages import WorkerMessages, _format_indicators
+
+pytestmark = pytest.mark.contract
 
 
 def _measurement_structure():
@@ -127,75 +117,3 @@ class TestWorkerMessages:
         user_msg = msgs[1]["content"]
         assert "pss_score" in user_msg
         assert "sleep_hours" in user_msg
-
-
-# =============================================================================
-# run_worker_extraction
-# =============================================================================
-
-
-class TestRunWorkerExtraction:
-    def _sample_window_text(self):
-        return "## Window Start: 2024-01-01\n\n08:00  Searched for sleep hygiene"
-
-    def _sample_window_starts(self):
-        return ["2024-01-01"]
-
-    def test_empty_completion_raises_parse_error(self, caplog):
-        factory = make_mock_session_factory([""])
-        logger = logging.getLogger("test_worker_core")
-
-        with (
-            caplog.at_level(logging.INFO, logger=logger.name),
-            pytest.raises(
-                RuntimeError,
-                match="did not capture structured output",
-            ),
-        ):
-            _run(
-                run_worker_extraction(
-                    window_text=self._sample_window_text(),
-                    window_starts=self._sample_window_starts(),
-                    question="How does screen time affect sleep?",
-                    measurement_structure=_measurement_structure(),
-                    session_factory=factory,
-                    logger=logger,
-                )
-            )
-
-        assert "Model call returned 0 characters" in caplog.text
-
-    def test_call_label_passed_when_generate_supports_it(self, caplog):
-        factory = make_mock_session_factory(
-            [
-                json.dumps(
-                    {
-                        "extractions": [
-                            {
-                                "window_start": "2024-01-01",
-                                "indicator_id": "indicator:6bde869aba53fb51e0f4",
-                                "value": 12.0,
-                            }
-                        ]
-                    }
-                )
-            ]
-        )
-
-        logger = logging.getLogger("test_worker_core")
-
-        with caplog.at_level(logging.INFO, logger=logger.name):
-            result = _run(
-                run_worker_extraction(
-                    window_text=self._sample_window_text(),
-                    window_starts=self._sample_window_starts(),
-                    question="How does screen time affect sleep?",
-                    measurement_structure=_measurement_structure(),
-                    session_factory=factory,
-                    logger=logger,
-                    call_label="extraction chunk=3 windows=1 events=1",
-                )
-            )
-
-        assert result.dataframe.height == 1
-        assert "[extraction chunk=3 windows=1 events=1] Calling extraction model" in caplog.text

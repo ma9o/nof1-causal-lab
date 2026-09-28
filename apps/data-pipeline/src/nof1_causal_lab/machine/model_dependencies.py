@@ -1,6 +1,6 @@
 """Which actual model input each persisted computation consumes.
 
-The version pins record original provenance. These input identities permit reuse
+The revision pins record original input revisions. These input identities permit reuse
 on a later model revision when the computation's canonical inputs are unchanged.
 """
 
@@ -13,7 +13,6 @@ if TYPE_CHECKING:
 
 
 MODEL_INPUTS: dict[ArtifactId, str] = {
-    "panel": "extraction",
     "identification_report": "identification",
     "validation_report": "belief",
 }

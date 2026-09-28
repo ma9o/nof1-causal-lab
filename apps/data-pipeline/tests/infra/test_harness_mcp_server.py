@@ -17,6 +17,8 @@ from nof1_causal_lab.utils.harness.networking import find_free_port
 from nof1_causal_lab.utils.openrouter_client import Tool
 from tests.helpers import run_async as _run
 
+pytestmark = pytest.mark.contract
+
 
 @asynccontextmanager
 async def _client(url):
@@ -77,7 +79,7 @@ class TestMCPServer:
             "params": {
                 "protocolVersion": "2025-03-26",
                 "capabilities": {},
-                "clientInfo": {"name": "probe", "version": "0"},
+                "clientInfo": {"name": "probe", "revision": "0"},
             },
         }
 

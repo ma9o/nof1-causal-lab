@@ -12,6 +12,8 @@ from typing import Any
 
 import pytest
 
+pytestmark = pytest.mark.contract
+
 
 def _load_checker() -> Any:
     module_name = "find_duplicates_under_test"

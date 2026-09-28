@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, overload
 
 import jax.numpy as jnp
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.execution.contracts import LikelihoodExtraParams
+    from collections.abc import Mapping
+
+    from nof1_causal_lab.models.ssm.execution.contracts import (
+        LikelihoodExtraParams,
+        LikelihoodParameterValue,
+    )
 
 PER_CHANNEL_OBSERVATION_EXTRA_PARAM_KEYS = frozenset(
     {
@@ -19,8 +24,26 @@ PER_CHANNEL_OBSERVATION_EXTRA_PARAM_KEYS = frozenset(
 )
 
 
+@overload
 def slice_observation_extra_params(
-    extra_params: LikelihoodExtraParams | None,
+    extra_params: Mapping[str, LikelihoodParameterValue],
+    channel_indices: list[int],
+    *,
+    source_channel_count: int,
+) -> LikelihoodExtraParams: ...
+
+
+@overload
+def slice_observation_extra_params(
+    extra_params: None,
+    channel_indices: list[int],
+    *,
+    source_channel_count: int,
+) -> None: ...
+
+
+def slice_observation_extra_params(
+    extra_params: Mapping[str, LikelihoodParameterValue] | None,
     channel_indices: list[int],
     *,
     source_channel_count: int,

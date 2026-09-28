@@ -15,6 +15,8 @@ from scripts.visualize_type_system import build_type_graph, compact_graph
 
 from scripts import visualize_type_system
 
+pytestmark = pytest.mark.contract
+
 if TYPE_CHECKING:
     from nof1_causal_lab.json_types import JsonObject
 

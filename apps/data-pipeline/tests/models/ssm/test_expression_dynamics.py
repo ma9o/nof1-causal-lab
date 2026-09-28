@@ -47,6 +47,7 @@ def _component(value, *, source=None):
     )
 
 
+@pytest.mark.contract
 def test_direct_values_preserve_fixed_zero_shared_identity_and_partial_authoring():
     from scripts.migrate_coefficient_values import convert_payload
 
@@ -73,6 +74,7 @@ def test_direct_values_preserve_fixed_zero_shared_identity_and_partial_authoring
             CoefficientExpression(role="weight", value=invalid)
 
 
+@pytest.mark.inference(concern="simulation")
 def test_existing_functions_and_composition_preserve_drift_and_intervention_inputs():
     restoring = restoring_force(ConstructId("construct:y"), center=0.3, stiffness=0.7, quartic=0.2)
     saturation = hill(state(ConstructId("construct:x")), emax=2, ec50=1.5, n=2)
@@ -122,6 +124,7 @@ def test_existing_functions_and_composition_preserve_drift_and_intervention_inpu
     np.testing.assert_allclose(gradient[1], -0.7 - 3 * 0.2 * 0.5**2, rtol=1e-6)
 
 
+@pytest.mark.inference(concern="sampling")
 def test_multiple_same_role_operands_bind_directly_and_repeated_references_sample_once():
     first = scientific_id("parameter", "first")
     second = scientific_id("parameter", "second")
@@ -177,6 +180,7 @@ def _model(expression):
     )
 
 
+@pytest.mark.contract
 def test_composition_requires_all_causal_dependencies_and_valid_parameter_references():
     base = _model(linear_effect(ConstructId("construct:x"), 1))
     compound = hill(state(ConstructId("construct:x")), emax=1, ec50=1, n=2) * state(
@@ -232,6 +236,7 @@ def test_composition_requires_all_causal_dependencies_and_valid_parameter_refere
         )
 
 
+@pytest.mark.contract
 @pytest.mark.parametrize(
     ("kind", "constructor"), [("drift", restoring_force), ("potential", restoring_potential)]
 )
@@ -273,6 +278,7 @@ def test_restoring_anchor_requires_the_complete_function_and_supported_coefficie
         )
 
 
+@pytest.mark.contract
 def test_solver_steps_follow_coefficient_meanings_including_fixed_rates():
     from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
         _predictive_draw_order,

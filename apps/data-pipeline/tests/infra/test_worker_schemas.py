@@ -7,6 +7,8 @@ from polars.testing import assert_frame_equal
 from nof1_causal_lab.workers.schemas import _check_dtype_match, validate_worker_output
 from tests.helpers import invalid_dict_payload
 
+pytestmark = pytest.mark.contract
+
 
 def _measurement_structure(*indicators):
     """Build a minimal MeasurementStructure dict with given indicator tuples (name, dtype)."""

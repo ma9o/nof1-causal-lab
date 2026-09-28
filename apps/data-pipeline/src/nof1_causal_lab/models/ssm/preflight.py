@@ -78,23 +78,13 @@ def validate_observations_for_fit(model: SSMModel, observations: Any) -> None:
             f"observations must have shape (N, {numeric.n_observations(spec)}), got {obs.shape}"
         )
 
-    dists = list(numeric.observation_families(spec) or [])
+    dists = numeric.observation_families(spec)
     if not dists:
         return
 
-    links = (
-        list(numeric.observation_links(spec))
-        if numeric.observation_links(spec) is not None
-        else [LinkFunction.IDENTITY] * numeric.n_observations(spec)
-    )
-    standardized = list(
-        numeric.observation_standardized(spec) or [False] * numeric.n_observations(spec)
-    )
-    names = (
-        list(numeric.observation_names(spec))
-        if numeric.observation_names(spec) is not None
-        else [f"manifest[{idx}]" for idx in range(numeric.n_observations(spec))]
-    )
+    links = numeric.observation_links(spec)
+    standardized = numeric.observation_standardized(spec)
+    names = numeric.observation_names(spec)
 
     means_block = numeric.observation_mean_block(spec)
     free_support = np.asarray(means_block.free_support, dtype=bool)
@@ -129,7 +119,7 @@ def validate_observations_for_fit(model: SSMModel, observations: Any) -> None:
 
         if DistributionFamily(dists[j]) not in _LOCATION_FAMILIES:
             continue
-        if links[j] is not None and LinkFunction(links[j]) != LinkFunction.IDENTITY:
+        if links[j] != LinkFunction.IDENTITY:
             continue
         if not bool(free_support[j]):
             continue

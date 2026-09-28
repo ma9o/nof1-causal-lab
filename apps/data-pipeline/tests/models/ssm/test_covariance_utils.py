@@ -1,7 +1,10 @@
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize, symmetrize_with_jitter
+
+pytestmark = pytest.mark.contract
 
 
 def test_symmetrize_with_jitter_handles_batched_covariances():

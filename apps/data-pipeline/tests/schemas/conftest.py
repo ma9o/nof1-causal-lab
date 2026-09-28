@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -55,8 +55,6 @@ def indicator_factory():
         aggregation: AggregationFunction = "mean",
         construct_polarity: IndicatorPolarity = IndicatorPolarity.POSITIVE,
         ordinal_levels: list[str] | None = None,
-        source_columns: list[str] | None = None,
-        extraction_mode: Literal["computed", "semantic"] = "semantic",
     ) -> IndicatorSpec:
         # Auto-provide ordinal_levels for ordinal dtype if not specified
         if dtype == "ordinal" and ordinal_levels is None:
@@ -65,12 +63,9 @@ def indicator_factory():
             id=fixture_entity_id("indicator", name),
             name=name,
             construct_polarity=construct_polarity,
-            how_to_measure=f"Extract {name}",
             measurement_dtype=dtype,
             aggregation=aggregation,
             ordinal_levels=ordinal_levels,
-            source_columns=source_columns or [name],
-            extraction_mode=extraction_mode,
         )
 
     return _make

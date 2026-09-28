@@ -9,14 +9,13 @@ from typing import Any
 from temporalio import activity
 
 from nof1_causal_lab.machine.artifact_files import parquet_filename
-from nof1_causal_lab.machine.derivations import complete_computed_transition
+from nof1_causal_lab.machine.execution import TransitionEffects, input_pins
 from nof1_causal_lab.machine.graph import transition_spec
-from nof1_causal_lab.machine.moves import TransitionEffects, input_pins
 from nof1_causal_lab.machine.store import ArtifactStore
 from nof1_causal_lab.machine.temporal.activity_errors import (
     as_non_retryable_application_error,
 )
-from nof1_causal_lab.machine.temporal.latent_structure_activities import _llm_backend_config
+from nof1_causal_lab.machine.temporal.backend_config import llm_backend_config
 from nof1_causal_lab.machine.temporal.messages import (
     SingleLLMTransitionFinalizeInput,
     SingleLLMTransitionPlan,
@@ -43,7 +42,6 @@ async def plan_raw_data_activity(
     input: SingleLLMTransitionWorkflowInput,
 ) -> SingleLLMTransitionPlan:
     from nof1_causal_lab.flows.transitions.ingestion.flow import (
-        _find_raw_input,
         _prepare_raw_input,
     )
     from nof1_causal_lab.utils.config import get_config
@@ -59,14 +57,16 @@ async def plan_raw_data_activity(
     storage.makedirs(upload_dir)
     storage.makedirs(extract_dir)
 
-    raw_storage_path = _find_raw_input(input.workspace_id)
-    raw_name = raw_storage_path.rsplit("/", 1)[-1]
-    if storage.is_remote():
+    source = input.options.file_source
+    if source is None:
+        raise ValueError("File preparation requires explicit uploaded filenames")
+    for index, raw_name in enumerate(source.files):
+        raw_storage_path = storage.join(data_module.input_dir(input.workspace_id), raw_name)
         local_raw = Path(upload_dir) / raw_name
-        storage.get_fs().get(raw_storage_path, str(local_raw))
-    else:
-        local_raw = Path(raw_storage_path)
-    _prepare_raw_input(local_raw, Path(extract_dir))
+        with storage.open_file(raw_storage_path, "rb") as uploaded:
+            local_raw.write_bytes(uploaded.read())
+        # Separate archives so identically named members cannot overwrite one another.
+        _prepare_raw_input(local_raw, Path(extract_dir) / str(index))
 
     context_ref = storage.join(root, "context.json")
     _write_raw_data_json(
@@ -84,7 +84,7 @@ async def plan_raw_data_activity(
         run_id=run_id,
         context_ref=context_ref,
         pins=pins,
-        llm=_llm_backend_config(config.ingestion.llm, config.llm, max_tool_turns),
+        llm=llm_backend_config(config.ingestion.llm, config.llm, max_tool_turns),
         max_tool_turns=max_tool_turns,
     )
 
@@ -102,15 +102,14 @@ async def finalize_raw_data_activity(input: SingleLLMTransitionFinalizeInput) ->
 
         store = ArtifactStore(input.workspace_id)
         produced = [
-            store.write_version(
+            store.write_artifact(
                 "raw_data",
-                provenance="computed",
                 derived_from=input.pins,
                 produced_by="run:raw_data",
                 parquet_files={parquet_filename("raw_data", "raw"): table},
             )
         ]
-        return complete_computed_transition(store, input.state, "raw_data", produced)
+        return TransitionEffects(produced=produced)
     except Exception as exc:
         raise as_non_retryable_application_error(exc) from exc
 

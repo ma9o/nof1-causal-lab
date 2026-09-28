@@ -54,7 +54,7 @@ def _metadata_matches(
     metadata: UncheckedJsonObject | None, topology_fingerprint: str
 ) -> TypeIs[UncheckedJsonObject]:
     return (
-        isinstance(metadata, dict)
+        metadata is not None
         and metadata.get("topology_fingerprint") == topology_fingerprint
         and metadata.get("schema_version") == _MODEL_SPEC_COMPILE_CACHE_SCHEMA_VERSION
     )
@@ -67,7 +67,7 @@ def _archive_exists(workspace_id: str) -> bool:
 def _jax_persistent_cache_dir() -> Path:
     cache_dir = Path.home() / ".cache" / "nof1-causal-lab" / "jax"
     override = os.getenv("JAX_COMPILATION_CACHE_DIR")
-    if isinstance(override, str) and override:
+    if override:
         cache_dir = Path(override)
     cache_dir.mkdir(parents=True, exist_ok=True)
     return cache_dir

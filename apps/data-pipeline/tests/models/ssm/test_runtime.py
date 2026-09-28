@@ -23,7 +23,6 @@ from nof1_causal_lab.models.ssm.runtime import (
     build_ssm_model,
     prepare_fit_inputs,
     prepare_model_runtime,
-    sample_prior_predictive,
 )
 from nof1_causal_lab.models.ssm.structure import (
     DiffusionBlockSpec,
@@ -90,6 +89,7 @@ def _make_spec(
     )
 
 
+@pytest.mark.contract
 class TestBuilderPriorConversion:
     def test_ar_prior_rejects_negative_support(self):
         model = complete_test_model(make_model(["mood"]))
@@ -197,6 +197,7 @@ class TestBuilderPriorConversion:
             compile_priors(model)
 
 
+@pytest.mark.contract
 class TestObservationSupportValidation:
     def test_gamma_emission_rejects_zero_observations(self):
         """Gamma likelihoods must fail early when observed data include zeros."""
@@ -214,6 +215,7 @@ class TestObservationSupportValidation:
             build_ssm_model(X, model_spec=spec)
 
 
+@pytest.mark.contract
 class TestPrepareFitInputs:
     def test_sparse_wide_nulls_become_nan_without_fill_forward(self):
         """Sparse wide cells should stay missing and never broadcast across ticks."""
@@ -276,6 +278,7 @@ class TestPrepareFitInputs:
 
 
 class TestPrepareModelRuntime:
+    @pytest.mark.contract
     def test_preserves_long_observation_metadata_and_augments_support_boundaries(self, caplog):
         data_for_model = pl.DataFrame(
             {
@@ -350,6 +353,7 @@ class TestPrepareModelRuntime:
         assert runtime.inference_structure.method_override == "marginal_particle_gibbs"
         assert "support-aware observation semantics" in caplog.text
 
+    @pytest.mark.contract
     def test_compiles_overlapping_interval_windows_into_concurrent_slots(self):
         data_for_model = pl.DataFrame(
             {
@@ -403,7 +407,7 @@ class TestPrepareModelRuntime:
         assert runtime.observation_support.interval_weights[2, 0, 1] == pytest.approx(1.0)
         assert runtime.observation_support.interval_weights[3, 0, 1] == pytest.approx(1.0)
 
-    @pytest.mark.predictive
+    @pytest.mark.inference(concern="predictive")
     def test_prior_predictive_reuses_prepared_support_schedule(self):
         data_for_model = pl.DataFrame(
             {
@@ -441,17 +445,20 @@ class TestPrepareModelRuntime:
             ),
         )
 
-        samples = sample_prior_predictive(
-            runtime.model,
-            samples=3,
-            times=runtime.times,
-            observation_support=runtime.observation_support,
-            observation_mask=~jnp.isnan(runtime.observations),
-        )
+        from nof1_causal_lab.artifacts.simulation import SimulationSpec
+        from nof1_causal_lab.models.ssm.predictive.simulation import generate_simulation_batch
 
-        assert samples["observations"].shape == (3, 2, 1)
-        assert samples["observations_mask"].shape == (3, 2, 1)
-        assert jnp.isnan(samples["observations"][:, 0, 0]).all()
-        assert jnp.isfinite(samples["observations"][:, 1, 0]).all()
-        assert (~samples["observations_mask"][:, 0, 0]).all()
-        assert samples["observations_mask"][:, 1, 0].all()
+        samples = generate_simulation_batch(
+            runtime.model.spec,
+            SimulationSpec(start=float(runtime.times[0]), end=float(runtime.times[-1])),
+            times=runtime.times,
+            draws=3,
+            comparison_data=data_for_model,
+        ).prediction
+
+        assert samples.trajectory.observations.shape == (3, 2, 1)
+        assert samples.trajectory.observations_mask.shape == (3, 2, 1)
+        assert jnp.isnan(samples.trajectory.observations[:, 0, 0]).all()
+        assert jnp.isfinite(samples.trajectory.observations[:, 1, 0]).all()
+        assert (~samples.trajectory.observations_mask[:, 0, 0]).all()
+        assert samples.trajectory.observations_mask[:, 1, 0].all()

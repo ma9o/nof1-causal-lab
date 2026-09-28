@@ -17,6 +17,7 @@ from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
 )
 
 
+@pytest.mark.contract
 @pytest.mark.parametrize(("max_points", "indices"), [(4, [0, 2, 4, 6]), (20, list(range(8)))])
 def test_trace_thinning_preserves_values_chains_and_coordinates(max_points, indices):
     scalar = np.arange(16).reshape(2, 8)
@@ -37,6 +38,7 @@ def test_trace_thinning_preserves_values_chains_and_coordinates(max_points, indi
         ]
 
 
+@pytest.mark.inference(concern="sampling")
 @pytest.mark.parametrize(
     ("values", "counts"),
     [
@@ -62,6 +64,7 @@ def test_rank_histograms_use_pooled_ranks_for_each_coordinate(values, counts):
         ]
 
 
+@pytest.mark.inference(concern="sampling")
 def test_marginal_normalizes_density_and_finds_shortest_interval():
     # The shortest 94% interval excludes the isolated upper-tail value.
     values = np.concatenate([np.arange(39), [100]])
@@ -79,6 +82,7 @@ def test_marginal_normalizes_density_and_finds_shortest_interval():
     assert sum(marginal["density"]) * bin_width == pytest.approx(1.0)
 
 
+@pytest.mark.inference(concern="sampling")
 @pytest.mark.parametrize(
     ("energy", "bfmi"),
     [
@@ -99,6 +103,7 @@ def test_energy_diagnostics_preserve_chain_boundaries_and_normalize_histograms(e
         assert sum(histogram["density"]) * bin_width == pytest.approx(1.0)
 
 
+@pytest.mark.contract
 @pytest.mark.parametrize(
     "invalid",
     [{"lower": 3.0}, {"interval_mass": 0.0}, {"interval_mass": 1.0}, {"mean": float("nan")}],
@@ -149,6 +154,7 @@ def particle_posterior():
     )
 
 
+@pytest.mark.inference(concern="sampling")
 def test_mcmc_report_preserves_coordinate_metrics_chains_and_sampler_statistics(particle_posterior):
     report: Any = particle_posterior.get_mcmc_diagnostics()
     assert report["num_chains"] == 2
@@ -196,6 +202,7 @@ def test_mcmc_report_preserves_coordinate_metrics_chains_and_sampler_statistics(
             assert sum(chain["counts"]) == 64
 
 
+@pytest.mark.inference(concern="sampling")
 def test_posterior_plots_preserve_coordinates_and_thin_divergences_with_draws(particle_posterior):
     marginals: Any = particle_posterior.get_posterior_marginals(n_bins=8)
     assert len(marginals) == 4
@@ -223,6 +230,7 @@ def test_posterior_plots_preserve_coordinates_and_thin_divergences_with_draws(pa
             np.testing.assert_array_equal(pair[f"{axis}_values"], values)
 
 
+@pytest.mark.inference(concern="sampling")
 def test_loo_report_accepts_joint_particle_emission_factors(particle_posterior):
     import numpyro.distributions as dist
 

@@ -9,18 +9,18 @@ ESS against the fixture's ``RECOVERY_TARGETS``.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import jax
 import numpy as np
 
-from evaluation.fixtures.synthetic_nonlinear import (
-    MEASUREMENT_MEANS_FREE_POSITIONS,
-    RECOVERY_TARGETS,
-    TRUE_MANIFEST_SD,
-)
+from evaluation.fixtures.synthetic_nonlinear import RECOVERY_TARGETS
 
-type PosteriorSampleMap = dict[str, Any]
+if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
+    from nof1_causal_lab.models.ssm.inference.types import ParticleMCMCPosterior
+
+type PosteriorSampleMap = dict[str, jax.Array]
 type RecoveryRow = dict[str, Any]
 type RecoverySummary = dict[str, Any]
 
@@ -58,18 +58,6 @@ def lag1_autocorrelation_1d(draws: np.ndarray) -> float | None:
     return autocov / variance
 
 
-def _recovery_target_location(label: str, target: Any) -> tuple[str, tuple[int, ...], float]:
-    if isinstance(target, dict):
-        site = str(target["site"])
-        raw_index = target["index"]
-        if isinstance(raw_index, (list, tuple)):
-            index = tuple(int(item) for item in raw_index)
-        else:
-            index = (int(raw_index),)
-        return site, index, float(target["true"])
-    return label, (), float(target)
-
-
 def _recovery_family(label: str) -> str:
     if label.startswith("input_"):
         return "input_effect"
@@ -82,23 +70,13 @@ def _recovery_family(label: str) -> str:
     return "dynamics_or_nonlinear"
 
 
-def _recovery_target_scale(label: str, target: Any, true_value: float) -> float:
-    if isinstance(target, dict) and "scale" in target:
-        return max(abs(float(target["scale"])), 1e-12)
-    if label.startswith("manifest_mean_") and isinstance(target, dict):
-        free_index = int(target["index"])
-        manifest_index = int(MEASUREMENT_MEANS_FREE_POSITIONS[free_index])
-        return max(float(TRUE_MANIFEST_SD[manifest_index]), 1e-12)
-    return max(abs(float(true_value)), 1.0)
-
-
-def _target_draws(grouped_samples: PosteriorSampleMap, site: str, index: tuple[int, ...]):
-    if site not in grouped_samples:
+def _target_draws(
+    grouped_samples: PosteriorSampleMap, coordinate: ParameterCoordinate
+) -> np.ndarray | None:
+    if coordinate.site_name not in grouped_samples:
         return None
-    draws = np.asarray(jax.device_get(grouped_samples[site]))
-    if index:
-        draws = draws[(..., *index)]
-    return draws
+    draws = np.asarray(jax.device_get(grouped_samples[coordinate.site_name]))
+    return draws[(..., *coordinate.indices)]
 
 
 def _summarize_recovery_rows(rows: list[RecoveryRow]) -> RecoverySummary:
@@ -138,16 +116,20 @@ def _summarize_recovery_rows(rows: list[RecoveryRow]) -> RecoverySummary:
     }
 
 
-def parameter_recovery(result, *, elapsed_seconds: float) -> RecoverySummary:
+def parameter_recovery(result: ParticleMCMCPosterior, *, elapsed_seconds: float) -> RecoverySummary:
     grouped_samples = result.diagnostics["mcmc"].get_samples(group_by_chain=True)
     site_rows: dict[str, RecoveryRow] = {}
     missing_targets: RecoverySummary = {}
     by_family_rows: dict[str, list[RecoveryRow]] = {}
     for label, target in RECOVERY_TARGETS.items():
-        site, index, true_value = _recovery_target_location(label, target)
-        draws = _target_draws(grouped_samples, site, index)
+        coordinate = target.coordinate
+        true_value = target.true_value
+        draws = _target_draws(grouped_samples, coordinate)
         if draws is None:
-            missing_targets[label] = {"site": site, "index": index}
+            missing_targets[label] = {
+                "site": coordinate.site_name,
+                "index": coordinate.indices,
+            }
             continue
         if draws.size == 0:
             continue
@@ -155,14 +137,14 @@ def parameter_recovery(result, *, elapsed_seconds: float) -> RecoverySummary:
         std = float(np.std(draws))
         q05, q50, q95 = np.quantile(np.asarray(draws, dtype=np.float64), [0.05, 0.5, 0.95])
         abs_error = abs(mean - true_value)
-        scale = _recovery_target_scale(label, target, true_value)
+        scale = max(abs(target.scale), 1e-12)
         family = _recovery_family(label)
         ess = autocorrelation_ess_1d(draws)
         lag1 = lag1_autocorrelation_1d(draws)
         row = {
             "family": family,
-            "site": site,
-            "index": index,
+            "site": coordinate.site_name,
+            "index": coordinate.indices,
             "true": true_value,
             "target_scale": scale,
             "mean": mean,
@@ -203,7 +185,7 @@ def parameter_recovery(result, *, elapsed_seconds: float) -> RecoverySummary:
 
 
 def scalar_posterior_ess(
-    result,
+    result: ParticleMCMCPosterior,
     *,
     max_sites: int,
     elapsed_seconds: float,
@@ -211,21 +193,12 @@ def scalar_posterior_ess(
     grouped_samples = result.diagnostics["mcmc"].get_samples(group_by_chain=True)
     site_rows: dict[str, RecoveryRow] = {}
     for label, target in list(RECOVERY_TARGETS.items())[:max_sites]:
-        if isinstance(target, dict):
-            site = str(target["site"])
-            if site not in grouped_samples:
-                continue
-            draws = np.asarray(jax.device_get(grouped_samples[site]))[..., int(target["index"])]
-        else:
-            site = label
-            if site not in grouped_samples:
-                continue
-            draws = np.asarray(jax.device_get(grouped_samples[site]))
-        if draws.size == 0:
+        draws = _target_draws(grouped_samples, target.coordinate)
+        if draws is None or draws.size == 0:
             continue
         ess = autocorrelation_ess_1d(draws)
         site_rows[label] = {
-            "site": site,
+            "site": target.coordinate.site_name,
             "ess_approx": ess,
             "ess_per_second": ess / max(float(elapsed_seconds), 1e-12),
             "mean": float(np.mean(draws)),

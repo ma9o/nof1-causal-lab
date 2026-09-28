@@ -107,8 +107,18 @@ def validate_indicator_observation_semantics(
 def derive_indicator_observation_semantics(
     aggregation: str,
     measurement_dtype: str,
+    computed_rule: str | None = None,
 ) -> IndicatorObservationSemantics:
-    """Derive canonical semantics from aggregation and measurement dtype."""
+    """Derive semantics from the computation, or the declared semantic aggregation."""
+    if computed_rule is not None:
+        from nof1_causal_lab.utils.window_expressions import window_summary_operator
+
+        summary = window_summary_operator(computed_rule)
+        if aggregation != summary:
+            raise ValueError(
+                f"computed_rule produces '{summary}' but aggregation is '{aggregation}'"
+            )
+        aggregation = summary
     error = validate_indicator_observation_semantics(aggregation, measurement_dtype)
     if error is not None:
         raise ValueError(error)
@@ -148,4 +158,5 @@ def get_observation_semantics(
     return derive_indicator_observation_semantics(
         indicator["aggregation"],
         indicator["measurement_dtype"],
+        indicator.get("computed_rule"),
     )

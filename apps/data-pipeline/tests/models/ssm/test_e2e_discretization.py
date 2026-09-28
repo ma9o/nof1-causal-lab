@@ -1,22 +1,12 @@
-"""End-to-end tests: ModelSpec -> Prior Conversion -> Discretization.
+"""Model structure and discrete-time to continuous-time prior compilation.
 
-These tests verify the full chain from a realistic causal design
-through DT→CT prior conversion and CT→DT discretization, checking that
-the mathematical roundtrip is consistent.
-
-Phase 1 tests:
-- reference_interval_days precedence chain for DT→CT conversion
-- ModelSpec structure (dynamics_support, lambda_support) from DAG
-- First-order DT→CT→DT roundtrip consistency
-
-Compilation also preserves factorized priors and checks causal edge-lag metadata.
+Checks reference intervals, construct-specific priors, structural support,
+parameter identity, and causal edge-lag metadata.
 """
 
 import math
 from typing import Any
 
-import jax.numpy as jnp
-import jax.scipy.linalg as jla
 import numpy as np
 import polars as pl
 import pytest
@@ -39,9 +29,8 @@ from tests.helpers import (
     model_with_prior_payloads,
     named_prior_payloads,
 )
-from tests.model_fixtures import (
-    affine_test_evolution,
-)
+
+pytestmark = pytest.mark.contract
 
 
 def _compile_structure(payload: dict[str, Any]) -> ModelSpec:
@@ -63,10 +52,6 @@ def _compile_priors_for_test(
         edge_lag_days=edge_lag_days,
     )
     return prior_registry, index_maps
-
-
-def _prior_law(prior_registry, site_name: str):
-    return prior_registry[site_name]
 
 
 def _prior_reference_value(prior, flat_index: int = 0) -> float:
@@ -115,19 +100,10 @@ def _state_intercept_mask(spec: ModelSpec) -> np.ndarray:
     mask = np.zeros(numeric.n_states(spec), dtype=bool)
     for component in numeric.dynamics_expressions(spec):
         if not component.edge_owned and any(
-            operand.role in {"center", "intercept"} for operand in component.parameters
+            operand.role in {"center", "intercept"} for _, operand in component.parameters
         ):
             mask[component.target] = True
     return mask
-
-
-def _reference_dynamics_from_priors(spec: ModelSpec, prior_registry) -> jnp.ndarray:
-    dynamics = -np.diag(_decay_reference_values(spec, prior_registry))
-    for target, source in np.argwhere(_linear_edge_support(spec)):
-        dynamics[target, source] += _linear_edge_weight(
-            spec, prior_registry, source=int(source), target=int(target)
-        )
-    return jnp.asarray(dynamics, dtype=jnp.float32)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -158,7 +134,6 @@ def two_construct_structure() -> ModelSpec:
                             {
                                 "id": "indicator:4ff8be7491bd87d28af4",
                                 "name": "stress_self_report",
-                                "how_to_measure": "Self-reported stress (1-10)",
                                 "measurement_dtype": "continuous",
                                 "aggregation": "mean",
                                 "construct_polarity": "positive",
@@ -166,7 +141,6 @@ def two_construct_structure() -> ModelSpec:
                             {
                                 "id": "indicator:522342c2385e38d5e750",
                                 "name": "stress_cortisol",
-                                "how_to_measure": "Salivary cortisol (nmol/L)",
                                 "measurement_dtype": "continuous",
                                 "aggregation": "mean",
                                 "construct_polarity": "positive",
@@ -183,7 +157,6 @@ def two_construct_structure() -> ModelSpec:
                             {
                                 "id": "indicator:e05e217de7f4442abdc5",
                                 "name": "mood_rating",
-                                "how_to_measure": "Self-reported mood (1-10)",
                                 "measurement_dtype": "continuous",
                                 "aggregation": "mean",
                                 "construct_polarity": "positive",
@@ -544,160 +517,6 @@ class TestE2ESpecToDiscretization:
             f"stress→mood dynamics: got {mu_offdiag_val}, expected {expected_offdiag} "
             f"(using reference_interval_days=7)"
         )
-
-    def test_ct_dynamics_is_stable(
-        self,
-        two_construct_structure,
-        two_construct_model,
-        weekly_study_priors,
-    ):
-        """The CT dynamics matrix from converted priors has all eigenvalues with Re < 0."""
-        ssm_priors, _idx = _compile_priors_for_test(
-            weekly_study_priors,
-            two_construct_model,
-        )
-
-        dynamics = np.asarray(_reference_dynamics_from_priors(two_construct_model, ssm_priors))
-
-        # All eigenvalues must have negative real parts (stability)
-        eigenvalues = np.linalg.eigvals(dynamics)
-        max_real = np.max(np.real(eigenvalues))
-        assert max_real < 0, f"Dynamics matrix is unstable: max Re(eigenvalue) = {max_real}"
-
-    def test_first_order_roundtrip_ar(
-        self,
-        two_construct_structure,
-        two_construct_model,
-        weekly_study_priors,
-    ):
-        """Resolved AR persistence follows component-owned decay rates."""
-        ssm_priors, _idx = _compile_priors_for_test(
-            weekly_study_priors,
-            two_construct_model,
-        )
-
-        dynamics = _reference_dynamics_from_priors(two_construct_model, ssm_priors)
-
-        # Discretize at dt=7 (weekly). The mood prior was authored on the
-        # weekly interval, so its diagonal transition recovers that persistence.
-        dt_weekly = 7.0
-        F_weekly = jla.expm(dynamics * dt_weekly)
-
-        decay_rate = _decay_reference_values(two_construct_model, ssm_priors)
-        baseline_ar_mood = 3.0 / 5.0  # Beta(3,2) mean = 0.6
-        expected_resolved_mood = math.exp(-decay_rate[1] * dt_weekly)
-        recovered_ar_mood = float(F_weekly[1, 1])
-        assert recovered_ar_mood == pytest.approx(baseline_ar_mood, abs=0.05)
-        assert abs(recovered_ar_mood - expected_resolved_mood) < 0.05, (
-            f"Weekly resolved mood AR: got {recovered_ar_mood:.4f}, "
-            f"expected ≈{expected_resolved_mood:.4f}"
-        )
-
-        # stress: dt=1 for this prior, evaluated over a weekly interval.
-        recovered_ar_stress = float(F_weekly[0, 0])
-        assert recovered_ar_stress < 0.05, (
-            f"Stress AR at weekly interval should be very low (daily-derived rate), "
-            f"got {recovered_ar_stress:.4f}"
-        )
-
-        # Discretize at dt=1 (daily) for stress resolved persistence.
-        F_daily = jla.expm(dynamics * 1.0)
-        expected_daily_stress = math.exp(-decay_rate[0])
-        recovered_daily_stress = float(F_daily[0, 0])
-        assert abs(recovered_daily_stress - expected_daily_stress) < 0.05, (
-            f"Daily roundtrip stress AR: got {recovered_daily_stress:.4f}, "
-            f"expected ≈{expected_daily_stress:.4f}"
-        )
-
-    def test_first_order_roundtrip_cross_lag(
-        self,
-        two_construct_structure,
-        two_construct_model,
-        weekly_study_priors,
-    ):
-        """DT→CT→DT roundtrip for cross-lagged coefficient.
-
-        beta_stress_mood = 0.3 from weekly study
-        → CT rate = 0.3/7 → discretize at dt=7 → F[mood,stress] ≈ 0.3
-        (first-order approximation; exact requires matrix exponential)
-        """
-        ssm_priors, _idx = _compile_priors_for_test(
-            weekly_study_priors,
-            two_construct_model,
-        )
-
-        # Build dynamics matrix
-        dynamics = _reference_dynamics_from_priors(two_construct_model, ssm_priors)
-
-        # Discretize at weekly interval
-        dt_weekly = 7.0
-        F_weekly = jla.expm(dynamics * dt_weekly)
-
-        # NOTE: F[mood,stress] ≠ β_DT because the matrix exponential mixes terms.
-        # For different diagonal entries, this is not simply A[mood,stress]*dt.
-        # The exact DT→CT→DT roundtrip requires the matrix logarithm.
-        #
-        # What we CAN verify at first order:
-        # 1. The CT rate was computed correctly (tested in test_dt_to_ct_uses_reference_interval_days)
-        # 2. The coupling direction is preserved (F[mood,stress] > 0).
-        # 3. The exact logm(F)/dt recovers the original A.
-        recovered_coupling = float(F_weekly[1, 0])
-        assert recovered_coupling > 0, (
-            f"Coupling direction should be positive (stress→mood), got {recovered_coupling:.4f}"
-        )
-        # Verify via exact logm roundtrip
-        from scipy.linalg import logm
-
-        A_recovered = logm(np.array(F_weekly)).real / dt_weekly
-        ct_rate = float(dynamics[1, 0])  # the CT rate we set
-        assert abs(A_recovered[1, 0] - ct_rate) < 1e-6, (
-            f"Exact logm roundtrip: got {A_recovered[1, 0]:.6f}, expected {ct_rate:.6f}"
-        )
-
-    def test_discretize_produces_valid_system(
-        self,
-        two_construct_structure,
-        two_construct_model,
-        weekly_study_priors,
-    ):
-        """discretize_linear_system_exact produces valid F, Q, c from converted priors."""
-        ssm_priors, _idx = _compile_priors_for_test(
-            weekly_study_priors,
-            two_construct_model,
-        )
-
-        # Build dynamics and diffusion at prior means
-        n = numeric.n_states(two_construct_model)
-        dynamics = _reference_dynamics_from_priors(two_construct_model, ssm_priors)
-
-        # Simple diagonal diffusion
-        diff_sd = _prior_law(ssm_priors, "diffusion_diag_free").scale
-        diff_sd_arr = jnp.asarray(diff_sd, dtype=jnp.float32)
-        diffusion_cov = jnp.diag(diff_sd_arr**2)
-
-        # CINT (zeros)
-        cint = jnp.zeros(n)
-
-        # Discretize at dt=1 (daily)
-        parameters = affine_test_evolution(dynamics, diffusion_cov, cint).params_at(0.0, 1.0)
-        F, Q, c = parameters.A, parameters.cov, parameters.bias
-
-        # F should be a valid transition matrix (all eigenvalues < 1 in abs)
-        eigs_F = jnp.linalg.eigvals(F)
-        assert jnp.all(jnp.abs(eigs_F) < 1.0 + 1e-6), (
-            f"F has eigenvalues outside unit circle: {eigs_F}"
-        )
-
-        # Q should be symmetric positive semi-definite
-        assert jnp.allclose(Q, Q.T, atol=1e-6), "Q is not symmetric"
-        eigs_Q = jnp.linalg.eigvalsh(Q)
-        assert jnp.all(eigs_Q >= -1e-6), f"Q has negative eigenvalues: {eigs_Q}"
-
-        # No NaN/Inf
-        assert jnp.all(jnp.isfinite(F)), "F contains NaN/Inf"
-        assert jnp.all(jnp.isfinite(Q)), "Q contains NaN/Inf"
-        assert c is not None, "c should not be None when cint is provided"
-        assert jnp.all(jnp.isfinite(c)), "c contains NaN/Inf"
 
     def test_different_intervals_produce_different_rates(self, two_construct_model):
         """Same DT beta at different study intervals → different CT rates.

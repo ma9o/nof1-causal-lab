@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from statistics import NormalDist
 from time import perf_counter_ns
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-import jax
-import jax.numpy as jnp
 import numpy as np
 
 from nof1_causal_lab.artifacts.construct import (
@@ -16,15 +13,12 @@ from nof1_causal_lab.artifacts.construct import (
 )
 from nof1_causal_lab.artifacts.expressions import (
     LiteralExpression,
-    coefficient_key,
     expression_states,
     fold_expression,
     hill_applications,
     restoring_coefficients,
 )
-from nof1_causal_lab.artifacts.likelihood import LinkFunction
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.dynamics.expression import (
     SCALAR_OPERATIONS,
@@ -34,6 +28,7 @@ from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
 from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
     predictive_keys,
 )
+from nof1_causal_lab.models.ssm.predictive.statistics import observation_signal_and_variance
 from nof1_causal_lab.models.ssm.reachability import (
     C1B_GROWTH_RATIO,
     C1B_MAX_EXPLOSIVE_FRAC,
@@ -50,7 +45,13 @@ from nof1_causal_lab.models.ssm.reachability import (
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    import jax.numpy as jnp
+
+    from nof1_causal_lab.artifacts.expressions import CoefficientExpression
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.models.ssm.dynamics.expression import ExpressionComponentSpec
+    from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
+    from nof1_causal_lab.models.ssm.predictive.types import PredictiveDraws
 
 
 @dataclass(frozen=True)
@@ -68,31 +69,12 @@ class ConstructSimulationTarget:
 
 @dataclass(frozen=True)
 class MeasurementTiming:
-    """One measured phase of a construct-admission check."""
+    """One measured phase of a predictive check."""
 
     phase: str
     label: str
     duration_ms: float
     checks: tuple[str, ...] = ()
-
-
-def _spec_names(spec: ModelSpec) -> tuple[list[str], list[str], list[LinkFunction]]:
-    """Latent names, manifest names, manifest links of a compiled spec.
-
-    These are always populated after compilation; a missing one is a compiler
-    invariant violation, not a recoverable case.
-    """
-    if (
-        numeric.state_names(spec) is None
-        or numeric.observation_names(spec) is None
-        or numeric.observation_links(spec) is None
-    ):
-        raise ValueError("compiled ModelSpec is missing latent/manifest metadata")
-    return (
-        numeric.state_names(spec),
-        numeric.observation_names(spec),
-        numeric.observation_links(spec),
-    )
 
 
 def _edge_components(spec: ModelSpec, source: int, target: int):
@@ -102,125 +84,6 @@ def _edge_components(spec: ModelSpec, source: int, target: int):
         for i, component in enumerate(numeric.dynamics_expressions(spec))
         if component.edge_owned and source in component.sources and component.target == target
     ]
-
-
-def _signal_from_linear_predictor(
-    link: LinkFunction,
-    lp: np.ndarray,
-    *,
-    spec: ModelSpec,
-    pred: Mapping[str, Any],
-    manifest_index: int,
-) -> np.ndarray:
-    """Noise-free emission mean in data space from the linear predictor."""
-    _lp = np.asarray(lp)
-    if link == LinkFunction.IDENTITY:
-        return _lp
-    if link == LinkFunction.LOG:
-        return np.exp(np.clip(_lp, -20.0, 20.0))
-    if link == LinkFunction.LOGIT:
-        return 1.0 / (1.0 + np.exp(-_lp))
-    if link == LinkFunction.PROBIT:
-        cdf = np.vectorize(NormalDist().cdf, otypes=[float])
-        return cdf(_lp)
-    if link == LinkFunction.INVERSE:
-        return 1.0 / np.clip(_lp, 1e-6, None)
-
-    if numeric.observation_level_counts(spec) is None:
-        raise ValueError(f"{link.value} signal extraction requires manifest level counts")
-    level_count = int(numeric.observation_level_counts(spec)[manifest_index])
-    if level_count < 2:
-        raise ValueError(f"{link.value} signal extraction requires at least two declared levels")
-
-    if link == LinkFunction.CUMULATIVE_LOGIT:
-        base = np.asarray(pred["obs_ordered_base"])[:, manifest_index]
-        if level_count > 2:
-            gaps = np.asarray(pred["obs_ordered_gaps"])[:, manifest_index, : level_count - 2]
-            cutpoints = np.concatenate(
-                [base[:, None], base[:, None] + np.cumsum(gaps, axis=1)],
-                axis=1,
-            )
-        else:
-            cutpoints = base[:, None]
-        mid_cdf = 1.0 / (
-            1.0 + np.exp(-np.clip(cutpoints[:, None, :] - _lp[:, :, None], -30.0, 30.0))
-        )
-        cdf = np.concatenate(
-            [
-                np.zeros((*_lp.shape, 1)),
-                mid_cdf,
-                np.ones((*_lp.shape, 1)),
-            ],
-            axis=2,
-        )
-        return np.diff(cdf, axis=2)
-
-    if link == LinkFunction.SOFTMAX:
-        intercepts = np.asarray(pred["obs_cat_intercepts"])[:, manifest_index, : level_count - 1]
-        slopes = np.asarray(pred["obs_cat_slopes"])[:, manifest_index, : level_count - 1].copy()
-        if (
-            numeric.categorical_anchors(spec) is not None
-            and numeric.categorical_anchors(spec)[manifest_index]
-        ):
-            slopes[:, 0] = 1.0
-        nonbaseline = intercepts[:, None, :] + slopes[:, None, :] * _lp[:, :, None]
-        logits = np.concatenate([np.zeros((*_lp.shape, 1)), nonbaseline], axis=2)
-        logits = logits - np.max(logits, axis=2, keepdims=True)
-        probabilities = np.exp(logits)
-        probabilities /= np.sum(probabilities, axis=2, keepdims=True)
-        return probabilities
-    raise ValueError(f"unsupported link for signal extraction: {link}")
-
-
-def _draw_scalar_parameter(pred: Mapping[str, Any], name: str, n_draws: int) -> np.ndarray:
-    """Return one scalar likelihood hyperparameter per prior draw."""
-    values = np.asarray(pred[name], dtype=float)
-    if values.shape[0] != n_draws or values.size != n_draws:
-        raise ValueError(f"predictive parameter {name!r} must be scalar per draw")
-    return values.reshape(n_draws, 1)
-
-
-def _conditional_variance_for_signal(
-    distribution: DistributionFamily,
-    signal: np.ndarray,
-    pred: Mapping[str, Any],
-    manifest_index: int,
-) -> np.ndarray:
-    """Exact family variance around a scalar prior-predictive emission mean."""
-    mean = np.asarray(signal, dtype=float)
-    if mean.ndim != 2:
-        raise ValueError("scalar conditional variance requires draws by observed-time means")
-    n_draws = mean.shape[0]
-
-    if distribution in {DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T}:
-        manifest_cov = np.asarray(pred["manifest_cov"], dtype=float)
-        if manifest_cov.shape[0] != n_draws or manifest_cov.ndim != 3:
-            raise ValueError("manifest_cov must contain one covariance matrix per draw")
-        variance = manifest_cov[:, manifest_index, manifest_index][:, None]
-        if distribution == DistributionFamily.STUDENT_T:
-            df = _draw_scalar_parameter(pred, "obs_df", n_draws)
-            factor = np.full_like(df, np.inf)
-            np.divide(df, df - 2.0, out=factor, where=df > 2.0)
-            variance = variance * factor
-        return np.broadcast_to(variance, mean.shape)
-
-    if distribution == DistributionFamily.POISSON:
-        return np.maximum(mean, 1e-8)
-    if distribution == DistributionFamily.GAMMA:
-        shape = _draw_scalar_parameter(pred, "obs_shape", n_draws)
-        return np.maximum(mean, 1e-8) ** 2 / (shape + 1e-8)
-    if distribution == DistributionFamily.BERNOULLI:
-        probability = np.clip(mean, 1e-7, 1.0 - 1e-7)
-        return probability * (1.0 - probability)
-    if distribution == DistributionFamily.NEGATIVE_BINOMIAL:
-        dispersion = _draw_scalar_parameter(pred, "obs_r", n_draws)
-        count_mean = np.maximum(mean, 1e-8)
-        return count_mean + count_mean**2 / (dispersion + 1e-8)
-    if distribution == DistributionFamily.BETA:
-        concentration = _draw_scalar_parameter(pred, "obs_concentration", n_draws)
-        probability = np.clip(mean, 1e-7, 1.0 - 1e-7)
-        return probability * (1.0 - probability) / (concentration + 1.0)
-    raise ValueError(f"{distribution.value} uses probability-vector transmission")
 
 
 @dataclass(frozen=True)
@@ -251,7 +114,7 @@ class DesignInfo:
     seed: int = 0
     c1b_growth_ratio: float = C1B_GROWTH_RATIO
     c1b_max_explosive_frac: float = C1B_MAX_EXPLOSIVE_FRAC
-    observation_support: Any = None
+    observation_support: ObservationSupportRuntime | None = None
 
     @property
     def pooled_obs_index(self) -> np.ndarray:
@@ -290,30 +153,59 @@ def _elapsed_ms(started_ns: int) -> float:
     return (perf_counter_ns() - started_ns) / 1_000_000
 
 
-def _coefficient_draws(operand, component, pred: Mapping[str, Any], prefix: str) -> np.ndarray:
-    if isinstance(operand.value, (int, float)):
-        return np.full(np.shape(pred["latents"])[0], operand.value)
+def _coefficient_draws(
+    operand: CoefficientExpression,
+    component: ExpressionComponentSpec,
+    pred: PredictiveDraws,
+    prefix: str,
+) -> np.ndarray:
+    value = operand.value
+    if value is None:
+        raise ValueError("Unassigned coefficients do not have predictive draws")
+    if isinstance(value, (int, float)):
+        return np.full(pred.n_draws, value)
     sites = dict(component.parameter_sites(prefix))
-    return np.asarray(pred[sites[coefficient_key(operand)].name])
+    return np.asarray(pred.parameters[sites[value].name])
 
 
 def measure_construct_simulation(
     spec: ModelSpec,
-    pred: Mapping[str, jax.Array | np.ndarray],
+    pred: PredictiveDraws,
+    design: DesignInfo,
+    target: ConstructSimulationTarget,
+    *,
+    dynamics: bool = True,
+    measurement: bool = True,
+    edge_contrasts: bool = True,
+) -> tuple[list[CheckResult], list[MeasurementTiming]]:
+    """Execute selected check groups over a shared predictive batch."""
+    results: list[CheckResult] = []
+    timings: list[MeasurementTiming] = []
+    if dynamics:
+        checked, measured = measure_construct_dynamics(
+            spec, pred, design, target, edge_contrasts=edge_contrasts
+        )
+        results.extend(checked)
+        timings.extend(measured)
+    if measurement:
+        checked, measured = measure_construct_measurement(spec, pred, design, target)
+        results.extend(checked)
+        timings.extend(measured)
+    return results, timings
+
+
+def measure_construct_dynamics(
+    spec: ModelSpec,
+    pred: PredictiveDraws,
     design: DesignInfo,
     target: ConstructSimulationTarget,
     *,
     edge_contrasts: bool = True,
 ) -> tuple[list[CheckResult], list[MeasurementTiming]]:
-    """Run the reachability battery on ``target``'s latent trajectory in a compiled model.
-
-    Generic over the construct being measured: admission runs it on the construct being
-    admitted; :func:`recheck_member` runs it on an already-admitted cycle member against the
-    closed-loop model, where ``target.edge_parents`` now include the just-closed feedback edge.
-    """
-    latent_names, _manifest_names, manifest_links = _spec_names(spec)
+    """Measure confinement, scale, resolvability, edge contrasts and saturation."""
+    latent_names = numeric.state_names(spec)
     d = latent_names.index(target.name)
-    x = np.asarray(pred["latents"][:, :, d])
+    x = np.asarray(pred.trajectory.latents[:, :, d])
     times = np.asarray(design.t_grid, dtype=float)
     indicator_names = tuple(indicator.id for indicator in target.construct.indicators)
     target_obs = design.observation_indices_for(indicator_names)
@@ -346,6 +238,28 @@ def measure_construct_simulation(
         ]
     )
     results.extend(phase_results)
+    if times.size < 4:
+        results.append(
+            CheckResult.unevaluated(
+                "C1b confinement",
+                target.name,
+                "INSUFFICIENT_TIMES",
+                "Confinement requires at least four design times.",
+            )
+        )
+    if not np.isfinite(x).all():
+        results.extend(
+            CheckResult.unevaluated(
+                check, target.name, "NONFINITE_PATHS", "The latent paths contain non-finite values."
+            )
+            for check in (
+                "C2 latent scale",
+                "C3 resolvability",
+                "C4b edge overwhelm",
+                "C4c saturation",
+            )
+        )
+        return results, timings
     timings.append(
         MeasurementTiming(
             phase="c1_confinement",
@@ -391,8 +305,27 @@ def measure_construct_simulation(
                 checks=(result.check,),
             )
         )
+    else:
+        results.append(
+            CheckResult.unevaluated(
+                "C3 resolvability",
+                target.name,
+                "NO_RELAXATION_TERM",
+                "No declared decay coefficient supplies the timescale screen.",
+            )
+        )
 
     # C4b edge overwhelm (edge-off re-simulation holds all else fixed).
+    if not edge_contrasts:
+        results.extend(
+            CheckResult.unevaluated(
+                "C4b edge overwhelm",
+                f"{parent}->{target.name}",
+                "EDGE_CONTRASTS_EXPLICIT",
+                "Edge-share analysis requires a separate paired edge-knockout experiment.",
+            )
+            for parent in target.edge_parents
+        )
     for parent in target.edge_parents if edge_contrasts else ():
         started = perf_counter_ns()
         edge_target = _incoming_edge_off_target(
@@ -440,7 +373,7 @@ def measure_construct_simulation(
                 source,
                 literal=lambda value: np.asarray(value),
                 state_value=lambda key, comp=comp: np.asarray(
-                    pred["latents"][:, structural_indices, comp.state_ids.index(key)]
+                    pred.trajectory.latents[:, structural_indices, comp.state_ids.index(key)]
                 ),
                 coefficient_value=lambda operand, comp=comp, comp_idx=comp_idx: np.asarray(
                     _coefficient_draws(operand, comp, pred, f"vf_{comp_idx}")
@@ -464,6 +397,19 @@ def measure_construct_simulation(
                 )
             )
 
+    return results, timings
+
+
+def measure_construct_measurement(
+    spec: ModelSpec,
+    pred: PredictiveDraws,
+    design: DesignInfo,
+    target: ConstructSimulationTarget,
+) -> tuple[list[CheckResult], list[MeasurementTiming]]:
+    """Measure observation coverage and exact-law temporal transmission."""
+    d = numeric.state_names(spec).index(target.name)
+    results: list[CheckResult] = []
+    timings: list[MeasurementTiming] = []
     time_invariant_mask = numeric.diffusion_block(spec).time_invariant_mask
     target_is_time_invariant = bool(
         time_invariant_mask is not None and np.asarray(time_invariant_mask, dtype=bool)[d]
@@ -479,24 +425,40 @@ def measure_construct_simulation(
         m = design.manifest_ids.index(var)
         oi = np.asarray(design.obs_index_by_indicator[var])
         if not oi.size:
-            oi = np.arange(times.size)
-        pp_y = np.asarray(pred["observations"][:, oi, m])
-        if manifest_links[m] in {LinkFunction.CUMULATIVE_LOGIT, LinkFunction.SOFTMAX}:
-            lp = np.asarray(pred["linear_predictors"][:, oi, m])
-            signal = _signal_from_linear_predictor(
-                manifest_links[m],
-                lp,
-                spec=spec,
-                pred=pred,
-                manifest_index=m,
+            results.extend(
+                CheckResult.unevaluated(
+                    check,
+                    var,
+                    "NO_OBSERVATION_SUPPORT",
+                    "No supported observation times exist for this indicator.",
+                )
+                for check in ("C5a location reach", "C5b width", "C5c transmission")
             )
-        else:
-            signal = np.asarray(pred["expected_observations"][:, oi, m])
-        level_count = (
-            int(numeric.observation_level_counts(spec)[m])
-            if numeric.observation_level_counts(spec) is not None
-            else None
-        )
+            continue
+        pp_y = np.asarray(pred.trajectory.observations[:, oi, m])
+        if not np.isfinite(pred.trajectory.latents).all() or not np.isfinite(pp_y).all():
+            if not np.isfinite(pp_y).all():
+                results.append(
+                    CheckResult(
+                        "C1a finiteness",
+                        var,
+                        f"nonfinite {float(np.mean(~np.isfinite(pp_y))):.1%}",
+                        "0%",
+                        False,
+                        "The sampled emission contains non-finite values.",
+                    )
+                )
+            results.extend(
+                CheckResult.unevaluated(
+                    check,
+                    var,
+                    "NONFINITE_PATHS",
+                    "Dependent predictive paths contain non-finite values.",
+                )
+                for check in ("C5a location reach", "C5b width", "C5c transmission")
+            )
+            continue
+        level_count = numeric.observation_level_counts(spec)[m]
         phase_results = (
             list(
                 check_coverage(
@@ -508,20 +470,30 @@ def measure_construct_simulation(
                 )
             )
             if observed.size
-            else []
+            else [
+                CheckResult.unevaluated(
+                    check,
+                    var,
+                    "NO_OBSERVATIONS",
+                    "No comparison observations exist for this indicator.",
+                )
+                for check in ("C5a location reach", "C5b width")
+            ]
         )
         if not target_is_time_invariant:
-            conditional_variance = (
-                None
-                if signal.ndim == 3
-                else _conditional_variance_for_signal(
-                    lik.law.family,
-                    signal,
-                    pred,
-                    m,
-                )
+            signal, conditional_variance = observation_signal_and_variance(
+                spec, pred, m, oi, observation_support=design.observation_support
             )
             phase_results.append(check_transmission(var, signal, conditional_variance))
+        else:
+            phase_results.append(
+                CheckResult.unevaluated(
+                    "C5c transmission",
+                    var,
+                    "STATIC_CONSTRUCT",
+                    "Temporal transmission applies only to time-varying constructs.",
+                )
+            )
         results.extend(phase_results)
         timings.append(
             MeasurementTiming(
@@ -557,7 +529,7 @@ def _incoming_edge_off_target(
 
 def _resimulate_edge_off(
     spec: ModelSpec,
-    pred: Mapping[str, jax.Array | np.ndarray],
+    pred: PredictiveDraws,
     t_grid: jnp.ndarray,
     edge_target: _EdgeOffTarget,
     seed: int,
@@ -572,7 +544,7 @@ def _resimulate_edge_off(
         _simulate_vector_field_predictive_latents,
     )
 
-    samples = {name: jnp.asarray(value) for name, value in pred.items()}
+    samples = pred.parameters
     natural = numeric.dynamics_expressions(spec)
     intervention_dynamics = DynamicsSpec(
         n_latent=numeric.n_states(spec),

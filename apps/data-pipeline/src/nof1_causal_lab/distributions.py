@@ -137,29 +137,6 @@ def render_dynamic_prior_scale_guidance() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Parameter role catalog — authoritative source for docs codegen and the
-# EXPECTED_CONSTRAINT_FOR_ROLE dict in artifacts/statistical_model_spec.py.
-# Uses plain strings (not enum references) so this module stays import-clean.
-# ---------------------------------------------------------------------------
-
-_CONSTRAINT_DOMAINS: Final[dict[str, str]] = {
-    "unit_interval": "[0, 1]",
-    "none": "(-inf, +inf)",
-    "positive": "(0, +inf)",
-    "negative": "(-inf, 0)",
-    "correlation": "[-1, 1]",
-}
-
-
-def constraint_domain(constraint: str) -> str:
-    """The numeric support domain (e.g. ``[0, 1]``) for a ``ParameterConstraint``.
-
-    ``constraint`` is a ``ParameterConstraint`` enum *value* — kept as a plain str
-    here so this module stays import-clean (see the note above).
-    """
-    return _CONSTRAINT_DOMAINS[constraint]
-
-
 OBSERVATION_FAMILY_SPECS: Final[tuple[ObservationFamilyCatalogEntry, ...]] = (
     ObservationFamilyCatalogEntry(
         family=DistributionFamily.GAUSSIAN,
@@ -435,28 +412,6 @@ def render_prior_distribution_guidance_bullets(*, include_delta: bool = False) -
         f"- **{spec.signature}**: {spec.summary}"
         for spec in _prompt_prior_family_specs(include_delta=include_delta)
     )
-
-
-def render_observation_distribution_guidance_bullets() -> str:
-    """Render the authoritative prompt bullet list for observation-family guidance."""
-    return "\n".join(
-        f"- `{spec.family.value}`: {spec.summary}" for spec in OBSERVATION_FAMILY_SPECS
-    )
-
-
-def render_observation_link_guidance_bullets() -> str:
-    """Render prompt bullets for observation families with multiple valid links."""
-    lines: list[str] = []
-    for spec in OBSERVATION_FAMILY_SPECS:
-        if len(spec.links) <= 1:
-            continue
-        default_link, *other_links = spec.links
-        other_links_str = " or ".join(f"`{link}`" for link in other_links)
-        lines.append(
-            f"- **{spec.family.value}**: `{default_link}` (default)"
-            + (f" or {other_links_str}" if other_links_str else "")
-        )
-    return "\n".join(lines)
 
 
 def render_prior_parameter_guidance_markdown_table() -> str:

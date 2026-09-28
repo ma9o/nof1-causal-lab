@@ -109,56 +109,55 @@ def likelihood_sites(spec: ModelSpec) -> list[SiteDescriptor]:
             )
         )
 
-    if numeric.observation_level_counts(spec) is not None:
-        level_counts_list = list(numeric.observation_level_counts(spec))
-        max_levels = max(level_counts_list) if level_counts_list else 0
-        max_cutpoints = max(max_levels - 1, 0)
+    level_counts_list = list(numeric.observation_level_counts(spec))
+    max_levels = max(level_counts_list) if level_counts_list else 0
+    max_cutpoints = max(max_levels - 1, 0)
 
-        if DistributionFamily.ORDERED_LOGISTIC in manifest_dist_set and max_cutpoints > 0:
+    if DistributionFamily.ORDERED_LOGISTIC in manifest_dist_set and max_cutpoints > 0:
+        sites.append(
+            _site(
+                "obs_ordered_base",
+                (n_m,),
+                SupportClass.REAL,
+                "likelihood",
+                SiteKind.OBS_ORDERED_BASE,
+                priors_field="obs_ordered_base",
+            )
+        )
+        if max_cutpoints > 1:
             sites.append(
                 _site(
-                    "obs_ordered_base",
-                    (n_m,),
-                    SupportClass.REAL,
+                    "obs_ordered_gaps",
+                    (n_m, max_cutpoints - 1),
+                    SupportClass.POSITIVE,
                     "likelihood",
-                    SiteKind.OBS_ORDERED_BASE,
-                    priors_field="obs_ordered_base",
+                    SiteKind.OBS_ORDERED_GAPS,
+                    priors_field="obs_ordered_gaps",
                 )
             )
-            if max_cutpoints > 1:
-                sites.append(
-                    _site(
-                        "obs_ordered_gaps",
-                        (n_m, max_cutpoints - 1),
-                        SupportClass.POSITIVE,
-                        "likelihood",
-                        SiteKind.OBS_ORDERED_GAPS,
-                        priors_field="obs_ordered_gaps",
-                    )
-                )
 
-        if DistributionFamily.CATEGORICAL in manifest_dist_set and max_cutpoints > 0:
-            cat_shape = (n_m, max_cutpoints)
-            sites.append(
-                _site(
-                    "obs_cat_intercepts",
-                    cat_shape,
-                    SupportClass.REAL,
-                    "likelihood",
-                    SiteKind.OBS_CAT_INTERCEPTS,
-                    priors_field="obs_cat_intercepts",
-                )
+    if DistributionFamily.CATEGORICAL in manifest_dist_set and max_cutpoints > 0:
+        cat_shape = (n_m, max_cutpoints)
+        sites.append(
+            _site(
+                "obs_cat_intercepts",
+                cat_shape,
+                SupportClass.REAL,
+                "likelihood",
+                SiteKind.OBS_CAT_INTERCEPTS,
+                priors_field="obs_cat_intercepts",
             )
-            sites.append(
-                _site(
-                    "obs_cat_slopes",
-                    cat_shape,
-                    SupportClass.REAL,
-                    "likelihood",
-                    SiteKind.OBS_CAT_SLOPES,
-                    priors_field="obs_cat_slopes",
-                )
+        )
+        sites.append(
+            _site(
+                "obs_cat_slopes",
+                cat_shape,
+                SupportClass.REAL,
+                "likelihood",
+                SiteKind.OBS_CAT_SLOPES,
+                priors_field="obs_cat_slopes",
             )
+        )
 
     from nof1_causal_lab.models.ssm.spec_metadata import has_student_t_diffusion
 

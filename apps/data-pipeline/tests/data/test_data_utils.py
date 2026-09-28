@@ -3,6 +3,9 @@
 from datetime import datetime, timedelta
 
 import polars as pl
+import pytest
+
+pytestmark = pytest.mark.contract
 
 # =============================================================================
 # pivot_to_wide
@@ -135,23 +138,6 @@ class TestPivotToWide:
         df = pl.DataFrame({"anchor_time": [], "indicator_id": [], "value": []})
         result = pivot_to_wide(df)
         assert result.is_empty()
-
-    def test_anchor_time_column(self):
-        """Uses anchor_time as the canonical observation time."""
-        from nof1_causal_lab.utils.data import pivot_to_wide
-
-        df = pl.DataFrame(
-            {
-                "anchor_time": [1.0, 2.0],
-                "indicator_id": [
-                    "indicator:1f4c67cecb9238ee1a80",
-                    "indicator:1f4c67cecb9238ee1a80",
-                ],
-                "value": [10.0, 20.0],
-            }
-        )
-        wide = pivot_to_wide(df)
-        assert "time" in wide.columns
 
     def test_datetime_to_fractional_days(self):
         """Datetime timestamps are converted to fractional days from t0."""

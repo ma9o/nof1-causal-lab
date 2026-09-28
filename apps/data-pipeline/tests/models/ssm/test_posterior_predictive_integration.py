@@ -2,6 +2,7 @@
 
 from dataclasses import replace
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -16,7 +17,7 @@ from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
 from tests.dynamics_fixtures import potential_term
 from tests.model_fixtures import default_lambda_block, model_fixture
 
-pytestmark = pytest.mark.predictive
+pytestmark = pytest.mark.inference(concern="predictive")
 
 
 def test_predictive_draws_feed_mixed_family_diagnostics():
@@ -36,12 +37,12 @@ def test_predictive_draws_feed_mixed_family_diagnostics():
     runtime = SSMModel(spec).get_prior_runtime_bundle()
     times = jnp.array([0.0, 0.1, 0.25, 0.4, 0.7, 1.0], dtype=jnp.float32)
     samples = sample_prior_predictive_from_runtime(spec, runtime, times, num_samples=3, seed=7)
-    assert samples["latents"].shape == (3, 6, 1)
-    assert samples["observations"].shape == (3, 6, 2)
-    assert samples["observations_mask"].shape == (3, 6, 2)
-    assert bool(samples["observations_mask"].all())
-    assert all(bool(jnp.isfinite(value).all()) for value in samples.values())
-    counts = samples["observations"][..., 1]
+    assert samples.trajectory.latents.shape == (3, 6, 1)
+    assert samples.trajectory.observations.shape == (3, 6, 2)
+    assert samples.trajectory.observations_mask.shape == (3, 6, 2)
+    assert bool(samples.trajectory.observations_mask.all())
+    assert all(bool(jnp.isfinite(value).all()) for value in jax.tree.leaves(samples))
+    counts = samples.trajectory.observations[..., 1]
     assert bool((counts >= 0).all())
     np.testing.assert_array_equal(counts, jnp.floor(counts))
 
@@ -50,7 +51,7 @@ def test_predictive_draws_feed_mixed_family_diagnostics():
         [[0.2, 1.0], [jnp.nan, 2.0], [-0.1, 0.0], [0.1, 3.0], [-0.2, 2.0], [0.3, 4.0]]
     )
     indicator_ids = ["indicator:signal", "indicator:count"]
-    result = measure_predictive_checks(samples["observations"], observations, indicator_ids)
+    result = measure_predictive_checks(samples.trajectory.observations, observations, indicator_ids)
 
     assert isinstance(result, PosteriorPredictiveChecks)
     assert result.checked is True

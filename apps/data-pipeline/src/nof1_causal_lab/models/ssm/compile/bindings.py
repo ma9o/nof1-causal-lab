@@ -35,4 +35,4 @@ def parameter_bindings(model):
     from nof1_causal_lab.models.ssm.compile.prior_compilation import bind_parameters
     from nof1_causal_lab.models.ssm.compile.prior_indexing import build_semantic_prior_bindings
 
-    return bind_parameters(build_semantic_prior_bindings(model), model, model.parameters)
+    return bind_parameters(build_semantic_prior_bindings(model), model, model.execution_parameters)

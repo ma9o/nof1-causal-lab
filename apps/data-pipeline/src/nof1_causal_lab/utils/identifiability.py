@@ -17,29 +17,40 @@ returns only nonparametric do-calculus identifications. Nonlinear ModelSpec
 authoring and causal reporting do not permit the linear-IV argument.
 """
 
+from __future__ import annotations
+
 import logging
 import re
-from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
 import networkx as nx
 from y0.algorithm.identify import identify_outcomes
 from y0.dsl import Variable
 from y0.graph import NxMixedGraph
 
-from nof1_causal_lab.json_types import UncheckedJsonObject
+from nof1_causal_lab.artifacts.construct import TemporalStatus
 from nof1_causal_lab.utils.causal_design import (
     build_digraph,
     get_all_treatments,
     get_outcome_name,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
+    from nof1_causal_lab.artifacts.identity import ConstructId
+    from nof1_causal_lab.json_types import UncheckedJsonObject
+
 logger = logging.getLogger(__name__)
 
 
 def check_identifiability(
-    latent_structure: UncheckedJsonObject,
-    measurement_structure: UncheckedJsonObject,
+    constructs: Sequence[ConstructSpec],
+    edges: Sequence[CausalEdgeSpec],
     *,
+    default_outcome: ConstructId | None,
+    observed_constructs: set[str],
     iv_allowed: bool = False,
 ) -> UncheckedJsonObject:
     """Check which treatment effects are identifiable using y0's ID algorithm.
@@ -49,8 +60,10 @@ def check_identifiability(
     potential treatment X.
 
     Args:
-        latent_structure: Dict with 'constructs' and 'edges'
-        measurement_structure: Dict with 'indicators' mapping constructs to measures
+        constructs: Canonical construct definitions, including latent confounders
+        edges: Canonical directed causal assumptions
+        default_outcome: Identity of the selected outcome construct
+        observed_constructs: Names of constructs with measurements
         iv_allowed: When explicitly True and y0's nonparametric check fails,
             report IV identification via ``find_instruments`` under the
             caller's parametric linearity assumption. When False, only
@@ -69,22 +82,20 @@ def check_identifiability(
             - graph_info: Debug info about the graph structure
                 * iv_allowed: Whether IV fallback was used
     """
-    outcome = get_outcome_name(latent_structure)
+    outcome = get_outcome_name(constructs, default_outcome)
     if not outcome:
         raise ValueError("No default outcome selected for identification")
 
-    # Determine which constructs have measurements (observed)
-    observed_constructs = get_observed_constructs(
-        {item["id"]: item["name"] for item in latent_structure["constructs"]},
-        measurement_structure,
-    )
-
     # Get all potential treatments (observed constructs with paths to outcome)
     # Only observed constructs can be treatments - you can't do(X) on unobserved X
-    all_treatments = [t for t in get_all_treatments(latent_structure) if t in observed_constructs]
+    all_treatments = [
+        treatment
+        for treatment in get_all_treatments(constructs, edges, default_outcome)
+        if treatment in observed_constructs
+    ]
 
     # Determine if outcome is time-varying or time-invariant
-    outcome_is_time_varying = _is_time_varying(latent_structure, outcome)
+    outcome_is_time_varying = _is_time_varying(constructs, outcome)
 
     # Check each treatment
     identifiable_treatments: dict[str, UncheckedJsonObject] = {}
@@ -102,18 +113,18 @@ def check_identifiability(
             "non_identifiable_treatments": non_identifiable_treatments,
             "graph_info": {
                 "observed_constructs": sorted(observed_constructs),
-                "total_constructs": len(latent_structure["constructs"]),
+                "total_constructs": len(constructs),
                 "unobserved_confounders": [],
                 "n_directed_edges": 0,
             },
         }
 
     # Convert DAG to ADMG via 2-timestep unrolling
-    admg, unobserved_confounders = dag_to_admg(latent_structure, observed_constructs)
+    admg, unobserved_confounders = dag_to_admg(constructs, edges, observed_constructs)
 
     for treatment in all_treatments:
         # Build timestamped variable names for y0 query
-        treatment_node = _get_treatment_query_node(latent_structure, treatment, outcome)
+        treatment_node = _get_treatment_query_node(constructs, edges, treatment, outcome)
 
         if outcome_is_time_varying:
             outcome_node = _node_name(outcome, "t")
@@ -142,7 +153,7 @@ def check_identifiability(
                 # y0's nonparametric check failed; optionally report IV
                 # identification under the caller's parametric assumption.
                 instruments = (
-                    find_instruments(latent_structure, observed_constructs, treatment, outcome)
+                    find_instruments(constructs, edges, observed_constructs, treatment, outcome)
                     if iv_allowed
                     else []
                 )
@@ -158,14 +169,15 @@ def check_identifiability(
                 else:
                     if treatment_node == _node_name(treatment, "{t-1}"):
                         blockers = find_blocking_confounders_for_query(
-                            latent_structure,
+                            constructs,
+                            edges,
                             observed_constructs,
                             treatment_node=treatment_node,
                             outcome_node=outcome_node,
                         )
                     else:
                         blockers = find_blocking_confounders(
-                            latent_structure, observed_constructs, treatment, outcome
+                            constructs, edges, observed_constructs, treatment, outcome
                         )
                     non_identifiable_treatments[treatment] = {
                         "confounders": blockers,
@@ -182,7 +194,7 @@ def check_identifiability(
         "non_identifiable_treatments": non_identifiable_treatments,
         "graph_info": {
             "observed_constructs": sorted(observed_constructs),
-            "total_constructs": len(latent_structure["constructs"]),
+            "total_constructs": len(constructs),
             "unobserved_confounders": sorted(unobserved_confounders),
             "n_directed_edges": len(list(admg.directed.edges())),
             "iv_allowed": iv_allowed,
@@ -190,22 +202,17 @@ def check_identifiability(
     }
 
 
-def _is_time_varying(latent_structure: UncheckedJsonObject, construct_name: str) -> bool:
+def _is_time_varying(constructs: Sequence[ConstructSpec], construct_name: str) -> bool:
     """Check if a construct is time-varying (vs time-invariant)."""
-    for construct in latent_structure["constructs"]:
-        if construct["name"] == construct_name:
-            return construct.get("temporal_status", "time_varying") != "time_invariant"
+    for construct in constructs:
+        if construct.name == construct_name:
+            return construct.temporal_status == TemporalStatus.TIME_VARYING
     raise ValueError(f"Construct '{construct_name}' not found in latent structure")
 
 
-def get_observed_constructs(
-    construct_names: Mapping[str, str], measurement_structure: UncheckedJsonObject
-) -> set[str]:
-    """Resolve measured construct IDs to the defining version's scientific labels."""
-    return {
-        construct_names[indicator["construct_id"]]
-        for indicator in measurement_structure.get("indicators", [])
-    }
+def get_observed_constructs(constructs: Sequence[ConstructSpec]) -> set[str]:
+    """Return the names of constructs that own measurements."""
+    return {construct.name for construct in constructs if construct.indicators}
 
 
 def _node_name(construct: str, timestep: str) -> str:
@@ -224,49 +231,48 @@ def _canonicalize_estimand_string(estimand: str) -> str:
 
 
 def _uses_lagged_first_step_to_outcome(
-    latent_structure: UncheckedJsonObject,
+    constructs: Sequence[ConstructSpec],
+    edges: Sequence[CausalEdgeSpec],
     treatment: str,
     outcome: str,
 ) -> bool:
     """Return whether treatment paths to outcome start with a lagged edge.
 
-    Historical tests and simple static examples use contemporaneous edges by
-    omitting ``lagged``. The Stage 1 latent contract, however, represents
-    directed effects between time-varying endogenous constructs as lagged
-    ``X_{t-1} -> Y_t`` effects. Query the prior timestep exactly when the
-    first treatment edge on an outcome-reaching path is lagged.
+    Query the prior timestep exactly when the first treatment edge on an
+    outcome-reaching path has ``lagged=True``.
     """
-    graph = build_digraph(latent_structure)
+    graph = build_digraph(constructs, edges)
     if treatment not in graph or outcome not in graph:
         return False
 
-    construct_names = {item["id"]: item["name"] for item in latent_structure["constructs"]}
-    for edge in latent_structure.get("edges", []):
-        if construct_names[edge["cause_id"]] != treatment:
+    for edge in edges:
+        if edge.cause.name != treatment:
             continue
-        effect = construct_names[edge["effect_id"]]
+        effect = edge.effect.name
         if effect not in graph or not nx.has_path(graph, effect, outcome):
             continue
-        if edge.get("lagged", False):
+        if edge.lagged:
             return True
     return False
 
 
 def _get_treatment_query_node(
-    latent_structure: UncheckedJsonObject,
+    constructs: Sequence[ConstructSpec],
+    edges: Sequence[CausalEdgeSpec],
     treatment: str,
     outcome: str,
 ) -> str:
     """Return the unrolled graph node used for the treatment intervention."""
-    if not _is_time_varying(latent_structure, treatment):
+    if not _is_time_varying(constructs, treatment):
         return treatment
-    if _uses_lagged_first_step_to_outcome(latent_structure, treatment, outcome):
+    if _uses_lagged_first_step_to_outcome(constructs, edges, treatment, outcome):
         return _node_name(treatment, "{t-1}")
     return _node_name(treatment, "t")
 
 
 def unroll_temporal_dag(
-    latent_structure: UncheckedJsonObject,
+    constructs: Sequence[ConstructSpec],
+    edges: Sequence[CausalEdgeSpec],
     observed_constructs: set[str],
 ) -> nx.DiGraph:
     """Unroll a temporal causal graph to a 2-timestep DAG for identification.
@@ -289,7 +295,8 @@ def unroll_temporal_dag(
     - Unobserved constructs: all timesteps have hidden=True
 
     Args:
-        latent_structure: Dict with 'constructs' and 'edges'
+        constructs: Canonical construct definitions
+        edges: Directed assumptions with a boolean zero-or-one-tick lag
         observed_constructs: Set of construct names that have measurements
 
     Returns:
@@ -301,11 +308,9 @@ def unroll_temporal_dag(
     time_varying: list[str] = []
     time_invariant: list[str] = []
 
-    for construct in latent_structure["constructs"]:
-        name = construct["name"]
-        temporal_status = construct.get("temporal_status", "time_varying")
-
-        if temporal_status == "time_invariant":
+    for construct in constructs:
+        name = construct.name
+        if construct.temporal_status == TemporalStatus.TIME_INVARIANT:
             time_invariant.append(name)
         else:
             time_varying.append(name)
@@ -335,12 +340,10 @@ def unroll_temporal_dag(
         if name in observed_constructs:
             dag.add_edge(_node_name(name, "{t-1}"), _node_name(name, "t"))
 
-    # Add edges from the latent structure
-    construct_names = {item["id"]: item["name"] for item in latent_structure["constructs"]}
-    for edge in latent_structure.get("edges", []):
-        cause = construct_names[edge["cause_id"]]
-        effect = construct_names[edge["effect_id"]]
-        lagged = edge.get("lagged", False)
+    # Add the authored causal edges.
+    for edge in edges:
+        cause = edge.cause.name
+        effect = edge.effect.name
 
         cause_is_time_invariant = cause in time_invariant_set
         effect_is_time_invariant = effect in time_invariant_set
@@ -359,7 +362,7 @@ def unroll_temporal_dag(
             # (This would violate the definition of time-invariant)
             # Skip this edge - should be caught by schema validation
             continue
-        elif lagged:
+        elif edge.lagged:
             # Lagged edge: cause_{t-1} → effect_t
             dag.add_edge(_node_name(cause, "{t-1}"), _node_name(effect, "t"))
         else:
@@ -371,56 +374,33 @@ def unroll_temporal_dag(
     return dag
 
 
-def _validate_max_lag_one(latent_structure: UncheckedJsonObject) -> None:
-    """Validate that all edges have lag ≤ 1 (assumption A3a).
-
-    Under assumption A3a (latent confounders have bounded temporal reach),
-    we require all edges to have lag ≤ 1. This allows identification to be
-    decided using a 2-timestep graph segment (per arXiv:2504.20172).
-
-    The schema enforces this via `lagged: bool`, but we assert here to make
-    the assumption explicit and catch any violations.
-
-    Raises:
-        AssertionError: If any edge has a lag value other than 0 or 1
-    """
-    for edge in latent_structure.get("edges", []):
-        lagged = edge.get("lagged", False)
-        assert isinstance(lagged, bool), (
-            f"Edge {edge.get('cause_id')} -> {edge.get('effect_id')} has non-boolean 'lagged' value: {lagged}. "
-            f"Assumption A3a requires all edges to have lag ≤ 1 (lagged: true/false). "
-            f"See arXiv:2504.20172 for why this is required for finite identification."
-        )
-
-
 def dag_to_admg(
-    latent_structure: UncheckedJsonObject,
+    constructs: Sequence[ConstructSpec],
+    edges: Sequence[CausalEdgeSpec],
     observed_constructs: set[str],
 ) -> tuple[NxMixedGraph, set[str]]:
     """Convert a temporal DAG to ADMG via 2-timestep unrolling.
 
     Uses time-unrolling (per arXiv:2504.20172) to correctly handle lagged
     confounding, then projects to ADMG using y0's from_latent_variable_dag().
+    CausalEdgeSpec.lagged restricts every edge to zero or one model-clock tick
+    (assumption A3a).
 
     Args:
-        latent_structure: Dict with 'constructs' and 'edges'
+        constructs: Canonical construct definitions
+        edges: Canonical directed causal assumptions
         observed_constructs: Set of construct names that have measurements
 
     Returns:
         Tuple of (NxMixedGraph, set of unobserved confounder names)
 
-    Raises:
-        AssertionError: If any edge violates assumption A3a (lag > 1)
     """
-    # Validate assumption A3a: all edges have lag ≤ 1
-    _validate_max_lag_one(latent_structure)
-
     # Build 2-timestep unrolled DAG
-    dag = unroll_temporal_dag(latent_structure, observed_constructs)
+    dag = unroll_temporal_dag(constructs, edges, observed_constructs)
 
     # Find unobserved constructs that will create confounding
     # An unobserved node with 2+ observed children creates bidirected edges
-    all_constructs = {c["name"] for c in latent_structure["constructs"]}
+    all_constructs = {construct.name for construct in constructs}
     unobserved = all_constructs - observed_constructs
 
     unobserved_confounders = set()
@@ -447,7 +427,8 @@ def dag_to_admg(
 
 
 def find_blocking_confounders(
-    latent_structure: UncheckedJsonObject,
+    constructs: Sequence[ConstructSpec],
+    edges: Sequence[CausalEdgeSpec],
     observed_constructs: set[str],
     treatment: str,
     outcome: str,
@@ -469,9 +450,9 @@ def find_blocking_confounders(
     handle some confounding. The actual identification decision is made by
     y0's identify_outcomes() algorithm.
     """
-    G = build_digraph(latent_structure)
+    G = build_digraph(constructs, edges)
 
-    all_constructs = {c["name"] for c in latent_structure["constructs"]}
+    all_constructs = {construct.name for construct in constructs}
     unobserved = all_constructs - observed_constructs
 
     # Create graph with treatment removed to check backdoor paths
@@ -510,14 +491,15 @@ def find_blocking_confounders(
 
 
 def find_blocking_confounders_for_query(
-    latent_structure: UncheckedJsonObject,
+    constructs: Sequence[ConstructSpec],
+    edges: Sequence[CausalEdgeSpec],
     observed_constructs: set[str],
     *,
     treatment_node: str,
     outcome_node: str,
 ) -> list[str]:
     """Find unobserved constructs blocking a specific unrolled treatment query."""
-    dag = unroll_temporal_dag(latent_structure, observed_constructs)
+    dag = unroll_temporal_dag(constructs, edges, observed_constructs)
 
     dag_sans_treatment = dag.copy()
     if treatment_node in dag_sans_treatment:
@@ -554,7 +536,8 @@ def find_blocking_confounders_for_query(
 
 
 def find_instruments(
-    latent_structure: UncheckedJsonObject,
+    constructs: Sequence[ConstructSpec],
+    edges: Sequence[CausalEdgeSpec],
     observed_constructs: set[str],
     treatment: str,
     outcome: str,
@@ -576,7 +559,8 @@ def find_instruments(
     Reference: https://github.com/py-why/dowhy/blob/main/dowhy/graph.py
 
     Args:
-        latent_structure: Dict with 'constructs' and 'edges'
+        constructs: Canonical construct definitions
+        edges: Canonical directed causal assumptions
         observed_constructs: Set of observed construct names
         treatment: The treatment variable name
         outcome: The outcome variable name
@@ -584,7 +568,7 @@ def find_instruments(
     Returns:
         List of valid instrument names (observed constructs that satisfy IV conditions)
     """
-    G = build_digraph(latent_structure)
+    G = build_digraph(constructs, edges)
 
     if treatment not in G or outcome not in G:
         return []

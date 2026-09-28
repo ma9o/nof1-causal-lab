@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, NamedTuple, overload
 
 import jax
 import jax.numpy as jnp
@@ -42,29 +42,25 @@ _SUMMARY_OPERATOR_TO_CODE = {
 class ObservationOperator:
     """Compiled observation-window semantics used by likelihoods and predictive paths."""
 
-    observation_support: ObservationSupportRuntime | None
-    support_kind_codes: jnp.ndarray | None
-    summary_operator_codes: jnp.ndarray | None
-    interval_summary_indices: tuple[int, ...] = ()
-    prev_coeffs: jnp.ndarray | None = None
-    curr_coeffs: jnp.ndarray | None = None
-    interval_weights: jnp.ndarray | None = None
-    emission_slots: jnp.ndarray | None = None
-    max_active_windows: int = 0
-    n_manifest: int = 0
+    observation_support: ObservationSupportRuntime
+    support_kind_codes: jnp.ndarray
+    summary_operator_codes: jnp.ndarray
+    interval_summary_indices: tuple[int, ...]
+    prev_coeffs: jnp.ndarray
+    curr_coeffs: jnp.ndarray
+    interval_weights: jnp.ndarray
+    emission_slots: jnp.ndarray
+    max_active_windows: int
+    n_manifest: int
 
     @property
     def requires_interval_summary_handling(self) -> bool:
-        return bool(self.support_kind_codes is not None and self.interval_summary_indices)
+        return bool(self.interval_summary_indices)
 
     def point_like_mask(self, dtype: jnp.dtype) -> jnp.ndarray:
-        if self.support_kind_codes is None:
-            raise ValueError("point_like_mask is undefined without observation support")
         return get_point_like_mask(self.support_kind_codes, dtype)
 
     def interval_summary_mask(self, dtype: jnp.dtype) -> jnp.ndarray:
-        if self.support_kind_codes is None:
-            raise ValueError("interval_summary_mask is undefined without observation support")
         return get_interval_summary_mask(self.support_kind_codes, dtype)
 
     def project_response_trajectory(
@@ -104,23 +100,22 @@ class SupportObservationStepResult(NamedTuple):
     summary: SupportObservationSummary
 
 
+@overload
+def compile_observation_operator(
+    observation_support: ObservationSupportRuntime,
+) -> ObservationOperator: ...
+
+
+@overload
+def compile_observation_operator(observation_support: None = None) -> None: ...
+
+
 def compile_observation_operator(
     observation_support: ObservationSupportRuntime | None = None,
-) -> ObservationOperator:
+) -> ObservationOperator | None:
     """Compile reusable observation-window semantics from runtime metadata."""
     if observation_support is None:
-        return ObservationOperator(
-            observation_support=observation_support,
-            support_kind_codes=None,
-            summary_operator_codes=None,
-            interval_summary_indices=(),
-            prev_coeffs=None,
-            curr_coeffs=None,
-            interval_weights=None,
-            emission_slots=None,
-            max_active_windows=0,
-            n_manifest=0,
-        )
+        return None
 
     interval_summary_indices = tuple(
         idx for idx, kind in enumerate(observation_support.support_kinds) if kind == "interval"
@@ -277,7 +272,6 @@ def summarize_support_observation(
         raise ValueError(
             "summarize_support_observation requires interval-summary observation support"
         )
-    assert observation_operator.summary_operator_codes is not None
     dtype = response_t.dtype
     point_like_mask = observation_operator.point_like_mask(dtype)
     interval_summary_mask = observation_operator.interval_summary_mask(dtype)
@@ -377,8 +371,6 @@ def _project_response_trajectory_with_operator(
         return response_trajectory, jnp.ones((T, n_manifest), dtype=dtype)
 
     support = observation_operator.observation_support
-    assert support is not None
-    assert observation_operator.summary_operator_codes is not None
     point_like_mask = observation_operator.point_like_mask(dtype)
     interval_summary_mask = observation_operator.interval_summary_mask(dtype)
 
@@ -391,10 +383,6 @@ def _project_response_trajectory_with_operator(
     if T == 1:
         return expected_0[None, :], semantic_mask_0[None, :]
 
-    assert observation_operator.prev_coeffs is not None
-    assert observation_operator.curr_coeffs is not None
-    assert observation_operator.interval_weights is not None
-    assert observation_operator.emission_slots is not None
     prev_coeffs = jnp.asarray(observation_operator.prev_coeffs, dtype=dtype)
     curr_coeffs = jnp.asarray(observation_operator.curr_coeffs, dtype=dtype)
     interval_weights = jnp.asarray(observation_operator.interval_weights, dtype=dtype)
@@ -451,6 +439,8 @@ def project_response_trajectory(
     observation_support: ObservationSupportRuntime | None = None,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Project response-space trajectories into emitted observation means."""
+    if observation_support is None:
+        return response_trajectory, jnp.ones_like(response_trajectory)
     return _project_response_trajectory_with_operator(
         response_trajectory,
         compile_observation_operator(observation_support),
@@ -476,7 +466,7 @@ def trajectory_observation_log_probs(
     mask_float = obs_mask.astype(jnp.float32)
     observation_operator = compile_observation_operator(observation_support)
 
-    if not observation_operator.requires_interval_summary_handling:
+    if observation_operator is None or not observation_operator.requires_interval_summary_handling:
         return jax.vmap(
             lambda y_t, z_t, mask_t: obs_kernel.log_prob_fn(
                 y_t,

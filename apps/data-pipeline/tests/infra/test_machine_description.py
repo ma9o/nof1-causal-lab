@@ -1,13 +1,12 @@
 """The static machine description served at GET /api/machine stays in lockstep with the graph."""
 
+import pytest
+
 from nof1_causal_lab.episode_api import machine_description
 from nof1_causal_lab.machine.graph import ARTIFACT_GRAPH, DERIVATIONS, ROOT_ARTIFACTS
 from nof1_causal_lab.machine.hierarchy import ACTIONS, CONTEXTS
 
-
-def test_every_transition_declares_a_creation_class():
-    valid = {"deterministic", "batch_llm", "judgment"}
-    assert all(spec.creation_class in valid for spec in ARTIFACT_GRAPH)
+pytestmark = pytest.mark.contract
 
 
 def test_machine_description_serves_graph_and_classes():
@@ -21,7 +20,6 @@ def test_machine_description_serves_graph_and_classes():
         assert entry["produces"] == list(spec.produces)
         assert entry["produces_optional"] == list(spec.produces_optional)
         assert entry["creation_class"] == spec.creation_class
-        assert entry["writable"] == spec.writable
     derivations = {entry["produces"]: entry for entry in description["derivations"]}
     assert set(derivations) == {spec.produces for spec in DERIVATIONS}
     assert "validation_report" in description["topological_artifact_order"]

@@ -14,7 +14,7 @@ import numpy as np
 
 from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
 from nof1_causal_lab.compilation_errors import IncompleteModelError
-from nof1_causal_lab.models.model_parameters import coefficient_value, iter_coefficient_uses
+from nof1_causal_lab.models.model_parameters import coefficient_value, execution_coefficient_uses
 from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
 from nof1_causal_lab.models.ssm.structure import (
     DiffusionBlockSpec,
@@ -157,7 +157,7 @@ def _quantity_values(model: ModelSpec, kind: SiteKind, template, support, *, dia
     values = np.array(template, dtype=float, copy=True)
     free = np.array(support, dtype=bool, copy=True)
     occupied = {}
-    for parameter in iter_coefficient_uses(model):
+    for parameter in execution_coefficient_uses(model):
         if parameter.quantity != kind:
             continue
         if kind == SiteKind.T0_MEANS and not any(

@@ -26,9 +26,10 @@ def _format_indicators(measurement_structure: UncheckedJsonObject) -> str:
         details = [dtype, f"operator={summary_operator}", f"support={support_kind}"]
         if window:
             details.append(f"window={window}")
-        if dtype == "ordinal" and ordinal_levels:
-            codebook = ", ".join(f"{index}={level}" for index, level in enumerate(ordinal_levels))
-            details.append(f"ordinal_codes={codebook}")
+        levels = ordinal_levels if dtype == "ordinal" else indicator.get("categorical_levels")
+        if dtype in {"ordinal", "categorical"} and levels:
+            codebook = ", ".join(f"{index}={level}" for index, level in enumerate(levels))
+            details.append(f"{dtype}_codes={codebook}")
 
         lines.append(f"- {name} ({', '.join(details)}): {how_to_measure}")
     return "\n".join(lines)

@@ -7,9 +7,9 @@ from typing import TYPE_CHECKING
 from nof1_causal_lab.artifacts.identity import scientific_id
 
 if TYPE_CHECKING:
-    from collections.abc import Collection, Mapping, Sequence
+    from collections.abc import Mapping
 
-    from nof1_causal_lab.artifacts.identity import ConstructId, DistributionId, ParameterId
+    from nof1_causal_lab.artifacts.identity import DistributionId, ParameterId
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.numpyro_json import NumPyroDistribution
 
@@ -19,7 +19,7 @@ def parameter_distribution_id(parameter_id: ParameterId) -> DistributionId:
     return scientific_id("distribution", ["parameter", parameter_id])
 
 
-def with_parameter_distributions(
+def with_parameter_distributions(  # noqa: V103 - public immutable law editing API
     model: ModelSpec, laws: Mapping[ParameterId, NumPyroDistribution]
 ) -> ModelSpec:
     """Replace individual parameter laws and their memberships in one validated revision."""
@@ -48,30 +48,9 @@ def with_parameter_distributions(
     return model.revised(parameters=parameters, distributions=distributions)
 
 
-def joint_distribution_id(
-    model: ModelSpec,
-    parameters: Collection[ParameterId],
-    constructs: Collection[ConstructId],
-    time_points: Sequence[float],
-) -> DistributionId:
-    """Identify a law's event coordinates without retaining execution-array mappings.
-
-    Element identity includes scientific categorical/covariance bases. Changing
-    a basis must not silently reinterpret an unchanged probability distribution.
-    """
-    from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
-
-    bindings, _ = parameter_bindings(model)
-    by_id = {binding.parameter_id: binding for binding in bindings}
-    members = [[identity, sorted(by_id[identity].coordinates)] for identity in sorted(parameters)]
-    trajectories = [
-        [identity, [float(value) for value in time_points]] for identity in sorted(constructs)
-    ]
-    return scientific_id("distribution", [members, trajectories])
-
-
 def validate_distribution_memberships(model: ModelSpec) -> None:
     from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
+    from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
     from nof1_causal_lab.numpyro_json import distribution_shape
 
     for identity in model.distributions:
@@ -86,21 +65,19 @@ def validate_distribution_memberships(model: ModelSpec) -> None:
             if len(parameters) != 1 or constructs:
                 raise ValueError("A scalar distribution must belong to exactly one parameter")
             continue
-        bindings = {binding.parameter_id: binding for binding in parameter_bindings(model)[0]}
-        expected = joint_distribution_id(
-            model,
-            parameters,
-            constructs,
-            model.time_points,
+        bindings, _ = parameter_bindings(model)
+        layout = JointLawLayout.from_bindings(
+            bindings,
+            parameters=parameters,
+            constructs=constructs,
+            time_points=model.time_points,
         )
+        expected = layout.distribution_id
         if identity != expected:
             raise ValueError(
                 f"Joint distribution identity does not match its scientific event coordinates: expected {expected}"
             )
-        size = sum(len(bindings[key].coordinates) for key in parameters) + len(constructs) * len(
-            model.time_points
-        )
-        if shape != ((), (size,)):
+        if shape != ((), (layout.width,)):
             raise ValueError(
                 "A joint distribution must have one event coordinate per scientific quantity"
             )

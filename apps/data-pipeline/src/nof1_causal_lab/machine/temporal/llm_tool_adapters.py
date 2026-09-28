@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import csv
 import datetime
-import hashlib
 import io
 import json
 import logging
@@ -14,20 +12,13 @@ import math
 import re
 import traceback
 from pathlib import Path
-from time import perf_counter
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from pydantic import TypeAdapter
-
-from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
-from nof1_causal_lab.artifacts.identity import DistributionId
-from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.temporal.llm_subroutine_storage import (
     read_subroutine_json,
     write_subroutine_json,
 )
-from nof1_causal_lab.numpyro_json import NumPyroDistribution
 from nof1_causal_lab.utils import storage
 
 logger = logging.getLogger(__name__)
@@ -56,17 +47,6 @@ _RAW_EXEC_NAMESPACE_NAMES = frozenset(
     }
 )
 
-_MODEL_SPEC_SUBMISSION_ERRORS = (
-    ArithmeticError,
-    AssertionError,
-    AttributeError,
-    LookupError,
-    OSError,
-    RuntimeError,
-    TypeError,
-    ValueError,
-)
-
 
 def _validate_tool_payload(
     *,
@@ -89,20 +69,6 @@ def _validate_tool_payload(
             return None, "VALIDATION ERRORS:\n- validator returned no output"
         return data, "VALID"
 
-    if context_kind == "latent_structure":
-        from nof1_causal_lab.flows.transitions.latent_structure.grounding import (
-            latent_structure_grounding,
-        )
-
-        return latent_structure_grounding(data)
-
-    if context_kind == "measurement_structure":
-        from nof1_causal_lab.flows.transitions.measurement_structure.grounding import (
-            measurement_structure_grounding,
-        )
-
-        return measurement_structure_grounding(data)
-
     raise ValueError(f"unknown LLM subroutine context kind {context_kind!r}")
 
 
@@ -110,14 +76,14 @@ def _raw_data_context(context_ref: str) -> UncheckedJsonObject:
     return read_subroutine_json(context_ref)
 
 
-def _read_raw_dataframe(dataframe_ref: str):
+def _read_raw_dataframe(dataframe_ref: str) -> pl.DataFrame:
     import polars as pl
 
     with storage.open_file(dataframe_ref, "rb") as file:
         return pl.read_ipc(file)
 
 
-def _write_raw_dataframe(dataframe_ref: str, dataframe: Any) -> None:
+def _write_raw_dataframe(dataframe_ref: str, dataframe: pl.DataFrame) -> None:
     with storage.open_file(dataframe_ref, "wb") as file:
         dataframe.write_ipc(file)
 
@@ -343,238 +309,12 @@ def _execute_raw_data_submit_table(
     return "VALID", result_ref
 
 
-async def _execute_model_spec_search_literature(
-    context_ref: str,
-    args: UncheckedJsonObject,
-) -> tuple[str, str | None]:
-    from nof1_causal_lab.flows.transitions.model_spec.tools import search_literature
-
-    context = read_subroutine_json(context_ref)
-    search_state_ref = context["search_state_ref"]
-    state = read_subroutine_json(search_state_ref)
-    query = str(args.get("query") or "")
-    parameter_name = str(args.get("parameter_name") or "")
-    if not query:
-        return "Error: query is required", None
-    state["search_queries"][parameter_name] = query
-    cached = state["search_cache"].get(query)
-    if cached is not None:
-        return cached, None
-    result = await search_literature(query)
-    state["search_cache"][query] = result
-    write_subroutine_json(search_state_ref, state)
-    return result, None
-
-
-def _execute_model_spec_submit_construct(
-    context_ref: str,
-    args: UncheckedJsonObject,
-    submission_id: str,
-) -> tuple[str, str | None]:
-    from nof1_causal_lab.machine.temporal.model_spec_checkpoints import (
-        AcceptedConstructCheckpoint,
-        ModelSpecAdmissionEvaluation,
-        ModelSpecSubmissionResult,
-        existing_accepted_checkpoint_ref,
-        load_checkpoint_construct_state,
-        model_spec_admission_evaluation_key,
-        model_spec_admission_evaluation_path,
-        read_model_spec_checkpoint,
-        write_accepted_model_spec_checkpoint,
-        write_model_spec_admission_evaluation,
-    )
-
-    context = read_subroutine_json(context_ref)
-    workspace_id = str(context["workspace_id"])
-    checkpoint_ref = str(context["checkpoint_ref"])
-    attempt_result_ref = str(context["attempt_result_ref"])
-    search_state = read_subroutine_json(context["search_state_ref"])
-    submission_digest = hashlib.sha256(submission_id.encode()).hexdigest()
-    submission_result_ref = storage.join(
-        attempt_result_ref.rsplit("/", 1)[0],
-        "submission-results",
-        f"{submission_digest}.json",
-    )
-
-    def _return_saved(result: ModelSpecSubmissionResult) -> tuple[str, str | None]:
-        write_subroutine_json(attempt_result_ref, result.model_dump(mode="json"))
-        if result.error is not None:
-            raise ValueError(result.error)
-        return result.feedback, None
-
-    if storage.exists(submission_result_ref):
-        return _return_saved(
-            ModelSpecSubmissionResult.model_validate(read_subroutine_json(submission_result_ref))
-        )
-
-    entity = ConstructSpec.model_validate(args["construct"])
-    construct = entity.name
-    parent, state = load_checkpoint_construct_state(
-        workspace_id,
-        checkpoint_ref,
-        emit_workspace_id=workspace_id,
-        target_construct=construct,
-    )
-    existing_checkpoint_ref = existing_accepted_checkpoint_ref(parent, submission_id)
-    if existing_checkpoint_ref is not None:
-        existing = read_model_spec_checkpoint(workspace_id, existing_checkpoint_ref)
-        accepted = existing.accepted_constructs[-1]
-        result = ModelSpecSubmissionResult(
-            submission_id=submission_id,
-            construct_name=accepted.construct_name,
-            admitted=True,
-            outcome=accepted.outcome,
-            feedback=accepted.feedback,
-            checkpoint_ref=existing_checkpoint_ref,
-        )
-        write_subroutine_json(submission_result_ref, result.model_dump(mode="json"))
-        return _return_saved(result)
-
-    edges = TypeAdapter(tuple[CausalEdgeSpec, ...]).validate_python(args["edges"])
-    parameters = TypeAdapter(tuple[ParameterSpec, ...]).validate_python(args["parameters"])
-    distributions = TypeAdapter(dict[DistributionId, NumPyroDistribution]).validate_python(
-        args["distributions"]
-    )
-    accept = list(args.get("accept") or [])
-    state.attempt = int(context["attempt"])
-    state.search_queries = dict(search_state["search_queries"])
-    state.search_cache = dict(search_state["search_cache"])
-    evaluation_key = model_spec_admission_evaluation_key(
-        input_identity={"artifact_pins": parent.input_pins},
-        accepted_constructs=parent.accepted_constructs,
-        ancestor_constructs=set(state.admitted_contributions),
-        construct_name=construct,
-        construct=entity,
-        edges=edges,
-        parameters=parameters,
-        distributions=distributions,
-        accept=accept,
-        n_draws=state.n_draws,
-        seed=state.seed,
-    )
-    evaluation_path = model_spec_admission_evaluation_path(workspace_id, evaluation_key)
-
-    def _materialize_evaluation(
-        evaluation: ModelSpecAdmissionEvaluation,
-    ) -> tuple[str, str | None]:
-        next_checkpoint_ref: str | None = None
-        if evaluation.admitted:
-            accepted = AcceptedConstructCheckpoint(
-                submission_id=submission_id,
-                entity=entity,
-                edges=edges,
-                parameters=parameters,
-                distributions=distributions,
-                accept=accept,
-                annotations=evaluation.annotations,
-                results=evaluation.results,
-                outcome=evaluation.outcome,
-                feedback=evaluation.feedback,
-            )
-            next_checkpoint_ref = write_accepted_model_spec_checkpoint(
-                parent_ref=checkpoint_ref,
-                parent=parent,
-                accepted=accepted,
-                search_queries=state.search_queries,
-                search_cache=state.search_cache,
-            )
-        result = ModelSpecSubmissionResult(
-            submission_id=submission_id,
-            construct_name=construct,
-            admitted=evaluation.admitted,
-            outcome=evaluation.outcome,
-            feedback=evaluation.feedback,
-            checkpoint_ref=next_checkpoint_ref,
-            error=evaluation.error,
-        )
-        write_subroutine_json(submission_result_ref, result.model_dump(mode="json"))
-        return _return_saved(result)
-
-    if storage.exists(evaluation_path):
-        logger.info(
-            "Model-spec admission evaluation cache hit construct=%s key=%s",
-            construct,
-            evaluation_key[:12],
-        )
-        return _materialize_evaluation(
-            ModelSpecAdmissionEvaluation.model_validate(read_subroutine_json(evaluation_path))
-        )
-
-    evaluation_started = perf_counter()
-    logger.info(
-        "Model-spec admission evaluation cache miss construct=%s key=%s",
-        construct,
-        evaluation_key[:12],
-    )
-    try:
-        feedback = state.submit_construct(
-            construct=entity.model_dump(mode="json"),
-            edges=[edge.model_dump(mode="json") for edge in edges],
-            parameters=[parameter.model_dump(mode="json") for parameter in parameters],
-            distributions=args["distributions"],
-            accept=accept,
-        )
-    except _MODEL_SPEC_SUBMISSION_ERRORS as exc:
-        evaluation = ModelSpecAdmissionEvaluation(
-            evaluation_key=evaluation_key,
-            construct_name=construct,
-            admitted=False,
-            outcome=str(exc),
-            feedback=str(exc),
-            error=str(exc),
-        )
-        write_model_spec_admission_evaluation(evaluation_path, evaluation)
-        logger.info(
-            "Model-spec admission evaluation failed construct=%s key=%s duration_ms=%.1f",
-            construct,
-            evaluation_key[:12],
-            (perf_counter() - evaluation_started) * 1000.0,
-        )
-        return _materialize_evaluation(evaluation)
-
-    report = state.last_report
-    admitted = state.current_construct != construct
-    outcome = report.outcome if report is not None and report.name == construct else feedback
-    annotations: list[str] = []
-    results: list[UncheckedJsonObject] = []
-    if report is not None and report.name == construct:
-        from nof1_causal_lab.recipes.incremental_model import (
-            _check_result_payload,
-        )
-
-        annotations = list(report.annotations)
-        results = [
-            _check_result_payload(result)
-            for result in (*report.results, *state.last_coupled_results)
-        ]
-    if admitted and (report is None or report.name != construct or not report.admitted):
-        raise AssertionError(f"Construct {construct!r} advanced without an admission report")
-    evaluation = ModelSpecAdmissionEvaluation(
-        evaluation_key=evaluation_key,
-        construct_name=construct,
-        admitted=admitted,
-        outcome=outcome,
-        feedback=feedback,
-        annotations=annotations,
-        results=results,
-    )
-    write_model_spec_admission_evaluation(evaluation_path, evaluation)
-    logger.info(
-        "Model-spec admission evaluation finished construct=%s key=%s duration_ms=%.1f",
-        construct,
-        evaluation_key[:12],
-        (perf_counter() - evaluation_started) * 1000.0,
-    )
-    return _materialize_evaluation(evaluation)
-
-
 async def execute_subroutine_tool(
     *,
     input: LLMToolExecutionInput | HarnessToolRequest,
     tool: LLMToolSpec,
     args: UncheckedJsonObject,
     result_ref: str,
-    request_id: str | None = None,
 ) -> tuple[str, str | None]:
     if tool.executor == "context_json_validation":
         data = json.loads(str(args[tool.param_name]))
@@ -596,16 +336,4 @@ async def execute_subroutine_tool(
         return _execute_raw_data_python(input.context_ref, args)
     if tool.executor == "raw_data_submit_table":
         return _execute_raw_data_submit_table(input.context_ref, result_ref, args)
-    if tool.executor == "model_spec_submit_construct":
-        if request_id is None:
-            raise ValueError("model-spec submissions require an idempotency request id")
-        return await asyncio.to_thread(
-            _execute_model_spec_submit_construct,
-            input.context_ref,
-            args,
-            request_id,
-        )
-    if tool.executor == "model_spec_search_literature":
-        return await _execute_model_spec_search_literature(input.context_ref, args)
-
     raise ValueError(f"Unsupported tool executor: {tool.executor}")

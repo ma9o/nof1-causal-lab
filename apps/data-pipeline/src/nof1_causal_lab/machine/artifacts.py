@@ -1,10 +1,7 @@
 """Artifact taxonomy: the nodes of the episode state machine.
 
-The machine's state is a versioned artifact store. Each artifact version is
-immutable and stamped with provenance plus the exact input versions it was
-derived from — that stamp is what makes staleness and freshness *derived*
-properties rather than stored flags. Applied transition effects select which
-versions are current and let a timeline scrubber reconstruct past state.
+Git trees select immutable scientific artifacts. Each artifact records its
+input tree OIDs and scientific fingerprints, which determine freshness. EpisodeState is the runtime projection of a selected commit tree.
 
 These are pydantic models (frozen) rather than dataclasses because they
 cross serialization boundaries verbatim: Temporal update/activity payloads
@@ -13,31 +10,27 @@ cross serialization boundaries verbatim: Temporal update/activity payloads
 
 from __future__ import annotations
 
-from typing import Literal
-
 from pydantic import BaseModel, ConfigDict, Field
 
-from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS, ArtifactId
+from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS, ArtifactId, GitOid
+from nof1_causal_lab.artifacts.model_checks import ModelCheckReport  # noqa: TC001
 
-type Provenance = Literal["computed", "human", "llm"]
 
-
-class ArtifactVersionInfo(BaseModel):
-    """Artifact version metadata records how a stored artifact was produced and which inputs it
+class ArtifactRecord(BaseModel):
+    """Artifact revision metadata records how a stored artifact was produced and which inputs it
     used.
 
     ``derived_from`` pins the exact input versions the payload was computed
-    from. For root artifacts (user writes) it is empty. ``created_at`` is
-    stamped by the activity that produced the version — never inside workflow
+    from. For initial model revisions it is empty. ``created_at`` is
+    stamped by the activity that produced the revision — never inside workflow
     code, where wall-clock time is non-deterministic.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     artifact_id: ArtifactId
-    version: int
-    provenance: Provenance
-    derived_from: dict[ArtifactId, int] = Field(default_factory=dict)
+    revision: GitOid
+    derived_from: dict[ArtifactId, GitOid] = Field(default_factory=dict)
     model_inputs: dict[str, str] = Field(default_factory=dict)
     consumed_model_inputs: dict[str, str] = Field(default_factory=dict)
     produced_by: str | None = None
@@ -45,19 +38,19 @@ class ArtifactVersionInfo(BaseModel):
 
 
 class EpisodeState(BaseModel):
-    """Episode state identifies the artifact versions currently selected by the transition
-    journal.
+    """Episode state projects the artifact trees selected by one Git commit.
 
-    ``current`` maps artifact id → the version info that is *current* for the
+    ``current`` maps artifact id → the revision info that is *current* for the
     episode. Absent key = the artifact does not exist (either never produced,
     or produced-when-nonempty semantics withheld it).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    current: dict[ArtifactId, ArtifactVersionInfo] = Field(default_factory=dict)
+    current: dict[ArtifactId, ArtifactRecord] = Field(default_factory=dict)
+    checks: ModelCheckReport | None = None
 
-    def get(self, artifact_id: ArtifactId) -> ArtifactVersionInfo | None:
+    def get(self, artifact_id: ArtifactId) -> ArtifactRecord | None:
         return self.current.get(artifact_id)
 
     def has(self, artifact_id: ArtifactId) -> bool:
@@ -69,7 +62,7 @@ class EpisodeState(BaseModel):
         return info is not None and all(
             (selected := self.get(artifact_id)) is not None
             and (
-                info.derived_from.get(artifact_id) == selected.version
+                info.derived_from.get(artifact_id) == selected.revision
                 or (
                     artifact_id == "model"
                     and bool(info.consumed_model_inputs)
@@ -82,22 +75,26 @@ class EpisodeState(BaseModel):
             for artifact_id in inputs
         )
 
-    def with_versions(self, infos: list[ArtifactVersionInfo]) -> EpisodeState:
+    def with_artifacts(self, infos: list[ArtifactRecord]) -> EpisodeState:
         """Return a new state with ``infos`` installed as current versions."""
         merged = dict(self.current)
         for info in infos:
             merged[info.artifact_id] = info
-        return EpisodeState(current={aid: merged[aid] for aid in ARTIFACT_IDS if aid in merged})
+        return self.model_copy(
+            update={"current": {aid: merged[aid] for aid in ARTIFACT_IDS if aid in merged}}
+        )
 
     def without(self, artifact_ids: list[ArtifactId]) -> EpisodeState:
         """Return a new state with the given artifacts removed from ``current``.
 
         Used for produced-when-nonempty semantics: re-running a stage whose
-        previous version produced an optional artifact, but whose new run did
-        not, must retract the old version — otherwise downstream stages would
+        previous revision produced an optional artifact, but whose new run did
+        not, must retract the old revision — otherwise downstream stages would
         silently consume a payload derived from superseded inputs.
         """
         removed = set(artifact_ids)
-        return EpisodeState(
-            current={aid: info for aid, info in self.current.items() if aid not in removed}
+        return self.model_copy(
+            update={
+                "current": {aid: info for aid, info in self.current.items() if aid not in removed}
+            }
         )

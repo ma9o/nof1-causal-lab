@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime, timedelta
+from typing import TYPE_CHECKING, cast
 
 import polars as pl
 
 from nof1_causal_lab.json_types import UncheckedJsonObject
+
+if TYPE_CHECKING:
+    from datetime import datetime, timedelta
 
 MIN_OBSERVATIONS = 10
 MIN_COVERAGE_PERIODS = 10
@@ -111,12 +114,10 @@ def check_dtype_range(
             )
     elif dtype == "continuous":
         if len(values) >= MIN_OBSERVATIONS:
-            q1_raw = values.quantile(0.25)
-            q3_raw = values.quantile(0.75)
-            assert isinstance(q1_raw, (int, float))
-            assert isinstance(q3_raw, (int, float))
-            q1 = float(q1_raw)
-            q3 = float(q3_raw)
+            # The caller supplies non-null Float64 values; Polars does not carry
+            # a Series' dtype through its scalar return annotations.
+            q1 = cast("float", values.quantile(0.25))
+            q3 = cast("float", values.quantile(0.75))
             iqr = q3 - q1
             if iqr > 0:
                 lower = q1 - OUTLIER_IQR_MULTIPLIER * iqr
@@ -147,10 +148,8 @@ def check_time_coverage(
     if len(parsed_ts) < 2:
         return issues, None
 
-    ts_max = parsed_ts.max()
-    ts_min = parsed_ts.min()
-    assert isinstance(ts_max, datetime)
-    assert isinstance(ts_min, datetime)
+    ts_max = cast("datetime", parsed_ts.max())
+    ts_min = cast("datetime", parsed_ts.min())
     time_span_hours = (ts_max - ts_min).total_seconds() / 3600
     min_hours = MIN_COVERAGE_PERIODS * model_clock_hours
     coverage_ratio = min(time_span_hours / min_hours, 1.0) if min_hours > 0 else None
@@ -181,9 +180,8 @@ def check_timestamp_gaps(
         return issues, None
 
     diffs = parsed_ts.sort().diff().drop_nulls()
-    max_gap_raw = diffs.max()
-    assert isinstance(max_gap_raw, timedelta)
-    max_gap_hours = max_gap_raw.total_seconds() / 3600
+    max_gap = cast("timedelta", diffs.max())
+    max_gap_hours = max_gap.total_seconds() / 3600
     threshold = MAX_GAP_MULTIPLIER * model_clock_hours
     max_gap_ratio = max_gap_hours / threshold if threshold > 0 else None
 
@@ -215,15 +213,11 @@ def check_hallucination_signals(
         return issues, duplicate_pct, arithmetic_sequence_detected
 
     vc = values.value_counts()
-    max_count_raw = vc["count"].max()
-    assert isinstance(max_count_raw, (int, float))
-    max_count = int(max_count_raw)
+    max_count = cast("int", vc["count"].max())
     duplicate_pct = max_count / n if n > 0 else 0.0
 
     if dtype not in ("binary", "count"):
-        var_raw = values.var()
-        assert isinstance(var_raw, (int, float))
-        variance = float(var_raw)
+        variance = cast("float", values.var())
         if variance > 0 and max_count > n * HALLUCINATION_DUPLICATE_THRESHOLD:
             most_common = vc.sort("count", descending=True).row(0)[0]
             issues.append(

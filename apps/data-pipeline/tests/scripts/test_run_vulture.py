@@ -2,7 +2,10 @@
 
 import ast
 
+import pytest
 from scripts.run_vulture import _scan_string_type_node, _write_phantom
+
+pytestmark = pytest.mark.contract
 
 
 def test_keyword_field_alias_does_not_break_string_type_references(tmp_path):

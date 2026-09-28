@@ -12,6 +12,8 @@ from nof1_causal_lab.models.ssm.execution.observation_extra_params import (
     slice_observation_extra_params,
 )
 
+pytestmark = pytest.mark.contract
+
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.execution.contracts import LikelihoodExtraParams
 

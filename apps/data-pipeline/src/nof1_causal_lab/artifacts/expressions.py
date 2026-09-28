@@ -253,7 +253,7 @@ def restoring_force(
     )
 
 
-def linear_effect(source: ConstructId, weight: float | ParameterId) -> Expression:
+def linear_effect(source: ConstructId, weight: float | ParameterId) -> Expression:  # noqa: V103 - public scientific expression constructor
     return coefficient(weight, "weight") * state(source)
 
 
@@ -405,14 +405,6 @@ def restoring_coefficients(
             *restoring_coefficients(value.right, target, kind=kind),
         )
     return ()
-
-
-def coefficient_key(operand: CoefficientExpression) -> ParameterId:
-    """The numerical operand key follows a parameter's persistent identity."""
-    reference = operand.value
-    if not isinstance(reference, str):
-        raise TypeError("Fixed coefficients do not have numerical sample sites")
-    return reference
 
 
 def hill_applications(

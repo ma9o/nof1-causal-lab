@@ -33,7 +33,7 @@ from tests.model_fixtures import (
     make_observation_support_runtime,
 )
 
-pytestmark = pytest.mark.warmup
+pytestmark = pytest.mark.inference(concern="warmup")
 
 
 @pytest.mark.parametrize("interval", [False, True], ids=["point", "interval"])

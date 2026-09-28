@@ -189,7 +189,7 @@ def likelihood_terms(law: ObservationLawSpec) -> LikelihoodTerms:
     return LikelihoodTerms(family, link, predictor, intercept, loadings, tuple(auxiliary))
 
 
-def observation_law(
+def observation_law(  # noqa: V103 - public editable conditional-law constructor
     construct_id: ConstructId,
     family: DistributionFamily | str,
     link: LinkFunction | str,
@@ -280,7 +280,7 @@ def observation_law(
     return ObservationLawSpec(distribution=name, arguments=arguments)
 
 
-def revise_law(
+def revise_law(  # noqa: V103 - public immutable conditional-law editing API
     likelihood: LikelihoodSpec, transform: Callable[[Expression], Expression]
 ) -> LikelihoodSpec:
     """Revise scientific operands while preserving the conditional formula."""

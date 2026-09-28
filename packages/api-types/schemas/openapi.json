@@ -2,14 +2,14 @@
   "openapi": "3.1.0",
   "info": {
     "title": "nof1-causal-lab episode API",
-    "description": "The scientific interface has four actions: `edit_model`, `prepare_data`, `fit`,\nand `simulate`. Requests commit through the serialized episode machine; reads\ncome from its versioned artifacts and append-only transition log.\n\n## Scientific loop\n\n1. Read `GET /api/machine` for action responsibilities, then\n   `GET /api/episodes/{workspace_id}/model` for current model/data versions and findings.\n2. Submit to `POST /api/episodes/{workspace_id}/actions`:\n   - `edit_model`: `{\"action\":\"edit_model\",\"expected_version\":0,\"model\":{\"question\":\"Does workload affect sleep?\"}}`.\n     Model structure, measurements, mechanisms, constants, and laws can be edited together.\n     Valid incomplete models are saved with applicable specification findings.\n   - `prepare_data`: `{\"action\":\"prepare_data\",\"source\":\"files\"}` imports uploaded sources.\n     `{\"action\":\"prepare_data\",\"source\":\"raw_data\",\"raw_data_version\":1,\"model_version\":2}`\n     extracts observations using the selected measurement definitions.\n   - `fit`: `{\"action\":\"fit\",\"model_version\":3,\"panel_version\":1}` conditions the selected\n     model on observations. Returns joint uncertainty and fit diagnostics; predictive\n     simulation is a separate request. Current fitting supports independent scalar laws.\n   - `simulate`: `{\"action\":\"simulate\",\"model_version\":3,\"design\":{\"kind\":\"trajectory\",\"times\":[0,1,2,3],\"draws\":100,\"seed\":0}}`\n     replicates a study from the selected model's current laws. Independent and joint\n     parameter laws use the same nonlinear generator. Optional `comparison_panel_version`\n     enables predictive comparisons on the matching observation grid; `design.edge_contrasts`\n     adds paired edge-off experiments. Replication draws a new initial state from the\n     model's initial distribution, even when the model contains fitted trajectories.\n3. Read the action outcome and `GET /api/episodes/{workspace_id}/timeline` for\n   `applied`, `rejected`, or `raised` records. Numerical arrays have immutable store references.\n   `GET /api/episodes/{workspace_id}/model` includes separately sourced specification,\n   identification, data-compatibility, fitting, and simulation findings.\n\nThe same requests are available as tools through `GET /api/tools/scientific` and\n`POST /api/tools/scientific/{action}`. HTTP and tool calls share execution contracts.\n\n## Revisions and optional recipes\n\nRequests name stored input revisions. Fits check the selected model/data pair; model edits reject base revision conflicts. Read `/revisions` to select history and `/revisions/compare` to compare parameter decisions and recorded evidence.\nAn edit does not require prior simulation or an authoring admission. Causal numerical\nclaims still require matching identification and production inference evidence.\nSimulation reports retain their own model/data versions; a later edit makes that\nreport historical rather than evidence for the edited model.\n\nThe `/moves` endpoint serves internal jobs; `/recipes/observational-study` runs the optional authoring recipe.\nTheir stage ordering is not a requirement of the scientific actions. A trajectory design selects\n`initial_state` (new_study, retained, fixed, equilibrium), `state_time` or `state_values`,\nprocess/observation noise, timed interventions and check criteria. A causal design\nuses `kind: \"causal\"` and `query` with start, clamps, outcome and readout. It uses the same\ngenerator and requires identification plus committed production-fit evidence.\nThe `analysis` context is read-only model introspection.\n\n## Data in, results out\n\nUpload files at `POST /api/upload` (`multipart/form-data` with `workspaceId` and\n`file`) before `prepare_data` with `source=files`. Read artifact payloads at\n`GET /api/episodes/{workspace_id}/artifacts/{artifact_id}`; binary files are served\nfrom `.../files/{filename}`. Long jobs may outlive an HTTP client timeout; inspect\nthe timeline before submitting another request.\n\n## Read-only deployments\n\n`GET /api/capabilities` reports `moves_enabled`. Read-only deployments reject all\nscientific action submissions and machine writes with 403.\n",
+    "description": "The scientific interface has four actions: `edit_model`, `prepare_data`, `fit`,\nand `simulate`. Requests commit through the serialized episode machine; reads\ncome from its versioned artifacts and append-only transition log.\n\n## Scientific loop\n\n1. Read `GET /api/machine` for action responsibilities, then\n   `GET /api/episodes/{workspace_id}/model` for current model/data versions and findings.\n2. Submit to `POST /api/episodes/{workspace_id}/actions`:\n   - `edit_model`: `{\"action\":\"edit_model\",\"expected_revision\":null,\"model\":{\"question\":\"Does workload affect sleep?\"}}`.\n     Model structure, measurements, mechanisms, constants, and laws can be edited together.\n     Valid incomplete models are saved with applicable specification findings.\n   - `prepare_data`: `{\"action\":\"prepare_data\",\"source\":\"files\"}` imports uploaded sources.\n     `{\"action\":\"prepare_data\",\"source\":\"raw_data\",\"raw_data_revision\":\"<raw-data tree OID>\",\"model_revision\":\"<model tree OID>\"}`\n     extracts observations using the selected measurement definitions.\n     `source=\"simulation\"` with `simulation={\"revision\":\"<simulation commit OID>\",\"replicate\":0}`\n     prepares one recorded replicate as an observation panel, preserving its measurement\n     support and generating model reference. The replicate index is zero-based; simulation\n     truths remain in the source report and are not passed to fitting.\n   - `fit`: `{\"action\":\"fit\",\"model_revision\":\"<model tree OID>\",\"panel_revision\":\"<panel tree OID>\"}` conditions the selected\n     model on observations. Returns joint uncertainty and fit diagnostics; predictive\n     simulation is a separate request. Current fitting supports independent scalar laws.\n   - `simulate`: `{\"action\":\"simulate\",\"model_revision\":\"<model tree OID>\",\"end\":30,\"interventions\":[]}`\n     generates forward from the model's current laws. `start` optionally selects an earlier\n     model time; otherwise generation starts at its latest retained state, or zero when it\n     has only an initial-state law. Times use absolute model days. Interventions are optional:\n     `{\"target\":\"<construct ID>\",\"time\":5,\"value\":1}` assigns a state at that time,\n     then its natural dynamics resume. The framework derives the grid and always includes\n     process and observation uncertainty.\n3. Dispatch returns HTTP 202 with only `{\"attempt_id\":\"<UUID>\"}` after durable acceptance.\n   Poll `GET /api/episodes/{workspace_id}/actions/{attempt_id}` for `{done, body, messages}`.\n   While running, `done` is false and `body` is null. At completion, `body` contains the\n   scientific result, or is null on failure. Messages accumulate as\n   `{timestamp, level, label}` with UTC timestamps, `debug|info|warn|error` levels,\n   and stable `SCREAMING_SNAKE_CASE` labels. Warnings can accompany a saved result;\n   failed actions leave the scientific branch unchanged. Do not redispatch while polling.\n   `GET /api/episodes/{workspace_id}/timeline` retains `applied`, `rejected`, or `raised`\n   attempts and their messages. Numerical arrays have immutable store references.\n   `GET /api/episodes/{workspace_id}/model` includes separately sourced specification,\n   identification, data-compatibility, fitting, and simulation findings.\n\nThe same requests are available as tools through `GET /api/tools/scientific` and\n`POST /api/tools/scientific/{action}`; these tools return the receipt in `result`.\nUse `poll_action` with `{attempt_id}` to read the same poll response in `result`.\nHTTP and tool calls share execution contracts. V2 is a read-only inspector.\n\n## Revisions and execution\n\nRequests name stored input revisions. Fits check the selected model/data pair; model edits reject base revision conflicts. Read `/revisions` to select history and `/revisions/compare` to compare parameter decisions and recorded evidence.\nAn edit does not require prior simulation or an authoring admission. Causal numerical\nclaims still require matching identification and production inference evidence.\nModel edits and data preparation automatically run affected checks, including one exact\nwhole-model predictive batch when a compatible panel is available. Unchanged checks reuse\ntheir recorded results. Scientific failures save as findings; missing prerequisites carry\nnot_evaluated reasons. Read predictive details and law provenance in the action body.\nSimulation reports retain their own model/data versions; a later edit makes that\nreport historical rather than evidence for the edited model.\n\nOnly the four scientific actions submit scientific work. Execution jobs and\nLLM subroutines are private implementation details; callers do not select them.\nSimulation always uses the same nonlinear generator. Paired intervention histories share\njoint parameter/state draws and random streams. Causal effects on the model's default\noutcome are reported only when identification and committed production-fit evidence support\nthat interpretation; otherwise the report keeps its histories with an explicit reason.\nThe `analysis` context is read-only model introspection.\n\n## Data in, results out\n\nUpload files at `POST /api/upload` (`multipart/form-data` with `workspaceId` and\n`file`) before `prepare_data` with `source=files`. Read artifact payloads at\n`GET /api/episodes/{workspace_id}/artifacts/{artifact_id}`; binary files are served\nfrom `.../files/{filename}`. Long jobs may outlive an HTTP client timeout; inspect\nthe timeline before submitting another request.\n\n## Read-only deployments\n\n`GET /api/capabilities` reports `actions_enabled`. Read-only deployments reject scientific action submissions with 403.\n",
     "version": "0.1.0"
   },
   "paths": {
     "/api/episodes/{workspace_id}/actions": {
       "post": {
         "summary": "Execute Scientific Action",
-        "description": "Execute edit_model, prepare_data, fit, or simulate with explicit input revisions.",
+        "description": "Accept durable work and return its receipt; retrieve results by polling the attempt.",
         "operationId": "execute_scientific_action_api_episodes__workspace_id__actions_post",
         "parameters": [
           {
@@ -19,6 +19,32 @@
             "schema": {
               "type": "string",
               "title": "Workspace Id"
+            }
+          },
+          {
+            "name": "branch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "main",
+              "title": "Branch"
+            }
+          },
+          {
+            "name": "expected_head",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/GitOid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Expected Head"
             }
           }
         ],
@@ -56,12 +82,62 @@
           }
         },
         "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionReceipt"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/episodes/{workspace_id}/actions/{attempt_id}": {
+      "get": {
+        "summary": "Poll Scientific Action",
+        "description": "Read accumulated labels and the final scientific body without dispatching work.",
+        "operationId": "poll_scientific_action_api_episodes__workspace_id__actions__attempt_id__get",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workspace Id"
+            }
+          },
+          {
+            "name": "attempt_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Attempt Id"
+            }
+          }
+        ],
+        "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MoveOutcome"
+                  "$ref": "#/components/schemas/ActionPoll"
                 }
               }
             }
@@ -82,7 +158,7 @@
     "/api/episodes/{workspace_id}": {
       "get": {
         "summary": "Get Episode",
-        "description": "Current episode state: the single read to poll while navigating.\n\nReturns per-artifact freshness (existence, staleness, version, provenance),\nthe `legal` moves available right now, and `auto_running` \u2014 whether the\nbackground driver is active. Replayed from the append-only transition log,\nso it works even against a published read-only store.",
+        "description": "Current episode state: the single read to poll while navigating.\n\nReturns the four scientific action names and per-artifact existence,\nfreshness and revision. Reads the selected Git branch snapshot.",
         "operationId": "get_episode_api_episodes__workspace_id__get",
         "parameters": [
           {
@@ -92,6 +168,16 @@
             "schema": {
               "type": "string",
               "title": "Workspace Id"
+            }
+          },
+          {
+            "name": "branch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "main",
+              "title": "Branch"
             }
           }
         ],
@@ -122,7 +208,7 @@
     "/api/episodes/{workspace_id}/model": {
       "get": {
         "summary": "Get Model Snapshot",
-        "description": "Batch canonical aggregates in one committed read transaction.\n\nOmit `at_seq` for the latest applied move, or select a committed journal sequence.\nZero selects the empty model. Rejected/raised attempts are not revisions (404).\nUse the returned `context.seq` for subsequent aggregate or collection reads at the same revision.",
+        "description": "Batch canonical aggregates in one committed read transaction.\n\nOmit `at` for the selected branch head, or pass an exact Git commit ID.\nUse `context.commit_id` to pin subsequent reads. Failed attempts retain logs without advancing scientific state.",
         "operationId": "get_model_snapshot_api_episodes__workspace_id__model_get",
         "parameters": [
           {
@@ -137,71 +223,32 @@
             }
           },
           {
-            "name": "at_seq",
+            "name": "branch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "main",
+              "title": "Branch"
+            }
+          },
+          {
+            "name": "at",
             "in": "query",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "type": "integer",
-                  "minimum": 0
+                  "$ref": "#/components/schemas/GitOid"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "title": "At Seq"
+              "title": "At"
             }
           }
         ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ModelSnapshot"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "put": {
-        "summary": "Update Model",
-        "description": "Validate and atomically replace the named base model revision.",
-        "operationId": "update_model_api_episodes__workspace_id__model_put",
-        "parameters": [
-          {
-            "name": "workspace_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Workspace Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ModelUpdateBody"
-              }
-            }
-          }
-        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -266,11 +313,11 @@
         }
       }
     },
-    "/api/episodes/{workspace_id}/revisions/model/{version}": {
+    "/api/episodes/{workspace_id}/revisions/model/{revision}": {
       "get": {
         "summary": "Read Model Revision",
         "description": "Read a historical definition, including the input to an earlier fit.",
-        "operationId": "read_model_revision_api_episodes__workspace_id__revisions_model__version__get",
+        "operationId": "read_model_revision_api_episodes__workspace_id__revisions_model__revision__get",
         "parameters": [
           {
             "name": "workspace_id",
@@ -282,13 +329,11 @@
             }
           },
           {
-            "name": "version",
+            "name": "revision",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
-              "minimum": 1,
-              "title": "Version"
+              "$ref": "#/components/schemas/GitOid"
             }
           }
         ],
@@ -319,7 +364,7 @@
     "/api/episodes/{workspace_id}/revisions/compare": {
       "get": {
         "summary": "Compare Model Revisions",
-        "description": "Compare fixed/free decisions, laws and scientific dependencies in the backend.",
+        "description": "Compare the selected graph, decisions and evidence at any two committed checkpoints.",
         "operationId": "compare_model_revisions_api_episodes__workspace_id__revisions_compare_get",
         "parameters": [
           {
@@ -336,9 +381,7 @@
             "in": "query",
             "required": true,
             "schema": {
-              "type": "integer",
-              "minimum": 1,
-              "title": "Before"
+              "$ref": "#/components/schemas/GitOid"
             }
           },
           {
@@ -346,9 +389,7 @@
             "in": "query",
             "required": true,
             "schema": {
-              "type": "integer",
-              "minimum": 1,
-              "title": "After"
+              "$ref": "#/components/schemas/GitOid"
             }
           }
         ],
@@ -376,11 +417,11 @@
         }
       }
     },
-    "/api/episodes/{workspace_id}/revisions/data-profile/{panel_version}": {
+    "/api/episodes/{workspace_id}/revisions/data-profile/{panel_revision}": {
       "get": {
         "summary": "Read Data Profile",
         "description": "Read the empirical profile for an observation revision independently of the model.",
-        "operationId": "read_data_profile_api_episodes__workspace_id__revisions_data_profile__panel_version__get",
+        "operationId": "read_data_profile_api_episodes__workspace_id__revisions_data_profile__panel_revision__get",
         "parameters": [
           {
             "name": "workspace_id",
@@ -392,13 +433,11 @@
             }
           },
           {
-            "name": "panel_version",
+            "name": "panel_revision",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
-              "minimum": 1,
-              "title": "Panel Version"
+              "$ref": "#/components/schemas/GitOid"
             }
           }
         ],
@@ -444,20 +483,29 @@
             }
           },
           {
-            "name": "at_seq",
+            "name": "branch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "main",
+              "title": "Branch"
+            }
+          },
+          {
+            "name": "at",
             "in": "query",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "type": "integer",
-                  "minimum": 0
+                  "$ref": "#/components/schemas/GitOid"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "title": "At Seq"
+              "title": "At"
             }
           }
         ],
@@ -511,20 +559,29 @@
             }
           },
           {
-            "name": "at_seq",
+            "name": "branch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "main",
+              "title": "Branch"
+            }
+          },
+          {
+            "name": "at",
             "in": "query",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "type": "integer",
-                  "minimum": 0
+                  "$ref": "#/components/schemas/GitOid"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "title": "At Seq"
+              "title": "At"
             }
           }
         ],
@@ -578,20 +635,29 @@
             }
           },
           {
-            "name": "at_seq",
+            "name": "branch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "main",
+              "title": "Branch"
+            }
+          },
+          {
+            "name": "at",
             "in": "query",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "type": "integer",
-                  "minimum": 0
+                  "$ref": "#/components/schemas/GitOid"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "title": "At Seq"
+              "title": "At"
             }
           }
         ],
@@ -641,20 +707,29 @@
             }
           },
           {
-            "name": "at_seq",
+            "name": "branch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "main",
+              "title": "Branch"
+            }
+          },
+          {
+            "name": "at",
             "in": "query",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "type": "integer",
-                  "minimum": 0
+                  "$ref": "#/components/schemas/GitOid"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "title": "At Seq"
+              "title": "At"
             }
           }
         ],
@@ -704,20 +779,29 @@
             }
           },
           {
-            "name": "at_seq",
+            "name": "branch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "main",
+              "title": "Branch"
+            }
+          },
+          {
+            "name": "at",
             "in": "query",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "type": "integer",
-                  "minimum": 0
+                  "$ref": "#/components/schemas/GitOid"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "title": "At Seq"
+              "title": "At"
             }
           }
         ],
@@ -767,20 +851,29 @@
             }
           },
           {
-            "name": "at_seq",
+            "name": "branch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "main",
+              "title": "Branch"
+            }
+          },
+          {
+            "name": "at",
             "in": "query",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "type": "integer",
-                  "minimum": 0
+                  "$ref": "#/components/schemas/GitOid"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "title": "At Seq"
+              "title": "At"
             }
           }
         ],
@@ -837,20 +930,29 @@
             }
           },
           {
-            "name": "at_seq",
+            "name": "branch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "main",
+              "title": "Branch"
+            }
+          },
+          {
+            "name": "at",
             "in": "query",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "type": "integer",
-                  "minimum": 0
+                  "$ref": "#/components/schemas/GitOid"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "title": "At Seq"
+              "title": "At"
             }
           }
         ],
@@ -881,7 +983,7 @@
     "/api/episodes/{workspace_id}/timeline": {
       "get": {
         "summary": "Get Timeline",
-        "description": "The transition journal: every move attempt in order.\n\nEach record is `applied` (state advanced), `rejected` (illegal move, state\nunchanged), or `raised` (the transition ran but threw \u2014 the record carries the\ntyped error). Re-running after a `raised`/`rejected` is just proposing the\nmove again.",
+        "description": "The transition journal: every action attempt in order.\n\nEach record is `applied` (state advanced), `rejected` (rejected action, state\nunchanged), or `raised` (the transition ran but threw \u2014 the record carries the\ntyped error). Re-running after a `raised`/`rejected` is just proposing the\naction again.",
         "operationId": "get_timeline_api_episodes__workspace_id__timeline_get",
         "parameters": [
           {
@@ -918,10 +1020,148 @@
         }
       }
     },
+    "/api/episodes/{workspace_id}/branches": {
+      "get": {
+        "summary": "Get Branches",
+        "operationId": "get_branches_api_episodes__workspace_id__branches_get",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workspace Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "$ref": "#/components/schemas/GitOid"
+                  },
+                  "title": "Response Get Branches Api Episodes  Workspace Id  Branches Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create Branch",
+        "description": "Fork the complete study at a checkpoint; the new branch shares its ancestry.",
+        "operationId": "create_branch_api_episodes__workspace_id__branches_post",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workspace Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateBranchBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitOid"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/episodes/{workspace_id}/logs/{commit_id}": {
+      "get": {
+        "summary": "Get Attempt Log",
+        "operationId": "get_attempt_log_api_episodes__workspace_id__logs__commit_id__get",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workspace Id"
+            }
+          },
+          {
+            "name": "commit_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/GitOid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyRevision"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/episodes/{workspace_id}/events": {
       "get": {
         "summary": "Get Events",
-        "description": "Fine-grained telemetry (e.g. extraction worker fan-out, transition progress).\n\nPass the last-seen event id as `after` to page forward; omit it for the full\nstream. This is finer-grained than the timeline, which records only whole\nmove outcomes.",
+        "description": "Fine-grained telemetry (e.g. extraction worker fan-out, transition progress).\n\nPass the last-seen event id as `after` to page forward; omit it for the full\nstream. This is finer-grained than the timeline, which records only whole\naction outcomes.",
         "operationId": "get_events_api_episodes__workspace_id__events_get",
         "parameters": [
           {
@@ -947,6 +1187,22 @@
                 }
               ],
               "title": "After"
+            }
+          },
+          {
+            "name": "at",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/GitOid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "At"
             }
           }
         ],
@@ -977,7 +1233,7 @@
     "/api/episodes/{workspace_id}/artifacts/{artifact_id}": {
       "get": {
         "summary": "Get Artifact",
-        "description": "One artifact version: meta + inline JSON payloads.\n\nDefaults to the episode's *current* version from replayed applied transition\neffects. Binary payload files (parquet, pickle) are listed by name, never\ninlined.",
+        "description": "One artifact revision: meta + inline JSON payloads.\n\nDefaults to the selected branch's current revision. Binary payload files (parquet, pickle) are listed by name, never\ninlined.",
         "operationId": "get_artifact_api_episodes__workspace_id__artifacts__artifact_id__get",
         "parameters": [
           {
@@ -1007,19 +1263,29 @@
             }
           },
           {
-            "name": "version",
+            "name": "revision",
             "in": "query",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "type": "integer"
+                  "$ref": "#/components/schemas/GitOid"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "title": "Version"
+              "title": "Revision"
+            }
+          },
+          {
+            "name": "branch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "main",
+              "title": "Branch"
             }
           }
         ],
@@ -1050,7 +1316,7 @@
     "/api/episodes/{workspace_id}/artifacts/{artifact_id}/traces": {
       "get": {
         "summary": "Get Artifact Traces",
-        "description": "Traces of the applied transition that produced an artifact version.\n\nDefaults to the episode's current version. The join runs over the\ntransition journal, so it works against a published read-only store.",
+        "description": "Traces of the applied transition that produced an artifact revision.\n\nDefaults to the episode's current revision. The join runs over the\ntransition journal, so it works against a published read-only store.",
         "operationId": "get_artifact_traces_api_episodes__workspace_id__artifacts__artifact_id__traces_get",
         "parameters": [
           {
@@ -1080,19 +1346,29 @@
             }
           },
           {
-            "name": "version",
+            "name": "revision",
             "in": "query",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "type": "integer"
+                  "$ref": "#/components/schemas/GitOid"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "title": "Version"
+              "title": "Revision"
+            }
+          },
+          {
+            "name": "branch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "main",
+              "title": "Branch"
             }
           }
         ],
@@ -1145,12 +1421,23 @@
                 "latent_structure",
                 "measurement_structure",
                 "measurements",
+                "simulated_measurements",
                 "statistical_model_spec",
                 "posterior",
                 "simulate"
               ],
               "type": "string",
               "title": "Operation Id"
+            }
+          },
+          {
+            "name": "branch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "main",
+              "title": "Branch"
             }
           }
         ],
@@ -1178,11 +1465,11 @@
         }
       }
     },
-    "/api/episodes/{workspace_id}/traces/{seq}/{subroutine_id}": {
+    "/api/episodes/{workspace_id}/traces/{commit_id}/{subroutine_id}": {
       "get": {
         "summary": "Get Trace",
-        "description": "One promoted LLM trace from ``episode/traces/{seq:06d}/{subroutine_id}.json``.",
-        "operationId": "get_trace_api_episodes__workspace_id__traces__seq___subroutine_id__get",
+        "description": "One trace from the owning attempt's Git commit.",
+        "operationId": "get_trace_api_episodes__workspace_id__traces__commit_id___subroutine_id__get",
         "parameters": [
           {
             "name": "workspace_id",
@@ -1194,12 +1481,11 @@
             }
           },
           {
-            "name": "seq",
+            "name": "commit_id",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
-              "title": "Seq"
+              "$ref": "#/components/schemas/GitOid"
             }
           },
           {
@@ -1239,7 +1525,7 @@
     "/api/episodes/{workspace_id}/artifacts/{artifact_id}/files/{filename}": {
       "get": {
         "summary": "Get Artifact File",
-        "description": "One declared payload file from an artifact version.\n\nDefaults to the episode's current version. Unlike the JSON artifact\nendpoint, this serves binary files as bytes and refuses undeclared\nfilenames so callers cannot browse arbitrary workspace paths.",
+        "description": "One declared payload file from an artifact revision.\n\nDefaults to the episode's current revision. Unlike the JSON artifact\nendpoint, this serves binary files as bytes and refuses undeclared\nfilenames so callers cannot browse arbitrary workspace paths.",
         "operationId": "get_artifact_file_api_episodes__workspace_id__artifacts__artifact_id__files__filename__get",
         "parameters": [
           {
@@ -1278,19 +1564,29 @@
             }
           },
           {
-            "name": "version",
+            "name": "revision",
             "in": "query",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "type": "integer"
+                  "$ref": "#/components/schemas/GitOid"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "title": "Version"
+              "title": "Revision"
+            }
+          },
+          {
+            "name": "branch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "main",
+              "title": "Branch"
             }
           }
         ],
@@ -1316,149 +1612,10 @@
         }
       }
     },
-    "/api/episodes": {
-      "post": {
-        "summary": "Start Episode",
-        "description": "Ensure the episode workflow exists; optionally author its model's question.\n\nIdempotent: attaches to an existing episode or starts a fresh one. Passing\n`question` creates or revises the Model with `human` provenance.\nUpload raw data at `POST /api/upload` before running the `raw_data`\ntransition. Returns the same shape as\n`GET /api/episodes/{id}`.",
-        "operationId": "start_episode_api_episodes_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/StartEpisodeBody"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StartEpisodeResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/episodes/{workspace_id}/moves": {
-      "post": {
-        "summary": "Propose Move",
-        "description": "Propose one move; blocks until it is applied, rejected, or raises.\n\nTwo kinds:\n\n- Run a transition: `{\"move\": {\"kind\": \"run\", \"operation_id\": \"latent_structure\"}}`.\n- Author a judgment artifact directly (skip the in-service stage):\n  `{\"move\": {\"kind\": \"write\", \"artifact_id\": \"model\", \"expected_model_version\": 0, \"provenance\":\n  \"llm\"}, \"payload\": {...}}`. The payload is schema-validated against that\n  artifact's contract, journaled, and provenance-stamped; the write becomes a\n  revision. Consumers retain their original pins; changed scientific inputs invalidate affected results.\n\nThe synchronous outcome is the same record the timeline stores. Long transitions\n(statistical model specification, posterior \u2014 minutes to hours) can outlive a client timeout; for\nthose prefer `POST /api/episodes/{workspace_id}/recipes/observational-study` plus polling.",
-        "operationId": "propose_move_api_episodes__workspace_id__moves_post",
-        "parameters": [
-          {
-            "name": "workspace_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Workspace Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/MoveBody"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MoveOutcome"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/episodes/{workspace_id}/recipes/observational-study": {
-      "post": {
-        "summary": "Auto Run",
-        "description": "Start the default navigation policy in the background.\n\nRuns enabled stages in dependency order while their outputs are missing or\nstale, stopping when quiescent or when a move fails. Returns immediately;\nfollow progress with `GET /api/episodes/{workspace_id}` (`auto_running`) and\nthe timeline. An LLM navigator replaces this policy by proposing `moves`\nitself. 409 if a driver is already active for this workspace.",
-        "operationId": "auto_run_api_episodes__workspace_id__recipes_observational_study_post",
-        "parameters": [
-          {
-            "name": "workspace_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Workspace Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AutoRunBody"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AutoRunResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/capabilities": {
       "get": {
         "summary": "Get Capabilities",
-        "description": "Whether this deployment serves the move plane.\n\n`moves_enabled` is `false` on the hosted read-only viewer backend, where\nevery `POST` (moves, auto-run, start-episode) returns 403 and only the read\nendpoints are live.",
+        "description": "Whether this deployment serves scientific actions.\n\n`actions_enabled` is `false` on the hosted read-only viewer backend, where\nevery `POST` (scientific actions and study management) returns 403 and only the read\nendpoints are live.",
         "operationId": "get_capabilities_api_capabilities_get",
         "responses": {
           "200": {
@@ -1535,7 +1692,7 @@
     "/api/machine": {
       "get": {
         "summary": "Get Machine",
-        "description": "The static artifact graph and action hierarchy \u2014 read once to orient.\n\nEach transition entry declares what it `consumes`, `produces`, and\noptionally co-produces (`produces_optional`), plus its **creation\nclass**: `deterministic` (pure compute, no credentials), `batch_llm` (bulk\nLLM compute on the service's ambient key \u2014 you trigger it with a `run` move,\nyou never supply a key), or `judgment` (proposal work you can author yourself\nby writing the produced artifact directly \u2014 these are flagged `writable`).",
+        "description": "The static artifact graph and action hierarchy \u2014 read once to orient.\n\nEach transition entry declares what it `consumes`, `produces`, and\noptionally co-produces (`produces_optional`), plus its **creation\nclass**: `deterministic` (pure compute, no credentials), `batch_llm` (bulk\nLLM compute on the service's ambient key), or `judgment` (model-authoring\nimplementation). These jobs are private; callers submit the four scientific actions.",
         "operationId": "get_machine_api_machine_get",
         "responses": {
           "200": {
@@ -1657,6 +1814,154 @@
   },
   "components": {
     "schemas": {
+      "ActionBody": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ModelEditResult"
+          },
+          {
+            "$ref": "#/components/schemas/DataPreparationResult"
+          },
+          {
+            "$ref": "#/components/schemas/ModelFitResult"
+          },
+          {
+            "$ref": "#/components/schemas/ModelSimulationResult"
+          }
+        ],
+        "description": "The scientific result published by a successful action, including immutable revision references and the resulting model, data, or simulation findings.",
+        "discriminator": {
+          "propertyName": "action",
+          "mapping": {
+            "edit_model": "#/components/schemas/ModelEditResult",
+            "fit": "#/components/schemas/ModelFitResult",
+            "prepare_data": "#/components/schemas/DataPreparationResult",
+            "simulate": "#/components/schemas/ModelSimulationResult"
+          }
+        }
+      },
+      "ActionMessage": {
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp"
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "debug",
+              "info",
+              "warn",
+              "error"
+            ],
+            "title": "Level"
+          },
+          "label": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$",
+            "title": "Label"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "timestamp",
+          "level",
+          "label"
+        ],
+        "title": "ActionMessage",
+        "description": "One label emitted by an action; scientific measurements belong in its body."
+      },
+      "ActionMessageEvent": {
+        "properties": {
+          "cursor": {
+            "type": "string",
+            "title": "Cursor",
+            "default": ""
+          },
+          "event": {
+            "type": "string",
+            "const": "nof1-causal-lab.action.message",
+            "title": "Event",
+            "default": "nof1-causal-lab.action.message"
+          },
+          "attempt_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Attempt Id"
+          },
+          "action": {
+            "$ref": "#/components/schemas/ScientificActionId"
+          },
+          "index": {
+            "type": "integer",
+            "title": "Index"
+          },
+          "message": {
+            "$ref": "#/components/schemas/ActionMessage"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "attempt_id",
+          "action",
+          "index",
+          "message"
+        ],
+        "title": "ActionMessageEvent",
+        "description": "A label emitted by one dispatched action, with replay ordering outside the message."
+      },
+      "ActionPoll": {
+        "properties": {
+          "done": {
+            "type": "boolean",
+            "title": "Done"
+          },
+          "body": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ActionBody"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/ActionMessage"
+            },
+            "type": "array",
+            "title": "Messages",
+            "default": []
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "done"
+        ],
+        "title": "ActionPoll",
+        "description": "Read an attempt: messages accumulate; a successful commit supplies the body."
+      },
+      "ActionReceipt": {
+        "properties": {
+          "attempt_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Attempt Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "attempt_id"
+        ],
+        "title": "ActionReceipt",
+        "description": "A durable dispatch acknowledgment, without a scientific result body."
+      },
       "ActionSpec": {
         "properties": {
           "action_id": {
@@ -1752,12 +2057,11 @@
           "artifact_id": {
             "$ref": "#/components/schemas/ArtifactId"
           },
-          "version": {
-            "type": "integer",
-            "title": "Version"
+          "revision": {
+            "$ref": "#/components/schemas/GitOid"
           },
           "meta": {
-            "$ref": "#/components/schemas/ArtifactVersionInfo"
+            "$ref": "#/components/schemas/ArtifactRecord"
           },
           "payload": {
             "$ref": "#/components/schemas/UncheckedJsonObject"
@@ -1775,13 +2079,13 @@
         "required": [
           "workspace_id",
           "artifact_id",
-          "version",
+          "revision",
           "meta",
           "payload",
           "binary_files"
         ],
         "title": "ArtifactEnvelope",
-        "description": "An artifact envelope delivers a stored payload with its version, provenance, and file\nlist."
+        "description": "An artifact envelope delivers a stored payload with its revision and file\nlist."
       },
       "ArtifactFileSpec": {
         "properties": {
@@ -1816,26 +2120,20 @@
             "type": "boolean",
             "title": "Stale"
           },
-          "version": {
+          "revision": {
             "anyOf": [
               {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Version"
-          },
-          "provenance": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/Provenance"
+                "$ref": "#/components/schemas/GitOid"
               },
               {
                 "type": "null"
               }
             ]
+          },
+          "retracted": {
+            "type": "boolean",
+            "title": "Retracted",
+            "default": false
           },
           "produced_by": {
             "anyOf": [
@@ -1869,41 +2167,17 @@
           "validation_report"
         ]
       },
-      "ArtifactRef": {
+      "ArtifactRecord": {
         "properties": {
           "artifact_id": {
             "$ref": "#/components/schemas/ArtifactId"
           },
-          "version": {
-            "type": "integer",
-            "minimum": 1.0,
-            "title": "Version"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "artifact_id",
-          "version"
-        ],
-        "title": "ArtifactRef",
-        "description": "An artifact reference identifies the exact stored version that supports a model fact."
-      },
-      "ArtifactVersionInfo": {
-        "properties": {
-          "artifact_id": {
-            "$ref": "#/components/schemas/ArtifactId"
-          },
-          "version": {
-            "type": "integer",
-            "title": "Version"
-          },
-          "provenance": {
-            "$ref": "#/components/schemas/Provenance"
+          "revision": {
+            "$ref": "#/components/schemas/GitOid"
           },
           "derived_from": {
             "additionalProperties": {
-              "type": "integer"
+              "$ref": "#/components/schemas/GitOid"
             },
             "propertyNames": {
               "$ref": "#/components/schemas/ArtifactId"
@@ -1946,11 +2220,10 @@
         "type": "object",
         "required": [
           "artifact_id",
-          "version",
-          "provenance"
+          "revision"
         ],
-        "title": "ArtifactVersionInfo",
-        "description": "Artifact version metadata records how a stored artifact was produced and which inputs it\nused.\n\n``derived_from`` pins the exact input versions the payload was computed\nfrom. For root artifacts (user writes) it is empty. ``created_at`` is\nstamped by the activity that produced the version \u2014 never inside workflow\ncode, where wall-clock time is non-deterministic."
+        "title": "ArtifactRecord",
+        "description": "Artifact revision metadata records how a stored artifact was produced and which inputs it\nused.\n\n``derived_from`` pins the exact input versions the payload was computed\nfrom. For initial model revisions it is empty. ``created_at`` is\nstamped by the activity that produced the revision \u2014 never inside workflow\ncode, where wall-clock time is non-deterministic."
       },
       "ArtifactViewResponse": {
         "anyOf": [
@@ -1978,42 +2251,6 @@
         ],
         "title": "ArtifactViewResponse",
         "description": "One available artifact projection returned by the model view endpoint."
-      },
-      "AutoRunBody": {
-        "properties": {
-          "options": {
-            "$ref": "#/components/schemas/ExecOptions"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "title": "AutoRunBody"
-      },
-      "AutoRunResponse": {
-        "properties": {
-          "ok": {
-            "type": "boolean",
-            "const": true,
-            "title": "Ok",
-            "default": true
-          },
-          "auto_running": {
-            "type": "boolean",
-            "const": true,
-            "title": "Auto Running",
-            "default": true
-          },
-          "workspace_id": {
-            "type": "string",
-            "title": "Workspace Id"
-          }
-        },
-        "type": "object",
-        "required": [
-          "workspace_id"
-        ],
-        "title": "AutoRunResponse",
-        "description": "An auto-run acknowledgement identifies the active background episode driver."
       },
       "BinaryExpression-Input": {
         "properties": {
@@ -2159,18 +2396,18 @@
       },
       "CapabilitiesResponse": {
         "properties": {
-          "moves_enabled": {
+          "actions_enabled": {
             "type": "boolean",
-            "title": "Moves Enabled"
+            "title": "Actions Enabled"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "moves_enabled"
+          "actions_enabled"
         ],
         "title": "CapabilitiesResponse",
-        "description": "This response tells clients whether the episode facade supports model-changing moves."
+        "description": "This response tells clients whether the episode facade supports scientific actions."
       },
       "CausalEdgeSpec-Input": {
         "properties": {
@@ -2306,91 +2543,114 @@
         "title": "CausalEdgeSpec",
         "description": "A specification of a directed causal relationship between two constructs."
       },
-      "CausalSimulationSpec-Input": {
+      "CausalEffectResult": {
         "properties": {
-          "kind": {
-            "type": "string",
-            "const": "causal",
-            "title": "Kind",
-            "default": "causal"
+          "time_grid_days": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "minItems": 2,
+            "title": "Time Grid Days",
+            "description": "Shared elapsed-day coordinates for all trajectories, including day zero."
           },
-          "query": {
-            "$ref": "#/components/schemas/ScenarioRequest-Input"
+          "outcome": {
+            "$ref": "#/components/schemas/ConstructId"
           },
-          "draws": {
-            "type": "integer",
-            "maximum": 10000.0,
-            "minimum": 1.0,
-            "title": "Draws",
-            "default": 100
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/ConstructId"
+            },
+            "type": "object",
+            "title": "Labels"
           },
-          "seed": {
-            "type": "integer",
-            "minimum": 0.0,
-            "title": "Seed",
-            "default": 0
+          "summary": {
+            "$ref": "#/components/schemas/EffectSummary"
           },
-          "process_noise": {
-            "type": "boolean",
-            "title": "Process Noise",
-            "default": false
+          "effect_trajectory": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/EffectTrajectoryPoint"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effect Trajectory"
           },
-          "observation_noise": {
-            "type": "boolean",
-            "title": "Observation Noise",
-            "default": false
+          "trajectory_peak": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EffectTrajectoryPoint"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "trajectories": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/SimulationTrajectory"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/ConstructId"
+            },
+            "type": "object",
+            "title": "Trajectories",
+            "description": "Reference and action means for each simulated construct on time_grid_days."
+          },
+          "manifest_effects": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manifest Effects"
+          },
+          "reference_mean": {
+            "type": "number",
+            "title": "Reference Mean"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "query"
+          "time_grid_days",
+          "outcome",
+          "labels",
+          "summary",
+          "trajectories",
+          "reference_mean"
         ],
-        "title": "CausalSimulationSpec",
-        "description": "An identified paired scenario, certified against the selected production fit."
+        "title": "CausalEffectResult",
+        "description": "Causal effects and realized trajectories under the enclosing report's design."
       },
-      "CausalSimulationSpec-Output": {
-        "properties": {
-          "kind": {
-            "type": "string",
-            "const": "causal",
-            "title": "Kind",
-            "default": "causal"
-          },
-          "query": {
-            "$ref": "#/components/schemas/ScenarioRequest-Output"
-          },
-          "draws": {
-            "type": "integer",
-            "maximum": 10000.0,
-            "minimum": 1.0,
-            "title": "Draws",
-            "default": 100
-          },
-          "seed": {
-            "type": "integer",
-            "minimum": 0.0,
-            "title": "Seed",
-            "default": 0
-          },
-          "process_noise": {
-            "type": "boolean",
-            "title": "Process Noise",
-            "default": false
-          },
-          "observation_noise": {
-            "type": "boolean",
-            "title": "Observation Noise",
-            "default": false
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "query"
-        ],
-        "title": "CausalSimulationSpec",
-        "description": "An identified paired scenario, certified against the selected production fit."
+      "CheckGroup": {
+        "type": "string",
+        "enum": [
+          "specification",
+          "identification",
+          "compatibility"
+        ]
       },
       "CoefficientExpression": {
         "properties": {
@@ -2465,6 +2725,111 @@
           "initial_scale",
           "initial_correlation"
         ]
+      },
+      "ComparisonConnection": {
+        "properties": {
+          "cause": {
+            "$ref": "#/components/schemas/ConstructRef"
+          },
+          "effect": {
+            "$ref": "#/components/schemas/ConstructRef"
+          },
+          "lagged": {
+            "type": "boolean",
+            "title": "Lagged"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "cause",
+          "effect",
+          "lagged",
+          "description"
+        ],
+        "title": "ComparisonConnection",
+        "description": "Endpoint references and temporal relation for one side of a causal edge comparison."
+      },
+      "ConstructComparison": {
+        "properties": {
+          "construct_id": {
+            "$ref": "#/components/schemas/ConstructId"
+          },
+          "before": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConstructSpec-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "after": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConstructSpec-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "change": {
+            "type": "string",
+            "enum": [
+              "added",
+              "removed",
+              "revised",
+              "unchanged"
+            ],
+            "title": "Change"
+          },
+          "parameter_ids": {
+            "items": {
+              "$ref": "#/components/schemas/ParameterId"
+            },
+            "type": "array",
+            "title": "Parameter Ids"
+          },
+          "before_disposition": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StructuralItemDisposition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "after_disposition": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StructuralItemDisposition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "construct_id",
+          "before",
+          "after",
+          "change",
+          "parameter_ids",
+          "before_disposition",
+          "after_disposition"
+        ],
+        "title": "ConstructComparison",
+        "description": "A construct's definitions and changed owned parameters in two model revisions."
       },
       "ConstructId": {
         "type": "string",
@@ -2718,12 +3083,123 @@
         ],
         "title": "ContextSpec"
       },
+      "CreateBranchBody": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Name"
+          },
+          "at": {
+            "$ref": "#/components/schemas/GitOid"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "at"
+        ],
+        "title": "CreateBranchBody"
+      },
+      "DataPreparationResult": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "const": "prepare_data",
+            "title": "Action",
+            "default": "prepare_data"
+          },
+          "commit_id": {
+            "$ref": "#/components/schemas/GitOid"
+          },
+          "data_revision": {
+            "$ref": "#/components/schemas/GitRef"
+          },
+          "data": {
+            "$ref": "#/components/schemas/MeasurementsData"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/PreparedDataMetadata"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/DataProfileArtifact"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "commit_id",
+          "data_revision",
+          "data",
+          "metadata",
+          "profile"
+        ],
+        "title": "DataPreparationResult",
+        "description": "Prepared observations and their committed revision, with data-quality findings."
+      },
+      "DataPreparationSpec-Input": {
+        "properties": {
+          "default_window": {
+            "type": "string",
+            "title": "Default Window"
+          },
+          "variables": {
+            "items": {
+              "$ref": "#/components/schemas/DataVariableSpec"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Variables"
+          },
+          "context": {
+            "type": "string",
+            "title": "Context",
+            "description": "Optional context for interpreting the source data.",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "default_window",
+          "variables"
+        ],
+        "title": "DataPreparationSpec",
+        "description": "A versioned data definition supplied directly to prepare_data."
+      },
+      "DataPreparationSpec-Output": {
+        "properties": {
+          "default_window": {
+            "type": "string",
+            "title": "Default Window"
+          },
+          "variables": {
+            "items": {
+              "$ref": "#/components/schemas/DataVariableSpec"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Variables"
+          },
+          "context": {
+            "type": "string",
+            "title": "Context",
+            "description": "Optional context for interpreting the source data.",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "default_window",
+          "variables"
+        ],
+        "title": "DataPreparationSpec",
+        "description": "A versioned data definition supplied directly to prepare_data."
+      },
       "DataProfileArtifact": {
         "properties": {
-          "is_valid": {
-            "type": "boolean",
-            "title": "Is Valid"
-          },
           "indicators": {
             "additionalProperties": {
               "$ref": "#/components/schemas/IndicatorAudit"
@@ -2740,17 +3216,153 @@
             },
             "type": "array",
             "title": "Dataset Issues"
+          },
+          "is_valid": {
+            "type": "boolean",
+            "title": "Is Valid",
+            "description": "Read-only verdict derived from the report's current findings.",
+            "readOnly": true
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "is_valid",
           "indicators",
-          "dataset_issues"
+          "dataset_issues",
+          "is_valid"
         ],
         "title": "DataProfileArtifact",
         "description": "Model-independent empirical measurements and data-quality findings."
+      },
+      "DataSourceRef": {
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/FileSourceRef"
+          },
+          {
+            "$ref": "#/components/schemas/SimulationReplicateRef"
+          }
+        ]
+      },
+      "DataVariableSpec": {
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/IndicatorId",
+            "description": "Persistent identity. Preserve when revising or renaming."
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Indicator name (e.g., 'hrv', 'self_reported_stress')"
+          },
+          "measurement_dtype": {
+            "$ref": "#/components/schemas/MeasurementDtype",
+            "description": "'continuous', 'binary', 'count', 'ordinal', 'categorical'"
+          },
+          "aggregation": {
+            "$ref": "#/components/schemas/AggregationFunction",
+            "description": "Aggregation function applied when bucketing raw extractions within the indicator support window. Measurement-structure support is currently limited to: first, last, sum, count, mean, std. A computed_rule must produce this same summary. Available parser operators: count, cv, entropy, first, instability, iqr, kurtosis, last, max, mean, median, min, n_unique, p10, p25, p75, p90, p99, range, skew, std, sum, trend, var"
+          },
+          "observation_window": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observation Window",
+            "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock."
+          },
+          "ordinal_levels": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ordinal Levels",
+            "description": "Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding."
+          },
+          "categorical_levels": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Categorical Levels",
+            "description": "Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding."
+          },
+          "how_to_measure": {
+            "type": "string",
+            "minLength": 1,
+            "title": "How To Measure",
+            "description": "Scoring rubric and extraction instructions."
+          },
+          "recording": {
+            "type": "string",
+            "enum": [
+              "samples",
+              "events",
+              "changes"
+            ],
+            "title": "Recording",
+            "description": "Source recording semantics within the raw dataset's covered time span. samples: absent readings are unknown. events: a complete event record; empty sum/count windows are zero. changes: a complete change record; the last recorded value persists, with leading gaps unknown. events and changes require computed extraction.",
+            "default": "samples"
+          },
+          "source_columns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Source Columns",
+            "description": "Raw data column names referenced by how_to_measure. Used to project chunks to only relevant columns before extraction."
+          },
+          "computed_rule": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WindowExpression"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional deterministic support-window expression for extraction_mode='computed'. Use this when a computed indicator needs formulas, thresholds, or multiple source columns instead of a direct single-column aggregation. The expression must return one scalar per support window."
+          },
+          "extraction_mode": {
+            "type": "string",
+            "enum": [
+              "computed",
+              "semantic"
+            ],
+            "title": "Extraction Mode",
+            "description": "'computed' (deterministic pipeline extraction) or 'semantic' (LLM extraction). Use 'computed' when the indicator can be derived deterministically either from a direct source-column aggregation or from a computed_rule support-window expression over the declared source_columns.",
+            "default": "semantic"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "measurement_dtype",
+          "aggregation",
+          "how_to_measure"
+        ],
+        "title": "DataVariableSpec",
+        "description": "How to produce one observed variable, without any causal or latent model."
       },
       "DensityPoint": {
         "properties": {
@@ -2858,6 +3470,83 @@
         "title": "DynamicsMechanismSpec",
         "description": "A symbolic specification of an additive drift term or a node potential.\n\nA node potential contributes its negative gradient to the drift."
       },
+      "EdgeComparison": {
+        "properties": {
+          "edge_id": {
+            "$ref": "#/components/schemas/EdgeId"
+          },
+          "before": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ComparisonConnection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "after": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ComparisonConnection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "change": {
+            "type": "string",
+            "enum": [
+              "added",
+              "removed",
+              "revised",
+              "unchanged"
+            ],
+            "title": "Change"
+          },
+          "parameter_ids": {
+            "items": {
+              "$ref": "#/components/schemas/ParameterId"
+            },
+            "type": "array",
+            "title": "Parameter Ids"
+          },
+          "before_disposition": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StructuralItemDisposition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "after_disposition": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StructuralItemDisposition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "edge_id",
+          "before",
+          "after",
+          "change",
+          "parameter_ids",
+          "before_disposition",
+          "after_disposition"
+        ],
+        "title": "EdgeComparison",
+        "description": "An explicit causal edge's definitions and changed mechanism parameters."
+      },
       "EdgeId": {
         "type": "string",
         "pattern": "^edge:[A-Za-z0-9_.-]+$",
@@ -2891,10 +3580,15 @@
             "title": "Action",
             "default": "edit_model"
           },
-          "expected_version": {
-            "type": "integer",
-            "minimum": 0.0,
-            "title": "Expected Version"
+          "expected_revision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GitOid"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "model": {
             "$ref": "#/components/schemas/ModelSpec-Input"
@@ -2903,7 +3597,7 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "expected_version",
+          "expected_revision",
           "model"
         ],
         "title": "EditModelRequest",
@@ -2971,25 +3665,50 @@
         "properties": {
           "current": {
             "additionalProperties": {
-              "$ref": "#/components/schemas/ArtifactVersionInfo"
+              "$ref": "#/components/schemas/ArtifactRecord"
             },
             "propertyNames": {
               "$ref": "#/components/schemas/ArtifactId"
             },
             "type": "object",
             "title": "Current"
+          },
+          "checks": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelCheckReport"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
         "type": "object",
         "title": "EpisodeState",
-        "description": "Episode state identifies the artifact versions currently selected by the transition\njournal.\n\n``current`` maps artifact id \u2192 the version info that is *current* for the\nepisode. Absent key = the artifact does not exist (either never produced,\nor produced-when-nonempty semantics withheld it)."
+        "description": "Episode state projects the artifact trees selected by one Git commit.\n\n``current`` maps artifact id \u2192 the revision info that is *current* for the\nepisode. Absent key = the artifact does not exist (either never produced,\nor produced-when-nonempty semantics withheld it)."
       },
       "EpisodeStatus": {
         "properties": {
           "workspace_id": {
             "type": "string",
             "title": "Workspace Id"
+          },
+          "branch": {
+            "type": "string",
+            "title": "Branch",
+            "default": "main"
+          },
+          "commit_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GitOid"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "seq": {
             "type": "integer",
@@ -3005,27 +3724,12 @@
             "type": "array",
             "title": "Artifacts"
           },
-          "next_operation": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/OperationId"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "legal": {
+          "actions": {
             "items": {
-              "$ref": "#/components/schemas/Move-Output"
+              "$ref": "#/components/schemas/ScientificActionId"
             },
             "type": "array",
-            "title": "Legal"
-          },
-          "auto_running": {
-            "type": "boolean",
-            "title": "Auto Running",
-            "default": false
+            "title": "Actions"
           }
         },
         "additionalProperties": false,
@@ -3035,10 +3739,10 @@
           "seq",
           "state",
           "artifacts",
-          "legal"
+          "actions"
         ],
         "title": "EpisodeStatus",
-        "description": "Episode status reports committed artifacts, their freshness, and available moves."
+        "description": "Episode status reports committed artifacts, their freshness, and scientific actions."
       },
       "EventsResponse": {
         "properties": {
@@ -3061,72 +3765,6 @@
         ],
         "title": "EventsResponse",
         "description": "An events response pages runtime telemetry without reconstructing model state."
-      },
-      "ExecOptions": {
-        "properties": {
-          "inference_method": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Inference Method"
-          },
-          "enable_literature": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Enable Literature"
-          },
-          "max_windows": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Max Windows"
-          },
-          "fit_settings": {
-            "$ref": "#/components/schemas/FitSettingsSpec"
-          },
-          "simulation": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/SimulationDesign-Input"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "comparison_panel_version": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 1.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Comparison Panel Version"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "title": "ExecOptions",
-        "description": "Per-move execution parameters (infra, not domain state)."
       },
       "Expression-Input": {
         "oneOf": [
@@ -3208,33 +3846,6 @@
             "const": "nof1-causal-lab.extraction.plan",
             "title": "Event"
           },
-          "payload": {
-            "$ref": "#/components/schemas/ExtractionPlanEventPayload"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "event",
-          "payload"
-        ],
-        "title": "ExtractionPlanEvent",
-        "description": "Extraction plan telemetry event."
-      },
-      "ExtractionPlanEventPayload": {
-        "properties": {
-          "context_id": {
-            "type": "string",
-            "const": "measurement",
-            "title": "Context Id",
-            "default": "measurement"
-          },
-          "type": {
-            "type": "string",
-            "const": "plan",
-            "title": "Type",
-            "default": "plan"
-          },
           "total_workers": {
             "type": "integer",
             "minimum": 0.0,
@@ -3268,9 +3879,10 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
+          "event",
           "total_workers"
         ],
-        "title": "ExtractionPlanEventPayload",
+        "title": "ExtractionPlanEvent",
         "description": "Static extraction fan-out plan."
       },
       "ExtractionSnapshotEvent": {
@@ -3284,33 +3896,6 @@
             "type": "string",
             "const": "nof1-causal-lab.extraction.snapshot",
             "title": "Event"
-          },
-          "payload": {
-            "$ref": "#/components/schemas/ExtractionSnapshotEventPayload"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "event",
-          "payload"
-        ],
-        "title": "ExtractionSnapshotEvent",
-        "description": "Extraction snapshot telemetry event."
-      },
-      "ExtractionSnapshotEventPayload": {
-        "properties": {
-          "context_id": {
-            "type": "string",
-            "const": "measurement",
-            "title": "Context Id",
-            "default": "measurement"
-          },
-          "type": {
-            "type": "string",
-            "const": "snapshot",
-            "title": "Type",
-            "default": "snapshot"
           },
           "total_workers": {
             "type": "integer",
@@ -3346,6 +3931,7 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
+          "event",
           "total_workers",
           "pending_workers",
           "running_workers",
@@ -3353,7 +3939,7 @@
           "failed_workers",
           "llm_requests_last_60s"
         ],
-        "title": "ExtractionSnapshotEventPayload",
+        "title": "ExtractionSnapshotEvent",
         "description": "Aggregate extraction progress snapshot."
       },
       "ExtractionWorkerEvent": {
@@ -3367,33 +3953,6 @@
             "type": "string",
             "const": "nof1-causal-lab.extraction.worker",
             "title": "Event"
-          },
-          "payload": {
-            "$ref": "#/components/schemas/ExtractionWorkerEventPayload"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "event",
-          "payload"
-        ],
-        "title": "ExtractionWorkerEvent",
-        "description": "Extraction worker telemetry event."
-      },
-      "ExtractionWorkerEventPayload": {
-        "properties": {
-          "context_id": {
-            "type": "string",
-            "const": "measurement",
-            "title": "Context Id",
-            "default": "measurement"
-          },
-          "type": {
-            "type": "string",
-            "const": "worker",
-            "title": "Type",
-            "default": "worker"
           },
           "worker_id": {
             "type": "integer",
@@ -3454,25 +4013,18 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
+          "event",
           "worker_id",
           "state",
           "n_windows"
         ],
-        "title": "ExtractionWorkerEventPayload",
+        "title": "ExtractionWorkerEvent",
         "description": "One extraction worker state transition."
       },
       "FactSource": {
         "properties": {
           "ref": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ArtifactRef"
-              },
-              {
-                "$ref": "#/components/schemas/TransitionRef"
-              }
-            ],
-            "title": "Ref"
+            "$ref": "#/components/schemas/GitRef"
           },
           "pointer": {
             "type": "string",
@@ -3491,8 +4043,27 @@
           "validity"
         ],
         "title": "FactSource",
-        "description": "A fact source locates supporting content within an artifact version and records its freshness.",
+        "description": "A fact source locates supporting content within an artifact revision and records its freshness.",
         "x-python-module": "nof1_causal_lab.machine.snapshot_models"
+      },
+      "FileSourceRef": {
+        "properties": {
+          "files": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Files"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "files"
+        ],
+        "title": "FileSourceRef",
+        "description": "Explicit uploaded filenames, relative to this study's input directory."
       },
       "FitRequest": {
         "properties": {
@@ -3502,15 +4073,11 @@
             "title": "Action",
             "default": "fit"
           },
-          "model_version": {
-            "type": "integer",
-            "minimum": 1.0,
-            "title": "Model Version"
+          "model_revision": {
+            "$ref": "#/components/schemas/GitOid"
           },
-          "panel_version": {
-            "type": "integer",
-            "minimum": 1.0,
-            "title": "Panel Version"
+          "panel_revision": {
+            "$ref": "#/components/schemas/GitOid"
           },
           "settings": {
             "$ref": "#/components/schemas/FitSettingsSpec"
@@ -3519,8 +4086,8 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "model_version",
-          "panel_version"
+          "model_revision",
+          "panel_revision"
         ],
         "title": "FitRequest",
         "description": "Condition explicitly selected model and observation revisions."
@@ -3627,6 +4194,37 @@
         "title": "FitSummary",
         "description": "A fit read contains the inference log report and server-composed display findings.",
         "x-python-module": "nof1_causal_lab.machine.snapshot_models"
+      },
+      "GitOid": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{40}$"
+      },
+      "GitRef": {
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Workspace Id"
+          },
+          "revision": {
+            "$ref": "#/components/schemas/GitOid"
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_./-]*$",
+            "title": "Path"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "workspace_id",
+          "revision",
+          "path"
+        ],
+        "title": "GitRef",
+        "description": "An exact file in a study's Git object database: repository, object, and path."
       },
       "HTTPValidationError": {
         "properties": {
@@ -4077,29 +4675,10 @@
             "$ref": "#/components/schemas/IndicatorId",
             "description": "Persistent identity. Preserve when revising or renaming."
           },
-          "likelihood": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/LikelihoodSpec-Input"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "name": {
             "type": "string",
             "title": "Name",
             "description": "Indicator name (e.g., 'hrv', 'self_reported_stress')"
-          },
-          "how_to_measure": {
-            "type": "string",
-            "title": "How To Measure",
-            "description": "Instructions for workers on how to extract this from data"
-          },
-          "construct_polarity": {
-            "$ref": "#/components/schemas/IndicatorPolarity",
-            "description": "Whether higher indicator values move in the same direction as the construct (`positive`) or the opposite direction (`negative`)."
           },
           "measurement_dtype": {
             "$ref": "#/components/schemas/MeasurementDtype",
@@ -4107,18 +4686,7 @@
           },
           "aggregation": {
             "$ref": "#/components/schemas/AggregationFunction",
-            "description": "Aggregation function applied when bucketing raw extractions within the indicator support window. Measurement-structure support is currently limited to: first, last, sum, count, mean, std. Available parser operators: count, cv, entropy, first, instability, iqr, kurtosis, last, max, mean, median, min, n_unique, p10, p25, p75, p90, p99, range, skew, std, sum, trend, var"
-          },
-          "recording": {
-            "type": "string",
-            "enum": [
-              "samples",
-              "events",
-              "changes"
-            ],
-            "title": "Recording",
-            "description": "Source recording semantics within the raw dataset's covered time span. samples: absent readings are unknown. events: a complete event record; empty sum/count windows are zero. changes: a complete change record; the last recorded value persists, with leading gaps unknown. events and changes require computed extraction.",
-            "default": "samples"
+            "description": "Aggregation function applied when bucketing raw extractions within the indicator support window. Measurement-structure support is currently limited to: first, last, sum, count, mean, std. A computed_rule must produce this same summary. Available parser operators: count, cv, entropy, first, instability, iqr, kurtosis, last, max, mean, median, min, n_unique, p10, p25, p75, p90, p99, range, skew, std, sum, trend, var"
           },
           "observation_window": {
             "anyOf": [
@@ -4130,7 +4698,7 @@
               }
             ],
             "title": "Observation Window",
-            "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). If omitted, the support window defaults to the global model_clock."
+            "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock."
           },
           "ordinal_levels": {
             "anyOf": [
@@ -4162,34 +4730,19 @@
             "title": "Categorical Levels",
             "description": "Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding."
           },
-          "source_columns": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Source Columns",
-            "description": "Raw data column names referenced by how_to_measure. Used to project chunks to only relevant columns before extraction."
-          },
-          "computed_rule": {
+          "likelihood": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/WindowExpression"
+                "$ref": "#/components/schemas/LikelihoodSpec-Input"
               },
               {
                 "type": "null"
               }
-            ],
-            "description": "Optional deterministic support-window expression for extraction_mode='computed'. Use this when a computed indicator needs formulas, thresholds, or multiple source columns instead of a direct single-column aggregation. The expression must return one scalar per support window."
+            ]
           },
-          "extraction_mode": {
-            "type": "string",
-            "enum": [
-              "computed",
-              "semantic"
-            ],
-            "title": "Extraction Mode",
-            "description": "'computed' (deterministic pipeline extraction) or 'semantic' (LLM extraction). Use 'computed' when the indicator can be derived deterministically either from a direct source-column aggregation or from a computed_rule support-window expression over the declared source_columns.",
-            "default": "semantic"
+          "construct_polarity": {
+            "$ref": "#/components/schemas/IndicatorPolarity",
+            "description": "Whether higher values move with (positive) or against (negative) the construct."
           }
         },
         "additionalProperties": false,
@@ -4197,19 +4750,73 @@
         "required": [
           "id",
           "name",
-          "how_to_measure",
-          "construct_polarity",
           "measurement_dtype",
-          "aggregation"
+          "aggregation",
+          "construct_polarity"
         ],
         "title": "IndicatorSpec",
-        "description": "A specification of a construct's observed measurement and how to extract it."
+        "description": "Bind an observed-variable ID to a construct and an emission likelihood.\n\nExtraction instructions belong to DataPreparationSpec. The shared observation\nschema also permits generative models before any observations have been collected."
       },
       "IndicatorSpec-Output": {
         "properties": {
           "id": {
             "$ref": "#/components/schemas/IndicatorId",
             "description": "Persistent identity. Preserve when revising or renaming."
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Indicator name (e.g., 'hrv', 'self_reported_stress')"
+          },
+          "measurement_dtype": {
+            "$ref": "#/components/schemas/MeasurementDtype",
+            "description": "'continuous', 'binary', 'count', 'ordinal', 'categorical'"
+          },
+          "aggregation": {
+            "$ref": "#/components/schemas/AggregationFunction",
+            "description": "Aggregation function applied when bucketing raw extractions within the indicator support window. Measurement-structure support is currently limited to: first, last, sum, count, mean, std. A computed_rule must produce this same summary. Available parser operators: count, cv, entropy, first, instability, iqr, kurtosis, last, max, mean, median, min, n_unique, p10, p25, p75, p90, p99, range, skew, std, sum, trend, var"
+          },
+          "observation_window": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observation Window",
+            "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock."
+          },
+          "ordinal_levels": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ordinal Levels",
+            "description": "Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding."
+          },
+          "categorical_levels": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Categorical Levels",
+            "description": "Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding."
           },
           "likelihood": {
             "anyOf": [
@@ -4221,109 +4828,9 @@
               }
             ]
           },
-          "name": {
-            "type": "string",
-            "title": "Name",
-            "description": "Indicator name (e.g., 'hrv', 'self_reported_stress')"
-          },
-          "how_to_measure": {
-            "type": "string",
-            "title": "How To Measure",
-            "description": "Instructions for workers on how to extract this from data"
-          },
           "construct_polarity": {
             "$ref": "#/components/schemas/IndicatorPolarity",
-            "description": "Whether higher indicator values move in the same direction as the construct (`positive`) or the opposite direction (`negative`)."
-          },
-          "measurement_dtype": {
-            "$ref": "#/components/schemas/MeasurementDtype",
-            "description": "'continuous', 'binary', 'count', 'ordinal', 'categorical'"
-          },
-          "aggregation": {
-            "$ref": "#/components/schemas/AggregationFunction",
-            "description": "Aggregation function applied when bucketing raw extractions within the indicator support window. Measurement-structure support is currently limited to: first, last, sum, count, mean, std. Available parser operators: count, cv, entropy, first, instability, iqr, kurtosis, last, max, mean, median, min, n_unique, p10, p25, p75, p90, p99, range, skew, std, sum, trend, var"
-          },
-          "recording": {
-            "type": "string",
-            "enum": [
-              "samples",
-              "events",
-              "changes"
-            ],
-            "title": "Recording",
-            "description": "Source recording semantics within the raw dataset's covered time span. samples: absent readings are unknown. events: a complete event record; empty sum/count windows are zero. changes: a complete change record; the last recorded value persists, with leading gaps unknown. events and changes require computed extraction.",
-            "default": "samples"
-          },
-          "observation_window": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Observation Window",
-            "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). If omitted, the support window defaults to the global model_clock."
-          },
-          "ordinal_levels": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ordinal Levels",
-            "description": "Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding."
-          },
-          "categorical_levels": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Categorical Levels",
-            "description": "Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding."
-          },
-          "source_columns": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Source Columns",
-            "description": "Raw data column names referenced by how_to_measure. Used to project chunks to only relevant columns before extraction."
-          },
-          "computed_rule": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/WindowExpression"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Optional deterministic support-window expression for extraction_mode='computed'. Use this when a computed indicator needs formulas, thresholds, or multiple source columns instead of a direct single-column aggregation. The expression must return one scalar per support window."
-          },
-          "extraction_mode": {
-            "type": "string",
-            "enum": [
-              "computed",
-              "semantic"
-            ],
-            "title": "Extraction Mode",
-            "description": "'computed' (deterministic pipeline extraction) or 'semantic' (LLM extraction). Use 'computed' when the indicator can be derived deterministically either from a direct source-column aggregation or from a computed_rule support-window expression over the declared source_columns.",
-            "default": "semantic"
+            "description": "Whether higher values move with (positive) or against (negative) the construct."
           }
         },
         "additionalProperties": false,
@@ -4331,13 +4838,12 @@
         "required": [
           "id",
           "name",
-          "how_to_measure",
-          "construct_polarity",
           "measurement_dtype",
-          "aggregation"
+          "aggregation",
+          "construct_polarity"
         ],
         "title": "IndicatorSpec",
-        "description": "A specification of a construct's observed measurement and how to extract it."
+        "description": "Bind an observed-variable ID to a construct and an emission likelihood.\n\nExtraction instructions belong to DataPreparationSpec. The shared observation\nschema also permits generative models before any observations have been collected."
       },
       "InferenceMetadata": {
         "properties": {
@@ -4419,6 +4925,31 @@
         ],
         "title": "InferenceReport",
         "description": "Display findings recorded by an inference transition, separate from ModelSpec."
+      },
+      "InterventionSpec": {
+        "properties": {
+          "target": {
+            "$ref": "#/components/schemas/ConstructId"
+          },
+          "time": {
+            "type": "number",
+            "title": "Time",
+            "description": "Absolute time in model days."
+          },
+          "value": {
+            "type": "number",
+            "title": "Value"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "target",
+          "time",
+          "value"
+        ],
+        "title": "InterventionSpec",
+        "description": "Set a latent state at one model time, then let its dynamics resume."
       },
       "JournalStatus": {
         "type": "string",
@@ -4908,10 +5439,6 @@
               "judgment"
             ],
             "title": "Creation Class"
-          },
-          "writable": {
-            "type": "boolean",
-            "title": "Writable"
           }
         },
         "type": "object",
@@ -4920,8 +5447,7 @@
           "consumes",
           "produces",
           "produces_optional",
-          "creation_class",
-          "writable"
+          "creation_class"
         ],
         "title": "MachineTransition",
         "description": "A transition declares the artifacts it consumes and produces and how it can run."
@@ -4968,20 +5494,71 @@
           "combined_extractions_sample"
         ],
         "title": "MeasurementsData",
-        "description": "Counts and representative observations read directly from one panel version."
+        "description": "Counts and representative observations read directly from one panel revision."
       },
       "MechanismId": {
         "type": "string",
         "pattern": "^mechanism:[A-Za-z0-9_.-]+$",
         "tsType": "`mechanism:${string}`"
       },
+      "ModelCheckReport": {
+        "properties": {
+          "input_keys": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/CheckGroup"
+            },
+            "type": "object",
+            "title": "Input Keys"
+          },
+          "specification": {
+            "$ref": "#/components/schemas/SpecificationReport"
+          },
+          "predictive": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelPredictiveReport"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reused": {
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/CheckGroup"
+                },
+                {
+                  "type": "string",
+                  "const": "predictive"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Reused",
+            "default": []
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "input_keys",
+          "specification"
+        ],
+        "title": "ModelCheckReport",
+        "description": "Checks selected by their consumed inputs, retained with the study snapshot."
+      },
       "ModelComparison": {
         "properties": {
           "before": {
-            "$ref": "#/components/schemas/ModelRevision"
+            "$ref": "#/components/schemas/GitRef"
           },
           "after": {
-            "$ref": "#/components/schemas/ModelRevision"
+            "$ref": "#/components/schemas/GitRef"
           },
           "parameters": {
             "items": {
@@ -4989,6 +5566,9 @@
             },
             "type": "array",
             "title": "Parameters"
+          },
+          "graph": {
+            "$ref": "#/components/schemas/ModelGraphComparison"
           },
           "changed_inputs": {
             "items": {
@@ -5050,6 +5630,7 @@
           "before",
           "after",
           "parameters",
+          "graph",
           "changed_inputs",
           "before_checks",
           "after_checks",
@@ -5058,7 +5639,8 @@
           "before_simulation",
           "after_simulation"
         ],
-        "title": "ModelComparison"
+        "title": "ModelComparison",
+        "description": "A comparison joins graph, parameter decisions and evidence at two committed checkpoints."
       },
       "ModelData": {
         "properties": {
@@ -5076,6 +5658,26 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/Sourced_MeasurementsData_"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Sourced_PreparedDataMetadata_"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "profile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Sourced_DataProfileArtifact_"
               },
               {
                 "type": "null"
@@ -5144,6 +5746,56 @@
         "title": "ModelDiagnostics",
         "description": "Server-derived equations and comparisons with pinned observations."
       },
+      "ModelEditResult": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "const": "edit_model",
+            "title": "Action",
+            "default": "edit_model"
+          },
+          "commit_id": {
+            "$ref": "#/components/schemas/GitOid"
+          },
+          "model_revision": {
+            "$ref": "#/components/schemas/GitOid"
+          },
+          "model": {
+            "$ref": "#/components/schemas/ModelSpec-Output"
+          },
+          "specification": {
+            "$ref": "#/components/schemas/SpecificationReport"
+          },
+          "predictive": {
+            "$ref": "#/components/schemas/ModelPredictiveReport"
+          },
+          "identification": {
+            "$ref": "#/components/schemas/IdentificationReport"
+          },
+          "validation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ValidationReportArtifact"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "commit_id",
+          "model_revision",
+          "model",
+          "specification",
+          "predictive",
+          "identification"
+        ],
+        "title": "ModelEditResult",
+        "description": "The committed scientific model and checks produced by an edit."
+      },
       "ModelFindings": {
         "properties": {
           "identification": {
@@ -5166,20 +5818,8 @@
               }
             ]
           },
-          "graph_status": {
-            "additionalProperties": {
-              "type": "string",
-              "enum": [
-                "observed",
-                "marginalized",
-                "blocking"
-              ]
-            },
-            "propertyNames": {
-              "$ref": "#/components/schemas/ConstructId"
-            },
-            "type": "object",
-            "title": "Graph Status"
+          "graph": {
+            "$ref": "#/components/schemas/ModelGraphView"
           },
           "validation_report": {
             "anyOf": [
@@ -5240,35 +5880,258 @@
                 "type": "null"
               }
             ]
+          },
+          "predictive": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Sourced_ModelPredictiveReport_"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
         "type": "object",
         "title": "ModelFindings",
-        "description": "ModelSpec findings collect identification, validation, and fitted results with their provenance.",
+        "description": "ModelSpec findings collect identification, validation, and fitted results with their input references.",
         "x-python-module": "nof1_causal_lab.machine.snapshot_models"
       },
-      "ModelRevision": {
+      "ModelFitResult": {
         "properties": {
-          "workspace_id": {
+          "action": {
             "type": "string",
-            "minLength": 1,
-            "title": "Workspace Id"
+            "const": "fit",
+            "title": "Action",
+            "default": "fit"
           },
-          "version": {
-            "type": "integer",
-            "minimum": 1.0,
-            "title": "Version"
+          "commit_id": {
+            "$ref": "#/components/schemas/GitOid"
+          },
+          "model_revision": {
+            "$ref": "#/components/schemas/GitOid"
+          },
+          "model": {
+            "$ref": "#/components/schemas/ModelSpec-Output"
+          },
+          "report": {
+            "$ref": "#/components/schemas/InferenceReport"
+          },
+          "specification": {
+            "$ref": "#/components/schemas/SpecificationReport"
+          },
+          "identification": {
+            "$ref": "#/components/schemas/IdentificationReport"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "workspace_id",
-          "version"
+          "commit_id",
+          "model_revision",
+          "model",
+          "report",
+          "specification",
+          "identification"
         ],
-        "title": "ModelRevision",
-        "description": "The workspace and version of the scientific design supporting an inference."
+        "title": "ModelFitResult",
+        "description": "The committed model, inference report, and checks produced by a fit."
+      },
+      "ModelGraphComparison": {
+        "properties": {
+          "constructs": {
+            "items": {
+              "$ref": "#/components/schemas/ConstructComparison"
+            },
+            "type": "array",
+            "title": "Constructs"
+          },
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/EdgeComparison"
+            },
+            "type": "array",
+            "title": "Edges"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "constructs",
+          "edges"
+        ],
+        "title": "ModelGraphComparison",
+        "description": "Aligned scientific entities for rendering a graph difference without browser inference."
+      },
+      "ModelGraphView": {
+        "properties": {
+          "construct_ids": {
+            "items": {
+              "$ref": "#/components/schemas/ConstructId"
+            },
+            "type": "array",
+            "title": "Construct Ids",
+            "default": []
+          },
+          "edge_ids": {
+            "items": {
+              "$ref": "#/components/schemas/EdgeId"
+            },
+            "type": "array",
+            "title": "Edge Ids",
+            "default": []
+          },
+          "status": {
+            "additionalProperties": {
+              "type": "string",
+              "enum": [
+                "observed",
+                "marginalized",
+                "blocking"
+              ]
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/ConstructId"
+            },
+            "type": "object",
+            "title": "Status"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ModelGraphView",
+        "description": "Scientific entity identities selected for the graph at this authoring checkpoint.",
+        "x-python-module": "nof1_causal_lab.machine.snapshot_models"
+      },
+      "ModelPredictiveReport": {
+        "properties": {
+          "input_key": {
+            "type": "string",
+            "title": "Input Key"
+          },
+          "model_revision": {
+            "$ref": "#/components/schemas/GitOid"
+          },
+          "panel_revision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GitOid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "passed",
+              "failed",
+              "not_evaluated"
+            ],
+            "title": "Status"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PredictiveCheckReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "design": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SimulationSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "draws": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Draws"
+          },
+          "seed": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Seed"
+          },
+          "law": {
+            "$ref": "#/components/schemas/PredictiveLawProvenance"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/PredictiveCheckFinding"
+            },
+            "type": "array",
+            "title": "Findings",
+            "default": []
+          },
+          "predictive_checks": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PosteriorPredictiveChecks"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "input_key",
+          "model_revision",
+          "panel_revision",
+          "status",
+          "draws",
+          "seed",
+          "law"
+        ],
+        "title": "ModelPredictiveReport",
+        "description": "One automatic, reproducible battery over the full model's current laws."
+      },
+      "ModelSimulationResult": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "const": "simulate",
+            "title": "Action",
+            "default": "simulate"
+          },
+          "commit_id": {
+            "$ref": "#/components/schemas/GitOid"
+          },
+          "report": {
+            "$ref": "#/components/schemas/SimulationReport"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "commit_id",
+          "report"
+        ],
+        "title": "ModelSimulationResult",
+        "description": "A committed trajectory or causal simulation report for its selected model and design."
       },
       "ModelSnapshot": {
         "properties": {
@@ -5485,159 +6348,7 @@
           "payload"
         ],
         "title": "ModelSpecAdmissionEvent",
-        "description": "Construct-admission event with JSON-safe event-specific fields."
-      },
-      "ModelUpdateBody": {
-        "properties": {
-          "expected_version": {
-            "type": "integer",
-            "minimum": 0.0,
-            "title": "Expected Version"
-          },
-          "model": {
-            "$ref": "#/components/schemas/ModelSpec-Input"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "expected_version",
-          "model"
-        ],
-        "title": "ModelUpdateBody"
-      },
-      "Move-Input": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/RunOperation"
-          },
-          {
-            "$ref": "#/components/schemas/WriteArtifact"
-          }
-        ],
-        "discriminator": {
-          "propertyName": "kind",
-          "mapping": {
-            "run": "#/components/schemas/RunOperation",
-            "write": "#/components/schemas/WriteArtifact"
-          }
-        }
-      },
-      "Move-Output": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/RunOperation"
-          },
-          {
-            "$ref": "#/components/schemas/WriteArtifact"
-          }
-        ],
-        "discriminator": {
-          "propertyName": "kind",
-          "mapping": {
-            "run": "#/components/schemas/RunOperation",
-            "write": "#/components/schemas/WriteArtifact"
-          }
-        }
-      },
-      "MoveBody": {
-        "properties": {
-          "move": {
-            "$ref": "#/components/schemas/Move-Input"
-          },
-          "payload": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/UncheckedJsonObject"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "options": {
-            "$ref": "#/components/schemas/ExecOptions"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "move"
-        ],
-        "title": "MoveBody"
-      },
-      "MoveOutcome": {
-        "properties": {
-          "seq": {
-            "type": "integer",
-            "title": "Seq"
-          },
-          "status": {
-            "$ref": "#/components/schemas/JournalStatus"
-          },
-          "reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reason"
-          },
-          "error_type": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Error Type"
-          },
-          "error_message": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Error Message"
-          },
-          "diagnostics": {
-            "$ref": "#/components/schemas/JsonObject-Output"
-          },
-          "produced": {
-            "items": {
-              "$ref": "#/components/schemas/ArtifactVersionInfo"
-            },
-            "type": "array",
-            "title": "Produced"
-          },
-          "retracted": {
-            "items": {
-              "$ref": "#/components/schemas/RetractedArtifact"
-            },
-            "type": "array",
-            "title": "Retracted"
-          },
-          "state": {
-            "$ref": "#/components/schemas/EpisodeState"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "seq",
-          "status",
-          "state"
-        ],
-        "title": "MoveOutcome",
-        "description": "A move outcome reports the attempted transition and resulting committed state."
+        "description": "Recorded construct-admission event from an earlier study history."
       },
       "NonIdentifiableTreatmentStatus": {
         "properties": {
@@ -5904,6 +6615,79 @@
         "title": "ObservationRecord",
         "description": "Canonical serialized extraction observation row."
       },
+      "ObservationSpec": {
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/IndicatorId",
+            "description": "Persistent identity. Preserve when revising or renaming."
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Indicator name (e.g., 'hrv', 'self_reported_stress')"
+          },
+          "measurement_dtype": {
+            "$ref": "#/components/schemas/MeasurementDtype",
+            "description": "'continuous', 'binary', 'count', 'ordinal', 'categorical'"
+          },
+          "aggregation": {
+            "$ref": "#/components/schemas/AggregationFunction",
+            "description": "Aggregation function applied when bucketing raw extractions within the indicator support window. Measurement-structure support is currently limited to: first, last, sum, count, mean, std. A computed_rule must produce this same summary. Available parser operators: count, cv, entropy, first, instability, iqr, kurtosis, last, max, mean, median, min, n_unique, p10, p25, p75, p90, p99, range, skew, std, sum, trend, var"
+          },
+          "observation_window": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observation Window",
+            "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock."
+          },
+          "ordinal_levels": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ordinal Levels",
+            "description": "Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding."
+          },
+          "categorical_levels": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Categorical Levels",
+            "description": "Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "measurement_dtype",
+          "aggregation"
+        ],
+        "title": "ObservationSpec",
+        "description": "A stable observed variable, reusable across scientific model definitions."
+      },
       "OperationId": {
         "type": "string",
         "enum": [
@@ -5911,6 +6695,7 @@
           "latent_structure",
           "measurement_structure",
           "measurements",
+          "simulated_measurements",
           "statistical_model_spec",
           "posterior",
           "simulate"
@@ -6169,7 +6954,8 @@
           "after",
           "change"
         ],
-        "title": "ParameterChange"
+        "title": "ParameterChange",
+        "description": "A parameter change compares one parameter's fixed value or law across model revisions."
       },
       "ParameterElementId": {
         "type": "string",
@@ -6481,6 +7267,127 @@
         "title": "PosteriorPredictiveChecks",
         "description": "Posterior predictive checks report exact-model checks and their supporting plot data."
       },
+      "PredictiveCheckFinding": {
+        "properties": {
+          "check": {
+            "type": "string",
+            "title": "Check"
+          },
+          "construct_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConstructId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "target": {
+            "type": "string",
+            "title": "Target"
+          },
+          "value": {
+            "type": "string",
+            "title": "Value"
+          },
+          "band": {
+            "type": "string",
+            "title": "Band"
+          },
+          "passed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passed"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "check",
+          "target",
+          "value",
+          "band",
+          "passed",
+          "note"
+        ],
+        "title": "PredictiveCheckFinding",
+        "description": "One measured simulation check, independent of its authoring or simulation context."
+      },
+      "PredictiveCheckReason": {
+        "type": "string",
+        "enum": [
+          "MODEL_INCOMPLETE",
+          "MODEL_NOT_EXECUTABLE",
+          "NO_COMPATIBLE_PANEL",
+          "INSUFFICIENT_OBSERVATION_TIMES",
+          "SIMULATION_UNSUPPORTED"
+        ]
+      },
+      "PredictiveLawProvenance": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "authored",
+              "fitted",
+              "mixed",
+              "unknown"
+            ],
+            "title": "Kind"
+          },
+          "fitted_panel_revision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GitOid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "interpretation": {
+            "type": "string",
+            "enum": [
+              "prior_predictive",
+              "in_sample_posterior_predictive",
+              "posterior_predictive",
+              "mixed",
+              "unknown"
+            ],
+            "title": "Interpretation"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "interpretation"
+        ],
+        "title": "PredictiveLawProvenance",
+        "description": "Known conditioning history, independently of a probability law's family."
+      },
       "PrepareDataRequest": {
         "properties": {
           "action": {
@@ -6490,36 +7397,25 @@
             "default": "prepare_data"
           },
           "source": {
-            "type": "string",
-            "enum": [
-              "files",
-              "raw_data"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FileSourceRef"
+              },
+              {
+                "$ref": "#/components/schemas/SimulationReplicateRef"
+              }
             ],
             "title": "Source"
           },
-          "raw_data_version": {
+          "preparation": {
             "anyOf": [
               {
-                "type": "integer",
-                "minimum": 1.0
+                "$ref": "#/components/schemas/DataPreparationSpec-Input"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Raw Data Version"
-          },
-          "model_version": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 1.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Model Version"
+            ]
           },
           "max_windows": {
             "anyOf": [
@@ -6540,7 +7436,40 @@
           "source"
         ],
         "title": "PrepareDataRequest",
-        "description": "Import uploaded files or extract measurements from a pinned source table."
+        "description": "Prepare uploaded sources or a recorded simulation replicate, without a model."
+      },
+      "PreparedDataMetadata": {
+        "properties": {
+          "source": {
+            "$ref": "#/components/schemas/DataSourceRef"
+          },
+          "variables": {
+            "items": {
+              "$ref": "#/components/schemas/ObservationSpec"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Variables"
+          },
+          "preparation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DataPreparationSpec-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source",
+          "variables"
+        ],
+        "title": "PreparedDataMetadata",
+        "description": "Self-contained semantics and provenance of one prepared observation table."
       },
       "PriorPredictiveDiagnostic": {
         "properties": {
@@ -6550,6 +7479,10 @@
           },
           "construct_id": {
             "$ref": "#/components/schemas/ConstructId"
+          },
+          "target": {
+            "type": "string",
+            "title": "Target"
           },
           "value": {
             "type": "string",
@@ -6566,6 +7499,17 @@
           "note": {
             "type": "string",
             "title": "Note"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
           },
           "diagnosis": {
             "items": {
@@ -6584,6 +7528,7 @@
         "required": [
           "check",
           "construct_id",
+          "target",
           "value",
           "band",
           "passed",
@@ -6623,14 +7568,6 @@
         ],
         "title": "PriorPredictiveResult",
         "description": "Simulated observations and checks recorded by a model-authoring operation."
-      },
-      "Provenance": {
-        "type": "string",
-        "enum": [
-          "computed",
-          "human",
-          "llm"
-        ]
       },
       "RawDataColumnDescription": {
         "properties": {
@@ -6705,7 +7642,7 @@
           "column_descriptions"
         ],
         "title": "RawDataData",
-        "description": "Profile and representative rows from one uploaded table version."
+        "description": "Profile and representative rows from one uploaded table revision."
       },
       "RawDataDateRange": {
         "properties": {
@@ -6751,7 +7688,7 @@
           "checkpoint_id"
         ],
         "title": "ResumeRef",
-        "description": "Stage-owned checkpoint selection retained by a raised transition."
+        "description": "Recorded checkpoint reference in historical authoring attempts."
       },
       "RetractedArtifact": {
         "properties": {
@@ -6770,27 +7707,27 @@
           "reason_ref"
         ],
         "title": "RetractedArtifact",
-        "description": "A current artifact removed by a move, with the finding that caused it."
+        "description": "A current artifact removed by an action, with the finding that caused it."
       },
       "RevisionCatalog": {
         "properties": {
           "models": {
             "items": {
-              "$ref": "#/components/schemas/ArtifactVersionInfo"
+              "$ref": "#/components/schemas/ArtifactRecord"
             },
             "type": "array",
             "title": "Models"
           },
           "raw_data": {
             "items": {
-              "$ref": "#/components/schemas/ArtifactVersionInfo"
+              "$ref": "#/components/schemas/ArtifactRecord"
             },
             "type": "array",
             "title": "Raw Data"
           },
           "panels": {
             "items": {
-              "$ref": "#/components/schemas/ArtifactVersionInfo"
+              "$ref": "#/components/schemas/ArtifactRecord"
             },
             "type": "array",
             "title": "Panels"
@@ -6803,7 +7740,8 @@
           "raw_data",
           "panels"
         ],
-        "title": "RevisionCatalog"
+        "title": "RevisionCatalog",
+        "description": "A revision catalog lists immutable model, source and observation inputs for selection."
       },
       "Role": {
         "type": "string",
@@ -6818,14 +7756,6 @@
         "properties": {
           "artifact_id": {
             "$ref": "#/components/schemas/ArtifactId"
-          },
-          "write_pins": {
-            "items": {
-              "$ref": "#/components/schemas/ArtifactId"
-            },
-            "type": "array",
-            "title": "Write Pins",
-            "default": []
           }
         },
         "type": "object",
@@ -6834,37 +7764,11 @@
         ],
         "title": "Root"
       },
-      "RunOperation": {
-        "properties": {
-          "kind": {
-            "type": "string",
-            "const": "run",
-            "title": "Kind",
-            "default": "run"
-          },
-          "operation_id": {
-            "$ref": "#/components/schemas/OperationId"
-          },
-          "input_versions": {
-            "additionalProperties": {
-              "type": "integer"
-            },
-            "propertyNames": {
-              "$ref": "#/components/schemas/ArtifactId"
-            },
-            "type": "object",
-            "title": "Input Versions"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "operation_id"
-        ],
-        "title": "RunOperation"
-      },
       "RuntimeEvent": {
         "oneOf": [
+          {
+            "$ref": "#/components/schemas/ActionMessageEvent"
+          },
           {
             "$ref": "#/components/schemas/TransitionRuntimeEvent"
           },
@@ -6884,6 +7788,7 @@
         "discriminator": {
           "propertyName": "event",
           "mapping": {
+            "nof1-causal-lab.action.message": "#/components/schemas/ActionMessageEvent",
             "nof1-causal-lab.extraction.plan": "#/components/schemas/ExtractionPlanEvent",
             "nof1-causal-lab.extraction.snapshot": "#/components/schemas/ExtractionSnapshotEvent",
             "nof1-causal-lab.extraction.worker": "#/components/schemas/ExtractionWorkerEvent",
@@ -6921,256 +7826,6 @@
         "title": "RuntimeEventError",
         "description": "Serialized transition failure."
       },
-      "ScenarioClamp": {
-        "properties": {
-          "target": {
-            "$ref": "#/components/schemas/ConstructId",
-            "description": "Persistent ID of the construct to clamp."
-          },
-          "mode": {
-            "type": "string",
-            "enum": [
-              "set",
-              "shift",
-              "ramp",
-              "trajectory"
-            ],
-            "title": "Mode",
-            "description": "How the clamped value is specified over the window."
-          },
-          "value": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Value",
-            "description": "Required when mode='set'. Absolute latent-space value."
-          },
-          "amount": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Amount",
-            "description": "Required when mode='shift'. Additive delta from the start-state value."
-          },
-          "value_start": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Value Start",
-            "description": "Required when mode='ramp'. Value at from_day."
-          },
-          "value_end": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Value End",
-            "description": "Required when mode='ramp'. Value at to_day."
-          },
-          "values": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "number"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Values",
-            "description": "Required when mode='trajectory'. Values sampled evenly across the window."
-          },
-          "from_day": {
-            "type": "number",
-            "minimum": 0.0,
-            "title": "From Day",
-            "description": "Window onset in days from the rollout start.",
-            "default": 0.0
-          },
-          "to_day": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "To Day",
-            "description": "Window end in days from the rollout start. Null runs through the horizon."
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "target",
-          "mode"
-        ],
-        "title": "ScenarioClamp",
-        "description": "A do-operator on one latent variable over a time window.\n\nThe window is ``[from_day, to_day)`` in days relative to the rollout start; outside\nthe window the variable evolves under its natural dynamics. ``set`` pins to an absolute\nvalue, ``shift`` adds an amount to the variable's start-state value, ``ramp`` linearly\ninterpolates across the window, and ``trajectory`` tracks a list of values across it."
-      },
-      "ScenarioQueryInput": {
-        "properties": {
-          "estimand": {
-            "type": "string",
-            "enum": [
-              "end_state",
-              "trajectory"
-            ],
-            "title": "Estimand",
-            "description": "Report the final-horizon outcome effect or the full effect trajectory.",
-            "default": "trajectory"
-          },
-          "horizon_days": {
-            "type": "integer",
-            "maximum": 365.0,
-            "minimum": 1.0,
-            "title": "Horizon Days",
-            "description": "Forward horizon in days from the rollout start.",
-            "default": 30
-          },
-          "projection": {
-            "type": "string",
-            "enum": [
-              "latent",
-              "manifest",
-              "both"
-            ],
-            "title": "Projection",
-            "description": "Report latent outcome effects, manifest projections, or both.",
-            "default": "latent"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "title": "ScenarioQueryInput"
-      },
-      "ScenarioRequest-Input": {
-        "properties": {
-          "start": {
-            "$ref": "#/components/schemas/ScenarioStartInput"
-          },
-          "clamps": {
-            "items": {
-              "$ref": "#/components/schemas/ScenarioClamp"
-            },
-            "type": "array",
-            "minItems": 1,
-            "title": "Clamps",
-            "description": "One or more timed latent clamps composing the scenario."
-          },
-          "outcome": {
-            "$ref": "#/components/schemas/ConstructId",
-            "description": "Persistent ID of the requested outcome."
-          },
-          "readout": {
-            "$ref": "#/components/schemas/ScenarioQueryInput"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "clamps",
-          "outcome"
-        ],
-        "title": "ScenarioRequest",
-        "description": "One reusable request for an on-demand simulation of a fitted model."
-      },
-      "ScenarioRequest-Output": {
-        "properties": {
-          "start": {
-            "$ref": "#/components/schemas/ScenarioStartInput"
-          },
-          "clamps": {
-            "items": {
-              "$ref": "#/components/schemas/ScenarioClamp"
-            },
-            "type": "array",
-            "minItems": 1,
-            "title": "Clamps",
-            "description": "One or more timed latent clamps composing the scenario."
-          },
-          "outcome": {
-            "$ref": "#/components/schemas/ConstructId",
-            "description": "Persistent ID of the requested outcome."
-          },
-          "readout": {
-            "$ref": "#/components/schemas/ScenarioQueryInput"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "clamps",
-          "outcome"
-        ],
-        "title": "ScenarioRequest",
-        "description": "One reusable request for an on-demand simulation of a fitted model."
-      },
-      "ScenarioStartInput": {
-        "properties": {
-          "kind": {
-            "type": "string",
-            "enum": [
-              "baseline",
-              "abducted"
-            ],
-            "title": "Kind",
-            "description": "'baseline' starts from the deterministic drift equilibrium (an interventional, rung-2 query). 'abducted' conditions on the individual's observed evidence and starts from the recovered fitted latent state (a counterfactual, rung-3 query).",
-            "default": "baseline"
-          },
-          "time_index": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Time Index",
-            "description": "Abducted start only: observed fitted-state index to begin from. Defaults to the final retained fitted latent state."
-          },
-          "time": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Time",
-            "description": "Abducted start only: ISO-8601 observed timestamp matching a retained fitted latent state. Use either time_index or time, not both."
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "title": "ScenarioStartInput",
-        "description": "Where the forward rollout begins (replaces the rung-2/rung-3 split)."
-      },
       "ScientificActionId": {
         "type": "string",
         "enum": [
@@ -7182,141 +7837,139 @@
       },
       "SimulateRequest": {
         "properties": {
+          "end": {
+            "type": "number",
+            "title": "End",
+            "description": "Absolute end time in model days."
+          },
+          "start": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start",
+            "description": "Absolute start time in model days; omitted uses the model's latest state time, or zero for its initial-state law."
+          },
+          "interventions": {
+            "items": {
+              "$ref": "#/components/schemas/InterventionSpec"
+            },
+            "type": "array",
+            "title": "Interventions",
+            "default": []
+          },
           "action": {
             "type": "string",
             "const": "simulate",
             "title": "Action",
             "default": "simulate"
           },
-          "model_version": {
-            "type": "integer",
-            "minimum": 1.0,
-            "title": "Model Version"
+          "model_revision": {
+            "$ref": "#/components/schemas/GitOid"
           },
-          "design": {
-            "$ref": "#/components/schemas/SimulationDesign-Input"
-          },
-          "comparison_panel_version": {
+          "comparison_panel_revision": {
             "anyOf": [
               {
-                "type": "integer",
-                "minimum": 1.0
+                "$ref": "#/components/schemas/GitOid"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Comparison Panel Version"
+            "description": "Prepared observations to compare on their exact recorded schedule."
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "model_version",
-          "design"
+          "end",
+          "model_revision"
         ],
         "title": "SimulateRequest",
-        "description": "Simulate current model uncertainty, optionally comparing with observations."
+        "description": "Generate the selected model through end with optional start and dated interventions."
       },
-      "SimulationDesign-Input": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/SimulationSpec-Input"
-          },
-          {
-            "$ref": "#/components/schemas/CausalSimulationSpec-Input"
-          }
-        ],
-        "discriminator": {
-          "propertyName": "kind",
-          "mapping": {
-            "causal": "#/components/schemas/CausalSimulationSpec-Input",
-            "trajectory": "#/components/schemas/SimulationSpec-Input"
-          }
-        }
-      },
-      "SimulationDesign-Output": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/SimulationSpec-Output"
-          },
-          {
-            "$ref": "#/components/schemas/CausalSimulationSpec-Output"
-          }
-        ],
-        "discriminator": {
-          "propertyName": "kind",
-          "mapping": {
-            "causal": "#/components/schemas/CausalSimulationSpec-Output",
-            "trajectory": "#/components/schemas/SimulationSpec-Output"
-          }
-        }
-      },
-      "SimulationFinding": {
+      "SimulationObservationLayout": {
         "properties": {
-          "check": {
-            "type": "string",
-            "title": "Check"
+          "variables": {
+            "items": {
+              "$ref": "#/components/schemas/ObservationSpec"
+            },
+            "type": "array",
+            "title": "Variables"
           },
-          "target": {
+          "support_start_times": {
             "type": "string",
-            "title": "Target"
+            "title": "Support Start Times"
           },
-          "value": {
+          "support_end_times": {
             "type": "string",
-            "title": "Value"
+            "title": "Support End Times"
           },
-          "criterion": {
+          "mask": {
             "type": "string",
-            "title": "Criterion"
-          },
-          "passed": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Passed"
-          },
-          "explanation": {
-            "type": "string",
-            "title": "Explanation"
+            "title": "Mask"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "check",
-          "target",
-          "value",
-          "criterion",
-          "passed",
-          "explanation"
+          "variables",
+          "support_start_times",
+          "support_end_times",
+          "mask"
         ],
-        "title": "SimulationFinding",
-        "description": "A measured quantity with the criterion used to interpret it."
+        "title": "SimulationObservationLayout",
+        "description": "Saved observation semantics and coordinates; generation truths remain separate."
+      },
+      "SimulationReplicateRef": {
+        "properties": {
+          "revision": {
+            "$ref": "#/components/schemas/GitOid"
+          },
+          "replicate": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Replicate"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "revision",
+          "replicate"
+        ],
+        "title": "SimulationReplicateRef",
+        "description": "One replicate from a recorded, applied simulation in this study."
       },
       "SimulationReport": {
         "properties": {
           "model": {
-            "$ref": "#/components/schemas/ModelRevision"
+            "$ref": "#/components/schemas/GitRef"
           },
           "design": {
-            "$ref": "#/components/schemas/SimulationDesign-Output"
+            "$ref": "#/components/schemas/SimulationSpec"
           },
-          "comparison_panel_version": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Comparison Panel Version"
+          "times": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "minItems": 2,
+            "title": "Times"
+          },
+          "draws": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Draws"
+          },
+          "seed": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Seed"
           },
           "state_ids": {
             "items": {
@@ -7347,18 +8000,33 @@
             "type": "string",
             "title": "Observations"
           },
-          "findings": {
-            "items": {
-              "$ref": "#/components/schemas/SimulationFinding"
-            },
-            "type": "array",
-            "title": "Findings",
-            "default": []
+          "observation_layout": {
+            "$ref": "#/components/schemas/SimulationObservationLayout"
+          },
+          "comparison_panel": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GitRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "predictive_checks": {
             "anyOf": [
               {
                 "$ref": "#/components/schemas/PosteriorPredictiveChecks"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "law": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PredictiveLawProvenance"
               },
               {
                 "type": "null"
@@ -7387,63 +8055,25 @@
             ],
             "title": "Reference Observations"
           },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/PredictiveCheckFinding"
+            },
+            "type": "array",
+            "title": "Findings",
+            "default": []
+          },
           "causal_result": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/SimulationResult"
+                "$ref": "#/components/schemas/CausalEffectResult"
               },
               {
                 "type": "null"
               }
             ]
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "model",
-          "design",
-          "state_ids",
-          "indicator_ids",
-          "parameter_draws",
-          "latent_paths",
-          "observations"
-        ],
-        "title": "SimulationReport",
-        "description": "Evidence from one explicit simulation, separate from an inference report."
-      },
-      "SimulationResult": {
-        "properties": {
-          "request": {
-            "$ref": "#/components/schemas/ScenarioRequest-Output"
           },
-          "model": {
-            "$ref": "#/components/schemas/ModelRevision",
-            "description": "Exact fitted model revision used by this response."
-          },
-          "time_grid_days": {
-            "items": {
-              "type": "number"
-            },
-            "type": "array",
-            "minItems": 2,
-            "title": "Time Grid Days",
-            "description": "Shared elapsed-day coordinates for all trajectories, including day zero."
-          },
-          "start_time_index": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Start Time Index",
-            "description": "Resolved fitted-state index for an abducted start; null for a baseline start."
-          },
-          "start_time": {
+          "causal_unavailable_reason": {
             "anyOf": [
               {
                 "type": "string"
@@ -7452,143 +8082,35 @@
                 "type": "null"
               }
             ],
-            "title": "Start Time",
-            "description": "Observed timestamp of the resolved abducted start, when available."
-          },
-          "labels": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "propertyNames": {
-              "$ref": "#/components/schemas/ConstructId"
-            },
-            "type": "object",
-            "title": "Labels"
-          },
-          "summary": {
-            "$ref": "#/components/schemas/EffectSummary"
-          },
-          "effect_trajectory": {
-            "anyOf": [
-              {
-                "items": {
-                  "$ref": "#/components/schemas/EffectTrajectoryPoint"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Effect Trajectory"
-          },
-          "trajectory_peak": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/EffectTrajectoryPoint"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "trajectories": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/SimulationTrajectory"
-            },
-            "propertyNames": {
-              "$ref": "#/components/schemas/ConstructId"
-            },
-            "type": "object",
-            "title": "Trajectories",
-            "description": "Reference and action means for each simulated construct on time_grid_days."
-          },
-          "manifest_effects": {
-            "anyOf": [
-              {
-                "additionalProperties": {
-                  "type": "number"
-                },
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Manifest Effects"
-          },
-          "reference_mean": {
-            "type": "number",
-            "title": "Reference Mean"
-          },
-          "warnings": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Warnings"
+            "title": "Causal Unavailable Reason"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "request",
           "model",
-          "time_grid_days",
-          "labels",
-          "summary",
-          "trajectories",
-          "reference_mean"
+          "design",
+          "times",
+          "draws",
+          "seed",
+          "state_ids",
+          "indicator_ids",
+          "parameter_draws",
+          "latent_paths",
+          "observations",
+          "observation_layout"
         ],
-        "title": "SimulationResult",
-        "description": "Ephemeral response to a runtime simulation request.\n\nThis engine integrates the true nonlinear drift for each posterior draw.\nIt does not include future process noise or claim the mean of the SDE."
+        "title": "SimulationReport",
+        "description": "Generated histories and derived findings with their resolved execution coordinates."
       },
-      "SimulationSpec-Input": {
+      "SimulationSpec": {
         "properties": {
-          "kind": {
-            "type": "string",
-            "const": "trajectory",
-            "title": "Kind",
-            "default": "trajectory"
+          "end": {
+            "type": "number",
+            "title": "End",
+            "description": "Absolute end time in model days."
           },
-          "times": {
-            "items": {
-              "type": "number"
-            },
-            "type": "array",
-            "minItems": 2,
-            "title": "Times"
-          },
-          "draws": {
-            "type": "integer",
-            "maximum": 10000.0,
-            "minimum": 1.0,
-            "title": "Draws",
-            "default": 100
-          },
-          "seed": {
-            "type": "integer",
-            "minimum": 0.0,
-            "title": "Seed",
-            "default": 0
-          },
-          "edge_contrasts": {
-            "type": "boolean",
-            "title": "Edge Contrasts",
-            "default": false
-          },
-          "initial_state": {
-            "type": "string",
-            "enum": [
-              "new_study",
-              "retained",
-              "fixed",
-              "equilibrium"
-            ],
-            "title": "Initial State",
-            "default": "new_study"
-          },
-          "state_time": {
+          "start": {
             "anyOf": [
               {
                 "type": "number"
@@ -7597,227 +8119,25 @@
                 "type": "null"
               }
             ],
-            "title": "State Time"
-          },
-          "state_values": {
-            "additionalProperties": {
-              "type": "number"
-            },
-            "propertyNames": {
-              "$ref": "#/components/schemas/ConstructId"
-            },
-            "type": "object",
-            "title": "State Values"
-          },
-          "process_noise": {
-            "type": "boolean",
-            "title": "Process Noise",
-            "default": true
-          },
-          "observation_noise": {
-            "type": "boolean",
-            "title": "Observation Noise",
-            "default": true
+            "title": "Start",
+            "description": "Absolute start time in model days; omitted uses the model's latest state time, or zero for its initial-state law."
           },
           "interventions": {
             "items": {
-              "$ref": "#/components/schemas/ScenarioClamp"
+              "$ref": "#/components/schemas/InterventionSpec"
             },
             "type": "array",
             "title": "Interventions",
             "default": []
-          },
-          "context": {
-            "type": "string",
-            "enum": [
-              "exploration",
-              "calibration",
-              "prediction"
-            ],
-            "title": "Context",
-            "default": "exploration"
-          },
-          "checks": {
-            "items": {
-              "type": "string",
-              "enum": [
-                "dynamics",
-                "measurement",
-                "data_comparison"
-              ]
-            },
-            "type": "array",
-            "title": "Checks",
-            "default": [
-              "dynamics",
-              "measurement",
-              "data_comparison"
-            ]
-          },
-          "confinement_growth_ratio": {
-            "type": "number",
-            "exclusiveMinimum": 1.0,
-            "title": "Confinement Growth Ratio",
-            "default": 5.0
-          },
-          "confinement_failure_fraction": {
-            "type": "number",
-            "maximum": 1.0,
-            "exclusiveMinimum": 0.0,
-            "title": "Confinement Failure Fraction",
-            "default": 0.01
-          },
-          "comparison_time_offset": {
-            "type": "number",
-            "title": "Comparison Time Offset",
-            "default": 0.0
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "times"
+          "end"
         ],
         "title": "SimulationSpec",
-        "description": "A replicated study generated from the selected model's current laws."
-      },
-      "SimulationSpec-Output": {
-        "properties": {
-          "kind": {
-            "type": "string",
-            "const": "trajectory",
-            "title": "Kind",
-            "default": "trajectory"
-          },
-          "times": {
-            "items": {
-              "type": "number"
-            },
-            "type": "array",
-            "minItems": 2,
-            "title": "Times"
-          },
-          "draws": {
-            "type": "integer",
-            "maximum": 10000.0,
-            "minimum": 1.0,
-            "title": "Draws",
-            "default": 100
-          },
-          "seed": {
-            "type": "integer",
-            "minimum": 0.0,
-            "title": "Seed",
-            "default": 0
-          },
-          "edge_contrasts": {
-            "type": "boolean",
-            "title": "Edge Contrasts",
-            "default": false
-          },
-          "initial_state": {
-            "type": "string",
-            "enum": [
-              "new_study",
-              "retained",
-              "fixed",
-              "equilibrium"
-            ],
-            "title": "Initial State",
-            "default": "new_study"
-          },
-          "state_time": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "State Time"
-          },
-          "state_values": {
-            "additionalProperties": {
-              "type": "number"
-            },
-            "propertyNames": {
-              "$ref": "#/components/schemas/ConstructId"
-            },
-            "type": "object",
-            "title": "State Values"
-          },
-          "process_noise": {
-            "type": "boolean",
-            "title": "Process Noise",
-            "default": true
-          },
-          "observation_noise": {
-            "type": "boolean",
-            "title": "Observation Noise",
-            "default": true
-          },
-          "interventions": {
-            "items": {
-              "$ref": "#/components/schemas/ScenarioClamp"
-            },
-            "type": "array",
-            "title": "Interventions",
-            "default": []
-          },
-          "context": {
-            "type": "string",
-            "enum": [
-              "exploration",
-              "calibration",
-              "prediction"
-            ],
-            "title": "Context",
-            "default": "exploration"
-          },
-          "checks": {
-            "items": {
-              "type": "string",
-              "enum": [
-                "dynamics",
-                "measurement",
-                "data_comparison"
-              ]
-            },
-            "type": "array",
-            "title": "Checks",
-            "default": [
-              "dynamics",
-              "measurement",
-              "data_comparison"
-            ]
-          },
-          "confinement_growth_ratio": {
-            "type": "number",
-            "exclusiveMinimum": 1.0,
-            "title": "Confinement Growth Ratio",
-            "default": 5.0
-          },
-          "confinement_failure_fraction": {
-            "type": "number",
-            "maximum": 1.0,
-            "exclusiveMinimum": 0.0,
-            "title": "Confinement Failure Fraction",
-            "default": 0.01
-          },
-          "comparison_time_offset": {
-            "type": "number",
-            "title": "Comparison Time Offset",
-            "default": 0.0
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "times"
-        ],
-        "title": "SimulationSpec",
-        "description": "A replicated study generated from the selected model's current laws."
+        "description": "Generate through end, optionally starting earlier and applying dated interventions."
       },
       "SimulationTrajectory": {
         "properties": {
@@ -7828,7 +8148,7 @@
             "type": "array",
             "minItems": 2,
             "title": "Reference Mean",
-            "description": "Mean no-clamp latent path on the result's time_grid_days, including day zero."
+            "description": "Mean natural latent path on the result's time_grid_days, including day zero."
           },
           "action_mean": {
             "items": {
@@ -7837,7 +8157,7 @@
             "type": "array",
             "minItems": 2,
             "title": "Action Mean",
-            "description": "Mean latent path under the requested clamps on the same full time grid."
+            "description": "Mean latent path under the dated interventions on the same full time grid."
           }
         },
         "additionalProperties": false,
@@ -7861,6 +8181,14 @@
             "minimum": 0.0,
             "title": "Seq"
           },
+          "commit_id": {
+            "$ref": "#/components/schemas/GitOid"
+          },
+          "branch": {
+            "type": "string",
+            "title": "Branch",
+            "default": "main"
+          },
           "can_simulate": {
             "type": "boolean",
             "title": "Can Simulate",
@@ -7875,23 +8203,6 @@
             },
             "type": "array",
             "title": "Artifacts"
-          },
-          "installed_at": {
-            "additionalProperties": {
-              "type": "integer"
-            },
-            "propertyNames": {
-              "$ref": "#/components/schemas/ArtifactId"
-            },
-            "type": "object",
-            "title": "Installed At"
-          },
-          "retracted": {
-            "items": {
-              "$ref": "#/components/schemas/ArtifactId"
-            },
-            "type": "array",
-            "title": "Retracted"
           }
         },
         "additionalProperties": false,
@@ -7899,10 +8210,11 @@
         "required": [
           "workspace_id",
           "seq",
+          "commit_id",
           "state"
         ],
         "title": "SnapshotContext",
-        "description": "A snapshot context identifies the selected journal revision and its artifact versions.",
+        "description": "A snapshot context identifies the selected Git commit and its artifact versions.",
         "x-python-module": "nof1_causal_lab.machine.snapshot_models"
       },
       "SourceValidity": {
@@ -7913,6 +8225,24 @@
         ],
         "title": "SourceValidity",
         "description": "Source validity records whether a fact still matches its pinned inputs."
+      },
+      "Sourced_DataProfileArtifact_": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/DataProfileArtifact"
+          },
+          "source": {
+            "$ref": "#/components/schemas/FactSource"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "value",
+          "source"
+        ],
+        "title": "Sourced[DataProfileArtifact]",
+        "x-python-module": "nof1_causal_lab.machine.snapshot_models"
       },
       "Sourced_FitSummary_": {
         "properties": {
@@ -7986,6 +8316,24 @@
         "title": "Sourced[MeasurementsData]",
         "x-python-module": "nof1_causal_lab.machine.snapshot_models"
       },
+      "Sourced_ModelPredictiveReport_": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/ModelPredictiveReport"
+          },
+          "source": {
+            "$ref": "#/components/schemas/FactSource"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "value",
+          "source"
+        ],
+        "title": "Sourced[ModelPredictiveReport]",
+        "x-python-module": "nof1_causal_lab.machine.snapshot_models"
+      },
       "Sourced_ModelSpec_": {
         "properties": {
           "value": {
@@ -8002,6 +8350,24 @@
           "source"
         ],
         "title": "Sourced[ModelSpec]",
+        "x-python-module": "nof1_causal_lab.machine.snapshot_models"
+      },
+      "Sourced_PreparedDataMetadata_": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/PreparedDataMetadata"
+          },
+          "source": {
+            "$ref": "#/components/schemas/FactSource"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "value",
+          "source"
+        ],
+        "title": "Sourced[PreparedDataMetadata]",
         "x-python-module": "nof1_causal_lab.machine.snapshot_models"
       },
       "Sourced_PriorPredictiveResult_": {
@@ -8162,104 +8528,7 @@
           "findings"
         ],
         "title": "SpecificationReport",
-        "description": "Model-only findings; data compatibility has its own paired provenance."
-      },
-      "StartEpisodeBody": {
-        "properties": {
-          "workspace_id": {
-            "type": "string",
-            "title": "Workspace Id"
-          },
-          "question": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Question"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "workspace_id"
-        ],
-        "title": "StartEpisodeBody"
-      },
-      "StartEpisodeResponse": {
-        "properties": {
-          "workspace_id": {
-            "type": "string",
-            "title": "Workspace Id"
-          },
-          "seq": {
-            "type": "integer",
-            "title": "Seq"
-          },
-          "state": {
-            "$ref": "#/components/schemas/EpisodeState"
-          },
-          "artifacts": {
-            "items": {
-              "$ref": "#/components/schemas/ArtifactFreshness"
-            },
-            "type": "array",
-            "title": "Artifacts"
-          },
-          "next_operation": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/OperationId"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "legal": {
-            "items": {
-              "$ref": "#/components/schemas/Move-Output"
-            },
-            "type": "array",
-            "title": "Legal"
-          },
-          "auto_running": {
-            "type": "boolean",
-            "title": "Auto Running",
-            "default": false
-          },
-          "ok": {
-            "type": "boolean",
-            "const": true,
-            "title": "Ok",
-            "default": true
-          },
-          "outcome": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/MoveOutcome"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "workspace_id",
-          "seq",
-          "state",
-          "artifacts",
-          "legal",
-          "outcome"
-        ],
-        "title": "StartEpisodeResponse",
-        "description": "Starting an episode returns its current status and any model-write outcome."
+        "description": "Model-only findings; data compatibility has its own paired input references."
       },
       "StateEquation": {
         "properties": {
@@ -8362,6 +8631,163 @@
         "title": "StructuralItemDisposition",
         "description": "An item disposition explains the compilation decision for one identified authored\nentity."
       },
+      "StudyRevision": {
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "attempt_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attempt Id"
+          },
+          "branch": {
+            "type": "string",
+            "title": "Branch",
+            "default": "main"
+          },
+          "ts": {
+            "type": "string",
+            "title": "Ts"
+          },
+          "action": {
+            "$ref": "#/components/schemas/ScientificActionId"
+          },
+          "inputs": {
+            "$ref": "#/components/schemas/JsonObject-Output"
+          },
+          "operation_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OperationId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/JournalStatus"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "error_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Type"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "diagnostics": {
+            "$ref": "#/components/schemas/UncheckedJsonObject"
+          },
+          "checks": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelCheckReport"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/ActionMessage"
+            },
+            "type": "array",
+            "title": "Messages",
+            "default": []
+          },
+          "produced": {
+            "items": {
+              "$ref": "#/components/schemas/ArtifactRecord"
+            },
+            "type": "array",
+            "title": "Produced"
+          },
+          "retracted": {
+            "items": {
+              "$ref": "#/components/schemas/RetractedArtifact"
+            },
+            "type": "array",
+            "title": "Retracted"
+          },
+          "trace_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Trace Ids"
+          },
+          "resume": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResumeRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "commit_id": {
+            "$ref": "#/components/schemas/GitOid"
+          },
+          "parent_ids": {
+            "items": {
+              "$ref": "#/components/schemas/GitOid"
+            },
+            "type": "array",
+            "title": "Parent Ids"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "seq",
+          "ts",
+          "action",
+          "status",
+          "trace_ids",
+          "resume",
+          "commit_id",
+          "parent_ids"
+        ],
+        "title": "StudyRevision",
+        "description": "One Git commit's parent links and its action log."
+      },
       "TemporalStatus": {
         "type": "string",
         "enum": [
@@ -8379,23 +8805,46 @@
           },
           "transitions": {
             "items": {
-              "$ref": "#/components/schemas/TransitionRecord"
+              "$ref": "#/components/schemas/StudyRevision"
             },
             "type": "array",
             "title": "Transitions"
+          },
+          "branches": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/GitOid"
+            },
+            "type": "object",
+            "title": "Branches"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "workspace_id",
-          "transitions"
+          "transitions",
+          "branches"
         ],
         "title": "TimelineResponse",
         "description": "Typed transition journal returned by the episode read plane."
       },
       "ToolCallRequest": {
         "properties": {
+          "branch": {
+            "type": "string",
+            "title": "Branch",
+            "default": "main"
+          },
+          "expected_head": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GitOid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "workspace_id": {
             "type": "string",
             "title": "Workspace Id"
@@ -8521,119 +8970,6 @@
         "title": "TraceUsage",
         "description": "Trace usage records the input, output, and reasoning tokens consumed by a conversation."
       },
-      "TransitionRecord": {
-        "properties": {
-          "seq": {
-            "type": "integer",
-            "title": "Seq"
-          },
-          "ts": {
-            "type": "string",
-            "title": "Ts"
-          },
-          "move": {
-            "$ref": "#/components/schemas/Move-Output"
-          },
-          "status": {
-            "$ref": "#/components/schemas/JournalStatus"
-          },
-          "reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reason"
-          },
-          "error_type": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Error Type"
-          },
-          "error_message": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Error Message"
-          },
-          "diagnostics": {
-            "$ref": "#/components/schemas/UncheckedJsonObject"
-          },
-          "produced": {
-            "items": {
-              "$ref": "#/components/schemas/ArtifactVersionInfo"
-            },
-            "type": "array",
-            "title": "Produced"
-          },
-          "retracted": {
-            "items": {
-              "$ref": "#/components/schemas/RetractedArtifact"
-            },
-            "type": "array",
-            "title": "Retracted"
-          },
-          "trace_ids": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Trace Ids"
-          },
-          "resume": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ResumeRef"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "seq",
-          "ts",
-          "move",
-          "status",
-          "trace_ids",
-          "resume"
-        ],
-        "title": "TransitionRecord",
-        "description": "One journaled transition attempt \u2014 applied, rejected, or raised.\n\nRejections are recorded deliberately (a Temporal validator rejection\nleaves no trace in event history). Current state is reconstructed by\nreplaying applied effects, not serialized into transition records."
-      },
-      "TransitionRef": {
-        "properties": {
-          "seq": {
-            "type": "integer",
-            "minimum": 1.0,
-            "title": "Seq"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "seq"
-        ],
-        "title": "TransitionRef",
-        "description": "An immutable entry in the workspace transition journal."
-      },
       "TransitionRuntimeEvent": {
         "properties": {
           "cursor": {
@@ -8650,33 +8986,9 @@
             ],
             "title": "Event"
           },
-          "payload": {
-            "$ref": "#/components/schemas/TransitionRuntimeEventPayload"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "event",
-          "payload"
-        ],
-        "title": "TransitionRuntimeEvent",
-        "description": "One transition lifecycle event."
-      },
-      "TransitionRuntimeEventPayload": {
-        "properties": {
           "transition_id": {
             "type": "string",
             "title": "Transition Id"
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "running",
-              "completed",
-              "failed"
-            ],
-            "title": "Status"
           },
           "error": {
             "anyOf": [
@@ -8692,11 +9004,11 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "transition_id",
-          "status"
+          "event",
+          "transition_id"
         ],
-        "title": "TransitionRuntimeEventPayload",
-        "description": "Payload for transition lifecycle telemetry."
+        "title": "TransitionRuntimeEvent",
+        "description": "One transition lifecycle event, identified by its event name."
       },
       "TransitionTraceIndex": {
         "properties": {
@@ -8704,9 +9016,8 @@
             "type": "string",
             "title": "Workspace Id"
           },
-          "seq": {
-            "type": "integer",
-            "title": "Seq"
+          "commit_id": {
+            "$ref": "#/components/schemas/GitOid"
           },
           "trace_ids": {
             "items": {
@@ -8720,7 +9031,7 @@
         "type": "object",
         "required": [
           "workspace_id",
-          "seq",
+          "commit_id",
           "trace_ids"
         ],
         "title": "TransitionTraceIndex",
@@ -8829,13 +9140,6 @@
       },
       "ValidationReportArtifact": {
         "properties": {
-          "preflight": {
-            "$ref": "#/components/schemas/SpecificationReport"
-          },
-          "is_valid": {
-            "type": "boolean",
-            "title": "Is Valid"
-          },
           "indicators": {
             "additionalProperties": {
               "$ref": "#/components/schemas/IndicatorAudit"
@@ -8852,17 +9156,26 @@
             },
             "type": "array",
             "title": "Dataset Issues"
+          },
+          "preflight": {
+            "$ref": "#/components/schemas/SpecificationReport"
+          },
+          "is_valid": {
+            "type": "boolean",
+            "title": "Is Valid",
+            "description": "Read-only verdict derived from the report's current findings.",
+            "readOnly": true
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "is_valid",
           "indicators",
-          "dataset_issues"
+          "dataset_issues",
+          "is_valid"
         ],
         "title": "ValidationReportArtifact",
-        "description": "A validation report summarizes whether extracted measurements satisfy the required data\nchecks."
+        "description": "Measurement findings augmented with model-dependent execution checks."
       },
       "WindowExpression": {
         "type": "string",
@@ -8916,41 +9229,6 @@
         ],
         "title": "WorkspaceList",
         "description": "A workspace list provides the available model workspaces for client navigation."
-      },
-      "WriteArtifact": {
-        "properties": {
-          "kind": {
-            "type": "string",
-            "const": "write",
-            "title": "Kind",
-            "default": "write"
-          },
-          "artifact_id": {
-            "$ref": "#/components/schemas/ArtifactId"
-          },
-          "provenance": {
-            "$ref": "#/components/schemas/Provenance",
-            "default": "human"
-          },
-          "expected_model_version": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Expected Model Version"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "artifact_id"
-        ],
-        "title": "WriteArtifact"
       }
     }
   }

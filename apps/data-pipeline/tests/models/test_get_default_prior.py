@@ -3,16 +3,18 @@
 import numpy as np
 import numpyro.distributions as dist
 import pytest
+from evaluation.fixtures.prior_planning import default_parameter_prior
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.identity import ConstructRef, IndicatorRef
 from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
 from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 from nof1_causal_lab.models.likelihoods import observation_law
-from nof1_causal_lab.models.prior_planning import default_parameter_prior
 from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
 from tests.helpers import make_model
 from tests.slot_fixtures import fixture_parameter_id, with_likelihood_coefficients
+
+pytestmark = pytest.mark.contract
 
 
 @pytest.mark.parametrize(

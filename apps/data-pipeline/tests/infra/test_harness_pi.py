@@ -12,6 +12,8 @@ from nof1_causal_lab.utils.harness.pi import (
 from tests.helpers import run_async as _run
 from tests.infra.harness_fakes import FakeProcess, jsonl, make_terminal_tool, patch_subprocess
 
+pytestmark = pytest.mark.contract
+
 
 def _terminal_tool():
     return make_terminal_tool(name="submit_model", description="Submit the model.")
@@ -127,7 +129,7 @@ def test_restored_session_jsonl_is_persisted(tmp_path):
     session_id = "00000000-0000-4000-8000-000000000002"
     content = (
         json.dumps(
-            {"type": "session", "version": 3, "id": session_id, "timestamp": "now", "cwd": "/tmp"}
+            {"type": "session", "revision": 3, "id": session_id, "timestamp": "now", "cwd": "/tmp"}
         )
         + "\n"
     )

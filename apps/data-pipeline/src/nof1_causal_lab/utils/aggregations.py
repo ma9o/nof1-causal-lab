@@ -12,6 +12,7 @@ import polars as pl
 
 from nof1_causal_lab.json_types import UncheckedJsonObject
 from nof1_causal_lab.utils.data import ensure_datetime_column, support_window_tick_frame
+from nof1_causal_lab.utils.observation_semantics import derive_indicator_observation_semantics
 
 logger = logging.getLogger(__name__)
 
@@ -442,6 +443,7 @@ def compute_indicators(
             continue
 
         if computed_rule:
+            derive_indicator_observation_semantics(agg_name, measurement_dtype, computed_rule)
             tick_frame = support_window_tick_frame(df, observation_window, time_col)
             prepared = _prepare_computed_rule_frame(
                 df,
@@ -636,12 +638,12 @@ def _encode_non_continuous(
     df: pl.DataFrame,
     dtype_lookup: dict[str, str],
     ordinal_levels_lookup: dict[str, list[str]] | None = None,
+    categorical_levels_lookup: dict[str, list[str]] | None = None,
 ) -> pl.DataFrame:
     """Encode non-continuous indicator values to numeric before Float64 cast.
 
     - binary: map true/false/yes/no/1/0 → 1.0/0.0
-    - ordinal: integer label-encode using ordinal_levels order (or sorted fallback)
-    - categorical: integer label-encode (sorted categories)
+    - ordinal/categorical: encode using the declared, stable codebook
     - continuous/count: no-op (already numeric)
 
     Modifies the 'value' column in-place per indicator partition.
@@ -650,6 +652,7 @@ def _encode_non_continuous(
         return df
 
     ordinal_levels_lookup = ordinal_levels_lookup or {}
+    categorical_levels_lookup = categorical_levels_lookup or {}
 
     non_continuous = {
         name: dtype
@@ -692,58 +695,16 @@ def _encode_non_continuous(
                     n_null,
                     len(subset),
                 )
-        elif dtype == "ordinal":
-            explicit_levels = ordinal_levels_lookup.get(name)
-            max_code = len(explicit_levels) - 1 if explicit_levels else None
-            subset = (
-                subset.with_columns(
-                    pl.col("value").cast(pl.Float64, strict=False).alias("__ordinal_code")
-                )
-                .with_columns(
-                    pl.when(pl.col("__ordinal_code").is_null())
-                    .then(None)
-                    .when(pl.col("__ordinal_code") != pl.col("__ordinal_code").round(0))
-                    .then(None)
-                    .when(pl.col("__ordinal_code") < 0)
-                    .then(None)
-                    .when(
-                        pl.lit(max_code is not None)
-                        & (pl.col("__ordinal_code") > pl.lit(max_code or 0))
-                    )
-                    .then(None)
-                    .otherwise(pl.col("__ordinal_code"))
-                    .alias("value")
-                )
-                .drop("__ordinal_code")
-            )
-            n_null = subset["value"].null_count()
-            if n_null > 0:
-                logger.warning(
-                    "Ordinal indicator '%s': %d/%d values could not be encoded",
-                    name,
-                    n_null,
-                    len(subset),
-                )
         else:
-            # ordinal/categorical: label encoding
-            unique_vals = sorted(v for v in subset["value"].unique().to_list() if v is not None)
-            # Normalize for case-insensitive matching (mirrors binary branch)
-            label_map = {
-                v.strip().lower() if isinstance(v, str) else v: float(i)
-                for i, v in enumerate(unique_vals)
-            }
+            levels = (ordinal_levels_lookup if dtype == "ordinal" else categorical_levels_lookup)[name]
+            label_map = {label.strip().lower(): index for index, label in enumerate(levels)}
+            max_code = len(levels) - 1
             subset = subset.with_columns(
-                pl.col("value")
-                .str.strip_chars()
-                .str.to_lowercase()
-                .map_elements(lambda v, _lm=label_map: _lm.get(v), return_dtype=pl.Float64)
-                .alias("value")
-            )
-            logger.info(
-                "%s indicator '%s': label-encoded %d categories",
-                dtype.capitalize(),
-                name,
-                len(unique_vals),
+                pl.col("value").map_elements(
+                    lambda value, _labels=label_map, _maximum=max_code:
+                        _coerce_ordinal_code(value, _labels, _maximum),
+                    return_dtype=pl.Int64,
+                ).alias("value")
             )
 
         # Cast value back to Utf8 for consistency with remaining data

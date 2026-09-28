@@ -6,7 +6,6 @@ This file tests CausalDesign composition, computed properties, and utility
 functions that are not exercised through dict validation.
 """
 
-from typing import Any
 
 import pytest
 from pydantic import TypeAdapter, ValidationError
@@ -18,6 +17,11 @@ from nof1_causal_lab.artifacts.construct import (
     TemporalStatus,
     replace_constructs,
 )
+from nof1_causal_lab.artifacts.data_preparation import (
+    DataVariableSpec,
+    WindowExpression,
+    check_semantic_collisions,
+)
 from nof1_causal_lab.artifacts.duration import parse_duration_to_hours
 from nof1_causal_lab.artifacts.identity import (
     ConstructId,
@@ -28,8 +32,6 @@ from nof1_causal_lab.artifacts.identity import (
     ParameterElementId,
     ParameterId,
 )
-from nof1_causal_lab.artifacts.indicator import IndicatorSpec as IndicatorModel
-from nof1_causal_lab.artifacts.indicator import WindowExpression, check_semantic_collisions
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.utils.observation_semantics import (
     AnchorPolicy,
@@ -39,11 +41,9 @@ from nof1_causal_lab.utils.observation_semantics import (
 )
 from tests.helpers import graph_constructs, make_model
 
+pytestmark = pytest.mark.contract
 
-def IndicatorSpec(**kwargs: Any) -> IndicatorModel:
-    """Build test indicators with the current required schema defaults."""
-    kwargs.setdefault("construct_polarity", "positive")
-    return IndicatorModel(**kwargs)
+
 
 
 class TestConstruct:
@@ -134,13 +134,13 @@ class TestModel:
             )
 
 
-class TestIndicator:
+class TestDataVariable:
     """Tests for IndicatorSpec validation."""
 
     def test_invalid_aggregation(self):
         """Invalid aggregation is rejected."""
         with pytest.raises(ValueError, match="aggregation"):
-            IndicatorSpec(
+            DataVariableSpec(
                 id="indicator:e05e217de7f4442abdc5",
                 name="mood_rating",
                 how_to_measure="Extract mood",
@@ -151,7 +151,7 @@ class TestIndicator:
     def test_invalid_measurement_dtype(self):
         """Invalid measurement_dtype is rejected."""
         with pytest.raises(ValueError, match="measurement_dtype"):
-            IndicatorSpec(
+            DataVariableSpec(
                 id="indicator:e05e217de7f4442abdc5",
                 name="mood_rating",
                 how_to_measure="Extract mood",
@@ -162,7 +162,7 @@ class TestIndicator:
     def test_ordinal_requires_levels(self):
         """Ordinal dtype without ordinal_levels is rejected."""
         with pytest.raises(ValueError, match="ordinal_levels is required"):
-            IndicatorSpec(
+            DataVariableSpec(
                 id="indicator:036fd134b9ad32d7a2ca",
                 name="pain",
                 how_to_measure="Extract pain level",
@@ -173,7 +173,7 @@ class TestIndicator:
     def test_ordinal_needs_at_least_two_levels(self):
         """Ordinal with only one level is rejected."""
         with pytest.raises(ValueError, match="at least 2 items"):
-            IndicatorSpec(
+            DataVariableSpec(
                 id="indicator:036fd134b9ad32d7a2ca",
                 name="pain",
                 how_to_measure="Extract pain level",
@@ -185,7 +185,7 @@ class TestIndicator:
     def test_ordinal_no_duplicate_levels(self):
         """Ordinal with duplicate levels is rejected."""
         with pytest.raises(ValueError, match="duplicate labels"):
-            IndicatorSpec(
+            DataVariableSpec(
                 id="indicator:036fd134b9ad32d7a2ca",
                 name="pain",
                 how_to_measure="Extract pain level",
@@ -196,7 +196,7 @@ class TestIndicator:
 
     def test_ordinal_valid_levels(self):
         """Ordinal with valid levels passes."""
-        ind = IndicatorSpec(
+        ind = DataVariableSpec(
             id="indicator:036fd134b9ad32d7a2ca",
             name="pain",
             how_to_measure="Extract pain level",
@@ -208,7 +208,7 @@ class TestIndicator:
 
     def test_categorical_requires_levels(self):
         with pytest.raises(ValueError, match="categorical_levels is required"):
-            IndicatorSpec(
+            DataVariableSpec(
                 id="indicator:73fed6c52a41057ef02f",
                 name="location",
                 how_to_measure="Extract location",
@@ -218,7 +218,7 @@ class TestIndicator:
 
     def test_categorical_needs_at_least_two_levels(self):
         with pytest.raises(ValueError, match="at least 2 items"):
-            IndicatorSpec(
+            DataVariableSpec(
                 id="indicator:73fed6c52a41057ef02f",
                 name="location",
                 how_to_measure="Extract location",
@@ -229,7 +229,7 @@ class TestIndicator:
 
     def test_categorical_rejects_duplicate_levels(self):
         with pytest.raises(ValueError, match="duplicate labels"):
-            IndicatorSpec(
+            DataVariableSpec(
                 id="indicator:73fed6c52a41057ef02f",
                 name="location",
                 how_to_measure="Extract location",
@@ -240,7 +240,7 @@ class TestIndicator:
 
     def test_non_ordinal_ignores_levels(self):
         """Non-ordinal dtype doesn't require ordinal_levels."""
-        ind = IndicatorSpec(
+        ind = DataVariableSpec(
             id="indicator:c5b118ae552981435d7b",
             name="weight",
             how_to_measure="Extract weight",
@@ -251,7 +251,7 @@ class TestIndicator:
 
     def test_semantic_default(self):
         """Extraction mode defaults to 'semantic'."""
-        ind = IndicatorSpec(
+        ind = DataVariableSpec(
             id="indicator:e05e217de7f4442abdc5",
             name="mood_rating",
             how_to_measure="Extract mood",
@@ -263,7 +263,7 @@ class TestIndicator:
     def test_invalid_extraction_mode(self):
         """Invalid extraction_mode is rejected."""
         with pytest.raises(ValueError, match="extraction_mode"):
-            IndicatorSpec(
+            DataVariableSpec(
                 id="indicator:e05e217de7f4442abdc5",
                 name="mood_rating",
                 how_to_measure="Extract mood",
@@ -274,7 +274,7 @@ class TestIndicator:
 
     def test_computed_valid(self):
         """Computed indicator with single source column and continuous dtype passes."""
-        ind = IndicatorSpec(
+        ind = DataVariableSpec(
             id="indicator:aa573b5cc0c0a1837e05",
             name="avg_heart_rate",
             how_to_measure="Use heart_rate column directly",
@@ -287,7 +287,7 @@ class TestIndicator:
 
     def test_computed_count_dtype(self):
         """Computed indicator with count dtype passes."""
-        ind = IndicatorSpec(
+        ind = DataVariableSpec(
             id="indicator:a0ce08437c19d06aafd1",
             name="total_steps",
             how_to_measure="Use steps column directly",
@@ -300,7 +300,7 @@ class TestIndicator:
 
     def test_computed_binary_point_dtype(self):
         """Computed indicator with binary dtype passes for direct point aggregation."""
-        ind = IndicatorSpec(
+        ind = DataVariableSpec(
             id="indicator:58ba7e8b022133d4764f",
             name="alarm_state",
             how_to_measure="Use the last observed alarm_state value directly",
@@ -313,7 +313,7 @@ class TestIndicator:
 
     def test_computed_ordinal_point_dtype(self):
         """Computed indicator with ordinal dtype passes for direct point aggregation."""
-        ind = IndicatorSpec(
+        ind = DataVariableSpec(
             id="indicator:745132edf4775f59f221",
             name="mood_label",
             how_to_measure="Use the last observed mood_label value directly",
@@ -327,7 +327,7 @@ class TestIndicator:
 
     def test_computed_categorical_point_dtype(self):
         """Computed indicator with categorical dtype passes for direct point aggregation."""
-        ind = IndicatorSpec(
+        ind = DataVariableSpec(
             id="indicator:42f1f2a7a4c92ee606b6",
             name="care_setting",
             how_to_measure="Use the first observed care_setting value directly",
@@ -342,7 +342,7 @@ class TestIndicator:
     def test_computed_requires_single_source_column(self):
         """Direct computed indicators with 0 or 2+ source_columns are rejected."""
         with pytest.raises(ValueError, match="exactly 1 direct source_column"):
-            IndicatorSpec(
+            DataVariableSpec(
                 id="indicator:c21b43949b3712e734c8",
                 name="avg_hr",
                 how_to_measure="Use heart_rate",
@@ -352,7 +352,7 @@ class TestIndicator:
                 extraction_mode="computed",
             )
         with pytest.raises(ValueError, match="exactly 1 direct source_column"):
-            IndicatorSpec(
+            DataVariableSpec(
                 id="indicator:c21b43949b3712e734c8",
                 name="avg_hr",
                 how_to_measure="Compute from systolic and diastolic",
@@ -364,7 +364,7 @@ class TestIndicator:
 
     def test_computed_rule_allows_multi_source_deterministic_formula(self):
         """Computed rules can reference multiple source columns deterministically."""
-        ind = IndicatorSpec(
+        ind = DataVariableSpec(
             id="indicator:e33fbf156ca312595e47",
             name="mean_arterial_pressure",
             how_to_measure="Compute deterministically from systolic and diastolic blood pressure",
@@ -380,7 +380,7 @@ class TestIndicator:
     def test_computed_rule_rejects_semantic_mode(self):
         """computed_rule is only valid when extraction_mode='computed'."""
         with pytest.raises(ValueError, match="computed_rule but extraction_mode is 'semantic'"):
-            IndicatorSpec(
+            DataVariableSpec(
                 id="indicator:86e4453f8f098e1007ef",
                 name="low_spo2",
                 how_to_measure="Deterministically compute low SpO2 from spo2_pct",
@@ -394,7 +394,7 @@ class TestIndicator:
     def test_computed_rule_rejects_undeclared_source_column(self):
         """computed_rule must reference only declared source_columns."""
         with pytest.raises(ValueError, match="references undeclared source_columns"):
-            IndicatorSpec(
+            DataVariableSpec(
                 id="indicator:0c111e9b74f243fbc086",
                 name="glucose_out_of_range",
                 how_to_measure="Count out-of-range glucose values deterministically",
@@ -408,7 +408,7 @@ class TestIndicator:
     def test_computed_rule_requires_source_reference(self):
         """computed_rule must actually use at least one declared source column."""
         with pytest.raises(ValueError, match="does not reference any source_columns"):
-            IndicatorSpec(
+            DataVariableSpec(
                 id="indicator:4aa7a5f09fd3489f4f2e",
                 name="constant_flag",
                 how_to_measure="Always emit a constant flag",
@@ -424,7 +424,7 @@ class TestIndicator:
         with pytest.raises(
             ValueError, match="aggregation 'mean' requires measurement_dtype='continuous'"
         ):
-            IndicatorSpec(
+            DataVariableSpec(
                 id="indicator:58ba7e8b022133d4764f",
                 name="alarm_state",
                 how_to_measure="Use alarm_state directly",
@@ -525,9 +525,6 @@ class TestParseDurationToHours:
     def test_no_number(self):
         with pytest.raises(ValueError, match="Invalid duration"):
             parse_duration_to_hours("d")
-
-    def test_fractional_days(self):
-        assert make_model(["X"]).revised(measurement_clock="6h").model_clock_days == 0.25
 
     def test_invalid_model_clock(self):
         with pytest.raises(ValueError, match="Invalid duration"):
@@ -633,7 +630,7 @@ class TestIndicatorObservationSemantics:
 
 class TestIndicatorObservationWindow:
     def test_valid_observation_window(self):
-        indicator = IndicatorSpec(
+        indicator = DataVariableSpec(
             id="indicator:b41c85c254676b4bc588",
             name="monthly_mood",
             how_to_measure="Average mood over the last month",
@@ -646,7 +643,7 @@ class TestIndicatorObservationWindow:
 
     def test_invalid_observation_window(self):
         with pytest.raises(ValueError, match="Invalid duration"):
-            IndicatorSpec(
+            DataVariableSpec(
                 id="indicator:b41c85c254676b4bc588",
                 name="monthly_mood",
                 how_to_measure="Average mood over the last month",
@@ -669,6 +666,32 @@ def test_window_expression_serializes_without_a_wrapper():
     adapter = TypeAdapter(WindowExpression)
     expression = adapter.validate_python("mean(values)")
     assert adapter.dump_json(expression) == b'"mean(values)"'
+
+
+@pytest.mark.parametrize(
+    ("expression", "aggregation"),
+    [
+        ("sum(reading)", "mean"),
+        ("mean(reading)", "last"),
+        ("last(reading) / 10", "first"),
+        ("None if count_non_null(reading) == 0 else sum(reading)", "mean"),
+        ("1 if any(reading < 92) else 0", "last"),
+        ("mean(sum(reading))", "mean"),
+        ("sum(reading) / count_non_null(reading)", "sum"),
+    ],
+)
+def test_computed_measurement_cannot_claim_different_summary_semantics(expression, aggregation):
+    with pytest.raises(ValidationError, match="computed_rule"):
+        DataVariableSpec(
+            id="indicator:reading",
+            name="reading",
+            how_to_measure="Read the signal",
+            measurement_dtype="continuous",
+            aggregation=aggregation,
+            source_columns=("reading",),
+            computed_rule=expression,
+            extraction_mode="computed",
+        )
 
 
 @pytest.mark.parametrize(

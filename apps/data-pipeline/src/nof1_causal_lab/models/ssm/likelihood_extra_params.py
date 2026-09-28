@@ -36,10 +36,7 @@ def assemble_sampled_extra_params(
         if key in sampled_values:
             extra_params[key] = sampled_values[key]
 
-    if numeric.observation_level_counts(spec) is None:
-        return extra_params
-
-    level_counts_list = list(numeric.observation_level_counts(spec))
+    level_counts_list = numeric.observation_level_counts(spec)
     level_counts = jnp.asarray(level_counts_list, dtype=jnp.int32)
     extra_params["obs_level_counts"] = level_counts
 
@@ -84,7 +81,7 @@ def assemble_sampled_extra_params(
             0.0,
         )
         cat_slopes = jnp.where(cat_mask, sampled_values["obs_cat_slopes"], 0.0)
-        if numeric.categorical_anchors(spec) is not None and any(numeric.categorical_anchors(spec)):
+        if any(numeric.categorical_anchors(spec)):
             # Scale/sign anchor for all-categorical constructs: the anchor
             # channel's first non-baseline slope is pinned to +1 (see
             # docs/reference/statistical-model-spec/identification.md).

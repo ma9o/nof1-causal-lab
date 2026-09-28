@@ -31,8 +31,8 @@ def compile_anchor_certificates(
     spec: ModelSpec,
 ) -> list[AnchorCertificate]:
     """Prove location and scale identification for every retained state."""
-    latent_names = list(numeric.state_names(spec) or [])
-    manifest_names = list(numeric.observation_names(spec) or [])
+    latent_names = numeric.state_names(spec)
+    manifest_names = numeric.observation_names(spec)
     state_ids = get_state_ids(spec)
     indicators = get_manifest_indicators(spec)
     indicator_by_name = {str(item["name"]): item for item in indicators}
@@ -44,7 +44,7 @@ def compile_anchor_certificates(
                 manifest_index
             )
 
-    standardized = list(numeric.observation_standardized(spec) or [False] * len(manifest_names))
+    standardized = numeric.observation_standardized(spec)
     exact_location_channels = {
         index
         for index, indicator in enumerate(numeric.observed_indicators(spec))
@@ -55,7 +55,7 @@ def compile_anchor_certificates(
             indicator.support_kind, indicator.summary_operator
         )
     }
-    categorical_anchors = list(numeric.categorical_anchors(spec) or [False] * len(manifest_names))
+    categorical_anchors = numeric.categorical_anchors(spec)
     loading_template = np.asarray(numeric.loading_block(spec).template, dtype=float)
     loading_support = np.asarray(numeric.loading_block(spec).free_support, dtype=bool)
     time_invariant = np.asarray(

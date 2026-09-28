@@ -15,6 +15,8 @@ from nof1_causal_lab.utils.aggregations import (
     compute_indicators,
 )
 
+pytestmark = pytest.mark.contract
+
 
 def _make_df(values: list[float]) -> pl.DataFrame:
     """Create a simple DataFrame with a 'value' column."""
@@ -174,7 +176,7 @@ class TestEncodeNonContinuous:
             {"indicator:036fd134b9ad32d7a2ca": "ordinal"},
             ordinal_levels_lookup={"indicator:036fd134b9ad32d7a2ca": ["low", "medium", "high"]},
         ).sort("value", nulls_last=True)
-        assert result["value"].to_list() == ["2.0", None]
+        assert result["value"].to_list() == ["2", None]
 
     def test_continuous_passthrough(self):
         df = pl.DataFrame(
@@ -630,8 +632,8 @@ class TestComputeIndicators:
         ]
         assert result["value"].to_list() == ["1", "0", None, "0"]
 
-    def test_computed_rule_binary_flag_preserves_zero_vs_null(self):
-        """Binary deterministic window flags should keep observed negative distinct from missing."""
+    def test_computed_rule_window_flag_cannot_claim_point_semantics(self):
+        """An any-over-window flag is not the last observed point measurement."""
         df = pl.DataFrame(
             {
                 "timestamp": [
@@ -656,9 +658,27 @@ class TestComputeIndicators:
             }
         ]
 
-        result = compute_indicators(df, indicators, "1d", "timestamp")
+        with pytest.raises(ValueError, match="no supported observation semantics"):
+            compute_indicators(df, indicators, "1d", "timestamp")
 
-        assert result["value"].to_list() == ["0", "1", None]
+    def test_computed_rule_cannot_bypass_summary_validation_with_a_dict(self):
+        df = pl.DataFrame({"timestamp": [datetime(2024, 1, 1)], "reading": [1.0]})
+        with pytest.raises(ValueError, match="produces 'sum' but aggregation is 'mean'"):
+            compute_indicators(
+                df,
+                [
+                    {
+                        "id": "indicator:reading",
+                        "name": "reading",
+                        "source_columns": ["reading"],
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                        "computed_rule": "sum(reading)",
+                    }
+                ],
+                "1d",
+                "timestamp",
+            )
 
     def test_computed_rule_contains_any_literal_list(self):
         """contains_any() should accept literal string lists in computed rules."""
@@ -835,13 +855,12 @@ class TestComputeIndicators:
     ],
 )
 def test_recording_semantics_resolve_only_declared_gaps(recording, aggregation, expected):
-    from nof1_causal_lab.artifacts.indicator import IndicatorSpec
+    from nof1_causal_lab.artifacts.data_preparation import DataVariableSpec
 
-    indicator = IndicatorSpec(
+    indicator = DataVariableSpec(
         id="indicator:record",
         name="record",
         how_to_measure="Read the recorded value",
-        construct_polarity="positive",
         measurement_dtype="count",
         aggregation=aggregation,
         recording=recording,

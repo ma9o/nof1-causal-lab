@@ -4,9 +4,6 @@ import shutil
 from pathlib import Path
 from zipfile import ZipFile, is_zipfile
 
-from nof1_causal_lab.utils import storage
-from nof1_causal_lab.utils.data import input_dir
-
 # ---------------------------------------------------------------------------
 # Prompts
 # ---------------------------------------------------------------------------
@@ -72,32 +69,6 @@ The uploaded input files have been staged and are available via DATA_DIR.
 
 Explore the contents and parse all relevant data into a single Polars DataFrame.
 """
-
-
-def _find_raw_input(workspace_id: str) -> str:
-    """Find the most recent uploaded file for a workspace."""
-    user_dir = input_dir(workspace_id)
-    if not storage.exists(user_dir):
-        raise FileNotFoundError(f"No raw data directory: {user_dir}")
-
-    entries = storage.listdir(user_dir)
-    files: list[tuple[str, float]] = []
-    for entry in entries:
-        name = entry.rsplit("/", 1)[-1]
-        if name.startswith("."):
-            continue
-        info = storage.file_info(entry)
-        if info.get("type") == "file":
-            mtime = info.get("last_modified", info.get("LastModified", info.get("mtime", 0)))
-            if hasattr(mtime, "timestamp"):
-                mtime = mtime.timestamp()
-            files.append((entry, float(mtime)))
-
-    if not files:
-        raise FileNotFoundError(f"No files in {user_dir}")
-
-    files.sort(key=lambda item: item[1], reverse=True)
-    return files[0][0]
 
 
 def _prepare_raw_input(raw_path: Path, dest_dir: Path) -> Path:

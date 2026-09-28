@@ -28,18 +28,6 @@ def get_constructs(model: ModelSpec) -> list[UncheckedJsonObject]:
     ]
 
 
-def get_indicators(model: ModelSpec) -> list[UncheckedJsonObject]:
-    return [
-        {
-            "source_id": source_id,
-            **indicator.model_dump(mode="json", exclude={"likelihood"}),
-            "construct_id": model.indicator_owner(indicator.id).id,
-            "construct_name": model.indicator_owner(indicator.id).name,
-        }
-        for source_id, indicator in model._indicators.items()
-    ]
-
-
 def get_manifest_indicators(model: ModelSpec) -> list[UncheckedJsonObject]:
     return [
         {
@@ -68,24 +56,6 @@ def get_reference_indicator_polarities(model: ModelSpec) -> dict[str, str]:
     }
 
 
-def get_edges(model: ModelSpec) -> list[UncheckedJsonObject]:
-    result: list[UncheckedJsonObject] = []
-    for edge in model.execution_edges:
-        result.append(
-            {
-                "source_id": edge.id,
-                "cause_id": edge.cause.id,
-                "effect_id": edge.effect.id,
-                "cause": model._constructs[edge.cause.id].name,
-                "effect": model._constructs[edge.effect.id].name,
-                "description": edge.description,
-                "lagged": edge.lagged,
-                "sources": [source.model_dump(mode="json") for source in edge.sources],
-            }
-        )
-    return result
-
-
 def get_induced_dependencies(model: ModelSpec) -> list[UncheckedJsonObject]:
     return [
         {
@@ -100,7 +70,7 @@ def get_induced_dependencies(model: ModelSpec) -> list[UncheckedJsonObject]:
     ]
 
 
-def get_marginalized_scales(
+def get_marginalized_scales(  # noqa: V103 - scientific scale projection consumed by offline model templates
     model: ModelSpec,
 ) -> list[UncheckedJsonObject]:
     """Return identifiable marginalized-confounder scale equivalence classes."""

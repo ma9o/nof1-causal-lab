@@ -8,12 +8,14 @@ import pytest
 from nof1_causal_lab import publish
 from nof1_causal_lab.utils import data as data_module
 
+pytestmark = pytest.mark.contract
+
 
 def _seed_workspace(root):
     files = {
-        "store/model/v1/meta.json": {"artifact_id": "model", "version": 1},
+        "store/model/v1/meta.json": {"artifact_id": "model", "revision": 1},
         "store/model/v1/question.json": {"text": "does X cause Y?"},
-        "store/raw_data/v1/meta.json": {"artifact_id": "raw_data", "version": 1},
+        "store/raw_data/v1/meta.json": {"artifact_id": "raw_data", "revision": 1},
         "episode/journal/000001.json": {"seq": 1},
         "cache/model-spec-jax-cache-metadata.json": {"schema_version": 1},
         "scratch/events/00000000000000000001-event.json": {"status": "running"},

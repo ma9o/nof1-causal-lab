@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from nof1_causal_lab.models.ssm.reachability import (
-    CHECK_MODES,
     CheckResult,
     check_confinement,
     check_coverage,
@@ -14,8 +14,9 @@ from nof1_causal_lab.models.ssm.reachability import (
     check_saturation,
     check_scale,
     check_transmission,
-    stage_outcome,
 )
+
+pytestmark = pytest.mark.contract
 
 
 def _by_id(results: list[CheckResult]) -> dict[str, CheckResult]:
@@ -246,65 +247,3 @@ class TestTransmission:
         result = check_transmission("events", signal, signal)
         assert not result.passed
         assert "conditional observation variance" in " ".join(result.diagnosis)
-
-
-class TestStageOutcome:
-    def _res(self, check: str, passed: bool) -> CheckResult:
-        return CheckResult(check, "A", "", "", passed, "note")
-
-    def test_all_pass_admits(self):
-        out, ann = stage_outcome([self._res("C2 latent scale", True)], {})
-        assert out == "ADMITTED"
-        assert ann == ()
-
-    def test_hard_failure_blocks(self):
-        out, _ = stage_outcome([self._res("C1a finiteness", False)], {})
-        assert out.startswith("BLOCKED")
-
-    def test_unaccepted_soft_needs_decision(self):
-        out, _ = stage_outcome([self._res("C3 resolvability", False)], {})
-        assert out.startswith("NEEDS DECISION")
-        assert "C3 resolvability" in out
-
-    def test_accepted_soft_admits_with_annotation(self):
-        out, ann = stage_outcome(
-            [self._res("C3 resolvability", False)],
-            {("C3 resolvability", "A"): "sub-daily settling is a design limit"},
-        )
-        assert out == "ADMITTED with accepted consequences"
-        assert len(ann) == 1
-        assert "design limit" in ann[0]
-
-    def test_hard_beats_accepted_soft(self):
-        out, _ = stage_outcome(
-            [self._res("C1a finiteness", False), self._res("C3 resolvability", False)],
-            {("C3 resolvability", "A"): "ok"},
-        )
-        assert out.startswith("BLOCKED")
-
-    def test_acceptance_is_scoped_to_one_target(self):
-        first = CheckResult("C5b width", "first", "", "", False, "note")
-        second = CheckResult("C5b width", "second", "", "", False, "note")
-        out, annotations = stage_outcome(
-            [first, second],
-            {("C5b width", "first"): "accepted only for the first indicator"},
-        )
-        assert out.startswith("NEEDS DECISION")
-        assert "second" in out
-        assert len(annotations) == 1
-
-
-def test_every_check_id_has_a_mode():
-    # Guard: every check id any function can emit must be classified in CHECK_MODES.
-    emitted = {
-        "C1a finiteness",
-        "C1b confinement",
-        "C2 latent scale",
-        "C3 resolvability",
-        "C4b edge overwhelm",
-        "C4c saturation",
-        "C5a location reach",
-        "C5b width",
-        "C5c transmission",
-    }
-    assert emitted == set(CHECK_MODES)

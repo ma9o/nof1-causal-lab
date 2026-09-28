@@ -36,7 +36,7 @@ class RawDataColumnDescription(ViewValue):
 
 
 class RawDataData(ViewValue):
-    """Profile and representative rows from one uploaded table version."""
+    """Profile and representative rows from one uploaded table revision."""
 
     n_records: int
     n_columns: int
@@ -46,7 +46,7 @@ class RawDataData(ViewValue):
 
 
 class MeasurementsData(ViewValue):
-    """Counts and representative observations read directly from one panel version."""
+    """Counts and representative observations read directly from one panel revision."""
 
     n_observations: int
     per_indicator_counts: dict[IndicatorId, int]
@@ -86,18 +86,6 @@ class ModelDiagnostics(ViewValue):
     observation_equations: dict[IndicatorId, str] = Field(default_factory=dict)
     likelihood_diagnostics: dict[IndicatorId, LikelihoodDiagnostics] = Field(default_factory=dict)
     prior_densities: dict[ParameterId, tuple[DensityPoint, ...]] = Field(default_factory=dict)
-
-
-class ArtifactViews(ViewValue):
-    """Available artifact projections read from one committed model state."""
-
-    raw_data: RawDataData | None = None
-    model: ModelSpec | None = None
-    measurements: MeasurementsData | None = None
-    validation_report: ValidationReportArtifact | None = None
-    prior_predictive: PriorPredictiveResult | None = None
-    model_diagnostics: ModelDiagnostics | None = None
-    inference_report: InferenceReport | None = None
 
 
 class ArtifactViewResponse(

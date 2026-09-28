@@ -23,7 +23,7 @@ from typing import Any
 
 import pytest
 
-from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec, replace_constructs
 from nof1_causal_lab.models.identification import identify_model
 from nof1_causal_lab.models.model_structure import unsupported_construct_ids
 from nof1_causal_lab.utils.identifiability import (
@@ -32,52 +32,14 @@ from nof1_causal_lab.utils.identifiability import (
     find_blocking_confounders,
     unroll_temporal_dag,
 )
+from tests.causal.graph_fixtures import make_graph
 from tests.helpers import fixture_entity_id, make_model
+
+pytestmark = pytest.mark.contract
 
 # =============================================================================
 # HELPERS
 # =============================================================================
-
-
-def make_latent_structure(
-    constructs: list[dict[str, Any]],
-    edges: list[dict[str, Any]],
-    default_outcome: dict[str, str] | None = None,
-) -> dict[str, Any]:
-    """Create a latent structure dict with sensible defaults."""
-    processed_constructs = []
-    for c in constructs:
-        construct = {
-            "id": f"construct:{c['name']}",
-            "name": c["name"],
-            "role": c.get("role", "endogenous"),
-        }
-        if "temporal_status" in c:
-            construct["temporal_status"] = c["temporal_status"]
-        processed_constructs.append(construct)
-
-    processed_edges = []
-    for e in edges:
-        edge = {"cause_id": f"construct:{e['cause']}", "effect_id": f"construct:{e['effect']}"}
-        if "lagged" in e:
-            edge["lagged"] = e["lagged"]
-        processed_edges.append(edge)
-
-    return {
-        "constructs": processed_constructs,
-        "edges": processed_edges,
-        "default_outcome": default_outcome,
-    }
-
-
-def make_measurement_structure(observed_constructs: list[str]) -> dict[str, Any]:
-    """Create a measurement structure with one indicator per observed construct."""
-    return {
-        "indicators": [
-            {"name": f"{c.lower()}_ind", "construct_id": f"construct:{c}", "how_to_measure": "test"}
-            for c in observed_constructs
-        ]
-    }
 
 
 def _get_estimand(result: dict[str, Any], treatment: str) -> str:
@@ -1580,11 +1542,16 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
 @pytest.mark.parametrize("case", IDENTIFICATION_CASES, ids=lambda c: c["id"])
 def test_identification(case):
     """Run check_identifiability against a graph and assert the listed checks."""
-    latent_structure = make_latent_structure(
-        case["constructs"], case["edges"], case.get("default_outcome")
+    constructs, edges = make_graph(case["constructs"], case["edges"])
+    outcome = case.get("default_outcome")
+    result = check_identifiability(
+        constructs,
+        edges,
+        default_outcome=fixture_entity_id("construct", outcome.removeprefix("construct:"))
+        if outcome is not None
+        else None,
+        observed_constructs=set(case["observed"]),
     )
-    measurement_structure = make_measurement_structure(case["observed"])
-    result = check_identifiability(latent_structure, measurement_structure)
     _run_checks(result, case["checks"])
 
 
@@ -1769,8 +1736,8 @@ def test_marginalization(case):
 # =============================================================================
 
 
-def _ar1_obs_xy() -> tuple[dict[str, Any], set[str]]:
-    latent = make_latent_structure(
+def _ar1_obs_xy() -> tuple[tuple[tuple[ConstructSpec, ...], tuple[CausalEdgeSpec, ...]], set[str]]:
+    latent = make_graph(
         constructs=[
             {"name": "X", "temporal_status": "time_varying"},
             {"name": "Y", "temporal_status": "time_varying"},
@@ -1782,7 +1749,7 @@ def _ar1_obs_xy() -> tuple[dict[str, Any], set[str]]:
 
 def test_unroll_creates_two_timesteps():
     latent, observed = _ar1_obs_xy()
-    dag = unroll_temporal_dag(latent, observed)
+    dag = unroll_temporal_dag(*latent, observed)
     nodes = set(dag.nodes())
     for n in ["X_t", "X_{t-1}", "Y_t", "Y_{t-1}"]:
         assert n in nodes
@@ -1790,7 +1757,7 @@ def test_unroll_creates_two_timesteps():
 
 def test_unroll_ar1_edges():
     latent, observed = _ar1_obs_xy()
-    dag = unroll_temporal_dag(latent, observed)
+    dag = unroll_temporal_dag(*latent, observed)
     edges = list(dag.edges())
     assert ("X_{t-1}", "X_t") in edges
     assert ("Y_{t-1}", "Y_t") in edges
@@ -1798,7 +1765,7 @@ def test_unroll_ar1_edges():
 
 def test_unroll_ar1_not_added_for_unobserved():
     """AR(1) edges only on observed time-varying constructs (so projection is correct)."""
-    latent = make_latent_structure(
+    latent = make_graph(
         constructs=[
             {"name": "X", "temporal_status": "time_varying"},
             {"name": "U", "temporal_status": "time_varying"},
@@ -1810,7 +1777,7 @@ def test_unroll_ar1_not_added_for_unobserved():
             {"cause": "U", "effect": "Y", "lagged": False},
         ],
     )
-    dag = unroll_temporal_dag(latent, {"X", "Y"})
+    dag = unroll_temporal_dag(*latent, {"X", "Y"})
     edges = list(dag.edges())
     assert ("X_{t-1}", "X_t") in edges
     assert ("Y_{t-1}", "Y_t") in edges
@@ -1821,33 +1788,33 @@ def test_unroll_ar1_not_added_for_unobserved():
 
 def test_unroll_mirrored_contemporaneous():
     latent, observed = _ar1_obs_xy()
-    dag = unroll_temporal_dag(latent, observed)
+    dag = unroll_temporal_dag(*latent, observed)
     edges = list(dag.edges())
     assert ("X_t", "Y_t") in edges
     assert ("X_{t-1}", "Y_{t-1}") in edges
 
 
 def test_unroll_lagged_edges():
-    latent = make_latent_structure(
+    latent = make_graph(
         constructs=[
             {"name": "X", "temporal_status": "time_varying"},
             {"name": "Y", "temporal_status": "time_varying"},
         ],
         edges=[{"cause": "X", "effect": "Y", "lagged": True}],
     )
-    dag = unroll_temporal_dag(latent, {"X", "Y"})
+    dag = unroll_temporal_dag(*latent, {"X", "Y"})
     assert ("X_{t-1}", "Y_t") in list(dag.edges())
 
 
 def test_unroll_time_invariant_single_node():
-    latent = make_latent_structure(
+    latent = make_graph(
         constructs=[
             {"name": "Trait", "temporal_status": "time_invariant"},
             {"name": "Y", "temporal_status": "time_varying"},
         ],
         edges=[{"cause": "Trait", "effect": "Y", "lagged": False}],
     )
-    dag = unroll_temporal_dag(latent, {"Trait", "Y"})
+    dag = unroll_temporal_dag(*latent, {"Trait", "Y"})
     nodes = set(dag.nodes())
     assert "Trait" in nodes
     assert "Trait_t" not in nodes
@@ -1855,21 +1822,21 @@ def test_unroll_time_invariant_single_node():
 
 
 def test_unroll_time_invariant_affects_both_timesteps():
-    latent = make_latent_structure(
+    latent = make_graph(
         constructs=[
             {"name": "Trait", "temporal_status": "time_invariant"},
             {"name": "Y", "temporal_status": "time_varying"},
         ],
         edges=[{"cause": "Trait", "effect": "Y", "lagged": False}],
     )
-    dag = unroll_temporal_dag(latent, {"Trait", "Y"})
+    dag = unroll_temporal_dag(*latent, {"Trait", "Y"})
     edges = list(dag.edges())
     assert ("Trait", "Y_t") in edges
     assert ("Trait", "Y_{t-1}") in edges
 
 
 def test_unroll_hidden_labels_correct():
-    latent = make_latent_structure(
+    latent = make_graph(
         constructs=[
             {"name": "X", "temporal_status": "time_varying"},
             {"name": "U", "temporal_status": "time_varying"},
@@ -1881,7 +1848,7 @@ def test_unroll_hidden_labels_correct():
             {"cause": "U", "effect": "Y", "lagged": False},
         ],
     )
-    dag = unroll_temporal_dag(latent, {"X", "Y"})
+    dag = unroll_temporal_dag(*latent, {"X", "Y"})
     assert dag.nodes["X_t"].get("hidden", False) is False
     assert dag.nodes["Y_t"].get("hidden", False) is False
     assert dag.nodes["U_t"].get("hidden", False) is True
@@ -1894,7 +1861,7 @@ def test_unroll_hidden_labels_correct():
 
 
 def test_admg_bidirected_from_contemporaneous_confounder():
-    latent = make_latent_structure(
+    latent = make_graph(
         constructs=[
             {"name": "X", "temporal_status": "time_varying"},
             {"name": "Y", "temporal_status": "time_varying"},
@@ -1906,14 +1873,14 @@ def test_admg_bidirected_from_contemporaneous_confounder():
             {"cause": "U", "effect": "Y", "lagged": False},
         ],
     )
-    admg, confounders = dag_to_admg(latent, {"X", "Y"})
+    admg, confounders = dag_to_admg(*latent, {"X", "Y"})
     assert "U" in confounders
     undirected = {tuple(sorted((str(e[0]), str(e[1])))) for e in admg.undirected.edges()}
     assert ("X_t", "Y_t") in undirected or ("X_{t-1}", "Y_{t-1}") in undirected
 
 
 def test_admg_bidirected_from_lagged_confounder():
-    latent = make_latent_structure(
+    latent = make_graph(
         constructs=[
             {"name": "X", "temporal_status": "time_varying"},
             {"name": "Y", "temporal_status": "time_varying"},
@@ -1925,14 +1892,14 @@ def test_admg_bidirected_from_lagged_confounder():
             {"cause": "U", "effect": "Y", "lagged": True},
         ],
     )
-    admg, confounders = dag_to_admg(latent, {"X", "Y"})
+    admg, confounders = dag_to_admg(*latent, {"X", "Y"})
     assert "U" in confounders
     assert len(list(admg.undirected.edges())) > 0
 
 
 def test_admg_no_bidirected_single_child():
     """Unobserved with a single observed child should not become a confounder."""
-    latent = make_latent_structure(
+    latent = make_graph(
         constructs=[
             {"name": "X", "temporal_status": "time_varying"},
             {"name": "Y", "temporal_status": "time_varying"},
@@ -1943,7 +1910,7 @@ def test_admg_no_bidirected_single_child():
             {"cause": "U", "effect": "X", "lagged": False},
         ],
     )
-    _admg, confounders = dag_to_admg(latent, {"X", "Y"})
+    _admg, confounders = dag_to_admg(*latent, {"X", "Y"})
     assert "U" not in confounders
 
 
@@ -1954,7 +1921,7 @@ def test_admg_no_bidirected_single_child():
 
 def test_find_blocking_confounders_via_latent_chain():
     """U has only one direct observed child (X) but creates X<-U->V->Y backdoor."""
-    latent = make_latent_structure(
+    latent = make_graph(
         constructs=[
             {"name": "U"},
             {"name": "V"},
@@ -1968,7 +1935,7 @@ def test_find_blocking_confounders_via_latent_chain():
             {"cause": "X", "effect": "Y"},
         ],
     )
-    blockers = find_blocking_confounders(latent, {"X", "Y"}, "X", "Y")
+    blockers = find_blocking_confounders(*latent, {"X", "Y"}, "X", "Y")
     assert "U" in blockers
     assert "V" not in blockers
 

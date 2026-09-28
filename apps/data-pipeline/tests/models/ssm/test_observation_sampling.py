@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.execution.contracts import LikelihoodExtraParams
 
 
+@pytest.mark.inference(concern="predictive")
 @pytest.mark.parametrize(
     ("family", "link", "predictor", "mean", "extra_params", "std"),
     [
@@ -100,6 +101,7 @@ def test_predictor_and_mean_samplers_use_the_same_draw(
     np.testing.assert_array_equal(point_draw, mean_draw)
 
 
+@pytest.mark.inference(concern="predictive")
 @pytest.mark.parametrize(
     ("family", "extra_params", "invalid_mean"),
     [
@@ -124,6 +126,8 @@ def test_mean_samplers_surface_invalid_domains_as_nan(
     assert jnp.isnan(draw[0])
 
 
+@pytest.mark.inference(concern="sampling")
+@pytest.mark.inference(concern="predictive")
 def test_zero_mean_negative_binomial_is_an_exact_point_mass():
     law = mean_parameter_distribution(
         DistributionFamily.NEGATIVE_BINOMIAL, jnp.array([0.0, 2.0]), 1.0, {"obs_r": 4.0}
@@ -135,6 +139,8 @@ def test_zero_mean_negative_binomial_is_an_exact_point_mass():
     np.testing.assert_allclose(law.variance, [0.0, 3.0])
 
 
+@pytest.mark.inference(concern="sampling")
+@pytest.mark.inference(concern="predictive")
 def test_beta_sampler_and_density_preserve_small_authored_shapes():
     mean = jnp.array([0.001])
     concentration = 0.1
@@ -149,6 +155,8 @@ def test_beta_sampler_and_density_preserve_small_authored_shapes():
     np.testing.assert_allclose(density, native.log_prob(0.2).sum(), atol=1e-6)
 
 
+@pytest.mark.inference(concern="sampling")
+@pytest.mark.inference(concern="predictive")
 def test_binary_boundaries_and_predictor_tails_remain_exact():
     likelihood = get_mean_param_log_prob_fn("bernoulli")
     mean = jnp.array([0.0, 1.0])
@@ -162,6 +170,7 @@ def test_binary_boundaries_and_predictor_tails_remain_exact():
     ) == pytest.approx(-100.0)
 
 
+@pytest.mark.inference(concern="sampling")
 def test_negative_binomial_density_has_the_exact_mean_gradient():
     likelihood = get_mean_param_log_prob_fn("negative_binomial", {"obs_r": 3.0})
     y, mean = jnp.array([0.0, 4.0]), jnp.array([1.5, 8.0])
@@ -173,6 +182,7 @@ def test_negative_binomial_density_has_the_exact_mean_gradient():
     np.testing.assert_allclose(jax.grad(fn)(mean), expected, atol=2e-6)
 
 
+@pytest.mark.inference(concern="sampling")
 @pytest.mark.parametrize(
     ("family", "extras"), [("gamma", {"obs_shape": 2.0}), ("beta", {"obs_concentration": 3.0})]
 )

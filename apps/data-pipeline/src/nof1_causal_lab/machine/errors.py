@@ -42,7 +42,7 @@ class ModelFitError(TransitionExecutionError):
 
 
 class ArtifactWriteRejected(ValueError):
-    """A ``write`` move's payload failed schema validation."""
+    """A model edit's payload failed schema validation."""
 
     def __init__(self, message: str, *, artifact_id: str) -> None:
         super().__init__(message)

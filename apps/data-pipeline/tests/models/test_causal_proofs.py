@@ -1,6 +1,8 @@
 """Proof-carrying boundaries for numeric causal analysis."""
 
-from typing import Any
+import subprocess
+from pathlib import Path
+from textwrap import dedent
 
 import jax.numpy as jnp
 import pytest
@@ -10,7 +12,7 @@ from nof1_causal_lab.artifacts.identification import (
     IdentifiedTreatmentStatus,
     NonIdentifiableTreatmentStatus,
 )
-from nof1_causal_lab.artifacts.identity import ModelRevision
+from nof1_causal_lab.artifacts.identity import GitRef
 from nof1_causal_lab.models.causal_proofs import (
     CertifiedCausalAnalysis,
     certify_identified_estimand,
@@ -18,8 +20,10 @@ from nof1_causal_lab.models.causal_proofs import (
 from nof1_causal_lab.models.ssm.inference.types import (
     JointPosteriorDraws,
     ParticleMCMCPosterior,
-    WarmupProposal,
 )
+from tests.git_fixtures import git_oid
+
+pytestmark = pytest.mark.contract
 
 
 def _design():
@@ -54,7 +58,7 @@ def _conditioned():
 
 def test_identification_proof_is_estimand_specific() -> None:
     design = _design()
-    design_ref = ModelRevision(workspace_id="workspace", version=1)
+    design_ref = GitRef(workspace_id="workspace", revision=git_oid(1), path="model.json")
 
     proof = certify_identified_estimand(
         design,
@@ -93,18 +97,45 @@ def test_identification_proof_rejects_unidentified_treatment(explicit_finding) -
         certify_identified_estimand(
             model,
             report,
-            model_revision=ModelRevision(workspace_id="workspace", version=1),
+            model_revision=GitRef(workspace_id="workspace", revision=git_oid(1), path="model.json"),
             treatment="treatment",
             outcome="outcome",
         )
 
 
-def test_conditioning_rejects_warmup_from_untyped_boundary():
-    from nof1_causal_lab.models.ssm.inference.persistence import condition_model
+def test_conditioning_rejects_warmup_statically(tmp_path):
+    probe = tmp_path / "conditioning_types.py"
+    probe.write_text(
+        dedent("""\
+            from jax import Array
+            from nof1_causal_lab.artifacts.model_spec import ModelSpec
+            from nof1_causal_lab.models.ssm.inference.persistence import condition_model
+            from nof1_causal_lab.models.ssm.inference.types import ParticleMCMCPosterior, WarmupProposal
 
-    untyped: Any = WarmupProposal(_samples={})
-    with pytest.raises(TypeError, match="production particle-MCMC"):
-        condition_model(_design(), untyped, times=jnp.arange(2))
+            def condition(model: ModelSpec, posterior: ParticleMCMCPosterior, warmup: WarmupProposal, times: Array):
+                condition_model(model, posterior, times=times)
+                condition_model(model, warmup, times=times)
+            """)
+    )
+    checked = subprocess.run(
+        [
+            "ty",
+            "check",
+            str(probe),
+            "--project",
+            str(Path(__file__).parents[2]),
+            "--output-format",
+            "concise",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert checked.returncode == 1
+    assert checked.stdout.count("error[") == 1, checked.stdout + checked.stderr
+    assert "invalid-argument-type" in checked.stdout
+    assert "ParticleMCMCPosterior" in checked.stdout
+    assert "WarmupProposal" in checked.stdout
 
 
 def test_causal_reporting_requires_retained_uncertainty_and_exact_engine_evidence():
@@ -112,11 +143,13 @@ def test_causal_reporting_requires_retained_uncertainty_and_exact_engine_evidenc
     from tests.inference_fixtures import inference_log
 
     model = _conditioned()
-    revision = ModelRevision(workspace_id="workspace", version=2)
+    revision = GitRef(workspace_id="workspace", revision=git_oid(2), path="model.json")
     record = inference_log(model)
     certify_conditioned_model(model, revision, record)
     with pytest.raises(ValueError, match="committed inference"):
-        certify_conditioned_model(model, revision.model_copy(update={"version": 3}), record)
+        certify_conditioned_model(
+            model, revision.model_copy(update={"revision": git_oid(3)}), record
+        )
     with pytest.raises(ValueError, match="differs from"):
         certify_conditioned_model(_design(), revision, record)
     with pytest.raises(ValueError, match="production particle-MCMC"):
@@ -141,7 +174,7 @@ def test_causal_analysis_joins_matching_proofs():
     from tests.inference_fixtures import inference_log
 
     design = _conditioned()
-    design_ref = ModelRevision(workspace_id="workspace", version=2)
+    design_ref = GitRef(workspace_id="workspace", revision=git_oid(2), path="model.json")
     analysis = CertifiedCausalAnalysis(
         model=design,
         identification=_identification(),

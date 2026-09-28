@@ -4,6 +4,8 @@ Converts bucketed DataFrames into LLM-ready text and groups support windows
 into chunks for parallel worker calls.
 """
 
+from datetime import datetime
+
 import polars as pl
 
 
@@ -85,13 +87,11 @@ def format_window_chunk(
     return "\n\n".join(sections)
 
 
-def _format_time_within_window(time_val) -> str:
+def _format_time_within_window(time_val: datetime | None) -> str:
     """Format a datetime value as HH:MM for display within a support window."""
     if time_val is None:
         return ""
-    if hasattr(time_val, "strftime"):
-        return time_val.strftime("%H:%M")
-    return ""
+    return time_val.strftime("%H:%M")
 
 
 def _truncate_events(

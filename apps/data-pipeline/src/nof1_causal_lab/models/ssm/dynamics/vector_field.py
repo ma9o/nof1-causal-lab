@@ -15,7 +15,7 @@ import jax.numpy as jnp
 from nof1_causal_lab.models.ssm.shapes import Array, Float
 
 from .edges import VectorFieldComponent
-from .intervention import EdgeInputOverride, Intervention, VariableOverride
+from .intervention import Intervention
 
 if TYPE_CHECKING:
     from .expression import ExpressionComponent
@@ -51,8 +51,6 @@ def _apply_edge_input_overrides(
 ) -> Float[Array, "D D"]:
     """Replace ``eta_eff[target, source]`` with ``u(t)`` per edge override."""
     for ov in intervention.edge_input_overrides():
-        if not isinstance(ov, EdgeInputOverride):
-            continue
         eta_eff = eta_eff.at[ov.target, ov.source].set(ov.value_fn(t))
     return eta_eff
 
@@ -65,8 +63,6 @@ def _apply_variable_overrides_to_derivative(
     """Replace ``d_eta[index]`` with ``d(value_fn)/dt`` for each variable
     override so the integrated trajectory matches ``value_fn``."""
     for ov in intervention.variable_overrides():
-        if not isinstance(ov, VariableOverride):
-            continue
         du_dt = jax.grad(lambda tt, fn=ov.value_fn: jnp.sum(fn(tt)))(t)
         d_eta = d_eta.at[ov.index].set(du_dt)
     return d_eta

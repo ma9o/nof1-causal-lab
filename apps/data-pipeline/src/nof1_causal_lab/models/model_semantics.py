@@ -36,7 +36,7 @@ def indicator_has_additive_location_support(
     return False
 
 
-def should_auto_standardize_indicator(
+def should_auto_standardize_indicator(  # noqa: V103 - explicit authoring policy for callers; never applied by edit_model
     distribution: DistributionFamily | str,
     link: LinkFunction | str,
     support_kind: str | None,

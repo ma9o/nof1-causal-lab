@@ -38,7 +38,10 @@ function visitInput(value: unknown): void {
   if (!value || typeof value !== "object") return;
   if ("$ref" in value && typeof value.$ref === "string") {
     const name = value.$ref.replace("#/components/schemas/", "");
-    if (!inputNames.has(name)) { inputNames.add(name); visitInput(schema.components.schemas[name]); }
+    if (!inputNames.has(name)) {
+      inputNames.add(name);
+      visitInput(schema.components.schemas[name]);
+    }
   }
   for (const child of Object.values(value)) visitInput(child);
 }
@@ -51,7 +54,11 @@ const ast = await openapiTS(schema, {
   transform(_value, metadata) {
     const name = metadata.path?.match(/^#\/components\/schemas\/([^/]+)$/)?.[1];
     const canonical = name?.replace(/-(?:Input|Output)$/, "");
-    if (canonical && names.has(canonical) && (!inputNames.has(name!) || ["JsonObject", "JsonArray", "JsonValue"].includes(canonical))) {
+    if (
+      canonical &&
+      names.has(canonical) &&
+      (!inputNames.has(name!) || ["JsonObject", "JsonArray", "JsonValue"].includes(canonical))
+    ) {
       return ts.factory.createTypeReferenceNode(`Domain.${canonical}`);
     }
   },

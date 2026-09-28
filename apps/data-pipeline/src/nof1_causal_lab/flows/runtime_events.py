@@ -1,6 +1,6 @@
 """Transition and delegated-context telemetry events, persisted for UI polling.
 
-Worker fan-out progress and model-spec admission streaming are live telemetry
+Worker fan-out progress and action messages are live telemetry
 the web UI renders while a transition runs. Events land as one JSON file each under
 ``data/{workspace_id}/scratch/events/`` (neither local fs nor R2 supports
 atomic append); consumers list the directory and sort by filename, which is
@@ -19,6 +19,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
 
+from nof1_causal_lab.actions.results import ActionMessage  # noqa: TC001
+from nof1_causal_lab.artifacts.identity import ScientificActionId  # noqa: TC001
 from nof1_causal_lab.json_types import JsonObject  # noqa: TC001
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
@@ -43,53 +45,41 @@ class RuntimeEventError(BaseModel):
     message: str
 
 
-class TransitionRuntimeEventPayload(BaseModel):
-    """Payload for transition lifecycle telemetry."""
+class ActionMessageEvent(RuntimeEventModel):
+    """A label emitted by one dispatched action, with replay ordering outside the message."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    transition_id: str
-    status: Literal["running", "completed", "failed"]
-    error: RuntimeEventError | None = None
+    event: Literal["nof1-causal-lab.action.message"] = "nof1-causal-lab.action.message"
+    attempt_id: uuid.UUID
+    action: ScientificActionId
+    index: int
+    message: ActionMessage
 
 
 class TransitionRuntimeEvent(RuntimeEventModel):
-    """One transition lifecycle event."""
+    """One transition lifecycle event, identified by its event name."""
 
     event: Literal[
         "nof1-causal-lab.transition.running",
         "nof1-causal-lab.transition.completed",
         "nof1-causal-lab.transition.failed",
     ]
-    payload: TransitionRuntimeEventPayload
+    transition_id: str
+    error: RuntimeEventError | None = None
 
 
-class ExtractionPlanEventPayload(BaseModel):
+class ExtractionPlanEvent(RuntimeEventModel):
     """Static extraction fan-out plan."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    context_id: Literal["measurement"] = "measurement"
-    type: Literal["plan"] = "plan"
+    event: Literal["nof1-causal-lab.extraction.plan"]
     total_workers: int = Field(ge=0)
     max_concurrent_workers: int | None = Field(default=None, gt=0)
     max_rpm: int | None = Field(default=None, gt=0)
 
 
-class ExtractionPlanEvent(RuntimeEventModel):
-    """Extraction plan telemetry event."""
-
-    event: Literal["nof1-causal-lab.extraction.plan"]
-    payload: ExtractionPlanEventPayload
-
-
-class ExtractionWorkerEventPayload(BaseModel):
+class ExtractionWorkerEvent(RuntimeEventModel):
     """One extraction worker state transition."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    context_id: Literal["measurement"] = "measurement"
-    type: Literal["worker"] = "worker"
+    event: Literal["nof1-causal-lab.extraction.worker"]
     worker_id: int = Field(ge=0)
     state: Literal["pending", "running", "completed", "failed"]
     n_windows: int = Field(ge=0)
@@ -98,20 +88,10 @@ class ExtractionWorkerEventPayload(BaseModel):
     error: str | None = None
 
 
-class ExtractionWorkerEvent(RuntimeEventModel):
-    """Extraction worker telemetry event."""
-
-    event: Literal["nof1-causal-lab.extraction.worker"]
-    payload: ExtractionWorkerEventPayload
-
-
-class ExtractionSnapshotEventPayload(BaseModel):
+class ExtractionSnapshotEvent(RuntimeEventModel):
     """Aggregate extraction progress snapshot."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    context_id: Literal["measurement"] = "measurement"
-    type: Literal["snapshot"] = "snapshot"
+    event: Literal["nof1-causal-lab.extraction.snapshot"]
     total_workers: int = Field(ge=0)
     pending_workers: int = Field(ge=0)
     running_workers: int = Field(ge=0)
@@ -120,51 +100,8 @@ class ExtractionSnapshotEventPayload(BaseModel):
     llm_requests_last_60s: int = Field(ge=0)
 
 
-class ExtractionSnapshotEvent(RuntimeEventModel):
-    """Extraction snapshot telemetry event."""
-
-    event: Literal["nof1-causal-lab.extraction.snapshot"]
-    payload: ExtractionSnapshotEventPayload
-
-
-type ModelSpecAdmissionEventName = Literal[
-    "plan",
-    "resumed",
-    "construct_started",
-    "construct_checking",
-    "construct_report",
-    "barrier_report",
-    "done",
-    "failed",
-]
-
-type ModelSpecAdmissionEventType = Literal[
-    "nof1-causal-lab.model-spec.admission.plan",
-    "nof1-causal-lab.model-spec.admission.resumed",
-    "nof1-causal-lab.model-spec.admission.construct_started",
-    "nof1-causal-lab.model-spec.admission.construct_checking",
-    "nof1-causal-lab.model-spec.admission.construct_report",
-    "nof1-causal-lab.model-spec.admission.barrier_report",
-    "nof1-causal-lab.model-spec.admission.done",
-    "nof1-causal-lab.model-spec.admission.failed",
-]
-
-_MODEL_SPEC_ADMISSION_EVENT_TYPES: dict[
-    ModelSpecAdmissionEventName, ModelSpecAdmissionEventType
-] = {
-    "plan": "nof1-causal-lab.model-spec.admission.plan",
-    "resumed": "nof1-causal-lab.model-spec.admission.resumed",
-    "construct_started": "nof1-causal-lab.model-spec.admission.construct_started",
-    "construct_checking": "nof1-causal-lab.model-spec.admission.construct_checking",
-    "construct_report": "nof1-causal-lab.model-spec.admission.construct_report",
-    "barrier_report": "nof1-causal-lab.model-spec.admission.barrier_report",
-    "done": "nof1-causal-lab.model-spec.admission.done",
-    "failed": "nof1-causal-lab.model-spec.admission.failed",
-}
-
-
 class ModelSpecAdmissionEvent(RuntimeEventModel):
-    """Construct-admission event with JSON-safe event-specific fields."""
+    """Recorded construct-admission event from an earlier study history."""
 
     event: Literal[
         "nof1-causal-lab.model-spec.admission.plan",
@@ -187,7 +124,8 @@ class ModelSpecAdmissionEvent(RuntimeEventModel):
 
 
 type RuntimeEvent = Annotated[
-    TransitionRuntimeEvent
+    ActionMessageEvent
+    | TransitionRuntimeEvent
     | ExtractionPlanEvent
     | ExtractionWorkerEvent
     | ExtractionSnapshotEvent
@@ -196,6 +134,18 @@ type RuntimeEvent = Annotated[
 ]
 
 _RUNTIME_EVENT_ADAPTER = TypeAdapter(RuntimeEvent)
+
+
+def emit_action_message(event: ActionMessageEvent, workspace_id: str) -> None:
+    """Activity retries overwrite the same event, preserving message identity and order."""
+    directory = events_dir(workspace_id)
+    storage.makedirs(directory)
+    nanos = int(event.message.timestamp.timestamp() * 1_000_000_000)
+    name = f"{nanos:020d}-{event.attempt_id.hex}-{event.index:06d}.json"
+    storage.write_text(
+        storage.join(directory, name),
+        event.model_dump_json(exclude={"cursor"}),
+    )
 
 
 def events_dir(workspace_id: str) -> str:
@@ -250,11 +200,8 @@ def emit_transition_event(
         workspace_id,
         TransitionRuntimeEvent(
             event=event_type,
-            payload=TransitionRuntimeEventPayload(
-                transition_id=transition_id,
-                status=status,
-                error=RuntimeEventError.model_validate(error) if error is not None else None,
-            ),
+            transition_id=transition_id,
+            error=RuntimeEventError.model_validate(error) if error is not None else None,
         ),
     )
 
@@ -271,11 +218,9 @@ def emit_extraction_plan_event(
         workspace_id,
         ExtractionPlanEvent(
             event=f"{EXTRACTION_EVENT_PREFIX}.plan",
-            payload=ExtractionPlanEventPayload(
-                total_workers=total_workers,
-                max_concurrent_workers=max_concurrent_workers,
-                max_rpm=max_rpm,
-            ),
+            total_workers=total_workers,
+            max_concurrent_workers=max_concurrent_workers,
+            max_rpm=max_rpm,
         ),
     )
 
@@ -295,14 +240,12 @@ def emit_extraction_worker_event(
         workspace_id,
         ExtractionWorkerEvent(
             event=f"{EXTRACTION_EVENT_PREFIX}.worker",
-            payload=ExtractionWorkerEventPayload(
-                worker_id=worker_id,
-                state=state,
-                n_windows=n_windows,
-                n_extractions=n_extractions,
-                n_llm_calls=n_llm_calls,
-                error=error,
-            ),
+            worker_id=worker_id,
+            state=state,
+            n_windows=n_windows,
+            n_extractions=n_extractions,
+            n_llm_calls=n_llm_calls,
+            error=error,
         ),
     )
 
@@ -311,41 +254,20 @@ def emit_extraction_snapshot_event(workspace_id: str, *, snapshot: dict[str, int
     """Emit an extraction runtime snapshot."""
     emit_event(
         workspace_id,
-        ExtractionSnapshotEvent(
-            event=f"{EXTRACTION_EVENT_PREFIX}.snapshot",
-            payload=ExtractionSnapshotEventPayload.model_validate(snapshot),
-        ),
-    )
-
-
-def emit_model_spec_admission_event(
-    workspace_id: str,
-    event: ModelSpecAdmissionEventName,
-    payload: JsonObject,
-) -> None:
-    """Emit one model-spec construct-admission telemetry event.
-
-    ``event`` is the sub-name (``plan`` / ``construct_started`` / ``construct_checking`` /
-    ``construct_report`` / ``done`` / ``failed``); the web UI reduces the stream into the live
-    construct-admission view. Payloads are assembled by the admission flow, which owns the
-    translation of ``ConstructAdmissionReport``/``ConstructContribution`` into the UI contract.
-    """
-    emit_event(
-        workspace_id,
-        ModelSpecAdmissionEvent(
-            event=_MODEL_SPEC_ADMISSION_EVENT_TYPES[event],
-            payload={"context_id": "statistical-model-spec", **payload},
+        ExtractionSnapshotEvent.model_validate(
+            {"event": f"{EXTRACTION_EVENT_PREFIX}.snapshot", **snapshot}
         ),
     )
 
 
 __all__ = [
+    "ActionMessageEvent",
     "EXTRACTION_EVENT_PREFIX",
+    "emit_action_message",
     "emit_event",
     "emit_extraction_plan_event",
     "emit_extraction_snapshot_event",
     "emit_extraction_worker_event",
-    "emit_model_spec_admission_event",
     "emit_transition_event",
     "events_dir",
     "read_events",

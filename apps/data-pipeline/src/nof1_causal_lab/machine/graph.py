@@ -22,7 +22,6 @@ class Transition:
     optional_consumes: tuple[ArtifactId, ...] = ()
     produces_optional: tuple[ArtifactId, ...] = ()
     after: tuple[OperationId, ...] = ()
-    writable: bool = False
 
     @property
     def all_produces(self) -> tuple[ArtifactId, ...]:
@@ -39,47 +38,26 @@ class Derivation:
 @dataclass(frozen=True)
 class Root:
     artifact_id: ArtifactId
-    write_pins: tuple[ArtifactId, ...] = ()
 
 
 ARTIFACT_GRAPH: tuple[Transition, ...] = (
     Transition("raw_data", (), ("raw_data",), "batch_llm"),
-    Transition("latent_structure", ("model",), ("model",), "judgment"),
-    Transition(
-        "measurement_structure",
-        ("raw_data", "model"),
-        ("model",),
-        "judgment",
-        after=("raw_data", "latent_structure"),
-    ),
     Transition(
         "measurements",
-        ("raw_data", "model"),
+        ("raw_data",),
         (),
         "batch_llm",
         produces_optional=("panel",),
-        after=("measurement_structure",),
-    ),
-    Transition(
-        "statistical_model_spec",
-        (
-            "model",
-            "identification_report",
-            "panel",
-            "validation_report",
-        ),
-        ("model",),
-        "judgment",
-        after=("measurements",),
     ),
     Transition(
         "posterior",
         ("model", "panel"),
         ("model",),
         "deterministic",
-        after=("statistical_model_spec",),
     ),
     Transition("simulate", ("model",), (), "deterministic", optional_consumes=("panel",)),
+    # The recorded simulation owns the complete observation schema and support.
+    Transition("simulated_measurements", (), ("panel",), "deterministic"),
 )
 DERIVATIONS: tuple[Derivation, ...] = (
     Derivation("identification_report", ("model",)),
@@ -88,9 +66,6 @@ DERIVATIONS: tuple[Derivation, ...] = (
 )
 ROOTS: tuple[Root, ...] = (Root("model"),)
 ROOT_ARTIFACTS = tuple(root.artifact_id for root in ROOTS)
-WRITABLE_ARTIFACTS = ROOT_ARTIFACTS + tuple(
-    artifact for spec in ARTIFACT_GRAPH if spec.writable for artifact in spec.produces
-)
 
 
 def transition_spec(operation_id: OperationId) -> Transition:

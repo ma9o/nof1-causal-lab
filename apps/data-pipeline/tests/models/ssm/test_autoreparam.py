@@ -41,7 +41,6 @@ from tests.model_fixtures import (
     full_dense_matrix_dynamics_spec,
     model_fixture,
 )
-from tests.models.ssm._support import simple_normal_model
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -118,6 +117,7 @@ def plated_model():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.contract
 class TestIsUnconstrained:
     def test_real(self):
         assert _is_unconstrained(dist.constraints.real) is True
@@ -137,6 +137,7 @@ class TestIsUnconstrained:
         )
 
 
+@pytest.mark.contract
 class TestLocScaleReparamHelper:
     def test_normal(self):
         assert isinstance(_loc_scale_reparam("x", dist.Normal(0.0, 1.0), 0.0), LocScaleReparam)
@@ -169,6 +170,7 @@ class TestLocScaleReparamHelper:
         assert result is None
 
 
+@pytest.mark.contract
 class TestMinimalReparamHelper:
     def test_normal_returns_none(self):
         assert _minimal_reparam(dist.Normal(0.0, 1.0), is_observed=False) is None
@@ -187,6 +189,7 @@ class TestMinimalReparamHelper:
         assert _minimal_reparam(dist.ProjectedNormal(jnp.zeros(3)), is_observed=True) is None
 
 
+@pytest.mark.contract
 class TestAutoReparamValidation:
     def test_centered_above_one(self):
         with pytest.raises(ValueError, match="centered must be in"):
@@ -202,6 +205,7 @@ class TestAutoReparamValidation:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.inference(concern="sampling")
 class TestTraceStructure:
     """Verify exact trace structure after reparameterization.
 
@@ -346,6 +350,7 @@ class TestTraceStructure:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.inference(concern="sampling")
 class TestLocScalePreservation:
     """Exercise AutoReparam without Monte Carlo error or large random draws."""
 
@@ -392,47 +397,11 @@ class TestLocScalePreservation:
 
 
 # ---------------------------------------------------------------------------
-# IV. Syntax patterns (NumPyro-style)
+# IV. SSM-specific integration
 # ---------------------------------------------------------------------------
 
 
-class TestSyntax:
-    """Verify handler composition patterns all produce the same trace.
-
-    Ported from NumPyro's test_reparam.py::test_syntax.
-    """
-
-    def test_three_syntax_patterns(self):
-        # Use a plain dict config so all patterns share the exact same config.
-        config = {"x": LocScaleReparam(0.0), "y": LocScaleReparam(0.0)}
-
-        # 1. Eager function syntax
-        with handlers.seed(rng_seed=0):
-            tr1 = handlers.trace(handlers.reparam(simple_normal_model, config=config)).get_trace()
-
-        # 2. Context manager syntax
-        with handlers.reparam(config=config), handlers.trace() as tr2, handlers.seed(rng_seed=0):
-            simple_normal_model()
-
-        # 3. Decorator syntax (Strategy.__call__)
-        strategy = AutoReparam(centered=0.0)
-        decorated = strategy(simple_normal_model)
-        with handlers.seed(rng_seed=0):
-            tr3 = handlers.trace(decorated).get_trace()
-
-        assert tr1.keys() == tr2.keys() == tr3.keys()
-
-
-# ---------------------------------------------------------------------------
-# V. End-to-end inference
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# VI. SSM-specific integration
-# ---------------------------------------------------------------------------
-
-
+@pytest.mark.inference(concern="sampling")
 class TestAutoReparamSSM:
     """Test AutoReparam with the actual SSM model."""
 
@@ -511,7 +480,6 @@ class TestAutoReparamSSM:
         assert samples["vf_0_p0"].shape[0] == 2
         assert samples["diffusion_diag_free"].shape[0] == 2
 
-    @pytest.mark.inference
     def test_particle_runtime_reconstructs_log_normal_hill_sites(self):
         """Nested TransformReparam + LocScaleReparam restores the public Hill site."""
         from nof1_causal_lab.models.ssm.model import SSMModel

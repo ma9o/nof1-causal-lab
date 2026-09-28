@@ -123,7 +123,7 @@ class SSMModel:
         self._artifact_cache = {
             key: value
             for key, value in self._artifact_cache.items()
-            if not (isinstance(key, tuple) and key and key[0] == "backend")
+            if not (key and key[0] == "backend")
         }
 
     def vector_field(self):

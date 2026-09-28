@@ -26,6 +26,8 @@ from nof1_causal_lab.prior_distributions import distribution_from_params
 from tests.dynamics_fixtures import decay_term
 from tests.model_fixtures import model_fixture
 
+pytestmark = pytest.mark.contract
+
 RNG = np.random.default_rng(7)
 
 

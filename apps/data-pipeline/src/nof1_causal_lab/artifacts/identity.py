@@ -27,6 +27,12 @@ class _IdentitySchema:
         return schema
 
 
+GitOid = NewType(
+    "GitOid",
+    Annotated[str, Field(pattern=r"^[0-9a-f]{40}$"), _IdentitySchema("GitOid")],
+)
+
+
 ConstructId = NewType(
     "ConstructId",
     Annotated[
@@ -126,12 +132,14 @@ type OperationId = Literal[
     "latent_structure",
     "measurement_structure",
     "measurements",
+    "simulated_measurements",
     "statistical_model_spec",
     "posterior",
     "simulate",
 ]
 
 ARTIFACT_IDS: tuple[ArtifactId, ...] = get_args(ArtifactId.__value__)
+SCIENTIFIC_ACTION_IDS: tuple[ScientificActionId, ...] = get_args(ScientificActionId.__value__)
 
 
 class IdentityRef(BaseModel):
@@ -140,11 +148,12 @@ class IdentityRef(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
-class ModelRevision(IdentityRef):
-    """The workspace and version of the scientific design supporting an inference."""
+class GitRef(IdentityRef):
+    """An exact file in a study's Git object database: repository, object, and path."""
 
     workspace_id: str = Field(min_length=1)
-    version: int = Field(ge=1)
+    revision: GitOid
+    path: str = Field(min_length=1, pattern=r"^[A-Za-z0-9_][A-Za-z0-9_./-]*$")
 
 
 class ConstructRef(IdentityRef):
@@ -179,13 +188,6 @@ class MechanismRef(IdentityRef):
 
     kind: Literal["mechanism"] = "mechanism"
     id: MechanismId
-
-
-class ArtifactRef(IdentityRef):
-    """An artifact reference identifies the exact stored version that supports a model fact."""
-
-    artifact_id: ArtifactId
-    version: int = Field(ge=1)
 
 
 class ParameterRef(IdentityRef):
@@ -235,9 +237,3 @@ def scientific_id(prefix: str, payload: object) -> str: ...
 def scientific_id(prefix: str, payload: object) -> str:
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return f"{prefix}:{hashlib.sha256(encoded.encode()).hexdigest()}"
-
-
-class TransitionRef(IdentityRef):
-    """An immutable entry in the workspace transition journal."""
-
-    seq: int = Field(ge=1)

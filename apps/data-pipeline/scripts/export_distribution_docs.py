@@ -27,7 +27,6 @@ from nof1_causal_lab.distributions import (
     PRIOR_FAMILY_SPECS,
     VALID_LIKELIHOODS_FOR_DTYPE,
     DistributionFamily,
-    constraint_domain,
     render_prior_parameter_guidance_markdown_table,
 )
 
@@ -36,16 +35,19 @@ from nof1_causal_lab.distributions import (
 class ParameterRoleSpec:
     """Metadata for a parameter role used by docs codegen and validation."""
 
-    role: str  # matches ParameterRole enum value
+    role: str
     symbol: str
     count: str
-    constraint: str  # matches ParameterConstraint enum value
+    constraint: str
     ssm_location: str
     note: str = ""
 
     @property
     def domain(self) -> str:
-        return constraint_domain(self.constraint)
+        return {
+            "unit_interval": "[0, 1]", "none": "(-inf, +inf)", "positive": "(0, +inf)",
+            "negative": "(-inf, 0)", "correlation": "[-1, 1]",
+        }[self.constraint]
 
 
 PARAMETER_ROLE_SPECS: Final[tuple[ParameterRoleSpec, ...]] = (

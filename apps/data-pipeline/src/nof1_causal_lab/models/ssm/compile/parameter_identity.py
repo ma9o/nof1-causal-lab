@@ -50,7 +50,6 @@ def component_identity(
         SiteKind.OBS_CAT_SLOPES,
     }:
         indicators = {item.name: item for item in spec._indicators.values()}
-        assert numeric.observation_names(spec) is not None
         indicator = indicators[numeric.observation_names(spec)[indices[0]]]
         levels = (
             indicator.ordinal_levels
@@ -85,7 +84,6 @@ def component_identity(
         constructs = {item.name: item.id for item in spec._constructs.values()}
         position = site.positions[binding.flat_index]
         row = position[0] if isinstance(position, tuple) else position
-        assert numeric.state_names(spec) is not None
         basis = [constructs[name] for name in numeric.state_names(spec)[: row + 1]]
         key = ["cholesky", basis]
     elif any(n > 1 for n in site.shape) and binding.transform.value == "site_wide":

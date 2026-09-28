@@ -2,6 +2,7 @@
 
 import numpyro.distributions as dist
 import pytest
+from evaluation.fixtures.prior_planning import complete_model
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.expressions import (
@@ -18,7 +19,6 @@ from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 from nof1_causal_lab.flows.transitions.inference.subjects import reference_posterior_findings
 from nof1_causal_lab.models.likelihoods import observation_law
 from nof1_causal_lab.models.model_checks import check_execution
-from nof1_causal_lab.models.prior_planning import complete_model
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
 from tests.helpers import complete_test_model, make_model
@@ -61,6 +61,7 @@ def _compile(model):
     return check_execution(completed), completed, plan
 
 
+@pytest.mark.contract
 def test_rename_preserves_parameter_and_element_identity():
     _before, old_model, _ = _compile(_model())
     _after, new_model, _ = _compile(_model(rename=True))
@@ -70,6 +71,7 @@ def test_rename_preserves_parameter_and_element_identity():
     assert {p.name for p in old_model.parameters} != {p.name for p in new_model.parameters}
 
 
+@pytest.mark.contract
 def test_scalar_identity_survives_reordered_execution_axes():
     feedback = [("A", "B"), ("B", "A")]
     _before, model, _ = _compile(_model(edges=feedback))
@@ -86,6 +88,7 @@ def test_scalar_identity_survives_reordered_execution_axes():
     assert old_binding.coordinates != new_binding.coordinates
 
 
+@pytest.mark.contract
 def test_model_rejects_forged_owner_before_compilation():
     _, model, _ = _compile(_model())
     payload = model.model_dump(mode="json")
@@ -94,6 +97,7 @@ def test_model_rejects_forged_owner_before_compilation():
         type(model).model_validate(payload)
 
 
+@pytest.mark.contract
 def test_posterior_writer_uses_declared_subject_and_rejects_unknown_coordinate():
     _compiled, model, _ = _compile(_model())
     binding = parameter_bindings(model)[0][0]
@@ -118,6 +122,7 @@ def test_posterior_writer_uses_declared_subject_and_rejects_unknown_coordinate()
         reference_posterior_findings(model, [row], [])
 
 
+@pytest.mark.contract
 def test_ordinal_components_have_label_identity_and_padding_is_explicit():
     _compiled, model, _ = _compile(_model(ordinal=True))
     gaps = {
@@ -131,6 +136,7 @@ def test_ordinal_components_have_label_identity_and_padding_is_explicit():
     assert parameter_bindings(model)[1]
 
 
+@pytest.mark.contract
 def test_shared_likelihood_parameter_owns_only_active_channels():
     _, model, _ = _compile(_model())
     first, second = model.constructs
@@ -185,6 +191,7 @@ def test_shared_likelihood_parameter_owns_only_active_channels():
     expanded.check_execution()
 
 
+@pytest.mark.contract
 def test_student_innovation_tail_is_explicit_and_shared_through_completion():
     from nof1_causal_lab.models.model_parameters import referenced_parameter_ids
 
@@ -229,10 +236,11 @@ def test_student_innovation_tail_is_explicit_and_shared_through_completion():
     assert completed.get_construct(first.id).coefficients == first.coefficients
 
 
+@pytest.mark.contract
 @pytest.mark.parametrize("retained_role", [None, "initial_mean", "initial_scale"])
 def test_initial_state_defaults_are_authored_before_compilation(retained_role):
     _, model, _ = _compile(_model())
-    from nof1_causal_lab.models.parameter_planning import complete_component_slots
+    from notebooks.parameter_planning import complete_component_slots
 
     free = model.revised(
         edges=replace_constructs(
@@ -272,6 +280,7 @@ def test_initial_state_defaults_are_authored_before_compilation(retained_role):
     )
 
 
+@pytest.mark.inference(concern="sampling")
 def test_parameter_labels_do_not_change_mechanisms_bindings_or_prior_laws():
     before, model, _plan = _compile(_model())
     renamed = model.revised(
@@ -287,6 +296,7 @@ def test_parameter_labels_do_not_change_mechanisms_bindings_or_prior_laws():
     }
 
 
+@pytest.mark.inference(concern="sampling")
 def test_additive_hill_and_linear_terms_survive_parameter_renaming():
     _, model, _plan = _compile(_model(edges=(("A", "B"),)))
     edge = model.edges[0]

@@ -1,4 +1,4 @@
-"""Shared cross-cutting test helpers (LLM/session fakes, async runners)."""
+"""Shared model fixtures and async test helpers."""
 
 import asyncio
 from collections.abc import Sequence
@@ -52,7 +52,7 @@ def make_prior_model(statistical_model_spec, priors):
 
 def model_with_prior_payloads(model, payloads):
     """Attach explicit ID-keyed law inputs for compiler behavior tests."""
-    from notebooks.prior_specification_support import model_with_prior_payloads as attach_priors
+    from notebooks.predictive_support import model_with_prior_payloads as attach_priors
 
     if model is None:
         if payloads:
@@ -78,7 +78,6 @@ def make_model(state_names: list[str], edges: Sequence[tuple[str, str]] = ()):
                     {
                         "id": fixture_entity_id("indicator", name + "_obs"),
                         "name": name + "_obs",
-                        "how_to_measure": "measure " + name,
                         "construct_polarity": "positive",
                         "measurement_dtype": "continuous",
                         "aggregation": "mean",
@@ -126,10 +125,11 @@ def graph_constructs(payload):
 
 def complete_test_model(model, *, self_limiting=(), hill_edges=()):
     """Explicit Gaussian/continuous test choices followed by scientific completion."""
+    from evaluation.fixtures.prior_planning import complete_model
+    from notebooks.model_mechanisms import declare_dynamics
+
     from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec
     from nof1_causal_lab.models.likelihoods import observation_law
-    from nof1_causal_lab.models.model_mechanisms import declare_dynamics
-    from nof1_causal_lab.models.prior_planning import complete_model
 
     manifest = set(model.manifest_indicator_order)
     model = model.revised(
@@ -162,57 +162,6 @@ def complete_test_model(model, *, self_limiting=(), hill_edges=()):
     return complete_model(authored)
 
 
-def make_mock_session_factory(responses: list[str]):
-    """Create a mock ``ScopedSessionFactory``-shaped object for tests.
-
-    When ``.open(..., tools=[...])`` is entered and ``.turn()`` is called,
-    the mock consumes the next canned response, invokes the first tool
-    with it (so ``make_context_tool`` capture dicts populate the same way
-    they do in the real tool loop), and returns it as the turn completion.
-
-    """
-    from contextlib import asynccontextmanager
-
-    from nof1_causal_lab.utils.agent_session import AgentResult, TurnResult
-    from nof1_causal_lab.utils.llm import LLMTrace
-
-    call_count = [0]
-
-    class _MockSession:
-        def __init__(self, tools):
-            self._tools = tools or []
-            self._last_completion = ""
-
-        async def turn(self, user_message: str) -> TurnResult:
-            idx = min(call_count[0], len(responses) - 1)
-            call_count[0] += 1
-            response = responses[idx]
-
-            if self._tools:
-                tool = self._tools[0]
-                props = tool.parameters.get("properties", {})
-                required = tool.parameters.get("required", [])
-                param_name = required[0] if required else next(iter(props), None)
-                if param_name:
-                    await tool(**{param_name: response})
-                else:
-                    await tool(response)
-
-            self._last_completion = response
-            return TurnResult(completion=response)
-
-        @property
-        def result(self) -> AgentResult:
-            return AgentResult(completion=self._last_completion, trace=LLMTrace())
-
-    class _MockFactory:
-        @asynccontextmanager
-        async def open(self, *, system_prompt=None, tools=None, log_label=None):
-            yield _MockSession(tools)
-
-    return _MockFactory()
-
-
 def named_prior_payloads(model, proposals):
     """Build ID-keyed compiler inputs from readable labels in a test's prior table."""
     ids = {parameter.name: parameter.id for parameter in model.parameters}
@@ -239,7 +188,7 @@ def declare_test_dynamics(
     model, *, quartic_states=(), hill_edges=(), centered_states=(), additional_parameters=()
 ):
     """Author an explicit dynamics fixture with optional quartic, Hill, and center choices."""
-    from nof1_causal_lab.models.model_mechanisms import declare_dynamics
+    from notebooks.model_mechanisms import declare_dynamics
 
     declared = declare_dynamics(
         model,

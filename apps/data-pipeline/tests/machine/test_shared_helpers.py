@@ -1,7 +1,11 @@
+import pytest
+
 from nof1_causal_lab.machine.errors import TransitionExecutionError
 from nof1_causal_lab.machine.temporal.activity_errors import (
     as_non_retryable_application_error,
 )
+
+pytestmark = pytest.mark.contract
 
 
 def test_application_error_preserves_transition_diagnostics():

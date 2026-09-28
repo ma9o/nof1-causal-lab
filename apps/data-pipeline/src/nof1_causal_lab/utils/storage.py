@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     import fsspec
+    import polars as pl
 
 # ---------------------------------------------------------------------------
 # Backend detection
@@ -222,7 +223,7 @@ def read_json(path: str) -> Any:
     return json.loads(read_text(path))
 
 
-def read_parquet(path: str) -> Any:
+def read_parquet(path: str) -> pl.DataFrame:
     """Read a Polars DataFrame from a parquet path."""
     import polars as pl
 

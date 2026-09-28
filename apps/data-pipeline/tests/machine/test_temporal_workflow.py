@@ -1,10 +1,7 @@
-"""EpisodeWorkflow end-to-end against a local Temporal dev server.
+"""Durable four-action dispatch, atomic outcomes, and recovery from Git.
 
-Covers the durable-shell contract: moves serialize through the propose
-update, rejections and typed failures are journaled (not just applied
-moves), state only changes on applied transitions, and staleness follows
-provenance after an upstream rewrite. Stage runners are stubbed — the
-real ones are exercised in their own suites; here we test the machine.
+Only ingestion's LLM is stubbed. Model edits supply their definition directly;
+fit and simulation readiness failures exercise the real execution boundary.
 """
 
 import asyncio
@@ -16,23 +13,21 @@ from typing import Any
 
 import pytest
 
+from nof1_causal_lab.actions.contracts import (
+    EditModelRequest,
+    FitRequest,
+    PrepareDataRequest,
+    SimulateRequest,
+)
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.machine.derivations import read_model
-from nof1_causal_lab.machine.moves import (
-    RunOperation,
-    WriteArtifact,
-)
-from nof1_causal_lab.machine.status import MoveOutcome
-from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal
-from nof1_causal_lab.machine.temporal.messages import EpisodeInit, MoveRequest
-from nof1_causal_lab.machine.temporal.model_spec_checkpoints import (
-    latest_failed_model_spec_checkpoint_ref,
-    read_model_spec_checkpoint,
-)
+from nof1_causal_lab.machine.history import StudyRepository
+from nof1_causal_lab.machine.status import ActionOutcome
+from nof1_causal_lab.machine.store import ArtifactStore, read_model
 from nof1_causal_lab.machine.temporal.workflow import EpisodeWorkflow
-from tests.helpers import complete_test_model, graph_constructs
+from tests.git_fixtures import git_oid
+from tests.helpers import graph_constructs
 
-pytestmark = [pytest.mark.workflow, pytest.mark.timeout(240)]
+pytestmark = [pytest.mark.workflow, pytest.mark.timeout(60, method="thread")]
 _QUESTION = "does exercise improve sleep?"
 
 
@@ -70,31 +65,16 @@ def _measured_model() -> dict[str, Any]:
         {
             "id": "indicator:sleep",
             "name": "sleep_steps_proxy",
-            "how_to_measure": "Use the steps column as a placeholder sleep proxy.",
             "construct_polarity": "positive",
             "measurement_dtype": "continuous",
             "aggregation": "mean",
-            "source_columns": ["steps"],
-            "extraction_mode": "computed",
         }
     ]
     return model
 
 
-def _statistical_submission() -> dict[str, Any]:
-    model = complete_test_model(ModelSpec.model_validate(_measured_model())).model_dump(mode="json")
-    return {
-        "construct": graph_constructs(model)[0],
-        "edges": model["edges"],
-        "parameters": model["parameters"],
-        "distributions": model["distributions"],
-    }
-
-
 @pytest.fixture
 def machine_env(monkeypatch, tmp_path):
-    import nof1_causal_lab.recipes.construct_authoring as construct_admission
-    import nof1_causal_lab.recipes.incremental_model as construct_flow
     import nof1_causal_lab.utils.openrouter_client as openrouter_client
     from nof1_causal_lab.utils import config as config_module
     from nof1_causal_lab.utils import data as data_module
@@ -118,38 +98,7 @@ def machine_env(monkeypatch, tmp_path):
                 config.ingestion,
                 llm=LLMProfileConfig(harness="none", model="openrouter/mock-raw"),
             ),
-            structure_proposal=dataclasses.replace(
-                config.structure_proposal,
-                llm=LLMProfileConfig(harness="none", model="openrouter/mock-latent"),
-            ),
-            prior_elicitation=dataclasses.replace(
-                config.prior_elicitation,
-                llm=LLMProfileConfig(harness="none", model="openrouter/mock-model-spec"),
-            ),
         ),
-    )
-
-    def fake_admit_construct(state, contribution, *_args, **_kwargs):
-        admitted = construct_admission.trial_admission_state(state, contribution)
-        report = construct_admission.ConstructAdmissionReport(
-            name=contribution.name,
-            results=(),
-            timings=(),
-            outcome="ADMITTED",
-            annotations=(),
-            admitted=True,
-        )
-        return admitted, report
-
-    def fail_full_admission_validation(*_args, **_kwargs):
-        # Exercise the activity's typed error conversion and durable checkpoint.
-        raise ValueError("deliberate full-model validation failure")
-
-    monkeypatch.setattr(construct_flow, "admit_construct", fake_admit_construct)
-    monkeypatch.setattr(
-        construct_admission,
-        "validate_full_admission_state",
-        fail_full_admission_validation,
     )
 
     async def fake_call_model(model_name, messages, tools=None, config=None, log_label=None):
@@ -174,7 +123,7 @@ def machine_env(monkeypatch, tmp_path):
                                         {
                                             "code": (
                                                 "result_df = pl.read_csv(Path(DATA_DIR) / "
-                                                "'observations.csv')\n"
+                                                "'0/observations.csv')\n"
                                                 "result_df = result_df.with_columns("
                                                 "pl.col('timestamp').str.strptime(pl.Datetime))"
                                             )
@@ -220,88 +169,22 @@ def machine_env(monkeypatch, tmp_path):
                 "time": 0.25,
                 "stop_reason": "tool_calls",
             }
-        tool_name = tools[0].name if tools else ""
-        if tool_name == "validate_measurement_structure":
-            return {
-                "message": {
-                    "role": "assistant",
-                    "content": "",
-                    "tool_calls": [
-                        {
-                            "id": "call-measurement",
-                            "type": "function",
-                            "function": {
-                                "name": "validate_measurement_structure",
-                                "arguments": json.dumps(
-                                    {"model_json": json.dumps(_measured_model())}
-                                ),
-                            },
-                        }
-                    ],
-                },
-                "completion": "",
-                "usage": {"input_tokens": 3, "output_tokens": 5, "reasoning_tokens": None},
-                "model": model_name,
-                "time": 0.25,
-                "stop_reason": "tool_calls",
-            }
-        if "submit_construct" in tool_names:
-            return {
-                "message": {
-                    "role": "assistant",
-                    "content": "",
-                    "tool_calls": [
-                        {
-                            "id": "call-submit-construct",
-                            "type": "function",
-                            "function": {
-                                "name": "submit_construct",
-                                "arguments": json.dumps(_statistical_submission()),
-                            },
-                        }
-                    ],
-                },
-                "completion": "",
-                "usage": {"input_tokens": 3, "output_tokens": 5, "reasoning_tokens": None},
-                "model": model_name,
-                "time": 0.25,
-                "stop_reason": "tool_calls",
-            }
-        return {
-            "message": {
-                "role": "assistant",
-                "content": "",
-                "tool_calls": [
-                    {
-                        "id": "call-latent",
-                        "type": "function",
-                        "function": {
-                            "name": "validate_latent_structure",
-                            "arguments": json.dumps({"model_json": json.dumps(_proposed_model())}),
-                        },
-                    }
-                ],
-            },
-            "completion": "",
-            "usage": {"input_tokens": 3, "output_tokens": 5, "reasoning_tokens": None},
-            "model": model_name,
-            "time": 0.25,
-            "stop_reason": "tool_calls",
-        }
+        raise AssertionError(f"Unexpected authoring call: {tool_names}")
 
     monkeypatch.setattr(openrouter_client, "call_model", fake_call_model)
     return workspace_id
 
 
-def test_episode_workflow_journey(machine_env):
+def test_episode_workflow_journey(machine_env, monkeypatch):
     workspace_id = machine_env
 
     async def scenario():
         from temporalio.testing import WorkflowEnvironment
 
+        from nof1_causal_lab import episode_api
         from nof1_causal_lab.machine.temporal.client import pydantic_data_converter
         from nof1_causal_lab.machine.temporal.worker import (
-            build_model_spec_simulation_worker,
+            build_model_checks_worker,
             build_openrouter_worker,
             build_worker,
         )
@@ -309,102 +192,146 @@ def test_episode_workflow_journey(machine_env):
         env = await WorkflowEnvironment.start_local(data_converter=pydantic_data_converter)
         try:
             async with (
-                build_worker(env.client, task_queue="test-episodes"),
+                build_worker(env.client),
+                build_model_checks_worker(env.client),
                 build_openrouter_worker(env.client),
-                build_model_spec_simulation_worker(env.client),
+                asyncio.timeout(30),
             ):
-                handle = await env.client.start_workflow(
-                    EpisodeWorkflow.run,
-                    EpisodeInit(workspace_id=workspace_id),
-                    id=f"episode-{workspace_id}",
-                    task_queue="test-episodes",
-                )
+                monkeypatch.setenv("EPISODE_FACADE_READ_ONLY", "0")
+                monkeypatch.setattr(episode_api, "_client", env.client)
+                handle = await episode_api._episode_handle(workspace_id)
 
-                async def propose(move, **kwargs):
-                    return await handle.execute_update(
-                        "propose",
-                        MoveRequest(move=move, **kwargs),
-                        result_type=MoveOutcome,
+                async def execute(request):
+                    receipt = await episode_api.execute_scientific_action(workspace_id, request)
+                    assert set(receipt.model_dump()) == {"attempt_id"}
+                    outcome = await handle.get_update_handle(
+                        str(receipt.attempt_id), result_type=ActionOutcome
+                    ).result()
+                    polled = await episode_api.poll_scientific_action(
+                        workspace_id, receipt.attempt_id
                     )
+                    assert polled.done
+                    assert (polled.body is not None) == (outcome.status == "applied")
+                    assert polled.messages[0].label == f"{request.action.upper()}_STARTED"
+                    assert polled.messages[-1].level == (
+                        "info" if outcome.status == "applied" else "error"
+                    )
+                    persisted = StudyRepository(workspace_id).dispatched_attempt(receipt.attempt_id)
+                    assert persisted is not None
+                    assert persisted.commit_id == outcome.commit_id
+                    return outcome
 
-                # 1. Illegal move first: rejected AND journaled.
-                rejected = await propose(RunOperation(operation_id="measurement_structure"))
-                assert rejected.status == "rejected"
-                assert "model" in rejected.reason
-
-                # 2. Root write enables downstream.
-                applied = await propose(
-                    WriteArtifact(artifact_id="model", expected_model_version=0),
-                    payload={"question": _QUESTION},
+                rejected = await execute(
+                    EditModelRequest(
+                        expected_revision=git_oid(42),
+                        model=ModelSpec(question=_QUESTION),
+                    )
                 )
-                assert applied.status == "applied"
-                assert applied.state.has("model")
+                assert rejected.status == "rejected"
+                assert rejected.reason
 
-                # 3. Free navigation through enabled transitions (stubs).
-                for artifact_id in (
-                    "raw_data",
-                    "latent_structure",
-                    "measurement_structure",
-                    "measurements",
-                ):
-                    outcome = await propose(RunOperation(operation_id=artifact_id))
-                    assert outcome.status == "applied", (artifact_id, outcome)
-
-                # 4. Typed stage failure: raised, state unchanged.
+                initial = await execute(
+                    EditModelRequest(
+                        expected_revision=None,
+                        model=ModelSpec(question=_QUESTION),
+                    )
+                )
+                assert initial.status == "applied"
+                prepared = await execute(PrepareDataRequest(
+                    source={"files": ["observations.csv"]},
+                    preparation={"default_window": "1d", "variables": [{
+                        "id": "indicator:sleep", "name": "sleep_steps_proxy",
+                        "measurement_dtype": "continuous", "aggregation": "mean",
+                        "how_to_measure": "Read the steps column", "source_columns": ["steps"],
+                        "extraction_mode": "computed",
+                    }]},
+                ))
+                assert prepared.status == "applied", prepared
+                assert prepared.state.has("panel")
+                assert prepared.state.has("data_profile")
+                edited = await execute(EditModelRequest(
+                    expected_revision=initial.state.current["model"].revision,
+                    model=ModelSpec.model_validate(_measured_model()),
+                ))
+                assert edited.status == "applied", edited
+                model_revision = edited.state.current["model"].revision
                 before = (await handle.query(EpisodeWorkflow.get_state)).current
-                raised = await propose(RunOperation(operation_id="statistical_model_spec"))
-                assert raised.status == "raised"
-                assert raised.error_type == "ModelCompileError", raised.error_message
-                assert "deliberate full-model validation failure" in raised.error_message
-                assert "report" in raised.diagnostics
-                after = (await handle.query(EpisodeWorkflow.get_state)).current
-                assert after == before
 
-                # 5. A question revision invalidates extraction, preserving raw data.
+                # Both numerical actions reject incomplete definitions before any numerical work.
+                for request in (
+                    FitRequest(
+                        model_revision=model_revision, panel_revision=before["panel"].revision
+                    ),
+                    SimulateRequest(model_revision=model_revision, start=0, end=1),
+                ):
+                    raised = await execute(request)
+                    assert raised.status == "raised", raised
+                    assert raised.error_type == "IncompleteModelError", raised.error_message
+                    assert (await handle.query(EpisodeWorkflow.get_state)).current == before
+
                 status = await handle.query(EpisodeWorkflow.get_status)
-                stale_before = {a.artifact_id for a in status.artifacts if a.stale}
-                assert stale_before == set()
+                assert set(status.actions) == {"edit_model", "prepare_data", "fit", "simulate"}
+                assert not any(artifact.stale for artifact in status.artifacts)
+
+                # The facade must recover both committed science and the latest
+                # attempt sequence, including failed attempts after the branch head.
+                previous_run_id = handle.first_execution_run_id
+                await handle.terminate()
+                handle = await episode_api._episode_handle(workspace_id)
+                assert handle.first_execution_run_id != previous_run_id
+                recovered = await handle.query(EpisodeWorkflow.get_status)
+                assert recovered.state == status.state
+                assert recovered.seq == status.seq
+
                 store = ArtifactStore(workspace_id)
-                model_version = before["model"].version
-                revised = read_model(store, model_version).model_dump(mode="json")
-                revised["question"] = "does caffeine harm sleep?"
-                rewritten = await propose(
-                    WriteArtifact(artifact_id="model", expected_model_version=model_version),
-                    payload=revised,
+                revised = read_model(store, model_revision).revised(
+                    question="does caffeine harm sleep?"
+                )
+                rewritten = await execute(
+                    EditModelRequest(expected_revision=model_revision, model=revised)
                 )
                 assert rewritten.status == "applied", rewritten
+                assert rewritten.seq == recovered.seq + 1
                 status = await handle.query(EpisodeWorkflow.get_status)
                 stale = {a.artifact_id for a in status.artifacts if a.stale}
-                assert "panel" in stale
+                assert "panel" not in stale
                 assert "model" not in stale
                 assert "raw_data" not in stale
 
-                # 6. Journal recorded every attempt, including the rejection
-                #    and the typed failure.
-                records = EpisodeJournal(workspace_id).read_all()
-                statuses = [record.status for record in records]
-                assert statuses == [
+                records = StudyRepository(workspace_id).attempts()
+                assert [record.status for record in records] == [
                     "rejected",
-                    "applied",  # initial model question
-                    "applied",  # ingestion
-                    "applied",  # latent-structure
-                    "applied",  # measurement-structure
-                    "applied",  # extraction
-                    "raised",  # model-spec
-                    "applied",  # model question revision
+                    "applied",
+                    "applied",
+                    "applied",
+                    "raised",
+                    "raised",
+                    "applied",
                 ]
-                assert records[-2].error_type == "ModelCompileError"
-                assert "report" in records[-2].diagnostics
-                assert records[-2].resume is not None
-                assert records[-2].resume.kind == "model_spec"
-                checkpoint_ref = latest_failed_model_spec_checkpoint_ref(workspace_id)
-                assert checkpoint_ref is not None
-                read_model_spec_checkpoint(workspace_id, checkpoint_ref)
-
-                # Model history keeps the original question and each subsequent revision.
-                assert store.list_versions("model") == list(range(1, model_version + 2))
-                assert read_model(store, 1).question == _QUESTION
-                assert read_model(store, model_version + 1).question == revised["question"]
+                assert [record.action for record in records] == [
+                    "edit_model",
+                    "edit_model",
+                    "prepare_data",
+                    "edit_model",
+                    "fit",
+                    "simulate",
+                    "edit_model",
+                ]
+                assert records[3].operation_id is None
+                assert ModelSpec.model_validate(
+                    records[3].inputs["model"]
+                ) == ModelSpec.model_validate(_measured_model())
+                assert records[4].inputs["model_revision"] == model_revision
+                assert all("move" not in record.model_dump() for record in records)
+                assert (
+                    read_model(store, initial.state.current["model"].revision).question == _QUESTION
+                )
+                assert (
+                    read_model(store, rewritten.state.current["model"].revision).question
+                    == revised.question
+                )
+                await handle.signal(EpisodeWorkflow.close)
+                await handle.result()
         finally:
             await env.shutdown()
 

@@ -5,11 +5,16 @@ from __future__ import annotations
 from functools import cache, cached_property
 from typing import TYPE_CHECKING, Literal, cast
 
+from pydantic import TypeAdapter
+
 from nof1_causal_lab.artifacts.identification import IdentificationReport  # noqa: TC001
-from nof1_causal_lab.artifacts.identity import ArtifactRef, TransitionRef
+from nof1_causal_lab.artifacts.identity import GitOid, GitRef
+from nof1_causal_lab.artifacts.model_checks import ModelPredictiveReport
 from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorEstimate
-from nof1_causal_lab.machine.moves import freshness_report, is_stale
+from nof1_causal_lab.machine.artifact_files import artifact_file_spec, parquet_filename
+from nof1_causal_lab.machine.execution import freshness_report, is_stale
+from nof1_causal_lab.machine.history import StudyRepository
 from nof1_causal_lab.machine.snapshot_models import (
     FactSource,
     FitSummary,
@@ -20,10 +25,17 @@ from nof1_causal_lab.machine.snapshot_models import (
     Sourced,
     SourceValidity,
 )
-from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal, replay_state
-from nof1_causal_lab.machine.views import read_artifact_views, read_payload
+from nof1_causal_lab.machine.store import ArtifactStore
+from nof1_causal_lab.machine.views import (
+    measurements_view,
+    model_diagnostics_view,
+    raw_data_view,
+    read_payload,
+)
 
 if TYPE_CHECKING:
+    import polars as pl
+
     from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
     from nof1_causal_lab.artifacts.execution import (
         StructuralItemDisposition,
@@ -34,32 +46,15 @@ if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
     from nof1_causal_lab.artifacts.posterior import InferenceReport
     from nof1_causal_lab.artifacts.prior_predictive import PriorPredictiveResult
+    from nof1_causal_lab.artifacts.validation_report import (
+        DataProfileArtifact,
+        ValidationReportArtifact,
+    )
+    from nof1_causal_lab.machine.view_models import MeasurementsData, ModelDiagnostics, RawDataData
 
 
 class SnapshotRevisionNotFound(ValueError):
     """The requested sequence does not identify a committed model revision."""
-
-
-def read_revision(workspace_id: str, at_seq: int | None):
-    """Read the journal once and select one immutable committed state."""
-    records = EpisodeJournal(workspace_id).read_all()
-    committed = {record.seq for record in records if record.status == "applied"}
-    seq = max(committed, default=0) if at_seq is None else at_seq
-    if seq != 0 and seq not in committed:
-        raise SnapshotRevisionNotFound(f"Journal sequence {seq} is not a committed model revision")
-    state = replay_state(record for record in records if record.seq <= seq)
-    installed_at: dict[ArtifactId, int] = {}
-    retracted = set()
-    for record in records:
-        if record.seq > seq or record.status != "applied":
-            continue
-        for entry in record.retracted:
-            installed_at.pop(entry.artifact_id, None)
-            retracted.add(entry.artifact_id)
-        for info in record.produced:
-            installed_at[info.artifact_id] = record.seq
-            retracted.discard(info.artifact_id)
-    return seq, state, installed_at, sorted(retracted)
 
 
 class ModelReader:
@@ -70,24 +65,49 @@ class ModelReader:
     Lookup indexes are private to this reader; they are not a second public domain model.
     """
 
-    def __init__(self, workspace_id: str, *, at_seq: int | None = None):
-        self.seq, self.state, self.installed_at, self.retracted = read_revision(
-            workspace_id, at_seq
-        )
+    def __init__(self, workspace_id: str, *, at: GitOid | None = None, branch: str = "main"):
+        self.repository = StudyRepository(workspace_id)
+        try:
+            self.commit_id = self.repository.resolve(branch=branch, at=at)
+        except (ValueError, KeyError) as exc:
+            raise SnapshotRevisionNotFound(str(exc)) from exc
+        self.state = self.repository.state(self.commit_id)
+        self.seq = self.records[-1].seq if self.records else 0
+        self.retracted = {
+            item.artifact_id
+            for record in self.records
+            for item in record.retracted
+            if not self.state.has(item.artifact_id)
+        }
+        self.branch = branch
         self.store = ArtifactStore(workspace_id)
         self.workspace_id = workspace_id
         self.selected = cache(self._selected)
 
+    @cached_property
+    def records(self):
+        return self.repository.records(self.commit_id)
+
     def _selected(self, artifact_id: ArtifactId):
         return read_payload(
             self.store,
-            ArtifactRef(artifact_id=artifact_id, version=self.state.current[artifact_id].version),
+            artifact_id,
+            self.state.current[artifact_id].revision,
         )
 
-    def source(self, artifact_id: ArtifactId, pointer: str) -> FactSource:
+    def source(self, artifact_id: ArtifactId, pointer: str, *, filename: str | None = None) -> FactSource:
         return FactSource(
-            ref=ArtifactRef(
-                artifact_id=artifact_id, version=self.state.current[artifact_id].version
+            ref=GitRef(
+                workspace_id=self.workspace_id,
+                revision=self.state.current[artifact_id].revision,
+                path=filename or next(
+                    iter(
+                        {
+                            **artifact_file_spec(artifact_id).parquet,
+                            **artifact_file_spec(artifact_id).json,
+                        }.values()
+                    )
+                ),
             ),
             pointer=pointer,
             validity=SourceValidity.STALE
@@ -124,6 +144,108 @@ class ModelReader:
     def _indicator_ids(self):
         return {item.id for item in self.indicators()}
 
+    @cached_property
+    def _panel(self) -> pl.DataFrame | None:
+        if not self.state.has("panel"):
+            return None
+        return self.store.read_parquet_file(
+            "panel", self.state.current["panel"].revision, parquet_filename("panel", "panel")
+        )
+
+    @cached_property
+    def raw_data(self) -> Sourced[RawDataData] | None:
+        if not self.state.has("raw_data"):
+            return None
+        return self.fact(
+            raw_data_view(
+                self.store.read_parquet_table(
+                    "raw_data",
+                    self.state.current["raw_data"].revision,
+                    parquet_filename("raw_data", "raw"),
+                )
+            ),
+            "raw_data",
+            "",
+        )
+
+    @cached_property
+    def measurements(self) -> Sourced[MeasurementsData] | None:
+        if self._panel is None:
+            return None
+        return self.fact(measurements_view(self._panel, set(self._panel["indicator_id"].to_list())), "panel", "")
+
+    @cached_property
+    def data_metadata(self):
+        if not self.state.has("panel"):
+            return None
+        from nof1_causal_lab.actions.data_checks import read_data_metadata
+
+        return Sourced(value=read_data_metadata(self.store, self.state.current["panel"].revision),
+            source=self.source("panel", "", filename="metadata.json"))
+
+    @cached_property
+    def data_profile(self):
+        if not self.state.has("data_profile"):
+            return None
+        return self.fact(cast("DataProfileArtifact", self.selected("data_profile")), "data_profile", "")
+
+    @cached_property
+    def validation_report(self) -> Sourced[ValidationReportArtifact] | None:
+        if not self.state.has("validation_report"):
+            return None
+        report = cast("ValidationReportArtifact", self.selected("validation_report"))
+        return self.fact(
+            report.model_copy(
+                update={
+                    "indicators": {
+                        iid: audit
+                        for iid, audit in report.indicators.items()
+                        if iid in self._indicator_ids
+                    }
+                }
+            ),
+            "validation_report",
+            "",
+        )
+
+    @cached_property
+    def diagnostics(self) -> ModelDiagnostics | None:
+        if self.model is None:
+            return None
+        compatible = self.state.matches_inputs("validation_report", "panel", "model")
+        validation = self.validation_report if compatible else None
+        predictive = self.prior_predictive if compatible else None
+        return model_diagnostics_view(
+            self.model,
+            panel=self._panel if compatible else None,
+            validation=validation.value if validation else None,
+            predictive=predictive.value
+            if predictive and predictive.source.validity == SourceValidity.FRESH
+            else None,
+        )
+
+    def artifact_view(self, name: str):
+        """Select one projection without evaluating unrelated view builders."""
+        match name:
+            case "model":
+                return self.model
+            case "model_diagnostics":
+                return self.diagnostics
+            case "raw_data":
+                finding = self.raw_data
+            case "measurements":
+                finding = self.measurements
+            case "validation_report":
+                finding = self.validation_report
+            case "prior_predictive":
+                finding = self.prior_predictive
+            case "inference_report":
+                finding = self.inference_report
+            case _:
+                raise KeyError(name)
+        return finding.value if finding is not None else None
+
+    @cached_property
     def inference_report(self) -> Sourced[InferenceReport] | None:
         from nof1_causal_lab.artifacts.posterior import InferenceReport
         from nof1_causal_lab.machine.inference import (
@@ -134,11 +256,7 @@ class ModelReader:
         if not self.state.has("model"):
             return None
         record = inference_report_record(
-            (
-                record
-                for record in EpisodeJournal(self.store.workspace_id).read_all()
-                if record.seq <= self.seq
-            ),
+            self.records,
             self.state,
         )
         if record is None:
@@ -150,12 +268,17 @@ class ModelReader:
             if current
             else report.model_copy(update={"posterior_marginals": [], "posterior_pairs": []}),
             source=FactSource(
-                ref=TransitionRef(seq=record.seq),
+                ref=GitRef(
+                    workspace_id=self.workspace_id,
+                    revision=record.commit_id,
+                    path="logs/transition.json",
+                ),
                 pointer="/diagnostics/report",
                 validity=SourceValidity.FRESH if current else SourceValidity.STALE,
             ),
         )
 
+    @cached_property
     def prior_predictive(self) -> Sourced[PriorPredictiveResult] | None:
         from nof1_causal_lab.artifacts.prior_predictive import PriorPredictiveResult
         from nof1_causal_lab.machine.model_spec_results import (
@@ -165,11 +288,7 @@ class ModelReader:
 
         if self.model is None:
             return None
-        record = model_spec_record(
-            record
-            for record in EpisodeJournal(self.workspace_id).read_all()
-            if record.seq <= self.seq
-        )
+        record = model_spec_record(self.records)
         if record is None or (payload := record.diagnostics.get("prior_predictive")) is None:
             return None
         result = PriorPredictiveResult.model_validate(payload)
@@ -189,7 +308,11 @@ class ModelReader:
                 }
             ),
             source=FactSource(
-                ref=TransitionRef(seq=record.seq),
+                ref=GitRef(
+                    workspace_id=self.workspace_id,
+                    revision=record.commit_id,
+                    path="logs/transition.json",
+                ),
                 pointer="/diagnostics/prior_predictive",
                 validity=SourceValidity.FRESH
                 if model_spec_is_current(record, self.state, self.store)
@@ -217,7 +340,7 @@ class ModelReader:
         )
 
     def fit(self) -> Sourced[FitSummary] | None:
-        read = self.inference_report()
+        read = self.inference_report
         if read is None:
             return None
         posterior = read.value
@@ -253,65 +376,57 @@ class ModelReader:
         )
 
     def simulation(self):
-        """Return the most recent explicit simulation with its own pinned provenance."""
+        """Return the most recent explicit simulation with its own input revisions."""
         from nof1_causal_lab.artifacts.simulation import SimulationReport
-        from nof1_causal_lab.machine.moves import RunOperation
 
-        for record in reversed(EpisodeJournal(self.workspace_id).read_all()):
-            if record.seq > self.seq or record.status != "applied":
+        for record in reversed(self.records):
+            if record.operation_id != "simulate" or record.status != "applied":
                 continue
-            if not isinstance(record.move, RunOperation) or record.move.operation_id != "simulate":
-                continue
-            report = SimulationReport.model_validate(record.diagnostics["report"])
-            pins = {"model": report.model.version}
-            if report.comparison_panel_version is not None:
-                pins["panel"] = report.comparison_panel_version
+            report = TypeAdapter(SimulationReport).validate_python(record.diagnostics["report"])
+            pins: dict[ArtifactId, GitOid] = {"model": report.model.revision}
             current = all(
-                self.state.has(aid) and self.state.current[aid].version == version
-                for aid, version in pins.items()
+                self.state.has(aid) and self.state.current[aid].revision == revision
+                for aid, revision in pins.items()
             )
             return Sourced(
                 value=report,
                 source=FactSource(
-                    ref=TransitionRef(seq=record.seq),
+                    ref=GitRef(
+                        workspace_id=self.workspace_id,
+                        revision=record.commit_id,
+                        path="logs/transition.json",
+                    ),
                     pointer="/diagnostics/report",
                     validity=SourceValidity.FRESH if current else SourceValidity.STALE,
                 ),
             )
         return None
 
-    def specification(self):
-        """Cheap findings belong to the exact model revision that triggered them."""
-        from nof1_causal_lab.artifacts.checks import SpecificationReport
-
-        for record in reversed(EpisodeJournal(self.workspace_id).read_all()):
-            if record.seq > self.seq or record.status != "applied":
-                continue
-            if not any(
-                info.artifact_id == "model"
-                and self.state.has("model")
-                and info.version == self.state.current["model"].version
-                for info in record.produced
-            ):
-                continue
-            payload = record.diagnostics.get("specification_report")
-            if payload is None:
-                return None
-            return Sourced(
-                value=SpecificationReport.model_validate(payload),
-                source=FactSource(
-                    ref=TransitionRef(seq=record.seq),
-                    pointer="/diagnostics/specification_report",
-                    validity=SourceValidity.FRESH,
+    def check_finding[T](self, value: T | None, pointer: str) -> Sourced[T] | None:
+        """Source a check committed with this snapshot, without recomputation."""
+        if value is None:
+            return None
+        return Sourced(
+            value=value,
+            source=FactSource(
+                ref=GitRef(
+                    workspace_id=self.workspace_id, revision=self.commit_id, path="checks.json"
                 ),
-            )
-        return None
+                pointer=pointer,
+                validity=SourceValidity.STALE
+                if isinstance(value, ModelPredictiveReport) and value.panel_revision != (
+                    self.state.current["panel"].revision if self.state.has("panel") else None
+                ) else SourceValidity.FRESH,
+            ),
+        )
 
     def snapshot(self) -> ModelSnapshot:
         """Batch the aggregate reads and server-composed table facts at this revision."""
-        from nof1_causal_lab.machine.inference import inference_is_current
+        from nof1_causal_lab.machine.snapshot_models import ModelGraphView
+        from nof1_causal_lab.models.model_structure import model_graph_entities
 
         identification, dispositions = self.identification(), self.dispositions()
+        graph_constructs, graph_edges = model_graph_entities(self.model) if self.model else ((), ())
         blocking = set()
         if identification:
             for cid, finding in identification.value.non_identifiable.items():
@@ -328,62 +443,61 @@ class ModelReader:
             for cid in self._construct_ids
             if cid in disposition_by_id
         }
-        views = read_artifact_views(self.store, self.state, at_seq=self.seq)
-        measurements = views.measurements
-        if measurements:
-            measurements = measurements.model_copy(
-                update={
-                    "per_indicator_counts": {
-                        iid: count
-                        for iid, count in measurements.per_indicator_counts.items()
-                        if iid in self._indicator_ids
-                    },
-                }
+        can_simulate = False
+        if self.model is not None:
+            from nof1_causal_lab.models.ssm.predictive.parameters import validate_simulation_laws
+            from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
+                _ensure_gaussian_process_diffusion,
             )
-        validation = views.validation_report
-        if validation:
-            validation = validation.model_copy(
-                update={
-                    "indicators": {
-                        iid: audit
-                        for iid, audit in validation.indicators.items()
-                        if iid in self._indicator_ids
-                    },
-                }
-            )
+
+            try:
+                self.model.check_execution()
+                validate_simulation_laws(self.model)
+                _ensure_gaussian_process_diffusion(self.model)
+            except ValueError:
+                pass  # An incomplete or unsupported scientific model has no forward generator.
+            else:
+                can_simulate = True
         return ModelSnapshot(
             model=self.fact(self.model, "model", "") if self.model else None,
             context=SnapshotContext(
                 workspace_id=self.workspace_id,
                 seq=self.seq,
-                can_simulate=bool(
-                    self.model
-                    and self.model.distributions
-                    and self.model.time_points
-                    and inference_is_current(self.state)
-                    and identification
-                    and identification.value.estimable_treatments
-                ),
+                commit_id=self.commit_id,
+                branch=self.branch,
+                can_simulate=can_simulate,
                 state=self.state,
-                artifacts=freshness_report(self.state),
-                installed_at=self.installed_at,
-                retracted=self.retracted,
+                artifacts=[
+                    item.model_copy(update={"retracted": item.artifact_id in self.retracted})
+                    for item in freshness_report(self.state)
+                ],
             ),
             data=ModelData(
-                raw_data=self.fact(views.raw_data, "raw_data", "") if views.raw_data else None,
-                measurements=self.fact(measurements, "panel", "") if measurements else None,
+                raw_data=self.raw_data,
+                measurements=self.measurements,
+                metadata=self.data_metadata,
+                profile=self.data_profile,
             ),
             findings=ModelFindings(
                 identification=identification,
                 dispositions=dispositions,
-                graph_status=graph_status,
-                validation_report=self.fact(validation, "validation_report", "")
-                if validation
-                else None,
-                prior_predictive=self.prior_predictive(),
-                diagnostics=views.model_diagnostics,
+                graph=ModelGraphView(
+                    construct_ids=tuple(item.id for item in graph_constructs),
+                    edge_ids=tuple(item.id for item in graph_edges),
+                    status=graph_status,
+                ),
+                validation_report=self.validation_report,
+                prior_predictive=self.prior_predictive,
+                diagnostics=self.diagnostics,
                 fit=self.fit(),
                 simulation=self.simulation(),
-                specification=self.specification(),
+                specification=self.check_finding(
+                    self.state.checks.specification if self.state.checks else None,
+                    "/specification",
+                ),
+                predictive=self.check_finding(
+                    self.state.checks.predictive if self.state.checks else None,
+                    "/predictive",
+                ),
             ),
         )

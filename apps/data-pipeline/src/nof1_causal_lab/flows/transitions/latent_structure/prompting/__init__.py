@@ -1,1 +1,0 @@
-"""latent-structure prompt modules."""

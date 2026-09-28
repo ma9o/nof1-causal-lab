@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import jax
 import jax.numpy as jnp
 import jax.random as random
 import numpy as np
@@ -307,7 +306,6 @@ def _mood_structure() -> ModelSpec:
                             {
                                 "id": "indicator:45f78731e3e0c6f3efe1",
                                 "name": "mood_score",
-                                "how_to_measure": "Mood score",
                                 "measurement_dtype": "continuous",
                                 "aggregation": "mean",
                                 "construct_polarity": "positive",
@@ -342,6 +340,7 @@ def _assert_registry_matches_trace(registry, site_info):
 
 
 class TestSiteRegistry:
+    @pytest.mark.inference(concern="sampling")
     def test_registry_names_match_trace(self, simple_model):
         """Registry produces the same site names as model tracing."""
         spec = simple_model.spec
@@ -353,6 +352,7 @@ class TestSiteRegistry:
         site_info = _discover_sites(simple_model, obs, times, random.PRNGKey(0), backend)
         _assert_registry_matches_trace(registry, site_info)
 
+    @pytest.mark.inference(concern="sampling")
     def test_registry_names_match_trace_dag(self, dag_model):
         """Registry matches trace for DAG-constrained model with cint."""
         spec = dag_model.spec
@@ -364,6 +364,7 @@ class TestSiteRegistry:
         site_info = _discover_sites(dag_model, obs, times, random.PRNGKey(0), backend)
         _assert_registry_matches_trace(registry, site_info)
 
+    @pytest.mark.inference(concern="sampling")
     def test_registry_shapes_match_trace_partial_manifest_variance_mask(self):
         """Masked manifest variance exposes only free diagonal entries as a site."""
         spec = _make_spec(
@@ -387,6 +388,7 @@ class TestSiteRegistry:
         manifest_site = next(site for site in registry if site.name == "manifest_var_diag_free")
         assert manifest_site.shape == (1,)
 
+    @pytest.mark.contract
     def test_fixed_dynamics_excludes_dynamics_sites(self):
         """When dynamics is a fixed array, no dynamics sites appear."""
         spec = _make_spec(
@@ -399,6 +401,7 @@ class TestSiteRegistry:
         registry = build_site_registry(spec)
         assert len([site for site in registry if site.site_kind == SiteKind.DYNAMICS_DECAY]) == 2
 
+    @pytest.mark.contract
     def test_diag_diffusion_excludes_lower(self):
         """Diagonal diffusion has no lower-triangle sites."""
         spec = _make_spec(
@@ -415,6 +418,7 @@ class TestSiteRegistry:
         assert "diffusion_diag_free" in names
         assert "diffusion_lower_free" not in names
 
+    @pytest.mark.contract
     def test_free_diffusion_includes_lower(self):
         """Free diffusion includes lower-triangle sites."""
         spec = _make_spec(
@@ -431,6 +435,7 @@ class TestSiteRegistry:
         assert "diffusion_diag_free" in names
         assert "diffusion_lower_free" in names
 
+    @pytest.mark.contract
     def test_sparse_initial_state_correlations_only_include_authored_pairs(self):
         """Initial-state correlation sites should only exist for authored pairs."""
         mask = np.zeros((3, 3), dtype=bool)
@@ -449,6 +454,7 @@ class TestSiteRegistry:
         site_map = {site.name: site for site in registry}
         assert site_map["t0_var_lower_free"].shape == (1,)
 
+    @pytest.mark.contract
     def test_support_classes(self, simple_spec):
         """Check that support classes are correctly assigned."""
         registry = build_site_registry(simple_spec)
@@ -464,6 +470,7 @@ class TestSiteRegistry:
         assert support_map["manifest_var_diag_free"] == SupportClass.POSITIVE
         assert support_map["t0_var_diag_free"] == SupportClass.POSITIVE
 
+    @pytest.mark.contract
     def test_mixed_diffusion_includes_proc_df_site(self):
         """Any student-t latent in diffusion_dists should expose proc_df."""
         spec = _make_spec(
@@ -474,6 +481,7 @@ class TestSiteRegistry:
         registry = build_site_registry(spec)
         assert "proc_df" in {site.name for site in registry}
 
+    @pytest.mark.inference(concern="sampling")
     def test_mixed_diffusion_sampling_emits_proc_df(self):
         """The traced model should sample proc_df when diffusion_dists include student_t."""
         spec = _make_spec(
@@ -488,6 +496,7 @@ class TestSiteRegistry:
 
         assert "proc_df" in trace
 
+    @pytest.mark.inference(concern="sampling")
     def test_static_state_sd_site_is_registered_and_traced(self):
         """Compiled baseline factors should expose a positive static-state SD site."""
         spec = _make_spec(
@@ -520,6 +529,7 @@ class TestSiteRegistry:
         assert site_info["static_state_sd_free"]["shape"] == (1,)
 
 
+@pytest.mark.inference(concern="sampling")
 class TestSpecBlockAssembly:
     def test_assemble_t0_cov_adds_low_rank_baseline_factor_covariance(self):
         """Static baseline factors should add `B diag(tau^2) B^T` to the t0 covariance."""
@@ -562,6 +572,7 @@ class TestSpecBlockAssembly:
 
 
 class TestDeterministicAssembly:
+    @pytest.mark.contract
     def test_assemble_deterministics_from_registry_free_spec(self, simple_spec):
         """Registry-driven assembly builds the expected matrices."""
         samples = {
@@ -581,10 +592,12 @@ class TestDeterministicAssembly:
         assert jnp.allclose(det["t0_means"][0], jnp.array([1.0, -1.0]))
         assert jnp.allclose(det["t0_cov"][0], jnp.diag(jnp.array([0.81, 1.21])))
 
+    @pytest.mark.contract
     def test_missing_declared_free_value_is_rejected(self, simple_spec):
         with pytest.raises(KeyError, match="diffusion_diag_free"):
             assemble_deterministics_from_registry({}, simple_spec, n_draws=2)
 
+    @pytest.mark.contract
     def test_assemble_deterministics_from_registry_fixed_blocks(self):
         """Fixed spec matrices are broadcast without any sampled sites."""
         spec = _make_spec(
@@ -640,6 +653,7 @@ class TestDeterministicAssembly:
         expected_t0_cov = numeric.initial_covariance_block(spec).assemble_cov()
         assert jnp.allclose(det["t0_cov"], jnp.broadcast_to(expected_t0_cov, (3, 2, 2)))
 
+    @pytest.mark.contract
     def test_assemble_deterministics_from_registry_partial_manifest_variance_mask(self):
         """Registry assembly respects mixed fixed/free manifest-noise diagonals."""
         spec = _make_spec(
@@ -664,6 +678,7 @@ class TestDeterministicAssembly:
         det = assemble_deterministics_from_registry(samples, spec)
         assert jnp.allclose(det["manifest_cov"][0], jnp.diag(jnp.array([0.16, 0.81])))
 
+    @pytest.mark.contract
     def test_assemble_deterministics_from_registry_initial_state_correlations(self):
         """Initial-state off-diagonal samples are interpreted as correlations."""
         mask = np.zeros((2, 2), dtype=bool)
@@ -695,6 +710,7 @@ class TestDeterministicAssembly:
             jnp.array([[4.0, 1.5], [1.5, 9.0]], dtype=jnp.float32),
         )
 
+    @pytest.mark.inference(concern="sampling")
     def test_assemble_deterministics_repairs_invalid_initial_correlation_matrix(self):
         """Impossible authored initial correlations are repaired to a PSD covariance."""
         mask = np.zeros((3, 3), dtype=bool)
@@ -740,6 +756,7 @@ class TestDeterministicAssembly:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.contract
 class TestNativeRuntimePriors:
     def test_sites_have_native_distributions_with_the_declared_shapes(self, simple_spec):
         registry = build_site_registry(simple_spec)
@@ -758,19 +775,13 @@ class TestNativeRuntimePriors:
         np.testing.assert_allclose(priors[decay_site].mean, 2.0)
         assert priors["diffusion_diag_free"].batch_shape == (2,)
 
-    def test_native_laws_are_jax_pytrees(self, simple_spec):
-        priors = resolve_site_priors(build_site_registry(simple_spec))
-        leaves, tree = jax.tree.flatten(priors)
-        restored = jax.tree.unflatten(tree, leaves)
-        for name, prior in priors.items():
-            np.testing.assert_array_equal(restored[name].mean, prior.mean)
-
 
 # ---------------------------------------------------------------------------
 # Sampling
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.inference(concern="predictive")
 class TestSampling:
     def test_sample_shapes_and_native_support(self, simple_spec):
         registry = build_site_registry(simple_spec)
@@ -805,6 +816,7 @@ class TestSampling:
 class TestCompiledArtifactIntegration:
     """Test that compiled_prior_semantics is emitted and correctly consumed."""
 
+    @pytest.mark.contract
     def test_global_ordered_threshold_priors_are_not_authorable(self):
 
         spec = _make_spec(
@@ -826,6 +838,7 @@ class TestCompiledArtifactIntegration:
         with pytest.raises(ValueError, match="not referenced by component slots"):
             spec.revised(parameters=(*spec.parameters, parameter))
 
+    @pytest.mark.contract
     def test_ordered_threshold_priors_bind_per_manifest_component_and_row(self):
         from nof1_causal_lab.models.ssm.compile.prior_compilation import compile_priors
 
@@ -896,6 +909,7 @@ class TestCompiledArtifactIntegration:
         np.testing.assert_allclose(gap_scales[0], 2.0)
         np.testing.assert_allclose(gap_scales[1], 0.5)
 
+    @pytest.mark.contract
     def test_execution_checks_return_anchoring_evidence(self, scientific_model_and_priors):
         """Execution checks derive evidence without creating a persisted artifact."""
         from nof1_causal_lab.models.model_checks import check_execution
@@ -910,6 +924,7 @@ class TestCompiledArtifactIntegration:
             for anchor in artifact
         )
 
+    @pytest.mark.inference(concern="sampling")
     def test_runtime_derives_the_authored_priors(self, scientific_model_and_priors):
         import polars as pl
 

@@ -25,6 +25,8 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from nof1_causal_lab.models.ssm.execution.dynamical_model import HeterogeneousObservation
+    from nof1_causal_lab.models.ssm.execution.observation_operator import ObservationOperator
+    from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
 
 class PredictiveObservationMeanOverflow(RuntimeError):
@@ -54,7 +56,7 @@ class PredictiveObservationMeanOverflow(RuntimeError):
         if n_nonfinite:
             cause = (
                 f"linear predictor contains {n_nonfinite} non-finite (NaN/Inf) values for "
-                f"{manifest_summary} — the latent simulation diverged under these priors "
+                f"{manifest_summary} — the latent simulation diverged under these model laws "
                 "(rein in feedback edge gains, diffusion, or persistence), "
                 f"max finite eta={max_linear_predictor:.2f}"
             )
@@ -66,7 +68,7 @@ class PredictiveObservationMeanOverflow(RuntimeError):
         super().__init__(
             "Predictive log-link mean overflow before observation sampling: "
             f"{cause}, first bad time index={first_bad_time_index}; "
-            f"{len(failing_draw_indices)} of {n_draws} prior draws affected — "
+            f"{len(failing_draw_indices)} of {n_draws} predictive draws affected — "
             "a small fraction means heavy tails (tighten sigma/upper bounds); "
             "most draws means the central mass is wrong (lower the loading/edge-gain "
             "or intercept location feeding this log link)."
@@ -158,7 +160,7 @@ def _sample_observations_for_draw(
     rng_key: jax.Array,
     *,
     observation_model: HeterogeneousObservation,
-    observation_operator,
+    observation_operator: ObservationOperator | None,
     observation_mask: jnp.ndarray | None,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Sample one observation trajectory from precomputed linear predictors."""
@@ -172,7 +174,7 @@ def _sample_observations_for_draw(
         random.split(key_point, linear_predictors.shape[0]), linear_predictors
     )
 
-    if not observation_operator.requires_interval_summary_handling:
+    if observation_operator is None or not observation_operator.requires_interval_summary_handling:
         effective_mask = _resolve_effective_observation_mask(
             point_samples.shape,
             None,
@@ -217,16 +219,20 @@ def _sample_observations_for_draw(
     )
 
 
-def _predictive_observation_grid(times, n_manifest, observation_support, observation_mask):
+def _predictive_observation_grid(
+    times: jax.Array,
+    n_manifest: int,
+    observation_support: ObservationSupportRuntime | None,
+    observation_mask: jax.Array | None,
+) -> tuple[jax.Array | None, ObservationOperator | None]:
     observation_operator = compile_observation_operator(observation_support)
     mask = None if observation_mask is None else jnp.asarray(observation_mask, dtype=bool)
     if mask is not None and mask.shape != (times.shape[0], n_manifest):
         raise ValueError(
             "observation_mask must have shape (T, n_manifest) matching the predictive grid"
         )
-    if observation_operator.requires_interval_summary_handling:
+    if observation_operator is not None and observation_operator.requires_interval_summary_handling:
         support = observation_operator.observation_support
-        assert support is not None
         if support.anchor_times.shape != times.shape or not bool(
             jnp.allclose(support.anchor_times, times)
         ):

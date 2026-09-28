@@ -1,119 +1,111 @@
-"""Explicit simulation designs and their independently recorded results."""
+"""Forward generation from a model's current laws and its recorded evidence."""
 
 from __future__ import annotations
 
 from itertools import pairwise
-from typing import Annotated, Literal, Self
+from typing import Self
 
-from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, model_validator
 
-from .identity import ConstructId, IndicatorId, ModelRevision  # noqa: TC001
-from .posterior_diagnostics import PosteriorPredictiveChecks  # noqa: TC001
-from .scenarios import ScenarioClamp, ScenarioRequest, SimulationResult  # noqa: TC001
+from .checks import PredictiveCheckFinding  # noqa: TC001
+from .identity import ConstructId, GitRef, IndicatorId  # noqa: TC001
+from .observations import ObservationSpec  # noqa: TC001
+from .predictive_provenance import PredictiveLawProvenance  # noqa: TC001
+from .scenarios import CausalEffectResult, InterventionSpec  # noqa: TC001
 
 
 class SimulationSpec(BaseModel):
-    """A replicated study generated from the selected model's current laws."""
+    """Generate through end, optionally starting earlier and applying dated interventions."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    kind: Literal["trajectory"] = "trajectory"
-    times: tuple[FiniteFloat, ...] = Field(min_length=2)
-    draws: int = Field(default=100, ge=1, le=10000)
-    seed: int = Field(default=0, ge=0)
-    edge_contrasts: bool = False
-    initial_state: Literal["new_study", "retained", "fixed", "equilibrium"] = "new_study"
-    state_time: FiniteFloat | None = None
-    state_values: dict[ConstructId, FiniteFloat] = Field(default_factory=dict)
-    process_noise: bool = True
-    observation_noise: bool = True
-    interventions: tuple[ScenarioClamp, ...] = ()
-    context: Literal["exploration", "calibration", "prediction"] = "exploration"
-    checks: tuple[Literal["dynamics", "measurement", "data_comparison"], ...] = (
-        "dynamics",
-        "measurement",
-        "data_comparison",
+    end: FiniteFloat = Field(description="Absolute end time in model days.")
+    start: FiniteFloat | None = Field(
+        default=None,
+        description="Absolute start time in model days; omitted uses the model's latest state time, or zero for its initial-state law.",
     )
-    confinement_growth_ratio: FiniteFloat = Field(default=5.0, gt=1)
-    confinement_failure_fraction: FiniteFloat = Field(default=0.01, gt=0, le=1)
-    comparison_time_offset: FiniteFloat = 0.0
+    interventions: tuple[InterventionSpec, ...] = ()
 
     @model_validator(mode="after")
-    def conditioning_contract(self) -> Self:
-        if self.initial_state == "retained":
-            if self.state_time is None or self.times[0] != self.state_time:
-                raise ValueError(
-                    "A retained start requires state_time equal to the first design time"
-                )
-        elif self.state_time is not None:
-            raise ValueError("state_time belongs to a retained-state start")
-        if (self.initial_state == "fixed") != bool(self.state_values):
-            raise ValueError("A fixed start requires state_values; other starts do not accept them")
-        if self.edge_contrasts and (
-            self.initial_state != "new_study" or not self.process_noise or self.interventions
+    def validate_window(self) -> Self:
+        if self.start is not None and self.end <= self.start:
+            raise ValueError("Simulation end must be after start")
+        for event in self.interventions:
+            if event.time > self.end or (self.start is not None and event.time < self.start):
+                raise ValueError("Interventions must occur within the simulation window")
+        if len({(event.target, event.time) for event in self.interventions}) != len(
+            self.interventions
         ):
-            raise ValueError(
-                "Edge-share calibration requires an unintervened new study with process noise"
-            )
-        for clamp in self.interventions:
-            for boundary in (clamp.from_day, clamp.to_day):
-                if boundary is not None and self.times[0] + boundary not in self.times:
-                    raise ValueError("Include intervention boundaries in the simulation time grid")
+            raise ValueError("A state can have only one intervention at each time")
         return self
 
-    @field_validator("times")
-    @classmethod
-    def increasing_times(cls, value: tuple[float, ...]) -> tuple[float, ...]:
-        if any(right <= left for left, right in pairwise(value)):
-            raise ValueError("Simulation times must be strictly increasing")
-        return value
 
-
-class CausalSimulationSpec(BaseModel):
-    """An identified paired scenario, certified against the selected production fit."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-    kind: Literal["causal"] = "causal"
-    query: ScenarioRequest
-    draws: int = Field(default=100, ge=1, le=10000)
-    seed: int = Field(default=0, ge=0)
-    process_noise: bool = False
-    observation_noise: bool = False
-
-
-type SimulationDesign = Annotated[
-    SimulationSpec | CausalSimulationSpec, Field(discriminator="kind")
-]
-
-
-class SimulationFinding(BaseModel):
-    """A measured quantity with the criterion used to interpret it."""
+class SimulationObservationLayout(BaseModel):
+    """Saved observation semantics and coordinates; generation truths remain separate."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    check: str
-    target: str
-    value: str
-    criterion: str
-    passed: bool | None
-    explanation: str
+    variables: tuple[ObservationSpec, ...]
+    support_start_times: str
+    support_end_times: str
+    mask: str
+
+    @model_validator(mode="after")
+    def resolved_variables(self) -> Self:
+        if len({item.id for item in self.variables}) != len(self.variables):
+            raise ValueError("Simulation variables must have unique IDs")
+        if any(item.observation_window is None for item in self.variables):
+            raise ValueError("Simulation variables must retain resolved observation windows")
+        return self
 
 
 class SimulationReport(BaseModel):
-    """Evidence from one explicit simulation, separate from an inference report."""
+    """Generated histories and derived findings with their resolved execution coordinates."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    model: ModelRevision
-    design: SimulationDesign
-    comparison_panel_version: int | None = None
+    model: GitRef
+    design: SimulationSpec
+    times: tuple[FiniteFloat, ...] = Field(min_length=2)
+    draws: int = Field(ge=1)
+    seed: int = Field(ge=0)
     state_ids: tuple[ConstructId, ...]
     indicator_ids: tuple[IndicatorId, ...]
     parameter_draws: dict[str, str]
     latent_paths: str
     observations: str
-    findings: tuple[SimulationFinding, ...] = ()
-    predictive_checks: PosteriorPredictiveChecks | None = None
+    observation_layout: SimulationObservationLayout
+    law: PredictiveLawProvenance | None = None
     reference_latent_paths: str | None = None
     reference_observations: str | None = None
-    causal_result: SimulationResult | None = None
+    findings: tuple[PredictiveCheckFinding, ...] = ()
+    causal_result: CausalEffectResult | None = None
+    causal_unavailable_reason: str | None = None
+
+    @model_validator(mode="after")
+    def validate_histories(self) -> Self:
+        if self.indicator_ids != tuple(item.id for item in self.observation_layout.variables):
+            raise ValueError("Simulation observation schema must match its indicator order")
+        if any(b <= a for a, b in pairwise(self.times)) or self.times[-1] != self.design.end:
+            raise ValueError("Simulation times must increase through the requested end")
+        if self.design.start is not None and self.times[0] != self.design.start:
+            raise ValueError("Simulation times must begin at the requested start")
+        paired = self.reference_latent_paths is not None and self.reference_observations is not None
+        if bool(self.design.interventions) != paired or (
+            (self.reference_latent_paths is None) != (self.reference_observations is None)
+        ):
+            raise ValueError("Interventions require paired reference histories")
+        if self.causal_result is not None:
+            if not paired or self.causal_unavailable_reason is not None:
+                raise ValueError(
+                    "Certified effects require paired histories and no rejection reason"
+                )
+            targets = {
+                self.causal_result.outcome,
+                *(event.target for event in self.design.interventions),
+            }
+            if not targets <= self.causal_result.trajectories.keys():
+                raise ValueError("Causal trajectories must include the outcome and interventions")
+            if len(self.causal_result.time_grid_days) != len(self.times):
+                raise ValueError("Causal trajectories must align with the generated histories")
+        return self

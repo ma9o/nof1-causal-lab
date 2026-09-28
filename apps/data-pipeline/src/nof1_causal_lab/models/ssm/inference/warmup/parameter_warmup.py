@@ -34,6 +34,8 @@ if TYPE_CHECKING:
     from dynestyx.inference.particle_runtime import ParticleRuntime
 
     from nof1_causal_lab.models.ssm.inference.types import WarmupProposal
+    from nof1_causal_lab.models.ssm.inference.warmup.scipy_pathfinder import PathfinderDiagnostics
+    from nof1_causal_lab.models.ssm.model import SSMModel
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +52,7 @@ class ParameterWarmupResult:
     preconditioner_diagnostics: UncheckedJsonObject
     warmup_diagnostics: UncheckedJsonObject
     pathfinder_state: ScipyPathfinderResult | None
-    pathfinder_diagnostics: UncheckedJsonObject | None
+    pathfinder_diagnostics: PathfinderDiagnostics | None
 
 
 def _phase_elapsed(t0: float) -> float:
@@ -84,7 +86,7 @@ def _validate_initial_positions_override(
 
 
 def _pathfinder_preconditioner_diagnostics(
-    pathfinder_diagnostics: UncheckedJsonObject,
+    pathfinder_diagnostics: PathfinderDiagnostics,
 ) -> UncheckedJsonObject:
     return {
         "auto_preconditioner": True,
@@ -109,27 +111,27 @@ def _log_pathfinder_completion(
     *,
     phase_label: str,
     started_at: float,
-    pathfinder_diagnostics: UncheckedJsonObject,
+    pathfinder_diagnostics: PathfinderDiagnostics,
 ) -> None:
-    best_elbo = pathfinder_diagnostics.get("best_pathfinder_elbo")
-    elbo_spread = pathfinder_diagnostics.get("pathfinder_elbo_spread")
+    best_elbo = pathfinder_diagnostics["best_pathfinder_elbo"]
+    elbo_spread = pathfinder_diagnostics["pathfinder_elbo_spread"]
     logger.info(
         "%s: scipy_pathfinder complete in %.1fs "
         "(setup=%.1fs, jax_compile=%.1fs, runtime=%.1fs, best_elbo=%s, "
         "elbo_spread=%s, n_starts_finite=%s)",
         phase_label,
         _phase_elapsed(started_at),
-        float(pathfinder_diagnostics.get("pathfinder_setup_seconds", 0.0)),
-        float(pathfinder_diagnostics.get("pathfinder_jax_compile_seconds", 0.0)),
-        float(pathfinder_diagnostics.get("pathfinder_runtime_seconds", 0.0)),
-        f"{best_elbo:.2f}" if isinstance(best_elbo, (int, float)) else "n/a",
-        f"{elbo_spread:.2f}" if isinstance(elbo_spread, (int, float)) else "n/a",
-        pathfinder_diagnostics.get("n_pathfinder_starts_finite", "n/a"),
+        pathfinder_diagnostics["pathfinder_setup_seconds"],
+        pathfinder_diagnostics["pathfinder_jax_compile_seconds"],
+        pathfinder_diagnostics["pathfinder_runtime_seconds"],
+        f"{best_elbo:.2f}",
+        f"{elbo_spread:.2f}",
+        pathfinder_diagnostics["n_pathfinder_starts_finite"],
     )
 
 
 def prepare_parameter_warmup(
-    model,
+    model: SSMModel,
     observations: jnp.ndarray,
     times: jnp.ndarray,
     *,
@@ -179,7 +181,7 @@ def prepare_parameter_warmup(
     dim = int(bundle.initial_position.shape[0])
     dtype = bundle.initial_position.dtype
     pathfinder_state: ScipyPathfinderResult | None = None
-    pathfinder_diagnostics: UncheckedJsonObject | None = None
+    pathfinder_diagnostics: PathfinderDiagnostics | None = None
     init_positions: jnp.ndarray | None = None
     init_diagnostics: UncheckedJsonObject
     preconditioner_chol = parameter_preconditioner_chol

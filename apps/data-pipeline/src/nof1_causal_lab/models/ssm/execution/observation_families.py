@@ -176,8 +176,6 @@ def _infer_contiguous_levels(values: np.ndarray) -> int | None:
 def _coerce_distribution_family(
     dist: DistributionFamily | str,
 ) -> DistributionFamily:
-    if isinstance(dist, DistributionFamily):
-        return dist
     try:
         return DistributionFamily(dist)
     except ValueError as exc:
@@ -185,7 +183,7 @@ def _coerce_distribution_family(
 
 
 def _link_key(link: LinkFunction | str) -> str:
-    return link.value if isinstance(link, LinkFunction) else str(link)
+    return str(link)
 
 
 def _ordered_links(
@@ -933,8 +931,8 @@ _POSTERIOR_PREDICTIVE_SWITCH_INDEX: dict[tuple[DistributionFamily, LinkFunction]
 def _coerce_link_function(
     link: LinkFunction | str | None,
 ) -> LinkFunction | None:
-    if link is None or isinstance(link, LinkFunction):
-        return link
+    if link is None:
+        return None
     try:
         return LinkFunction(link)
     except ValueError as exc:

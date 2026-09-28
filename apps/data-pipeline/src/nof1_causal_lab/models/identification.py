@@ -9,8 +9,7 @@ from nof1_causal_lab.artifacts.identification import (
     IdentifiedTreatmentStatus,
     NonIdentifiableTreatmentStatus,
 )
-from nof1_causal_lab.models.model_inputs import identification_input
-from nof1_causal_lab.utils.identifiability import check_identifiability
+from nof1_causal_lab.utils.identifiability import check_identifiability, get_observed_constructs
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
@@ -19,10 +18,15 @@ if TYPE_CHECKING:
 def identify_model(model: ModelSpec) -> IdentificationReport:
     if model.default_outcome is None:
         return IdentificationReport(outcome=None)
-    inputs = identification_input(model)
     # ModelSpec permits nonlinear dynamics; a linear-IV argument cannot establish
     # identification for this model, including during partial authoring.
-    result = check_identifiability(inputs["graph"], inputs["observations"], iv_allowed=False)
+    result = check_identifiability(
+        model.constructs,
+        model.edges,
+        default_outcome=model.default_outcome,
+        observed_constructs=get_observed_constructs(model.constructs),
+        iv_allowed=False,
+    )
     by_name = {construct.name: construct.id for construct in model.constructs}
     return IdentificationReport(
         outcome=model.default_outcome,

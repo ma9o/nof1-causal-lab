@@ -1,4 +1,4 @@
-"""Small model-boundary checks; no fitting or trajectory simulation."""
+"""Native model execution across inference, warmup, simulation, and prediction."""
 
 from dataclasses import replace
 from importlib import import_module
@@ -100,6 +100,7 @@ def runtime(monkeypatch):
     ).runtime
 
 
+@pytest.mark.inference(concern="sampling")
 def test_sampler_context_is_a_dynestyx_model_pytree(runtime):
     context = runtime.context(runtime.initial_position, runtime.times)
     assert isinstance(context[0], dsx.DynamicalModel)
@@ -111,6 +112,7 @@ def test_sampler_context_is_a_dynestyx_model_pytree(runtime):
     assert shapes[1].shape == (2, 3)
 
 
+@pytest.mark.inference(concern="warmup")
 @pytest.mark.parametrize("supplied_path", [False, True])
 def test_warmup_gaussian_view_traces_with_scalar_state(runtime, supplied_path):
     """Trace the real library discretizer without executing matrix exponentials."""
@@ -137,6 +139,7 @@ def test_warmup_gaussian_view_traces_with_scalar_state(runtime, supplied_path):
     assert bias.shape == (3, 1)
 
 
+@pytest.mark.inference(concern="simulation")
 def test_model_keeps_nonlinear_drift(runtime):
     context = runtime.context(runtime.initial_position, runtime.times)
     declared = runtime.model(context)
@@ -153,6 +156,7 @@ def test_model_keeps_nonlinear_drift(runtime):
     np.testing.assert_allclose(declared.initial_condition.covariance_matrix, [[0.8]], atol=2e-6)
 
 
+@pytest.mark.inference(concern="sampling")
 def test_exact_target_and_parameter_gradient_trace_through_the_model(runtime):
     path = jnp.array([[0.1], [0.3], [-0.2]])
 
@@ -172,6 +176,7 @@ def test_exact_target_and_parameter_gradient_trace_through_the_model(runtime):
     assert factors.shape == (3,)
 
 
+@pytest.mark.inference(concern="sampling")
 def test_parameter_gradient_remains_dynamic_after_model_partition(runtime):
     previous, current = jnp.array([0.8]), jnp.array([0.9])
 
@@ -190,6 +195,7 @@ def test_parameter_gradient_remains_dynamic_after_model_partition(runtime):
     np.testing.assert_allclose(gradient, [expected], rtol=1e-5, atol=1e-6)
 
 
+@pytest.mark.inference(concern="sampling")
 def test_observation_model_keeps_partial_and_complete_missingness(runtime):
     context = runtime.context(runtime.initial_position, runtime.times)
     observation = runtime.model(context).observation_model(jnp.array([0.0]), None, runtime.times[0])
@@ -200,6 +206,8 @@ def test_observation_model_keeps_partial_and_complete_missingness(runtime):
     assert float(absent) == 0.0
 
 
+@pytest.mark.inference(concern="sampling")
+@pytest.mark.inference(concern="predictive")
 def test_native_discrete_law_samples_categories_from_predictors():
     from nof1_causal_lab.models.ssm.execution.contracts import MeasurementParams
     from nof1_causal_lab.models.ssm.execution.dynamical_model import HeterogeneousObservation
@@ -225,6 +233,7 @@ def test_native_discrete_law_samples_categories_from_predictors():
     assert np.isfinite(law.log_prob(jnp.array([2.0, 2.0])))
 
 
+@pytest.mark.inference(concern="simulation")
 def test_forward_simulation_passes_the_declared_model_to_the_ode_solver(monkeypatch):
     simulator = import_module("nof1_causal_lab.models.ssm.dynamics.simulator")
     from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec, compile_dynamics
@@ -276,6 +285,7 @@ def test_forward_simulation_passes_the_declared_model_to_the_ode_solver(monkeypa
     assert actual is paths
 
 
+@pytest.mark.inference(concern="simulation")
 def test_indexed_sde_keeps_its_brownian_path_and_uses_dynestyx_evolution(monkeypatch):
     simulator = import_module("nof1_causal_lab.models.ssm.dynamics.simulator")
     from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec, compile_dynamics

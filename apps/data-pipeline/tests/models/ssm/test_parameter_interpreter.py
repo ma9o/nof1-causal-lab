@@ -6,6 +6,7 @@ import jax.numpy as jnp
 import jax.random as random
 import numpy as np
 import numpyro.distributions as dist
+import pytest
 from numpyro import handlers
 
 from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
@@ -15,6 +16,7 @@ from nof1_causal_lab.models.ssm.structure.sites import make_site
 from tests.model_fixtures import full_dense_matrix_dynamics_spec, model_fixture
 
 
+@pytest.mark.inference(concern="predictive")
 def test_prior_draws_keep_native_values_and_the_existing_random_streams():
     sites = [
         make_site("tiny", (), SupportClass.POSITIVE, "diffusion", SiteKind.DIFFUSION_DIAG),
@@ -39,6 +41,7 @@ def test_prior_draws_keep_native_values_and_the_existing_random_streams():
         np.testing.assert_array_equal(samples["normal"][index], laws["normal"].sample(draw_key))
 
 
+@pytest.mark.inference(concern="sampling")
 def test_parameter_trace_preserves_site_order_shapes_and_public_deterministics():
     spec = model_fixture(n_latent=2, dynamics_spec=full_dense_matrix_dynamics_spec(2))
     model = SSMModel(spec)

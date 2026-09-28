@@ -40,7 +40,7 @@ class SSMParameterLayout:
             sites=sites,
             by_name={s.name: s for s in sites},
             static_factor_name_index={
-                name: idx for idx, name in enumerate(numeric.static_factor_names(spec) or [])
+                name: idx for idx, name in enumerate(numeric.static_factor_names(spec))
             },
         )
 

@@ -12,9 +12,29 @@ export interface paths {
         put?: never;
         /**
          * Execute Scientific Action
-         * @description Execute edit_model, prepare_data, fit, or simulate with explicit input revisions.
+         * @description Accept durable work and return its receipt; retrieve results by polling the attempt.
          */
         post: operations["execute_scientific_action_api_episodes__workspace_id__actions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/episodes/{workspace_id}/actions/{attempt_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Poll Scientific Action
+         * @description Read accumulated labels and the final scientific body without dispatching work.
+         */
+        get: operations["poll_scientific_action_api_episodes__workspace_id__actions__attempt_id__get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -32,16 +52,11 @@ export interface paths {
          * Get Model Snapshot
          * @description Batch canonical aggregates in one committed read transaction.
          *
-         *     Omit `at_seq` for the latest applied move, or select a committed journal sequence.
-         *     Zero selects the empty model. Rejected/raised attempts are not revisions (404).
-         *     Use the returned `context.seq` for subsequent aggregate or collection reads at the same revision.
+         *     Omit `at` for the selected branch head, or pass an exact Git commit ID.
+         *     Use `context.commit_id` to pin subsequent reads. Failed attempts retain logs without advancing scientific state.
          */
         get: operations["get_model_snapshot_api_episodes__workspace_id__model_get"];
-        /**
-         * Update Model
-         * @description Validate and atomically replace the named base model revision.
-         */
-        put: operations["update_model_api_episodes__workspace_id__model_put"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -69,7 +84,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/episodes/{workspace_id}/revisions/model/{version}": {
+    "/api/episodes/{workspace_id}/revisions/model/{revision}": {
         parameters: {
             query?: never;
             header?: never;
@@ -80,7 +95,7 @@ export interface paths {
          * Read Model Revision
          * @description Read a historical definition, including the input to an earlier fit.
          */
-        get: operations["read_model_revision_api_episodes__workspace_id__revisions_model__version__get"];
+        get: operations["read_model_revision_api_episodes__workspace_id__revisions_model__revision__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -98,7 +113,7 @@ export interface paths {
         };
         /**
          * Compare Model Revisions
-         * @description Compare fixed/free decisions, laws and scientific dependencies in the backend.
+         * @description Compare the selected graph, decisions and evidence at any two committed checkpoints.
          */
         get: operations["compare_model_revisions_api_episodes__workspace_id__revisions_compare_get"];
         put?: never;
@@ -109,7 +124,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/episodes/{workspace_id}/revisions/data-profile/{panel_version}": {
+    "/api/episodes/{workspace_id}/revisions/data-profile/{panel_revision}": {
         parameters: {
             query?: never;
             header?: never;
@@ -120,7 +135,7 @@ export interface paths {
          * Read Data Profile
          * @description Read the empirical profile for an observation revision independently of the model.
          */
-        get: operations["read_data_profile_api_episodes__workspace_id__revisions_data_profile__panel_version__get"];
+        get: operations["read_data_profile_api_episodes__workspace_id__revisions_data_profile__panel_revision__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -273,6 +288,23 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description The scientific result published by a successful action, including immutable revision references and the resulting model, data, or simulation findings. */
+        ActionBody: Domain.ActionBody;
+        /**
+         * ActionMessage
+         * @description One label emitted by an action; scientific measurements belong in its body.
+         */
+        ActionMessage: Domain.ActionMessage;
+        /**
+         * ActionPoll
+         * @description Read an attempt: messages accumulate; a successful commit supplies the body.
+         */
+        ActionPoll: Domain.ActionPoll;
+        /**
+         * ActionReceipt
+         * @description A durable dispatch acknowledgment, without a scientific result body.
+         */
+        ActionReceipt: Domain.ActionReceipt;
         /** @enum {string} */
         AggregationFunction: "mean" | "sum" | "min" | "max" | "std" | "var" | "last" | "first" | "count" | "median" | "p10" | "p25" | "p75" | "p90" | "p99" | "skew" | "kurtosis" | "iqr" | "range" | "cv" | "entropy" | "instability" | "trend" | "n_unique";
         /** ArtifactFreshness */
@@ -280,21 +312,16 @@ export interface components {
         /** @enum {string} */
         ArtifactId: Domain.ArtifactId;
         /**
-         * ArtifactRef
-         * @description An artifact reference identifies the exact stored version that supports a model fact.
-         */
-        ArtifactRef: Domain.ArtifactRef;
-        /**
-         * ArtifactVersionInfo
-         * @description Artifact version metadata records how a stored artifact was produced and which inputs it
+         * ArtifactRecord
+         * @description Artifact revision metadata records how a stored artifact was produced and which inputs it
          *     used.
          *
          *     ``derived_from`` pins the exact input versions the payload was computed
-         *     from. For root artifacts (user writes) it is empty. ``created_at`` is
-         *     stamped by the activity that produced the version — never inside workflow
+         *     from. For initial model revisions it is empty. ``created_at`` is
+         *     stamped by the activity that produced the revision — never inside workflow
          *     code, where wall-clock time is non-deterministic.
          */
-        ArtifactVersionInfo: Domain.ArtifactVersionInfo;
+        ArtifactRecord: Domain.ArtifactRecord;
         /**
          * ArtifactViewResponse
          * @description One available artifact projection returned by the model view endpoint.
@@ -379,42 +406,12 @@ export interface components {
          */
         "CausalEdgeSpec-Output": Domain.CausalEdgeSpec;
         /**
-         * CausalSimulationSpec
-         * @description An identified paired scenario, certified against the selected production fit.
+         * CausalEffectResult
+         * @description Causal effects and realized trajectories under the enclosing report's design.
          */
-        "CausalSimulationSpec-Input": {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "causal";
-            query: components["schemas"]["ScenarioRequest-Input"];
-            /**
-             * Draws
-             * @default 100
-             */
-            draws?: number;
-            /**
-             * Seed
-             * @default 0
-             */
-            seed?: number;
-            /**
-             * Process Noise
-             * @default false
-             */
-            process_noise?: boolean;
-            /**
-             * Observation Noise
-             * @default false
-             */
-            observation_noise?: boolean;
-        };
-        /**
-         * CausalSimulationSpec
-         * @description An identified paired scenario, certified against the selected production fit.
-         */
-        "CausalSimulationSpec-Output": Domain.CausalSimulationSpec;
+        CausalEffectResult: Domain.CausalEffectResult;
+        /** @enum {string} */
+        CheckGroup: Domain.CheckGroup;
         /**
          * CoefficientExpression
          * @description A scientifically typed coefficient operand, literal or parameter reference.
@@ -440,6 +437,16 @@ export interface components {
         };
         /** @enum {string} */
         CoefficientRole: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+        /**
+         * ComparisonConnection
+         * @description Endpoint references and temporal relation for one side of a causal edge comparison.
+         */
+        ComparisonConnection: Domain.ComparisonConnection;
+        /**
+         * ConstructComparison
+         * @description A construct's definitions and changed owned parameters in two model revisions.
+         */
+        ConstructComparison: Domain.ConstructComparison;
         ConstructId: string;
         /**
          * ConstructRef
@@ -505,10 +512,95 @@ export interface components {
          */
         "ConstructSpec-Output": Domain.ConstructSpec;
         /**
+         * DataPreparationResult
+         * @description Prepared observations and their committed revision, with data-quality findings.
+         */
+        DataPreparationResult: Domain.DataPreparationResult;
+        /**
+         * DataPreparationSpec
+         * @description A versioned data definition supplied directly to prepare_data.
+         */
+        "DataPreparationSpec-Input": {
+            /** Default Window */
+            default_window: string;
+            /** Variables */
+            variables: components["schemas"]["DataVariableSpec"][];
+            /**
+             * Context
+             * @description Optional context for interpreting the source data.
+             * @default
+             */
+            context?: string;
+        };
+        /**
+         * DataPreparationSpec
+         * @description A versioned data definition supplied directly to prepare_data.
+         */
+        "DataPreparationSpec-Output": Domain.DataPreparationSpec;
+        /**
          * DataProfileArtifact
          * @description Model-independent empirical measurements and data-quality findings.
          */
         DataProfileArtifact: Domain.DataProfileArtifact;
+        DataSourceRef: Domain.DataSourceRef;
+        /**
+         * DataVariableSpec
+         * @description How to produce one observed variable, without any causal or latent model.
+         */
+        DataVariableSpec: {
+            /** @description Persistent identity. Preserve when revising or renaming. */
+            id: components["schemas"]["IndicatorId"];
+            /**
+             * Name
+             * @description Indicator name (e.g., 'hrv', 'self_reported_stress')
+             */
+            name: string;
+            /** @description 'continuous', 'binary', 'count', 'ordinal', 'categorical' */
+            measurement_dtype: components["schemas"]["MeasurementDtype"];
+            /** @description Aggregation function applied when bucketing raw extractions within the indicator support window. Measurement-structure support is currently limited to: first, last, sum, count, mean, std. A computed_rule must produce this same summary. Available parser operators: count, cv, entropy, first, instability, iqr, kurtosis, last, max, mean, median, min, n_unique, p10, p25, p75, p90, p99, range, skew, std, sum, trend, var */
+            aggregation: components["schemas"]["AggregationFunction"];
+            /**
+             * Observation Window
+             * @description Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock.
+             */
+            observation_window?: string | null;
+            /**
+             * Ordinal Levels
+             * @description Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.
+             */
+            ordinal_levels?: string[] | null;
+            /**
+             * Categorical Levels
+             * @description Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding.
+             */
+            categorical_levels?: string[] | null;
+            /**
+             * How To Measure
+             * @description Scoring rubric and extraction instructions.
+             */
+            how_to_measure: string;
+            /**
+             * Recording
+             * @description Source recording semantics within the raw dataset's covered time span. samples: absent readings are unknown. events: a complete event record; empty sum/count windows are zero. changes: a complete change record; the last recorded value persists, with leading gaps unknown. events and changes require computed extraction.
+             * @default samples
+             * @enum {string}
+             */
+            recording?: "samples" | "events" | "changes";
+            /**
+             * Source Columns
+             * @description Raw data column names referenced by how_to_measure. Used to project chunks to only relevant columns before extraction.
+             */
+            source_columns?: string[];
+            /** @description Optional deterministic support-window expression for extraction_mode='computed'. Use this when a computed indicator needs formulas, thresholds, or multiple source columns instead of a direct single-column aggregation. The expression must return one scalar per support window. */
+            computed_rule?: components["schemas"]["WindowExpression"] | null;
+            /**
+             * Extraction Mode
+             * @description 'computed' (deterministic pipeline extraction) or 'semantic' (LLM extraction). Use 'computed' when the indicator can be derived deterministically either from a direct source-column aggregation or from a computed_rule support-window expression over the declared source_columns.
+             * @default semantic
+             * @enum {string}
+             */
+            extraction_mode?: "computed" | "semantic";
+        };
         /**
          * DensityPoint
          * @description A plotting coordinate evaluated from the native prior's log density.
@@ -539,6 +631,11 @@ export interface components {
          *     A node potential contributes its negative gradient to the drift.
          */
         "DynamicsMechanismSpec-Output": Domain.DynamicsMechanismSpec;
+        /**
+         * EdgeComparison
+         * @description An explicit causal edge's definitions and changed mechanism parameters.
+         */
+        EdgeComparison: Domain.EdgeComparison;
         EdgeId: string;
         /**
          * EdgeRef
@@ -556,8 +653,7 @@ export interface components {
              * @enum {string}
              */
             action: "edit_model";
-            /** Expected Version */
-            expected_version: number;
+            expected_revision: components["schemas"]["GitOid"] | null;
             model: components["schemas"]["ModelSpec-Input"];
         };
         /**
@@ -572,10 +668,9 @@ export interface components {
         EffectTrajectoryPoint: Domain.EffectTrajectoryPoint;
         /**
          * EpisodeState
-         * @description Episode state identifies the artifact versions currently selected by the transition
-         *     journal.
+         * @description Episode state projects the artifact trees selected by one Git commit.
          *
-         *     ``current`` maps artifact id → the version info that is *current* for the
+         *     ``current`` maps artifact id → the revision info that is *current* for the
          *     episode. Absent key = the artifact does not exist (either never produced,
          *     or produced-when-nonempty semantics withheld it).
          */
@@ -586,9 +681,17 @@ export interface components {
         ExpressionFunction: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
         /**
          * FactSource
-         * @description A fact source locates supporting content within an artifact version and records its freshness.
+         * @description A fact source locates supporting content within an artifact revision and records its freshness.
          */
         FactSource: Domain.FactSource;
+        /**
+         * FileSourceRef
+         * @description Explicit uploaded filenames, relative to this study's input directory.
+         */
+        FileSourceRef: {
+            /** Files */
+            files: string[];
+        };
         /**
          * FitRequest
          * @description Condition explicitly selected model and observation revisions.
@@ -599,10 +702,8 @@ export interface components {
              * @enum {string}
              */
             action: "fit";
-            /** Model Version */
-            model_version: number;
-            /** Panel Version */
-            panel_version: number;
+            model_revision: components["schemas"]["GitOid"];
+            panel_revision: components["schemas"]["GitOid"];
             settings?: components["schemas"]["FitSettingsSpec"];
         };
         /**
@@ -626,6 +727,12 @@ export interface components {
          * @description A fit read contains the inference log report and server-composed display findings.
          */
         FitSummary: Domain.FitSummary;
+        GitOid: string;
+        /**
+         * GitRef
+         * @description An exact file in a study's Git object database: repository, object, and path.
+         */
+        GitRef: Domain.GitRef;
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -674,38 +781,26 @@ export interface components {
         IndicatorRef: Domain.IndicatorRef;
         /**
          * IndicatorSpec
-         * @description A specification of a construct's observed measurement and how to extract it.
+         * @description Bind an observed-variable ID to a construct and an emission likelihood.
+         *
+         *     Extraction instructions belong to DataPreparationSpec. The shared observation
+         *     schema also permits generative models before any observations have been collected.
          */
         "IndicatorSpec-Input": {
             /** @description Persistent identity. Preserve when revising or renaming. */
             id: components["schemas"]["IndicatorId"];
-            likelihood?: components["schemas"]["LikelihoodSpec-Input"] | null;
             /**
              * Name
              * @description Indicator name (e.g., 'hrv', 'self_reported_stress')
              */
             name: string;
-            /**
-             * How To Measure
-             * @description Instructions for workers on how to extract this from data
-             */
-            how_to_measure: string;
-            /** @description Whether higher indicator values move in the same direction as the construct (`positive`) or the opposite direction (`negative`). */
-            construct_polarity: components["schemas"]["IndicatorPolarity"];
             /** @description 'continuous', 'binary', 'count', 'ordinal', 'categorical' */
             measurement_dtype: components["schemas"]["MeasurementDtype"];
-            /** @description Aggregation function applied when bucketing raw extractions within the indicator support window. Measurement-structure support is currently limited to: first, last, sum, count, mean, std. Available parser operators: count, cv, entropy, first, instability, iqr, kurtosis, last, max, mean, median, min, n_unique, p10, p25, p75, p90, p99, range, skew, std, sum, trend, var */
+            /** @description Aggregation function applied when bucketing raw extractions within the indicator support window. Measurement-structure support is currently limited to: first, last, sum, count, mean, std. A computed_rule must produce this same summary. Available parser operators: count, cv, entropy, first, instability, iqr, kurtosis, last, max, mean, median, min, n_unique, p10, p25, p75, p90, p99, range, skew, std, sum, trend, var */
             aggregation: components["schemas"]["AggregationFunction"];
             /**
-             * Recording
-             * @description Source recording semantics within the raw dataset's covered time span. samples: absent readings are unknown. events: a complete event record; empty sum/count windows are zero. changes: a complete change record; the last recorded value persists, with leading gaps unknown. events and changes require computed extraction.
-             * @default samples
-             * @enum {string}
-             */
-            recording?: "samples" | "events" | "changes";
-            /**
              * Observation Window
-             * @description Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). If omitted, the support window defaults to the global model_clock.
+             * @description Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock.
              */
             observation_window?: string | null;
             /**
@@ -718,24 +813,16 @@ export interface components {
              * @description Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding.
              */
             categorical_levels?: string[] | null;
-            /**
-             * Source Columns
-             * @description Raw data column names referenced by how_to_measure. Used to project chunks to only relevant columns before extraction.
-             */
-            source_columns?: string[];
-            /** @description Optional deterministic support-window expression for extraction_mode='computed'. Use this when a computed indicator needs formulas, thresholds, or multiple source columns instead of a direct single-column aggregation. The expression must return one scalar per support window. */
-            computed_rule?: components["schemas"]["WindowExpression"] | null;
-            /**
-             * Extraction Mode
-             * @description 'computed' (deterministic pipeline extraction) or 'semantic' (LLM extraction). Use 'computed' when the indicator can be derived deterministically either from a direct source-column aggregation or from a computed_rule support-window expression over the declared source_columns.
-             * @default semantic
-             * @enum {string}
-             */
-            extraction_mode?: "computed" | "semantic";
+            likelihood?: components["schemas"]["LikelihoodSpec-Input"] | null;
+            /** @description Whether higher values move with (positive) or against (negative) the construct. */
+            construct_polarity: components["schemas"]["IndicatorPolarity"];
         };
         /**
          * IndicatorSpec
-         * @description A specification of a construct's observed measurement and how to extract it.
+         * @description Bind an observed-variable ID to a construct and an emission likelihood.
+         *
+         *     Extraction instructions belong to DataPreparationSpec. The shared observation
+         *     schema also permits generative models before any observations have been collected.
          */
         "IndicatorSpec-Output": Domain.IndicatorSpec;
         /**
@@ -748,8 +835,20 @@ export interface components {
          * @description Display findings recorded by an inference transition, separate from ModelSpec.
          */
         InferenceReport: Domain.InferenceReport;
-        /** @enum {string} */
-        JournalStatus: Domain.JournalStatus;
+        /**
+         * InterventionSpec
+         * @description Set a latent state at one model time, then let its dynamics resume.
+         */
+        InterventionSpec: {
+            target: components["schemas"]["ConstructId"];
+            /**
+             * Time
+             * @description Absolute time in model days.
+             */
+            time: number;
+            /** Value */
+            value: number;
+        };
         "JsonArray-Input": Domain.JsonArray;
         "JsonArray-Output": Domain.JsonArray;
         "JsonObject-Input": Domain.JsonObject;
@@ -838,11 +937,19 @@ export interface components {
         MeasurementDtype: "continuous" | "binary" | "count" | "ordinal" | "categorical";
         /**
          * MeasurementsData
-         * @description Counts and representative observations read directly from one panel version.
+         * @description Counts and representative observations read directly from one panel revision.
          */
         MeasurementsData: Domain.MeasurementsData;
         MechanismId: string;
-        /** ModelComparison */
+        /**
+         * ModelCheckReport
+         * @description Checks selected by their consumed inputs, retained with the study snapshot.
+         */
+        ModelCheckReport: Domain.ModelCheckReport;
+        /**
+         * ModelComparison
+         * @description A comparison joins graph, parameter decisions and evidence at two committed checkpoints.
+         */
         ModelComparison: Domain.ModelComparison;
         /**
          * ModelData
@@ -855,15 +962,40 @@ export interface components {
          */
         ModelDiagnostics: Domain.ModelDiagnostics;
         /**
+         * ModelEditResult
+         * @description The committed scientific model and checks produced by an edit.
+         */
+        ModelEditResult: Domain.ModelEditResult;
+        /**
          * ModelFindings
-         * @description ModelSpec findings collect identification, validation, and fitted results with their provenance.
+         * @description ModelSpec findings collect identification, validation, and fitted results with their input references.
          */
         ModelFindings: Domain.ModelFindings;
         /**
-         * ModelRevision
-         * @description The workspace and version of the scientific design supporting an inference.
+         * ModelFitResult
+         * @description The committed model, inference report, and checks produced by a fit.
          */
-        ModelRevision: Domain.ModelRevision;
+        ModelFitResult: Domain.ModelFitResult;
+        /**
+         * ModelGraphComparison
+         * @description Aligned scientific entities for rendering a graph difference without browser inference.
+         */
+        ModelGraphComparison: Domain.ModelGraphComparison;
+        /**
+         * ModelGraphView
+         * @description Scientific entity identities selected for the graph at this authoring checkpoint.
+         */
+        ModelGraphView: Domain.ModelGraphView;
+        /**
+         * ModelPredictiveReport
+         * @description One automatic, reproducible battery over the full model's current laws.
+         */
+        ModelPredictiveReport: Domain.ModelPredictiveReport;
+        /**
+         * ModelSimulationResult
+         * @description A committed trajectory or causal simulation report for its selected model and design.
+         */
+        ModelSimulationResult: Domain.ModelSimulationResult;
         /**
          * ModelSnapshot
          * @description The canonical scientific definition with independently sourced inputs and findings.
@@ -907,17 +1039,6 @@ export interface components {
          * @description An evolving research question and connected causal graph with owned scientific detail.
          */
         "ModelSpec-Output": Domain.ModelSpec;
-        /** ModelUpdateBody */
-        ModelUpdateBody: {
-            /** Expected Version */
-            expected_version: number;
-            model: components["schemas"]["ModelSpec-Input"];
-        };
-        /**
-         * MoveOutcome
-         * @description A move outcome reports the attempted transition and resulting committed state.
-         */
-        MoveOutcome: Domain.MoveOutcome;
         /**
          * NonIdentifiableTreatmentStatus
          * @description Context on why a treatment effect is not identifiable.
@@ -958,6 +1079,11 @@ export interface components {
          */
         ObservationRecord: Domain.ObservationRecord;
         /**
+         * ObservationSpec
+         * @description A stable observed variable, reusable across scientific model definitions.
+         */
+        ObservationSpec: Domain.ObservationSpec;
+        /**
          * PPCOverlay
          * @description A predictive overlay compares observed values with posterior predictive bands for one
          *     indicator.
@@ -982,7 +1108,10 @@ export interface components {
          *     dependence, or variance check.
          */
         PPCWarning: Domain.PPCWarning;
-        /** ParameterChange */
+        /**
+         * ParameterChange
+         * @description A parameter change compares one parameter's fixed value or law across model revisions.
+         */
         ParameterChange: Domain.ParameterChange;
         ParameterElementId: Domain.ParameterElementId;
         ParameterId: string;
@@ -1045,8 +1174,20 @@ export interface components {
          */
         PosteriorPredictiveChecks: Domain.PosteriorPredictiveChecks;
         /**
+         * PredictiveCheckFinding
+         * @description One measured simulation check, independent of its authoring or simulation context.
+         */
+        PredictiveCheckFinding: Domain.PredictiveCheckFinding;
+        /** @enum {string} */
+        PredictiveCheckReason: Domain.PredictiveCheckReason;
+        /**
+         * PredictiveLawProvenance
+         * @description Known conditioning history, independently of a probability law's family.
+         */
+        PredictiveLawProvenance: Domain.PredictiveLawProvenance;
+        /**
          * PrepareDataRequest
-         * @description Import uploaded files or extract measurements from a pinned source table.
+         * @description Prepare uploaded sources or a recorded simulation replicate, without a model.
          */
         PrepareDataRequest: {
             /**
@@ -1054,18 +1195,17 @@ export interface components {
              * @enum {string}
              */
             action: "prepare_data";
-            /**
-             * Source
-             * @enum {string}
-             */
-            source: "files" | "raw_data";
-            /** Raw Data Version */
-            raw_data_version?: number | null;
-            /** Model Version */
-            model_version?: number | null;
+            /** Source */
+            source: components["schemas"]["FileSourceRef"] | components["schemas"]["SimulationReplicateRef"];
+            preparation?: components["schemas"]["DataPreparationSpec-Input"] | null;
             /** Max Windows */
             max_windows?: number | null;
         };
+        /**
+         * PreparedDataMetadata
+         * @description Self-contained semantics and provenance of one prepared observation table.
+         */
+        PreparedDataMetadata: Domain.PreparedDataMetadata;
         /**
          * PriorPredictiveDiagnostic
          * @description A measured prior-predictive check and its evaluation criteria.
@@ -1076,8 +1216,6 @@ export interface components {
          * @description Simulated observations and checks recorded by a model-authoring operation.
          */
         PriorPredictiveResult: Domain.PriorPredictiveResult;
-        /** @enum {string} */
-        Provenance: Domain.Provenance;
         /**
          * RawDataColumnDescription
          * @description A stored column's physical type and authored interpretation.
@@ -1085,7 +1223,7 @@ export interface components {
         RawDataColumnDescription: Domain.RawDataColumnDescription;
         /**
          * RawDataData
-         * @description Profile and representative rows from one uploaded table version.
+         * @description Profile and representative rows from one uploaded table revision.
          */
         RawDataData: Domain.RawDataData;
         /**
@@ -1094,11 +1232,9 @@ export interface components {
          */
         RawDataDateRange: Domain.RawDataDateRange;
         /**
-         * RetractedArtifact
-         * @description A current artifact removed by a move, with the finding that caused it.
+         * RevisionCatalog
+         * @description A revision catalog lists immutable model, source and observation inputs for selection.
          */
-        RetractedArtifact: Domain.RetractedArtifact;
-        /** RevisionCatalog */
         RevisionCatalog: Domain.RevisionCatalog;
         /**
          * Role
@@ -1108,252 +1244,58 @@ export interface components {
          */
         Role: "endogenous" | "exogenous";
         /**
-         * ScenarioClamp
-         * @description A do-operator on one latent variable over a time window.
-         *
-         *     The window is ``[from_day, to_day)`` in days relative to the rollout start; outside
-         *     the window the variable evolves under its natural dynamics. ``set`` pins to an absolute
-         *     value, ``shift`` adds an amount to the variable's start-state value, ``ramp`` linearly
-         *     interpolates across the window, and ``trajectory`` tracks a list of values across it.
-         */
-        ScenarioClamp: {
-            /** @description Persistent ID of the construct to clamp. */
-            target: components["schemas"]["ConstructId"];
-            /**
-             * Mode
-             * @description How the clamped value is specified over the window.
-             * @enum {string}
-             */
-            mode: "set" | "shift" | "ramp" | "trajectory";
-            /**
-             * Value
-             * @description Required when mode='set'. Absolute latent-space value.
-             */
-            value?: number | null;
-            /**
-             * Amount
-             * @description Required when mode='shift'. Additive delta from the start-state value.
-             */
-            amount?: number | null;
-            /**
-             * Value Start
-             * @description Required when mode='ramp'. Value at from_day.
-             */
-            value_start?: number | null;
-            /**
-             * Value End
-             * @description Required when mode='ramp'. Value at to_day.
-             */
-            value_end?: number | null;
-            /**
-             * Values
-             * @description Required when mode='trajectory'. Values sampled evenly across the window.
-             */
-            values?: number[] | null;
-            /**
-             * From Day
-             * @description Window onset in days from the rollout start.
-             * @default 0
-             */
-            from_day?: number;
-            /**
-             * To Day
-             * @description Window end in days from the rollout start. Null runs through the horizon.
-             */
-            to_day?: number | null;
-        };
-        /** ScenarioQueryInput */
-        ScenarioQueryInput: {
-            /**
-             * Estimand
-             * @description Report the final-horizon outcome effect or the full effect trajectory.
-             * @default trajectory
-             * @enum {string}
-             */
-            estimand?: "end_state" | "trajectory";
-            /**
-             * Horizon Days
-             * @description Forward horizon in days from the rollout start.
-             * @default 30
-             */
-            horizon_days?: number;
-            /**
-             * Projection
-             * @description Report latent outcome effects, manifest projections, or both.
-             * @default latent
-             * @enum {string}
-             */
-            projection?: "latent" | "manifest" | "both";
-        };
-        /**
-         * ScenarioRequest
-         * @description One reusable request for an on-demand simulation of a fitted model.
-         */
-        "ScenarioRequest-Input": {
-            start?: components["schemas"]["ScenarioStartInput"];
-            /**
-             * Clamps
-             * @description One or more timed latent clamps composing the scenario.
-             */
-            clamps: components["schemas"]["ScenarioClamp"][];
-            /** @description Persistent ID of the requested outcome. */
-            outcome: components["schemas"]["ConstructId"];
-            readout?: components["schemas"]["ScenarioQueryInput"];
-        };
-        /**
-         * ScenarioRequest
-         * @description One reusable request for an on-demand simulation of a fitted model.
-         */
-        "ScenarioRequest-Output": Domain.ScenarioRequest;
-        /**
-         * ScenarioStartInput
-         * @description Where the forward rollout begins (replaces the rung-2/rung-3 split).
-         */
-        ScenarioStartInput: {
-            /**
-             * Kind
-             * @description 'baseline' starts from the deterministic drift equilibrium (an interventional, rung-2 query). 'abducted' conditions on the individual's observed evidence and starts from the recovered fitted latent state (a counterfactual, rung-3 query).
-             * @default baseline
-             * @enum {string}
-             */
-            kind?: "baseline" | "abducted";
-            /**
-             * Time Index
-             * @description Abducted start only: observed fitted-state index to begin from. Defaults to the final retained fitted latent state.
-             */
-            time_index?: number | null;
-            /**
-             * Time
-             * @description Abducted start only: ISO-8601 observed timestamp matching a retained fitted latent state. Use either time_index or time, not both.
-             */
-            time?: string | null;
-        };
-        /**
          * SimulateRequest
-         * @description Simulate current model uncertainty, optionally comparing with observations.
+         * @description Generate the selected model through end with optional start and dated interventions.
          */
         SimulateRequest: {
+            /**
+             * End
+             * @description Absolute end time in model days.
+             */
+            end: number;
+            /**
+             * Start
+             * @description Absolute start time in model days; omitted uses the model's latest state time, or zero for its initial-state law.
+             */
+            start?: number | null;
+            /**
+             * Interventions
+             * @default []
+             */
+            interventions?: components["schemas"]["InterventionSpec"][];
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             action: "simulate";
-            /** Model Version */
-            model_version: number;
-            design: components["schemas"]["SimulationDesign-Input"];
-            /** Comparison Panel Version */
-            comparison_panel_version?: number | null;
+            model_revision: components["schemas"]["GitOid"];
+            /** @description Prepared observations to compare on their exact recorded schedule. */
+            comparison_panel_revision?: components["schemas"]["GitOid"] | null;
         };
-        "SimulationDesign-Input": components["schemas"]["SimulationSpec-Input"] | components["schemas"]["CausalSimulationSpec-Input"];
-        "SimulationDesign-Output": Domain.SimulationDesign;
         /**
-         * SimulationFinding
-         * @description A measured quantity with the criterion used to interpret it.
+         * SimulationObservationLayout
+         * @description Saved observation semantics and coordinates; generation truths remain separate.
          */
-        SimulationFinding: Domain.SimulationFinding;
+        SimulationObservationLayout: Domain.SimulationObservationLayout;
+        /**
+         * SimulationReplicateRef
+         * @description One replicate from a recorded, applied simulation in this study.
+         */
+        SimulationReplicateRef: {
+            revision: components["schemas"]["GitOid"];
+            /** Replicate */
+            replicate: number;
+        };
         /**
          * SimulationReport
-         * @description Evidence from one explicit simulation, separate from an inference report.
+         * @description Generated histories and derived findings with their resolved execution coordinates.
          */
         SimulationReport: Domain.SimulationReport;
         /**
-         * SimulationResult
-         * @description Ephemeral response to a runtime simulation request.
-         *
-         *     This engine integrates the true nonlinear drift for each posterior draw.
-         *     It does not include future process noise or claim the mean of the SDE.
-         */
-        SimulationResult: Domain.SimulationResult;
-        /**
          * SimulationSpec
-         * @description A replicated study generated from the selected model's current laws.
+         * @description Generate through end, optionally starting earlier and applying dated interventions.
          */
-        "SimulationSpec-Input": {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "trajectory";
-            /** Times */
-            times: number[];
-            /**
-             * Draws
-             * @default 100
-             */
-            draws?: number;
-            /**
-             * Seed
-             * @default 0
-             */
-            seed?: number;
-            /**
-             * Edge Contrasts
-             * @default false
-             */
-            edge_contrasts?: boolean;
-            /**
-             * Initial State
-             * @default new_study
-             * @enum {string}
-             */
-            initial_state?: "new_study" | "retained" | "fixed" | "equilibrium";
-            /** State Time */
-            state_time?: number | null;
-            /** State Values */
-            state_values?: {
-                [key: string]: number;
-            };
-            /**
-             * Process Noise
-             * @default true
-             */
-            process_noise?: boolean;
-            /**
-             * Observation Noise
-             * @default true
-             */
-            observation_noise?: boolean;
-            /**
-             * Interventions
-             * @default []
-             */
-            interventions?: components["schemas"]["ScenarioClamp"][];
-            /**
-             * Context
-             * @default exploration
-             * @enum {string}
-             */
-            context?: "exploration" | "calibration" | "prediction";
-            /**
-             * Checks
-             * @default [
-             *       "dynamics",
-             *       "measurement",
-             *       "data_comparison"
-             *     ]
-             */
-            checks?: ("dynamics" | "measurement" | "data_comparison")[];
-            /**
-             * Confinement Growth Ratio
-             * @default 5
-             */
-            confinement_growth_ratio?: number;
-            /**
-             * Confinement Failure Fraction
-             * @default 0.01
-             */
-            confinement_failure_fraction?: number;
-            /**
-             * Comparison Time Offset
-             * @default 0
-             */
-            comparison_time_offset?: number;
-        };
-        /**
-         * SimulationSpec
-         * @description A replicated study generated from the selected model's current laws.
-         */
-        "SimulationSpec-Output": Domain.SimulationSpec;
+        SimulationSpec: Domain.SimulationSpec;
         /**
          * SimulationTrajectory
          * @description One construct's mean reference and intervention paths across simulated draws.
@@ -1361,7 +1303,7 @@ export interface components {
         SimulationTrajectory: Domain.SimulationTrajectory;
         /**
          * SnapshotContext
-         * @description A snapshot context identifies the selected journal revision and its artifact versions.
+         * @description A snapshot context identifies the selected Git commit and its artifact versions.
          */
         SnapshotContext: Domain.SnapshotContext;
         /**
@@ -1370,6 +1312,11 @@ export interface components {
          * @enum {string}
          */
         SourceValidity: Domain.SourceValidity;
+        /** Sourced[DataProfileArtifact] */
+        Sourced_DataProfileArtifact_: {
+            value: components["schemas"]["DataProfileArtifact"];
+            source: components["schemas"]["FactSource"];
+        };
         /** Sourced[FitSummary] */
         Sourced_FitSummary_: {
             value: components["schemas"]["FitSummary"];
@@ -1390,9 +1337,19 @@ export interface components {
             value: components["schemas"]["MeasurementsData"];
             source: components["schemas"]["FactSource"];
         };
+        /** Sourced[ModelPredictiveReport] */
+        Sourced_ModelPredictiveReport_: {
+            value: components["schemas"]["ModelPredictiveReport"];
+            source: components["schemas"]["FactSource"];
+        };
         /** Sourced[ModelSpec] */
         Sourced_ModelSpec_: {
             value: components["schemas"]["ModelSpec-Output"];
+            source: components["schemas"]["FactSource"];
+        };
+        /** Sourced[PreparedDataMetadata] */
+        Sourced_PreparedDataMetadata_: {
+            value: components["schemas"]["PreparedDataMetadata"];
             source: components["schemas"]["FactSource"];
         };
         /** Sourced[PriorPredictiveResult] */
@@ -1433,7 +1390,7 @@ export interface components {
         SpecificationFinding: Domain.SpecificationFinding;
         /**
          * SpecificationReport
-         * @description Model-only findings; data compatibility has its own paired provenance.
+         * @description Model-only findings; data compatibility has its own paired input references.
          */
         SpecificationReport: Domain.SpecificationReport;
         /**
@@ -1472,11 +1429,6 @@ export interface components {
          * @enum {string}
          */
         TemporalStatus: "time_varying" | "time_invariant";
-        /**
-         * TransitionRef
-         * @description An immutable entry in the workspace transition journal.
-         */
-        TransitionRef: Domain.TransitionRef;
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -1498,8 +1450,7 @@ export interface components {
         ValidationIssue: Domain.ValidationIssue;
         /**
          * ValidationReportArtifact
-         * @description A validation report summarizes whether extracted measurements satisfy the required data
-         *     checks.
+         * @description Measurement findings augmented with model-dependent execution checks.
          */
         ValidationReportArtifact: Domain.ValidationReportArtifact;
         /** @description Deterministic support-window expression that returns one scalar per window. Use Python-like syntax over source_columns with arithmetic, comparisons, if/else, and helper functions such as any(), sum(), mean(), std(), first(), last(), count_true(), count_non_null(), lower(), contains(), and contains_any(). Use None for missing values. */
@@ -1515,7 +1466,10 @@ export type $defs = Record<string, never>;
 export interface operations {
     execute_scientific_action_api_episodes__workspace_id__actions_post: {
         parameters: {
-            query?: never;
+            query?: {
+                branch?: string;
+                expected_head?: components["schemas"]["GitOid"] | null;
+            };
             header?: never;
             path: {
                 workspace_id: string;
@@ -1529,12 +1483,44 @@ export interface operations {
         };
         responses: {
             /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActionReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    poll_scientific_action_api_episodes__workspace_id__actions__attempt_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+                attempt_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MoveOutcome"];
+                    "application/json": components["schemas"]["ActionPoll"];
                 };
             };
             /** @description Validation Error */
@@ -1551,7 +1537,8 @@ export interface operations {
     get_model_snapshot_api_episodes__workspace_id__model_get: {
         parameters: {
             query?: {
-                at_seq?: number | null;
+                branch?: string;
+                at?: components["schemas"]["GitOid"] | null;
             };
             header?: never;
             path: {
@@ -1560,41 +1547,6 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ModelSnapshot"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_model_api_episodes__workspace_id__model_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ModelUpdateBody"];
-            };
-        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -1647,13 +1599,13 @@ export interface operations {
             };
         };
     };
-    read_model_revision_api_episodes__workspace_id__revisions_model__version__get: {
+    read_model_revision_api_episodes__workspace_id__revisions_model__revision__get: {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 workspace_id: string;
-                version: number;
+                revision: components["schemas"]["GitOid"];
             };
             cookie?: never;
         };
@@ -1682,8 +1634,8 @@ export interface operations {
     compare_model_revisions_api_episodes__workspace_id__revisions_compare_get: {
         parameters: {
             query: {
-                before: number;
-                after: number;
+                before: components["schemas"]["GitOid"];
+                after: components["schemas"]["GitOid"];
             };
             header?: never;
             path: {
@@ -1713,13 +1665,13 @@ export interface operations {
             };
         };
     };
-    read_data_profile_api_episodes__workspace_id__revisions_data_profile__panel_version__get: {
+    read_data_profile_api_episodes__workspace_id__revisions_data_profile__panel_revision__get: {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 workspace_id: string;
-                panel_version: number;
+                panel_revision: components["schemas"]["GitOid"];
             };
             cookie?: never;
         };
@@ -1748,7 +1700,8 @@ export interface operations {
     get_model_definition_api_episodes__workspace_id__model_definition_get: {
         parameters: {
             query?: {
-                at_seq?: number | null;
+                branch?: string;
+                at?: components["schemas"]["GitOid"] | null;
             };
             header?: never;
             path: {
@@ -1781,7 +1734,8 @@ export interface operations {
     get_model_inference_report_api_episodes__workspace_id__model_inference_report_get: {
         parameters: {
             query?: {
-                at_seq?: number | null;
+                branch?: string;
+                at?: components["schemas"]["GitOid"] | null;
             };
             header?: never;
             path: {
@@ -1814,7 +1768,8 @@ export interface operations {
     get_model_constructs_api_episodes__workspace_id__model_constructs_get: {
         parameters: {
             query?: {
-                at_seq?: number | null;
+                branch?: string;
+                at?: components["schemas"]["GitOid"] | null;
             };
             header?: never;
             path: {
@@ -1847,7 +1802,8 @@ export interface operations {
     get_model_edges_api_episodes__workspace_id__model_edges_get: {
         parameters: {
             query?: {
-                at_seq?: number | null;
+                branch?: string;
+                at?: components["schemas"]["GitOid"] | null;
             };
             header?: never;
             path: {
@@ -1880,7 +1836,8 @@ export interface operations {
     get_model_indicators_api_episodes__workspace_id__model_indicators_get: {
         parameters: {
             query?: {
-                at_seq?: number | null;
+                branch?: string;
+                at?: components["schemas"]["GitOid"] | null;
             };
             header?: never;
             path: {
@@ -1913,7 +1870,8 @@ export interface operations {
     get_model_parameters_api_episodes__workspace_id__model_parameters_get: {
         parameters: {
             query?: {
-                at_seq?: number | null;
+                branch?: string;
+                at?: components["schemas"]["GitOid"] | null;
             };
             header?: never;
             path: {
@@ -1946,7 +1904,8 @@ export interface operations {
     get_model_view_api_episodes__workspace_id__model_views__artifact_id__get: {
         parameters: {
             query?: {
-                at_seq?: number | null;
+                branch?: string;
+                at?: components["schemas"]["GitOid"] | null;
             };
             header?: never;
             path: {

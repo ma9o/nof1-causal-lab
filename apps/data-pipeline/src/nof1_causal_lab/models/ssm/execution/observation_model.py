@@ -44,21 +44,19 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
     from nof1_causal_lab.models.ssm.execution.contracts import LikelihoodExtraParams
+    from nof1_causal_lab.models.ssm.execution.observation_families import (
+        EmissionLogProbFn,
+        ScoreWeightFn,
+    )
+    from nof1_causal_lab.models.ssm.execution.observation_kernel_helpers import (
+        ResponseFn,
+        VarianceFn,
+    )
     from nof1_causal_lab.models.ssm.execution.observation_operator import (
         ObservationOperator,
     )
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
-type ObservationLogProbFn = Callable[
-    [jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray],
-    jnp.ndarray,
-]
-type ResponseFn = Callable[[jnp.ndarray], jnp.ndarray]
-type VarianceFn = Callable[[jnp.ndarray], jnp.ndarray]
-type ScoreWeightFn = Callable[
-    [jnp.ndarray, jnp.ndarray, jnp.ndarray],
-    tuple[jnp.ndarray, jnp.ndarray],
-]
 type LatentGradHessFn = Callable[
     [
         jnp.ndarray,
@@ -92,7 +90,7 @@ class ObservationKernel:
         is_gaussian: Whether the observation family is Gaussian.
     """
 
-    log_prob_fn: ObservationLogProbFn
+    log_prob_fn: EmissionLogProbFn
     response_fn: ResponseFn
     variance_fn: VarianceFn
     is_gaussian: bool
@@ -107,13 +105,16 @@ class CompiledObservationModel:
     point_sampler: PredictiveObservationSampler
     interval_summary_sampler: PredictiveObservationSampler | None
     mean_log_prob_fn: MeanLogProbFn | None
-    observation_operator: ObservationOperator
+    observation_operator: ObservationOperator | None
     manifest_dists: tuple[DistributionFamily, ...]
     manifest_links: tuple[LinkFunction, ...]
 
     @property
     def requires_interval_summary_handling(self) -> bool:
-        return self.observation_operator.requires_interval_summary_handling
+        return (
+            self.observation_operator is not None
+            and self.observation_operator.requires_interval_summary_handling
+        )
 
 
 # =============================================================================
@@ -464,7 +465,7 @@ def compile_observation_model(
     )
     mean_log_prob_fn = None
     interval_summary_sampler = None
-    if observation_operator.requires_interval_summary_handling:
+    if observation_operator is not None and observation_operator.requires_interval_summary_handling:
         interval_summary_indices = list(observation_operator.interval_summary_indices)
         interval_summary_idx = np.asarray(interval_summary_indices, dtype=np.int32)
         interval_summary_dists = [dists[idx] for idx in interval_summary_indices]

@@ -13,6 +13,8 @@ from scripts.visualize_type_system import (
     with_entity_references,
 )
 
+pytestmark = pytest.mark.contract
+
 if TYPE_CHECKING:
     from nof1_causal_lab.json_types import JsonObject
 
@@ -179,12 +181,10 @@ def projection_schema() -> JsonObject:
                 concern="scientific_model",
                 layer="findings",
             ),
-            "RunOperation": _record(
-                "RunOperation", {}, concern="execution_provenance", layer="machine"
-            ),
+            "FitRequest": _record("FitRequest", {}, concern="execution_history", layer="machine"),
             "Response": _record(
                 "Response",
-                {"move": _ref("RunOperation"), "result": _ref("Record")},
+                {"request": _ref("FitRequest"), "result": _ref("Record")},
                 concern="api_tools",
                 layer="transport",
             ),
@@ -250,15 +250,15 @@ def test_artifact_view_uses_registered_payloads_and_machine_view_marks_its_bound
     stored = select_view(graph, "artifacts")
     assert stored.graph["roots"] == {"IdentificationReport"}
     assert "Record" in stored
-    assert not {"RunOperation", "Response", "ModelSnapshot"} & stored.nodes
+    assert not {"FitRequest", "Response", "ModelSnapshot"} & stored.nodes
     machine = select_view(graph, "machine")
-    assert set(machine) == {"RunOperation", "Response", "Record"}
-    assert set(machine.edges) == {("Response", "RunOperation"), ("Response", "Record")}
+    assert set(machine) == {"FitRequest", "Response", "Record"}
+    assert set(machine.edges) == {("Response", "FitRequest"), ("Response", "Record")}
     assert machine.nodes["Record"]["external"] is True
     assert "external" not in graph.nodes["Record"]
     semantic = select_view(graph, "semantic")
     assert semantic.graph["roots"] == {"ModelSnapshot"}
-    assert not {"Response", "RunOperation", "IdentificationReport"} & semantic.nodes
+    assert not {"Response", "FitRequest", "IdentificationReport"} & semantic.nodes
 
 
 def test_entity_identity_links_survive_compaction_and_follow_typed_reference_paths(

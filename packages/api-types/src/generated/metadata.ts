@@ -22,19 +22,17 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
   "topological_artifact_order": [
     "raw_data",
     "model",
-    "identification_report",
     "panel",
+    "identification_report",
     "data_profile",
     "validation_report"
   ],
   "topological_transition_order": [
     "raw_data",
-    "latent_structure",
-    "simulate",
-    "measurement_structure",
     "measurements",
-    "statistical_model_spec",
-    "posterior"
+    "posterior",
+    "simulate",
+    "simulated_measurements"
   ],
   "contexts": [
     {
@@ -47,14 +45,15 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
         "edit_model",
         "prepare_data",
         "fit",
-        "simulate"
+        "simulate",
+        "poll_action"
       ],
       "runtime_state": []
     },
     {
       "context_id": "navigator",
       "layer": "navigator",
-      "label": "Human/LLM navigator, web UI, SDK, or curl client",
+      "label": "LLM navigator",
       "parent_id": null,
       "owns": [],
       "allowed_tools": [],
@@ -72,10 +71,43 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
     {
       "context_id": "episode-machine",
       "layer": "machine",
-      "label": "Serialized artifact transition machine",
+      "label": "Durable scientific action executor",
       "parent_id": "action-registry",
       "owns": [],
       "allowed_tools": [],
+      "runtime_state": []
+    },
+    {
+      "context_id": "latent-structure",
+      "layer": "tool",
+      "label": "Structural definition validation",
+      "parent_id": "action-registry",
+      "owns": [],
+      "allowed_tools": [
+        "validate_latent_structure"
+      ],
+      "runtime_state": []
+    },
+    {
+      "context_id": "measurement-structure",
+      "layer": "tool",
+      "label": "Measurement definition validation",
+      "parent_id": "action-registry",
+      "owns": [],
+      "allowed_tools": [
+        "validate_measurement_structure"
+      ],
+      "runtime_state": []
+    },
+    {
+      "context_id": "statistical-model-spec",
+      "layer": "tool",
+      "label": "Statistical definition tools",
+      "parent_id": "action-registry",
+      "owns": [],
+      "allowed_tools": [
+        "search_literature"
+      ],
       "runtime_state": []
     },
     {
@@ -100,39 +132,6 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       ]
     },
     {
-      "context_id": "latent-structure",
-      "layer": "delegated",
-      "label": "Latent structure proposal loop",
-      "parent_id": "episode-machine",
-      "owns": [
-        "model"
-      ],
-      "allowed_tools": [
-        "validate_latent_structure"
-      ],
-      "runtime_state": [
-        "question",
-        "latent_structure_draft"
-      ]
-    },
-    {
-      "context_id": "measurement-structure",
-      "layer": "delegated",
-      "label": "Measurement structure proposal loop",
-      "parent_id": "episode-machine",
-      "owns": [
-        "model"
-      ],
-      "allowed_tools": [
-        "validate_measurement_structure"
-      ],
-      "runtime_state": [
-        "latent_structure",
-        "dataset_schema",
-        "measurement_structure_draft"
-      ]
-    },
-    {
       "context_id": "measurement",
       "layer": "delegated",
       "label": "Indicator extraction worker fan-out",
@@ -147,28 +146,6 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
         "indicator_plan",
         "worker_statuses",
         "extracted_values"
-      ]
-    },
-    {
-      "context_id": "statistical-model-spec",
-      "layer": "delegated",
-      "label": "Model/prior reducer",
-      "parent_id": "episode-machine",
-      "owns": [
-        "model"
-      ],
-      "allowed_tools": [
-        "search_literature",
-        "submit_construct"
-      ],
-      "runtime_state": [
-        "deterministic_skeleton",
-        "construct_order",
-        "current_construct",
-        "attempt",
-        "checkpoint_ref",
-        "accepted_constructs",
-        "rebase"
       ]
     },
     {
@@ -204,7 +181,7 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
   "actions": [
     {
       "action_id": "edit_model",
-      "description": "Revise scientific definitions and current laws; refresh applicable specification and data-compatibility findings.",
+      "description": "Revise scientific definitions and current laws; run or reuse applicable specification, identification, compatibility and exact predictive checks.",
       "consumes": [],
       "optional_consumes": [
         "model",
@@ -221,7 +198,7 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
     },
     {
       "action_id": "prepare_data",
-      "description": "Import sources or evaluate declared measurement rules; return versioned data and applicable profiles and checks.",
+      "description": "Import provided sources, extract measurements, or prepare one recorded simulation replicate; return versioned data and applicable profiles and checks.",
       "consumes": [],
       "optional_consumes": [
         "raw_data",
@@ -267,8 +244,7 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
   ],
   "roots": [
     {
-      "artifact_id": "model",
-      "write_pins": []
+      "artifact_id": "model"
     }
   ],
   "transitions": [
@@ -279,61 +255,18 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
         "raw_data"
       ],
       "produces_optional": [],
-      "creation_class": "batch_llm",
-      "writable": false
-    },
-    {
-      "transition_id": "latent_structure",
-      "consumes": [
-        "model"
-      ],
-      "produces": [
-        "model"
-      ],
-      "produces_optional": [],
-      "creation_class": "judgment",
-      "writable": false
-    },
-    {
-      "transition_id": "measurement_structure",
-      "consumes": [
-        "raw_data",
-        "model"
-      ],
-      "produces": [
-        "model"
-      ],
-      "produces_optional": [],
-      "creation_class": "judgment",
-      "writable": false
+      "creation_class": "batch_llm"
     },
     {
       "transition_id": "measurements",
       "consumes": [
-        "raw_data",
-        "model"
+        "raw_data"
       ],
       "produces": [],
       "produces_optional": [
         "panel"
       ],
-      "creation_class": "batch_llm",
-      "writable": false
-    },
-    {
-      "transition_id": "statistical_model_spec",
-      "consumes": [
-        "model",
-        "identification_report",
-        "panel",
-        "validation_report"
-      ],
-      "produces": [
-        "model"
-      ],
-      "produces_optional": [],
-      "creation_class": "judgment",
-      "writable": false
+      "creation_class": "batch_llm"
     },
     {
       "transition_id": "posterior",
@@ -345,8 +278,7 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
         "model"
       ],
       "produces_optional": [],
-      "creation_class": "deterministic",
-      "writable": false
+      "creation_class": "deterministic"
     },
     {
       "transition_id": "simulate",
@@ -355,8 +287,16 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       ],
       "produces": [],
       "produces_optional": [],
-      "creation_class": "deterministic",
-      "writable": false
+      "creation_class": "deterministic"
+    },
+    {
+      "transition_id": "simulated_measurements",
+      "consumes": [],
+      "produces": [
+        "panel"
+      ],
+      "produces_optional": [],
+      "creation_class": "deterministic"
     }
   ],
   "derivations": [
@@ -404,7 +344,9 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
       "parquet": {}
     },
     "panel": {
-      "json": {},
+      "json": {
+        "metadata": "metadata.json"
+      },
       "parquet": {
         "panel": "panel.parquet"
       }
@@ -444,7 +386,9 @@ export const ARTIFACT_FILE_SPECS: Record<ArtifactId, ArtifactFileSpec> = {
     "parquet": {}
   },
   "panel": {
-    "json": {},
+    "json": {
+      "metadata": "metadata.json"
+    },
     "parquet": {
       "panel": "panel.parquet"
     }

@@ -3,25 +3,23 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from functools import cached_property
 from hashlib import sha256
 from itertools import combinations
-from typing import TYPE_CHECKING, Literal, override
-
-from pydantic import PrivateAttr
+from typing import TYPE_CHECKING, Literal
 
 from nof1_causal_lab.artifacts.construct import (
+    CausalEdgeSpec,
+    ConstructSpec,
     Role,
     TemporalStatus,
-    replace_constructs,
 )
 from nof1_causal_lab.artifacts.execution import StructuralDisposition, StructuralItemDisposition
 from nof1_causal_lab.artifacts.identity import ConstructRef, EdgeRef, IndicatorRef
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.compilation_errors import AggregatedCompileError
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.identity import ConstructId
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 type DependencyKey = tuple[
     ConstructId, ConstructId, Literal["innovation_correlation", "initial_state_correlation"]
@@ -57,13 +55,10 @@ def marginalized_construct_ids(model: ModelSpec) -> frozenset[ConstructId]:
 
 def induced_dependencies(model: ModelSpec) -> dict[DependencyKey, tuple[ConstructId, ...]]:
     """Pairs of retained states sharing projected roots, with their scientific sources."""
-    from nof1_causal_lab.models.model_inputs import graph_input, observation_input
     from nof1_causal_lab.utils.identifiability import dag_to_admg, get_observed_constructs
 
-    observed = get_observed_constructs(
-        {construct.id: construct.name for construct in model.constructs}, observation_input(model)
-    )
-    _, confounders = dag_to_admg(graph_input(model), observed)
+    observed = get_observed_constructs(model.constructs)
+    _, confounders = dag_to_admg(model.constructs, model.edges, observed)
     retained = set(model.state_order)
     sources: dict[DependencyKey, list[ConstructId]] = defaultdict(list)
     for identity in sorted(
@@ -108,14 +103,71 @@ def dependency_id(key: DependencyKey, sources: tuple[ConstructId, ...]) -> str:
     return f"dependency:{digest}"
 
 
+def retained_construct_ids(model: ModelSpec) -> frozenset[ConstructId]:
+    """Keep the outcome's component after projection, including statistical dependencies."""
+    import networkx as nx
+
+    measured = {construct.id for construct in model.constructs if construct.indicators}
+    if model.default_outcome is None:
+        # A model-wide operation has no outcome against which to discard a component.
+        return frozenset(measured)
+
+    graph = nx.Graph()
+    graph.add_nodes_from((*measured, model.default_outcome))
+    marginalized = model.marginalized_construct_ids
+    graph.add_edges_from(
+        (edge.cause.id, edge.effect.id)
+        for edge in model.edges
+        if edge.effect.id in measured
+        and (
+            edge.cause.id in marginalized
+            or (
+                edge.cause.id in measured
+                and edge.effect.temporal_status != TemporalStatus.TIME_INVARIANT
+            )
+        )
+    )
+    for construct in model.constructs:
+        if construct.id not in measured:
+            continue
+        dependencies = {
+            identity for operand in construct.coefficients for identity in operand.construct_ids
+        }
+        for indicator in construct.indicators:
+            if indicator.likelihood is not None:
+                dependencies.update(indicator.likelihood.terms.loadings)
+        graph.add_edges_from((construct.id, identity) for identity in dependencies & measured)
+
+    # Shared parameters and joint laws can connect components without a direct causal edge.
+    law_members: dict[str, set[ConstructId]] = defaultdict(set)
+    for construct in model.constructs:
+        if construct.distribution is not None and construct.id in measured:
+            law_members[construct.distribution].add(construct.id)
+    for parameter in model.parameters:
+        owners = {
+            owner.id
+            for owner in model.parameter_context(parameter.id).owners
+            if owner.kind == "construct" and owner.id in measured
+        }
+        nx.add_path(graph, sorted(owners))
+        if parameter.distribution is not None:
+            law_members[parameter.distribution].update(owners)
+    for members in law_members.values():
+        nx.add_path(graph, sorted(members))
+    return frozenset(measured & nx.node_connected_component(graph, model.default_outcome))
+
+
 def unsupported_construct_ids(model: ModelSpec) -> frozenset[ConstructId]:
-    """Required unmeasured parents without an executable marginalization rule."""
+    """Required parents outside the selection without an executable marginalization rule."""
+    states = set(model.state_order)
+    selected = retained_construct_ids(model)
     return frozenset(
         {
             edge.cause.id
             for edge in model.edges
-            if edge.effect.id in model.state_order
-            and not edge.cause.indicators
+            if edge.effect.id in states
+            and edge.cause.id not in states
+            and (not edge.cause.indicators or edge.cause.id not in selected)
             and edge.cause.id not in model.marginalized_construct_ids
         }
     )
@@ -126,6 +178,8 @@ def validate_execution_structure(model: ModelSpec) -> None:
     model.require_measurements()
     states = set(model.state_order)
     errors = []
+    if model.default_outcome is not None and model.default_outcome not in states:
+        errors.append("The default outcome requires retained measurement indicators.")
     for edge in model.execution_edges:
         if edge.effect.temporal_status == TemporalStatus.TIME_INVARIANT:
             errors.append(
@@ -137,7 +191,7 @@ def validate_execution_structure(model: ModelSpec) -> None:
     unsupported = unsupported_construct_ids(model)
     if unsupported:
         errors.append(
-            "Required unmeasured constructs cannot be projected: "
+            "Required constructs outside the retained states cannot be projected: "
             f"{sorted(unsupported)}. Supply measurements or supported marginalization semantics."
         )
     manifests = model.manifest_indicator_order
@@ -170,13 +224,18 @@ def structural_dispositions(model: ModelSpec) -> tuple[StructuralItemDisposition
             reason = "Measured construct selected as a state; execution requirements are checked separately."
         elif construct.id in unsupported:
             disposition = StructuralDisposition.UNSUPPORTED
-            reason = "Required unmeasured cause has no supported marginalization semantics."
+            reason = "Required cause outside the retained states has no supported marginalization semantics."
         elif construct.id in model.marginalized_construct_ids:
             disposition = StructuralDisposition.MARGINALIZED
             reason = "Safe unobserved exogenous root projected from the executable state vector."
         else:
             disposition = StructuralDisposition.IDENTIFICATION_ONLY
-            reason = "Scientific-DAG construct not retained in the executable state."
+            reason = (
+                f"Disconnected from outcome '{model.get_construct(model.default_outcome).name}' "
+                "after structural projection."
+                if construct.indicators and model.default_outcome is not None
+                else "Scientific-DAG construct not retained in the executable state."
+            )
         findings.append(
             StructuralItemDisposition(
                 target=ConstructRef(id=construct.id),
@@ -221,96 +280,22 @@ def structural_dispositions(model: ModelSpec) -> tuple[StructuralItemDisposition
     return tuple(findings)
 
 
-def model_for_constructs(model: ModelSpec, keep_names: set[str]) -> ModelSpec:
-    """Select the scientific components exercised by one cumulative admission check."""
-    from nof1_causal_lab.models.model_parameters import referenced_parameter_ids
-
-    states = {
-        identity
-        for identity in model.state_order
-        if model.get_construct(identity).name in keep_names
-    }
-    edges = {
-        edge.id
-        for edge in model.execution_edges
-        if edge.effect.id in states and edge.cause.id in states
-    }
-    manifests = {
-        identity
-        for identity in model.manifest_indicator_order
-        if model.indicator_owner(identity).id in states
-    }
-    confounders = {
-        cid
-        for (first, second, _), sources in model.induced_dependencies.items()
-        if first in states and second in states
-        for cid in sources
-    }
-    constructs = []
-    for construct in model.constructs:
-        coefficients = tuple(
-            operand
-            for operand in construct.coefficients
-            if construct.id
-            in (states | confounders if operand.role.startswith("initial_") else states)
-            and set(operand.construct_ids) <= states
-        )
-        constructs.append(
-            construct.model_copy(
-                update={
-                    "dynamics": construct.dynamics if construct.id in states else (),
-                    "coefficients": coefficients,
-                    "indicators": tuple(
-                        indicator.model_copy(
-                            update={
-                                "likelihood": indicator.likelihood
-                                if indicator.id in manifests
-                                else None
-                            }
-                        )
-                        for indicator in construct.indicators
-                    ),
-                }
-            )
-        )
-    selected_edges = tuple(
-        edge.model_copy(update={"mechanisms": edge.mechanisms if edge.id in edges else ()})
-        for edge in model.edges
+def model_graph_entities(
+    model: ModelSpec,
+) -> tuple[tuple[ConstructSpec, ...], tuple[CausalEdgeSpec, ...]]:
+    """Show authored structure until execution dispositions establish the retained graph."""
+    if model.measurement_clock is None or not model.indicators:
+        return model.constructs, model.edges
+    dispositions = {item.target.id: item.disposition for item in model.structural_dispositions}
+    return (
+        tuple(
+            item
+            for item in model.constructs
+            if dispositions[item.id] == StructuralDisposition.RETAINED_STATE
+        ),
+        tuple(
+            item
+            for item in model.edges
+            if dispositions[item.id] == StructuralDisposition.RETAINED_EDGE
+        ),
     )
-    selected_edges = replace_constructs(selected_edges, constructs)
-    referenced = referenced_parameter_ids(*constructs, *selected_edges)
-    parameters = tuple(parameter for parameter in model.parameters if parameter.id in referenced)
-    law_references = {item.distribution for item in (*constructs, *parameters)}
-    selected = model.revised(
-        edges=selected_edges,
-        parameters=parameters,
-        distributions={
-            identity: law
-            for identity, law in model.distributions.items()
-            if identity in law_references
-        },
-    )
-    return _AdmissionModel.from_selection(
-        selected, tuple(key for key in model.state_order if key in states)
-    )
-
-
-class _AdmissionModel(ModelSpec):
-    """An operation-local projection; its scope is never authored or serialized."""
-
-    _selected_states: tuple[ConstructId, ...] = PrivateAttr()
-
-    @classmethod
-    def from_selection(cls, model: ModelSpec, states: tuple[ConstructId, ...]) -> _AdmissionModel:
-        selected = cls.model_validate(model.model_dump(mode="python"))
-        object.__setattr__(selected, "_selected_states", states)
-        return selected
-
-    @cached_property
-    @override
-    def state_order(self) -> tuple[ConstructId, ...]:
-        return self._selected_states
-
-    @override
-    def revised(self, **changes: object) -> ModelSpec:
-        return type(self).from_selection(super().revised(**changes), self._selected_states)

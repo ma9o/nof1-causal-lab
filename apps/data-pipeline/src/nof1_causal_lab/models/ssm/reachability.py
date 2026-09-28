@@ -1,48 +1,10 @@
-"""Prior-predictive reachability battery for gradual construct admission.
+"""Pure measurements of predictive draws, independent of their conditioning history.
 
-This is the single, authoritative implementation of the checks (the from-scratch
-notebook prototype that seeded it has been retired; the blind case-study
-walkthroughs under ``notebooks/`` now drive *this* module directly). The battery
-is scoped to **reachability + one design-observability screen** — the recognized
-remit of prior-predictive checking. Practical
-identifiability verdicts (is a parameter prior-dominated / estimable from
-``n_obs`` points) are deliberately NOT here: those belong post-fit (posterior
-contraction, power-scaling).
-
-The checks are **pure**: each takes arrays already produced by the exact
-forward engine (Euler-Maruyama over the true nonlinear drift for latents,
-Diffrax for the prior predictive) and returns :class:`CheckResult`s. Nothing is
-simulated or linearized here — the caller (the model-spec construct reducer) feeds
-these from ``sample_prior_predictive_from_runtime``. Keeping them array-in makes
-them engine-agnostic and trivially testable, and keeps this module free of any
-plotting or notebook dependency.
-
-Severity and consequences are declarative tables (:data:`CHECK_MODES`,
-:data:`CHECK_CONSEQUENCES`); :func:`stage_outcome` derives the admit / revise /
-accept verdict from them plus the proposer's accepted-consequence decisions —
-there is no status enum stored on any artifact.
-
-Checks, by family:
-
-- ``C1a``/``C1b`` — finiteness and self-calibrating confinement of the latent path.
-  C1b's calibration pair (growth ratio, tolerated explosive fraction) is a design
-  choice, not part of the statistic: the defaults encode the model class's
-  confinement commitment (every self-dynamics component is a restoring force) and
-  are threaded from the admission design so an intrinsically trending domain can
-  recalibrate them without touching the check.
-- ``C2`` — the construct's stationary latent scale vs the scale its indicator implies.
-- ``C3`` — design-resolvability: is the prior's self-relaxation τ inside
-  ``[cadence/3, span/4]``? Schedule-only; does not estimate τ (the observed
-  autocorrelation mixes self and inherited dynamics, an unidentified split left
-  to the fit).
-- ``C4b`` — edge overwhelm (a parent slaving the child is a degenerate prior).
-- ``C4c`` — Hill saturation-exercised: is the EC50 inside the parent's realized
-  range, so the saturation is actually exercised (not a dead linear arm or a
-  flat saturated response)?
-- ``C5a``/``C5b`` — location reach and width of the prior predictive vs the data.
-- ``C5c`` — transmission: what fraction of prior-predictive variation is carried
-  by temporal movement in the emission mean rather than conditional observation
-  variance? This check applies only to time-varying constructs.
+Reducers consume exact nonlinear trajectories and true emission draws. They do
+not decide admission or saving. The owning report records whether these are
+prior, posterior, mixed or otherwise unclassified predictive checks. C3 screens
+the declared relaxation scale against a sampling design; it does not establish
+practical parameter identification or a full nonlinear relaxation timescale.
 """
 
 from __future__ import annotations
@@ -52,8 +14,10 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from nof1_causal_lab.artifacts.checks import PredictiveCheckFinding
+
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from nof1_causal_lab.artifacts.identity import ConstructId
 
 
 @dataclass(frozen=True)
@@ -64,10 +28,28 @@ class CheckResult:
     target: str
     value: str
     band: str
-    passed: bool
+    passed: bool | None
     note: str
     diagnosis: tuple[str, ...] = ()
     evidence: dict[str, np.ndarray | float] | None = None
+    reason: str | None = None
+
+    @classmethod
+    def unevaluated(cls, check: str, target: str, reason: str, note: str) -> CheckResult:
+        return cls(check, target, "not_evaluated", "", None, note, reason=reason)
+
+    def finding(self, construct_id: ConstructId | None = None) -> PredictiveCheckFinding:
+        """Project the measured fields while retaining numerical evidence in the runtime."""
+        return PredictiveCheckFinding(
+            check=self.check,
+            construct_id=construct_id,
+            target=self.target,
+            value=self.value,
+            band=self.band,
+            passed=self.passed,
+            note=self.note,
+            reason=self.reason,
+        )
 
 
 def _robust_scale(values: np.ndarray, *, axis: int | tuple[int, ...] | None = None) -> np.ndarray:
@@ -128,7 +110,7 @@ def check_confinement(
         _onset_indices = np.argmax(_bad, axis=1)[_bad_draws]
         _onset = float(np.median(_times[_onset_indices]))
         _diag_a = (
-            f"{float(np.mean(_bad_draws)):.0%} of prior draws go non-finite; median "
+            f"{float(np.mean(_bad_draws)):.0%} of predictive draws go non-finite; median "
             f"onset t ≈ {_onset:.1f} d on the predictive output grid",
             "the exact Diffrax Heun solve returned a non-finite path; inspect the sampled "
             "drift, diffusion, and solver diagnostics for the implicated draws",
@@ -153,7 +135,7 @@ def check_confinement(
             f"nonfinite {_nonfinite:.1%}",
             "0%",
             _nonfinite == 0.0,
-            f"simulation of {name} produced non-finite values — the fragment cannot be evaluated.",
+            f"simulation of {name} produced non-finite values — dependent measurements cannot be evaluated.",
             _diag_a,
             _ev,
         ),
@@ -177,7 +159,7 @@ def check_scale(
     anchor_src: str = "standardized-latent convention",
     anchor_detail: str = "latent marginal scale convention",
 ) -> CheckResult:
-    """C2 — marginal prior scale against the standardized-latent convention."""
+    """C2 — marginal predictive scale against the standardized-latent convention."""
     _half = x.shape[1] // 2
     _scales = _robust_scale(np.asarray(x)[:, _half:], axis=0)
     _med = float(np.median(_scales))
@@ -190,13 +172,13 @@ def check_scale(
         _side = "above" if _med > _hi else "below"
         _factor = _med / max(_hi, 1e-9) if _med > _hi else _lo / max(_med, 1e-9)
         _diag = (
-            f"prior-predictive marginal scale: median {_med:.2f} (5–95% "
+            f"predictive marginal scale: median {_med:.2f} (5–95% "
             f"{_q05:.2f}–{_q95:.2f}) vs band [{_lo:.2f}, {_hi:.2f}] — {_factor:.1f}× "
             f"{_side} the edge",
             f"band derivation: {anchor_detail}",
-            "dependence: the statistic rises with the diffusion prior and falls with "
-            "the stiffness prior (incoming edges add parent variance); the band scales "
-            "inversely with the prior-median loading — this red can equally reflect a "
+            "dependence: the statistic rises with the diffusion law and falls with "
+            "the stiffness law (incoming edges add parent variance); the band scales "
+            "inversely with the median loading — this red can equally reflect a "
             "dynamics–emission inconsistency",
             "emission-to-data compatibility is evaluated separately by the C5 replicated-data "
             "checks",
@@ -207,7 +189,7 @@ def check_scale(
         f"median sd {_med:.2f} (5–95%: {_q05:.2f}–{_q95:.2f})",
         f"[{_lo:.2f}, {_hi:.2f}] ({anchor_src})",
         _ok,
-        f"marginal prior scale of {name} is inconsistent with the standardized latent "
+        f"marginal predictive scale of {name} is inconsistent with the standardized latent "
         f"convention ({anchor_src}).",
         _diag,
         _ev,
@@ -221,7 +203,7 @@ def check_resolvability(
     *,
     min_resolvable_mass: float = 0.8,
 ) -> CheckResult:
-    """C3 — prior mass resolvable by this construct's actual irregular schedule."""
+    """C3 — draws resolvable by this construct's actual irregular schedule."""
     _tau = np.asarray(tau_draws, dtype=float)
     _times = np.unique(np.asarray(observation_times, dtype=float))
     if _times.size < 2:
@@ -249,32 +231,32 @@ def check_resolvability(
     _median_gap = float(np.median(_gaps))
     if not _ok and np.mean(_gap_resolved) < np.mean(_span_resolved):
         _diag = (
-            f"prior self-relaxation τ: median {_med:.2f} d (10–90% {_q10:.2f}–{_q90:.2f}) "
+            f"sampled self-relaxation τ: median {_med:.2f} d (10–90% {_q10:.2f}–{_q90:.2f}) "
             f"is too fast for the construct's actual gaps (median {_median_gap:.2f} d); "
-            f"{_frac_in:.0%} of prior mass is resolvable",
-            "reading: the prior posits dynamics faster than the sampling can follow — the "
+            f"{_frac_in:.0%} of draws is resolvable",
+            "reading: the current law posits dynamics faster than the sampling can follow — the "
             "process relaxes at least three times across most adjacent observations",
-            "this is a prior/design mismatch, not an estimate: the observed autocorrelation "
+            "this is a design screen: the observed autocorrelation "
             "mixes this node's own relaxation with inherited parent persistence, and that "
-            "split is resolved only by the joint fit — confirm with post-fit contraction",
+            "screen does not establish practical parameter identification",
         )
     elif not _ok:
         _diag = (
-            f"prior self-relaxation τ: median {_med:.2f} d (10–90% {_q10:.2f}–{_q90:.2f}) "
+            f"sampled self-relaxation τ: median {_med:.2f} d (10–90% {_q10:.2f}–{_q90:.2f}) "
             f"is too slow for four replications within span {_span:.0f} d; "
-            f"{_frac_in:.0%} of prior mass is resolvable",
-            "reading: the prior posits dynamics so slow the window holds < ~4 relaxation "
+            f"{_frac_in:.0%} of draws is resolvable",
+            "reading: the current law posits dynamics so slow the window holds < ~4 relaxation "
             "times — the process is near-frozen over the record, so its timescale and "
             "stationary law are not resolvable by this design",
         )
     return CheckResult(
         "C3 resolvability",
         name,
-        f"prior τ median {_med:.2f} d (10–90% {_q10:.2f}–{_q90:.2f}); {_frac_in:.0%} resolvable",
-        f">= {min_resolvable_mass:.0%} of prior mass resolved by actual gaps and span",
+        f"sampled τ median {_med:.2f} d (10–90% {_q10:.2f}–{_q90:.2f}); {_frac_in:.0%} resolvable",
+        f">= {min_resolvable_mass:.0%} of draws resolved by actual gaps and span",
         _ok,
         f"the timescale posited for {name} lies outside the window this sampling design can "
-        "resolve; the fit cannot inform its dynamics from this schedule.",
+        "resolve under the declared decay-coefficient screen.",
         _diag,
         _ev,
     )
@@ -283,12 +265,12 @@ def check_resolvability(
 def check_edge_share(
     edge_label: str, x_on_obs: np.ndarray, x_off_obs: np.ndarray
 ) -> list[CheckResult]:
-    """C4b edge overwhelm — is the child's path variation slaved to a parent (degenerate prior)?
+    """C4b edge overwhelm — is the child's path variation slaved to a parent (dominant coupling)?
 
     C4a edge *detectability* was dropped: its 2/√n_obs SNR floor is a data-quantity
     detectability threshold — practical identifiability of the edge weight, which belongs to
-    the post-fit gate (posterior contraction on the weight), not the prior-predictive stage.
-    Overwhelm stays because a child fully slaved to a parent is a degenerate *prior*.
+    the post-fit gate (posterior contraction on the weight), not the predictive stage.
+    Overwhelm stays because a child fully slaved to a parent has little autonomous variation under the current model.
     """
     _a = np.asarray(x_on_obs)
     _b = np.asarray(x_off_obs)
@@ -307,9 +289,9 @@ def check_edge_share(
     _diag_b: tuple[str, ...] = ()
     if _med > 0.95:
         _diag_b = (
-            f"for the median prior draw the edge changes {_med:.0%} as much temporal "
+            f"for the median predictive draw the edge changes {_med:.0%} as much temporal "
             "variation as the child path itself",
-            "dependence: the statistic falls with the edge-weight prior scale and "
+            "dependence: the statistic falls with the edge-weight scale and "
             "rises when the child's own stiffness/diffusion contribute little",
         )
     return [
@@ -357,11 +339,11 @@ def check_saturation(
     _diag: tuple[str, ...] = ()
     if not _ok:
         _diag = (
-            f"only {_exercised_mass:.0%} of paired prior draws spend at least 10% of the "
+            f"only {_exercised_mass:.0%} of paired predictive draws spend at least 10% of the "
             "schedule on the Hill bend",
             f"draw classification: {_dead_low:.0%} dead-low and {_saturated_high:.0%} "
             "flat-saturated",
-            "dependence: shift the EC50 prior toward the parent's realized range, or drop "
+            "dependence: inspect the EC50 law against the parent's realized range, or drop "
             "the Hill form for a linear edge if the bend is not exercised",
         )
     return CheckResult(
@@ -370,7 +352,7 @@ def check_saturation(
         f"EC50 median {_med:.2f}; bend exercised in {_exercised_mass:.0%} of paired draws",
         f">= {min_exercised_mass:.0%} of paired draws exercise the bend",
         _ok,
-        f"the saturating edge {edge_label} is not exercised over the parent's prior range; "
+        f"the saturating edge {edge_label} is not exercised over the parent's predictive range; "
         "its nonlinearity is either a dead linear arm or a flat saturated response.",
         _diag,
         _ev,
@@ -412,9 +394,9 @@ def check_coverage(
 
         _rep_freq = _frequencies(_pp_matrix)
         _obs_freq = _frequencies(_obs[None, :])[0]
-        _prior_freq = np.mean(_rep_freq, axis=0)
-        _rep_location = 0.5 * np.sum(np.abs(_rep_freq - _prior_freq), axis=1)
-        _obs_location = float(0.5 * np.sum(np.abs(_obs_freq - _prior_freq)))
+        _predictive_freq = np.mean(_rep_freq, axis=0)
+        _rep_location = 0.5 * np.sum(np.abs(_rep_freq - _predictive_freq), axis=1)
+        _obs_location = float(0.5 * np.sum(np.abs(_obs_freq - _predictive_freq)))
         _location_band = (0.0, float(np.percentile(_rep_location, 99)))
         _location_ok = _inside(_obs_location, _location_band)
         _eps = 1e-12
@@ -422,7 +404,7 @@ def check_coverage(
         _obs_width = float(-np.sum(_obs_freq * np.log(_obs_freq + _eps)))
         _width_band = _band(_rep_width)
         _width_ok = _inside(_obs_width, _width_band)
-        _location_value = f"frequency TV from prior center {_obs_location:.2f}"
+        _location_value = f"frequency TV from predictive center {_obs_location:.2f}"
         _location_band_text = f"≤ {_location_band[1]:.2f} (99% replicate envelope)"
         _width_value = f"category entropy {_obs_width:.2f}"
         _width_band_text = f"[{_width_band[0]:.2f}, {_width_band[1]:.2f}] replicate envelope"
@@ -473,15 +455,15 @@ def check_coverage(
     if not _location_ok:
         _diag_a = (
             f"the observed replicated-data location statistic ({_location_value}) lies outside "
-            f"the prior replicate envelope {_location_band_text}",
-            "this indicates little prior mass near the observed location; it is not a proof "
-            "that a continuous-support prior makes the data impossible",
+            f"the predictive replicate envelope {_location_band_text}",
+            "this indicates little predictive mass near the observed location; it is not a proof "
+            "that a continuous-support law makes the data impossible",
         )
     _diag_b: tuple[str, ...] = ()
     if not _width_ok:
         _diag_b = (
             f"the observed dispersion statistic ({_width_value}) lies outside the "
-            f"prior replicate envelope {_width_band_text}",
+            f"predictive replicate envelope {_width_band_text}",
             "the family-specific statistic avoids ratios against a zero empirical IQR",
         )
     return [
@@ -491,7 +473,7 @@ def check_coverage(
             _location_value,
             _location_band_text,
             _location_ok,
-            f"the prior predictive puts little mass near the location of {indicator}.",
+            f"the predictive puts little mass near the location of {indicator}.",
             _diag_a,
             _ev,
         ),
@@ -501,7 +483,7 @@ def check_coverage(
             _width_value,
             _width_band_text,
             _width_ok,
-            f"prior-predictive spread for {indicator} is out of proportion to the observed spread.",
+            f"predictive spread for {indicator} is out of proportion to the observed spread.",
             _diag_b,
             _ev,
         ),
@@ -518,7 +500,7 @@ def check_transmission(
     """C5c — fraction of predictive variation attributable to temporal signal movement.
 
     Scalar emissions use the law-of-total-variance decomposition within each
-    prior draw. Categorical emissions use its label-invariant one-hot analogue:
+    predictive draw. Categorical emissions use its label-invariant one-hot analogue:
     probability-vector resolution divided by resolution plus conditional Gini
     uncertainty. The caller omits this check for time-invariant constructs.
     """
@@ -528,7 +510,12 @@ def check_transmission(
     if not 0.0 <= min_signal_fraction <= 1.0:
         raise ValueError("min_signal_fraction must lie in [0, 1]")
     if np.any(~np.isfinite(_sig)):
-        raise ValueError("transmission signal must be finite")
+        return CheckResult.unevaluated(
+            "C5c transmission",
+            indicator,
+            "NONFINITE_SIGNAL",
+            "The conditional emission signal contains non-finite values.",
+        )
 
     if _sig.ndim == 3:
         if _sig.shape[2] < 2:
@@ -544,8 +531,20 @@ def check_transmission(
         _conditional = np.asarray(conditional_variance_y, dtype=float)
         if _conditional.shape != _sig.shape:
             raise ValueError("conditional variance must match the scalar signal shape")
-        if np.any(np.isnan(_conditional)) or np.any(_conditional < 0.0):
+        if np.any(_conditional < 0.0):
             raise ValueError("conditional observation variance must be non-negative")
+        if np.any(np.isnan(_conditional)):
+            undefined = float(np.mean(np.isnan(_conditional).any(axis=1)))
+            return CheckResult(
+                "C5c transmission",
+                indicator,
+                f"undefined conditional variance in {undefined:.1%} of draws",
+                "Defined conditional observation moments",
+                False,
+                "The observation law has undefined moments, so a variance-based temporal "
+                "signal share cannot be reported for these draws.",
+                evidence={"undefined_moment_fraction": undefined},
+            )
         _signal_variance = np.var(_sig, axis=1)
         _conditional_variance = np.mean(_conditional, axis=1)
 
@@ -586,75 +585,3 @@ def check_transmission(
             "min_signal_fraction": min_signal_fraction,
         },
     )
-
-
-# ---------------------------------------------------------------- severity (declarative)
-
-CHECK_MODES = {
-    "C1a finiteness": "hard",
-    "C1b confinement": "soft",
-    "C2 latent scale": "soft",
-    "C3 resolvability": "soft",
-    "C4b edge overwhelm": "soft",
-    "C4c saturation": "soft",
-    "C5a location reach": "soft",
-    "C5b width": "soft",
-    "C5c transmission": "soft",
-}
-
-CHECK_CONSEQUENCES = {
-    "C1b confinement": "{target}: excursions beyond the confinement screen accepted as "
-    "intentional; extreme-value behavior is prior-set, not data-vetted",
-    "C2 latent scale": "{target}: latent scale departs from its data anchor; magnitude "
-    "statements about this construct are convention-bound, not data-bound",
-    "C3 resolvability": "{target}: its posited timescale sits outside what this sampling "
-    "design resolves; the fit cannot inform its dynamics from this schedule — treat any "
-    "timescale or trajectory statement as prior-set and confirm with post-fit contraction",
-    "C4b edge overwhelm": "{target}: parent-driven variation dominates; its own dynamics "
-    "parameters are weakly informed",
-    "C4c saturation": "{target}: the saturating edge's bend is not exercised over the "
-    "parent's prior range; treat it as effectively linear (or narrow the EC50 prior) — the "
-    "extra Hill parameters are weakly informed",
-    "C5a location reach": "{target}: little prior-predictive mass lies near the observed "
-    "location; posterior adaptation may be prior-sensitive",
-    "C5b width": "{target}: prior-predictive width imbalance accepted; expect weak "
-    "regularization or slow warmup",
-    "C5c transmission": "{target}: little prior-predictive variation comes from temporal "
-    "movement in the emission mean; conditional observation variance dominates, so this "
-    "construct's trajectory is weakly grounded in the data",
-}
-
-
-def stage_outcome(
-    results: list[CheckResult],
-    accepted: Mapping[tuple[str, str], str],
-) -> tuple[str, tuple[str, ...]]:
-    """Derive the admit / revise / accept verdict + carried annotations from the tables.
-
-    Hard failure blocks (no override). An unaccepted soft failure needs a decision (revise or
-    accept the consequence). Accepted soft failures become build-state annotations. The verdict
-    is a returned string over the checks + the proposer's decisions, never an enum stored on an
-    artifact.
-    """
-    _failed = [r for r in results if not r.passed]
-    _hard = [r for r in _failed if CHECK_MODES[r.check] == "hard"]
-    _pending = [
-        r for r in _failed if CHECK_MODES[r.check] == "soft" and (r.check, r.target) not in accepted
-    ]
-    _annotations = tuple(
-        CHECK_CONSEQUENCES[r.check].format(target=r.target)
-        + f" [rationale: {accepted[(r.check, r.target)]}]"
-        for r in _failed
-        if CHECK_MODES[r.check] == "soft" and (r.check, r.target) in accepted
-    )
-    if _hard:
-        return "BLOCKED — hard failure: revise the fragment (no override)", _annotations
-    if _pending:
-        _ids = ", ".join(f"{r.check} [{r.target}]" for r in _pending)
-        return (
-            f"NEEDS DECISION — revise the fragment or accept the consequence ({_ids})",
-            _annotations,
-        )
-    if _annotations:
-        return "ADMITTED with accepted consequences", _annotations
-    return "ADMITTED", _annotations

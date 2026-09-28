@@ -17,11 +17,14 @@ from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior
 from nof1_causal_lab.models.ssm.inference.persistence import condition_model
 from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
+from tests.git_fixtures import artifact_revision
 from tests.helpers import fixture_entity_id
 from tests.inference_fixtures import inference_log
 from tests.model_fixtures import (
     parameter_draws,
 )
+
+pytestmark = pytest.mark.contract
 
 
 def _identification(treatment: str, outcome: str) -> IdentificationReport:
@@ -90,8 +93,8 @@ def test_build_analysis_context_rehydrates_runtime_from_persisted_spec(monkeypat
     import polars as pl
 
     from nof1_causal_lab.artifacts.posterior import InferenceReport
-    from nof1_causal_lab.machine.moves import RunOperation
-    from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal, TransitionRecord
+    from nof1_causal_lab.machine.history import StudyRepository
+    from nof1_causal_lab.machine.store import ArtifactStore, TransitionRecord
     from nof1_causal_lab.models.model_checks import check_execution
     from nof1_causal_lab.utils import data as data_module
     from tests.helpers import complete_test_model, make_model
@@ -120,18 +123,16 @@ def test_build_analysis_context_rehydrates_runtime_from_persisted_spec(monkeypat
         }
     )
     store = ArtifactStore("user-123")
-    definition = store.write_version(
+    definition = store.write_artifact(
         "model",
-        provenance="llm",
         derived_from={},
         produced_by="run:statistical_model_spec",
         json_files={"model.json": design.model_dump(mode="json")},
     )
 
-    identification_report = store.write_version(
+    identification_report = store.write_artifact(
         "identification_report",
-        provenance="computed",
-        derived_from={"model": 1},
+        derived_from={"model": artifact_revision("user-123", "model", 1)},
         produced_by="derive:identification_report",
         json_files={
             "identification_report.json": _identification(
@@ -139,21 +140,22 @@ def test_build_analysis_context_rehydrates_runtime_from_persisted_spec(monkeypat
             ).model_dump(mode="json")
         },
     )
-    panel = store.write_version(
+    panel = store.write_artifact(
         "panel",
-        provenance="computed",
-        derived_from={"model": 1},
+        derived_from={},
         produced_by="run:measurements",
         parquet_files={"panel.parquet": model_data},
     )
-    fitted = store.write_version(
+    fitted = store.write_artifact(
         "model",
-        provenance="computed",
-        derived_from={"model": 1, "panel": 1},
+        derived_from={
+            "model": artifact_revision("user-123", "model", 1),
+            "panel": artifact_revision("user-123", "panel", 1),
+        },
         produced_by="run:posterior",
         json_files={"model.json": conditioned.model_dump(mode="json")},
     )
-    journal = EpisodeJournal("user-123")
+    journal = StudyRepository("user-123")
     for seq, operation, produced in (
         (
             1,
@@ -167,7 +169,13 @@ def test_build_analysis_context_rehydrates_runtime_from_persisted_spec(monkeypat
             TransitionRecord(
                 seq=seq,
                 ts="2026-07-03T00:00:00+00:00",
-                move=RunOperation(operation_id=operation),
+                action="fit"
+                if operation == "posterior"
+                else "prepare_data"
+                if operation in {"raw_data", "measurements"}
+                else "edit_model",
+                operation_id=operation,
+                inputs={},
                 status="applied",
                 produced=produced,
                 diagnostics=inference_log(conditioned, report=report).diagnostics
@@ -211,14 +219,18 @@ def test_build_analysis_context_rehydrates_runtime_from_persisted_spec(monkeypat
     again = tool_server._build_analysis_context("user-123")
     assert again["_simulation"] is ctx["_simulation"]
     assert loads == 1
-    new_panel = store.write_version(
-        "panel", provenance="computed", derived_from={"model": 1}, produced_by="run:measurements"
+    new_panel = store.write_artifact(
+        "panel",
+        derived_from={"model": artifact_revision("user-123", "model", 1)},
+        produced_by="run:measurements",
     )
     journal.append(
         TransitionRecord(
             seq=4,
             ts="2026-07-03T01:00:00+00:00",
-            move=RunOperation(operation_id="measurements"),
+            action="prepare_data",
+            operation_id="measurements",
+            inputs={},
             status="applied",
             produced=[new_panel],
             trace_ids=[],
@@ -288,4 +300,7 @@ def test_get_model_info_uses_structure_for_variables_and_treatments():
         "daily_event_count",
         "sleep_issue_searches",
     ]
-    assert payload["capabilities"]["simulate"]["supported_targets"] == ["screen_time"]
+    simulation = payload["capabilities"]["simulate"]
+    assert set(simulation["intervention_targets"]) == {c.id for c in model.constructs}
+    assert set(simulation["request"]["required"]) == {"model_revision", "end"}
+    assert simulation["request"]["properties"]["interventions"]["default"] == []

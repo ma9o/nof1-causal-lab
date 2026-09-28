@@ -5,18 +5,24 @@ import json
 
 import polars as pl
 import pytest
+from pydantic import ValidationError
 
+from nof1_causal_lab.actions.contracts import EditModelRequest
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.machine.artifacts import EpisodeState
-from nof1_causal_lab.machine.errors import ArtifactWriteRejected
+from nof1_causal_lab.machine.execution import apply_transition, input_pins
 from nof1_causal_lab.machine.graph import transition_spec
-from nof1_causal_lab.machine.moves import RunOperation, apply_transition, input_pins
+from nof1_causal_lab.machine.history import StudyRepository
 from nof1_causal_lab.machine.store import ArtifactStore
-from nof1_causal_lab.machine.writes import execute_write
 from nof1_causal_lab.models.identification import identify_model
 from nof1_causal_lab.models.model_inputs import observation_input
+from tests.action_fixtures import edit_and_check
+from tests.data_fixtures import metadata_for_model
+from tests.git_fixtures import artifact_revision
 from tests.helpers import make_model
+
+pytestmark = pytest.mark.contract
 
 
 @pytest.fixture
@@ -61,9 +67,8 @@ def _exact_measurement(model):
 def _write(store, artifact_id, payload, pins=None):
     from nof1_causal_lab.machine.artifact_files import artifact_file_spec
 
-    return store.write_version(
+    return store.write_artifact(
         artifact_id,
-        provenance="human",
         derived_from=pins or {},
         produced_by=None,
         json_files={next(iter(artifact_file_spec(artifact_id).json.values())): payload},
@@ -96,7 +101,7 @@ def test_identification_preserves_negative_findings(monkeypatch):
 
 
 @pytest.mark.parametrize("nonempty", [False, True])
-def test_extraction_optional_panel(workspace, tmp_path, nonempty):
+def test_extraction_requires_some_observations(workspace, tmp_path, nonempty):
     from nof1_causal_lab.machine.temporal.measurement_activities import (
         finalize_measurements_activity,
     )
@@ -107,11 +112,9 @@ def test_extraction_optional_panel(workspace, tmp_path, nonempty):
 
     store = ArtifactStore(workspace)
     model = _model()
-    state = EpisodeState().with_versions(
+    state = EpisodeState().with_artifacts(
         [
-            store.write_version(
-                "raw_data", provenance="computed", derived_from={}, produced_by="run:raw_data"
-            ),
+            store.write_artifact("raw_data", derived_from={}, produced_by="run:raw_data"),
             _write(store, "model", model.model_dump(mode="json")),
         ]
     )
@@ -121,6 +124,7 @@ def test_extraction_optional_panel(workspace, tmp_path, nonempty):
         json.dumps(
             {
                 "measurement_structure": observation_input(model),
+                "metadata": metadata_for_model(model).model_dump(mode="json"),
                 "computed_dicts": [
                     {
                         "indicator_id": model.indicators[0].id,
@@ -134,26 +138,32 @@ def test_extraction_optional_panel(workspace, tmp_path, nonempty):
             }
         )
     )
-    effects = asyncio.run(
-        finalize_measurements_activity(
-            MeasurementsFinalizeInput(
-                workspace_id=workspace,
-                state=state,
-                run_id="run-1",
-                plan_ref=str(path),
-                pins=pins,
-                chunk_results=[
-                    ExtractionChunkResult(
-                        worker_id=7,
-                        status="failed",
-                        n_extractions=0,
-                        n_windows=1,
-                        error="No usable extraction",
-                    )
-                ],
-            )
+    pending = finalize_measurements_activity(
+        MeasurementsFinalizeInput(
+            workspace_id=workspace,
+            state=state,
+            run_id="run-1",
+            plan_ref=str(path),
+            pins=pins,
+            chunk_results=[
+                ExtractionChunkResult(
+                    worker_id=7,
+                    status="failed",
+                    n_extractions=0,
+                    n_windows=1,
+                    error="No usable extraction",
+                )
+            ],
         )
     )
+    if not nonempty:
+        from temporalio.exceptions import ApplicationError
+
+        with pytest.raises(ApplicationError, match="Extraction produced no observations"):
+            asyncio.run(pending)
+        return
+    effects = asyncio.run(pending)
+
     assert ("panel" in {info.artifact_id for info in effects.produced}) == nonempty
     assert "measurements" not in {info.artifact_id for info in effects.produced}
     assert effects.diagnostics["workers"] == [
@@ -167,58 +177,44 @@ def test_extraction_optional_panel(workspace, tmp_path, nonempty):
         }
     ]
     assert effects.diagnostics["n_observations"] == int(nonempty)
-    from nof1_causal_lab.episode_api import _needs_run, _next_auto_move
-    from nof1_causal_lab.machine.store import EpisodeJournal, TransitionRecord
+    from nof1_causal_lab.machine.history import StudyRepository
+    from nof1_causal_lab.machine.store import TransitionRecord
 
-    journal = EpisodeJournal(workspace)
+    journal = StudyRepository(workspace)
     record = TransitionRecord(
         seq=1,
         ts="2026-01-01T00:00:00Z",
         trace_ids=[],
         resume=None,
-        move=RunOperation(operation_id="measurements"),
+        action="prepare_data",
+        operation_id="measurements",
+        inputs={},
         status="applied",
         produced=effects.produced,
         retracted=effects.retracted,
         diagnostics=effects.diagnostics,
+        checks=effects.checks,
     )
     journal.append(record)
-    assert journal.read_all()[0].diagnostics == effects.diagnostics
+    assert journal.attempts()[0].diagnostics == effects.diagnostics
     current = apply_transition(state, effects.produced, effects.retracted)
-    next_move = _next_auto_move(workspace, current)
-    assert next_move is None or next_move.operation_id != "measurements"
     if not nonempty:
         assert not current.has("panel")
         assert not current.has("validation_report")
-        assert next_move is None
-        enriched = current.current["model"].model_copy(update={"version": 2})
-        assert not _needs_run(
-            current.with_versions([enriched]), transition_spec("measurements"), model, record
-        )
-        changed_extraction = enriched.model_copy(update={"model_inputs": {"extraction": "changed"}})
-        assert _needs_run(
-            current.with_versions([changed_extraction]),
-            transition_spec("measurements"),
-            model,
-            record,
-        )
-        changed = current.with_versions(
-            [current.current["raw_data"].model_copy(update={"version": 2})]
-        )
-        assert _next_auto_move(workspace, changed) == RunOperation(operation_id="measurements")
     if nonempty:
         panel = next(info for info in effects.produced if info.artifact_id == "panel")
-        assert panel.derived_from == {"raw_data": 1, "model": 1}
+        assert panel.derived_from == {
+            "raw_data": artifact_revision(workspace, "raw_data", 1),
+        }
 
 
 def test_model_write_cascades_without_parallel_scientific_catalogs(workspace):
-    effects = execute_write(
+    effects = edit_and_check(
         workspace,
-        "model",
-        _model().model_dump(mode="json"),
-        "human",
+        EditModelRequest.model_validate(
+            {"model": _model().model_dump(mode="json"), "expected_revision": None}
+        ),
         EpisodeState(),
-        expected_model_version=0,
     )
     assert {info.artifact_id for info in effects.produced} == {
         "model",
@@ -226,7 +222,7 @@ def test_model_write_cascades_without_parallel_scientific_catalogs(workspace):
     }
     assert not effects.retracted
     assert all(
-        info.derived_from == {"model": 1}
+        info.derived_from == {"model": artifact_revision(workspace, "model", 1)}
         for info in effects.produced
         if info.artifact_id != "model"
     )
@@ -237,104 +233,73 @@ def test_exact_measurement_preserves_execution_layout(workspace):
     from nof1_causal_lab.utils.model_structure import get_state_names
 
     model = _exact_measurement(_model())
-    effects = execute_write(
+    effects = edit_and_check(
         workspace,
-        "model",
-        model.model_dump(mode="json"),
-        "human",
+        EditModelRequest.model_validate(
+            {"model": model.model_dump(mode="json"), "expected_revision": None}
+        ),
         EpisodeState(),
-        expected_model_version=0,
     )
     store = ArtifactStore(workspace)
     info = next(info for info in effects.produced if info.artifact_id == "model")
-    payload = store.read_json_file("model", info.version, "model.json")
+    payload = store.read_json_file("model", info.revision, "model.json")
     plan = ModelSpec.model_validate(payload)
     assert get_state_names(plan) == ["Stress", "Perf"]
     assert plan.indicators[0].likelihood is not None
     assert plan.indicators[0].likelihood.law.family == "delta"
 
 
-@pytest.mark.parametrize("operation", ["latent_structure", "measurement_structure"])
-def test_authoring_finalizer_commits_canonical_revision(workspace, tmp_path, operation):
-    from nof1_causal_lab.machine.temporal.messages import SingleLLMTransitionFinalizeInput
-    from nof1_causal_lab.machine.temporal.model_authoring import finalize_model_revision
-
-    store = ArtifactStore(workspace)
-    initial = _model()
-    base = initial if operation == "measurement_structure" else ModelSpec(question=initial.question)
-    infos = [_write(store, "model", base.model_dump(mode="json"))]
-    if operation == "measurement_structure":
-        infos.extend(
-            [
-                store.write_version(
-                    "raw_data", provenance="computed", derived_from={}, produced_by="run:raw_data"
-                ),
-            ]
-        )
-    state = EpisodeState().with_versions(infos)
-    candidate = _exact_measurement(initial)
-    path = tmp_path / "model-result.json"
-    path.write_text(candidate.model_dump_json())
-    pins = input_pins(state, transition_spec(operation))
-    effects = finalize_model_revision(
-        SingleLLMTransitionFinalizeInput(
-            workspace_id=workspace,
-            transition_id=operation,
-            state=state,
-            pins=pins,
-            context_ref="unused-context.json",
-            result_ref=str(path),
-        ),
-        operation,
-    )
-    info = next(info for info in effects.produced if info.artifact_id == "model")
-    assert info.provenance == "computed"
-    assert info.derived_from == pins
-    persisted = ModelSpec.model_validate(store.read_json_file("model", info.version, "model.json"))
-    assert persisted == candidate
-    assert "llm_trace_ref" not in persisted.model_dump()
-
-
-def test_model_edit_retracts_validation_of_stale_extraction(workspace):
+def test_model_edit_reports_stale_extraction(workspace):
     store = ArtifactStore(workspace)
     model = _model()
-    effects = execute_write(
+    effects = edit_and_check(
         workspace,
-        "model",
-        model.model_dump(mode="json"),
-        "human",
+        EditModelRequest.model_validate(
+            {"model": model.model_dump(mode="json"), "expected_revision": None}
+        ),
         EpisodeState(),
-        expected_model_version=0,
     )
     state = apply_transition(EpisodeState(), effects.produced)
-    panel = store.write_version(
+    panel = store.write_artifact(
         "panel",
-        provenance="computed",
-        derived_from={"model": 1},
+        derived_from={},
         produced_by="run:measurements",
+        json_files={"metadata.json": metadata_for_model(model).model_dump(mode="json")},
         parquet_files={"panel.parquet": pl.DataFrame()},
     )
     validation = _write(
         store,
         "validation_report",
         {"is_valid": True, "indicators": {}, "dataset_issues": []},
-        {"panel": 1, "model": 1},
+        {
+            "panel": artifact_revision(workspace, "panel", 1),
+            "model": artifact_revision(workspace, "model", 1),
+        },
     )
-    state = state.with_versions([panel, validation])
+    from nof1_causal_lab.actions.data_checks import evaluate_data_checks
+    from nof1_causal_lab.machine.execution import TransitionEffects
+    checked_data = evaluate_data_checks(workspace, state, TransitionEffects(produced=[panel]))
+    state = state.with_artifacts([*checked_data.produced, validation])
     changed = model.revised(measurement_clock="2d")
-    effects = execute_write(
+    effects = edit_and_check(
         workspace,
-        "model",
-        changed.model_dump(mode="json"),
-        "human",
+        EditModelRequest.model_validate(
+            {
+                "model": changed.model_dump(mode="json"),
+                "expected_revision": artifact_revision(workspace, "model", 1),
+            }
+        ),
         state,
-        expected_model_version=1,
     )
-    assert "validation_report" in {item.artifact_id for item in effects.retracted}
+    report = next(item for item in effects.produced if item.artifact_id == "validation_report")
+    payload = store.read_json_file("validation_report", report.revision, "validation_report.json")
+    assert any(
+        issue["issue_type"] == "measurement_definitions" for issue in payload["dataset_issues"]
+    )
     assert "panel" not in {item.artifact_id for item in effects.produced}
 
 
-def test_failed_cascade_removes_all_new_versions(workspace, monkeypatch):
+def test_failed_check_publishes_no_state(workspace, monkeypatch):
     from nof1_causal_lab.models import identification
 
     def fail(*_args, **_kwargs):
@@ -342,59 +307,46 @@ def test_failed_cascade_removes_all_new_versions(workspace, monkeypatch):
 
     monkeypatch.setattr(identification, "check_identifiability", fail)
     with pytest.raises(RuntimeError, match="identification failed"):
-        execute_write(
+        edit_and_check(
             workspace,
-            "model",
-            _model().model_dump(mode="json"),
-            "human",
+            EditModelRequest.model_validate(
+                {"model": _model().model_dump(mode="json"), "expected_revision": None}
+            ),
             EpisodeState(),
-            expected_model_version=0,
         )
-    store = ArtifactStore(workspace)
-    assert store.list_versions("model") == []
+    assert StudyRepository(workspace).state(StudyRepository(workspace).head()).current == {}
 
 
 def test_invalid_model_rejected_before_any_write(workspace):
-    with pytest.raises(ArtifactWriteRejected):
-        execute_write(
+    with pytest.raises(ValidationError):
+        edit_and_check(
             workspace,
-            "model",
-            {"constructs": [{"id": "construct:invalid"}]},
-            "human",
+            EditModelRequest.model_validate(
+                {"model": {"constructs": [{"id": "construct:invalid"}]}, "expected_revision": None}
+            ),
             EpisodeState(),
-            expected_model_version=0,
         )
-    assert ArtifactStore(workspace).list_versions("model") == []
+    assert ArtifactStore(workspace).list_revisions("model") == []
 
 
-def test_partial_version_files_removed_on_write_failure(workspace, monkeypatch):
-    from nof1_causal_lab.utils import storage
+def test_failed_tree_write_publishes_no_artifact(workspace, monkeypatch):
+    from nof1_causal_lab.machine import store as store_module
 
-    original = storage.write_text
+    def fail_tree(*_args, **_kwargs):
+        raise OSError("cannot write metadata")
 
-    def fail_meta(path, value):
-        if path.endswith("meta.json"):
-            raise OSError("cannot write metadata")
-        return original(path, value)
-
-    monkeypatch.setattr(storage, "write_text", fail_meta)
+    monkeypatch.setattr(store_module, "write_tree", fail_tree)
     with pytest.raises(OSError, match="metadata"):
         _write(ArtifactStore(workspace), "model", _model().model_dump(mode="json"))
-    assert ArtifactStore(workspace).list_versions("model") == []
+    assert ArtifactStore(workspace).list_revisions("model") == []
 
 
 def test_question_write_requires_text(workspace):
-    with pytest.raises(ArtifactWriteRejected):
-        execute_write(
+    with pytest.raises(ValidationError):
+        edit_and_check(
             workspace,
-            "model",
-            {"question": "   "},
-            "human",
+            EditModelRequest.model_validate(
+                {"model": {"question": "   "}, "expected_revision": None}
+            ),
             EpisodeState(),
-            expected_model_version=0,
         )
-
-
-def test_binary_artifacts_not_directly_writable(workspace):
-    with pytest.raises(ArtifactWriteRejected, match="no write executor"):
-        execute_write(workspace, "identification_report", {"anything": 1}, "human", EpisodeState())

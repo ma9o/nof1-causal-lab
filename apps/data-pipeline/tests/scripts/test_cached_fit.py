@@ -11,6 +11,8 @@ from typing import Any
 import numpy as np
 import pytest
 
+pytestmark = pytest.mark.contract
+
 
 def _load_cached_fit() -> Any:
     module_name = "cached_fit_under_test"

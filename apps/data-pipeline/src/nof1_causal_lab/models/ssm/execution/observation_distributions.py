@@ -11,6 +11,7 @@ from numpyro.distributions import constraints
 
 from nof1_causal_lab.artifacts.likelihood import DistributionFamily
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
+from nof1_causal_lab.models.ssm.execution.contracts import NUMERICAL_EPSILON
 
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.execution.contracts import LikelihoodExtraParams
@@ -18,6 +19,11 @@ if TYPE_CHECKING:
 
 def gaussian_distribution(mean: jax.Array, covariance: jax.Array) -> dist.Distribution:
     return dist.MultivariateNormal(mean, covariance_matrix=symmetrize_with_jitter(covariance))
+
+
+def point_observation_scales(covariance: jax.Array) -> jax.Array:
+    """Marginal scales of the independent mixed-family point sampler."""
+    return jnp.sqrt(jnp.maximum(jnp.diag(covariance), NUMERICAL_EPSILON))
 
 
 def categorical_distribution(probs: jax.Array) -> dist.Distribution:
@@ -104,3 +110,24 @@ def sample_mean_observation(family, key, mean, scale, extra_params):
     safe_mean, valid = safe_observation_mean(family, mean)
     draw = mean_parameter_distribution(family, safe_mean, scale, extra_params).sample(key)
     return jnp.where(valid, draw, jnp.nan)
+
+
+def mean_observation_variance(
+    family: DistributionFamily,
+    mean: jax.Array,
+    scale: jax.Array | float,
+    extra_params: LikelihoodExtraParams,
+) -> jax.Array:
+    """Exact scalar-law variance, including zero, infinite and undefined moments.
+
+    Unlike initialization pseudo-covariances, this never floors a valid mean or
+    changes a likelihood parameter. Binary categorical laws have Bernoulli moments.
+    """
+    safe_mean, valid = safe_observation_mean(family, mean)
+    law = mean_parameter_distribution(family, safe_mean, scale, extra_params)
+    variance = (
+        dist.Bernoulli(probs=law.probs[..., 1]).variance
+        if family == DistributionFamily.BERNOULLI
+        else law.variance
+    )
+    return jnp.where(valid, variance, jnp.nan)

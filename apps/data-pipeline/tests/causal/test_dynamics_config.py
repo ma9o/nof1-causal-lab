@@ -10,6 +10,8 @@ from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec, compile_dynam
 from tests.dynamics_fixtures import decay_term, hill_term, potential_term
 from tests.model_fixtures import model_fixture
 
+pytestmark = pytest.mark.contract
+
 
 def test_description_retains_expression_constants_and_potential_semantics():
     spec = DynamicsSpec(

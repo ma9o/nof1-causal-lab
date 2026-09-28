@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING
 
 import polars as pl
 
 if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 from nof1_causal_lab.artifacts.validation_report import DataProfileArtifact
@@ -15,7 +17,6 @@ from nof1_causal_lab.flows.transitions.validation.rules import (
     DATA_RULES,
     ValidationContext,
     build_indicator_audits,
-    derive_validation_status,
     no_data_validation_result,
     run_rules,
 )
@@ -34,7 +35,7 @@ def validate_extraction(
 ) -> UncheckedJsonObject:
     """Validate semantic properties of extracted data.
 
-    Runs all ``RULES`` against the extracted data and reduces findings
+    Runs the model compatibility rules against the extracted data and reduces findings
     into a keyed indicator audit map plus dataset-level issues.
 
     Args:
@@ -47,7 +48,7 @@ def validate_extraction(
             - indicators: per-indicator profile + validation
             - dataset_issues: cross-indicator validation findings
     """
-    dataframes = [df for df in dataframes if df is not None and not df.is_empty()]
+    dataframes = [df for df in dataframes if not df.is_empty()]
     if not dataframes:
         return no_data_validation_result()
 
@@ -62,7 +63,9 @@ def validate_extraction(
     indicators = inputs["observations"]["indicators"]
     indicator_ids: set[str] = {ind["id"] for ind in indicators}
     indicator_lookup = {ind["id"]: ind for ind in indicators}
-    unknown = set(combined["indicator_id"].unique()) - indicator_ids
+    combined = combined.filter(pl.col("indicator_id").is_in(list(indicator_ids)))
+    if combined.is_empty():
+        return no_data_validation_result()
 
     constructs = inputs["graph"]["constructs"]
     construct_lookup = {c["id"]: c for c in constructs}
@@ -87,8 +90,8 @@ def validate_extraction(
     )
 
     indicator_issues, indicator_health, dataset_issues = run_rules(
-        COMPATIBILITY_RULES,
         validation_ctx,
+        dataset_rules=COMPATIBILITY_RULES,
     )
 
     indicator_audits = build_indicator_audits(
@@ -99,15 +102,6 @@ def validate_extraction(
         indicator_health=indicator_health,
     )
 
-    if unknown:
-        dataset_issues.append(
-            {
-                "indicator_id": None,
-                "issue_type": "unknown_indicators",
-                "severity": "error",
-                "message": f"Observations reference indicators outside the selected model: {sorted(unknown)}",
-            }
-        )
     profile = (data_profile if data_profile is not None else profile_data(combined)).model_dump(
         mode="json"
     )
@@ -117,50 +111,90 @@ def validate_extraction(
         if source is not None:
             audit["issues"] = [*source["issues"], *audit["issues"]]
             audit["checks"] = {**source["checks"], **audit["checks"]}
-            if audit["profile"] is not None and source["profile"] is not None:
-                semantic = {
-                    key: audit["profile"][key]
-                    for key in (
-                        "measurement_dtype",
-                        "time_coverage_ratio",
-                        "max_gap_ratio",
-                        "dtype_violations",
-                        "duplicate_pct",
-                        "arithmetic_sequence_detected",
-                    )
-                }
-                audit["profile"] = {**source["profile"], **semantic}
+            audit["profile"] = source["profile"]
         else:
             audit["checks"]["data_availability"] = "not_evaluated"
-    all_issues = [
-        issue for audit in indicator_audits.values() for issue in audit["issues"]
-    ] + dataset_issues
-    status = derive_validation_status(all_issues)
-
-    return {
-        "is_valid": status["is_valid"],
-        "indicators": indicator_audits,
-        "dataset_issues": dataset_issues,
-    }
+    return DataProfileArtifact.model_validate(
+        {
+            "indicators": indicator_audits,
+            "dataset_issues": dataset_issues,
+        }
+    ).model_dump(mode="json")
 
 
-def profile_data(data: pl.DataFrame) -> DataProfileArtifact:
+def profile_data(
+    data: pl.DataFrame, *, metadata: PreparedDataMetadata | None = None
+) -> DataProfileArtifact:
     """Measure observed data without consulting any model or authoring state."""
     if data.is_empty():
         return DataProfileArtifact.model_validate(no_data_validation_result())
-    identities = set(data["indicator_id"].unique())
-    context = ValidationContext(data, [], identities, {}, {}, None)
-    issues, health, dataset_issues = run_rules(DATA_RULES, context)
+    definitions = [item.model_dump(mode="json") for item in metadata.variables] if metadata else []
+    lookup = {item["id"]: item for item in definitions}
+    identities = set(data["indicator_id"].unique()) | set(lookup)
+    context = ValidationContext(data, definitions, identities, lookup, {}, None)
+    issues, health, dataset_issues = run_rules(context, indicator_rules=DATA_RULES)
     audits = build_indicator_audits(
         indicator_ids=identities,
-        indicator_lookup={},
+        indicator_lookup=lookup,
         model_data=data,
         indicator_issues=issues,
         indicator_health=health,
     )
+    if metadata is not None:
+        unknown = set(data["indicator_id"].unique()) - set(lookup)
+        if unknown:
+            dataset_issues.append(
+                {
+                    "indicator_id": None,
+                    "issue_type": "undeclared_variables",
+                    "severity": "error",
+                    "message": f"No variable definitions for observed IDs: {sorted(unknown)}",
+                }
+            )
+        for variable in metadata.variables:
+            levels = (
+                variable.ordinal_levels
+                if variable.measurement_dtype == "ordinal"
+                else variable.categorical_levels
+            )
+            values = data.filter(pl.col("indicator_id") == variable.id)["value"].drop_nulls()
+            if levels and any(
+                value < 0 or value >= len(levels) or value != int(value)
+                for value in values
+                if value is not None and math.isfinite(value)
+            ):
+                audits[variable.id]["issues"].append(
+                    {
+                        "indicator_id": variable.id,
+                        "issue_type": "codebook_bounds",
+                        "severity": "error",
+                        "message": "Observed codes must index the declared codebook",
+                    }
+                )
+            if not values.is_finite().all():
+                audits[variable.id]["issues"].append(
+                    {
+                        "indicator_id": variable.id,
+                        "issue_type": "nonfinite_values",
+                        "severity": "error",
+                        "message": "Observed numeric values must be finite",
+                    }
+                )
+    if metadata is not None and metadata.preparation is not None:
+        from nof1_causal_lab.artifacts.data_preparation import check_semantic_collisions
+
+        for variable in metadata.preparation.variables:
+            for message in check_semantic_collisions(variable.how_to_measure, variable.aggregation):
+                audits[variable.id]["issues"].append(
+                    {
+                        "indicator_id": variable.id,
+                        "issue_type": "scoring_semantics",
+                        "severity": "warning",
+                        "message": message,
+                    }
+                )
     return DataProfileArtifact.model_validate(
         {
-            "is_valid": derive_validation_status(issues + dataset_issues)["is_valid"],
             "indicators": audits,
             "dataset_issues": dataset_issues,
         }

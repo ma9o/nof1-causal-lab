@@ -4,20 +4,17 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .checks import PredictiveCheckFinding
 from .identity import ConstructId, IndicatorId  # noqa: TC001
 
 
-class PriorPredictiveDiagnostic(BaseModel):
+class PriorPredictiveDiagnostic(PredictiveCheckFinding):
     """A measured prior-predictive check and its evaluation criteria."""
 
     model_config = ConfigDict(extra="forbid")
 
-    check: str
     construct_id: ConstructId
-    value: str
-    band: str
     passed: bool
-    note: str
     diagnosis: list[str] = Field(default_factory=list)
     mode: str
 

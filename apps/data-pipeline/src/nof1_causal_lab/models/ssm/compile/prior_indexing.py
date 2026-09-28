@@ -32,8 +32,8 @@ class SemanticBindingRegistry:
     by_parameter: dict[ParameterId, SemanticBinding] = field(default_factory=dict)
 
 
-def _axis(ids: Sequence[str] | None, size: int, label: str) -> dict[str, int]:
-    if ids is None or len(ids) != size or len(set(ids)) != size:
+def _axis(ids: Sequence[str], size: int, label: str) -> dict[str, int]:
+    if len(ids) != size or len(set(ids)) != size:
         raise ValueError(f"Scientific prior binding requires {size} explicit unique {label} IDs")
     return {key: index for index, key in enumerate(ids)}
 
@@ -82,10 +82,8 @@ def build_semantic_prior_bindings(
     errors: list[str] = []
     latent_names = numeric.state_names(model)
     manifest_names = numeric.observation_names(model)
-    assert latent_names is not None
-    assert manifest_names is not None
 
-    for parameter in model.parameters:
+    for parameter in model.execution_parameters:
         if parameter.id in bindings or parameter.value is not None:
             continue
         kind = model.parameter_context(parameter.id).quantity

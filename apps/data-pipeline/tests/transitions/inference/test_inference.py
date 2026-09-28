@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, cast, override
 import jax.numpy as jnp
 import numpy as np
 import polars as pl
+import pytest
 
 from nof1_causal_lab.flows.transitions.inference import fit as stage5_inference
 from nof1_causal_lab.models.ssm.execution.planning import InferenceStructurePlan
@@ -25,6 +26,8 @@ from tests.model_fixtures import (
     full_dense_matrix_dynamics_spec,
     model_fixture,
 )
+
+pytestmark = pytest.mark.contract
 
 if TYPE_CHECKING:
     from nof1_causal_lab.sampler_config import SamplerConfigOverride
@@ -166,7 +169,9 @@ def test_fit_model_logs_runtime_summary_and_diagnostic_boundaries(monkeypatch, c
             model=fake_model,
         )
 
-    assert result["fitted"] is True
+    assert result["fitted"]
+    assert result["result"] is fake_result
+    assert result["runtime"] is runtime
     assert result["inference_diagnostics"] == {
         "smc": {"n_levels": 3},
         "marginal_particle_gibbs": {"experimental_metric": [0.25, None]},
@@ -183,6 +188,7 @@ def test_fit_model_logs_runtime_summary_and_diagnostic_boundaries(monkeypatch, c
     assert "Computing leave-one-measurement-row-out diagnostics..." in caplog.text
     assert "Extracting posterior summaries..." in caplog.text
     assert "Posterior summaries ready in" in caplog.text
+    assert "n_samples=4" in caplog.text
 
 
 def test_fit_model_can_skip_loo_diagnostics(monkeypatch, caplog):
@@ -213,7 +219,7 @@ def test_fit_model_can_skip_loo_diagnostics(monkeypatch, caplog):
             compute_loo_diagnostics=False,
         )
 
-    assert result["fitted"] is True
+    assert result["fitted"]
     assert result["loo_diagnostics"] is None
     assert "Skipping LOO diagnostics by configuration." in caplog.text
     assert "Computing leave-one-measurement-row-out diagnostics..." not in caplog.text

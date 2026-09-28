@@ -6,64 +6,35 @@ an explicit parametric linearity assumption.
 
 from __future__ import annotations
 
+import pytest
+
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.utils.identifiability import check_identifiability
+from tests.causal.graph_fixtures import make_graph
+from tests.helpers import fixture_entity_id
+
+pytestmark = pytest.mark.contract
 
 
-def _iv_structure_latent_structure():
-    """A DAG with a textbook IV pattern: U → X → Y, Z → X, with U unobserved.
-
-    With U unobserved and confounding both X and Y, the backdoor cannot be
-    blocked by adjusting on observed variables. But Z (a parent of X with
-    no other path to Y) is a valid instrument *under linearity*.
-    """
-    return {
-        "default_outcome": "construct:Y",
-        "constructs": [
-            {
-                "id": "construct:X",
-                "name": "X",
-                "temporal_status": "time_invariant",
-            },
-            {
-                "id": "construct:Y",
-                "name": "Y",
-                "temporal_status": "time_invariant",
-            },
-            {
-                "id": "construct:Z",
-                "name": "Z",
-                "temporal_status": "time_invariant",
-            },
-            {
-                "id": "construct:U",
-                "name": "U",
-                "temporal_status": "time_invariant",
-            },
+def _iv_graph():
+    """A static IV pattern: U → X → Y and Z → X, with U unobserved."""
+    return make_graph(
+        [{"name": name, "temporal_status": "time_invariant"} for name in ("X", "Y", "Z", "U")],
+        [
+            {"cause": "Z", "effect": "X"},
+            {"cause": "X", "effect": "Y"},
+            {"cause": "U", "effect": "X"},
+            {"cause": "U", "effect": "Y"},
         ],
-        "edges": [
-            {"cause_id": "construct:Z", "effect_id": "construct:X", "lagged": False},
-            {"cause_id": "construct:X", "effect_id": "construct:Y", "lagged": False},
-            {"cause_id": "construct:U", "effect_id": "construct:X", "lagged": False},
-            {"cause_id": "construct:U", "effect_id": "construct:Y", "lagged": False},
-        ],
-    }
-
-
-def _measurement_structure_observing_xyz():
-    return {
-        "indicators": [
-            {"name": "y_obs", "construct_id": "construct:Y"},
-            {"name": "x_obs", "construct_id": "construct:X"},
-            {"name": "z_obs", "construct_id": "construct:Z"},
-        ],
-    }
+    )
 
 
 class TestIVAllowedDefault:
     def test_default_does_not_promote_a_linear_iv_candidate(self):
         result = check_identifiability(
-            _iv_structure_latent_structure(), _measurement_structure_observing_xyz()
+            *_iv_graph(),
+            default_outcome=fixture_entity_id("construct", "Y"),
+            observed_constructs={"X", "Y", "Z"},
         )
         assert "X" not in result["identifiable_treatments"]
         assert "X" in result["non_identifiable_treatments"]
@@ -72,62 +43,48 @@ class TestIVAllowedDefault:
 
 class TestIVAllowedFalse:
     def test_disabled_iv_gate_skips_iv(self):
-        """With ``iv_allowed=False`` and only-IV-identification structure,
-        the treatment must end up non-identifiable."""
-        latent_structure = _iv_structure_latent_structure()
-        measurement_structure = _measurement_structure_observing_xyz()
-
+        """An IV-only pattern remains unidentified without a linearity assumption."""
+        graph = _iv_graph()
         result_with_iv = check_identifiability(
-            latent_structure, measurement_structure, iv_allowed=True
+            *graph,
+            default_outcome=fixture_entity_id("construct", "Y"),
+            observed_constructs={"X", "Y", "Z"},
+            iv_allowed=True,
         )
         result_no_iv = check_identifiability(
-            latent_structure, measurement_structure, iv_allowed=False
+            *graph,
+            default_outcome=fixture_entity_id("construct", "Y"),
+            observed_constructs={"X", "Y", "Z"},
+            iv_allowed=False,
         )
 
         assert result_no_iv["graph_info"]["iv_allowed"] is False
-
         assert result_with_iv["identifiable_treatments"]["X"]["method"] == "instrumental_variable"
         assert result_with_iv["identifiable_treatments"]["X"]["instruments"] == ["Z"]
         assert "X" not in result_no_iv["identifiable_treatments"]
         assert "X" in result_no_iv["non_identifiable_treatments"]
 
     def test_disabled_iv_gate_preserves_do_calculus_identifications(self):
-        """Treatments identified via do-calculus (backdoor/front-door) should
-        be unchanged when IV is disabled — IV is a fallback, not a primary."""
-        # Simpler DAG: X → Y, no confounders. Backdoor trivially identifiable.
-        latent_structure = {
-            "default_outcome": "construct:Y",
-            "constructs": [
-                {
-                    "id": "construct:X",
-                    "name": "X",
-                    "temporal_status": "time_invariant",
-                },
-                {
-                    "id": "construct:Y",
-                    "name": "Y",
-                    "temporal_status": "time_invariant",
-                },
-            ],
-            "edges": [{"cause_id": "construct:X", "effect_id": "construct:Y", "lagged": False}],
-        }
-        measurement_structure = {
-            "indicators": [
-                {"name": "y_obs", "construct_id": "construct:Y"},
-                {"name": "x_obs", "construct_id": "construct:X"},
-            ],
-        }
-
+        """The IV gate does not change nonparametric identification."""
+        graph = make_graph(
+            [{"name": name, "temporal_status": "time_invariant"} for name in ("X", "Y")],
+            [{"cause": "X", "effect": "Y"}],
+        )
         result_with_iv = check_identifiability(
-            latent_structure, measurement_structure, iv_allowed=True
+            *graph,
+            default_outcome=fixture_entity_id("construct", "Y"),
+            observed_constructs={"X", "Y"},
+            iv_allowed=True,
         )
         result_no_iv = check_identifiability(
-            latent_structure, measurement_structure, iv_allowed=False
+            *graph,
+            default_outcome=fixture_entity_id("construct", "Y"),
+            observed_constructs={"X", "Y"},
+            iv_allowed=False,
         )
 
         assert "X" in result_with_iv["identifiable_treatments"]
         assert "X" in result_no_iv["identifiable_treatments"]
-        # Same method either way.
         assert (
             result_with_iv["identifiable_treatments"]["X"]["method"]
             == result_no_iv["identifiable_treatments"]["X"]["method"]

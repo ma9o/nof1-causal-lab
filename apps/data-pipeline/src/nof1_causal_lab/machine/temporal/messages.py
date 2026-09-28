@@ -8,20 +8,31 @@ polars, or jax.
 from __future__ import annotations
 
 from typing import Literal
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from nof1_causal_lab.artifacts.identity import ArtifactId, OperationId  # noqa: TC001
+from nof1_causal_lab.actions.contracts import (  # noqa: TC001
+    EditModelRequest,
+    ScientificActionRequest,
+)
+from nof1_causal_lab.actions.results import ActionMessage  # noqa: TC001
+from nof1_causal_lab.artifacts.identity import (  # noqa: TC001
+    ArtifactId,
+    GitOid,
+    OperationId,
+    ScientificActionId,
+)
+from nof1_causal_lab.artifacts.model_checks import ModelCheckReport  # noqa: TC001
 from nof1_causal_lab.json_types import JsonObject  # noqa: TC001
 from nof1_causal_lab.machine.artifacts import (  # noqa: TC001
-    ArtifactVersionInfo,
+    ArtifactRecord,
     EpisodeState,
-    Provenance,
 )
-from nof1_causal_lab.machine.moves import (
-    ExecOptions,
-    Move,
+from nof1_causal_lab.machine.execution import (
+    ExecutionOptions,
     RetractedArtifact,
+    TransitionEffects,
 )
 from nof1_causal_lab.machine.store import (
     JournalStatus,  # noqa: TC001
@@ -30,17 +41,10 @@ from nof1_causal_lab.machine.store import (
 
 LLMSubroutineContextKind = Literal[
     "measurement_extraction",
-    "latent_structure",
-    "measurement_structure",
     "raw_data_ingestion",
-    "model_spec_construct",
 ]
 
-SingleLLMTransitionId = Literal[
-    "raw_data",
-    "latent_structure",
-    "measurement_structure",
-]
+SingleLLMTransitionId = Literal["raw_data",]
 TransitionRuntimeStatus = Literal["running", "completed", "failed"]
 
 
@@ -48,31 +52,45 @@ class EpisodeInit(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     workspace_id: str
-    # Rehydration seed: reconstructed from applied effects in the on-disk
-    # transition log so a workflow (re)started after Temporal lost its in-memory
-    # history resumes with the committed artifacts instead of re-running from
-    # raw_data. Empty/0 for a genuinely new episode; ignored when attaching to
-    # a live workflow (USE_EXISTING).
+    # Initial query state only. Each action captures its own branch head in an activity.
     initial_state: EpisodeState | None = None
     initial_seq: int = 0
 
 
-class MoveRequest(BaseModel):
+class ReadBranchInput(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    move: Move
-    payload: JsonObject | None = None  # write moves
-    options: ExecOptions = Field(default_factory=ExecOptions)  # run moves
+    workspace_id: str
+    branch: str = "main"
 
 
-class RunOperationInput(BaseModel):
+class ActionRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    branch: str = "main"
+    expected_head: GitOid | None = None
+    request: ScientificActionRequest
+    attempt_id: UUID = Field(default_factory=uuid4)
+
+
+class EmitActionMessageInput(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    workspace_id: str
+    attempt_id: UUID
+    action: ScientificActionId
+    index: int
+    message: ActionMessage
+
+
+class OperationInput(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     workspace_id: str
     operation_id: OperationId
     state: EpisodeState
-    input_versions: dict[ArtifactId, int] = Field(default_factory=dict)
-    options: ExecOptions = Field(default_factory=ExecOptions)
+    input_revisions: dict[ArtifactId, GitOid] = Field(default_factory=dict)
+    options: ExecutionOptions = Field(default_factory=ExecutionOptions)
 
 
 class MeasurementsWorkflowInput(BaseModel):
@@ -81,8 +99,8 @@ class MeasurementsWorkflowInput(BaseModel):
     workspace_id: str
     seq: int
     state: EpisodeState
-    input_versions: dict[ArtifactId, int] = Field(default_factory=dict)
-    options: ExecOptions = Field(default_factory=ExecOptions)
+    input_revisions: dict[ArtifactId, GitOid] = Field(default_factory=dict)
+    options: ExecutionOptions = Field(default_factory=ExecutionOptions)
 
 
 class OpenRouterLLMConfig(BaseModel):
@@ -127,8 +145,6 @@ class LLMToolSpec(BaseModel):
         "raw_data_read_file_sample",
         "raw_data_execute_python",
         "raw_data_submit_table",
-        "model_spec_submit_construct",
-        "model_spec_search_literature",
     ] = "context_json_validation"
     success_output: str | None = "VALID"
 
@@ -337,7 +353,7 @@ class SingleLLMTransitionWorkflowInput(BaseModel):
     seq: int
     transition_id: SingleLLMTransitionId
     state: EpisodeState
-    options: ExecOptions = Field(default_factory=ExecOptions)
+    options: ExecutionOptions = Field(default_factory=ExecutionOptions)
 
 
 class SingleLLMTransitionPlan(BaseModel):
@@ -346,7 +362,7 @@ class SingleLLMTransitionPlan(BaseModel):
     workspace_id: str
     run_id: str
     context_ref: str
-    pins: dict[ArtifactId, int]
+    pins: dict[ArtifactId, GitOid]
     llm: LLMBackendConfig
     max_tool_turns: int
 
@@ -357,134 +373,9 @@ class SingleLLMTransitionFinalizeInput(BaseModel):
     workspace_id: str
     transition_id: SingleLLMTransitionId
     state: EpisodeState
-    pins: dict[ArtifactId, int]
+    pins: dict[ArtifactId, GitOid]
     context_ref: str
     result_ref: str | None = None
-
-
-class StatisticalModelSpecWorkflowInput(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    workspace_id: str
-    seq: int
-    state: EpisodeState
-    options: ExecOptions = Field(default_factory=ExecOptions)
-
-
-class StatisticalModelSpecAdmissionUnit(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    unit_id: str
-    constructs: list[str]
-    predecessors: list[str]
-
-
-class StatisticalModelSpecPlan(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    workspace_id: str
-    run_id: str
-    checkpoint_ref: str
-    context_ref: str
-    pins: dict[ArtifactId, int]
-    units: list[StatisticalModelSpecAdmissionUnit]
-    accepted_constructs: list[str]
-    llm: LLMBackendConfig
-    max_tool_turns: int
-    max_attempts_per_construct: int
-
-
-class StatisticalModelSpecAttemptPlanInput(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    workspace_id: str
-    run_id: str
-    checkpoint_ref: str
-    context_ref: str
-    construct_name: str
-    attempt: int
-
-
-class StatisticalModelSpecAttemptPlan(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    context_ref: str
-    result_ref: str
-    construct_name: str
-    attempt: int
-    subroutine_id: str
-
-
-class StatisticalModelSpecAttemptFinalizeInput(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    result_ref: str
-    construct_name: str
-    attempt: int
-
-
-class StatisticalModelSpecAttemptResult(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    construct_name: str
-    attempt: int
-    admitted: bool
-    outcome: str
-    checkpoint_ref: str | None = None
-
-
-class StatisticalModelSpecFrontierMergeInput(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    workspace_id: str
-    checkpoint_ref: str
-    branch_checkpoint_refs: list[str]
-    construct_order: list[str]
-
-
-class StatisticalModelSpecFrontierMergeResult(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    checkpoint_ref: str
-    accepted_constructs: list[str]
-
-
-class StatisticalModelSpecBarrierInput(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    workspace_id: str
-    checkpoint_ref: str
-    context_ref: str
-    construct_order: list[str]
-
-
-class StatisticalModelSpecBarrierResult(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    passed: bool
-    checkpoint_ref: str
-    accepted_constructs: list[str]
-    reopened_constructs: list[str] = Field(default_factory=list)
-
-
-class StatisticalModelSpecFinalizeInput(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    workspace_id: str
-    run_id: str
-    state: EpisodeState
-    pins: dict[ArtifactId, int]
-    checkpoint_ref: str
-    context_ref: str
-
-
-class StatisticalModelSpecFailedEventInput(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    workspace_id: str
-    construct_name: str | None = None
-    message: str
-    checkpoint_ref: str | None = None
 
 
 class MeasurementChunkRef(BaseModel):
@@ -501,7 +392,7 @@ class MeasurementsPlan(BaseModel):
     workspace_id: str
     run_id: str
     plan_ref: str
-    pins: dict[ArtifactId, int]
+    pins: dict[ArtifactId, GitOid]
     chunks: list[MeasurementChunkRef] = Field(default_factory=list)
     max_concurrent_workers: int
     max_rpm: int
@@ -631,32 +522,46 @@ class MeasurementsFinalizeInput(BaseModel):
     state: EpisodeState
     run_id: str
     plan_ref: str
-    pins: dict[ArtifactId, int]
+    pins: dict[ArtifactId, GitOid]
     chunk_results: list[ExtractionChunkResult] = Field(default_factory=list)
 
 
-class WriteArtifactInput(BaseModel):
+class EditModelInput(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     workspace_id: str
-    artifact_id: ArtifactId
-    payload: JsonObject
-    provenance: Provenance
+    request: EditModelRequest
     state: EpisodeState
-    expected_model_version: int | None = Field(default=None, ge=0)
+
+
+class EvaluateChecksInput(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    workspace_id: str
+    action: ScientificActionId
+    state: EpisodeState
+    effects: TransitionEffects
 
 
 class JournalInput(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     workspace_id: str
+    branch: str = "main"
+    expected_head: GitOid | None = None
+    event_cursor: str | None = None
     seq: int
-    move: Move
+    action: ScientificActionId
+    inputs: JsonObject
+    operation_id: OperationId | None = None
     status: JournalStatus
     reason: str | None = None
     error_type: str | None = None
     error_message: str | None = None
     diagnostics: JsonObject = Field(default_factory=dict)
-    produced: list[ArtifactVersionInfo] = Field(default_factory=list)
+    checks: ModelCheckReport | None = None
+    produced: list[ArtifactRecord] = Field(default_factory=list)
     retracted: list[RetractedArtifact] = Field(default_factory=list)
     resume: ResumeRef | None
+    attempt_id: UUID | None = None
+    messages: tuple[ActionMessage, ...] = ()

@@ -1,7 +1,5 @@
 """Independent additive terms survive revision without tying their free coefficients."""
 
-from dataclasses import replace
-
 import numpy as np
 import numpyro.distributions as dist
 import pytest
@@ -17,13 +15,8 @@ from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 from nof1_causal_lab.models.model_distributions import with_parameter_distributions
-from nof1_causal_lab.models.model_structure import model_for_constructs
 from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
 from nof1_causal_lab.models.ssm.compile.prior_compilation import compile_priors
-from nof1_causal_lab.recipes.construct_authoring import AdmissionState, trial_admission_state
-from nof1_causal_lab.recipes.incremental_model import (
-    contribution_from_payload,
-)
 from tests.helpers import complete_test_model, make_model
 from tests.slot_fixtures import fixture_parameter_id
 
@@ -83,6 +76,7 @@ def two_hills():
     return with_parameter_distributions(candidate, laws)
 
 
+@pytest.mark.inference(concern="sampling")
 def test_independent_hill_coefficients_survive_reorder_rename_and_submission(two_hills):
     model = two_hills
     edge = model.edges[0]
@@ -111,32 +105,27 @@ def test_independent_hill_coefficients_survive_reorder_rename_and_submission(two
             before_priors[old[identity].site_name].log_prob(0.7),
             after_priors[new[identity].site_name].log_prob(0.7),
         )
-    # The authoring boundary accepts the exact canonical terms and definitions;
-    # it does not require a single pre-enumerated Hill coefficient per edge.
-    contribution = contribution_from_payload(
-        model,
-        {
-            "construct": model.get_construct(edge.effect.id).model_dump(mode="json"),
-            "edges": [edge.model_dump(mode="json")],
-            "parameters": [p.model_dump(mode="json") for p in model.parameters_for(edge.effect.id)],
-            "distributions": {},
+    # Incremental edits submit the whole authored model directly.
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+
+    submitted = ModelSpec.model_validate(revised.model_dump(mode="json"))
+    assert submitted.edges[0].mechanisms == revised.edges[0].mechanisms
+    removed_ids = {p.id for p in model.parameters_for(edge.mechanisms[1].id)}
+    remaining = tuple(p for p in model.parameters if p.id not in removed_ids)
+    edited = model.revised(
+        edges=(edge.model_copy(update={"mechanisms": (edge.mechanisms[0],)}),),
+        parameters=remaining,
+        distributions={
+            key: law
+            for key, law in model.distributions.items()
+            if key in {p.distribution for p in remaining}
         },
     )
-    assert contribution.edges[0].mechanisms == edge.mechanisms
-    projected = model_for_constructs(model, {item.name for item in model.constructs})
-    assert projected.parameters == model.parameters
-    first = edge.mechanisms[0]
-    removed_ids = {p.id for p in model.parameters_for(edge.mechanisms[1].id)}
-    replacement = replace(
-        contribution,
-        edges=(edge.model_copy(update={"mechanisms": (first,)}),),
-        parameters=tuple(p for p in contribution.parameters if p.id not in removed_ids),
-    )
-    accepted = trial_admission_state(AdmissionState(model=model), replacement).model
-    assert {p.id for p in accepted.parameters} == {p.id for p in model.parameters} - removed_ids
-    accepted.check_execution()
+    assert {p.id for p in edited.parameters} == {p.id for p in model.parameters} - removed_ids
+    edited.check_execution()
 
 
+@pytest.mark.contract
 @pytest.mark.parametrize("change", ["duplicate", "wrong_coefficient", "delete"])
 def test_term_identity_rejects_ambiguous_or_dangling_revisions(two_hills, change):
     model = two_hills

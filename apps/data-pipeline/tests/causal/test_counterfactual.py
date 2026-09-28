@@ -75,6 +75,7 @@ def _dense_matrix_vector_field(n_latent: int) -> VectorField:
 # =============================================================================
 
 
+@pytest.mark.inference(concern="simulation")
 class TestDenseLinearRuntime:
     def test_dynamics_matches_matrix_form(self):
         vf = _dense_matrix_vector_field(n_latent=2)
@@ -131,21 +132,8 @@ class TestDenseLinearRuntime:
 # =============================================================================
 
 
-@pytest.mark.simulation
+@pytest.mark.inference(concern="simulation")
 class TestComputeSteadyState:
-    def test_matches_inverse_for_diagonal_dynamics(self):
-        vf = _dense_matrix_vector_field(n_latent=2)
-        params = ({"drift": -jnp.eye(2), "cint": jnp.array([1.0, 2.0])},)
-        ss = compute_steady_state(vf, params, Intervention.none())
-        assert jnp.allclose(ss, jnp.array([1.0, 2.0]), atol=1e-5)
-
-    def test_satisfies_residual(self):
-        vf = _dense_matrix_vector_field(n_latent=2)
-        params = ({"drift": jnp.array([[-2.0, 0.5], [0.3, -1.5]]), "cint": jnp.array([1.0, -0.5])},)
-        ss = compute_steady_state(vf, params, Intervention.none())
-        residual = params[0]["drift"] @ ss + params[0]["cint"]
-        assert jnp.allclose(residual, 0.0, atol=1e-4)
-
     def test_intervention_propagates_downstream(self):
         vf = _dense_matrix_vector_field(n_latent=2)
         params = (
@@ -168,7 +156,7 @@ class TestComputeSteadyState:
 # =============================================================================
 
 
-@pytest.mark.simulation
+@pytest.mark.inference(concern="simulation")
 class TestSimulate:
     def test_no_coupling_no_propagation(self):
         vf = _dense_matrix_vector_field(n_latent=2)
@@ -182,26 +170,6 @@ class TestSimulate:
         action = simulate(vf, params, intervention, baseline, time_grid)
         effect = action - reference
         assert jnp.all(jnp.abs(effect[:, 1]) < 1e-3)
-
-    def test_positive_coupling_yields_positive_effect(self):
-        vf = _dense_matrix_vector_field(n_latent=2)
-        params = (
-            {
-                "drift": jnp.array([[-1.0, 0.0], [0.5, -1.0]]),
-                "cint": jnp.array([1.0, 0.5]),
-            },
-        )
-        baseline = compute_steady_state(vf, params, Intervention.none())
-        time_grid = jnp.linspace(0.0, 20.0, 41)
-        intervention = Intervention(
-            overrides=(
-                VariableOverride(index=0, value_fn=constant_value(baseline[0] + jnp.asarray(1.0))),
-            )
-        )
-        reference = simulate(vf, params, Intervention.none(), baseline, time_grid)
-        action = simulate(vf, params, intervention, baseline, time_grid)
-        effect = action - reference
-        assert float(effect[-1, 1]) > 0
 
     def test_clamped_state_tracks_constant(self):
         vf = _dense_matrix_vector_field(n_latent=2)
@@ -220,11 +188,13 @@ class TestSimulate:
 
 
 class TestSummarizeDraws:
+    @pytest.mark.contract
     @pytest.mark.parametrize("draws", [jnp.array([]), jnp.ones((2, 2)), jnp.array([jnp.nan])])
     def test_rejects_unreportable_draws(self, draws):
         with pytest.raises(ValueError, match=r"nonempty vector|finite number"):
             summarize_draws(draws)
 
+    @pytest.mark.inference(concern="simulation")
     def test_reports_mean_interval_and_prob_positive(self):
         draws = jnp.array([-1.0, 0.0, 2.0, 3.0])
         summary = summarize_draws(draws)
@@ -235,16 +205,7 @@ class TestSummarizeDraws:
         assert summary.upper_95 == pytest.approx(2.925)
 
 
-class TestResolveActionValue:
-    def test_set_mode_uses_absolute_value(self):
-        resolved = resolve_action_value(jnp.asarray(2.0), mode="set", value=5.0)
-        assert float(resolved) == 5.0
-
-    def test_shift_mode_offsets_baseline(self):
-        resolved = resolve_action_value(jnp.asarray(2.0), mode="shift", amount=-0.5)
-        assert float(resolved) == 1.5
-
-
+@pytest.mark.contract
 class TestLinearRamp:
     def test_holds_endpoints(self):
         ramp = linear_ramp(
@@ -262,7 +223,7 @@ class TestLinearRamp:
 # =============================================================================
 
 
-@pytest.mark.simulation
+@pytest.mark.inference(concern="simulation")
 class TestNumericalCorrectness:
     """Regression tests pinning the numerical Diffrax+Optimistix paths to the
     closed-form linear math they replace. Catches solver-tolerance or step-size

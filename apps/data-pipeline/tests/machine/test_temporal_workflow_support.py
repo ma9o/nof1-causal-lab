@@ -3,7 +3,8 @@
 import asyncio
 from typing import Any
 
-from temporalio.exceptions import ApplicationError
+import pytest
+from temporalio.exceptions import ApplicationError, FailureError
 
 from nof1_causal_lab.machine.temporal.messages import TransitionRuntimeError
 from nof1_causal_lab.machine.temporal.workflow_support import (
@@ -13,11 +14,13 @@ from nof1_causal_lab.machine.temporal.workflow_support import (
     temporal_failure_details,
 )
 
+pytestmark = pytest.mark.contract
 
-class _WrappedError(Exception):
+
+class _WrappedError(FailureError):
     def __init__(self, cause: BaseException) -> None:
         super().__init__(str(cause))
-        self.cause = cause
+        self.__cause__ = cause
 
 
 def test_temporal_failure_details_unwraps_application_error_and_copies_diagnostics() -> None:

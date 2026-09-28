@@ -18,6 +18,8 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.kernel
 )
 from nof1_causal_lab.models.ssm.model import SSMModel
 
+pytestmark = pytest.mark.contract
+
 
 @pytest.mark.parametrize(
     ("options", "error"),

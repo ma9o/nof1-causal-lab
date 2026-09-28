@@ -43,6 +43,7 @@ def _simple_params(n_latent=2, n_manifest=2):
 # =============================================================================
 
 
+@pytest.mark.inference(concern="sampling")
 class TestGaussianEmission:
     @pytest.mark.parametrize("mask", [[1, 0, 1], [0, 0, 1], [0, 0, 0], [1, 1, 1]])
     def test_exact_marginal_and_gradients_ignore_missing_covariance(self, mask):
@@ -94,6 +95,7 @@ class TestGaussianEmission:
 # =============================================================================
 
 
+@pytest.mark.inference(concern="sampling")
 class TestPoissonEmission:
     def test_matches_scipy(self):
         """Log-prob should match jax.scipy.stats.poisson.logpmf."""
@@ -125,6 +127,7 @@ class TestPoissonEmission:
 # =============================================================================
 
 
+@pytest.mark.inference(concern="sampling")
 class TestStudentTEmission:
     def test_heavier_tails_than_gaussian(self):
         """Student-t should give higher log-prob for outliers than Gaussian."""
@@ -156,6 +159,7 @@ class TestStudentTEmission:
 # =============================================================================
 
 
+@pytest.mark.inference(concern="sampling")
 class TestGammaEmission:
     def test_inverse_link(self):
         """Gamma with inverse link: mean = 1/eta, scale = mean/shape."""
@@ -197,6 +201,7 @@ class TestGammaEmission:
 # =============================================================================
 
 
+@pytest.mark.inference(concern="sampling")
 class TestBernoulliEmission:
     def test_probit_link(self):
         """Probit link should give log(0.5) at eta=0."""
@@ -217,6 +222,7 @@ class TestBernoulliEmission:
 # =============================================================================
 
 
+@pytest.mark.inference(concern="sampling")
 class TestNegBinEmission:
     def test_overdispersion_increases_with_lower_r(self):
         """Lower r means more overdispersion, so NB should be more spread."""
@@ -237,6 +243,7 @@ class TestNegBinEmission:
 # =============================================================================
 
 
+@pytest.mark.inference(concern="sampling")
 class TestDiscreteEmission:
     def test_ordered_logistic_matches_manual_probability(self):
         H = jnp.eye(1)
@@ -282,6 +289,7 @@ class TestDiscreteEmission:
 # =============================================================================
 
 
+@pytest.mark.inference(concern="sampling")
 class TestBetaEmission:
     def test_probit_link_at_center(self):
         """Beta probit at eta=0: Phi(0)=0.5 → Beta(0.5|5,5), must be a valid positive density."""
@@ -319,6 +327,7 @@ class TestBetaEmission:
         assert jnp.isneginf(lp)
 
 
+@pytest.mark.inference(concern="sampling")
 class TestMeanParamLogProb:
     def test_gamma_invalid_support_returns_negative_infinity(self):
         fn = get_mean_param_log_prob_fn("gamma", extra_params={"obs_shape": 2.0})
@@ -347,10 +356,12 @@ class TestMeanParamLogProb:
 
 
 class TestGetEmissionFn:
+    @pytest.mark.inference(concern="sampling")
     def test_bernoulli_probit(self):
         fn = get_emission_fn("bernoulli", link="probit")
         assert fn is emission_log_prob_bernoulli_probit
 
+    @pytest.mark.inference(concern="sampling")
     def test_student_t_wraps_df(self):
         fn = get_emission_fn("student_t", extra_params={"obs_df": 10.0})
         H = jnp.eye(1)
@@ -364,6 +375,7 @@ class TestGetEmissionFn:
         expected = emission_log_prob_student_t(y, eta, R, mask, df=10.0)
         assert jnp.isclose(lp, expected)
 
+    @pytest.mark.inference(concern="sampling")
     def test_gamma_default_log_matches_direct(self):
         fn = get_emission_fn("gamma", extra_params={"obs_shape": 2.0})
         H = jnp.eye(1)
@@ -377,6 +389,7 @@ class TestGetEmissionFn:
         expected = jstats.gamma.logpdf(2.0, a=2.0, scale=1.5)
         assert jnp.isclose(lp, expected, atol=1e-5)
 
+    @pytest.mark.inference(concern="sampling")
     def test_gamma_inverse_matches_direct(self):
         fn = get_emission_fn("gamma", extra_params={"obs_shape": 2.0}, link="inverse")
         H = jnp.eye(1)
@@ -390,6 +403,7 @@ class TestGetEmissionFn:
         lp_direct = emission_log_prob_gamma_inverse(y, eta, R, mask, shape=2.0)
         assert jnp.isclose(lp_dispatch, lp_direct)
 
+    @pytest.mark.inference(concern="sampling")
     def test_negative_binomial_matches_direct(self):
         fn = get_emission_fn("negative_binomial", extra_params={"obs_r": 5.0})
         H = jnp.eye(1)
@@ -403,6 +417,7 @@ class TestGetEmissionFn:
         lp_direct = emission_log_prob_negative_binomial(y, eta, R, mask, r=5.0)
         assert jnp.isclose(lp_dispatch, lp_direct)
 
+    @pytest.mark.inference(concern="sampling")
     def test_beta_default_logit_matches_direct(self):
         fn = get_emission_fn("beta", extra_params={"obs_concentration": 10.0})
         H = jnp.eye(1)
@@ -416,6 +431,7 @@ class TestGetEmissionFn:
         lp_direct = emission_log_prob_beta(y, eta, R, mask, concentration=10.0)
         assert jnp.isclose(lp_dispatch, lp_direct)
 
+    @pytest.mark.inference(concern="sampling")
     def test_beta_probit_matches_direct(self):
         fn = get_emission_fn("beta", extra_params={"obs_concentration": 10.0}, link="probit")
         H = jnp.eye(1)
@@ -429,6 +445,7 @@ class TestGetEmissionFn:
         lp_direct = emission_log_prob_beta_probit(y, eta, R, mask, concentration=10.0)
         assert jnp.isclose(lp_dispatch, lp_direct)
 
+    @pytest.mark.inference(concern="sampling")
     def test_ordered_logistic_matches_direct(self):
         cutpoints = jnp.array([[-1.0, 1.0]])
         level_counts = jnp.array([3])
@@ -451,6 +468,7 @@ class TestGetEmissionFn:
         lp_direct = emission_log_prob_ordered_logistic(y, eta, R, mask, cutpoints, level_counts)
         assert jnp.isclose(lp_dispatch, lp_direct)
 
+    @pytest.mark.inference(concern="sampling")
     def test_categorical_matches_direct(self):
         intercepts = jnp.array([[-1.0, 0.5]])
         slopes = jnp.array([[0.2, -0.4]])
@@ -475,10 +493,12 @@ class TestGetEmissionFn:
         lp_direct = emission_log_prob_categorical(y, eta, R, mask, intercepts, slopes, level_counts)
         assert jnp.isclose(lp_dispatch, lp_direct)
 
+    @pytest.mark.contract
     def test_unsupported_raises(self):
         with pytest.raises(ValueError, match="Unknown distribution family"):
             get_emission_fn("unsupported_distribution")
 
+    @pytest.mark.contract
     def test_explicit_invalid_family_link_pair_raises(self):
         with pytest.raises(ValueError, match="invalid for observation family 'gaussian'"):
             get_emission_fn("gaussian", link="log")

@@ -1,33 +1,33 @@
-"""Read-only facade: same read endpoints as the full facade, move plane 403s."""
+"""Read-only facade: same read endpoints as the full facade, scientific actions return 403."""
 
+import pytest
 from fastapi.testclient import TestClient
 
 from nof1_causal_lab.read_facade import create_read_facade_app
 from nof1_causal_lab.utils import data as data_module
+from tests.git_fixtures import artifact_revision, commit_id, git_oid
+
+pytestmark = pytest.mark.contract
 
 
-def test_read_facade_serves_reads_and_rejects_moves(monkeypatch, tmp_path):
+def test_read_facade_serves_reads_and_rejects_actions(monkeypatch, tmp_path):
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
     monkeypatch.setenv("EPISODE_FACADE_READ_ONLY", "1")
     client = TestClient(create_read_facade_app())
 
-    assert client.get("/api/capabilities").json() == {"moves_enabled": False}
+    assert client.get("/api/capabilities").json() == {"actions_enabled": False}
 
     status = client.get("/api/episodes/WS-READONLY")
     assert status.status_code == 200
     body = status.json()
     assert body["seq"] == 0
-    assert body["auto_running"] is False
+    assert set(body["actions"]) == {"edit_model", "prepare_data", "fit", "simulate"}
 
-    move = client.post(
-        "/api/episodes/WS-READONLY/moves",
-        json={"move": {"kind": "run", "operation_id": "raw_data"}},
+    action = client.post(
+        "/api/episodes/WS-READONLY/actions",
+        json={"action": "prepare_data", "source": "files"},
     )
-    assert move.status_code == 403
-    start = client.post("/api/episodes", json={"workspace_id": "WS-READONLY"})
-    assert start.status_code == 403
-    auto = client.post("/api/episodes/WS-READONLY/recipes/observational-study", json={})
-    assert auto.status_code == 403
+    assert action.status_code == 403
     upload = client.post(
         "/api/upload",
         data={"workspaceId": "WS-READONLY"},
@@ -37,36 +37,39 @@ def test_read_facade_serves_reads_and_rejects_moves(monkeypatch, tmp_path):
 
 
 def test_artifact_endpoint_serves_pinned_versions(monkeypatch, tmp_path):
-    from nof1_causal_lab.machine.moves import WriteArtifact
-    from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal, TransitionRecord
+    from nof1_causal_lab.machine.history import StudyRepository
+    from nof1_causal_lab.machine.store import ArtifactStore, TransitionRecord
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
     monkeypatch.setenv("EPISODE_FACADE_READ_ONLY", "1")
     store = ArtifactStore("WS-ART")
-    question = store.write_version(
+    question = store.write_artifact(
         "model",
-        provenance="human",
         derived_from={},
         produced_by=None,
         json_files={"model.json": {"question": "does X cause Y?"}},
     )
     client = TestClient(create_read_facade_app())
 
-    pinned = client.get("/api/episodes/WS-ART/artifacts/model", params={"version": 1})
+    pinned = client.get(
+        "/api/episodes/WS-ART/artifacts/model",
+        params={"revision": artifact_revision("WS-ART", "model", 1)},
+    )
     assert pinned.status_code == 200
     body = pinned.json()
     assert body["payload"]["model.json"] == {"question": "does X cause Y?"}
-    assert body["meta"]["provenance"] == "human"
+    assert "provenance" not in body["meta"]
     assert body["binary_files"] == []
 
-    # Explicit version reads can inspect an uncommitted artifact, but it does
-    # not become the current version until an applied move records the effect.
+    # Explicit revision reads can inspect an uncommitted artifact, but it does
+    # not become the current revision until an applied action records the effect.
     assert client.get("/api/episodes/WS-ART/artifacts/model").status_code == 404
-    EpisodeJournal("WS-ART").append(
+    StudyRepository("WS-ART").append(
         TransitionRecord(
             seq=1,
             ts="2026-07-09T00:00:00+00:00",
-            move=WriteArtifact(artifact_id="model", expected_model_version=0),
+            action="edit_model",
+            inputs={"expected_revision": None},
             status="applied",
             produced=[question],
             trace_ids=[],
@@ -76,26 +79,20 @@ def test_artifact_endpoint_serves_pinned_versions(monkeypatch, tmp_path):
     current = client.get("/api/episodes/WS-ART/artifacts/model")
     assert current.status_code == 200
     assert current.json()["payload"]["model.json"] == {"question": "does X cause Y?"}
-    missing = client.get("/api/episodes/WS-ART/artifacts/model", params={"version": 7})
+    missing = client.get("/api/episodes/WS-ART/artifacts/model", params={"revision": git_oid(7)})
     assert missing.status_code == 404
 
 
 def test_trace_endpoints_join_artifact_version_to_promoted_trace(monkeypatch, tmp_path):
-    from nof1_causal_lab.machine.moves import RunOperation
-    from nof1_causal_lab.machine.store import (
-        ArtifactStore,
-        EpisodeJournal,
-        TransitionRecord,
-        promote_run_traces,
-    )
+    from nof1_causal_lab.machine.history import StudyRepository
+    from nof1_causal_lab.machine.store import ArtifactStore, TransitionRecord, collect_run_traces
     from nof1_causal_lab.utils import storage
     from nof1_causal_lab.utils.llm import LLMTrace, TraceMessage
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
     monkeypatch.setenv("EPISODE_FACADE_READ_ONLY", "1")
-    raw_data = ArtifactStore("WS-TRACE").write_version(
+    raw_data = ArtifactStore("WS-TRACE").write_artifact(
         "raw_data",
-        provenance="llm",
         derived_from={},
         produced_by="run:raw_data",
     )
@@ -107,39 +104,44 @@ def test_trace_endpoints_join_artifact_version_to_promoted_trace(monkeypatch, tm
             model="test-model",
         ).model_dump_json(),
     )
-    trace_ids = promote_run_traces("WS-TRACE", 1)
-    EpisodeJournal("WS-TRACE").append(
+    logs = collect_run_traces("WS-TRACE", 1)
+    StudyRepository("WS-TRACE").append(
         TransitionRecord(
             seq=1,
             ts="2026-07-09T00:00:00+00:00",
-            move=RunOperation(operation_id="raw_data"),
+            action="prepare_data",
+            operation_id="raw_data",
+            inputs={},
             status="applied",
             produced=[raw_data],
-            trace_ids=trace_ids,
+            trace_ids=["raw-data"],
             resume=None,
-        )
+        ),
+        logs=logs,
     )
     client = TestClient(create_read_facade_app())
 
     trace_list = client.get("/api/episodes/WS-TRACE/artifacts/raw_data/traces")
     assert trace_list.status_code == 200
     assert trace_list.json()["trace_ids"] == ["raw-data"]
-    trace = client.get("/api/episodes/WS-TRACE/traces/1/raw-data")
+    trace = client.get(f"/api/episodes/WS-TRACE/traces/{commit_id('WS-TRACE', 1)}/raw-data")
     assert trace.status_code == 200
     assert trace.json()["messages"][0]["content"] == "profiled"
 
 
 def test_timeline_exposes_typed_resume_reference(monkeypatch, tmp_path):
-    from nof1_causal_lab.machine.moves import RunOperation
-    from nof1_causal_lab.machine.store import EpisodeJournal, ResumeRef, TransitionRecord
+    from nof1_causal_lab.machine.history import StudyRepository
+    from nof1_causal_lab.machine.store import ResumeRef, TransitionRecord
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
     monkeypatch.setenv("EPISODE_FACADE_READ_ONLY", "1")
-    EpisodeJournal("WS-RESUME").append(
+    StudyRepository("WS-RESUME").append(
         TransitionRecord(
             seq=1,
             ts="2026-07-09T00:00:00+00:00",
-            move=RunOperation(operation_id="statistical_model_spec"),
+            action="edit_model",
+            operation_id="statistical_model_spec",
+            inputs={},
             status="raised",
             trace_ids=[],
             resume=ResumeRef(
@@ -161,25 +163,25 @@ def test_timeline_exposes_typed_resume_reference(monkeypatch, tmp_path):
 
 
 def test_workspaces_endpoint_lists_episode_questions(monkeypatch, tmp_path):
-    from nof1_causal_lab.machine.moves import WriteArtifact
-    from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal, TransitionRecord
+    from nof1_causal_lab.machine.history import StudyRepository
+    from nof1_causal_lab.machine.store import ArtifactStore, TransitionRecord
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
     monkeypatch.setenv("EPISODE_FACADE_READ_ONLY", "1")
 
     store = ArtifactStore("WS-LIST")
-    question = store.write_version(
+    question = store.write_artifact(
         "model",
-        provenance="human",
         derived_from={},
         produced_by=None,
         json_files={"model.json": {"question": "does X cause Y?"}},
     )
-    EpisodeJournal("WS-LIST").append(
+    StudyRepository("WS-LIST").append(
         TransitionRecord(
             seq=1,
             ts="2026-07-09T00:00:00+00:00",
-            move=WriteArtifact(artifact_id="model", expected_model_version=0),
+            action="edit_model",
+            inputs={"expected_revision": None},
             status="applied",
             produced=[question],
             trace_ids=[],
@@ -194,7 +196,7 @@ def test_workspaces_endpoint_lists_episode_questions(monkeypatch, tmp_path):
     assert response.json() == {
         "workspaces": [
             {
-                "href": "/model/WS-LIST",
+                "href": "/v2/WS-LIST",
                 "question": "does X cause Y?",
                 "workspaceId": "WS-LIST",
             }
@@ -222,9 +224,9 @@ def test_upload_endpoint_stages_input_file(monkeypatch, tmp_path):
     )
 
 
-def test_full_facade_advertises_moves(monkeypatch):
+def test_full_facade_advertises_actions(monkeypatch):
     monkeypatch.delenv("EPISODE_FACADE_READ_ONLY", raising=False)
     from nof1_causal_lab import tool_server
 
     client = TestClient(tool_server.app)
-    assert client.get("/api/capabilities").json() == {"moves_enabled": True}
+    assert client.get("/api/capabilities").json() == {"actions_enabled": True}

@@ -27,6 +27,9 @@ CONCERNS = {
             "artifacts.construct",
             "artifacts.evidence",
             "artifacts.indicator",
+            "artifacts.data_preparation",
+            "artifacts.observations",
+            "artifacts.predictive_provenance",
             "artifacts.likelihood",
             "artifacts.mechanism",
             "measurement_types",
@@ -49,18 +52,20 @@ CONCERNS = {
             "artifacts.scenarios",
             "artifacts.simulation",
             "artifacts.checks",
+            "artifacts.model_checks",
         ),
     ),
-    "execution_provenance": (
-        "Execution & provenance",
+    "execution_history": (
+        "Execution & history",
         (
             "machine.artifact_files",
             "machine.artifacts",
             "machine.graph",
             "machine.hierarchy",
-            "machine.moves",
+            "machine.execution",
             "machine.status",
             "machine.store",
+            "machine.history_models",
             "flows.runtime_events",
         ),
     ),
@@ -73,6 +78,7 @@ CONCERNS = {
         (
             "episode_api",
             "actions.contracts",
+            "actions.results",
             "actions.revisions",
             "flows.transitions.analysis.contracts",
             "json_types",
@@ -95,8 +101,7 @@ CORE_DOMAIN_OBJECTS = {
     "DynamicsMechanismSpec": "The explicit scientific contribution to continuous-time drift.",
     "ParameterSpec": "A referenced scientific parameter with a native prior law or fixed value.",
     "InferenceReport": "Inference telemetry and fitted parameter findings recorded in the transition log.",
-    "SimulationReport": "Generated draws and predictive measurements with their model and data provenance.",
-    "ScenarioClamp": "The intervention applied to a specific construct over time.",
+    "SimulationReport": "Generated draws and predictive measurements with their model and data references.",
     "ModelSnapshot": "Independently sourced canonical aggregates read at one committed revision.",
     "FitSummary": "The canonical posterior together with server-composed display findings.",
 }
@@ -104,6 +109,9 @@ CORE_DOMAIN_OBJECTS = {
 # Aliases and dataclasses need explicit role sentences: JSON Schema does not carry
 # their Python docstrings. These describe concepts, never infer prose from field names.
 ROLE_SENTENCES = {
+    "CheckGroup": "A group of model checks is selected by the inputs it consumes.",
+    "PredictiveCheckReason": "A predictive check reason explains why a battery could not be evaluated for the selected model and observations.",
+    "GitOid": "A native Git object identity for an immutable tree or commit.",
     "CoefficientRole": "A coefficient role identifies an expression operand’s scientific quantity and support.",
     "BinaryOperator": "A binary operator combines two scalar expression operands.",
     "ExpressionFunction": "An expression function transforms scalar operands or constructs structured observation arguments.",
@@ -130,26 +138,21 @@ ROLE_SENTENCES = {
     "JsonScalar": "A JSON scalar transports a string, number, boolean, or null.",
     "JsonValue": "A JSON value transports a scalar or a recursive array or object.",
     "MeasurementDtype": "A measurement dtype defines the observed value domain of an indicator.",
-    "Move": "A machine move requests computation or an authored artifact write.",
-    "Provenance": "Artifact provenance records whether its content was computed, authored by a human, or proposed by an LLM.",
     "Derivation": "A derivation declares an artifact maintained atomically with its input versions.",
     "Root": "A root declares an independently writable artifact and any contextual input pins.",
-    "RunOperation": "A run move invokes an authoring or computation operation.",
     "OperationId": "An operation identity selects an action independently of its output artifacts.",
     "RuntimeEvent": "A runtime event records transition progress, agent activity, or extraction telemetry.",
-    "ScenarioQueryInput": "A scenario readout requests an estimand, forward horizon, and output scale.",
-    "ScenarioRequest": "A simulation request declares the initial state, timed clamps, and requested outcome readout.",
-    "SimulateScenarioToolResult": "A simulation tool response carries either a resolved scenario result or a reported tool error.",
-    "Sourced": "A sourced value pairs one model finding with its supporting artifact version.",
+    "ScientificActionId": "A scientific action identity selects model editing, data preparation, fitting, or simulation.",
+    "SimulationReport": "A simulation report records forward histories, resolved execution settings, and certified effects when supported.",
+    "Sourced": "A sourced value pairs one model finding with its supporting artifact revision.",
     "ToolError": "A tool error reports why a requested operation could not produce a result.",
     "ToolQuerySpec": "A tool query specification declares a context's callable query.",
-    "WriteArtifact": "A write move requests a validated authored artifact revision.",
 }
 
 ALIAS_MODULES = {
     "NumPyroDistribution": "numpyro_json",
     "EntityRef": "artifacts.identity",
-    "Move": "machine.moves",
+    "SimulationReport": "artifacts.simulation",
     "RuntimeEvent": "flows.runtime_events",
 }
 
@@ -176,10 +179,14 @@ def _layer_for(name: str, module: str) -> str:
     if module.endswith(("episode_api", "json_types", "utils.llm", "numpyro_json")):
         return "transport"
     if module.endswith("artifacts.scenarios"):
-        return "findings" if name.endswith(("Result", "Visualization", "Point")) else "authored"
+        return (
+            "findings"
+            if name.endswith(("Result", "Visualization", "Point", "Trajectory"))
+            else "authored"
+        )
     if module.endswith("artifacts.simulation"):
-        return "authored" if name == "SimulationSpec" else "findings"
-    if module.endswith("artifacts.checks"):
+        return "authored" if name in {"SimulationSpec"} else "findings"
+    if module.endswith(("artifacts.checks", "artifacts.model_checks")):
         return "findings"
     if name == "FitSettingsSpec":
         return "authored"

@@ -1,4 +1,4 @@
-"""MAP orchestration on a two-coordinate quadratic, without building or fitting an SSM."""
+"""MAP initialization, gradients, and covariance references on small targets."""
 
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -7,9 +7,13 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 from dynestyx.inference.particle_runtime import Parameterization
+from scipy.optimize import LbfgsInvHessProduct
 
+from nof1_causal_lab.models.ssm import SSMModel
 from nof1_causal_lab.models.ssm.inference.types import WarmupProposal
 from nof1_causal_lab.models.ssm.inference.warmup import map as map_warmup
+
+pytestmark = pytest.mark.inference(concern="warmup")
 
 _INNER_DIAGNOSTICS = {
     "solver_kind": 1,
@@ -50,8 +54,9 @@ def _objective_with_aux(z, observations, times, latent_mode_init=None):
 @pytest.mark.parametrize("interval_support", [False, True], ids=["point", "interval"])
 def test_optimizer_initialization_and_exact_gradient_contract(monkeypatch, interval_support):
     flat_example = jnp.array([0.25, -0.5])
-    model = SimpleNamespace(
-        observation_support=SimpleNamespace(requires_interval_summary_handling=interval_support)
+    model = Mock(
+        spec=SSMModel,
+        observation_support=SimpleNamespace(requires_interval_summary_handling=interval_support),
     )
     candidates = jnp.array([[0.0, 0.0], [4.0, 4.0], [1.0, -2.0]])
     draw_candidates = Mock(return_value=(jnp.array([0, 1], dtype=jnp.uint32), candidates))
@@ -68,7 +73,15 @@ def test_optimizer_initialization_and_exact_gradient_contract(monkeypatch, inter
         assert fun(optimum) < fun(x0)
         np.testing.assert_allclose(jac(optimum), 0.0, atol=1e-6)
         callback(optimum)
-        return SimpleNamespace(x=optimum, fun=fun(optimum), nit=3, nfev=5, status=0, success=True)
+        return SimpleNamespace(
+            x=optimum,
+            fun=fun(optimum),
+            nit=3,
+            nfev=5,
+            status=0,
+            success=True,
+            hess_inv=LbfgsInvHessProduct(np.zeros((0, 2)), np.zeros((0, 2))),
+        )
 
     optimizer = Mock(side_effect=minimize)
     monkeypatch.setattr(map_warmup.spo, "minimize", optimizer)
@@ -108,7 +121,9 @@ def test_covariance_routes_and_public_draw_extraction(monkeypatch, strategy):
         success=True,
         optimizer="L-BFGS-B",
         init_log_posterior_best=-2.0,
-        optimizer_hess_inv=Mock(todense=Mock(return_value=inverse_hessian)),
+        optimizer_hess_inv=Mock(
+            spec=LbfgsInvHessProduct, todense=Mock(return_value=inverse_hessian)
+        ),
         final_grad_norm=0.0,
         final_eval_diagnostics={
             "log_posterior": -1.0,
@@ -150,7 +165,7 @@ def test_covariance_routes_and_public_draw_extraction(monkeypatch, strategy):
     sampler = Mock(side_effect=sample)
     monkeypatch.setattr(map_warmup, "_sample_gaussian_parameter_posterior", sampler)
     result = map_warmup.fit_map(
-        SimpleNamespace(observation_support=None),
+        Mock(spec=SSMModel, observation_support=None),
         jnp.zeros((2, 1)),
         jnp.array([0.0, 1.0]),
         num_samples=4,

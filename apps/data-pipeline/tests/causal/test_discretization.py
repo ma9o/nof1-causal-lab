@@ -19,6 +19,8 @@ from nof1_causal_lab.models.ssm.execution.dynamical_model import continuous_stat
 from nof1_causal_lab.models.ssm.inference.targets.transitions import build_discrete_transitions
 from tests.dynamics_fixtures import hill_term, interaction_term, potential_term
 
+pytestmark = pytest.mark.inference(concern="warmup")
+
 
 def _drift_derivatives(field, state, args):
     derivative = jax.jacfwd(lambda x: field(jnp.array(0.0), x, args))(state)
@@ -95,7 +97,6 @@ class TestLinearizePrimitives:
         assert jnp.allclose(b_loc, expected_b, atol=1e-6)
 
 
-@pytest.mark.warmup
 def test_warmup_transitions_match_local_ou_moments():
     """Check local drift, bias, covariance and irregular gaps against scalar OU laws."""
     stiffness = np.array([0.5, 1.5])

@@ -9,8 +9,10 @@ from nof1_causal_lab.flows.transitions.measurement_structure.grounding import (
 )
 from nof1_causal_lab.models.identification import identify_model
 from nof1_causal_lab.models.model_structure import StructuralCompilationError
-from nof1_causal_lab.utils.model_structure import get_edges, get_state_names
+from nof1_causal_lab.utils.model_structure import get_state_names
 from tests.helpers import fixture_entity_id, graph_constructs, make_model
+
+pytestmark = pytest.mark.contract
 
 
 @pytest.fixture
@@ -37,23 +39,12 @@ def test_missing_outcome_indicator_returns_error(measured_model):
     assert "Outcome construct 'Outcome'" in feedback
 
 
-def test_duplicate_operationalization_returns_error(measured_model):
+def test_model_rejects_extraction_instructions(measured_model):
     payload = measured_model.model_dump(mode="json")
-    indicators = graph_constructs(payload)[0]["indicators"]
-    indicators.append({**indicators[0], "id": "indicator:copy", "name": "treatment_copy"})
+    graph_constructs(payload)[0]["indicators"][0]["how_to_measure"] = "Read the diary"
     output, feedback = measurement_structure_grounding(payload)
     assert output is None
-    assert "duplicate indicator operationalizations" in feedback
-
-
-def test_semantic_collision_returns_error(measured_model):
-    payload = measured_model.model_dump(mode="json")
-    graph_constructs(payload)[0]["indicators"][0]["how_to_measure"] = (
-        "Count the number of treatments administered"
-    )
-    output, feedback = measurement_structure_grounding(payload)
-    assert output is None
-    assert "Semantic collision" in feedback
+    assert "how_to_measure" in feedback
 
 
 def test_measurements_retain_both_constructs(measured_model):
@@ -61,7 +52,7 @@ def test_measurements_retain_both_constructs(measured_model):
     assert feedback == "VALID"
     model = ModelSpec.model_validate(output)
     assert get_state_names(model) == ["Treatment", "Outcome"]
-    assert [(edge["cause"], edge["effect"]) for edge in get_edges(model)] == [
+    assert [(edge.cause.name, edge.effect.name) for edge in model.execution_edges] == [
         ("Treatment", "Outcome")
     ]
 
@@ -75,14 +66,6 @@ def test_removed_usage_is_rejected(measured_model):
     output, feedback = measurement_structure_grounding(payload)
     assert output is None
     assert "usage" in feedback.lower()
-
-
-def test_unknown_usage_is_rejected(measured_model):
-    payload = measured_model.model_dump(mode="json")
-    graph_constructs(payload)[0]["usage"] = {"kind": "unregistered"}
-    output, feedback = measurement_structure_grounding(payload)
-    assert output is None
-    assert "usage" in feedback
 
 
 def test_identification_is_a_separate_derived_finding(measured_model):
@@ -113,7 +96,7 @@ def test_unobserved_static_confounder_survives_measurement_authoring():
     assert feedback == "VALID"
     scientific_model = ModelSpec.model_validate(output)
     assert len(scientific_model.constructs) == 3
-    with pytest.raises(StructuralCompilationError, match="Required unmeasured constructs"):
+    with pytest.raises(StructuralCompilationError, match="Required constructs"):
         scientific_model.require_execution_structure()
     report = identify_model(scientific_model)
     sleep = report.non_identifiable[model.constructs[0].id]
@@ -143,5 +126,5 @@ def test_unmeasured_mediator_remains_scientific_but_not_an_executable_state():
     )
     plan = model
     assert get_state_names(plan) == ["Treatment", "Outcome"]
-    assert get_edges(plan) == []
+    assert not plan.execution_edges
     assert model.get_construct(fixture_entity_id("construct", "Mediator")).name == "Mediator"

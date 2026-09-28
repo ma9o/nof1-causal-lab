@@ -1,10 +1,13 @@
-from types import SimpleNamespace
 from typing import Any, ClassVar
 
 import numpy as np
+import pytest
+from scipy.optimize import LbfgsInvHessProduct, OptimizeResult
 
 import nof1_causal_lab.models.ssm.inference.warmup.scipy_pathfinder as scipy_pathfinder_module
 from nof1_causal_lab.models.ssm.inference.warmup.scipy_pathfinder import scipy_pathfinder
+
+pytestmark = pytest.mark.inference(concern="warmup")
 
 
 def test_scipy_pathfinder_uses_accepted_iterates_for_custom_history(monkeypatch):
@@ -37,13 +40,14 @@ def test_scipy_pathfinder_uses_accepted_iterates_for_custom_history(monkeypatch)
         fun(np.array([0.2], dtype=np.float64))
         final_fun, _final_grad = fun(accepted_2)
         callback(accepted_2)
-        return SimpleNamespace(
+        return OptimizeResult(
             x=accepted_2,
             fun=float(final_fun),
             nit=2,
+            nfev=5,
             status=0,
             success=True,
-            hess_inv=None,
+            hess_inv=LbfgsInvHessProduct(np.zeros((0, 1)), np.zeros((0, 1))),
         )
 
     monkeypatch.setattr(scipy_pathfinder_module.scipy.optimize, "minimize", fake_minimize)
@@ -62,7 +66,7 @@ def test_scipy_pathfinder_uses_accepted_iterates_for_custom_history(monkeypatch)
     assert per_start["n_trajectory_points"] == 3
     assert per_start["n_lbfgs_iterations"] == 2
     assert per_start["n_valid_iterates"] == 2
-    assert per_start["n_elbo_candidates"] == 2
+    assert per_start["n_elbo_candidates"] == 3
     assert per_start["n_elbo_batch_evaluations"] == 1
     assert call_counts["value_batch"] == 1
     assert batch_sizes == [32]
@@ -111,13 +115,14 @@ def test_scipy_pathfinder_submits_multistarts_to_thread_pool(monkeypatch):
         accepted = np.asarray(x0, dtype=np.float64) * 0.5
         final_fun, _final_grad = fun(accepted)
         callback(accepted)
-        return SimpleNamespace(
+        return OptimizeResult(
             x=accepted,
             fun=float(final_fun),
             nit=1,
+            nfev=1,
             status=0,
             success=True,
-            hess_inv=None,
+            hess_inv=LbfgsInvHessProduct(np.zeros((0, 1)), np.zeros((0, 1))),
         )
 
     monkeypatch.setattr(scipy_pathfinder_module, "ThreadPoolExecutor", _RecordingExecutor)

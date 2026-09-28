@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.identification import IdentificationReport
-    from nof1_causal_lab.artifacts.identity import ModelRevision
+    from nof1_causal_lab.artifacts.identity import GitRef
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.machine.store import TransitionRecord
 
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 class IdentifiedEstimand:
     """Positive identification evidence for one treatment/outcome estimand."""
 
-    model: ModelRevision
+    model: GitRef
     treatment: str
     outcome: str
     method: str
@@ -28,7 +28,7 @@ class CertifiedCausalAnalysis:
     """Identification and particle-posterior evidence joined by provenance."""
 
     model: ModelSpec
-    model_revision: ModelRevision
+    model_revision: GitRef
     identification: IdentificationReport
     estimands: tuple[IdentifiedEstimand, ...]
     inference: TransitionRecord
@@ -72,7 +72,7 @@ def certify_identified_estimand(
     model: ModelSpec,
     identification: IdentificationReport,
     *,
-    model_revision: ModelRevision,
+    model_revision: GitRef,
     treatment: str,
     outcome: str,
 ) -> IdentifiedEstimand:
@@ -110,14 +110,12 @@ def certify_identified_estimand(
     )
 
 
-def certify_conditioned_model(
-    model: ModelSpec, revision: ModelRevision, record: TransitionRecord
-) -> None:
+def certify_conditioned_model(model: ModelSpec, revision: GitRef, record: TransitionRecord) -> None:
     """Join the current scientific value to committed exact-engine evidence in its log."""
     from nof1_causal_lab.machine.inference import inference_record
     from nof1_causal_lab.models.model_inputs import input_fingerprints
 
-    if inference_record([record], revision.version) is None:
+    if inference_record([record], revision.revision) is None:
         raise ValueError(
             "Causal reporting requires the committed inference transition for this model revision"
         )

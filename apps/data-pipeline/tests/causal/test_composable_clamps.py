@@ -1,22 +1,18 @@
-"""Tests for composable, windowed latent clamps (analysis unified simulation).
-
-Covers ``vmap_simulate_clamps_from_state`` + ``build_segment_bounds``: full-horizon
-clamps, finite windows that release to natural dynamics, mid-rollout onset (the
-segmentation correctness check), multiple simultaneous clamps, trajectory clamps,
-and baseline vs abducted start states.
-"""
+"""Dated state assignments and paired nonlinear histories."""
 
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 import pytest
 
+from nof1_causal_lab.artifacts.scenarios import InterventionSpec
 from nof1_causal_lab.models.ssm.counterfactual import (
-    ClampSpec,
+    ResolvedIntervention,
     build_segment_bounds,
-    vmap_simulate_clamps_from_state,
+    vmap_simulate_interventions_from_state,
 )
-from nof1_causal_lab.models.ssm.dynamics import VectorField
+from nof1_causal_lab.models.ssm.dynamics import DynamicsDraws, VectorField
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
 
 # var1 is driven by var0; both stable. Baseline steady state is η* = -A⁻¹c = [1, 1].
@@ -25,84 +21,139 @@ _STEADY_STATE = jnp.array([[1.0, 1.0]])
 _TIME_GRID = jnp.linspace(0.0, 12.0, 13)  # daily grid, day == index
 
 
+def _event(index, **payload):
+    spec = InterventionSpec.model_validate({"target": f"construct:state{index}", **payload})
+    return ResolvedIntervention(index=index, spec=spec)
+
+
 def _vf() -> VectorField:
     return VectorField(n_latent=2, components=(DenseLinear(),))
 
 
-def _run(clamps, initial_states=_STEADY_STATE):
-    baseline, action, effect = vmap_simulate_clamps_from_state(
-        _vf(), [_PARAMS], initial_states=initial_states, clamps=clamps, time_grid=_TIME_GRID
+def _run(interventions, initial_states=_STEADY_STATE):
+    baseline, action, effect = vmap_simulate_interventions_from_state(
+        DynamicsDraws(_vf(), jax.tree.map(lambda x: x[None], _PARAMS), n_draws=1),
+        initial_states=initial_states,
+        interventions=interventions,
+        time_grid=_TIME_GRID,
     )
     return baseline[0], action[0], effect[0]  # single draw → (T, n_latent)
 
 
-def test_segment_bounds_split_at_window_edges():
-    clamps = [
-        ClampSpec(index=0, mode="set", value=0.5, from_day=0.0, to_day=14.0),
-        ClampSpec(index=1, mode="shift", amount=1.0, from_day=20.0),
-    ]
+@pytest.mark.contract
+def test_segment_bounds_split_at_exact_event_times():
+    events = [_event(index=0, value=0.5, time=14.0), _event(index=1, value=2.0, time=20.0)]
     grid = jnp.arange(31.0)
-    assert build_segment_bounds(grid, clamps) == [(0, 14), (14, 20), (20, 30)]
-    # No windows → a single segment.
-    assert build_segment_bounds(grid, [ClampSpec(index=0, mode="shift", amount=1.0)]) == [(0, 30)]
+    assert build_segment_bounds(grid, events) == [(0, 14), (14, 20), (20, 30)]
+    assert build_segment_bounds(grid, []) == [(0, 30)]
 
 
-@pytest.mark.simulation
-def test_full_horizon_shift_holds_and_propagates():
-    _baseline, action, effect = _run(
-        [ClampSpec(index=0, mode="shift", amount=1.0)], initial_states=None
-    )
-    # var0 held at baseline(1) + 1 = 2 across the whole horizon.
-    assert jnp.allclose(action[:, 0], 2.0, atol=0.05)
-    # Positive coupling lifts var1 by the end.
-    assert float(effect[-1, 1]) > 0.1
-    assert jnp.isclose(effect[-1, 0], 1.0, atol=0.05)
-
-
-@pytest.mark.simulation
-def test_window_clamp_pins_at_onset_and_releases_to_natural():
-    # The segmentation correctness check: a set clamp opening at day 2 must JUMP to
-    # the value at day 2 (not merely hold its slope from the natural value).
-    _baseline, action, _effect = _run(
-        [ClampSpec(index=0, mode="set", value=3.0, from_day=2.0, to_day=4.0)]
-    )
-    assert jnp.isclose(action[1, 0], 1.0, atol=0.05)
-    assert jnp.allclose(action[2:5, 0], 3.0, atol=0.05)
-    # After release, x(t) = 1 + 2 exp(-(t - 4)); this checks the decay,
-    # rather than only its eventual equilibrium.
-    expected_release = 1.0 + 2.0 * jnp.exp(-(_TIME_GRID[4:] - 4.0))
-    assert jnp.allclose(action[4:, 0], expected_release, atol=0.01)
-
-
-@pytest.mark.simulation
-def test_multiple_simultaneous_clamps():
-    _baseline, action, _effect = _run(
+@pytest.mark.inference(concern="simulation")
+def test_repeated_and_simultaneous_assignments_resume_natural_dynamics():
+    baseline, action, effect = _run(
         [
-            ClampSpec(index=0, mode="set", value=3.0),
-            ClampSpec(index=1, mode="set", value=5.0),
+            _event(index=0, time=2.0, value=3.0),
+            _event(index=1, time=2.0, value=5.0),
+            _event(index=0, time=4.0, value=-1.0),
+            _event(index=1, time=12.0, value=7.0),
         ]
     )
-    assert jnp.allclose(action[:, 0], 3.0, atol=0.05)
-    assert jnp.allclose(action[:, 1], 5.0, atol=0.05)
+    assert jnp.allclose(action[:2], baseline[:2])
+    assert jnp.array_equal(action[2], jnp.array([3.0, 5.0]))
+    assert jnp.allclose(action[2:4, 0], 1 + 2 * jnp.exp(-(_TIME_GRID[2:4] - 2)), atol=0.01)
+    assert jnp.allclose(action[4:, 0], 1 - 2 * jnp.exp(-(_TIME_GRID[4:] - 4)), atol=0.01)
+    assert action[-1, 1] == 7.0
+    assert jnp.allclose(effect, action - baseline)
 
 
-@pytest.mark.simulation
-def test_trajectory_clamp_tracks_values():
-    _baseline, action, _effect = _run(
-        [ClampSpec(index=0, mode="trajectory", values=(1.0, 3.0), from_day=0.0, to_day=10.0)]
+@pytest.mark.inference(concern="simulation")
+def test_assignment_to_a_non_varying_state_persists_and_propagates():
+    # X has no natural change; Y relaxes toward X/2 + 0.5.
+    params = ({"drift": jnp.array([[0.0, 0.0], [0.5, -1.0]]), "cint": jnp.array([0.0, 0.5])},)
+    baseline, action, _ = vmap_simulate_interventions_from_state(
+        DynamicsDraws(_vf(), jax.tree.map(lambda x: x[None], params), n_draws=1),
+        _STEADY_STATE,
+        [_event(index=0, time=2.0, value=3.0)],
+        time_grid=_TIME_GRID,
     )
-    # Linear interpolation 1 → 3 across [0, 10].
-    assert jnp.isclose(action[0, 0], 1.0, atol=0.05)
-    assert jnp.isclose(action[5, 0], 2.0, atol=0.1)
-    assert jnp.isclose(action[10, 0], 3.0, atol=0.05)
+    assert jnp.allclose(action[:, :2], baseline[:, :2])
+    assert jnp.allclose(action[0, 2:, 0], 3.0)
+    assert jnp.allclose(action[0, 2:, 1], 2 - jnp.exp(-(_TIME_GRID[2:] - 2)), atol=0.01)
 
 
-@pytest.mark.simulation
-def test_abducted_start_evolves_from_given_state():
+@pytest.mark.inference(concern="simulation")
+def test_explicit_start_evolves_from_given_state():
     initial_states = jnp.array([[0.0, 0.0]])
-    baseline, _action, _effect = _run(
-        [ClampSpec(index=0, mode="shift", amount=1.0)], initial_states=initial_states
+    baseline, action, _ = _run(
+        [_event(index=0, value=2.0, time=0.0)], initial_states=initial_states
     )
-    # Reference path starts at the abducted state and relaxes toward steady state [1, 1].
-    assert jnp.allclose(baseline[0], jnp.array([0.0, 0.0]), atol=0.05)
+    assert jnp.array_equal(baseline[0], initial_states[0])
+    assert jnp.array_equal(action[0], jnp.array([2.0, 0.0]))
     assert jnp.allclose(baseline[-1], jnp.array([1.0, 1.0]), atol=0.1)
+
+
+@pytest.mark.inference(concern="simulation")
+def test_fully_fixed_dynamics_keep_the_explicit_draw_axis():
+    from nof1_causal_lab.models.ssm.dynamics import dynamics_from_samples
+    from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
+    from tests.dynamics_fixtures import potential_term
+    from tests.model_fixtures import model_fixture
+
+    spec = model_fixture(
+        n_latent=1,
+        dynamics_spec=DynamicsSpec(1, (potential_term(0, center=1.0, stiffness=0.4, quartic=0.2),)),
+    )
+    draws = dynamics_from_samples(spec, {}, n_draws=3)
+    times = jnp.array([0.0, 0.2, 0.4])
+    initial = jnp.array([[-1.0], [0.0], [1.0]])
+    baseline, action, effect = vmap_simulate_interventions_from_state(
+        draws,
+        initial,
+        [],
+        time_grid=times,
+    )
+    assert baseline.shape == (3, 3, 1)
+    assert jnp.isfinite(baseline).all()
+    assert jnp.array_equal(baseline, action)
+    assert jnp.array_equal(effect, jnp.zeros_like(effect))
+    assert jnp.array_equal(baseline[:, 0], initial)
+    assert baseline[0, -1, 0] > baseline[0, 0, 0]
+
+
+@pytest.mark.contract
+def test_zero_dynamics_draws_return_empty_trajectories():
+    empty = DynamicsDraws(VectorField(n_latent=2, components=()), (), n_draws=0)
+    outputs = vmap_simulate_interventions_from_state(
+        empty, jnp.zeros((0, 2)), [], time_grid=_TIME_GRID
+    )
+    assert all(output.shape == (0, _TIME_GRID.size, 2) for output in outputs)
+
+
+@pytest.mark.contract
+@pytest.mark.parametrize("bad_axis", ["state", "key", "covariance"])
+def test_event_simulation_rejects_misaligned_draw_inputs(bad_axis):
+    draws = DynamicsDraws(VectorField(n_latent=2, components=()), (), n_draws=3)
+    initial = jnp.zeros((2 if bad_axis == "state" else 3, 2))
+    keys = jax.random.split(jax.random.PRNGKey(0), 2 if bad_axis == "key" else 3)
+    covariances = jnp.zeros((3, 1, 1)) if bad_axis == "covariance" else jnp.zeros((3, 2, 2))
+    with pytest.raises(ValueError, match="must match the dynamics"):
+        vmap_simulate_interventions_from_state(
+            draws, initial, [], time_grid=_TIME_GRID, keys=keys, diffusion_cov=covariances
+        )
+
+
+@pytest.mark.inference(concern="simulation")
+def test_stochastic_paths_share_noise_before_a_noninteger_event():
+    grid = jnp.array([4.0, 4.1, 4.3, 4.7])
+    intervention = _event(index=0, time=4.3, value=3.0)
+    baseline, action, _ = vmap_simulate_interventions_from_state(
+        DynamicsDraws(_vf(), jax.tree.map(lambda x: x[None], _PARAMS), n_draws=1),
+        _STEADY_STATE,
+        [intervention],
+        time_grid=grid,
+        keys=jax.random.split(jax.random.key(0), 1),
+        diffusion_cov=jnp.eye(2)[None] * 0.1,
+    )
+    assert jnp.array_equal(baseline[:, :2], action[:, :2])
+    assert action[0, 2, 0] == 3.0
+    assert jnp.isfinite(action).all()

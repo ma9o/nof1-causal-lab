@@ -63,24 +63,40 @@ def panel_frame(n_days=20):
 
 
 def state_from(*infos):
-    return EpisodeState().with_versions(list(infos))
+    return EpisodeState().with_artifacts(list(infos))
 
 
 def seed_model(store):
-    return store.write_version(
+    return store.write_artifact(
         "model",
-        provenance="llm",
         derived_from={},
         produced_by="run:statistical_model_spec",
         json_files={"model.json": scientific_model().model_dump(mode="json")},
     )
 
 
-def seed_panel(store, *, model_version=1):
-    return store.write_version(
+def seed_panel(store, *, model_revision):
+    return store.write_artifact(
         "panel",
-        provenance="computed",
-        derived_from={"model": model_version},
+        derived_from={},
+        json_files={"metadata.json": panel_metadata().model_dump(mode="json")},
         produced_by="run:measurements",
         parquet_files={"panel.parquet": panel_frame()},
     )
+
+
+def panel_metadata():
+    from nof1_causal_lab.artifacts.data_preparation import (
+        DataPreparationSpec,
+        DataVariableSpec,
+        FileSourceRef,
+        PreparedDataMetadata,
+    )
+    preparation = DataPreparationSpec(default_window="1d", variables=tuple(
+        DataVariableSpec(
+            id=fixture_entity_id("indicator", name), name=name,
+            measurement_dtype="continuous", aggregation="mean", how_to_measure="Read " + name,
+        ) for name in ("stress_score", "sleep_score")
+    ))
+    return PreparedDataMetadata(source=FileSourceRef(files=("observations.csv",)),
+        variables=preparation.observation_schema(), preparation=preparation)

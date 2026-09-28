@@ -47,6 +47,7 @@ from tests.helpers import fixture_entity_id, native_axis_metadata
 
 if TYPE_CHECKING:
     from nof1_causal_lab.measurement_types import MeasurementDtype
+    from nof1_causal_lab.models.ssm.autoreparam import ReparamSite
 
 
 def affine_test_evolution(A, covariance, b=None, B=None):
@@ -64,7 +65,7 @@ class MinimalReparam(Strategy):
     """Test-owned minimal reparameterization strategy."""
 
     @override
-    def configure(self, msg: dict[str, Any]):
+    def configure(self, msg: ReparamSite):
         return _minimal_reparam(msg["fn"], msg.get("is_observed", False))
 
 
@@ -367,12 +368,13 @@ def model_fixture(
     Blocks are fixture inputs only. The returned value contains scientific
     entities, coefficient references, priors and constants, with no native spec.
     """
+    from evaluation.fixtures.prior_planning import complete_model
+
     from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
     from nof1_causal_lab.artifacts.identity import ConstructRef, EdgeRef, IndicatorRef, MechanismRef
     from nof1_causal_lab.artifacts.indicator import IndicatorSpec
     from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec
     from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
-    from nof1_causal_lab.models.prior_planning import complete_model
     from tests.slot_fixtures import fixture_parameter_id
 
     n_manifest = n_latent if n_manifest is None else n_manifest
@@ -414,7 +416,6 @@ def model_fixture(
             IndicatorSpec(
                 id=identity,
                 name=name,
-                how_to_measure="Read the fixture value",
                 construct_polarity="negative"
                 if float(loadings.template[i, owners[i]]) < 0
                 else "positive",

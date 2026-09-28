@@ -1,15 +1,12 @@
 """Rendering support for the blind case-study walkthroughs.
 
-The case studies drive the *production* construct-admission engine
-(:mod:`nof1_causal_lab.models.ssm.construct_admission`) and its reachability
+The case studies drive the *production* full-model checking engine
+(:mod:`nof1_causal_lab.models.ssm.simulation_checks`) and its reachability
 battery (:mod:`nof1_causal_lab.models.ssm.reachability`). Those modules are
 deliberately free of any plotting or notebook dependency, so the notebook-facing
-presentation lives here: a markdown report table per admission attempt plus one
-evidence figure per failed check family, reading the ``CheckResult.evidence``
-dicts the battery attaches.
-
-Severity modes and consequence texts are imported from the production tables —
-this module renders them, it does not redefine them.
+presentation lives here: a table of saved scientific findings and an evidence
+figure per failed check family. Figures consume the current reducer evidence;
+there are no acceptance modes or authoring decisions in this renderer.
 """
 
 from __future__ import annotations
@@ -18,14 +15,11 @@ import marimo as mo
 import matplotlib.pyplot as plt
 import numpy as np
 
-from nof1_causal_lab.models.ssm.reachability import CHECK_CONSEQUENCES, CHECK_MODES
-
 # ---------------------------------------------------------------- evidence figures
 
 
 def _viz_confinement(ev):
-    x, growth, dt = ev["x"], ev["growth"], ev["dt"]
-    t = np.arange(x.shape[1]) * dt
+    x, growth, t = ev["x"], ev["growth"], ev["times"]
     fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(10.0, 3.0))
     for row in x[:25]:
         ax0.plot(t, row, color="#c5c5c5", lw=0.6)
@@ -40,7 +34,7 @@ def _viz_confinement(ev):
     ax0.set_xlabel("day")
     finite_g = growth[np.isfinite(growth)]
     ax1.hist(np.clip(finite_g, 0, 20), bins=40, color="#3b6ea5")
-    ax1.axvline(5.0, color="#c0504d", ls="--", label="growth gate ×5")
+    ax1.axvline(ev["growth_ratio"], color="#c0504d", ls="--", label="growth criterion")
     ax1.set_title("late/early amplitude ratio per draw", fontsize=9)
     ax1.legend(frameon=False, fontsize=8)
     for ax in (ax0, ax1):
@@ -51,12 +45,12 @@ def _viz_confinement(ev):
 
 def _viz_scale(ev):
     fig, ax = plt.subplots(figsize=(8.0, 2.6))
-    ax.hist(ev["sds"], bins=40, color="#3b6ea5")
+    ax.hist(ev["marginal_scales"], bins=40, color="#3b6ea5")
     ax.axvline(ev["lo"], color="#c0504d", ls="--", label="band")
     ax.axvline(ev["hi"], color="#c0504d", ls="--")
     ax.axvline(ev["anchor"], color="#4a9d5b", lw=2, label="anchor")
-    ax.set_title("per-draw stationary sd vs the scale-anchor band", fontsize=9)
-    ax.set_xlabel("stationary sd")
+    ax.set_title("Across-draw marginal scale vs the scale-anchor band", fontsize=9)
+    ax.set_xlabel("Marginal scale at each late-window time")
     ax.legend(frameon=False, fontsize=8)
     ax.spines[["top", "right"]].set_visible(False)
     fig.tight_layout()
@@ -65,15 +59,23 @@ def _viz_scale(ev):
 
 def _viz_resolvability(ev):
     fig, ax = plt.subplots(figsize=(8.5, 2.8))
+    if "observation_times" in ev:
+        ax.scatter(ev["observation_times"], np.zeros_like(ev["observation_times"]))
+        ax.set_title("Too few distinct times for a temporal contrast")
+        return fig
     tau = ev["tau"]
     hi_x = float(np.percentile(tau, 99))
-    ax.hist(np.clip(tau, 0, hi_x), bins=50, color="#3b6ea5", label="prior τ = 1/decay")
-    ax.axvspan(
-        ev["lo"], min(ev["hi"], hi_x), color="#4a9d5b", alpha=0.12, label="resolvable window"
-    )
-    ax.axvline(ev["lo"], color="#c0504d", ls="--", label="cadence/3 floor")
-    ax.axvline(ev["hi"], color="#7d6bb0", ls=":", label="span/4 ceiling")
-    ax.axvline(ev["cadence"], color="#333333", ls="-", lw=0.8, label="observation cadence")
+    ax.hist(np.clip(tau, 0, hi_x), bins=50, color="#3b6ea5", label="sampled τ = 1/decay")
+    # Half the actual gaps must be no greater than 3τ; retain their discrete order statistic.
+    gaps = np.sort(ev["gaps"])
+    floor = float(gaps[int(np.ceil(len(gaps) / 2)) - 1]) / 3.0
+    ceiling = ev["span"] / 4.0
+    if floor < ceiling:
+        ax.axvspan(
+            floor, min(ceiling, hi_x), color="#4a9d5b", alpha=0.12, label="resolvable window"
+        )
+    ax.axvline(floor, color="#c0504d", ls="--", label="actual-gap floor")
+    ax.axvline(ceiling, color="#7d6bb0", ls=":", label="span/4 ceiling")
     ax.set_xlabel("self-relaxation τ (days)")
     ax.set_title("prior timescale vs the design's resolvable window", fontsize=9)
     ax.legend(frameon=False, fontsize=7)
@@ -103,12 +105,10 @@ def _viz_edge(ev):
 
 def _viz_saturation(ev):
     fig, ax = plt.subplots(figsize=(8.5, 2.8))
-    parent = np.asarray(ev["parent"]).ravel()
-    ax.hist(parent, bins=50, density=True, color="#c5c5c5", label="parent prior mass")
-    ax.hist(ev["ec50"], bins=40, density=True, color="#3b6ea5", alpha=0.6, label="EC50 prior")
-    ax.axvline(ev["p10"], color="#c0504d", ls="--", label="parent 10–90% range")
-    ax.axvline(ev["p90"], color="#c0504d", ls="--")
-    ax.set_title("Hill EC50 prior vs the parent's realized range", fontsize=9)
+    ax.hist(ev["bend_mass"], bins=np.linspace(0, 1, 26).tolist(), color="#3b6ea5")
+    ax.axvline(0.1, color="#c0504d", ls="--", label="minimum schedule share on bend")
+    ax.set_xlabel("Fraction of each draw's schedule exercising the Hill bend")
+    ax.set_title("Draw-paired Hill activation", fontsize=9)
     ax.legend(frameon=False, fontsize=8)
     ax.spines[["top", "right"]].set_visible(False)
     fig.tight_layout()
@@ -128,6 +128,12 @@ def _viz_coverage(ev):
 
 def _viz_transmission(ev):
     fig, ax = plt.subplots(figsize=(8.5, 2.8))
+    if "undefined_moment_fraction" in ev:
+        ax.bar(
+            ["undefined conditional variance"], [ev["undefined_moment_fraction"]], color="#c0504d"
+        )
+        ax.set_ylim(0, 1)
+        return fig
     ax.hist(
         ev["signal_fraction"],
         bins=np.linspace(0.0, 1.0, 51).tolist(),
@@ -174,48 +180,23 @@ _PATTERN_HINTS = (
 
 
 def render_report(title, report):
-    """Render one :class:`ConstructAdmissionReport` as a marimo table + evidence figures."""
-    results = report.results
+    """Display measurements from the shared full-model batch."""
     rows = "\n".join(
-        f"| {r.check} | {CHECK_MODES[r.check]} | {r.target} | {r.value} | {r.band} | "
-        f"{'✅' if r.passed else '❌'} |"
-        for r in results
+        f"| {result.check} | {result.target} | {result.value} | {result.band} | "
+        f"{'not evaluated' if result.passed is None else 'passed' if result.passed else 'failed'} |"
+        for result in report.results
     )
-    failed = [r for r in results if not r.passed]
-    fb = []
-    for r in failed:
-        mode = CHECK_MODES[r.check]
-        fb.append(f"- **{r.check}** ({mode}) — {r.note}")
-        fb.extend(f"    - {line}" for line in r.diagnosis)
-        if mode == "soft":
-            fb.append(
-                "    - *accepting means:* " + CHECK_CONSEQUENCES[r.check].format(target=r.target)
-            )
-    failed_ids = {r.check for r in failed}
-    fb.extend(f"- **differential** — {txt}" for pat, txt in _PATTERN_HINTS if pat <= failed_ids)
-    if failed:
-        fb.append(
-            "- *diagnostics are measurements, not recommendations: the revision "
-            "decision belongs to the proposer, and any revised contribution is re-verified "
-            "by the exact checks*"
-        )
-    notes = "\n\n**Feedback to the proposer:**\n" + "\n".join(fb) if failed else ""
-    ann = (
-        "\n\n**Annotations attached to the build state:**\n"
-        + "\n".join(f"- {a}" for a in report.annotations)
-        if report.annotations
-        else ""
-    )
+    findings = [result for result in report.results if result.passed is not True]
+    notes = "\n".join(f"- **{result.check}** — {result.note}" for result in findings)
     md = mo.md(
-        f"### {title}\n\n"
-        "| check | mode | target | prior-predictive value | band | verdict |\n"
-        "|---|---|---|---|---|---|\n" + rows + f"\n\n**Outcome: {report.outcome}**" + notes + ann
+        f"### {title}\n\n| check | target | predictive value | band | finding |\n"
+        "|---|---|---|---|---|\n" + rows + "\n\n" + notes
     )
-    figs = []
+    figures = []
     seen = set()
-    for r in failed:
-        fn = CHECK_VIZ.get(r.check)
-        if fn is not None and id(fn) not in seen and r.evidence is not None:
-            figs.append(mo.as_html(fn(r.evidence)))
+    for result in findings:
+        fn = CHECK_VIZ.get(result.check)
+        if fn is not None and id(fn) not in seen and result.evidence is not None:
+            figures.append(mo.as_html(fn(result.evidence)))
             seen.add(id(fn))
-    return mo.vstack([md, *figs])
+    return mo.vstack([md, *figures])

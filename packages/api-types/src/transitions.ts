@@ -8,7 +8,7 @@ export const ARTIFACT_VIEW_IDS = [
   "validation_report",
   "model_diagnostics",
   "inference_report",
-] as const satisfies readonly (keyof import("./generated/models").ArtifactViews)[];
+] as const satisfies readonly (keyof import("./index").ArtifactViewDataMap)[];
 export type ArtifactViewId = (typeof ARTIFACT_VIEW_IDS)[number];
 export type TransitionId = import("./generated/models").OperationId;
 export type PipelineSectionId = TransitionId | "validation_report";
@@ -84,7 +84,20 @@ export const TRANSITIONS: TransitionMeta[] = [
     description: "Fits the Bayesian model and runs convergence and sensitivity diagnostics.",
     interactive: false,
   },
-  { id: "simulate", label: "Simulation", loadingHint: "Generating nonlinear trajectories…", description: "Simulate selected model uncertainty and measure the resulting draws.", interactive: false },
+  {
+    id: "simulate",
+    label: "Simulation",
+    loadingHint: "Generating nonlinear trajectories…",
+    description: "Simulate selected model uncertainty and measure the resulting draws.",
+    interactive: false,
+  },
+  {
+    id: "simulated_measurements",
+    label: "Simulated Data",
+    loadingHint: "Preparing a simulation replicate…",
+    description: "Prepare one recorded simulation replicate as fitting observations.",
+    interactive: false,
+  },
 ];
 
 export const TRANSITION_META: Record<PipelineSectionId, TransitionMeta> = Object.fromEntries(

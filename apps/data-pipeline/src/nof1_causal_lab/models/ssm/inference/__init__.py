@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     import jax.numpy as jnp
 
     from nof1_causal_lab.models.ssm.model import SSMModel
+    from nof1_causal_lab.models.ssm.predictive.types import PredictiveDraws
     from nof1_causal_lab.sampler_config import MarginalParticleGibbsOptions
 
 # Sentinel for "use AutoReparam with method-appropriate centering".
@@ -90,7 +91,7 @@ def prior_predictive(
     times: jnp.ndarray,
     num_samples: int = 100,
     seed: int = 0,
-) -> dict[str, jnp.ndarray]:
+) -> PredictiveDraws:
     """Sample from the prior predictive distribution.
 
     Args:
@@ -100,7 +101,7 @@ def prior_predictive(
         seed: Random seed
 
     Returns:
-        Dict of prior predictive samples
+        Aligned parameter, likelihood and trajectory draws
     """
     from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
         sample_prior_predictive_from_runtime,

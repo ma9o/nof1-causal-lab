@@ -19,6 +19,7 @@ def imports():
     import case_study_support as cs
     import jax.numpy as jnp
     import numpy as np
+    from predictive_support import ConstructEditSpec, evaluate_case_study
 
     from nof1_causal_lab.artifacts.likelihood import (
         DistributionFamily,
@@ -27,24 +28,16 @@ def imports():
     )
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.models.ssm.simulation_checks import DesignInfo
-    from nof1_causal_lab.recipes.construct_authoring import (
-        AdmissionState,
-        ConstructContribution,
-        admit_construct,
-        build_construct_order,
-    )
 
     return (
-        AdmissionState,
-        ConstructContribution,
+        ConstructEditSpec,
+        evaluate_case_study,
         DesignInfo,
         DistributionFamily,
         ModelSpec,
         LikelihoodSpec,
         LinkFunction,
         Path,
-        admit_construct,
-        build_construct_order,
         cs,
         jnp,
         math,
@@ -57,11 +50,11 @@ def intro(mo):
     mo.md(r"""
     # A second blind case study — a lake ecosystem, through the production battery
 
-    This notebook re-runs the gradual construct-admission workflow on a fresh **blind** problem
+    This notebook re-runs the whole-model predictive workflow on a fresh **blind** problem
     in a new domain, exercising two features the D = 10 study did not: **saturating (Hill)
     edges** and a **timescale gradient that spans hours to weeks**. Like the companion notebook
-    it drives the *production* engine directly — `nof1_causal_lab.models.ssm.construct_admission`
-    and `nof1_causal_lab.models.ssm.reachability` — so every verdict is the real Stage-4
+    it drives the *production* engine directly — `nof1_causal_lab.models.ssm.simulation_checks`
+    and `nof1_causal_lab.models.ssm.reachability` — so every verdict is the shared predictive
     battery's.
 
     **What the battery certifies (and what it does not).** The pre-fit battery is scoped to
@@ -168,7 +161,6 @@ def scientific_model(EDGES, INDICATORS, ORDER, ModelSpec):
                         "id": f"indicator:{_ind}",
                         "name": _ind,
                         "construct_polarity": "positive",
-                        "how_to_measure": _ind,
                         "measurement_dtype": _dtype,
                         "aggregation": "last",
                     }
@@ -277,7 +269,7 @@ def strategy_md(mo):
 @app.cell
 def elicitation(
     SCIENTIFIC_MODEL,
-    ConstructContribution,
+    ConstructEditSpec,
     DistributionFamily,
     HILL,
     INDICATORS,
@@ -288,15 +280,15 @@ def elicitation(
     math,
     np,
 ):
-    from prior_specification_support import model_with_prior_payloads as _model_with_prior_payloads
+    from notebooks.model_mechanisms import declare_dynamics as _declare_dynamics
+    from notebooks.parameter_planning import (
+        complete_component_slots as _complete_slots,
+    )
+    from predictive_support import model_with_prior_payloads as _model_with_prior_payloads
 
     from nof1_causal_lab.artifacts.construct import replace_constructs as _replace_constructs
     from nof1_causal_lab.models.likelihoods import observation_law as _observation_law
-    from nof1_causal_lab.models.model_mechanisms import declare_dynamics as _declare_dynamics
     from nof1_causal_lab.models.model_parameters import referenced_parameter_ids as _parameter_ids
-    from nof1_causal_lab.models.parameter_planning import (
-        complete_component_slots as _complete_slots,
-    )
 
     _hill_choices = set(HILL)
 
@@ -427,7 +419,7 @@ def elicitation(
         _entity = _proposal.get_construct(_entity.id)
         _edges = tuple(edge for edge in _proposal.edges if edge.effect.id == _entity.id)
         _referenced = _parameter_ids(_entity, *_edges)
-        return ConstructContribution(
+        return ConstructEditSpec(
             construct=_entity,
             edges=_edges,
             parameters=tuple(_p for _p in _proposal.parameters if _p.id in _referenced),
@@ -445,78 +437,22 @@ def elicitation(
 
 @app.cell(hide_code=True)
 def build_md(mo):
-    mo.md(r"""
-    ## 3. The staged build, one construct at a time
+    mo.md("""
+    ## Full-model predictive checks
 
-    Topological order along the causal arrows. The latent confounder `CatchmentLoading` and the
-    physical pace-setter `WaterTemperature` are the roots; the two saturating edges bring their
-    Hill terms (and the C4c check) at the child's admission. Where a construct's timescale sits
-    genuinely outside the design's resolvable window (turbidity settling in hours), the
-    physically-honest fast prior is kept and the C3 consequence **accepted** — recorded on the
-    build state, to be confirmed post-fit.
+    All authored definitions are assembled before one exact batch.
+    Failed findings remain visible for the next edit.
     """)
     return
 
 
 @app.cell
-def run_build(
-    AdmissionState,
-    MODEL,
-    admit_construct,
-    build_construct_order,
-    contribution,
-    data,
-    design,
-):
-    # Single deterministic pass: accept every soft consequence up front, curated rationale
-    # where we have a physical one and generic otherwise. An accepted soft check only leaves an
-    # annotation when it actually fails, so passing checks still render green (see the board).
-    _SOFT = [
-        "C1b confinement",
-        "C2 latent scale",
-        "C3 resolvability",
-        "C4b edge overwhelm",
-        "C4c saturation",
-        "C5b width",
-        "C5c transmission",
+def run_checks(MODEL, contribution, data, design, evaluate_case_study):
+    _edits = [
+        contribution(construct.name, data) for construct in MODEL.constructs if construct.indicators
     ]
-    _RATIONALE = {
-        ("Turbidity", "C3 resolvability"): "suspended-sediment settling is genuinely sub-daily "
-        "(hours); the ~half-daily station cadence cannot resolve it — keeping the "
-        "physically-honest fast prior and accepting turbidity's self-timescale is design-limited "
-        "(confirm post-fit).",
-        ("Zooplankton", "C4b edge overwhelm"): "zooplankton is a consumer: its abundance is set "
-        "largely by food supply (phytoplankton) and temperature, so the edges into it dominate a "
-        "weak self-dynamic. Because τ (8 d) is slow, a sustained driver builds a level offset "
-        "that the detrended child-scale does not see, so the ratio runs past 1 — but this "
-        "edge-dominance IS the intended ecology and is exactly the causal structure we want to "
-        "estimate. Accepting it records that zooplankton's own relaxation will be weakly "
-        "identified from its path (the fit leans on the edges), as expected for a driven "
-        "consumer.",
-        ("Zooplankton", "C1b confinement"): "under sustained food/temperature forcing the slow "
-        "weekly grazer drifts far in a minority (~9%) of prior draws while the median path stays "
-        "confined; accepted as a wide-but-reachable prior for a strongly-driven terminal node, "
-        "with confinement re-checked on the posterior.",
-    }
-
-    def _accept_for(c):
-        return {
-            (chk, c): _RATIONALE.get((c, chk), "accepted for this single-pass walkthrough")
-            for chk in _SOFT
-        }
-
-    _state = AdmissionState(model=MODEL)
-    reports = {}
-    for _c in build_construct_order(MODEL):
-        _state, _report = admit_construct(
-            _state,
-            contribution(_c, data),
-            design,
-            accepted=_accept_for(_c),
-        )
-        reports[_c] = _report
-    final_state = _state
-    return final_state, reports
+    checked_model, reports = evaluate_case_study(MODEL, _edits, design)
+    return checked_model, reports
 
 
 @app.cell(hide_code=True)
@@ -526,7 +462,7 @@ def r_loading(mo):
 
     The structural compiler marginalizes this explicit scientific-DAG root instead of admitting
     an unanchored latent state. Its shared-child dependence is represented by the compiled
-    innovation structure, so it has no standalone admission report.
+    innovation structure, so it has no standalone retained-state report.
     """)
     return
 
@@ -548,7 +484,8 @@ def r_nitrate(cs, reports):
 @app.cell
 def r_turbidity(cs, reports):
     cs.render_report(
-        "4 · Turbidity — sub-cadence settling (C3 accepted as a design limit)", reports["Turbidity"]
+        "4 · Turbidity — sub-cadence settling (C3 interpreted as a design limit)",
+        reports["Turbidity"],
     )
     return
 
@@ -597,7 +534,7 @@ def summary_md(mo):
     mo.md(r"""
     ## 4. Summary — the whole build
 
-    Read straight off the live `ConstructAdmissionReport` objects; the C3 column shows the timescale
+    Read straight off the live `ConstructPredictiveReport` objects; the C3 column shows the timescale
     gradient the design can and cannot resolve.
     """)
     return
@@ -613,33 +550,22 @@ def summary_table(ORDER, mo, reports):
         _r = reports[_nm]
         _c3 = next((c for c in _r.results if c.check == "C3 resolvability"), None)
         _c3txt = _c3.value.split(";")[0] if _c3 is not None else "—"
-        _c3mark = "—" if _c3 is None else ("✅" if _c3.passed else "⚠️ accept")
-        _out = _r.outcome.split("—")[0].strip()
+        _c3mark = "—" if _c3 is None else ("✅" if _c3.passed else "⚠️ finding")
+        _out = "findings" if any(item.passed is False for item in _r.results) else "passed"
         _rows.append(f"| {_nm} | {_c3txt} | {_c3mark} | {_out} |")
     mo.md("| construct | prior τ (C3) | C3 | outcome |\n|---|---|---|---|\n" + "\n".join(_rows))
     return
 
 
 @app.cell(hide_code=True)
-def closing(final_state, mo):
+def closing(checked_model, reports, mo):
+    _failed = sum(
+        result.passed is False for report in reports.values() for result in report.results
+    )
     mo.md(
-        "## 5. What this blind run demonstrates\n\n"
-        "- **Reachability held across a heterogeneous suite** — continuous, bounded Beta/logit, "
-        "and Poisson-count indicators; a latent confounder; linear *and* saturating (Hill) edges "
-        "— all through the production compiler and exact prior predictive.\n"
-        "- **C3-resolvability did its one honest job**: it read the timescale gradient off the "
-        "schedule alone, flagging the construct the design genuinely cannot resolve (turbidity's "
-        "sub-daily settling) and staying silent on the resolvable ones — no persistence estimate, "
-        "no exposure to the self-vs-inherited confound.\n"
-        "- **C4c checked the saturating edges structurally** — whether each Hill bend is actually "
-        "exercised over its parent's realized range, not a dead linear arm or a flat saturated "
-        "response.\n"
-        "- **The pre-fit gate certifies only reachability.** Whether any construct's timescale, "
-        "edge, or trajectory is *data-informed* is a post-fit contraction question, deliberately "
-        "not decided here.\n\n"
-        f"Final build state: **{len(final_state.names)} constructs admitted**, "
-        f"**{len(final_state.annotations)} accepted consequence(s)** carried forward for post-fit "
-        "follow-up."
+        f"The whole authored model retains {len(checked_model.constructs)} constructs. "
+        f"Its shared exact predictive batch produced {_failed} failed checks. "
+        "Findings guide the next edit; they do not admit constructs or certify causal claims."
     )
     return
 

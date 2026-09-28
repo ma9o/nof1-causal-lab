@@ -21,10 +21,16 @@ export { ARTIFACT_IDS, ARTIFACT_VIEW_IDS, TRANSITION_META, TRANSITIONS } from ".
 
 export type * from "./generated/models";
 
+type Snapshot = import("./generated/models").ModelSnapshot;
+type Value<T> = NonNullable<T> extends { value: infer V } ? V : never;
 export type ArtifactViewDataMap = {
-  [K in keyof import("./generated/models").ArtifactViews]: NonNullable<
-    import("./generated/models").ArtifactViews[K]
-  >;
+  raw_data: Value<Snapshot["data"]["raw_data"]>;
+  model: Value<Snapshot["model"]>;
+  measurements: Value<Snapshot["data"]["measurements"]>;
+  validation_report: Value<Snapshot["findings"]["validation_report"]>;
+  prior_predictive: Value<Snapshot["findings"]["prior_predictive"]>;
+  model_diagnostics: NonNullable<Snapshot["findings"]["diagnostics"]>;
+  inference_report: Value<Snapshot["findings"]["fit"]>["report"];
 };
 export type ArtifactViewData<K extends ArtifactViewId = ArtifactViewId> = ArtifactViewDataMap[K];
 
@@ -50,4 +56,5 @@ export type ValidationSeverity = "error" | "warning" | "info";
 export type CellStatus = "ok" | "warning" | "error" | "not_evaluated";
 export type CausalGranularity = "hourly" | "daily" | "weekly" | "monthly" | "yearly";
 
+export type { ScientificActionRequest } from "./client";
 export { createModelClient } from "./client";

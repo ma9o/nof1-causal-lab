@@ -8,8 +8,6 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
-from nof1_causal_lab.machine.moves import RunOperation
-from nof1_causal_lab.machine.store import EpisodeJournal, TransitionRecord
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
 
@@ -25,36 +23,14 @@ class SweepResult(BaseModel):
     removed_events: int = 0
     removed_cache_files: int = 0
     removed_cache_bytes: int = 0
-    protected_runs: list[str]
 
 
-def _latest_resume_run(records: list[TransitionRecord]) -> str | None:
-    """Resume root selected by the latest model-spec transition attempt."""
-    for record in reversed(records):
-        if not (
-            isinstance(record.move, RunOperation)
-            and record.move.operation_id == "statistical_model_spec"
-        ):
-            continue
-        if record.status == "raised" and record.resume is not None:
-            return record.resume.run_id
-        return None
-    return None
-
-
-def collect_completed_runs(workspace_id: str) -> tuple[int, list[str]]:
-    """Delete run scratch while the episode move lock is held or the episode is offline."""
-    resume_run = _latest_resume_run(EpisodeJournal(workspace_id).read_all())
-    protected = {resume_run} if resume_run is not None else set()
-    root = data_module.scratch_runs_dir(workspace_id)
-    removed = 0
-    for entry in storage.listdir(root):
-        run_id = entry.rstrip("/").rsplit("/", 1)[-1]
-        if run_id in protected:
-            continue
+def collect_completed_runs(workspace_id: str) -> int:
+    """Delete completed run scratch while holding the action lock or working offline."""
+    entries = storage.listdir(data_module.scratch_runs_dir(workspace_id))
+    for entry in entries:
         storage.rm_tree(entry)
-        removed += 1
-    return removed, sorted(protected)
+    return len(entries)
 
 
 def _sweep_events(workspace_id: str, *, cutoff_seconds: float) -> int:
@@ -123,9 +99,9 @@ def sweep_workspace(
     """Expire telemetry/caches and optionally collect runs while the episode is offline."""
     now = time.time() if now_seconds is None else now_seconds
     if collect_runs:
-        removed_runs, protected_runs = collect_completed_runs(workspace_id)
+        removed_runs = collect_completed_runs(workspace_id)
     else:
-        removed_runs, protected_runs = 0, []
+        removed_runs = 0
     removed_events = _sweep_events(
         workspace_id,
         cutoff_seconds=now - event_retention_seconds,
@@ -140,7 +116,6 @@ def sweep_workspace(
         removed_events=removed_events,
         removed_cache_files=removed_cache_files,
         removed_cache_bytes=removed_cache_bytes,
-        protected_runs=protected_runs,
     )
 
 

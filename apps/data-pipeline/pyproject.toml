@@ -38,6 +38,7 @@ dependencies = [
     "uvicorn>=0.31.1",
     "y0 @ git+https://github.com/y0-causal-inference/y0.git",
     "temporalio>=1.30.0",
+    "pygit2>=1.19,<2",
 ]
 
 [project.scripts]
@@ -250,13 +251,9 @@ replace-imports-with-any = [
 ]
 
 [tool.pytest.ini_options]
-addopts = "-n auto -m 'not (inference or warmup or simulation or predictive or recovery or admission or workflow)' --strict-markers --tb=short -ra --instafail --timeout=300 --durations=10 --jaxtyping-packages=nof1_causal_lab.models.ssm.covariance_utils,nof1_causal_lab.models.ssm.dynamics.steady_state,nof1_causal_lab.models.ssm.dynamics.vector_field,nof1_causal_lab.models.ssm.execution.emissions,nof1_causal_lab.models.ssm.execution.observation_kernel_helpers,nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math,nof1_causal_lab.models.ssm.inference.targets.transitions,beartype.beartype"
+addopts = "-n auto -m 'not (inference or workflow)' --strict-markers --tb=short -ra --instafail --timeout=300 --durations=10 --jaxtyping-packages=nof1_causal_lab.models.ssm.covariance_utils,nof1_causal_lab.models.ssm.dynamics.steady_state,nof1_causal_lab.models.ssm.dynamics.vector_field,nof1_causal_lab.models.ssm.execution.emissions,nof1_causal_lab.models.ssm.execution.observation_kernel_helpers,nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math,nof1_causal_lab.models.ssm.inference.targets.transitions,beartype.beartype"
 markers = [
-    "inference: particle runtimes, exact likelihood targets, and posterior sampling",
-    "warmup: Laplace initialization, local linearization, and numerical solver/gradient references",
-    "simulation: deterministic/stochastic trajectories, steady states, and interventions",
-    "predictive: prior/posterior predictive generation and observation sampling",
-    "recovery: fitted parameter accuracy and uncertainty against known generating values",
-    "admission: complete construct and edge admission batteries",
-    "workflow: complete Temporal episode journeys",
+    "contract: isolated routing, validation, schema, identity, and projection without scientific numerical execution",
+    "inference(concern): scientific numerical execution; concern must be sampling, warmup, simulation, predictive, or recovery",
+    "workflow: Temporal workflows and worker orchestration",
 ]

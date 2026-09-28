@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import NotRequired, TypedDict
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
@@ -14,7 +13,6 @@ with workflow.unsafe.imports_passed_through():
         HARNESS_CLAUDE_TASK_QUEUE,
         HARNESS_CODEX_TASK_QUEUE,
         HARNESS_PI_TASK_QUEUE,
-        MODEL_SPEC_SIMULATION_TASK_QUEUE,
         OPENROUTER_TASK_QUEUE,
     )
     from nof1_causal_lab.machine.temporal.messages import (
@@ -35,14 +33,12 @@ with workflow.unsafe.imports_passed_through():
         LLMSubroutineTraceResult,
         LLMToolExecutionInput,
         LLMToolExecutionResult,
-        LLMToolSpec,
         OpenRouterCallInput,
         OpenRouterCallResult,
         OpenRouterLLMConfig,
     )
 
 _LOCAL_TIMEOUT = timedelta(minutes=5)
-_SIMULATION_TIMEOUT = timedelta(hours=1)
 _TRACE_TIMEOUT = timedelta(minutes=5)
 _LOCAL_RETRY = RetryPolicy(
     initial_interval=timedelta(seconds=10),
@@ -61,13 +57,6 @@ _HARNESS_TURN_RETRY = RetryPolicy(
     maximum_attempts=2,
 )
 _HARNESS_HEARTBEAT_TIMEOUT = timedelta(minutes=2)
-
-
-class ActivityRoutingOptions(TypedDict):
-    """Temporal activity placement and execution deadline."""
-
-    start_to_close_timeout: timedelta
-    task_queue: NotRequired[str]
 
 
 def _openrouter_config(llm: LLMBackendConfig) -> OpenRouterLLMConfig:
@@ -89,21 +78,6 @@ def _harness_task_queue(llm: LLMBackendConfig) -> str:
     if llm.harness == "pi":
         return HARNESS_PI_TASK_QUEUE
     raise ValueError(f"harness task queue requested for backend {llm.harness!r}")
-
-
-def _executes_model_spec_simulation(tool: LLMToolSpec) -> bool:
-    return tool.executor == "model_spec_submit_construct"
-
-
-def _openrouter_turn_executes_model_spec_simulation(
-    call: OpenRouterCallResult,
-    tools: list[LLMToolSpec],
-) -> bool:
-    tool_by_name = {tool.name: tool for tool in tools}
-    return any(
-        (tool := tool_by_name.get(item.name)) is not None and _executes_model_spec_simulation(tool)
-        for item in call.tool_calls
-    )
 
 
 def _provider_call_timeout(llm: LLMBackendConfig) -> timedelta:
@@ -195,28 +169,20 @@ async def _execute_harness_turn(
         await workflow.wait_condition(lambda: harness_handle.done() or bool(pending_tool_requests))
         while pending_tool_requests:
             request = pending_tool_requests.pop(0)
-            activity_options: ActivityRoutingOptions = (
-                {
-                    "task_queue": MODEL_SPEC_SIMULATION_TASK_QUEUE,
-                    "start_to_close_timeout": _SIMULATION_TIMEOUT,
-                }
-                if _executes_model_spec_simulation(request.tool)
-                else {"start_to_close_timeout": _LOCAL_TIMEOUT}
-            )
             await workflow.execute_activity(
                 "execute_harness_tool_request_activity",
                 request,
                 result_type=HarnessToolExecutionResult,
                 retry_policy=_LOCAL_RETRY,
                 summary=f"Execute harness tool {request.tool_name}",
-                **activity_options,
+                start_to_close_timeout=_LOCAL_TIMEOUT,
             )
 
     return await harness_handle
 
 
 def _activity_error_text(exc: ActivityError) -> str:
-    cause = getattr(exc, "cause", None)
+    cause = exc.cause
     if cause is not None:
         return str(cause)
     return str(exc)
@@ -338,14 +304,6 @@ class LLMSubroutineWorkflow:
                     if not call.tool_calls:
                         break
 
-                    activity_options: ActivityRoutingOptions = (
-                        {
-                            "task_queue": MODEL_SPEC_SIMULATION_TASK_QUEUE,
-                            "start_to_close_timeout": _SIMULATION_TIMEOUT,
-                        }
-                        if _openrouter_turn_executes_model_spec_simulation(call, start.tools)
-                        else {"start_to_close_timeout": _LOCAL_TIMEOUT}
-                    )
                     tool_execution = await workflow.execute_activity(
                         "execute_llm_tool_calls_activity",
                         LLMToolExecutionInput(
@@ -363,7 +321,7 @@ class LLMSubroutineWorkflow:
                         result_type=LLMToolExecutionResult,
                         retry_policy=_LOCAL_RETRY,
                         summary=f"Execute LLM tools {input.subroutine_id} {turn_label}",
-                        **activity_options,
+                        start_to_close_timeout=_LOCAL_TIMEOUT,
                     )
                     conversation_ref = tool_execution.conversation_ref
                     if tool_execution.terminal_success:

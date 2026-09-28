@@ -569,7 +569,9 @@ def compile_priors(
     model.require_execution_structure()
     edge_lag_days = numeric.edge_lag_days(model) if edge_lag_days is None else edge_lag_days
     parameters = {
-        parameter.id: parameter for parameter in model.parameters if parameter.value is None
+        parameter.id: parameter
+        for parameter in model.execution_parameters
+        if parameter.value is None
     }
     missing = [parameter.id for parameter in parameters.values() if parameter.distribution is None]
     if missing:

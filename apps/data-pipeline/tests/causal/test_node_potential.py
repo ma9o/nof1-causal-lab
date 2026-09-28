@@ -19,6 +19,7 @@ from tests.dynamics_fixtures import linear_term, potential_term
 from tests.model_fixtures import model_fixture
 
 
+@pytest.mark.inference(concern="simulation")
 @pytest.mark.parametrize("quartic", [0.0, 0.5])
 def test_native_potential_matches_restoring_force_and_its_derivatives(quartic):
     compiled = compile_dynamics(
@@ -52,6 +53,7 @@ def test_native_potential_matches_restoring_force_and_its_derivatives(quartic):
     assert infer_linearisation(compiled.vector_field) == "trajectory"
 
 
+@pytest.mark.inference(concern="simulation")
 def test_clamp_removes_potential_input_forcing_and_process_noise():
     compiled = compile_dynamics(
         DynamicsSpec(
@@ -83,6 +85,7 @@ def test_clamp_removes_potential_input_forcing_and_process_noise():
     )
 
 
+@pytest.mark.contract
 def test_potential_coefficients_keep_their_scientific_meanings():
     compiled = compile_dynamics(DynamicsSpec(1, (potential_term(0, quartic=None),)))
     assert {site.site_kind for site in compiled.site_registry} == {
@@ -93,12 +96,14 @@ def test_potential_coefficients_keep_their_scientific_meanings():
     assert all(site.positions == (0,) for site in compiled.site_registry)
 
 
+@pytest.mark.contract
 @pytest.mark.parametrize("kwargs", [{"stiffness": 0}, {"quartic": -1}])
 def test_invalid_potential_coefficients_are_rejected(kwargs):
     with pytest.raises(ValueError, match=r"(positive|non-negative)"):
         potential_term(0, **kwargs)
 
 
+@pytest.mark.contract
 def test_directed_edges_cannot_be_reinterpreted_as_potentials():
     model = model_fixture(
         n_latent=2,

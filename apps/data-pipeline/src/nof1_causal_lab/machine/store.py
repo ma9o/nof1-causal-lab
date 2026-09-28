@@ -1,56 +1,55 @@
-"""Append-only versioned artifact store and transition log.
+"""Immutable artifact payloads and access to commit-local execution records.
 
-Ledger layout under ``data/{workspace_id}/``::
-
-    store/{artifact_id}/v{N}/          one immutable version
-        meta.json                      ArtifactVersionInfo dump
-        <payload files>                artifact-specific (json/parquet/pkl)
-    episode/journal/{seq:06d}.json     one transition record per file
-    episode/traces/{seq:06d}/          LLM traces promoted at commit time
-        {subroutine_id}.json
-
-Versions and transition entries are never overwritten. Current artifact state
-is derived by replaying the produced and retracted versions of applied
-transitions, so there is no written latest-state manifest. One JSON file per
-transition entry because the storage backends (local fs, R2) have no atomic
-append; sequence numbers are assigned by the workflow, which serializes moves
-per episode.
-
-Artifact provenance and trace references are closed within the ledger. LLM
-traces are copied out of the run's scratch dir into ``episode/traces/`` by the
-journal activity before the record file is written. Records carry only the
-subroutine IDs discovered in that run — the trace locations are derived.
-A raised transition may carry one typed ``resume`` pointer into scratch. It is
-control state, not artifact provenance, and the collector keeps its run
-reachable until a later transition supersedes it.
+Git owns study state and history in ``episode/history.git``. Artifact trees
+contain JSON payloads and input references; ``store/`` contains content-addressed
+numerical arrays and external tables. Git OIDs identify exact scientific inputs.
 """
 
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import re
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
+from uuid import UUID  # noqa: TC003
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 from pydantic import BaseModel, ConfigDict, Field
 
-from nof1_causal_lab.artifacts.identity import ArtifactId  # noqa: TC001
-from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
-from nof1_causal_lab.machine.artifacts import ArtifactVersionInfo, EpisodeState, Provenance
-from nof1_causal_lab.machine.moves import Move, RetractedArtifact, apply_transition
+from nof1_causal_lab.actions.results import ActionMessage  # noqa: TC001
+from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid, OperationId, ScientificActionId
+from nof1_causal_lab.artifacts.model_checks import ModelCheckReport  # noqa: TC001
+from nof1_causal_lab.json_types import JsonObject, UncheckedJsonObject  # noqa: TC001
+from nof1_causal_lab.machine.artifacts import ArtifactRecord, EpisodeState
+from nof1_causal_lab.machine.execution import RetractedArtifact  # noqa: TC001
+from nof1_causal_lab.machine.git_objects import object_tree, open_repository, read_file, write_tree
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
-
     import polars as pl
+
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 
 def utc_now_iso() -> str:
     return datetime.now(tz=UTC).isoformat()
+
+
+def read_model(store: ArtifactStore, revision: GitOid) -> ModelSpec:
+    """Decode a pinned model, keeping its numerical arrays lazy."""
+    from functools import cache
+
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+
+    return ModelSpec.model_validate(
+        store.read_json_file("model", revision, "model.json"),
+        context={"distribution_array_loader": cache(store.read_array)},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -59,67 +58,34 @@ def utc_now_iso() -> str:
 
 
 class ArtifactStore:
-    """Versioned payload storage for one workspace."""
+    """Immutable Git trees for payloads and input references; large values live in a blob store."""
 
-    def __init__(self, workspace_id: str) -> None:
+    def __init__(self, workspace_id: str, *, repository_path: Path | None = None) -> None:
         self.workspace_id = workspace_id
-        # Attribute access keeps the storage tier explicit and lets tests
-        # replace the data-module root once for every consumer.
         self._root = data_module.store_dir(workspace_id)
-
-    # -- paths ---------------------------------------------------------------
-
-    def artifact_dir(self, artifact_id: ArtifactId) -> str:
-        return storage.join(self._root, artifact_id)
-
-    def version_dir(self, artifact_id: ArtifactId, version: int) -> str:
-        return storage.join(self.artifact_dir(artifact_id), f"v{version}")
-
-    def file_path(self, artifact_id: ArtifactId, version: int, name: str) -> str:
-        return storage.join(self.version_dir(artifact_id, version), name)
+        self.repo = open_repository(workspace_id, repository_path)
 
     def write_array(self, values) -> str:
-        """Store an immutable numerical value, shared by any model revision using it."""
         from nof1_causal_lab.utils.arrays import write_array
 
         return write_array(storage.join(self._root, "arrays"), values)
 
     def read_array(self, identity: str):
-        """Read and verify a numerical value referenced by a model revision."""
         from nof1_causal_lab.utils.arrays import read_array
 
         return read_array(storage.join(self._root, "arrays"), identity)
 
-    # -- version listing -----------------------------------------------------
-
-    def list_versions(self, artifact_id: ArtifactId) -> list[int]:
-        directory = self.artifact_dir(artifact_id)
-        if not storage.exists(directory):
-            return []
-        versions = []
-        for entry in storage.listdir(directory):
-            leaf = entry.rstrip("/").rsplit("/", 1)[-1]
-            if leaf.startswith("v") and leaf[1:].isdigit():
-                versions.append(int(leaf[1:]))
-        return sorted(versions)
-
-    def next_version(self, artifact_id: ArtifactId) -> int:
-        versions = self.list_versions(artifact_id)
-        return (versions[-1] + 1) if versions else 1
-
-    # -- write ---------------------------------------------------------------
-
-    def write_version(
+    def write_artifact(
         self,
         artifact_id: ArtifactId,
         *,
-        provenance: Provenance,
-        derived_from: dict[ArtifactId, int],
+        derived_from: dict[ArtifactId, GitOid],
         produced_by: str | None,
         json_files: UncheckedJsonObject | None = None,
         parquet_files: dict[str, pl.DataFrame | pa.Table] | None = None,
-    ) -> ArtifactVersionInfo:
-        """Persist one immutable artifact version and return its stamp."""
+        created_at: str | None = None,
+    ) -> ArtifactRecord:
+        """Write one content-addressed tree; Git assigns its immutable identity."""
         model_inputs: dict[str, str] = {}
         consumed_model_inputs: dict[str, str] = {}
         if artifact_id == "model":
@@ -137,64 +103,101 @@ class ArtifactStore:
             source = self.read_meta("model", derived_from["model"])
             consumed_model_inputs = {purpose: source.model_inputs[purpose]}
 
-        version = self.next_version(artifact_id)
-        directory = self.version_dir(artifact_id, version)
-        storage.makedirs(directory)
+        metadata = {
+            "artifact_id": artifact_id,
+            "derived_from": derived_from,
+            "produced_by": produced_by,
+            "created_at": created_at if created_at is not None else utc_now_iso(),
+            "model_inputs": model_inputs,
+            "consumed_model_inputs": consumed_model_inputs,
+        }
 
-        try:
-            for name, value in (json_files or {}).items():
-                storage.write_text(storage.join(directory, name), json.dumps(value))
-            for name, df in (parquet_files or {}).items():
-                path = storage.join(directory, name)
-                if isinstance(df, pa.Table):
-                    with storage.open_file(path, "wb") as f:
-                        pq.write_table(df, f, compression="zstd")
-                elif storage.is_remote():
-                    with storage.get_fs().open(path, "wb") as f:
-                        df.write_parquet(f)
-                else:
-                    df.write_parquet(path)
-            info = ArtifactVersionInfo(
-                artifact_id=artifact_id,
-                version=version,
-                provenance=provenance,
-                derived_from=derived_from,
-                produced_by=produced_by,
-                created_at=utc_now_iso(),
-                model_inputs=model_inputs,
-                consumed_model_inputs=consumed_model_inputs,
-            )
-            storage.write_text(storage.join(directory, "meta.json"), info.model_dump_json())
-            return info
-        except Exception:
-            storage.rm_tree(directory)
-            raise
+        files = {
+            name: json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+            for name, value in (json_files or {}).items()
+        }
+        external = {}
+        for name, frame in (parquet_files or {}).items():
+            buffer = io.BytesIO()
+            if isinstance(frame, pa.Table):
+                pq.write_table(frame, buffer, compression="zstd")
+            else:
+                frame.write_parquet(buffer)
+            payload = buffer.getvalue()
+            identity = hashlib.sha256(payload).hexdigest()
+            path = Path(self._root) / "blobs" / identity
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if not path.exists():
+                path.write_bytes(payload)
+            external[name] = identity
+        files["meta.json"] = json.dumps(metadata, sort_keys=True).encode()
+        if external:
+            files["external.json"] = json.dumps(external, sort_keys=True).encode()
+        revision = write_tree(self.repo, files)
+        self.repo.references.create(
+            f"refs/artifacts/{artifact_id}/{revision}", revision, force=True
+        )
+        return ArtifactRecord.model_validate({**metadata, "revision": str(revision)})
 
-    def delete_version(self, artifact_id: ArtifactId, version: int) -> None:
-        """Remove one artifact version directory written by a failed move."""
-        storage.rm_tree(self.version_dir(artifact_id, version))
+    def list_revisions(self, artifact_id: ArtifactId) -> list[GitOid]:
+        prefix = f"refs/artifacts/{artifact_id}/"
+        revisions = [
+            GitOid(ref.removeprefix(prefix))
+            for ref in self.repo.references
+            if ref.startswith(prefix)
+        ]
+        return sorted(revisions, key=lambda oid: (self.read_meta(artifact_id, oid).created_at, oid))
 
-    # -- read ----------------------------------------------------------------
+    def read_meta(self, artifact_id: ArtifactId, revision: str) -> ArtifactRecord:
+        metadata = json.loads(read_file(self.repo, revision, "meta.json"))
+        info = ArtifactRecord(**metadata, revision=GitOid(revision))
+        if info.artifact_id != artifact_id:
+            raise ValueError(f"Git object {revision} is {info.artifact_id}, not {artifact_id}")
+        return info
 
-    def read_meta(self, artifact_id: ArtifactId, version: int) -> ArtifactVersionInfo:
-        path = self.file_path(artifact_id, version, "meta.json")
-        return ArtifactVersionInfo.model_validate(storage.read_json(path))
+    def read_json_file(self, artifact_id: ArtifactId, revision: str, name: str) -> Any:
+        self.read_meta(artifact_id, revision)
+        return json.loads(read_file(self.repo, revision, name))
 
-    def read_json_file(self, artifact_id: ArtifactId, version: int, name: str) -> Any:
-        return storage.read_json(self.file_path(artifact_id, version, name))
+    def filenames(self, artifact_id: ArtifactId, revision: str) -> list[str]:
+        self.read_meta(artifact_id, revision)
+        tree = object_tree(self.repo, revision)
+        names = [
+            entry.name
+            for entry in tree
+            if entry.name is not None and entry.name not in {"meta.json", "external.json"}
+        ]
+        if "external.json" in tree:
+            names.extend(json.loads(read_file(self.repo, revision, "external.json")))
+        return sorted(names)
 
-    def read_parquet_file(self, artifact_id: ArtifactId, version: int, name: str) -> pl.DataFrame:
+    def file_path(self, artifact_id: ArtifactId, revision: str, name: str) -> str:
+        self.read_meta(artifact_id, revision)
+        tree = object_tree(self.repo, revision)
+        external = (
+            json.loads(read_file(self.repo, revision, "external.json"))
+            if "external.json" in tree
+            else {}
+        )
+        if name in external:
+            path = Path(self._root) / "blobs" / external[name]
+            if hashlib.sha256(path.read_bytes()).hexdigest() != external[name]:
+                raise ValueError("Stored table failed its content identity check")
+            return str(path)
+        payload = read_file(self.repo, revision, name)
+        path = Path(data_module.cache_dir(self.workspace_id)) / "git" / revision / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if not path.exists():
+            path.write_bytes(payload)
+        return str(path)
+
+    def read_parquet_file(self, artifact_id: ArtifactId, revision: str, name: str) -> pl.DataFrame:
         import polars as pl
 
-        return pl.read_parquet(
-            self.file_path(artifact_id, version, name),
-            storage_options=storage.polars_storage_options(),
-        )
+        return pl.read_parquet(self.file_path(artifact_id, revision, name))
 
-    def read_parquet_table(self, artifact_id: ArtifactId, version: int, name: str) -> pa.Table:
-        """Read an Arrow table, preserving its schema and column metadata."""
-        with storage.open_file(self.file_path(artifact_id, version, name), "rb") as file:
-            return pq.read_table(file)
+    def read_parquet_table(self, artifact_id: ArtifactId, revision: str, name: str) -> pa.Table:
+        return pq.read_table(self.file_path(artifact_id, revision, name))
 
 
 # ---------------------------------------------------------------------------
@@ -206,7 +209,7 @@ _TRACE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 
 
 class ResumeRef(BaseModel):
-    """Stage-owned checkpoint selection retained by a raised transition."""
+    """Recorded checkpoint reference in historical authoring attempts."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -221,131 +224,63 @@ type JournalStatus = Literal["applied", "rejected", "raised"]
 class TransitionRecord(BaseModel):
     """One journaled transition attempt — applied, rejected, or raised.
 
-    Rejections are recorded deliberately (a Temporal validator rejection
-    leaves no trace in event history). Current state is reconstructed by
-    replaying applied effects, not serialized into transition records.
+    Stored in its owning Git commit. Rejected and raised attempts retain logs
+    without advancing the scientific branch.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     seq: int
+    attempt_id: UUID | None = None
+    branch: str = "main"
     ts: str
-    move: Move
+    action: ScientificActionId
+    inputs: JsonObject = Field(default_factory=dict)
+    operation_id: OperationId | None = None
     status: JournalStatus
     reason: str | None = None
     error_type: str | None = None
     error_message: str | None = None
     diagnostics: UncheckedJsonObject = Field(default_factory=dict)
-    produced: list[ArtifactVersionInfo] = Field(default_factory=list)
+    checks: ModelCheckReport | None = None
+    messages: tuple[ActionMessage, ...] = ()
+    produced: list[ArtifactRecord] = Field(default_factory=list)
     retracted: list[RetractedArtifact] = Field(default_factory=list)
     trace_ids: list[str]
     resume: ResumeRef | None
 
 
-class EpisodeJournal:
-    """Per-workspace transition log: one JSON file per move attempt."""
-
-    def __init__(self, workspace_id: str) -> None:
-        self.workspace_id = workspace_id
-        self._root = data_module.episode_dir(workspace_id)
-        self._journal_dir = storage.join(self._root, "journal")
-
-    def append(self, record: TransitionRecord) -> None:
-        storage.makedirs(self._journal_dir)
-        path = storage.join(self._journal_dir, f"{record.seq:06d}.json")
-        if storage.exists(path):
-            existing = TransitionRecord.model_validate(storage.read_json(path))
-            if existing != record:
-                raise FileExistsError(
-                    f"Journal seq {record.seq} already exists with different content "
-                    f"for {self.workspace_id}"
-                )
-            return
-        storage.write_text(path, record.model_dump_json())
-
-    def read(self, seq: int) -> TransitionRecord | None:
-        path = storage.join(self._journal_dir, f"{seq:06d}.json")
-        if not storage.exists(path):
-            return None
-        return TransitionRecord.model_validate(storage.read_json(path))
-
-    def read_all(self) -> list[TransitionRecord]:
-        if not storage.exists(self._journal_dir):
-            return []
-        entries = sorted(
-            entry for entry in storage.listdir(self._journal_dir) if entry.endswith(".json")
-        )
-        return [TransitionRecord.model_validate(storage.read_json(entry)) for entry in entries]
-
-    def latest_seq(self) -> int:
-        """Highest transition sequence on disk, or 0 if the journal is empty.
-
-        Journal filenames are zero-padded sequence numbers, so the max leaf is
-        the last assigned seq — read from the directory listing without opening
-        any record."""
-        if not storage.exists(self._journal_dir):
-            return 0
-        seqs = [
-            int(entry.rsplit("/", 1)[-1].removesuffix(".json"))
-            for entry in storage.listdir(self._journal_dir)
-            if entry.endswith(".json")
-        ]
-        return max(seqs, default=0)
-
-
-def episode_trace_path(workspace_id: str, seq: int, subroutine_id: str) -> str:
-    """Ledger location of one promoted transition trace."""
+def trace_log_path(subroutine_id: str) -> str:
+    """A trace's path within the owning commit tree."""
     if _TRACE_ID.fullmatch(subroutine_id) is None:
         raise ValueError(f"Invalid transition trace subroutine id: {subroutine_id!r}")
-    return storage.join(
-        data_module.episode_traces_dir(workspace_id),
-        f"{seq:06d}",
-        f"{subroutine_id}.json",
-    )
+    return f"traces/{subroutine_id}.json"
 
 
-def promote_run_traces(workspace_id: str, seq: int) -> list[str]:
-    """Promote every finalized trace owned by this sequence's scratch run."""
-    llm_root = storage.join(
-        data_module.scratch_run_dir(workspace_id, f"seq-{seq:06d}"),
-        "llm",
-    )
-    trace_ids: list[str] = []
+def collect_run_traces(workspace_id: str, seq: int) -> dict[str, bytes]:
+    """Collect finalized traces before scratch is swept; publication happens in Git."""
+    llm_root = storage.join(data_module.scratch_run_dir(workspace_id, f"seq-{seq:06d}"), "llm")
+    logs: dict[str, bytes] = {}
     for subroutine_root in sorted(storage.listdir(llm_root)):
         subroutine_id = subroutine_root.rstrip("/").rsplit("/", 1)[-1]
         source = storage.join(subroutine_root, "trace.json")
-        if not storage.exists(source):
-            continue
-        destination = episode_trace_path(workspace_id, seq, subroutine_id)
-        content = storage.read_text(source)
-        if storage.exists(destination):
-            if storage.read_text(destination) != content:
-                raise ValueError(f"Transition trace collision at {destination}")
-        else:
-            storage.write_text(destination, content)
-        trace_ids.append(subroutine_id)
-    return trace_ids
+        if storage.exists(source):
+            logs[trace_log_path(subroutine_id)] = storage.read_text(source).encode()
+    return logs
 
 
-def read_episode_trace(workspace_id: str, seq: int, subroutine_id: str) -> Any:
-    return storage.read_json(episode_trace_path(workspace_id, seq, subroutine_id))
+def read_episode_trace(workspace_id: str, commit_id: str, subroutine_id: str) -> Any:
+    from nof1_causal_lab.machine.history import StudyRepository
+
+    repository = StudyRepository(workspace_id)
+    try:
+        return json.loads(repository.read_file(commit_id, f"logs/{trace_log_path(subroutine_id)}"))
+    except KeyError as exc:
+        raise FileNotFoundError(f"No trace {subroutine_id} at {commit_id}") from exc
 
 
-def replay_state(records: Iterable[TransitionRecord]) -> EpisodeState:
-    """Replay applied effects from an already selected journal prefix."""
-    state = EpisodeState()
-    for record in records:
-        if record.status == "applied":
-            state = apply_transition(state, record.produced, record.retracted)
-    return state
+def read_current_state(workspace_id: str, *, branch: str = "main") -> EpisodeState:
+    from nof1_causal_lab.machine.history import StudyRepository
 
-
-def derive_current_state(workspace_id: str) -> EpisodeState:
-    """Replay committed transition effects into the current artifact state.
-
-    Artifact activities persist immutable versions before returning their
-    effects to the workflow. Only an ``applied`` transition record establishes
-    that those versions became current, which also makes retractions exact and
-    prevents partial or failed moves from leaking onto the read surface.
-    """
-    return replay_state(EpisodeJournal(workspace_id).read_all())
+    repository = StudyRepository(workspace_id)
+    return repository.state(repository.head(branch))

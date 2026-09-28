@@ -13,7 +13,7 @@ import functools
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import jax
 import jax.numpy as jnp
@@ -36,6 +36,9 @@ from nof1_causal_lab.models.ssm.inference.utils import (
     extract_constrained_samples,
     prepare_model_parameters,
 )
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.models.ssm.model import SSMModel
 
 logger = logging.getLogger(__name__)
 
@@ -219,7 +222,7 @@ class LaplaceModeOptimizationResult:
     success: bool
     optimizer: str
     init_log_posterior_best: float
-    optimizer_hess_inv: object | None = None
+    optimizer_hess_inv: spo.LbfgsInvHessProduct
     final_grad_norm: float | None = None
     final_eval_diagnostics: UncheckedJsonObject | None = None
 
@@ -230,7 +233,7 @@ class LaplaceModeOptimizationResult:
 
 
 def _build_map_laplace_bundle(
-    model,
+    model: SSMModel,
     observations: jnp.ndarray,
     times: jnp.ndarray,
     trace_key: jnp.ndarray,
@@ -329,10 +332,7 @@ def _build_map_laplace_bundle(
             "neg_log_posterior_with_aux_fn": _neg_log_posterior_with_aux_fn,
         }
 
-    if hasattr(model, "get_cached_artifact"):
-        runtime_bundle = model.get_cached_artifact(cache_key, _build_runtime_bundle)
-    else:
-        runtime_bundle = _build_runtime_bundle()
+    runtime_bundle = model.get_cached_artifact(cache_key, _build_runtime_bundle)
 
     return {
         "dim": int(flat_example.shape[0]),
@@ -376,9 +376,9 @@ def _draw_laplace_init_candidates(
     return rng_key, jnp.concatenate([zeros, candidates], axis=0)
 
 
-def _requires_support_aware_outer_optimizer(model) -> bool:
+def _requires_support_aware_outer_optimizer(model: SSMModel) -> bool:
     """Use the support-aware outer optimizer for interval-summary models."""
-    observation_support = getattr(model, "observation_support", None)
+    observation_support = model.observation_support
     return bool(
         observation_support is not None and observation_support.requires_interval_summary_handling
     )
@@ -390,7 +390,7 @@ def _requires_support_aware_outer_optimizer(model) -> bool:
 
 
 def _optimize_laplace_parameter_mode(
-    _model,
+    _model: SSMModel,
     *,
     init_key: jnp.ndarray,
     dim: int,
@@ -431,7 +431,7 @@ def _optimize_laplace_parameter_mode(
                     )
                 )
             ),
-            optimizer_hess_inv=None,
+            optimizer_hess_inv=spo.LbfgsInvHessProduct(np.zeros((0, 0)), np.zeros((0, 0))),
             final_grad_norm=0.0,
             final_eval_diagnostics=_hostify_outer_eval_diagnostics(final_eval_aux),
         )
@@ -586,7 +586,7 @@ def _optimize_laplace_parameter_mode(
         success=bool(opt_result.success),
         optimizer="L-BFGS-B",
         init_log_posterior_best=float(init_log_posterior_best),
-        optimizer_hess_inv=getattr(opt_result, "hess_inv", None),
+        optimizer_hess_inv=opt_result.hess_inv,
         final_grad_norm=float(np.linalg.norm(final_grad)),
         final_eval_diagnostics=final_aux,
     )
@@ -664,7 +664,7 @@ def _sample_laplace_parameter_posterior(
 def _sample_laplace_parameter_posterior_from_optimizer_hess_inv(
     rng_key: jnp.ndarray,
     z_mode: jnp.ndarray,
-    optimizer_hess_inv,
+    optimizer_hess_inv: spo.LbfgsInvHessProduct,
     *,
     num_samples: int,
     hessian_jitter: float,
@@ -676,14 +676,8 @@ def _sample_laplace_parameter_posterior_from_optimizer_hess_inv(
     dim = int(z_mode.shape[0])
     if dim == 0:
         return _empty_parameter_posterior(z_mode, num_samples=num_samples)
-    if optimizer_hess_inv is None or not hasattr(optimizer_hess_inv, "todense"):
-        raise RuntimeError("L-BFGS-B inverse-Hessian approximation is unavailable.")
-
     with jax.named_scope("map/optimizer_hess_inv"):
-        covariance = jnp.asarray(
-            np.asarray(optimizer_hess_inv.todense(), dtype=np.float64),
-            dtype=z_mode.dtype,
-        )
+        covariance = jnp.asarray(optimizer_hess_inv.todense(), dtype=z_mode.dtype)
         covariance = symmetrize_with_jitter(covariance, jitter=hessian_jitter)
         chol_cov = jnp.linalg.cholesky(covariance)
 
@@ -719,7 +713,7 @@ def _mode_only_parameter_posterior(
 
 
 def fit_map(
-    model,
+    model: SSMModel,
     observations: jnp.ndarray,
     times: jnp.ndarray,
     num_samples: int = 1000,
@@ -734,7 +728,6 @@ def fit_map(
         "exact_hessian", "optimizer_hess_inv"
     ] = "optimizer_hess_inv",
     reparam=None,
-    **kwargs: Any,
 ) -> WarmupProposal:
     """Fit an approximate posterior with KFAS-style Laplace optimization.
 
@@ -744,9 +737,6 @@ def fit_map(
     posterior, compute the local curvature there, and sample the resulting
     Gaussian approximation in unconstrained parameter space.
     """
-    if kwargs:
-        unknown = ", ".join(sorted(kwargs))
-        raise TypeError(f"fit_map got unexpected keyword arguments: {unknown}")
     if parameter_covariance_method not in {"exact_hessian", "optimizer_hess_inv"}:
         raise ValueError(
             "parameter_covariance_method must be 'exact_hessian' or 'optimizer_hess_inv'."

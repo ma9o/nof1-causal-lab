@@ -13,14 +13,21 @@ import logging
 import threading
 from collections import deque
 from dataclasses import dataclass
+from functools import wraps
 from time import monotonic, perf_counter
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict, cast
 
 from openai import AsyncOpenAI
-from pydantic import Field, create_model
+from openai.types.completion_usage import CompletionTokensDetails  # noqa: TC002
+from pydantic import BaseModel, ConfigDict, Field, create_model
 
-from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+from nof1_causal_lab.json_types import JsonObject, JsonValue, UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.utils.config import get_secret
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    from openai.types.chat import ChatCompletionMessageFunctionToolCallParam
 
 logger = logging.getLogger(__name__)
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
@@ -124,20 +131,70 @@ class Tool:
     name: str
     description: str
     parameters: UncheckedJsonObject
-    execute: Any
+    execute: Callable[..., Awaitable[str]]
     stop_on_success: bool = False
     success_output: str | None = None
 
     async def __call__(self, *args: Any, **kwargs: Any) -> str:
-        return cast("str", await self.execute(*args, **kwargs))
+        return await self.execute(*args, **kwargs)
 
 
-def _get_attr(value: Any, name: str, default: Any = None) -> Any:
-    if value is None:
-        return default
-    if isinstance(value, dict):
-        return value.get(name, default)
-    return getattr(value, name, default)
+class _ResponseValue(BaseModel):
+    """Validate the OpenRouter transport once, including its SDK extension fields."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class _ContentPart(_ResponseValue):
+    type: str
+    text: str | None = None
+    reasoning: str | None = None
+
+
+class _FunctionCall(_ResponseValue):
+    name: str
+    arguments: str | JsonObject
+
+
+class _ToolCall(_ResponseValue):
+    id: str
+    function: _FunctionCall
+
+
+class _AssistantResponse(_ResponseValue):
+    content: str | list[_ContentPart] | None = None
+    tool_calls: list[_ToolCall] | None = None
+    reasoning: str | None = None
+    reasoning_content: str | None = None
+    reasoning_details: JsonValue = None
+
+
+class _ResponseChoice(_ResponseValue):
+    message: _AssistantResponse
+    finish_reason: str | None = None
+
+
+class _ResponseUsage(_ResponseValue):
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    completion_tokens_details: CompletionTokensDetails | None = None
+    reasoning_tokens: int | None = None
+
+
+class _OpenRouterResponse(_ResponseValue):
+    model: str
+    choices: list[_ResponseChoice]
+    usage: _ResponseUsage | None = None
+
+
+class AssistantMessage(TypedDict):
+    """Normalized assistant message passed to logs and the next conversation turn."""
+
+    role: Literal["assistant"]
+    content: str
+    tool_calls: NotRequired[list[ChatCompletionMessageFunctionToolCallParam]]
+    reasoning: NotRequired[str]
+    reasoning_details: NotRequired[JsonValue]
 
 
 def _parse_arg_descriptions(docstring: str | None) -> dict[str, str]:
@@ -174,21 +231,21 @@ def _parse_arg_descriptions(docstring: str | None) -> dict[str, str]:
     return descriptions
 
 
-def _parameter_schema(handler: Any) -> UncheckedJsonObject:
+def _parameter_schema(handler: Callable[..., Awaitable[str]], name: str) -> UncheckedJsonObject:
     """Build a JSON schema from a tool handler signature."""
 
     signature = inspect.signature(handler)
     descriptions = _parse_arg_descriptions(inspect.getdoc(handler))
     fields: dict[str, PydanticFieldDefinition] = {}
 
-    for name, param in signature.parameters.items():
+    for parameter_name, param in signature.parameters.items():
         annotation = param.annotation if param.annotation is not inspect.Signature.empty else Any
         default = param.default if param.default is not inspect.Signature.empty else ...
         if default is ...:
-            field = Field(..., description=descriptions.get(name))
+            field = Field(..., description=descriptions.get(parameter_name))
         else:
-            field = Field(default, description=descriptions.get(name))
-        fields[name] = (annotation, field)
+            field = Field(default, description=descriptions.get(parameter_name))
+        fields[parameter_name] = (annotation, field)
 
     if not fields:
         return {
@@ -199,7 +256,7 @@ def _parameter_schema(handler: Any) -> UncheckedJsonObject:
         }
 
     model = create_model(
-        f"{handler.__name__.title()}ToolParams",
+        f"{name.title()}ToolParams",
         **cast("PydanticFieldDefinitions", fields),
     )
     schema = model.model_json_schema()
@@ -207,22 +264,26 @@ def _parameter_schema(handler: Any) -> UncheckedJsonObject:
     return schema
 
 
-def tool(factory: Any) -> Any:
+class ToolFactory[**P](Protocol):
+    @property
+    def __name__(self) -> str: ...
+
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> Callable[..., Awaitable[str]]: ...
+
+
+def tool[**P](factory: ToolFactory[P]) -> Callable[P, Tool]:
     """Decorator that converts a tool factory into a Tool object factory."""
 
-    def wrapper(*args: Any, **kwargs: Any) -> Tool:
+    @wraps(factory)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> Tool:
         handler = factory(*args, **kwargs)
-        if not inspect.iscoroutinefunction(handler):
-            raise TypeError(f"Tool factory {factory.__name__} must return an async function")
         return Tool(
             name=factory.__name__,
             description=inspect.getdoc(factory) or "",
-            parameters=_parameter_schema(handler),
+            parameters=_parameter_schema(handler, factory.__name__),
             execute=handler,
         )
 
-    wrapper.__name__ = factory.__name__
-    wrapper.__doc__ = factory.__doc__
     return wrapper
 
 
@@ -251,18 +312,18 @@ def _tool_schema(tool_obj: Tool) -> UncheckedJsonObject:
     }
 
 
-def _message_content_parts(content: Any) -> tuple[str, str | None]:
+def _message_content_parts(content: str | list[_ContentPart] | None) -> tuple[str, str | None]:
     if isinstance(content, str):
         return content, None
-    if not isinstance(content, list):
+    if content is None:
         return "", None
 
     text_parts: list[str] = []
     reasoning_parts: list[str] = []
     for part in content:
-        part_type = _get_attr(part, "type")
-        text = _get_attr(part, "text")
-        reasoning = _get_attr(part, "reasoning")
+        part_type = part.type
+        text = part.text
+        reasoning = part.reasoning
         if part_type in {"text", "output_text"} and text:
             text_parts.append(str(text))
         elif part_type in {"reasoning", "thinking"} and reasoning:
@@ -274,69 +335,69 @@ def _message_content_parts(content: Any) -> tuple[str, str | None]:
     return "\n".join(text_parts), joined_reasoning
 
 
-def _assistant_message(message: Any) -> UncheckedJsonObject:
-    content_text, content_reasoning = _message_content_parts(_get_attr(message, "content"))
-    assistant_message: UncheckedJsonObject = {
+def _assistant_message(message: _AssistantResponse) -> AssistantMessage:
+    content_text, content_reasoning = _message_content_parts(message.content)
+    assistant_message: AssistantMessage = {
         "role": "assistant",
         "content": content_text,
     }
 
-    tool_calls_raw = _get_attr(message, "tool_calls") or []
-    tool_calls = []
+    tool_calls_raw = message.tool_calls or []
+    tool_calls: list[ChatCompletionMessageFunctionToolCallParam] = []
     for tool_call in tool_calls_raw:
-        function = _get_attr(tool_call, "function")
-        arguments = _get_attr(function, "arguments", "")
+        function = tool_call.function
+        arguments = function.arguments
         if isinstance(arguments, dict):
             arguments = json.dumps(arguments)
         tool_calls.append(
             {
-                "id": str(_get_attr(tool_call, "id", "")),
+                "id": tool_call.id,
                 "type": "function",
                 "function": {
-                    "name": str(_get_attr(function, "name", "")),
-                    "arguments": str(arguments or "{}"),
+                    "name": function.name,
+                    "arguments": arguments or "{}",
                 },
             }
         )
     if tool_calls:
         assistant_message["tool_calls"] = tool_calls
 
-    reasoning = _get_attr(message, "reasoning")
+    reasoning = message.reasoning
     if reasoning is None:
-        reasoning = _get_attr(message, "reasoning_content")
+        reasoning = message.reasoning_content
     if reasoning is None:
         reasoning = content_reasoning
-    if isinstance(reasoning, str) and reasoning:
+    if reasoning:
         assistant_message["reasoning"] = reasoning
 
-    reasoning_details = _get_attr(message, "reasoning_details")
+    reasoning_details = message.reasoning_details
     if reasoning_details is not None:
         assistant_message["reasoning_details"] = reasoning_details
 
     return assistant_message
 
 
-def _usage_from_response(response: Any) -> dict[str, int | None] | None:
-    usage = _get_attr(response, "usage")
+def _usage_from_response(response: _OpenRouterResponse) -> dict[str, int | None] | None:
+    usage = response.usage
     if usage is None:
         return None
 
-    details = _get_attr(usage, "completion_tokens_details")
-    reasoning_tokens = _get_attr(details, "reasoning_tokens")
+    details = usage.completion_tokens_details
+    reasoning_tokens = details.reasoning_tokens if details is not None else None
     if reasoning_tokens is None:
-        reasoning_tokens = _get_attr(usage, "reasoning_tokens")
+        reasoning_tokens = usage.reasoning_tokens
 
     return {
-        "input_tokens": int(_get_attr(usage, "prompt_tokens", 0) or 0),
-        "output_tokens": int(_get_attr(usage, "completion_tokens", 0) or 0),
-        "reasoning_tokens": int(reasoning_tokens) if reasoning_tokens is not None else None,
+        "input_tokens": usage.prompt_tokens or 0,
+        "output_tokens": usage.completion_tokens or 0,
+        "reasoning_tokens": reasoning_tokens,
     }
 
 
 def _log_response_details(
     *,
     log_label: str | None,
-    message: UncheckedJsonObject,
+    message: AssistantMessage,
     completion_text: str,
 ) -> None:
     """Log raw assistant outputs (completion, tool calls, reasoning)."""
@@ -357,7 +418,7 @@ def _log_response_details(
         )
 
     reasoning = message.get("reasoning")
-    if isinstance(reasoning, str) and reasoning:
+    if reasoning:
         logger.info(
             "%scall_model reasoning:\n%s",
             prefix,
@@ -438,21 +499,22 @@ async def call_model(
         raise TimeoutError(f"call_model timed out after {request.timeout}s") from exc
     elapsed = perf_counter() - started_at
 
-    choices = _get_attr(response, "choices") or []
+    parsed = _OpenRouterResponse.model_validate(response)
+    choices = parsed.choices
     if not choices:
         raise ValueError("OpenRouter returned no choices")
 
     choice = choices[0]
-    message = _assistant_message(_get_attr(choice, "message"))
-    completion_text = str(message.get("content", ""))
+    message = _assistant_message(choice.message)
+    completion_text = message["content"]
     tool_call_count = len(message.get("tool_calls") or [])
-    stop_reason = _get_attr(choice, "finish_reason")
+    stop_reason = choice.finish_reason
 
     if log_label:
         logger.info(
             "[%s] call_model response: model=%s stop=%s time=%.1fs tool_calls=%d completion_chars=%d",
             log_label,
-            str(_get_attr(response, "model", normalized_model_name)),
+            parsed.model,
             stop_reason or "end_turn",
             elapsed,
             tool_call_count,
@@ -467,8 +529,8 @@ async def call_model(
     return {
         "message": message,
         "completion": completion_text,
-        "usage": _usage_from_response(response),
-        "model": str(_get_attr(response, "model", normalized_model_name)),
+        "usage": _usage_from_response(parsed),
+        "model": parsed.model,
         "time": elapsed,
         "stop_reason": stop_reason,
     }

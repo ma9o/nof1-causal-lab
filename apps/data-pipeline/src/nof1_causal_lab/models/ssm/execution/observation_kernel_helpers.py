@@ -3,13 +3,12 @@
 from collections.abc import Callable
 
 import jax.numpy as jnp
-import numpyro.distributions as dist
 
 from nof1_causal_lab.artifacts.likelihood import DistributionFamily
 from nof1_causal_lab.models.ssm.shapes import Array, Float, Int
 
 from .emissions import categorical_moments, ordered_logistic_moments
-from .observation_distributions import mean_parameter_distribution
+from .observation_distributions import mean_observation_variance
 
 type VarianceFn = Callable[[Float[Array, " M"]], Float[Array, "M M"]]
 type ResponseFn = Callable[[Float[Array, " M"]], Float[Array, " M"]]
@@ -27,11 +26,7 @@ def _make_variance_from_distribution(family, extra_params) -> VarianceFn:
             safe_mean = jnp.clip(mean, 1e-7, 1.0 - 1e-7)
         else:
             safe_mean = jnp.maximum(mean, 1e-8)
-        if family == DistributionFamily.BERNOULLI:
-            law = dist.Bernoulli(probs=safe_mean)
-        else:
-            law = mean_parameter_distribution(family, safe_mean, 1.0, extra_params)
-        return jnp.diag(law.variance)
+        return jnp.diag(mean_observation_variance(family, safe_mean, 1.0, extra_params))
 
     return variance_fn
 

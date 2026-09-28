@@ -14,7 +14,6 @@ import numpyro
 from nof1_causal_lab.artifacts.expressions import (
     CoefficientExpression,
     Expression,
-    coefficient_key,
     expression_coefficients,
     expression_states,
     fold_expression,
@@ -112,9 +111,9 @@ class ExpressionComponentSpec:
         return frozenset(self.state_ids.index(key) for key in expression_states(self.expression))
 
     @property
-    def parameters(self) -> tuple[CoefficientExpression, ...]:
+    def parameters(self) -> tuple[tuple[ParameterId, CoefficientExpression], ...]:
         return tuple(
-            operand
+            (operand.value, operand)
             for operand in expression_coefficients(self.expression)
             if isinstance(operand.value, str)
         )
@@ -133,7 +132,7 @@ class ExpressionComponentSpec:
             if self.source is not None
             else (self.target,)
         )
-        for index, operand in enumerate(self.parameters):
+        for index, (identity, operand) in enumerate(self.parameters):
             meaning = operand.meaning
             prior_field = meaning.quantity.value
             if meaning.quantity == SiteKind.DYNAMICS_WEIGHT:
@@ -141,7 +140,7 @@ class ExpressionComponentSpec:
                     "multiplicative_weight" if len(self.sources) > 1 else "linear_edge_weight"
                 )
             yield (
-                coefficient_key(operand),
+                identity,
                 make_site(
                     f"{prefix}_p{index}",
                     (),

@@ -10,11 +10,8 @@ import jax.numpy as jnp
 
 from nof1_causal_lab.artifacts.likelihood import DistributionFamily
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
-from nof1_causal_lab.models.ssm.execution.contracts import (
-    NUMERICAL_EPSILON,
-    LikelihoodExtraParams,
-)
 from nof1_causal_lab.models.ssm.execution.emissions import build_heterogeneous_mean_sample_fn
+from nof1_causal_lab.models.ssm.execution.observation_distributions import point_observation_scales
 from nof1_causal_lab.models.ssm.execution.observation_families import (
     FAMILY_REGISTRY,
     POSTERIOR_PREDICTIVE_SWITCH_BRANCHES,
@@ -26,8 +23,20 @@ from nof1_causal_lab.models.ssm.execution.observation_families import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from nof1_causal_lab.artifacts.likelihood import LinkFunction
+    from nof1_causal_lab.models.ssm.execution.contracts import LikelihoodExtraParams
+    from nof1_causal_lab.models.ssm.execution.observation_families import (
+        EmissionLogProbFn,
+        ScoreWeightFn,
+    )
 
-def get_emission_score_weight_fn(manifest_dist, extra_params=None, *, link=None):
+
+def get_emission_score_weight_fn(
+    manifest_dist: DistributionFamily | str,
+    extra_params: LikelihoodExtraParams | None = None,
+    *,
+    link: LinkFunction | str | None = None,
+) -> ScoreWeightFn | None:
     """Return analytical (score, neg_hess_diag) w.r.t. linear predictor eta."""
     extra_params = extra_params or {}
     dist, link_fn = resolve_family_link(manifest_dist, link)
@@ -40,7 +49,12 @@ def get_emission_score_weight_fn(manifest_dist, extra_params=None, *, link=None)
     return factory(extra_params)
 
 
-def get_emission_fn(manifest_dist, extra_params=None, *, link=None):
+def get_emission_fn(
+    manifest_dist: DistributionFamily | str,
+    extra_params: LikelihoodExtraParams | None = None,
+    *,
+    link: LinkFunction | str | None = None,
+) -> EmissionLogProbFn:
     """Resolve predictor-space log-probability for one valid family/link pair."""
     extra_params = extra_params or {}
     dist, link_fn = resolve_family_link(manifest_dist, link)
@@ -129,7 +143,7 @@ def build_predictive_observation_sampler(
         ],
         dtype=jnp.int32,
     )
-    manifest_std = jnp.sqrt(jnp.maximum(jnp.diag(manifest_cov), NUMERICAL_EPSILON))
+    manifest_std = point_observation_scales(manifest_cov)
     params = extra_params or {}
     level_counts = params.get("obs_level_counts")
     if level_counts is None:

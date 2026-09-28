@@ -16,10 +16,10 @@ import modal
 from pydantic import TypeAdapter
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.identity import ArtifactId, OperationId
+    from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid, OperationId
     from nof1_causal_lab.json_types import JsonObject
     from nof1_causal_lab.machine.artifacts import EpisodeState
-    from nof1_causal_lab.machine.moves import ExecOptions, TransitionEffects
+    from nof1_causal_lab.machine.execution import ExecutionOptions, TransitionEffects
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Modal images
@@ -63,23 +63,23 @@ secrets = modal.Secret.from_name("nof1-causal-lab-pipeline-secrets")
 async def _run_transition_remote(
     workspace_id: str,
     artifact_id: str,
-    pins: dict[str, int],
+    pins: dict[str, str],
     state: JsonObject,
     options: JsonObject,
 ) -> JsonObject:
-    from nof1_causal_lab.artifacts.identity import ArtifactId, OperationId
+    from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid, OperationId
     from nof1_causal_lab.machine.artifacts import EpisodeState
-    from nof1_causal_lab.machine.moves import ExecOptions
+    from nof1_causal_lab.machine.execution import ExecutionOptions
     from nof1_causal_lab.machine.runners import execute_transition_locally
 
     validated_artifact_id = TypeAdapter(OperationId).validate_python(artifact_id)
-    validated_pins = TypeAdapter(dict[ArtifactId, int]).validate_python(pins)
+    validated_pins = TypeAdapter(dict[ArtifactId, GitOid]).validate_python(pins)
     result = await execute_transition_locally(
         workspace_id,
         validated_artifact_id,
         validated_pins,
         EpisodeState.model_validate(state),
-        ExecOptions.model_validate(options),
+        ExecutionOptions.model_validate(options),
     )
     return cast("JsonObject", result.model_dump(mode="json"))
 
@@ -95,7 +95,7 @@ async def _run_transition_remote(
 async def _run_transition_gpu(
     workspace_id: str,
     artifact_id: str,
-    pins: dict[str, int],
+    pins: dict[str, str],
     state: JsonObject,
     options: JsonObject,
 ) -> JsonObject:
@@ -125,7 +125,7 @@ def read_facade():
 async def _run_transition_cpu(
     workspace_id: str,
     artifact_id: str,
-    pins: dict[str, int],
+    pins: dict[str, str],
     state: JsonObject,
     options: JsonObject,
 ) -> JsonObject:
@@ -149,12 +149,12 @@ _GPU_TRANSITIONS = frozenset({"posterior"})
 async def run_transition_on_modal(
     workspace_id: str,
     artifact_id: OperationId,
-    pins: dict[ArtifactId, int],
+    pins: dict[ArtifactId, GitOid],
     state: EpisodeState,
-    options: ExecOptions,
+    options: ExecutionOptions,
 ) -> TransitionEffects:
     """Invoke a transition remotely; credentials come from the Modal secret block."""
-    from nof1_causal_lab.machine.moves import TransitionEffects
+    from nof1_causal_lab.machine.execution import TransitionEffects
 
     remote_fn = _run_transition_gpu if artifact_id in _GPU_TRANSITIONS else _run_transition_cpu
     raw = await remote_fn.remote.aio(

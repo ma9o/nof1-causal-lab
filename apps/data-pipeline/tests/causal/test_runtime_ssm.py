@@ -6,6 +6,7 @@ import jax.numpy as jnp
 import numpy as np
 import numpyro.distributions as dist
 import numpyro.distributions as ndist
+import pytest
 from dynestyx import StochasticContinuousTimeStateEvolution
 
 from nof1_causal_lab.artifacts.identity import scientific_id
@@ -27,6 +28,7 @@ from tests.model_fixtures import (
 )
 
 
+@pytest.mark.contract
 class TestInferLinearisation:
     def test_state_decay_only_is_constant(self):
         field = VectorField(
@@ -66,6 +68,7 @@ class TestInferLinearisation:
         assert infer_linearisation(compiled.vector_field) == "trajectory"
 
 
+@pytest.mark.inference(concern="simulation")
 class TestSSMModelDynamicsDispatch:
     """The NumPyro model samples dynamics and delegates at the backend boundary."""
 
@@ -173,6 +176,7 @@ class TestSSMModelDynamicsDispatch:
 class TestComponentNativeLinearDynamics:
     """Numerical pins for linear dynamics expressed as first-class components."""
 
+    @pytest.mark.inference(concern="simulation")
     def test_state_decay_and_edges_match_expected_vector_field(self):
         from numpyro.handlers import condition, seed
 
@@ -217,6 +221,7 @@ class TestComponentNativeLinearDynamics:
         )
         np.testing.assert_allclose(actual, expected, atol=1e-12)
 
+    @pytest.mark.inference(concern="sampling")
     def test_delta_state_decay_samples_component_param(self):
         from numpyro.handlers import seed
 
@@ -232,6 +237,7 @@ class TestComponentNativeLinearDynamics:
         assert decay.shape == ()
         np.testing.assert_allclose(decay, 0.4, atol=1e-12)
 
+    @pytest.mark.inference(concern="simulation")
     def test_state_intercepts_add_to_selected_targets(self):
         from numpyro.handlers import condition, seed
 

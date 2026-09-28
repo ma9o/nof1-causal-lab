@@ -28,6 +28,7 @@ from synthetic_posteriors import (
 # ----- base distributions -----
 
 
+@pytest.mark.inference(concern="sampling")
 def test_gaussian_log_prob_matches_scipy():
     g = Gaussian(dim=2, loc=0.0, scale=1.5)
     x = jnp.array([[0.3, -0.8], [1.1, 2.0]])
@@ -37,6 +38,7 @@ def test_gaussian_log_prob_matches_scipy():
     assert np.allclose(np.asarray(g.log_prob(x)), expected, atol=1e-10)
 
 
+@pytest.mark.inference(concern="predictive")
 def test_base_samples_have_expected_moments():
     key = jax.random.PRNGKey(0)
     for base, expected_var in [
@@ -52,6 +54,7 @@ def test_base_samples_have_expected_moments():
 # ----- bijector roundtrip -----
 
 
+@pytest.mark.contract
 @pytest.mark.parametrize(
     "bijector",
     [
@@ -83,6 +86,7 @@ def _numerical_log_det_jac(forward_fn, u: jnp.ndarray) -> jnp.ndarray:
     return jnp.linalg.slogdet(jac)[1]
 
 
+@pytest.mark.inference(concern="sampling")
 @pytest.mark.parametrize(
     "bijector",
     [
@@ -105,6 +109,7 @@ def test_bijector_log_det_jac_matches_autodiff(bijector):
         )
 
 
+@pytest.mark.inference(concern="sampling")
 def test_chain_log_det_jac_matches_autodiff():
     chain = Chain(
         (
@@ -124,6 +129,7 @@ def test_chain_log_det_jac_matches_autodiff():
 # ----- inverse-log-det-jac self-consistency -----
 
 
+@pytest.mark.inference(concern="sampling")
 @pytest.mark.parametrize(
     "bijector",
     [
@@ -155,6 +161,7 @@ def _integrate_on_grid(target, a_range=(-6.0, 6.0), b_range=(-6.0, 6.0), n=300) 
     return float(jnp.exp(log_p).sum() * da * db)
 
 
+@pytest.mark.inference(concern="sampling")
 def test_transformed_target_normalises_to_one():
     target = TransformedTarget(
         base=Gaussian(dim=2, scale=1.0),
@@ -164,6 +171,7 @@ def test_transformed_target_normalises_to_one():
     assert abs(mass - 1.0) < 0.01
 
 
+@pytest.mark.inference(concern="sampling")
 def test_mirror_target_normalises_to_one():
     # shift base so reflection produces two distinct modes
     shifted = TransformedTarget(
@@ -175,6 +183,7 @@ def test_mirror_target_normalises_to_one():
     assert abs(mass - 1.0) < 0.01
 
 
+@pytest.mark.inference(concern="sampling")
 def test_mixture_normalises_and_has_expected_log_prob():
     c1 = TransformedTarget(Gaussian(dim=2, loc=0.0, scale=0.5), Shear(theta=0.0))
     c2 = TransformedTarget(
@@ -199,6 +208,7 @@ def test_mixture_normalises_and_has_expected_log_prob():
 # ----- Mirror sampling empirically matches log_prob -----
 
 
+@pytest.mark.inference(concern="predictive")
 def test_mirror_sampling_matches_density_symmetry():
     base = TransformedTarget(Gaussian(dim=2, loc=0.0, scale=0.4), Bend(f=lambda x: 1.0 + 0.0 * x))
     mirror = Mirror(base, flip_axes=(0,))
@@ -212,6 +222,7 @@ def test_mirror_sampling_matches_density_symmetry():
 # ----- soft constraint / invariance -----
 
 
+@pytest.mark.inference(concern="sampling")
 def test_soft_constraint_subtracts_penalty():
     base = TransformedTarget(Gaussian(dim=2, scale=1.0), Shear(theta=0.0))
     x = jnp.array([0.3, -0.5])
@@ -220,6 +231,7 @@ def test_soft_constraint_subtracts_penalty():
     assert abs(float(constrained.log_prob(x)) - expected) < 1e-6
 
 
+@pytest.mark.inference(concern="sampling")
 def test_invariance_enforces_projection():
     base = TransformedTarget(Gaussian(dim=2, scale=3.0), Shear(theta=0.0))
     # hyperbolic ridge: x*y ≈ 1
@@ -234,6 +246,8 @@ def test_invariance_enforces_projection():
 # ----- StudentT and Cauchy log-prob -----
 
 
+@pytest.mark.inference(concern="sampling")
+@pytest.mark.inference(concern="predictive")
 def test_studentt_and_cauchy_run():
     key = jax.random.PRNGKey(7)
     for base in (StudentT(dim=2, df=3.0, scale=1.0), Cauchy(dim=2, scale=0.5)):
@@ -246,6 +260,7 @@ def test_studentt_and_cauchy_run():
 # ----- compositional sanity: use every primitive in one target -----
 
 
+@pytest.mark.inference(concern="sampling")
 def test_everything_composes():
     """A kitchen-sink target: heavy-tail base, banana + funnel + shear, mirror for bimodality,
     hyperbolic invariance factor. Must evaluate without errors and produce finite log_prob."""

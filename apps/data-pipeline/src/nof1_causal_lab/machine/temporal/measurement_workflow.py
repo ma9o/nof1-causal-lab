@@ -10,7 +10,7 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ChildWorkflowError
 
 with workflow.unsafe.imports_passed_through():
-    from nof1_causal_lab.machine.moves import TransitionEffects
+    from nof1_causal_lab.machine.execution import TransitionEffects
     from nof1_causal_lab.machine.temporal.messages import (
         ExtractionChunkFinalizeInput,
         ExtractionChunkResult,

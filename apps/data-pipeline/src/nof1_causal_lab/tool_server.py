@@ -2,7 +2,7 @@
 
 Exposes pipeline tool schemas and execution over HTTP so the Next.js
 refinement route can proxy LLM tool calls to the same Python validation
-logic the stages use, plus the episode facade (moves via the Temporal
+logic the stages use, plus the episode facade (actions via the Temporal
 workflow, reads via the append-only transition log).
 
 Run alongside the Temporal dev server and episode worker::
@@ -27,7 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ValidationError
 
 from nof1_causal_lab.artifacts.identification import IdentificationReport
-from nof1_causal_lab.artifacts.identity import ModelRevision
+from nof1_causal_lab.artifacts.identity import GitOid, GitRef
 from nof1_causal_lab.episode_api import (
     capabilities_router,
     machine_router,
@@ -52,7 +52,7 @@ from nof1_causal_lab.models.causal_proofs import (
 from nof1_causal_lab.models.ssm import SSMModel
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.dynamics import (
-    posterior_dynamics_from_samples,
+    dynamics_from_samples,
 )
 from nof1_causal_lab.models.ssm.runtime import prepare_model_runtime
 from nof1_causal_lab.utils.data import data_root
@@ -71,10 +71,12 @@ type ToolImplementation = Callable[
 ]
 
 if TYPE_CHECKING:
+    import polars as pl
+
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.flows.contracts_base import ToolDefinition
     from nof1_causal_lab.machine.store import TransitionRecord
-    from nof1_causal_lab.models.ssm.dynamics.posterior import PosteriorDynamicsSamples
+    from nof1_causal_lab.models.ssm.dynamics.draws import DynamicsDraws
     from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
     from nof1_causal_lab.models.ssm.runtime import PreparedModelRuntime
 
@@ -88,43 +90,61 @@ come from its versioned artifacts and append-only transition log.
 1. Read `GET /api/machine` for action responsibilities, then
    `GET /api/episodes/{workspace_id}/model` for current model/data versions and findings.
 2. Submit to `POST /api/episodes/{workspace_id}/actions`:
-   - `edit_model`: `{"action":"edit_model","expected_version":0,"model":{"question":"Does workload affect sleep?"}}`.
+   - `edit_model`: `{"action":"edit_model","expected_revision":null,"model":{"question":"Does workload affect sleep?"}}`.
      Model structure, measurements, mechanisms, constants, and laws can be edited together.
      Valid incomplete models are saved with applicable specification findings.
    - `prepare_data`: `{"action":"prepare_data","source":"files"}` imports uploaded sources.
-     `{"action":"prepare_data","source":"raw_data","raw_data_version":1,"model_version":2}`
+     `{"action":"prepare_data","source":"raw_data","raw_data_revision":"<raw-data tree OID>","model_revision":"<model tree OID>"}`
      extracts observations using the selected measurement definitions.
-   - `fit`: `{"action":"fit","model_version":3,"panel_version":1}` conditions the selected
+     `source="simulation"` with `simulation={"revision":"<simulation commit OID>","replicate":0}`
+     prepares one recorded replicate as an observation panel, preserving its measurement
+     support and generating model reference. The replicate index is zero-based; simulation
+     truths remain in the source report and are not passed to fitting.
+   - `fit`: `{"action":"fit","model_revision":"<model tree OID>","panel_revision":"<panel tree OID>"}` conditions the selected
      model on observations. Returns joint uncertainty and fit diagnostics; predictive
      simulation is a separate request. Current fitting supports independent scalar laws.
-   - `simulate`: `{"action":"simulate","model_version":3,"design":{"kind":"trajectory","times":[0,1,2,3],"draws":100,"seed":0}}`
-     replicates a study from the selected model's current laws. Independent and joint
-     parameter laws use the same nonlinear generator. Optional `comparison_panel_version`
-     enables predictive comparisons on the matching observation grid; `design.edge_contrasts`
-     adds paired edge-off experiments. Replication draws a new initial state from the
-     model's initial distribution, even when the model contains fitted trajectories.
-3. Read the action outcome and `GET /api/episodes/{workspace_id}/timeline` for
-   `applied`, `rejected`, or `raised` records. Numerical arrays have immutable store references.
+   - `simulate`: `{"action":"simulate","model_revision":"<model tree OID>","end":30,"interventions":[]}`
+     generates forward from the model's current laws. `start` optionally selects an earlier
+     model time; otherwise generation starts at its latest retained state, or zero when it
+     has only an initial-state law. Times use absolute model days. Interventions are optional:
+     `{"target":"<construct ID>","time":5,"value":1}` assigns a state at that time,
+     then its natural dynamics resume. The framework derives the grid and always includes
+     process and observation uncertainty.
+3. Dispatch returns HTTP 202 with only `{"attempt_id":"<UUID>"}` after durable acceptance.
+   Poll `GET /api/episodes/{workspace_id}/actions/{attempt_id}` for `{done, body, messages}`.
+   While running, `done` is false and `body` is null. At completion, `body` contains the
+   scientific result, or is null on failure. Messages accumulate as
+   `{timestamp, level, label}` with UTC timestamps, `debug|info|warn|error` levels,
+   and stable `SCREAMING_SNAKE_CASE` labels. Warnings can accompany a saved result;
+   failed actions leave the scientific branch unchanged. Do not redispatch while polling.
+   `GET /api/episodes/{workspace_id}/timeline` retains `applied`, `rejected`, or `raised`
+   attempts and their messages. Numerical arrays have immutable store references.
    `GET /api/episodes/{workspace_id}/model` includes separately sourced specification,
    identification, data-compatibility, fitting, and simulation findings.
 
 The same requests are available as tools through `GET /api/tools/scientific` and
-`POST /api/tools/scientific/{action}`. HTTP and tool calls share execution contracts.
+`POST /api/tools/scientific/{action}`; these tools return the receipt in `result`.
+Use `poll_action` with `{attempt_id}` to read the same poll response in `result`.
+HTTP and tool calls share execution contracts. V2 is a read-only inspector.
 
-## Revisions and optional recipes
+## Revisions and execution
 
 Requests name stored input revisions. Fits check the selected model/data pair; model edits reject base revision conflicts. Read `/revisions` to select history and `/revisions/compare` to compare parameter decisions and recorded evidence.
 An edit does not require prior simulation or an authoring admission. Causal numerical
 claims still require matching identification and production inference evidence.
+Model edits and data preparation automatically run affected checks, including one exact
+whole-model predictive batch when a compatible panel is available. Unchanged checks reuse
+their recorded results. Scientific failures save as findings; missing prerequisites carry
+not_evaluated reasons. Read predictive details and law provenance in the action body.
 Simulation reports retain their own model/data versions; a later edit makes that
 report historical rather than evidence for the edited model.
 
-The `/moves` endpoint serves internal jobs; `/recipes/observational-study` runs the optional authoring recipe.
-Their stage ordering is not a requirement of the scientific actions. A trajectory design selects
-`initial_state` (new_study, retained, fixed, equilibrium), `state_time` or `state_values`,
-process/observation noise, timed interventions and check criteria. A causal design
-uses `kind: "causal"` and `query` with start, clamps, outcome and readout. It uses the same
-generator and requires identification plus committed production-fit evidence.
+Only the four scientific actions submit scientific work. Execution jobs and
+LLM subroutines are private implementation details; callers do not select them.
+Simulation always uses the same nonlinear generator. Paired intervention histories share
+joint parameter/state draws and random streams. Causal effects on the model's default
+outcome are reported only when identification and committed production-fit evidence support
+that interpretation; otherwise the report keeps its histories with an explicit reason.
 The `analysis` context is read-only model introspection.
 
 ## Data in, results out
@@ -137,8 +157,7 @@ the timeline before submitting another request.
 
 ## Read-only deployments
 
-`GET /api/capabilities` reports `moves_enabled`. Read-only deployments reject all
-scientific action submissions and machine writes with 403.
+`GET /api/capabilities` reports `actions_enabled`. Read-only deployments reject scientific action submissions with 403.
 """
 
 app = FastAPI(
@@ -161,7 +180,7 @@ app.include_router(uploads_router)
 app.include_router(machine_router)
 
 
-def _extract_observation_timestamps(observation_data: Any) -> list[datetime]:
+def _extract_observation_timestamps(observation_data: pl.DataFrame | None) -> list[datetime]:
     import polars as pl
 
     if observation_data is None or observation_data.is_empty():
@@ -204,29 +223,33 @@ class _LoadedSimulation:
         return model_draws(self.model)
 
     @cached_property
-    def dynamics(self) -> PosteriorDynamicsSamples:
-        return posterior_dynamics_from_samples(self.model, self.draws.parameters)
+    def dynamics(self) -> DynamicsDraws:
+        return dynamics_from_samples(
+            self.model, self.draws.parameters, n_draws=self.draws.describe().n_draws
+        )
 
 
 @lru_cache(maxsize=2)
-def _load_simulation(_data_root: str, workspace_id: str, model_version: int) -> _LoadedSimulation:
+def _load_simulation(
+    _data_root: str, workspace_id: str, model_revision: GitOid
+) -> _LoadedSimulation:
     """Reuse loaded fits; the storage root partitions local/test/remote workspaces.
 
     Only immutable inputs enter this cache. Current identification and freshness
     are checked separately on every request. Eviction simply reloads the fit.
     """
-    from nof1_causal_lab.machine.derivations import read_model
+    from nof1_causal_lab.machine.history import StudyRepository
     from nof1_causal_lab.machine.inference import inference_record
-    from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal
+    from nof1_causal_lab.machine.store import ArtifactStore, read_model
 
     store = ArtifactStore(workspace_id)
-    model_info = store.read_meta("model", model_version)
-    record = inference_record(EpisodeJournal(workspace_id).read_all(), model_version)
+    model_info = store.read_meta("model", model_revision)
+    record = inference_record(StudyRepository(workspace_id).attempts(), model_revision)
     if record is None:
         raise HTTPException(404, "This model revision has no committed inference transition")
     panel_pin = model_info.derived_from["panel"]
     data_for_model = store.read_parquet_file("panel", panel_pin, parquet_filename("panel", "panel"))
-    model = read_model(store, model_version)
+    model = read_model(store, model_revision)
 
     model.check_execution()
     runtime = prepare_model_runtime(
@@ -236,12 +259,12 @@ def _load_simulation(_data_root: str, workspace_id: str, model_version: int) -> 
 
 
 def _build_analysis_context(workspace_id: str) -> UncheckedJsonObject:
-    """Reuse pinned numerical inputs while checking current serving provenance."""
-    from nof1_causal_lab.machine.moves import freshness_report
+    """Reuse pinned numerical inputs while checking current input revisions."""
+    from nof1_causal_lab.machine.execution import freshness_report
     from nof1_causal_lab.machine.snapshots import ModelReader
-    from nof1_causal_lab.machine.store import ArtifactStore, derive_current_state
+    from nof1_causal_lab.machine.store import ArtifactStore, read_current_state
 
-    state = derive_current_state(workspace_id)
+    state = read_current_state(workspace_id)
     from nof1_causal_lab.machine.inference import inference_is_current
 
     model_info = state.get("model")
@@ -265,16 +288,18 @@ def _build_analysis_context(workspace_id: str) -> UncheckedJsonObject:
             + ", ".join(stale_artifacts),
         )
     store = ArtifactStore(workspace_id)
-    loaded = _load_simulation(data_root(), workspace_id, model_info.version)
+    loaded = _load_simulation(data_root(), workspace_id, model_info.revision)
     model = loaded.model
-    model_revision = ModelRevision(workspace_id=workspace_id, version=model_info.version)
+    model_revision = GitRef(
+        workspace_id=workspace_id, revision=model_info.revision, path="model.json"
+    )
     identification_report_info = state.get("identification_report")
     if identification_report_info is None:
         raise HTTPException(404, f"No identification_report for workspace {workspace_id}")
     identification_report = IdentificationReport.model_validate(
         store.read_json_file(
             "identification_report",
-            identification_report_info.version,
+            identification_report_info.revision,
             json_filename("identification_report", "identification_report"),
         )
     )
@@ -462,13 +487,12 @@ def _build_model_info_payload(
             ),
         }
     if "capabilities" in sections:
+        from nof1_causal_lab.actions.contracts import SimulateRequest
+
         payload["capabilities"] = {
             "simulate": {
-                "supported_targets": ctx["_identifiable_treatments"],
-                "start": ["baseline", "abducted"],
-                "clamp_modes": ["set", "shift", "ramp", "trajectory"],
-                "estimands": ["end_state", "trajectory"],
-                "composable": True,
+                "intervention_targets": numeric.state_ids(runtime.spec),
+                "request": SimulateRequest.model_json_schema(),
             },
         }
     return payload
@@ -503,15 +527,15 @@ _CONTEXT_DEPS: dict[str, list[str]] = {
 
 
 def _load_context_result(workspace_id: str, artifact_id: str) -> UncheckedJsonObject:
-    from nof1_causal_lab.machine.store import ArtifactStore, derive_current_state
+    from nof1_causal_lab.machine.store import ArtifactStore, read_current_state
 
-    state = derive_current_state(workspace_id)
+    state = read_current_state(workspace_id)
     store = ArtifactStore(workspace_id)
     if artifact_id == "model":
         info = state.get("model")
         if info is None:
             raise HTTPException(404, f"No model for workspace {workspace_id}")
-        return store.read_json_file("model", info.version, json_filename("model", "model"))
+        return store.read_json_file("model", info.revision, json_filename("model", "model"))
     raise KeyError(f"No canonical tool context loader for {artifact_id}")
 
 
@@ -536,6 +560,8 @@ def _get_tool_contract(context_id: str, tool_name: str) -> ToolDefinition | None
 
 
 class ToolCallRequest(BaseModel):
+    branch: str = "main"
+    expected_head: GitOid | None = None
     workspace_id: str
     input: UncheckedJsonObject
 
@@ -581,6 +607,17 @@ async def execute_tool(
         )
 
     if context_id == "scientific":
+        if tool_name == "poll_action":
+            from nof1_causal_lab.actions.results import PollActionRequest
+            from nof1_causal_lab.episode_api import poll_scientific_action
+
+            try:
+                query = PollActionRequest.model_validate(request.input)
+            except ValidationError as exc:
+                raise HTTPException(422, detail=exc.errors(include_context=False)) from exc
+            result = await poll_scientific_action(request.workspace_id, query.attempt_id)
+            return {"result": result.model_dump(mode="json")}
+
         from pydantic import TypeAdapter
 
         from nof1_causal_lab.actions.contracts import ScientificActionRequest
@@ -592,7 +629,9 @@ async def execute_tool(
             )
         except ValidationError as exc:
             raise HTTPException(422, detail=exc.errors(include_context=False)) from exc
-        outcome = await execute_scientific_action(request.workspace_id, action)
+        outcome = await execute_scientific_action(
+            request.workspace_id, action, branch=request.branch, expected_head=request.expected_head
+        )
         return {"result": outcome.model_dump(mode="json")}
 
     impl = _TOOL_IMPLS.get((context_id, tool_name))

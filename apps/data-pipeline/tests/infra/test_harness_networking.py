@@ -9,6 +9,8 @@ import pytest
 from nof1_causal_lab.utils.harness.networking import run_uvicorn_server
 from tests.helpers import run_async
 
+pytestmark = pytest.mark.contract
+
 
 class _NeverStartingServer:
     started = False

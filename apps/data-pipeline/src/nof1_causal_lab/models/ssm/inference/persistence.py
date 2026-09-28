@@ -9,10 +9,10 @@ import numpy as np
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.parameter import PriorAuthoringTransform
-from nof1_causal_lab.models.model_distributions import joint_distribution_id
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
-from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws, ParticleMCMCPosterior
+from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
+from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
 from nof1_causal_lab.models.ssm.parameterization import (
     assemble_deterministics_from_registry,
     build_site_registry,
@@ -22,7 +22,10 @@ from nof1_causal_lab.numpyro_json import empirical_atoms, empirical_distribution
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from jax.typing import ArrayLike
+
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.models.ssm.inference.types import ParticleMCMCPosterior
     from nof1_causal_lab.numpyro_json import ArrayLoader
 
 
@@ -30,7 +33,7 @@ def condition_model(
     model_spec: ModelSpec,
     result: ParticleMCMCPosterior,
     *,
-    times,
+    times: ArrayLike,
     array_writer: Callable[[np.ndarray], str] | None = None,
     array_loader: ArrayLoader | None = None,
 ) -> ModelSpec:
@@ -40,13 +43,6 @@ def condition_model(
     posterior containers, execution coordinates, or independent fitted marginals
     are attached to the scientific model.
     """
-    if not isinstance(result, ParticleMCMCPosterior):
-        raise TypeError("Conditioning requires production particle-MCMC output")
-    if (
-        result.evidence.engine != "marginal_particle_gibbs"
-        or result.evidence.latent_transition != "euler_maruyama"
-    ):
-        raise ValueError("Conditioning requires the exact nonlinear particle-MCMC target")
     bindings, _ = parameter_bindings(model_spec)
     samples = result.get_samples()
     paths = result.draws.latent_paths
@@ -56,52 +52,77 @@ def condition_model(
         raise ValueError("Conditioning must retain the complete aligned latent trajectories")
     if result.draws.state_ids and tuple(result.draws.state_ids) != tuple(state_ids):
         raise ValueError("Engine latent trajectories do not match the model's state identities")
-    columns = [
-        np.asarray(samples[coordinate.site_name][(slice(None), *coordinate.indices)])[:, None]
-        for binding in sorted(bindings, key=lambda item: item.parameter_id)
-        for _, coordinate in sorted(binding.coordinates.items())
-    ]
-    columns.extend(
-        np.asarray(paths[:, :, state_ids.index(identity)]) for identity in sorted(state_ids)
+    conditioned_parameters = {
+        parameter.id for parameter in model_spec.execution_parameters if parameter.value is None
+    }
+    layout = JointLawLayout.from_bindings(
+        bindings,
+        parameters=conditioned_parameters,
+        constructs=state_ids,
+        time_points=grid.tolist(),
     )
-    joint = np.concatenate(columns, axis=1)
+    joint = layout.pack(
+        {
+            identity: samples[coordinate.site_name][(slice(None), *coordinate.indices)]
+            for binding in bindings
+            for identity, coordinate in binding.coordinates.items()
+        },
+        {identity: paths[:, :, index] for index, identity in enumerate(state_ids)},
+    )
     law = empirical_distribution(joint, array_writer=array_writer, array_loader=array_loader)
-    identity = joint_distribution_id(
-        model_spec,
-        [p.id for p in model_spec.parameters if p.value is None],
-        state_ids,
-        grid.tolist(),
-    )
-    return model_spec.revised(
-        edges=replace_constructs(
-            model_spec.edges,
-            tuple(
-                construct.model_copy(
-                    update={"distribution": identity if construct.id in state_ids else None}
-                )
-                for construct in model_spec.constructs
-            ),
-        ),
-        parameters=tuple(
-            parameter
-            if parameter.value is not None
-            else parameter.model_copy(
+    identity = layout.distribution_id
+    edges = replace_constructs(
+        model_spec.edges,
+        tuple(
+            construct.model_copy(
                 update={
-                    "distribution": identity,
-                    "distribution_transform": PriorAuthoringTransform.IDENTITY,
-                    "reference_interval_days": None,
+                    "distribution": identity
+                    if construct.id in state_ids
+                    else construct.distribution
                 }
             )
-            for parameter in model_spec.parameters
+            for construct in model_spec.constructs
         ),
-        distributions={identity: law},
+    )
+    parameters = tuple(
+        parameter
+        if parameter.id not in conditioned_parameters
+        else parameter.model_copy(
+            update={
+                "distribution": identity,
+                "distribution_transform": PriorAuthoringTransform.IDENTITY,
+                "reference_interval_days": None,
+            }
+        )
+        for parameter in model_spec.parameters
+    )
+    retained_laws = {
+        member.distribution
+        for member in (
+            *parameters,
+            *(edge.cause for edge in edges),
+            *(edge.effect for edge in edges),
+        )
+        if member.distribution is not None
+    }
+    return model_spec.revised(
+        edges=edges,
+        parameters=parameters,
+        distributions={
+            **{
+                key: value
+                for key, value in model_spec.distributions.items()
+                if key in retained_laws
+            },
+            identity: law,
+        },
         time_points=tuple(float(value) for value in grid),
     )
 
 
 def _scientific_draws(model_spec: ModelSpec) -> JointPosteriorDraws:
     bindings, _ = parameter_bindings(model_spec)
-    states = sorted(numeric.state_ids(model_spec))
+    states = numeric.state_ids(model_spec)
     members = [
         *[model_spec.parameter(binding.parameter_id) for binding in bindings],
         *[model_spec.get_construct(identity) for identity in states],
@@ -112,22 +133,17 @@ def _scientific_draws(model_spec: ModelSpec) -> JointPosteriorDraws:
     ):
         raise ValueError("Retained particle draws require all random quantities in one joint law")
     atoms = empirical_atoms(model_spec.distributions[next(iter(references))])
-    offset = 0
-    parameters = {}
-    for binding in sorted(bindings, key=lambda item: item.parameter_id):
-        for identity in sorted(binding.coordinates):
-            parameters[identity] = jnp.asarray(atoms[:, offset])
-            offset += 1
-    expected = offset + len(states) * len(model_spec.time_points)
-    if atoms.shape[1] != expected:
-        raise ValueError("Joint event coordinates do not match the model's scientific quantities")
-    paths = (
-        atoms[:, offset:]
-        .reshape(len(atoms), len(states), len(model_spec.time_points))
-        .transpose(0, 2, 1)
+    layout = JointLawLayout.from_bindings(
+        bindings,
+        parameters=[binding.parameter_id for binding in bindings],
+        constructs=states,
+        time_points=model_spec.time_points,
     )
+    parameters, paths = layout.unpack(jnp.asarray(atoms))
     return JointPosteriorDraws(
-        parameters=parameters, latent_paths=jnp.asarray(paths), state_ids=tuple(states)
+        parameters=dict(parameters.items()),
+        latent_paths=jnp.stack([paths[identity] for identity in layout.constructs], axis=-1),
+        state_ids=layout.constructs,
     )
 
 

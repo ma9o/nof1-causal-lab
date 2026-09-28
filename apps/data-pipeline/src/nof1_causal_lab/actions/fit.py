@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.errors import ModelFitError
-from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior
 from nof1_causal_lab.models.ssm.inference.persistence import condition_model
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    import numpy as np
+    import polars as pl
+
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.numpyro_json import ArrayLoader
     from nof1_causal_lab.sampler_config import SamplerConfig
 
 
@@ -33,10 +38,10 @@ def build_sampler_config(inference_method: str | None) -> SamplerConfig:
 def fit(
     *,
     model_spec: ModelSpec,
-    data_for_model: Any,
+    data_for_model: pl.DataFrame,
     sampler_config: SamplerConfig,
-    array_writer,
-    array_loader,
+    array_writer: Callable[[np.ndarray], str],
+    array_loader: ArrayLoader,
     workspace_id: str,
     compute_loo_diagnostics: bool,
 ) -> UncheckedJsonObject:
@@ -51,34 +56,31 @@ def fit(
         wait_for_compile_cache=True,
         compute_loo_diagnostics=compute_loo_diagnostics,
     )
-    inf_method = fitted_result.get("inference_type") or sampler_config.get("method", "unknown")
-    inference_metadata = {
-        "method": inf_method,
-        "n_samples": int(fitted_result.get("n_samples", 0)),
-        "duration_seconds": float(fitted_result.get("duration_seconds", 0.0)),
-    }
-
-    if not fitted_result.get("fitted", False):
+    if not fitted_result["fitted"]:
         raise ModelFitError(
-            fitted_result.get("error") or "model fit failed",
+            fitted_result["error"],
             transition_id="posterior",
             diagnostics={
-                "inference_metadata": inference_metadata,
-                "inference_diagnostics": fitted_result.get("inference_diagnostics"),
+                "inference_metadata": {
+                    "method": sampler_config.get("method", "unknown"),
+                    "n_samples": 0,
+                    "duration_seconds": fitted_result["duration_seconds"],
+                },
+                "inference_diagnostics": None,
             },
         )
 
     result = fitted_result["result"]
-    if not isinstance(result, ParticleMCMCPosterior):
-        raise ModelFitError(
-            "Production inference did not return a particle-MCMC posterior",
-            transition_id="posterior",
-        )
+    inference_metadata = {
+        "method": result.method,
+        "n_samples": result.draws.describe().n_draws,
+        "duration_seconds": fitted_result["duration_seconds"],
+    }
 
     conditioned = condition_model(
         model_spec,
         result,
-        times=fitted_result["times"],
+        times=fitted_result["runtime"].times,
         array_writer=array_writer,
         array_loader=array_loader,
     )
@@ -88,7 +90,7 @@ def fit(
         "engine_evidence": asdict(result.evidence),
         "inference_metadata": inference_metadata,
         "inference_diagnostics": fitted_result["inference_diagnostics"],
-        "loo_diagnostics": fitted_result.get("loo_diagnostics"),
-        "posterior_marginals": fitted_result.get("posterior_marginals"),
-        "posterior_pairs": fitted_result.get("posterior_pairs"),
+        "loo_diagnostics": fitted_result["loo_diagnostics"],
+        "posterior_marginals": fitted_result["posterior_marginals"],
+        "posterior_pairs": fitted_result["posterior_pairs"],
     }

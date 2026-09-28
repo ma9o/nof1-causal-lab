@@ -45,6 +45,7 @@ CASES = [
 ]
 
 
+@pytest.mark.inference(concern="sampling")
 @pytest.mark.parametrize(
     ("family", "link", "observed"),
     [*CASES, ("delta", "identity", 0.35), ("delta", "identity", 0.4)],
@@ -142,6 +143,7 @@ def test_native_conditional_law_matches_exact_emission_lowering(family, link, ob
     assert (terms.family, terms.link) == (family, link)
 
 
+@pytest.mark.contract
 @pytest.mark.parametrize(("family", "link", "_observed"), CASES)
 def test_offline_conversion_preserves_authored_coefficient_identities(family, link, _observed):
     retired = {
@@ -162,6 +164,7 @@ def test_offline_conversion_preserves_authored_coefficient_identities(family, li
         LikelihoodSpec.model_validate(retired)
 
 
+@pytest.mark.contract
 def test_completion_binding_equations_and_migration_follow_the_same_cross_loading():
     model = complete_test_model(make_model(["X", "Y"], [("X", "Y")]))
     owner, other = model.constructs
@@ -197,6 +200,7 @@ def test_completion_binding_equations_and_migration_follow_the_same_cross_loadin
     assert {p.id for p in renamed.parameters} == {p.id for p in model.parameters}
 
 
+@pytest.mark.contract
 def test_partial_law_is_explicit_and_unsupported_formulas_fail_before_execution():
     likelihood = LikelihoodSpec(
         law=observation_law(ConstructId("construct:x"), "gaussian", "identity"), reasoning="Partial"

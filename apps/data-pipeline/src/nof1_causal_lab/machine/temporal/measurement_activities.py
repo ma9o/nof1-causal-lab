@@ -13,15 +13,16 @@ from typing import TYPE_CHECKING, Any, cast
 
 from temporalio import activity
 
+from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
-from nof1_causal_lab.machine.artifact_files import parquet_filename
-from nof1_causal_lab.machine.derivations import complete_computed_transition
+from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
+from nof1_causal_lab.machine.execution import TransitionEffects
 from nof1_causal_lab.machine.graph import transition_spec
-from nof1_causal_lab.machine.moves import TransitionEffects
 from nof1_causal_lab.machine.store import ArtifactStore
 from nof1_causal_lab.machine.temporal.activity_errors import (
     as_non_retryable_application_error,
 )
+from nof1_causal_lab.machine.temporal.backend_config import first_config_value
 from nof1_causal_lab.machine.temporal.messages import (
     ExtractionChunkFinalizeInput,
     ExtractionChunkResult,
@@ -53,13 +54,6 @@ def _write_json(path: str, value: Any) -> None:
 
 def _read_json(path: str) -> Any:
     return storage.read_json(path)
-
-
-def _first_config_value(*values: Any) -> Any:
-    for value in values:
-        if value is not None:
-            return value
-    return None
 
 
 @activity.defn
@@ -131,7 +125,7 @@ async def plan_measurements_activity(input: MeasurementsWorkflowInput) -> Measur
     spec = transition_spec("measurements")
     from nof1_causal_lab.machine.selection import resolve_input_pins
 
-    pins = resolve_input_pins(store, input.state, spec, input.input_versions)
+    pins = resolve_input_pins(store, input.state, spec, input.input_revisions)
     run_id = f"seq-{input.seq:06d}"
     root = _run_root(input.workspace_id, run_id)
 
@@ -141,13 +135,11 @@ async def plan_measurements_activity(input: MeasurementsWorkflowInput) -> Measur
         parquet_filename("raw_data", "raw"),
     )
     raw_df = pl.DataFrame(raw_table)
-    from nof1_causal_lab.machine.derivations import read_model
-    from nof1_causal_lab.models.model_inputs import observation_input
-
-    model = read_model(store, pins["model"])
-    question = model.require_question()
-    model.require_measurements()
-    measurement_structure = observation_input(model)
+    preparation = input.options.preparation
+    if preparation is None or input.options.file_source is None:
+        raise ValueError("Extraction requires a data preparation specification and file source")
+    question = preparation.context
+    measurement_structure = preparation.extraction_context()
 
     config = get_config()
     extraction_workers = config.extraction_workers
@@ -206,9 +198,9 @@ async def plan_measurements_activity(input: MeasurementsWorkflowInput) -> Measur
     llm = LLMBackendConfig(
         harness="none",
         model=extraction_llm.model,
-        max_tokens=_first_config_value(extraction_llm.max_tokens, embedded_defaults.max_tokens),
-        timeout=_first_config_value(extraction_llm.timeout, embedded_defaults.timeout),
-        reasoning_effort=_first_config_value(
+        max_tokens=first_config_value(extraction_llm.max_tokens, embedded_defaults.max_tokens),
+        timeout=first_config_value(extraction_llm.timeout, embedded_defaults.timeout),
+        reasoning_effort=first_config_value(
             extraction_llm.reasoning_effort,
             embedded_defaults.reasoning_effort,
         ),
@@ -223,6 +215,11 @@ async def plan_measurements_activity(input: MeasurementsWorkflowInput) -> Measur
             "pins": pins,
             "question": question,
             "measurement_structure": measurement_structure,
+            "metadata": PreparedDataMetadata(
+                source=input.options.file_source,
+                variables=preparation.observation_schema(),
+                preparation=preparation,
+            ).model_dump(mode="json"),
             "computed_dicts": computed_dicts,
             "chunks": [chunk.model_dump(mode="json") for chunk in chunks],
         },
@@ -370,23 +367,19 @@ async def finalize_measurements_activity(input: MeasurementsFinalizeInput) -> Tr
             else [],
         )
         panel = materialize_panel(observation_rows, measurement_structure)
+        if len(panel) == 0:
+            raise ValueError("Extraction produced no observations")
         store = ArtifactStore(input.workspace_id)
-        produced = []
-        if len(panel) > 0:
-            produced.append(
-                store.write_version(
+        return TransitionEffects(
+            produced=[
+                store.write_artifact(
                     "panel",
-                    provenance="computed",
                     derived_from=input.pins,
                     produced_by="run:measurements",
                     parquet_files={parquet_filename("panel", "panel"): panel},
+                    json_files={json_filename("panel", "metadata"): plan["metadata"]},
                 )
-            )
-
-        effects = complete_computed_transition(store, input.state, "measurements", produced)
-        return TransitionEffects(
-            produced=effects.produced,
-            retracted=effects.retracted,
+            ],
             diagnostics={
                 "workers": [
                     results_by_worker[int(spec["worker_id"])].model_dump(
@@ -397,7 +390,6 @@ async def finalize_measurements_activity(input: MeasurementsFinalizeInput) -> Tr
                     for spec in chunk_specs
                 ],
                 "input_pins": dict(input.pins),
-                "model_input": input.state.current["model"].model_inputs["extraction"],
                 "n_observations": len(panel),
             },
         )

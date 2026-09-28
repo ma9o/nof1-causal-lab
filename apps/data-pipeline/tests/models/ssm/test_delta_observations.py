@@ -7,6 +7,7 @@ import jax.numpy as jnp
 import numpy as np
 import numpyro.distributions as dist
 import pytest
+from evaluation.fixtures.prior_planning import complete_model
 from pydantic import ValidationError
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
@@ -16,9 +17,7 @@ from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec, ObservationLawS
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.machine.equations import observation_equations
 from nof1_causal_lab.models.likelihoods import observation_law
-from nof1_causal_lab.models.model_mechanisms import default_model
 from nof1_causal_lab.models.model_parameters import iter_coefficient_uses
-from nof1_causal_lab.models.prior_planning import complete_model
 from nof1_causal_lab.models.ssm import SSMModel
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.execution.observation_model import compile_observation_model
@@ -61,6 +60,7 @@ def exact_model():
     )
 
 
+@pytest.mark.contract
 def test_exact_binding_roundtrips_without_authored_measurement_parameters(exact_model):
     model = ModelSpec.model_validate_json(exact_model.model_dump_json())
     owner = model.constructs[0]
@@ -87,6 +87,7 @@ def test_exact_binding_roundtrips_without_authored_measurement_parameters(exact_
     assert r"\operatorname{Delta}" in observation_equations(model)[indicator.id]
 
 
+@pytest.mark.contract
 def test_delta_constructor_requires_only_its_exact_value():
     for arguments in (
         {},
@@ -97,6 +98,7 @@ def test_delta_constructor_requires_only_its_exact_value():
             ObservationLawSpec(distribution="Delta", arguments=arguments)
 
 
+@pytest.mark.contract
 def test_authored_affine_delta_keeps_its_calibration_coefficients(exact_model):
     owner = exact_model.constructs[0]
     predictor = observation_law(owner.id, "gaussian", "identity").arguments["loc"]
@@ -119,6 +121,7 @@ def test_authored_affine_delta_keeps_its_calibration_coefficients(exact_model):
     model.check_execution()
 
 
+@pytest.mark.contract
 @pytest.mark.parametrize(
     ("dtype", "default_family"),
     [
@@ -141,9 +144,9 @@ def test_exact_measurement_is_available_but_never_selected_by_default(dtype, def
             model.edges, (owner.model_copy(update={"indicators": (indicator,)}),)
         )
     )
-    proposed = default_model(model).indicator(indicator.id).likelihood
-    assert proposed is not None
-    assert proposed.law.family == default_family
+    from nof1_causal_lab.distributions import VALID_LIKELIHOODS_FOR_DTYPE
+
+    assert VALID_LIKELIHOODS_FOR_DTYPE[indicator.measurement_dtype][0] == default_family
     exact = LikelihoodSpec(
         law=observation_law(owner.id, "delta", "identity"), reasoning="Explicit exact measurement"
     )
@@ -159,6 +162,8 @@ def test_exact_measurement_is_available_but_never_selected_by_default(dtype, def
     )
 
 
+@pytest.mark.inference(concern="sampling")
+@pytest.mark.inference(concern="predictive")
 def test_mixed_delta_density_draws_and_missingness_remain_exact():
     covariance = jnp.eye(2) * 100.0
     compiled = compile_observation_model(["delta", "poisson"], manifest_cov=covariance)
@@ -184,6 +189,8 @@ def test_mixed_delta_density_draws_and_missingness_remain_exact():
         )
 
 
+@pytest.mark.inference(concern="sampling")
+@pytest.mark.inference(concern="predictive")
 def test_exact_window_mean_constrains_the_summary_without_pinning_the_path():
     support = ObservationSupportRuntime(
         anchor_times=np.array([0.0, 2.0]),
@@ -203,6 +210,7 @@ def test_exact_window_mean_constrains_the_summary_without_pinning_the_path():
     compiled = compile_observation_model(
         ["delta"], manifest_cov=covariance, observation_support=support
     )
+    assert compiled.observation_operator is not None
     assert compiled.mean_log_prob_fn is not None
     assert compiled.interval_summary_sampler is not None
     for path in ([[0.0], [4.0]], [[4.0], [0.0]], [[2.0], [2.0]]):
@@ -217,6 +225,7 @@ def test_exact_window_mean_constrains_the_summary_without_pinning_the_path():
         np.testing.assert_array_equal(draws, means)
 
 
+@pytest.mark.contract
 @pytest.mark.parametrize("unsupported", ["affine", "interval"])
 def test_unsupported_delta_constraints_fail_before_parameter_initialization(
     exact_model, monkeypatch, unsupported
@@ -260,6 +269,7 @@ def test_unsupported_delta_constraints_fail_before_parameter_initialization(
         )
 
 
+@pytest.mark.contract
 def test_sparse_exact_observations_leave_missing_coordinates_free(exact_model):
     constraints = compile_exact_state_constraints(
         exact_model, jnp.array([[1.0, 0.0], [jnp.nan, 0.5], [2.0, 1.0]])
@@ -276,6 +286,7 @@ def test_sparse_exact_observations_leave_missing_coordinates_free(exact_model):
         compile_exact_state_constraints(exact_model, jnp.array([[jnp.inf, 0.0]]))
 
 
+@pytest.mark.contract
 def test_multiple_exact_indicators_must_agree_at_shared_times(exact_model):
     from nof1_causal_lab.artifacts.identity import scientific_id
 
@@ -300,6 +311,7 @@ def test_multiple_exact_indicators_must_agree_at_shared_times(exact_model):
         compile_exact_state_constraints(model, observations.at[0, columns[duplicate.id]].set(2.0))
 
 
+@pytest.mark.inference(concern="sampling")
 @pytest.mark.parametrize("mask", [[True, False], [False, True], [True, True], [False, False]])
 def test_proposal_density_uses_the_free_coordinate_measure(mask):
     values, mean, variance = jnp.array([1.5, -2.0]), jnp.array([0.2, 0.4]), jnp.array([0.3, 2.0])
@@ -312,6 +324,7 @@ def test_proposal_density_uses_the_free_coordinate_measure(mask):
     np.testing.assert_array_equal(grad[~free], jnp.zeros((~free).sum()))
 
 
+@pytest.mark.contract
 def test_fixed_coordinates_are_excluded_from_sampler_freeze_diagnostics():
     free = jnp.array([[False, True], [False, False], [False, True]])
     frozen = jnp.array([[True, False], [True, True], [True, True]])
@@ -349,6 +362,7 @@ def _conditioned_initial_state(problem):
     )
 
 
+@pytest.mark.inference(concern="sampling")
 def test_conditioned_target_preserves_initial_and_transition_evidence(point_problem):
     runtime = point_problem.runtime
     state = _conditioned_initial_state(point_problem)
@@ -371,12 +385,14 @@ def test_conditioned_target_preserves_initial_and_transition_evidence(point_prob
     assert jnp.isfinite(derivative).all()
 
 
+@pytest.mark.contract
 def test_gaussian_view_is_confined_to_warmup(exact_model):
     warmup = build_laplace_backend(exact_model, n_ieks_iters=1)
     assert warmup.manifest_dists == ["gaussian", "gaussian"]
     assert numeric.observation_families(exact_model) == ["delta", "gaussian"]
 
 
+@pytest.mark.inference(concern="sampling")
 @pytest.mark.parametrize("proposal", ["amala_exact", "paid_mix"])
 def test_conditioned_smoother_traces_with_missing_and_observed_coordinates(point_problem, proposal):
     runtime = point_problem.runtime
@@ -398,7 +414,7 @@ def test_conditioned_smoother_traces_with_missing_and_observed_coordinates(point
     assert shape.latent_trajectory.shape == (3, 2)
 
 
-@pytest.mark.inference
+@pytest.mark.inference(concern="sampling")
 @pytest.mark.parametrize("proposal", ["amala_exact", "paid_mix"])
 def test_particle_updates_keep_exact_readings_and_move_missing_states(point_problem, proposal):
     runtime = point_problem.runtime
@@ -424,3 +440,45 @@ def test_particle_updates_keep_exact_readings_and_move_missing_states(point_prob
         assert jnp.isfinite(state.complete_log_posterior)
         missing_values.append(state.latent_trajectory[1, 0])
     assert float(jnp.var(jnp.stack(missing_values))) > 0
+
+
+@pytest.mark.inference(concern="predictive")
+def test_exact_observations_pass_through_full_construct_diagnostics(exact_model):
+    from nof1_causal_lab.models.ssm.parameterization import assemble_deterministics_from_registry
+    from nof1_causal_lab.models.ssm.predictive.types import PredictiveDraws, PredictiveTrajectory
+    from nof1_causal_lab.models.ssm.simulation_checks import (
+        ConstructSimulationTarget,
+        DesignInfo,
+        measure_construct_simulation,
+    )
+    from tests.model_fixtures import parameter_draws
+
+    draws, ticks = 2, 6
+    parameters = parameter_draws(exact_model, draws)
+    parameters.update(assemble_deterministics_from_registry(parameters, exact_model, n_draws=draws))
+    paths = jnp.broadcast_to(jnp.linspace(-1.0, 1.0, ticks)[None, :, None], (draws, ticks, 2))
+    prediction = PredictiveDraws(
+        parameters=parameters,
+        likelihood_parameters={},
+        trajectory=PredictiveTrajectory(
+            paths, paths, paths, jnp.ones_like(paths, dtype=bool), paths
+        ),
+    )
+    target = exact_model.constructs[0]
+    indicator_id = target.indicators[0].id
+    results, _ = measure_construct_simulation(
+        exact_model,
+        prediction,
+        DesignInfo(
+            t_grid=jnp.arange(ticks, dtype=float),
+            manifest_ids=tuple(numeric.observation_ids(exact_model)),
+            obs_index_by_indicator={indicator_id: np.arange(ticks)},
+            values_by_indicator={indicator_id: np.asarray(paths[0, :, 0])},
+        ),
+        ConstructSimulationTarget(target),
+    )
+    transmission = next(result for result in results if result.check == "C5c transmission")
+    assert transmission.passed
+    assert transmission.evidence is not None
+    np.testing.assert_array_equal(transmission.evidence["conditional_variance"], 0.0)
+    np.testing.assert_array_equal(transmission.evidence["signal_fraction"], 1.0)

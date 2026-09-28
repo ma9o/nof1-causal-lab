@@ -3,11 +3,15 @@
 import os
 from pathlib import Path
 
-from nof1_causal_lab.machine.moves import RunOperation
-from nof1_causal_lab.machine.store import EpisodeJournal, ResumeRef, TransitionRecord
+import pytest
+
+from nof1_causal_lab.machine.history import StudyRepository
+from nof1_causal_lab.machine.store import ResumeRef, TransitionRecord
 from nof1_causal_lab.machine.sweep import sweep_workspace
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
+
+pytestmark = pytest.mark.contract
 
 
 def _workspace(monkeypatch, tmp_path) -> str:
@@ -21,13 +25,15 @@ def _run_file(workspace_id: str, run_id: str) -> str:
     return path
 
 
-def test_offline_run_collection_preserves_only_latest_resume_run(monkeypatch, tmp_path):
+def test_offline_run_collection_removes_completed_and_abandoned_runs(monkeypatch, tmp_path):
     workspace_id = _workspace(monkeypatch, tmp_path)
-    EpisodeJournal(workspace_id).append(
+    StudyRepository(workspace_id).append(
         TransitionRecord(
             seq=3,
             ts="2026-07-15T00:00:00Z",
-            move=RunOperation(operation_id="statistical_model_spec"),
+            action="edit_model",
+            operation_id="statistical_model_spec",
+            inputs={},
             status="raised",
             trace_ids=[],
             resume=ResumeRef(
@@ -43,10 +49,9 @@ def test_offline_run_collection_preserves_only_latest_resume_run(monkeypatch, tm
 
     result = sweep_workspace(workspace_id, now_seconds=1_000, collect_runs=True)
 
-    assert result.removed_runs == 2
-    assert result.protected_runs == ["seq-000003"]
+    assert result.removed_runs == 3
     assert not storage.exists(old_run)
-    assert storage.exists(resume_run)
+    assert not storage.exists(resume_run)
     assert not storage.exists(unjournaled_run)
 
 

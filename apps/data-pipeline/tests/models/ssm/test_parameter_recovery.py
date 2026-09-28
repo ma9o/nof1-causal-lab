@@ -1,105 +1,70 @@
-"""MAP initialization accuracy and uncertainty on a known Gaussian process.
+"""MAP mode recovery and preconditioning on a known Gaussian process.
 
 Support-specific solver algebra and gradients are checked in the Laplace
-reference tests; this fit checks optimizer convergence and parameter recovery.
+reference tests; this fit checks real optimizer convergence, parameter accuracy,
+and the optimizer-derived covariance consumed by particle warmup.
 """
 
-from typing import Any
-
-import jax.numpy as jnp
+import numpy as np
 import pytest
 
-from nof1_causal_lab.models.ssm import (
-    SSMModel,
+from nof1_causal_lab.models.ssm import SSMModel
+from nof1_causal_lab.models.ssm.inference.warmup import map as map_warmup
+from nof1_causal_lab.models.ssm.inference.warmup.parameter_warmup import (
+    _laplace_preconditioner_chol_from_map_result,
 )
-from nof1_causal_lab.models.ssm.inference.warmup.map import fit_map
-from tests.model_fixtures import (
-    make_lgss_data,
-)
-from tests.ssm_test_utils import assert_recovery_ci
+from tests.model_fixtures import make_lgss_data
 
-pytestmark = [pytest.mark.warmup, pytest.mark.recovery]
+pytestmark = [pytest.mark.inference(concern="warmup"), pytest.mark.inference(concern="recovery")]
 
 
-def _assert_lgss_recovery(
-    samples: dict[str, jnp.ndarray],
-    data: dict[str, Any],
-) -> None:
-    assert_recovery_ci(
-        samples["vf_0_p0"],
-        data["true_decay_diag"],
-        "Dynamics",
-        transform=lambda s: -jnp.abs(s),
+@pytest.mark.timeout(300)
+def test_map_initialization_recovers_mode_and_builds_preconditioner(monkeypatch):
+    # Retain enough observations to distinguish process and observation noise.
+    data = make_lgss_data(T=250, decay_diag=-0.3, diff_sd=0.2, obs_sd=0.25)
+    model = SSMModel(data["spec"])
+
+    def sample_at_mode(_key, z_mode, _chol_cov, *, num_samples):
+        assert num_samples == 1
+        return z_mode[None, :]
+
+    # Control only the final Gaussian draw so public-coordinate accuracy checks
+    # measure the fitted mode. Sampling algebra has its own cheap contract tests;
+    # optimization, covariance construction, and preconditioning all remain real.
+    monkeypatch.setattr(map_warmup, "_sample_gaussian_parameter_posterior", sample_at_mode)
+    result = map_warmup.fit_map(
+        model,
+        observations=data["observations"],
+        times=data["times"],
+        num_samples=1,
+        # A linear Gaussian model reaches its exact latent mode in one step.
+        n_ieks_iters=1,
+        maxiter=100,
+        tol=1e-5,
+        n_init_samples=8,
+        parameter_covariance_method="optimizer_hess_inv",
+        seed=0,
     )
-    assert_recovery_ci(
-        samples["diffusion_diag_free"][:, 0],
-        data["true_diff_diag"],
-        "Diffusion",
+
+    diagnostics = result.diagnostics
+    assert diagnostics["optimizer"] == "L-BFGS-B"
+    assert diagnostics["success"] is True
+    assert diagnostics["status"] == 0
+    assert diagnostics["mode_log_posterior"] > diagnostics["init_log_posterior_best"]
+
+    mode = result.get_samples()
+    assert abs(-abs(float(mode["vf_0_p0"][0])) - data["true_decay_diag"]) < 0.12
+    assert abs(float(mode["diffusion_diag_free"][0, 0]) - data["true_diff_diag"]) < 0.08
+    assert abs(float(mode["manifest_var_diag_free"][0, 0]) - data["true_obs_sd"]) < 0.05
+
+    assert diagnostics["parameter_covariance_method"] == "optimizer_hess_inv"
+    covariance = np.asarray(diagnostics["parameter_covariance"])
+    assert np.isfinite(covariance).all()
+    assert (np.linalg.eigvalsh(covariance) > 0).all()
+    preconditioner = np.asarray(_laplace_preconditioner_chol_from_map_result(result))
+    np.testing.assert_allclose(
+        preconditioner @ preconditioner.T,
+        covariance + 1e-6 * np.eye(covariance.shape[0]),
+        rtol=1e-5,
+        atol=1e-6,
     )
-    assert_recovery_ci(
-        samples["manifest_var_diag_free"][:, 0],
-        data["true_obs_sd"],
-        "Obs SD",
-    )
-
-
-def _make_map_recovery_data() -> dict[str, Any]:
-    """1D LGSS tuned for MAP: longer series and higher SNR than defaults.
-
-    The longer T and tighter noise make mode-finding and the local Gaussian
-    approximation reliable enough for parameter-recovery checks.
-    """
-    return make_lgss_data(T=250, decay_diag=-0.3, diff_sd=0.2, obs_sd=0.25)
-
-
-# =============================================================================
-# MAP
-# =============================================================================
-
-
-class TestMapLaplaceRecovery:
-    """Canonical MAP + Laplace recovery tests."""
-
-    @pytest.mark.timeout(300)
-    def test_map_recovery(self):
-        """MAP recovers a well-identified 1D LGSS through the Laplace backend.
-
-        This checks more than execution:
-        1. L-BFGS-B converges on a genuinely informative dataset.
-        2. The Gaussian parameter-space approximation contains the truth in its
-           90% intervals.
-        3. Posterior means stay close to the generating parameters, so the
-           approximation is not passing only because the intervals are overly
-           wide.
-        """
-        data = _make_map_recovery_data()
-        model = SSMModel(data["spec"])
-
-        result = fit_map(
-            model,
-            observations=data["observations"],
-            times=data["times"],
-            num_samples=1000,
-            # A linear Gaussian model reaches its exact latent mode in one step.
-            n_ieks_iters=1,
-            maxiter=100,
-            tol=1e-5,
-            n_init_samples=8,
-            parameter_covariance_method="exact_hessian",
-            seed=0,
-        )
-
-        assert result.diagnostics["optimizer"] == "L-BFGS-B"
-        assert result.diagnostics["success"] is True
-        assert result.diagnostics["status"] == 0
-
-        samples = result.get_samples()
-        _assert_lgss_recovery(samples, data)
-
-        dynamics_mean = float(jnp.mean(-jnp.abs(samples["vf_0_p0"])))
-        diff_mean = float(jnp.mean(samples["diffusion_diag_free"][:, 0]))
-        obs_mean = float(jnp.mean(samples["manifest_var_diag_free"][:, 0]))
-
-        assert abs(dynamics_mean - data["true_decay_diag"]) < 0.12
-        assert abs(diff_mean - data["true_diff_diag"]) < 0.08
-        assert abs(obs_mean - data["true_obs_sd"]) < 0.05

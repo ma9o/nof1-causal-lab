@@ -5,9 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel
-
-from nof1_causal_lab.artifacts.construct import CausalEdgeSpec
+from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
 from nof1_causal_lab.artifacts.expressions import (
     CoefficientExpression,
     expression_coefficients,
@@ -19,6 +17,8 @@ from nof1_causal_lab.artifacts.identity import (
     IndicatorRef,
     MechanismRef,
 )
+from nof1_causal_lab.artifacts.indicator import IndicatorSpec
+from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
 
 if TYPE_CHECKING:
@@ -123,29 +123,63 @@ def parameter_contexts(model: ModelSpec) -> dict[ParameterId, ParameterContext]:
     return {identity: ParameterContext(tuple(uses)) for identity, uses in grouped.items()}
 
 
-def referenced_parameter_ids(*components: BaseModel) -> frozenset[ParameterId]:
+def execution_coefficient_uses(model: ModelSpec) -> Iterator[CoefficientUse]:
+    """Exclude coefficients owned only by structure outside the numerical selection."""
+    states = set(model.state_order)
+    roots = {
+        edge.cause.id
+        for edge in model.edges
+        if edge.cause.id in model.marginalized_construct_ids and edge.effect.id in states
+    }
+    edges = {
+        edge.id
+        for edge in model.edges
+        if edge.cause.id in states | roots and edge.effect.id in states
+    }
+    active = {
+        "construct": states | roots,
+        "edge": edges,
+        "indicator": set(model.manifest_indicator_order),
+    }
+    for use in iter_coefficient_uses(model):
+        if all(owner.kind == "mechanism" or owner.id in active[owner.kind] for owner in use.owners):
+            yield use
+
+
+type CoefficientOwner = (
+    ConstructSpec | CausalEdgeSpec | IndicatorSpec | DynamicsMechanismSpec | CoefficientExpression
+)
+
+
+def _owned_coefficients(component: CoefficientOwner) -> Iterator[CoefficientExpression]:
+    if isinstance(component, CoefficientExpression):
+        yield component
+    elif isinstance(component, DynamicsMechanismSpec):
+        yield from expression_coefficients(component.expression)
+    elif isinstance(component, IndicatorSpec):
+        if component.likelihood is not None:
+            for argument in component.likelihood.law.arguments.values():
+                yield from expression_coefficients(argument)
+    else:
+        mechanisms = (
+            component.dynamics if isinstance(component, ConstructSpec) else component.mechanisms
+        )
+        for mechanism in mechanisms:
+            yield from expression_coefficients(mechanism.expression)
+        if isinstance(component, ConstructSpec):
+            yield from component.coefficients
+            for indicator in component.indicators:
+                yield from _owned_coefficients(indicator)
+
+
+def referenced_parameter_ids(*components: CoefficientOwner) -> frozenset[ParameterId]:
     """Follow coefficient references through owned components, without an execution plan."""
-    identities = set()
-
-    def visit(value: object) -> None:
-        if isinstance(value, CoefficientExpression):
-            if isinstance(value.value, str):
-                identities.add(value.value)
-        elif isinstance(value, CausalEdgeSpec):
-            visit(value.mechanisms)
-        elif isinstance(value, BaseModel):
-            for name in type(value).model_fields:
-                visit(getattr(value, name))
-        elif isinstance(value, dict):
-            for item in value.values():
-                visit(item)
-        elif isinstance(value, tuple):
-            for item in value:
-                visit(item)
-
-    for component in components:
-        visit(component)
-    return frozenset(identities)
+    return frozenset(
+        operand.value
+        for component in components
+        for operand in _owned_coefficients(component)
+        if isinstance(operand.value, str)
+    )
 
 
 def coefficient_value(model: ModelSpec, coefficient: float | ParameterId) -> float | None:
@@ -157,9 +191,13 @@ def coefficient_value(model: ModelSpec, coefficient: float | ParameterId) -> flo
 def baseline_factor_groups(model: ModelSpec):
     """A shared scale denotes one identifiable factor for marginalized baseline roots."""
     grouped = {}
+    retained_parents = {
+        edge.cause.id for edge in model.edges if edge.effect.id in model.state_order
+    }
     for construct in model.constructs:
         if (
             construct.indicators
+            or construct.id not in retained_parents
             or construct.temporal_status != "time_invariant"
             or construct.coefficient("initial_scale") is None
         ):

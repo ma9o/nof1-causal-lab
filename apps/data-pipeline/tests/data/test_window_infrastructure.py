@@ -12,6 +12,8 @@ import pytest
 from nof1_causal_lab.utils.data import bucket_by_clock
 from nof1_causal_lab.workers.windows import chunk_windows, format_window_chunk
 
+pytestmark = pytest.mark.contract
+
 # =============================================================================
 # bucket_by_clock
 # =============================================================================
@@ -119,11 +121,6 @@ class TestBucketByClock:
         df = pl.DataFrame(schema={"timestamp": pl.Datetime, "value": pl.Int64})
         ticks = bucket_by_clock(df, "1d", "timestamp")
         assert ticks == []
-
-    def test_tick_id_is_iso_format(self):
-        df = _make_events_df(["2024-06-15T14:30:00"])
-        ticks = bucket_by_clock(df, "1d", "timestamp")
-        assert ticks[0][0] == "2024-06-15T00:00:00"
 
     def test_no_tick_column_in_output(self):
         """The internal __tick__ column should not appear in output DataFrames."""
@@ -262,15 +259,3 @@ class TestFormatWindowChunk:
         text = format_window_chunk(chunk, "timestamp", ["col1", "col2"])
         assert "val1" in text
         assert "val2" in text
-
-    def test_none_values_excluded(self):
-        events = pl.DataFrame(
-            {
-                "timestamp": [datetime(2024, 1, 1, 8, 0)],
-                "action": [None],
-            }
-        )
-        chunk = [("2024-01-01", events)]
-        text = format_window_chunk(chunk, "timestamp", ["action"])
-        # Should still produce a support-window header
-        assert "## Window Start: 2024-01-01" in text

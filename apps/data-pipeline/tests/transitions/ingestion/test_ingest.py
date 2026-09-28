@@ -7,6 +7,8 @@ import pytest
 
 from nof1_causal_lab.flows.transitions.ingestion.tools import _safe_resolve
 
+pytestmark = pytest.mark.contract
+
 
 class TestSafeResolve:
     def test_normal_path(self, tmp_path):

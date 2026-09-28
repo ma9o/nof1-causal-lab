@@ -13,7 +13,7 @@ type ScientificInput = dict[str, Any]
 
 
 def graph_input(model: ModelSpec) -> ScientificInput:
-    """Directed assumptions consumed by temporal unrolling and identification."""
+    """Serialized directed assumptions used to fingerprint identification inputs."""
     return {
         "constructs": [
             item.model_dump(
@@ -84,7 +84,7 @@ def input_fingerprints(model: ModelSpec) -> dict[str, str]:
     from nof1_causal_lab.artifacts.identity import scientific_id
 
     values = {
-        "extraction": {"question": model.question, **observation_input(model)},
+        "observations": observation_input(model),
         "identification": identification_input(model),
         "compilation": compilation_input(model),
         "belief": model.model_dump(mode="json", exclude={"question"}),
