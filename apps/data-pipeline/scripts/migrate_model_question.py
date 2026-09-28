@@ -11,9 +11,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.machine.artifacts import ArtifactVersionInfo
 from nof1_causal_lab.machine.model_dependencies import MODEL_INPUTS
-from nof1_causal_lab.machine.store import TransitionRecord
 from nof1_causal_lab.models.model_inputs import input_fingerprints
 from nof1_causal_lab.utils.arrays import read_array
 
@@ -130,16 +128,14 @@ def fold_questions(workspace: Path) -> dict[str, int]:
             if revision in question_bases
             else convert_pins(old["derived_from"])
         )
-        converted["model", revision] = ArtifactVersionInfo.model_validate(
-            {
-                **old,
-                "artifact_id": "model",
-                "version": revision,
-                "derived_from": pins,
-                "model_inputs": input_fingerprints(model),
-                "consumed_model_inputs": {},
-            }
-        ).model_dump(mode="json")
+        converted["model", revision] = {
+            **old,
+            "artifact_id": "model",
+            "version": revision,
+            "derived_from": pins,
+            "model_inputs": input_fingerprints(model),
+            "consumed_model_inputs": {},
+        }
     for (aid, version), old in metadata.items():
         if aid in {"question", "model"}:
             continue
@@ -148,13 +144,11 @@ def fold_questions(workspace: Path) -> dict[str, int]:
         if "model" in pins and aid in MODEL_INPUTS:
             purpose = MODEL_INPUTS[aid]
             consumed[purpose] = converted["model", pins["model"]]["model_inputs"][purpose]
-        converted[aid, version] = ArtifactVersionInfo.model_validate(
-            {
-                **old,
-                "derived_from": pins,
-                "consumed_model_inputs": consumed,
-            }
-        ).model_dump(mode="json")
+        converted[aid, version] = {
+            **old,
+            "derived_from": pins,
+            "consumed_model_inputs": consumed,
+        }
 
     rewritten = {}
     for path, original in records:
@@ -177,7 +171,7 @@ def fold_questions(workspace: Path) -> dict[str, int]:
                 diagnostics["model_input"] = converted["model", version]["model_inputs"][
                     "extraction"
                 ]
-        rewritten[path] = TransitionRecord.model_validate(record).model_dump(mode="json")
+        rewritten[path] = record
 
     def write(path, value):
         path.parent.mkdir(parents=True, exist_ok=True)

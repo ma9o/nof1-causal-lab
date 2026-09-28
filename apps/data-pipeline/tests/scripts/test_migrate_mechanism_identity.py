@@ -2,9 +2,12 @@
 
 from copy import deepcopy
 
+import pytest
 from scripts.migrate_mechanism_identity import identify_mechanisms, remap_references
 
 from nof1_causal_lab.artifacts.identity import scientific_id
+
+pytestmark = pytest.mark.contract
 
 
 def test_anonymous_conversion_preserves_retained_numerical_inputs_and_outputs():

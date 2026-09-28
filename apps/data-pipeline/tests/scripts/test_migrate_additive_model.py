@@ -17,10 +17,13 @@ from scripts.migrate_additive_model import (
 from scripts.migrate_mechanism_identity import remap_references, retired_identity_map
 
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.machine.moves import is_stale
-from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal, replay_state
+from nof1_causal_lab.machine.execution import is_stale
+from nof1_causal_lab.machine.history import StudyRepository
+from nof1_causal_lab.machine.store import ArtifactStore, read_current_state
 from nof1_causal_lab.models.ssm import numerics as numeric
 from tests.helpers import complete_test_model, make_model
+
+pytestmark = pytest.mark.contract
 
 
 def _write(path, payload):
@@ -45,6 +48,7 @@ def _version(source, aid, version, filename, payload, pins):
 
 
 def _record(source, seq, operation, produced=(), retracted=(), status="applied", resume=None):
+    _write(source / "episode/traces" / f"{seq:06d}" / "original-trace.json", {"trace": "original"})
     _write(
         source / "episode/journal" / f"{seq:06d}.json",
         {
@@ -240,10 +244,13 @@ def historical(tmp_path):
 
 
 def _activate(monkeypatch, destination):
+    from scripts.migrate_study_history import migrate
+
     from nof1_causal_lab.utils import data as data_module
 
+    migrate(destination)
     monkeypatch.setattr(data_module, "_DATA_URI", str(destination.parent))
-    return ArtifactStore(destination.name), EpisodeJournal(destination.name)
+    return ArtifactStore(destination.name), StudyRepository(destination.name)
 
 
 def test_history_keeps_original_pins_failures_negative_findings_and_source_bytes(
@@ -253,7 +260,10 @@ def test_history_keeps_original_pins_failures_negative_findings_and_source_bytes
     before = {str(p.relative_to(source)): p.read_bytes() for p in source.rglob("*") if p.is_file()}
     manifest = migrate_workspace(source, destination)
     store, journal = _activate(monkeypatch, destination)
-    records = journal.read_all()
+    records = journal.attempts()
+    restored_info = next(
+        info for info in records[2].produced if info.artifact_id == "identification_report"
+    )
     assert [r.seq for r in records] == list(range(1, 9))
     assert records[3].diagnostics["workers"][0]["error"] == "Retained worker failure"
     assert (
@@ -268,15 +278,17 @@ def test_history_keeps_original_pins_failures_negative_findings_and_source_bytes
     restored = manifest["restored_identification_reports"]["1"]
     assert restored == 2  # The original positive report remains version 1.
     assert any(
-        i.artifact_id == "identification_report" and i.version == restored
+        i.artifact_id == "identification_report" and i.revision == restored_info.revision
         for i in records[2].produced
     )
-    negative = store.read_json_file("identification_report", restored, "identification_report.json")
+    negative = store.read_json_file(
+        "identification_report", restored_info.revision, "identification_report.json"
+    )
     assert next(iter(negative["treatments"].values()))["notes"] == "Original negative finding"
-    assert store.read_meta("panel", 5).derived_from == {
-        "model": manifest["model_revisions"]["measurement_structure/v1"]
+    assert records[3].produced[0].derived_from == {
+        "model": next(info.revision for info in records[2].produced if info.artifact_id == "model")
     }
-    assert is_stale(replay_state(journal.read_all()), "panel")
+    assert is_stale(read_current_state(journal.workspace_id), "panel")
     assert (destination / "store/panel/v5/table.parquet").read_bytes() == before[
         "store/panel/v5/table.parquet"
     ]
@@ -299,17 +311,19 @@ def test_retracting_details_restores_entities_and_removes_their_findings(histori
             for aid in ("measurement_structure", "causal_design", "identification_report")
         ],
     )
-    manifest = migrate_workspace(source, destination)
+    migrate_workspace(source, destination)
     store, journal = _activate(monkeypatch, destination)
-    state = replay_state(journal.read_all())
-    assert state.current["model"].version == manifest["model_revisions"]["latent_structure/v2"]
+    state = read_current_state(journal.workspace_id)
+    assert state.current["model"].revision == next(
+        info.revision for info in journal.read_attempt(7).produced if info.artifact_id == "model"
+    )
     assert not state.has("identification_report")
     model = ModelSpec.model_validate(
-        store.read_json_file("model", state.current["model"].version, "model.json")
+        store.read_json_file("model", state.current["model"].revision, "model.json")
     )
     assert model.constructs[0].name == "Renamed treatment"
     assert model.indicators == ()
-    assert len(journal.read_all()[-1].retracted) == 1
+    assert len(journal.attempts()[-1].retracted) == 1
 
 
 def test_conflicting_historical_pins_fail_without_leaving_a_destination(historical):

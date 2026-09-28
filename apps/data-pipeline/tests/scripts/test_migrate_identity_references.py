@@ -1,11 +1,13 @@
 """Reference conversion preserves scientific identities and historical source pins."""
 
+import pytest
 from scripts.migrate_identity_references import convert_payload
 
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.artifacts.scenarios import ScenarioRequest
 from nof1_causal_lab.artifacts.validation_report import ValidationIssue
 from tests.helpers import make_model
+
+pytestmark = pytest.mark.contract
 
 
 def test_conversion_preserves_versions_sources_and_shared_endpoints():
@@ -44,8 +46,10 @@ def test_conversion_preserves_versions_sources_and_shared_endpoints():
     restored = ModelSpec.model_validate(converted["model"]["value"])
     assert restored.default_outcome == outcome
     assert restored.edges[0].effect is restored.edges[1].cause
-    request = ScenarioRequest.model_validate(converted["request"])
-    assert request.outcome == request.clamps[0].target == outcome
+    assert converted["request"] == {
+        "outcome": outcome,
+        "clamps": [{"target": outcome, "mode": "shift", "amount": 1}],
+    }
     assert convert_payload(converted) == converted
 
 

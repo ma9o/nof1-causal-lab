@@ -8,6 +8,8 @@ from scripts.migrate_connected_graph import connect_endpoints
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from tests.helpers import make_model
 
+pytestmark = pytest.mark.contract
+
 
 def _catalogue():
     model = make_model(["A", "B", "Y"], [("A", "Y"), ("B", "Y")])

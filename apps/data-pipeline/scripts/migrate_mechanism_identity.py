@@ -5,8 +5,9 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
+from notebooks.model_mechanisms import default_mechanism_id
+
 from nof1_causal_lab.artifacts.identity import MechanismRef, scientific_id
-from nof1_causal_lab.models.model_mechanisms import default_mechanism_id
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.model_spec import ModelSpec

@@ -40,8 +40,10 @@
     "docs:spell:check": "cspell --config cspell.config.json --no-progress --show-suggestions \"README.md\" \"docs/**/*.md\"",
 
     "fixture:promote": "bun scripts/promote-data-to-fixture.ts",
-    "fixture:demo": "PYTHONHASHSEED=0 uv run --project apps/data-pipeline python apps/data-pipeline/scripts/generate_demo_fixture_completion.py",
+    "fixture:demo": "PYTHONHASHSEED=0 uv run --directory apps/data-pipeline python -m scripts.generate_demo_fixture_completion",
     "fixture:demo:check": "bun run fixture:demo --check",
+    "fixture:workbench": "uv run --project apps/data-pipeline python apps/data-pipeline/scripts/generate_workbench_comparisons.py",
+    "fixture:workbench:check": "bun run fixture:workbench --check",
 
     "prepare": "git config core.hooksPath .githooks"
   },

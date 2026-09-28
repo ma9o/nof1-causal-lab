@@ -8,8 +8,9 @@ from copy import deepcopy
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from notebooks.parameter_planning import complete_component_slots
+
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.models.parameter_planning import complete_component_slots
 
 if TYPE_CHECKING:
     from nof1_causal_lab.json_types import JsonObject

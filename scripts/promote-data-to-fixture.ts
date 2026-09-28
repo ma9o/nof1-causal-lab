@@ -1,17 +1,7 @@
 #!/usr/bin/env bun
 
 import { randomUUID } from "node:crypto";
-import {
-  access,
-  cp,
-  mkdir,
-  mkdtemp,
-  readdir,
-  readFile,
-  rename,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { access, cp, mkdir, mkdtemp, rename, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -29,54 +19,13 @@ const DURABLE_ENTRIES = [
   "store",
 ] as const;
 
-const COMPLETE_ARTIFACTS = [
-  "raw_data",
-  "model",
-  "identification_report",
-  "panel",
-  "validation_report",
-] as const;
-
-const ARTIFACT_PROJECTIONS = {
-  model: "model.json",
-  identification_report: "identification_report.json",
-  validation_report: "validation_report.json",
-} as const;
-
-const TRACE_PROJECTIONS = {
-  raw_data: /^raw-data$/,
-  latent_structure: /^latent-structure$/,
-  measurement_structure: /^measurement-structure$/,
-  measurements: /^measurement-chunk-/,
-  statistical_model_spec: /^model-spec-/,
-} as const;
-
-type ProjectedArtifactId = keyof typeof ARTIFACT_PROJECTIONS;
-type ProjectedTraceId = keyof typeof TRACE_PROJECTIONS;
-
-interface ArtifactVersionInfo {
-  artifact_id: string;
-  version: number;
-  derived_from?: Record<string, number>;
-  model_inputs?: Record<string, string>;
-  consumed_model_inputs?: Record<string, string>;
-  produced_by?: string;
-}
-
-interface TransitionRecord {
-  move: { kind: string; operation_id?: string };
-  seq: number;
-  status: string;
-  produced?: ArtifactVersionInfo[];
-  retracted?: Array<{ artifact_id: string }>;
-  trace_ids?: string[];
-  diagnostics: Record<string, unknown>;
-}
-
-interface CurrentArtifact {
-  info: ArtifactVersionInfo;
-  record: TransitionRecord;
-}
+type ProjectedArtifactId = "model" | "identification_report" | "validation_report";
+type ProjectedTraceId =
+  | "raw_data"
+  | "latent_structure"
+  | "measurement_structure"
+  | "measurements"
+  | "statistical_model_spec";
 
 interface PromotionOptions {
   sourceWorkspaceId: string;
@@ -106,127 +55,30 @@ function assertWorkspaceId(value: string, label: string): void {
   }
 }
 
-async function readJournal(workspaceRoot: string): Promise<TransitionRecord[]> {
-  const journalRoot = join(workspaceRoot, "episode", "journal");
-  if (!(await exists(journalRoot))) {
-    throw new Error(`Source workspace has no episode journal: ${journalRoot}`);
-  }
-
-  const filenames = (await readdir(journalRoot))
-    .filter((filename) => /^\d{6}\.json$/.test(filename))
-    .sort();
-  if (filenames.length === 0) {
-    throw new Error(`Source workspace has an empty episode journal: ${journalRoot}`);
-  }
-
-  return Promise.all(
-    filenames.map(async (filename) => {
-      const raw = await readFile(join(journalRoot, filename), "utf8");
-      const record = JSON.parse(raw) as TransitionRecord;
-      if (!Number.isInteger(record.seq) || record.seq < 1) {
-        throw new Error(`Invalid transition sequence in ${join(journalRoot, filename)}.`);
-      }
-      return record;
-    }),
+async function projectStudy(
+  sourceRoot: string,
+  stagingRoot?: string,
+): Promise<Pick<PromotionSummary, "artifacts" | "traces">> {
+  const process = Bun.spawn(
+    [
+      "uv",
+      "run",
+      "--project",
+      join(repoRoot, "apps/data-pipeline"),
+      "python",
+      join(repoRoot, "apps/data-pipeline/scripts/project_study_fixture.py"),
+      sourceRoot,
+      ...(stagingRoot ? [stagingRoot] : []),
+    ],
+    { stdout: "pipe", stderr: "pipe" },
   );
-}
-
-function replayCurrentArtifacts(records: TransitionRecord[]): Map<string, CurrentArtifact> {
-  const current = new Map<string, CurrentArtifact>();
-
-  for (const record of records) {
-    if (record.status !== "applied") continue;
-
-    for (const info of record.produced ?? []) {
-      current.set(info.artifact_id, { info, record });
-    }
-    for (const retraction of record.retracted ?? []) {
-      current.delete(retraction.artifact_id);
-    }
-  }
-
-  return current;
-}
-
-function isStale(
-  artifactId: string,
-  current: Map<string, CurrentArtifact>,
-  visiting = new Set<string>(),
-): boolean {
-  const artifact = current.get(artifactId);
-  if (artifactId === "model" || !artifact || visiting.has(artifactId)) return false;
-
-  const nextVisiting = new Set(visiting).add(artifactId);
-  for (const [inputId, pinnedVersion] of Object.entries(artifact.info.derived_from ?? {})) {
-    const input = current.get(inputId);
-    if (!input) return true;
-    const consumed = Object.entries(artifact.info.consumed_model_inputs ?? {});
-    const sameModelInputs =
-      inputId === "model" &&
-      consumed.length > 0 &&
-      consumed.every(
-        ([purpose, fingerprint]) => input.info.model_inputs?.[purpose] === fingerprint,
-      );
-    if (input.info.version !== pinnedVersion && !sameModelInputs) return true;
-    if (inputId !== "model" && isStale(inputId, current, nextVisiting)) return true;
-  }
-  return false;
-}
-
-async function validateCompleteWorkspace(
-  workspaceRoot: string,
-): Promise<Map<string, CurrentArtifact>> {
-  for (const requiredEntry of ["episode", "input", "store"] as const) {
-    const path = join(workspaceRoot, requiredEntry);
-    if (!(await exists(path))) {
-      throw new Error(`Source workspace is missing required durable entry: ${path}`);
-    }
-  }
-
-  const current = replayCurrentArtifacts(await readJournal(workspaceRoot));
-  const missing = COMPLETE_ARTIFACTS.filter((artifactId) => !current.has(artifactId));
-  if (missing.length > 0) {
-    throw new Error(
-      `Source workspace is incomplete; missing current artifacts: ${missing.join(", ")}.`,
-    );
-  }
-
-  const stale = COMPLETE_ARTIFACTS.filter((artifactId) => isStale(artifactId, current));
-  if (stale.length > 0) {
-    throw new Error(`Source workspace has stale current artifacts: ${stale.join(", ")}.`);
-  }
-
-  const model = current.get("model") as CurrentArtifact;
-  if (
-    model.info.produced_by !== "run:posterior" ||
-    model.record.move.operation_id !== "posterior"
-  ) {
-    throw new Error("Source workspace has no completed inference for its current model.");
-  }
-  if (model.info.derived_from?.panel !== current.get("panel")!.info.version) {
-    throw new Error("Source workspace inference has stale panel inputs.");
-  }
-
-  for (const artifactId of COMPLETE_ARTIFACTS) {
-    const artifact = current.get(artifactId) as CurrentArtifact;
-    const metaPath = join(
-      workspaceRoot,
-      "store",
-      artifactId,
-      `v${artifact.info.version}`,
-      "meta.json",
-    );
-    if (!(await exists(metaPath))) {
-      throw new Error(`Current artifact ${artifactId} is missing its metadata file: ${metaPath}`);
-    }
-
-    const meta = JSON.parse(await readFile(metaPath, "utf8")) as ArtifactVersionInfo;
-    if (meta.artifact_id !== artifactId || meta.version !== artifact.info.version) {
-      throw new Error(`Artifact metadata does not match the episode journal: ${metaPath}`);
-    }
-  }
-
-  return current;
+  const [output, error, code] = await Promise.all([
+    new Response(process.stdout).text(),
+    new Response(process.stderr).text(),
+    process.exited,
+  ]);
+  if (code !== 0) throw new Error(error);
+  return JSON.parse(output);
 }
 
 async function copyDurableWorkspace(sourceRoot: string, stagingRoot: string): Promise<void> {
@@ -235,76 +87,6 @@ async function copyDurableWorkspace(sourceRoot: string, stagingRoot: string): Pr
     if (!(await exists(source))) continue;
     await cp(source, join(stagingRoot, entry), { recursive: true });
   }
-}
-
-async function copyArtifactProjections(
-  sourceRoot: string,
-  stagingRoot: string,
-  current: Map<string, CurrentArtifact>,
-): Promise<ProjectedArtifactId[]> {
-  const destinationRoot = join(stagingRoot, "fixture", "artifacts");
-  await mkdir(destinationRoot, { recursive: true });
-
-  const copied: ProjectedArtifactId[] = [];
-  for (const [artifactId, filename] of Object.entries(ARTIFACT_PROJECTIONS) as Array<
-    [ProjectedArtifactId, string]
-  >) {
-    const artifact = current.get(artifactId) as CurrentArtifact;
-    const source = join(sourceRoot, "store", artifactId, `v${artifact.info.version}`, filename);
-    if (!(await exists(source))) {
-      throw new Error(
-        `Current artifact ${artifactId} is missing its projected JSON file: ${source}`,
-      );
-    }
-    await cp(source, join(destinationRoot, `${artifactId}.json`));
-    copied.push(artifactId);
-  }
-  return copied;
-}
-
-async function copyTraceProjections(
-  sourceRoot: string,
-  stagingRoot: string,
-  records: TransitionRecord[],
-): Promise<ProjectedTraceId[]> {
-  const destinationRoot = join(stagingRoot, "fixture", "traces");
-  await mkdir(destinationRoot, { recursive: true });
-
-  const copied: ProjectedTraceId[] = [];
-  for (const [artifactId, tracePattern] of Object.entries(TRACE_PROJECTIONS) as Array<
-    [ProjectedTraceId, RegExp]
-  >) {
-    const record = records.findLast(
-      (entry) =>
-        entry.status === "applied" &&
-        entry.move.kind === "run" &&
-        entry.move.operation_id === artifactId,
-    );
-    if (!record) throw new Error(`No applied ${artifactId} operation in source history.`);
-    const matchingTraceIds = (record.trace_ids ?? []).filter((traceId) =>
-      tracePattern.test(traceId),
-    );
-    if (matchingTraceIds.length === 0) {
-      throw new Error(
-        `Current ${artifactId} transition has no trace matching ${tracePattern}: seq ${record.seq}.`,
-      );
-    }
-
-    const traceId = matchingTraceIds.sort()[0];
-    const source = join(
-      sourceRoot,
-      "episode",
-      "traces",
-      String(record.seq).padStart(6, "0"),
-      `${traceId}.json`,
-    );
-    if (!(await exists(source))) {
-      throw new Error(`Current ${artifactId} trace is missing: ${source}`);
-    }
-    await cp(source, join(destinationRoot, `${artifactId}.json`));
-    copied.push(artifactId);
-  }
-  return copied;
 }
 
 async function replaceFixture(stagingRoot: string, fixtureRoot: string): Promise<void> {
@@ -339,31 +121,13 @@ export async function promoteDataWorkspace({
     throw new Error(`Source workspace does not exist: ${sourceRoot}`);
   }
 
-  const current = await validateCompleteWorkspace(sourceRoot);
+  await projectStudy(sourceRoot);
   await mkdir(dataRoot, { recursive: true });
   const stagingRoot = await mkdtemp(join(dataRoot, `.${fixtureWorkspaceId}-promotion-`));
 
   try {
     await copyDurableWorkspace(sourceRoot, stagingRoot);
-    const artifacts = await copyArtifactProjections(sourceRoot, stagingRoot, current);
-    const records = await readJournal(sourceRoot);
-    const traces = await copyTraceProjections(sourceRoot, stagingRoot, records);
-    for (const [operation, filename] of [
-      ["statistical_model_spec", "model_authoring.json"],
-      ["posterior", "inference.json"],
-    ]) {
-      const record = records.findLast(
-        (entry) =>
-          entry.status === "applied" &&
-          entry.move.kind === "run" &&
-          entry.move.operation_id === operation,
-      );
-      if (!record) throw new Error(`No applied ${operation} operation in source history.`);
-      await writeFile(
-        join(stagingRoot, "fixture", filename),
-        JSON.stringify(record.diagnostics, null, 2) + "\n",
-      );
-    }
+    const { artifacts, traces } = await projectStudy(sourceRoot, stagingRoot);
     await replaceFixture(stagingRoot, fixtureRoot);
     return { source: sourceRoot, destination: fixtureRoot, artifacts, traces };
   } finally {

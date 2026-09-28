@@ -1,30 +1,10 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promoteDataWorkspace } from "./promote-data-to-fixture";
 
-const ARTIFACTS = [
-  "raw_data",
-  "model",
-  "identification_report",
-  "panel",
-  "validation_report",
-] as const;
-
-const PAYLOADS = {
-  model: "model.json",
-  identification_report: "identification_report.json",
-  validation_report: "validation_report.json",
-} as const;
-
-const TRACE_IDS = {
-  raw_data: "raw-data",
-  latent_structure: "latent-structure",
-  measurement_structure: "measurement-structure",
-  measurements: "measurement-chunk-000000-attempt-001",
-  statistical_model_spec: "model-spec-sleep-attempt-001",
-} as const;
+setDefaultTimeout(30_000);
 
 const temporaryRoots: string[] = [];
 
@@ -47,98 +27,22 @@ async function seedCompleteWorkspace(
   workspaceId: string,
   options: { omit?: string; staleValidation?: boolean } = {},
 ): Promise<void> {
-  const workspaceRoot = join(dataRoot, workspaceId);
-  await mkdir(join(workspaceRoot, "input"), { recursive: true });
-  await writeFile(join(workspaceRoot, "input", "bundle.zip"), "fixture input");
-  await writeJson(join(workspaceRoot, "access.json"), { version: 1 });
-  await writeJson(join(workspaceRoot, "scratch", "discard.json"), { discard: true });
-  await writeJson(join(workspaceRoot, "cache", "discard.json"), { discard: true });
-
-  for (const [index, operation] of [
-    "latent_structure",
-    "measurement_structure",
-    "measurements",
-    "statistical_model_spec",
-  ].entries()) {
-    const seq = 101 + index;
-    const traceId = TRACE_IDS[operation as keyof typeof TRACE_IDS];
-    await writeJson(
-      join(workspaceRoot, "episode", "traces", String(seq).padStart(6, "0"), `${traceId}.json`),
-      { artifact: operation, trace: traceId },
-    );
-    await writeJson(
-      join(workspaceRoot, "episode", "journal", `${String(seq).padStart(6, "0")}.json`),
-      {
-        seq,
-        status: "applied",
-        move: { kind: "run", operation_id: operation },
-        produced: [],
-        retracted: [],
-        trace_ids: [traceId],
-        diagnostics:
-          operation === "statistical_model_spec"
-            ? {
-                search_queries: { "parameter:test": "prior study" },
-                validation_diagnostics: [],
-                prior_predictive: { samples: { "indicator:test": [0.5] }, diagnostics: [] },
-              }
-            : {},
-      },
-    );
-  }
-
-  for (const [index, artifactId] of ARTIFACTS.entries()) {
-    if (artifactId === options.omit) continue;
-
-    const seq = index + 1;
-    const version = 2;
-    const derivedFrom =
-      artifactId === "validation_report" && options.staleValidation
-        ? { model: 1 }
-        : artifactId === "model"
-          ? { panel: 2 }
-          : {};
-    const info = {
-      artifact_id: artifactId,
-      version,
-      provenance: "computed",
-      derived_from: derivedFrom,
-      produced_by: artifactId === "model" ? "run:posterior" : `run:${artifactId}`,
-      created_at: "2026-08-07T00:00:00Z",
-    };
-    const versionRoot = join(workspaceRoot, "store", artifactId, `v${version}`);
-    await writeJson(join(versionRoot, "meta.json"), info);
-
-    if (artifactId in PAYLOADS) {
-      const filename = PAYLOADS[artifactId as keyof typeof PAYLOADS];
-      await writeJson(join(versionRoot, filename), { artifact: artifactId, version });
-    }
-    if (artifactId === "raw_data") {
-      await writeFile(join(versionRoot, "raw.parquet"), "fixture parquet bytes");
-    }
-
-    const traceId = TRACE_IDS[artifactId as keyof typeof TRACE_IDS];
-    if (traceId) {
-      await writeJson(
-        join(workspaceRoot, "episode", "traces", String(seq).padStart(6, "0"), `${traceId}.json`),
-        { artifact: artifactId, trace: traceId },
-      );
-    }
-
-    await writeJson(
-      join(workspaceRoot, "episode", "journal", `${String(seq).padStart(6, "0")}.json`),
-      {
-        seq,
-        status: "applied",
-        move: { kind: "run", operation_id: artifactId === "model" ? "posterior" : artifactId },
-        produced: [info],
-        retracted: [],
-        trace_ids: traceId ? [traceId] : [],
-        diagnostics:
-          artifactId === "model" ? { report: { inference_metadata: { method: "test" } } } : {},
-      },
-    );
-  }
+  const process = Bun.spawn(
+    [
+      "uv",
+      "run",
+      "--project",
+      "apps/data-pipeline",
+      "python",
+      "apps/data-pipeline/tests/scripts/promotion_fixture.py",
+      dataRoot,
+      workspaceId,
+      JSON.stringify(options),
+    ],
+    { stdout: "pipe", stderr: "pipe" },
+  );
+  const error = await new Response(process.stderr).text();
+  if ((await process.exited) !== 0) throw new Error(error);
 }
 
 afterEach(async () => {
@@ -165,9 +69,23 @@ describe("promoteDataWorkspace", () => {
     });
 
     expect(summary.artifacts).toHaveLength(3);
-    expect(
-      await readFile(join(dataRoot, "DEMO", "store", "raw_data", "v2", "raw.parquet"), "utf8"),
-    ).toBe("fixture parquet bytes");
+    expect(await pathExists(join(dataRoot, "DEMO", "episode", "history.git"))).toBe(true);
+    const restoredHistory = join(root, "restored.git");
+    const restore = Bun.spawnSync([
+      "git",
+      "clone",
+      "--mirror",
+      join(dataRoot, "DEMO", "episode", "history.bundle"),
+      restoredHistory,
+    ]);
+    expect(restore.exitCode).toBe(0);
+    const refs = (repository: string) => {
+      const result = Bun.spawnSync(["git", "--git-dir", repository, "show-ref"]);
+      expect(result.exitCode).toBe(0);
+      return result.stdout.toString();
+    };
+    expect(refs(restoredHistory)).toBe(refs(join(dataRoot, "DEMO", "episode", "history.git")));
+    expect((await readdir(join(dataRoot, "DEMO", "store", "blobs"))).length).toBeGreaterThan(0);
     expect(await pathExists(join(dataRoot, "DEMO", "fixture", "artifacts", "raw_data.json"))).toBe(
       false,
     );
@@ -190,9 +108,7 @@ describe("promoteDataWorkspace", () => {
         ),
       ),
     ).toEqual({ artifact: "statistical_model_spec", trace: "model-spec-sleep-attempt-001" });
-    expect(await pathExists(join(dataRoot, "DEMO", "store", "model", "v2", "meta.json"))).toBe(
-      true,
-    );
+    expect(await pathExists(join(dataRoot, "DEMO", "store", "model"))).toBe(false);
     expect(
       await pathExists(join(dataRoot, "DEMO", "fixture", "artifacts", "artificial.json")),
     ).toBe(false);

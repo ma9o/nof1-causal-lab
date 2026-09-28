@@ -12,7 +12,6 @@ import json
 import shutil
 from pathlib import Path
 from tempfile import TemporaryDirectory
-
 from typing import TypedDict
 
 

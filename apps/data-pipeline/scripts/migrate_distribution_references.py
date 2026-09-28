@@ -35,16 +35,19 @@ def convert_distribution_references(payload: InlineLawModelPayload) -> InlineLaw
     if constructs:
         from nof1_causal_lab.artifacts.identity import ConstructId
         from nof1_causal_lab.artifacts.model_spec import ModelSpec
-        from nof1_causal_lab.models.model_distributions import joint_distribution_id
+        from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
 
         trajectory_laws = {
             identity: construct.pop("distribution") for identity, construct in constructs.items()
         }
         model = ModelSpec.model_validate(converted)
         for identity, law in trajectory_laws.items():
-            reference = joint_distribution_id(
-                model, (), (ConstructId(identity),), model.time_points
-            )
+            reference = JointLawLayout.from_bindings(
+                (),
+                parameters=(),
+                constructs=(ConstructId(identity),),
+                time_points=model.time_points,
+            ).distribution_id
             if reference in laws:
                 raise ValueError(f"Inline law conflicts with existing distribution {reference}")
             laws[reference] = law

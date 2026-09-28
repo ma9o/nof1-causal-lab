@@ -113,7 +113,6 @@ def migrate_fitted(
     import jax.numpy as jnp
     import numpy as np
 
-    from nof1_causal_lab.artifacts.identity import ModelRevision
     from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
     from nof1_causal_lab.models.ssm.inference.persistence import condition_model
     from nof1_causal_lab.models.ssm.inference.types import (
@@ -140,7 +139,7 @@ def migrate_fitted(
         @override
         def find_class(self, module, name):
             if (module, name) == ("nof1_causal_lab.artifacts.identity", "CausalDesignRef"):
-                return ModelRevision
+                return RetiredRecord
             if (module, name) in retired_types:
                 return RetiredRecord
             return super().find_class(module, name)
@@ -197,7 +196,6 @@ def migrate_workspace(source: Path, destination: Path) -> RetiredPayload:
     from nof1_causal_lab.artifacts.posterior import InferenceReport
     from nof1_causal_lab.artifacts.prior_predictive import PriorPredictiveResult
     from nof1_causal_lab.machine.artifact_files import artifact_file_spec
-    from nof1_causal_lab.machine.artifacts import ArtifactVersionInfo
     from nof1_causal_lab.machine.model_dependencies import MODEL_INPUTS
     from nof1_causal_lab.models.model_inputs import input_fingerprints
 
@@ -536,18 +534,16 @@ def migrate_workspace(source: Path, destination: Path) -> RetiredPayload:
                 continue
             next_report += 1
             revision = ensure_model(aid, version)
-            info = ArtifactVersionInfo.model_validate(
-                {
-                    **old,
-                    "artifact_id": "identification_report",
-                    "version": next_report,
-                    "derived_from": {"model": revision},
-                    "model_inputs": {},
-                    "consumed_model_inputs": {
-                        "identification": model_info[revision]["model_inputs"]["identification"]
-                    },
-                }
-            ).model_dump(mode="json")
+            info = {
+                **old,
+                "artifact_id": "identification_report",
+                "version": next_report,
+                "derived_from": {"model": revision},
+                "model_inputs": {},
+                "consumed_model_inputs": {
+                    "identification": model_info[revision]["model_inputs"]["identification"]
+                },
+            }
             additional_reports[version] = info
             directory = target / "store/identification_report" / f"v{next_report}"
             write(directory / "identification_report.json", identification_report(version))

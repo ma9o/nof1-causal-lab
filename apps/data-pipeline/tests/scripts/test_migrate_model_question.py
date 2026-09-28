@@ -2,12 +2,17 @@
 
 import json
 
+import pytest
 from scripts.migrate_model_question import fold_questions
 
-from nof1_causal_lab.machine.moves import WriteArtifact, is_stale
+from nof1_causal_lab.machine.execution import is_stale
+from nof1_causal_lab.machine.history import StudyRepository
 from nof1_causal_lab.machine.snapshots import ModelReader
-from nof1_causal_lab.machine.store import EpisodeJournal, derive_current_state
+from nof1_causal_lab.machine.store import read_current_state
+from tests.git_fixtures import artifact_revision, commit_id
 from tests.helpers import make_model
+
+pytestmark = pytest.mark.contract
 
 
 def test_question_edits_preserve_model_history_and_extraction_context(tmp_path, monkeypatch):
@@ -58,21 +63,28 @@ def test_question_edits_preserve_model_history_and_extraction_context(tmp_path, 
             )
         )
 
+    from scripts.migrate_study_history import migrate
+
     revisions = fold_questions(workspace)
+    migrate(workspace)
     assert revisions == {"question/v1": 1, "model/v1": 2, "question/v2": 3, "model/v2": 4}
     assert not (workspace / "store/question").exists()
-    initial = ModelReader("QUESTIONS", at_seq=1).model
+    initial = ModelReader("QUESTIONS", at=commit_id("QUESTIONS", 1)).model
     assert initial is not None
     assert initial.question == "Does X change Y?"
     assert initial.edges == ()
     for seq in (2, 4, 5):
-        model = ModelReader("QUESTIONS", at_seq=seq).model
+        model = ModelReader("QUESTIONS", at=commit_id("QUESTIONS", seq)).model
         assert model is not None
         assert model.model_dump(mode="json", exclude={"question"}) == original
         assert model.question == ("Does X change Y?" if seq == 2 else "How does X change Y?")
-    records = EpisodeJournal("QUESTIONS").read_all()
-    assert records[-1].produced[0].derived_from == {"model": 3}
-    assert isinstance(records[-1].move, WriteArtifact)
-    assert records[-1].move.expected_model_version == 3
-    assert records[2].produced[0].derived_from == {"model": 2}
-    assert is_stale(derive_current_state("QUESTIONS"), "panel")
+    records = StudyRepository("QUESTIONS").attempts()
+    assert records[-1].produced[0].derived_from == {
+        "model": artifact_revision("QUESTIONS", "model", 3)
+    }
+    assert records[-1].action == "edit_model"
+    assert records[-1].inputs["expected_revision"] == artifact_revision("QUESTIONS", "model", 3)
+    assert records[2].produced[0].derived_from == {
+        "model": artifact_revision("QUESTIONS", "model", 2)
+    }
+    assert is_stale(read_current_state("QUESTIONS"), "panel")

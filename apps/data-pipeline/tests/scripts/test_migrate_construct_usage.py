@@ -6,6 +6,8 @@ from scripts.migrate_construct_usage import convert_construct_usage
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from tests.helpers import graph_constructs, make_model
 
+pytestmark = pytest.mark.contract
+
 
 def test_usage_migration_requires_scientific_revisions_without_mutating_source():
     model = make_model(["X", "Y"], [("X", "Y")])
