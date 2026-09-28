@@ -1,167 +1,23 @@
-# LLM-Driven Model-Spec Specification
+# Agent-driven model specification
 
-This page defines the exact LLM-facing control semantics of the [`statistical_model_spec` transition](../../pipeline/statistical-model-spec.md). For the reducer and recovery overview, see the [construct-admission state machine](state-machine.md). For allowed observation models, see [likelihoods](likelihoods.md). For parameter roles and prior families, see [parameters and priors](parameters.md). The parameter surface offered to the LLM is shaped by the [identification anchor invariant](identification.md): latent-side location parameters and loadings that would ride an exact likelihood ridge are never surfaced, and the compiler audits the invariant on every submission.
+The external agent authors complete or partial [`ModelSpec`](../../pipeline/latent-structure.md#modelspec) values through [`edit_model`](../scientific-actions.md). Read the current model and its immutable revision, edit the relevant scientific definitions, and submit the whole candidate with `expected_revision`. Structure, measurements, mechanisms and laws can change in any order consistent with schema integrity.
 
-## Entry Conditions
+## Authoring cycle
 
-These controls belong to the optional authoring recipe. Direct [scientific actions](../scientific-actions.md) can edit all model choices together and have their own input contracts. The recipe consumes exact current versions of these artifacts.
+1. Read the selected model, data profile and existing findings.
+2. Revise the relevant definitions and their referenced parameters or laws together.
+3. Submit `edit_model` and poll its attempt until complete.
+4. Read typed specification, identification, compatibility and predictive findings from the result body.
+5. Decide whether to revise the model, prepare data, fit or request an explicit simulation design.
 
-| Input | Role |
-|---|---|
-| `model.question` | Research context from the pinned [ModelSpec](../../pipeline/latent-structure.md#modelspec), used for prior reasoning |
-| `model` | Retained constructs, indicators, edges, confounders, and model clock |
-| `identification_report` | Identification findings already derived from the causal design |
-| `panel` | Encoded longitudinal observations used by admission checks |
-| `validation_report` | Indicator empirical profiles and data-quality findings |
+The backend performs [conditional checks](state-machine.md) without prompting an internal authoring agent. It does not request a construct submission, rationale accepting a soft failure, or repair attempt. Valid incomplete and scientifically problematic candidates remain editable. Invalid schemas and stale expected revisions reject the write.
 
-The selected versions are recorded as input pins in every checkpoint and in the final artifact provenance.
+## Scientific responsibilities
 
-## Deterministic Planning
+Choose [likelihoods](likelihoods.md) consistent with observed support and recording semantics. Preserve the [identification anchor invariant](identification.md), assign laws on the correct [parameter scales](parameters.md), and use stable scientific identities for references. Graph assumptions include explicit latent confounders. Numeric causal claims still require identification and committed production inference evidence.
 
-Before the first LLM turn, code:
+Automatic predictive checks use one exact batch of the current whole model when a compatible panel is available. Read its design and law provenance before interpreting findings: fitted-law comparisons on the fitting panel are in-sample posterior predictive checks. Request additional simulation designs or edge-knockout experiments explicitly. Fitting remains an explicit action.
 
-1. proposes concrete components and derives prompt rows from their parameter references;
-2. condenses estimation-graph strongly connected components into a deterministic admission DAG;
-3. follows component references to determine each construct's parameter and indicator context;
-4. detects cycle-closing edge parameters that must be authored with the closing construct; and
-5. creates or resumes an immutable checkpoint lineage.
+## Logging and history
 
-The LLM preserves constructs, indicators, and causal edges. It may change supported statistical components and declare the parameters referenced by their coefficient slots; parameter names are labels. The assembled ModelSpec validates the references and rejects unused definitions.
-
-## One Construct per Concurrent LLM Subroutine
-
-Every ready singleton unit opens a fresh LLM subroutine concurrently. Feedback-component members open one at a time in retained-state order. Each attempt still contains exactly one user message for one construct. The prompt contains:
-
-| Prompt section | Content |
-|---|---|
-| Active construct | Construct identity, causal parents, and position in its admission unit |
-| Indicators | Allowed families and links plus empirical profiles |
-| Component proposal | Canonical components and referenced parameter definitions to complete or revise |
-| Accepted context | Previously admitted constructs relevant to the cumulative model |
-| Validation feedback | Findings from the preceding attempt, when present |
-| Guidance | Prior shapes, scales, dynamics semantics, and soft-check acceptance rules |
-
-The active subroutine exposes `submit_construct` and, when configured with an Exa key, `search_literature`.
-
-## `search_literature`
-
-`search_literature` accepts a query and the exact parameter name it informs. Results are cached by query for the current checkpoint lineage. Search does not advance the branch.
-
-## `submit_construct`
-
-Every attempt must call `submit_construct` with this conceptual payload.
-
-| Field | Meaning |
-|---|---|
-| `construct` | The complete owned construct, including indicators, likelihoods, and intrinsic dynamics; it must belong to the ready frontier |
-| `edges` | Incoming causal edges with their additive mechanisms and stable identities |
-| `parameters` | Scientific parameter definitions with native priors and evidence |
-| `accept` | Optional list of `{check, target, rationale}` objects naming current soft failures exactly |
-
-The tool call is terminal for that attempt. A non-admitted result causes the workflow to open another fresh attempt, up to the configured four-attempt limit.
-
-## Structural Validation Before Simulation
-
-The submission is rejected before prior-predictive simulation when:
-
-- its construct is not the branch's assigned ready construct;
-- it names a parameter outside the active compiler-authoritative surface;
-- a cycle-closing edge has no linear or Hill prior in the closing submission;
-- pooled parameters assign different prior families to one compiler sample site;
-- an observation family or link is incompatible with the data; or
-- the cumulative partial model does not compile.
-
-Linear edges are declared by `beta_{parent}_{construct}` priors. Saturating edges are declared by the corresponding `hill_emax`, `hill_ec50`, and `hill_n` priors. A self-limiting well is declared by `self_limit_{construct}`.
-
-## Exact Admission Battery
-
-The proposed contribution is appended temporarily to its causal-ancestor closure from the immutable master snapshot on which the branch started. Code restricts the causal design to that cumulative partial model, compiles it, and simulates prior-predictive trajectories through the true nonlinear drift and observation densities. Unrelated accepted constructs are excluded, so branch completion timing cannot change the model being validated.
-
-The battery evaluates applicable checks including:
-
-| Check family | Question |
-|---|---|
-| Numerical health and confinement | Does the exact solve remain finite, and do trajectories avoid sustained growth? |
-| Marginal latent scale | Does the across-draw latent distribution respect the standardized-scale convention? |
-| Replicated-data location and dispersion | Do family-appropriate summaries of the observed data lie inside prior-replicate envelopes? |
-| Resolvability | Does sufficient prior timescale mass remain visible through this construct's actual irregular gaps and span? |
-| Per-edge influence | Does one parent dominate the child's temporal variation when disabled under the same Brownian path? |
-| Hill activation | Do paired draws spend meaningful time on the bend of the actual nonnegative Hill response? |
-| Transmission | Does the noise-free expected response move meaningfully relative to the sampled predictive response? |
-
-Hard failures cannot be overridden. Monte Carlo prior-data discrepancies are soft. A soft failure can be accepted only by naming both its check and target and providing a rationale; one indicator or edge cannot implicitly accept another. Accepted rationales become annotations in the accumulated model state.
-
-## Success Transaction
-
-An admitted submission advances through one idempotent success transaction:
-
-1. Build the accepted contribution and admission report.
-2. Write an immutable child checkpoint containing the branch's accepted addition.
-3. Write the submission result that references that checkpoint.
-4. Return the result to the LLM child workflow.
-5. Let the parent Stage 4 workflow gather the next completed branch batch.
-6. Merge those child checkpoints once, in deterministic construct order, into a new master checkpoint and schedule newly ready descendants immediately.
-
-The tool-request identifier determines each branch checkpoint filename. If execution stops after step 2, an activity retry finds that checkpoint and reconstructs the same result. It does not rerun the state mutation. A completed child may come from an earlier master snapshot; the merge requires its inherited state to be an unchanged subset of the current master and requires exactly one new construct. Search-cache conflicts fail instead of choosing a racing writer.
-
-Rejected submissions create attempt results and traces but do not create success checkpoints.
-
-## Checkpoint Contract
-
-| Field | Meaning |
-|---|---|
-| `schema_version` | Exact checkpoint schema; unsupported schemas fail explicitly |
-| `workspace_id` | Owning workspace |
-| `run_id`, `seq` | Stage 4 run identity and episode sequence |
-| `checkpoint_index` | Monotonic accepted-success index within the run |
-| `parent_ref` | Previous checkpoint, including cross-run resume ancestry |
-| `input_pins` | Exact artifact versions against which this state was accepted |
-| `accepted_constructs` | Ordered semantic submissions, outcomes, and annotations |
-| `search_queries`, `search_cache` | Literature-search state |
-| `repair_feedback` | Target-scoped feedback from the full-model barrier |
-| `full_model_validated` | Whether the complete shared-model barrier passed |
-| `rebase` | Resume source and retained/reopened summary for a new run |
-
-Checkpoint JSON lives in the run sidecar tree. The checkpoint excludes the panel, compiler runtime, and other reconstructible objects.
-
-## Failure Contract
-
-On terminal failure, Stage 4 emits a failed progress event and raises a typed Temporal application failure. The episode workflow records it as a `raised` transition with diagnostics containing:
-
-| Diagnostic | Meaning |
-|---|---|
-| `transition_id` | `statistical_model_spec` |
-| `construct` | Construct active when the failure occurred, if any |
-| `checkpoint_ref` | Latest immutable accepted checkpoint |
-| Original diagnostics | Compile or validation details supplied by the failing activity |
-
-The public artifact state does not advance. The outer orchestrator can inspect the timeline and progress events, revise upstream artifacts through normal moves, and then propose `run(statistical_model_spec)` again.
-
-## Resume with Unchanged Inputs
-
-When the new input pins equal the source checkpoint pins, code reconstructs `AdmissionState` directly from accepted semantic contributions. Previously accepted batteries are not rerun. The next attempts start from every currently ready unit.
-
-## Rebase with Changed Inputs
-
-When an upstream artifact changed, saved work becomes a proposal to revalidate rather than trusted accepted state.
-
-Code rebuilds the component proposal and replays saved contributions when their predecessor units remain valid. Each contribution passes through the same compiler and exact admission battery. Rebase invalidates:
-
-- a construct missing from its new admission unit;
-- a contribution that no longer compiles;
-- a contribution with a hard admission failure; or
-- a contribution with an unresolved soft finding.
-
-Each invalid unit and its descendants reopen. The new run writes checkpoint zero with the remaining dependency-closed set and a `rebase` summary. Independent saved branches remain accepted because they did not depend on the invalidated state.
-
-## Finalization
-
-After all constructs are admitted, a deterministic barrier compiles the complete model once, draws one exact prior-predictive sample set, and runs every construct's battery against that shared state. Any failed unit and its descendants reopen for another admission cycle. Finalization runs only after the barrier passes:
-
-1. reconstructs the complete accepted state from the latest checkpoint;
-2. materializes `ModelSpec` and authored priors;
-3. leaves finalized per-attempt LLM traces in the sequence-owned run for journal promotion;
-4. commits the completed `model` with its exact input pins and records the [prior-predictive result](../../pipeline/statistical-model-spec.md#priorpredictiveresult), research queries, and typed validation findings in the run journal; and
-5. completes required derivations before publishing the move.
-
-No checkpoint is treated as a public model artifact, and no downstream inference can start from partial accepted state.
+Action messages contain only timestamp, level and a stable label. Measurements and explanations belong in the typed result body. The model and reports publish together. Subsequent edits reuse reports only when the relevant scientific inputs and check-policy version match; original source revisions remain recorded. Branches and historical reads use the [study history API](../../design/study-history.md#agent-api).

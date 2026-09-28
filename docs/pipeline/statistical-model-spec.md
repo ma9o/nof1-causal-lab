@@ -1,97 +1,32 @@
 # Statistical Model Specification and Prior Elicitation
 
-| Modality | Interactive | Produces |
-|---|---|---|
-| Semantic | Yes | `ModelSpec` with a native prior on each parameter |
-
-This optional authoring recipe enriches the [measurement-stage ModelSpec](measurement-structure.md) into a fully specified statistical model by choosing observation-model distributions for ambiguous indicators and eliciting Bayesian priors for every parameter, validated against prior predictive checks. Direct [`edit_model` submissions](../reference/scientific-actions.md) can interleave these choices and do not require recipe admissions.
-
-For the high-level reducer flow, see the [`statistical_model_spec` construct-admission state machine](../reference/statistical-model-spec/state-machine.md). For its exact prompts, validation, checkpoint, and recovery semantics, see the [LLM-driven specification](../reference/statistical-model-spec/llm-driven-specification.md).
+Agents add likelihoods, dynamics, parameters and probability laws through [`edit_model`](../reference/scientific-actions.md). These choices may be interleaved with structural and measurement edits. Valid partial definitions save with explicit readiness findings; the backend runs applicable checks on the complete submitted model.
 
 ## Inputs
 
-| Input | Source | Description |
-|---|---|---|
-| `model` | [Measurement authoring](measurement-structure.md) | The research question and scientific entities to enrich with likelihoods, dynamics, parameters, and priors |
-| `data_for_model` | [`measurements` transition](extraction.md) | Encoded long-format [`ObservationRecord`](extraction.md#observationrecord) table |
-| `indicator_audits` | [`validation_report` derivation](extraction-validation.md) | Per-indicator [`EmpiricalProfile`](extraction-validation.md#empiricalprofile)s and validation summaries |
-| `enable_literature` | Pipeline config | Whether the `search_literature` tool is offered to the LLM |
-
-Within this recipe, `statistical_model_spec` follows measurement authoring and reasons about statistical model form. Direct actions have no such authoring order.
+| Input | Description |
+| --- | --- |
+| `model` | The question, constructs, measurements, mechanisms, parameter definitions and current laws. |
+| `expected_revision` | The current model tree OID, or `null` for the first model. |
+| Prepared panel | When compatible, supplies the observation schedule and values for automatic predictive checks. |
 
 ## Process
 
-`statistical_model_spec` transition admits constructs incrementally along the causal topology. Independent ready constructs use concurrent LLM subroutines, while members of a feedback component remain sequential. Deterministic code compiles each cumulative partial model and runs the exact prior-predictive reachability battery before accepting a branch.
+The external agent selects supported [likelihoods](../reference/statistical-model-spec/likelihoods.md), [parameters and priors](../reference/statistical-model-spec/parameters.md), and coefficients satisfying the [anchor invariant](../reference/statistical-model-spec/identification.md). Literature can inform these decisions when population, estimand and timescale match[^gelman2020] [^gelman2013]. There is no internal construct proposal or repair workflow.
 
-```mermaid
-flowchart LR
-    S[Concrete component proposal] --> O[SCC condensation DAG]
-    O --> P[Ready-frontier fanout]
-    P --> A{Compile + exact\nbranch battery}
-    A -- revise --> P
-    A -- admitted --> C[Immutable branch checkpoints]
-    C --> M[Deterministic frontier merge]
-    M --> N{More constructs?}
-    N -- yes --> P
-    N -- no --> B{Shared full-model barrier}
-    B -- reopen failed unit + descendants --> P
-    B -- pass --> F([Completed Model])
-```
+The [action evaluator](../../apps/data-pipeline/src/nof1_causal_lab/actions/model_checks.py) checks specification, identification, data profile and model/data compatibility in a fixed sequence, reusing groups whose scientific inputs and policy versions are unchanged. The [automatic predictive evaluator](../../apps/data-pipeline/src/nof1_causal_lab/actions/predictive_checks.py) then samples the current laws and runs one whole-model nonlinear batch on the compatible panel's grid. The [check catalog](../reference/model-checks.md) defines the individual measurements and costs.
 
-**Component proposal:** Before LLM judgment, deterministic authoring proposes concrete mechanisms, [likelihoods](../reference/statistical-model-spec/likelihoods.md), innovation and initial-state components, and their coefficient references. Prompt rows describe the parameters used by that proposal. The LLM may revise supported components and declare the parameters they reference while preserving the causal structure and measurement definitions.
-
-**Admission Topology:** Strongly connected components of the model’s retained execution edges form a deterministic condensation DAG. All ready singleton units may run concurrently. Members of a lagged feedback component remain adjacent and sequential, and the edge that closes a feedback loop is authored when its final endpoint is admitted.
-
-**Construct Submission:** The active construct submission contains:
-
-- conditional probability expressions for its indicators;
-- innovation and initial-state coefficients, and priors for its referenced parameters;
-- priors for incoming or cycle-closing causal effects; and
-- optional written acceptance rationales for soft reachability findings.
-
-Each submission includes the components and their parameter definitions together. Parameter coefficient slots reference stable IDs; fixed slots carry model-scale values. The complete candidate rejects dangling references and unused parameter definitions. A cycle-closing construct must author the closing edge in the same submission so the restricted cumulative model never contains an unbound edge site.
-
-**Validation:** Each submission compiles its immutable causal-ancestor closure plus the proposed construct and simulates it through the exact nonlinear prior-predictive engine. Hard failures require revision. Soft failures require either revision or an explicit rationale accepting the consequence. Each successful branch merges as it completes, allowing newly ready descendants to start while unrelated work remains in flight.
-
-**Full-Model Barrier:** Once every construct is accepted, deterministic code compiles the complete model once and draws one shared exact prior-predictive sample set. Every construct is rechecked against that same model. A failure reopens the failing feedback unit from that member onward and all descendant units while retaining independent admitted branches.
-
-When enabled, the LLM can query [Exa](https://exa.ai/) for empirical studies to inform prior calibration, justifying narrower priors only when the estimand, population, and timescale align[^gelman2020] [^gelman2013].
-
-The reachability battery includes:
-
-- *Numerical health and confinement*: exact nonlinear SDE trajectories must remain finite; sustained growth is surfaced separately.
-- *Marginal latent scale*: across-draw late-time scale must remain compatible with the standardized-latent convention.
-- *Design resolvability*: sufficient prior timescale mass must be visible through the active construct's actual irregular observation gaps and span.
-- *Edge influence and Hill activation*: same-noise per-edge contrasts detect parent-dominated dynamics, while draw-paired Hill occupancy checks the actual nonnegative response region.
-- *Replicated-data checks*: family-specific location and dispersion statistics compare the observed panel with complete prior-replicate datasets rather than flattened samples.
-- *Transmission*: the support-aware expected response must move meaningfully relative to the sampled predictive response.
-
-Only deterministic numerical failures are hard gates. Monte Carlo discrepancies require revision or an exact target-scoped acceptance rationale. When a submission closes a feedback component, every affected member is rechecked before the tentative state is committed.
-
-### Checkpointing and Recovery
-
-Checkpoints are immutable execution sidecars. Original LLM submissions and their revision history live in the state-machine records; each model parameter references its current model-owned distribution. They store the accepted dependency-closed set, exact input-version pins, validation outcomes, search state, repair feedback, and full-model barrier status. Concurrent submissions write immutable child checkpoints from their launch snapshots; one merge activity serializes each completion batch into the next master checkpoint. The completed `model` and its [prior-predictive result](#priorpredictiveresult) are committed only after every construct is admitted and the barrier passes. Run completion and input freshness determine whether authoring needs to run again.
-
-Temporal resumes an interrupted in-flight workflow from its recorded activity and child-workflow history. When a model-spec run terminates, its episode-journal record carries a typed run/checkpoint selection. The checkpoint layer resolves that selection when the outer orchestrator modifies an upstream artifact through normal machine moves and runs `statistical_model_spec` again.
-
-On the next run:
-
-- unchanged input pins restore the accepted dependency-closed set without rerunning it;
-- changed input pins rebuild the component proposal and replay saved contributions through the same exact admission checks; and
-- each invalid unit and its descendants reopen while independent valid branches remain accepted.
-
-Each accepted tool submission is keyed by its tool-request identifier. Retrying the activity returns the same immutable checkpoint rather than applying the submission twice.
-
-### Example
-
-For a study of classroom engagement and academic performance, the transition could admit independent `Teacher Feedback Frequency` and `Home Study Support` roots concurrently. Once their branch checkpoints merge, `Student Engagement` authors its dynamics and incoming effects. A feedback pair involving engagement stays sequential, and the complete model must pass the shared barrier before the transition writes its public artifact.
+Scientific failures are saved findings. Missing prerequisites leave checks unevaluated. Unexpected execution errors leave the prior model selected. The candidate, reports and action messages publish atomically; the external agent reads the results and decides its next edit. [Incremental check execution](../reference/statistical-model-spec/state-machine.md) describes selection and reuse, while [agent authoring](../reference/statistical-model-spec/llm-driven-specification.md) describes the interaction contract.
 
 ## Outputs
 
-| Output | Type | Description |
-|---|---|---|
-| `model` | [`ModelSpec`](latent-structure.md#modelspec) | Completed scientific entities, owned components, parameter definitions, and priors |
-| Journal `diagnostics.prior_predictive` | [`PriorPredictiveResult`](#priorpredictiveresult) | Simulated observations and construct-level checks, tied to the completed model and the run's input versions |
+| Field | Description |
+| --- | --- |
+| `model` | Revised [ModelSpec](latent-structure.md#modelspec), including statistical definitions and current probability laws. |
+| `specification` | Execution and fitting-law readiness findings. |
+| `identification` | Causal-identification report for the selected graph and measurements. |
+| `validation` | Available [model/data compatibility findings](extraction-validation.md). |
+| `predictive` | Automatic [ModelPredictiveReport](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/model_checks.py): status, prerequisites, source revisions, design, law provenance and shared simulation findings. |
 
 ### LikelihoodSpec
 
@@ -118,7 +53,7 @@ Parameter ownership, support checks, numerical lowering, and displayed observati
 | `distribution_transform` | Identity, interval persistence to decay, interval effect to rate, or initial correlation |
 | `reference_interval_days` | Positive interval defining an authored interval-scale distribution |
 
-Authoring rationales and supporting sources belong in the state-machine log. Fitting updates the same parameter's law membership in a new ModelSpec revision; the original law remains available in the input revision.
+Scientific rationales and supporting sources belong with their model definitions and the external agent conversation. Fitting updates the same parameter's law membership in a new ModelSpec revision; the original law remains available in the input revision.
 
 Prior density curves are computed on backend reads from the native NumPyro law, on the declared authoring scale. A small deterministic prior draw sets the plotting range; curve heights use the native `log_prob`. Curves are cached for display and never stored in `ParameterSpec` or used by inference. Joint, batched, discrete, and point-mass laws do not have a scalar density plot.
 
@@ -182,12 +117,14 @@ For example, `{"kind": "coefficient", "role": "loading", "value": 1}` declares a
 
 ### PriorPredictiveResult
 
+Earlier study histories retain this report for historical inspection. Current edits produce the `predictive` report described above.
+
 | Field | Type | Description |
 |---|---|---|
 | `samples` | `dict[IndicatorId, list[float]]` | Exact prior-predictive observations for Data-vs-Prior inspection |
-| `diagnostics` | `list[PriorPredictiveDiagnostic]` | Construct-level checks, including feedback-component rechecks |
+| `diagnostics` | `list[PriorPredictiveDiagnostic]` | Recorded construct-level checks from the original operation |
 
-The [model snapshot](../design/model-snapshot.md) exposes the result as `findings.prior_predictive`, sourced to its journal record. Research queries remain in authoring traces and `diagnostics.search_queries`; compiler findings retain their [`PriorValidationResult`](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/prior.py) structure in `diagnostics.validation_diagnostics`. Admission progress and acceptance decisions remain in execution checkpoints. A completed operation can be recognized independently of whether predictive results were retained.
+The [model snapshot](../design/model-snapshot.md) exposes retained historical results as `findings.prior_predictive`, sourced to the original journal record. New actions write their typed check reports in `checks.json` and the action result; they create no admission checkpoints.
 
 [^gelman2020]: Gelman, A., Vehtari, A., Simpson, D., et al. (2020). Bayesian Workflow. arXiv:2011.01808. [Bibliography entry](../reference/bibliography.md)
 [^gelman2013]: Gelman, A., Carlin, J. B., Stern, H. S., Dunson, D. B., Vehtari, A., & Rubin, D. B. (2013). *Bayesian Data Analysis* (3rd ed.). CRC Press. [Bibliography entry](../reference/bibliography.md)

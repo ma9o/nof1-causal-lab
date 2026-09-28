@@ -16,7 +16,7 @@ tool server with the episode facade (port `8100`), and the web viewer (port
 for details.
 
 LLM-backed transitions read the ambient `OPENROUTER_API_KEY` from the service's
-environment — credentials are infra config, never per-move parameters.
+environment — credentials are infra config, never per-action parameters.
 
 ## Use the scientific actions
 
@@ -39,21 +39,22 @@ from the API. The loop in brief:
    [action contracts](../reference/scientific-actions.md) define revision pins,
    simulation designs and returned findings. Structure, measurements, parameters
    and laws may be interleaved; applicable cheap checks refresh on submission.
-3. Poll state and the timeline while durable work runs. Long computations can
-   outlive an HTTP timeout; inspect their outcome before resubmitting.
-4. Read outcomes from `GET /api/episodes/{workspace_id}/timeline` — a `raised`
-   transition carries the typed error; state is unchanged, so re-running is just
-   proposing again.
+3. Dispatch returns HTTP `202` and only `{attempt_id}`. Poll
+   `GET /api/episodes/{workspace_id}/actions/{attempt_id}` until `done` is true.
+   Each poll returns `body` and all timestamped `messages` so far; the body is
+   null while running and on failure. Keep polling the same attempt rather than resubmitting.
+4. Read the scientific result from `body` and inspect message levels and labels.
+   Warnings can accompany a successful result. Errors leave the scientific branch
+   unchanged. The timeline retains completed attempts, results and messages.
 
 Raw data enters by placing files under `data/{workspace_id}/input/` before
 submitting `prepare_data` with `source: "files"`. Sources can be imported before
 authoring a model. [Causal scenarios](../pipeline/analysis.md) use the same
 `simulate` action and retain their results in the journal.
 
-`POST /api/episodes/{workspace_id}/recipes/observational-study` runs the optional
-authoring recipe. Its stages are an automation policy; they are not prerequisites
-for direct actions. The [integration testing guide](agentic_integration_testing.md)
-has curl walkthroughs and service requirements.
+V2 is a read-only inspector. The agent submits all scientific actions through the
+backend. The [integration testing guide](agentic_integration_testing.md) has curl
+walkthroughs and service requirements.
 
 ## Publishing a workspace
 

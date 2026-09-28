@@ -28,7 +28,7 @@ flowchart TD
 
 ## Scientific Completion
 
-[Component completion](../../apps/data-pipeline/src/nof1_causal_lab/models/parameter_planning.py) attaches explicit innovation, initial-state, and likelihood coefficients before compilation. Authoring options become concrete fixed values or parameter references on those components. Prior completion fills unassigned laws at this explicit authoring boundary; rationale and evidence remain in authoring logs.
+[Component completion](../../apps/data-pipeline/notebooks/parameter_planning.py) attaches explicit innovation, initial-state, and likelihood coefficients before compilation. Authoring options become concrete fixed values or parameter references on those components. Prior completion fills unassigned laws at this explicit authoring boundary; rationale and evidence remain in authoring logs.
 
 The compiler neither invents parameters nor fills absent priors. Native support and array attachment belong to execution metadata; the scientific parameter references its model-owned native law or records a fixed value and any authoring-scale transformation. Its meaning and relationships are derived from the component slots that reference it.
 
@@ -36,7 +36,7 @@ The compiler neither invents parameters nor fills absent priors. Native support 
 
 [ModelSpec accessors](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/model_spec.py) derive retained state and observation order, reference indicators, and induced dependencies directly from canonical entities. Retained edges are the original values. [Structural functions](../../apps/data-pipeline/src/nof1_causal_lab/models/model_structure.py) validate executable capabilities and explain each entity's disposition. A disposition's `target` is a typed `ConstructRef`, `EdgeRef`, or `IndicatorRef`; its identity and decision must match that entity kind. These results are computed from the model revision and are not persisted as another specification.
 
-Construct admission derives a scoped ModelSpec for its cumulative set of admitted constructs. The same compiler then validates that candidate without a second topology argument.
+Action-owned checks compile the complete submitted ModelSpec. There is no construct-admission scope or second topology argument.
 
 Compilation checks that mechanisms cover the retained states and edges, and that every parameter reference resolves. Prior validation belongs to statistical authoring and runtime input construction. Anchor certificates require location and scale identification for each retained state. Several declared mechanisms may contribute to one edge. Turning an edge off targets all its contributions.
 

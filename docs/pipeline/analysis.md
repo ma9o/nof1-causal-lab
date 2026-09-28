@@ -1,63 +1,60 @@
 # Intervention Simulation
 
-Interventional (rung 2) and counterfactual (rung 3) scenarios use the [`simulate` action](../reference/scientific-actions.md) with a causal design against a selected conditioned model, following Pearl's ladder of causation[^pearl2019] [^pearl2009]. The action persists its design, generated arrays and certified result in the episode journal.
+The [`simulate` action](../reference/scientific-actions.md#simulation) generates histories from a selected model's current probability laws. Interventions are optional dated state assignments. Causal certification is a separate interpretation of paired histories, following the distinction between model generation and identified causal claims.[^pearl2009] [^pearl2019]
 
 ## Inputs
 
 | Input | Source | Description |
-|---|---|---|
-| `model_version` | [`fit` result](inference.md) | Selected ModelSpec with the joint parameter/trajectory law and time grid; exact engine evidence comes from its producing transition log |
-| `design.query` | API caller | [ScenarioRequest](#scenariorequest): start rule, timed clamps, outcome identity, horizon, and readout |
-| `design.draws`, `design.seed` | API caller | Draw count and random seed |
-| `design.process_noise`, `design.observation_noise` | API caller | Process diffusion and sampled emissions; both default to `false` for causal designs |
+| --- | --- | --- |
+| `model_revision` | Caller | Selected scientific model and its current joint uncertainty. |
+| `end` | Caller | Absolute destination in model days. |
+| `start` | Caller, optional | Historical or future starting time; omission uses the latest retained state time, or zero for an initial-state law. |
+| `interventions` | Caller, optional | Empty by default; assignments with `target`, `time` and `value`. |
 
-Submit `{action: "simulate", model_version: ..., design: {kind: "causal", query: ...}}` through the action endpoint or the matching `scientific` tool. The [causal action](../../apps/data-pipeline/src/nof1_causal_lab/actions/scenarios.py) derives identification from the selected immutable model and joins it to that model's committed production-fit evidence. A positive treatment/outcome verdict and matching exact-engine evidence are required before numeric effects are reported.
+The [contract](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/simulation.py) and [intervention definitions](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/scenarios.py) are shared by the HTTP endpoint and scientific tool. The model supplies dynamics, measurement definitions and probability laws. The framework supplies the grid, 100 draws, seed 0, stochastic process evolution and sampled observations.
 
 ## Execution
 
-The action requires no LLM generation or refit. A baseline start uses each draw's nonlinear drift equilibrium. An abducted start selects a retained fitted latent state at a model time index or timestamp, defaulting to the last retained state. Parameter and state draws remain paired.
+The [generator](../../apps/data-pipeline/src/nof1_causal_lab/models/ssm/predictive/simulation.py) samples each joint law once per draw, preserving parameter/state dependence. A retained state at or before the requested start is propagated forward when needed. Without retained histories, the declared initial-state law supplies the starting state. A historical request uses the selected model's current beliefs, including any later observations used to condition them.
 
-The common [nonlinear generator](../../apps/data-pipeline/src/nof1_causal_lab/models/ssm/predictive/registry_runtime.py) integrates reference and clamped paths on the same grid. With process noise enabled, the pair shares Brownian streams and integration segments. Observation contrasts use the true emission model, including measurement windows. Windows requiring unavailable prehistory produce absent contrasts and an explicit warning.
+Each intervention assigns a state at one time and leaves subsequent evolution to the model. A non-varying state retains the assigned value; a varying state resumes its natural dynamics. Later assignments can change the same state again. Reference and action histories use the same nonlinear [Diffrax engine](../../apps/data-pipeline/src/nof1_causal_lab/models/ssm/dynamics/simulator.py), parameter/state draws and process/emission random streams. Measurements respect their declared support; unavailable prehistory produces absent observations.
 
-The default deterministic design includes parameter uncertainty and, for abducted starts, retained initial-state uncertainty, but excludes future process and observation noise. For nonlinear drift, its average generally differs from the stochastic process's expected trajectory. The report records these choices; predictive uncertainty requires the relevant noise choices.
-
-The `analysis` context retains the read-only `get_model_info` tool for model inspection. All simulations use the four-action surface, including the web viewer's intervention controls.
-
-Every successful simulation writes a journal record with immutable array references and the exact supporting revisions. Historical results remain available after later edits. The model viewer offers requests for backend-identified treatments and displays results after their durable action completes.
+The [causal reducer](../../apps/data-pipeline/src/nof1_causal_lab/actions/scenarios.py) checks treatment/outcome identification, matching committed exact-engine fit evidence and finite paths before reporting numeric effects on the model's default outcome. A simulation without that evidence still produces model-generated histories and records why a causal interpretation is unavailable. Certification currently checks the implemented treatment/outcome targets; it does not add a separate identification proof for a general timed joint intervention.
 
 ## Outputs
 
-The [simulation report](../reference/scientific-actions.md#simulation-report) owns the design, arrays and measurements. Its `causal_result` contains the fields defined by the [scenario contracts](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/scenarios.py) below.
+### `SimulationReport`
+
+| Field | Description |
+| --- | --- |
+| `model` | Exact generating model reference. |
+| `design` | Requested end, optional start and dated interventions. |
+| `times`, `draws`, `seed` | Resolved absolute model-time grid and framework sampling settings. |
+| `state_ids`, `indicator_ids` | Scientific identities in array-axis order. |
+| `parameter_draws`, `latent_paths`, `observations` | Immutable generated array references. |
+| `reference_latent_paths`, `reference_observations` | Paired reference arrays when interventions are present. |
+| `findings` | Measurements of the generated histories, including explicit unevaluated reasons. |
+| `causal_result` | Certified effect readout when supported. |
+| `causal_unavailable_reason` | Explanation when an intervention result cannot support numeric causal effects. |
 
 ### `EffectTrajectoryPoint`
 
-| Field | Type | Description |
-|---|---|---|
-| `day` | `float` | Nonnegative elapsed days from the start of the rollout |
-| `effect` | `float` | Signed causal effect at that time |
+| Field | Description |
+| --- | --- |
+| `day` | Nonnegative elapsed days from the simulation start. |
+| `effect` | Signed causal effect at that time. |
 
-### `ScenarioRequest`
-
-| Field | Type | Description |
-|---|---|---|
-| `start` | `ScenarioStartInput` | Baseline or observed-history start rule; observed index and timestamp are mutually exclusive |
-| `clamps` | `list[ScenarioClamp]` | Timed interventions, each with one persistent `ConstructId` target and set, shift, ramp or trajectory values |
-| `outcome` | `ConstructId` | Persistent outcome identity |
-| `readout` | `ScenarioQueryInput` | End-state or trajectory readout, horizon in days, and projection |
-
-### `SimulationResult`
+### `CausalEffectResult`
 
 | Field | Description |
 |---|---|
-| `request` | The reusable [`ScenarioRequest`](#scenariorequest) supplied to the computation |
-| `model` | `ModelRevision` identifying the exact fitted model and owning workspace |
 | `time_grid_days` | Shared output grid for every construct's reference and action means, starting at zero and ending at the requested horizon |
-| `start_time_index`, `start_time` | Resolved abducted start index and available observed timestamp; absent for baseline starts |
+| `outcome` | Persistent ID of the model outcome covered by identification |
 | `labels` | Display names keyed by persistent construct ID at execution time; requests contain identities only |
-| `summary` | Posterior summary of the declared endpoint contrast under the selected noise policy |
+| `summary` | Posterior summary of the declared endpoint contrast over the generated stochastic histories |
 | `effect_trajectory` | Optional [`EffectTrajectoryPoint`](#effecttrajectorypoint) list reporting the mean outcome contrast over the forward horizon |
 | `trajectory_peak` | Optional [`EffectTrajectoryPoint`](#effecttrajectorypoint) at the largest absolute departure |
-| `trajectories` | One [`SimulationTrajectory`](#simulationtrajectory) per simulated construct ID, including every requested clamp target and outcome; available for both end-state and trajectory readouts |
+| `trajectories` | One [`SimulationTrajectory`](#simulationtrajectory) per simulated construct ID, including every intervention target and the outcome |
 | `manifest_effects` | Optional endpoint indicator contrasts generated by the actual emission model and measurement windows |
 | `reference_mean` | Mean reference outcome across generated paths at the final horizon |
 | `warnings` | Diagnostic warnings |
@@ -67,7 +64,7 @@ The [simulation report](../reference/scientific-actions.md#simulation-report) ow
 | Field | Description |
 |---|---|
 | `reference_mean` | Mean latent no-clamp path across simulated draws, including day zero |
-| `action_mean` | Mean latent path under the requested clamps across the same simulated draws, including day zero |
+| `action_mean` | Mean latent path under the dated interventions across the same simulated draws, including day zero |
 
 Both series are required, contain finite values, and have exactly one value per entry in `time_grid_days`. Each trajectory key must resolve through the result's `labels`. The selected outcome's optional `effect_trajectory` is a separate readout and does not define the time axis for these paths.
 

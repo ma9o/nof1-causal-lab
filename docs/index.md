@@ -6,6 +6,7 @@
 |---|---|
 | Four scientific actions, checks and revision selection | [reference/scientific-actions.md](reference/scientific-actions.md) |
 | Book's Bayesian workflow in our actions, and what is missing | [assets/bayesian-workflow.svg](assets/bayesian-workflow.svg) |
+| Separate reference flowcharts for editing, data preparation, fitting and simulation | [reference/action-flows.md](reference/action-flows.md) |
 | Artifact pipeline walkthrough | [pipeline.md](pipeline.md) |
 | Contributor and operator workflows | [guides/](guides/.md) |
 | Cross-cutting runtime and modeling references | [reference/](reference/) |
@@ -33,7 +34,7 @@
 | Compilation from `statistical_model_spec` outputs to executable SSM runtime | [reference/compilation.md](reference/compilation.md) |
 | Continuous-time estimation and discretization | [reference/estimation.md](reference/estimation.md) |
 | Inference-method selection and structural routing | [reference/inference-routing.md](reference/inference-routing.md) |
-| High-level map of the model-spec reducer and repair loop | [reference/statistical-model-spec/state-machine.md](reference/statistical-model-spec/state-machine.md) |
+| Incremental model checks, reuse and automatic simulation | [reference/statistical-model-spec/state-machine.md](reference/statistical-model-spec/state-machine.md) |
 | How model-spec constrains LLM model-form and prior decisions | [reference/statistical-model-spec/llm-driven-specification.md](reference/statistical-model-spec/llm-driven-specification.md) |
 | Parameter-level identification: location/scale anchors and ridge prevention | [reference/statistical-model-spec/identification.md](reference/statistical-model-spec/identification.md) |
 

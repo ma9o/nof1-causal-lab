@@ -80,7 +80,7 @@ Indicators are reflective[^bollen1989]: the construct causes the indicator value
 | `ordinal_levels` | Ordered label list when `measurement_dtype="ordinal"`; otherwise absent |
 | `categorical_levels` | Exhaustive label list when `measurement_dtype="categorical"`; otherwise absent |
 | `source_columns` | Raw columns needed to compute or interpret the indicator |
-| `computed_rule` | Optional validated `WindowExpression` string producing one scalar per window from declared source columns; requires computed extraction |
+| `computed_rule` | Optional validated `WindowExpression` producing one supported summary per window from declared source columns; its summary must match `aggregation`; requires computed extraction |
 | `extraction_mode` | Whether extraction is deterministic (`computed`) or LLM-mediated (`semantic`) |
 | `construct_polarity` | Whether increasing indicator values represent more or less of its construct |
 | `likelihood` | Owned [measurement likelihood](statistical-model-spec.md#likelihoodspec), absent before statistical specification |
@@ -96,6 +96,14 @@ gaps remain unknown. Neither rule fills times outside the covered raw-data span.
 
 `first` and `last` alone select a point; they do not imply persistence. Unit
 conversion belongs in `computed_rule`, for example `last(dose_mg) / 10`.
+
+Computed rules use one output summary: `first`, `last`, `sum`, `mean`, `std`, or
+`count_true`/`count_non_null` for `count`. Row transformations belong inside the
+summary; unit conversion and an outer guard for missing values are allowed. Both
+extraction and observation support use the [same interpretation](../../apps/data-pipeline/src/nof1_causal_lab/utils/window_expressions.py).
+Window-wide Boolean flags, nested summaries, ratios of summaries, and nonlinear
+transformations of summaries are rejected because the current observation model
+does not represent their measurement semantics.
 
 A [Delta law](../reference/statistical-model-spec/likelihoods.md) fixes observed
 coordinates. It does not remove a construct’s initial density or transition

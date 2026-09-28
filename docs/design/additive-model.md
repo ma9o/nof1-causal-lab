@@ -201,7 +201,7 @@ compilation do not silently supply them.
 
 ## Parameters and Native Probability Laws
 
-[Component completion](../../apps/data-pipeline/src/nof1_causal_lab/models/parameter_planning.py)
+[Component completion](../../apps/data-pipeline/notebooks/parameter_planning.py)
 authors missing coefficient slots and their parameter definitions together.
 Initial-state means and scales live on the construct; measurement loading,
 intercept, scale, and family-specific parameters live on the likelihood. Fixed
@@ -287,9 +287,9 @@ and model artifact version. `at_seq` continues to select the complete historical
 workspace view, including the model version selected by that journal prefix.
 
 An authoring write names its expected base model version. Compare that version
-and commit the validated replacement inside the existing serialized move
+and commit the validated replacement inside the existing serialized action
 boundary. Reject a stale base with a conflict; do not merge two full values
-automatically. The journal retains the operation and its provenance. Historical
+automatically. The journal retains the action and its input revisions. Historical
 values and their differences provide attribution without a second catalog of
 scientific facts.
 

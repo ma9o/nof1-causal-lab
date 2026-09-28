@@ -1,8 +1,8 @@
 # Model Access at a Committed Revision
 
-`GET /api/episodes/{workspace_id}/model` reads one committed journal position. `?at_seq=N` selects an applied move; zero selects the empty episode. Rejected and raised attempts remain activity and cannot be selected as model revisions. The default is the latest applied move.
+`GET /api/episodes/{workspace_id}/model` reads the selected branch's Git head. `?at=<commit_id>` selects an immutable applied commit, including the empty study root. Rejected and raised attempts retain their own logs without advancing scientific state.
 
-The reader loads the journal once and reads the artifact versions selected by that prefix. Historical facts retain their contents and freshness after later writes or retractions. Reading a model requires neither compilation nor inference.
+The reader derives artifact selections from the commit's native tree and finds earlier evidence through Git ancestry. Historical facts retain their contents and freshness after later writes or retractions. Reading a model requires neither compilation nor inference.
 
 ## Identity and Ownership
 
@@ -19,14 +19,21 @@ The compiler binds these identities to execution coordinates. It does not duplic
 | Field | Meaning |
 |---|---|
 | `model` | Optional `Sourced[ModelSpec]`, directly reusing the current scientific hierarchy |
-| `context` | Workspace, selected journal sequence, artifact state, freshness, installation positions, retractions, and backend simulation availability |
+| `context` | Workspace, branch, commit OID, display sequence, derived artifact state, freshness and backend simulation availability |
 | `data` | Independently sourced uploaded table profile and extracted measurements |
 | `findings` | Identification, structural dispositions, validation, prior-predictive results, and fit summaries |
+| `findings.graph` | Backend-selected construct and edge IDs: authored structure before execution dispositions exist, then the retained component connected to the default outcome; the full scientific definition remains in `model` |
 | `findings.prior_predictive` | [Prior-predictive samples and checks](../pipeline/statistical-model-spec.md#priorpredictiveresult), sourced to the model-authoring journal record and checked against its model and data inputs |
 
-Each optional sourced value carries an artifact or transition-log reference, JSON pointer, and freshness. `context.workspace_id` identifies the workspace; `context.seq` selects its journal state. Model artifact versions remain distinct from journal sequences. The research question is `model.value.question`, including in a question-only initial revision. The default outcome ID is `model.value.default_outcome`; an indicator's likelihood is on the defining `cause` or `effect` endpoint under `model.value.edges[i]`, then `indicators[j].likelihood`. Sampler diagnostics are under `findings.fit.value.report.inference_diagnostics`; [predictive checks and held-out evaluation](../pipeline/inference.md#inferencereport) are under `findings.fit.value.report.ppc` and `findings.fit.value.report.loo_diagnostics`.
+[Git study history](study-history.md) owns snapshots, branches and commit-local logs. `context.commit_id` is the immutable Git identity; `context.branch` records the requested branch.
 
-The model version and journal sequence are different identities. A model write increments the former; any journaled attempt advances the latter. Use `context.seq` to coordinate several reads of the same committed episode.
+Each optional sourced value carries one `GitRef` (`workspace_id`, `revision`, `path`), a JSON pointer and freshness. `context.commit_id` selects the Git snapshot; `context.seq` is an activity label. The research question is `model.value.question`, including in a question-only initial revision. The default outcome ID is `model.value.default_outcome`; an indicator's likelihood is on the defining `cause` or `effect` endpoint under `model.value.edges[i]`, then `indicators[j].likelihood`. Sampler diagnostics are under `findings.fit.value.report.inference_diagnostics`; [predictive checks and held-out evaluation](../pipeline/inference.md#inferencereport) are under `findings.fit.value.report.ppc` and `findings.fit.value.report.loo_diagnostics`.
+
+Git tree OIDs identify immutable artifacts; commit OIDs identify complete study snapshots and their action logs. Use `context.commit_id` to coordinate reads of the same state.
+
+`GET /api/episodes/{workspace_id}/revisions/compare?before=<commit_id>&after=<commit_id>` compares any two committed checkpoints containing a model. It uses the same graph selection as snapshot reads, including structural-to-execution exclusions, and returns the simulation and fit evidence available at each checkpoint. Marginalized and unsupported entities remain in the scientific model; comparison findings carry their execution dispositions and reasons.
+
+The [backend selection](../../apps/data-pipeline/src/nof1_causal_lab/models/model_structure.py) drops components disconnected from the default outcome after structural projection, including their execution indicators and parameters. Shared latent causes, measurement loadings, coefficients, and joint laws preserve statistical connections. Without a default outcome, execution covers all measured components. Disconnected constructs remain in the scientific definition with an exclusion reason available through the same history comparison. Unresolved causal parents of retained states still fail execution checks.
 
 [ModelReader](../../apps/data-pipeline/src/nof1_causal_lab/machine/snapshots.py) exposes collection accessors backed by that same Model:
 
@@ -39,7 +46,15 @@ The model version and journal sequence are different identities. A model write i
 | `/indicators` | `IndicatorSpec[]`, obtained from construct ownership |
 | `/parameters` | `ParameterSpec[]` |
 
-Every accessor accepts `at_seq`. Collection reads do not construct batch views. Python accessors return the canonical objects; generated TypeScript consumes their serialized schema directly. The Next.js server forwards these typed HTTP reads.
+Every accessor accepts `at` and `branch`. Collection reads do not construct batch views. Python accessors return the canonical objects; generated TypeScript consumes their serialized schema directly. The Next.js server forwards these typed HTTP reads.
+
+## Workbench UI Logic
+
+[`lib/model-asset`](../../apps/web/src/lib/model-asset) owns the workbench's shared UI behavior. Its [entity resolver](../../apps/web/src/lib/model-asset/entities.ts) derives indexes, labels, relationships, and editable fields from the selected graph; inspection and editing use the same resolution. [Scoped edits](../../apps/web/src/lib/model-asset/edit.ts) assemble a whole-model candidate while preserving endpoint ownership and references.
+
+The [workbench hook](../../apps/web/src/lib/model-asset/use-workbench.ts) owns selection, revision navigation, comparison previews, and open actions. The [form hook](../../apps/web/src/lib/model-asset/use-action-form.ts) owns drafts and request assembly; the [submission hook](../../apps/web/src/lib/model-asset/use-scientific-action.ts) owns input revisions, optimistic writes, results, and cache refresh. Components render these values, dispatch interactions, and manage DOM focus. Scientific validation and numerical computation remain on the server.
+
+[Graph UI logic](../../apps/web/src/lib/dag) owns layout inputs, comparison placement, selection highlighting, zoom, and playback of recorded trajectories. [Inspector selectors](../../apps/web/src/lib/model-asset/inspector.ts) format findings using parameter ownership supplied by their caller. [Timeline navigation](../../apps/web/src/lib/model-asset/use-revision-timeline.ts) retains the selected branch while browsing ancestors. [Admission presentation](../../apps/web/src/lib/admission) owns live report selection and uses the check modes recorded by the server. [Table hooks](../../apps/web/src/lib/tables) own filtering, sorting, grouping, expansion, virtualization, and keyboard navigation in displayed row order. These libraries do not import rendering components; ESLint enforces that dependency direction.
 
 ## Results and Freshness
 
@@ -55,7 +70,9 @@ All statistical summaries and composed artifact views are computed in Python. Ra
 
 ## Writes and Operation History
 
-`PUT /api/episodes/{workspace_id}/model` accepts `{expected_version, model}`. Use version `0` for initial creation. The machine validates the full candidate, checks the base version, and commits the Model and required derivations together. A conflict returns HTTP 409; an invalid candidate returns HTTP 422. Failed writes cannot publish partial model or finding versions.
+Agents create and continue branches under the hood. The workbench follows the latest committed work and lets users inspect and compare checkpoints. Its timeline presents the server's Git ancestry instead of inferring branches from model input pins.
+
+`PUT /api/episodes/{workspace_id}/model` accepts `{expected_revision, model}`. Use `null` for initial creation; otherwise use the selected model tree OID. The machine validates the full candidate, checks the expected tree OID, and commits the Model and required derivations together. A conflict returns HTTP 409; an invalid candidate returns HTTP 422. Failed writes cannot publish partial model or finding versions.
 
 `latent_structure`, `measurement_structure`, `statistical_model_spec`, and `posterior` remain operation names. Each enriches the same Model through the shared commit boundary. `GET /api/episodes/{workspace_id}/operations/{operation_id}/traces` locates that operation's trace independently of later Model authorship.
 

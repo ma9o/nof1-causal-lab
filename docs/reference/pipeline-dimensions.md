@@ -16,7 +16,7 @@ Actions refine one scientific model and produce separately versioned data and ev
 | Functional specification | `ModelSpec` with current laws | `edit_model` or statistical-authoring recipe | [../pipeline/statistical-model-spec.md](../pipeline/statistical-model-spec.md) | Chooses likelihoods, parameters, and beliefs |
 | Conditioned scientific model | `ModelSpec` with updated joint distributions | `fit` | [../pipeline/inference.md](../pipeline/inference.md) | The same scientific type; inference diagnostics live in the transition log |
 | Generated evidence | Simulation report and arrays | `simulate` | [scientific-actions.md](scientific-actions.md#simulation-report) | Measures trajectories and optionally compares them with data |
-| Interventional and counterfactual effect summaries | `SimulationResult` within the simulation report | `simulate` with a causal design | [../pipeline/analysis.md](../pipeline/analysis.md) | Answers certified interventional and counterfactual queries |
+| Interventional and counterfactual effect summaries | `CausalEffectResult` within the simulation report | `simulate` with a causal design | [../pipeline/analysis.md](../pipeline/analysis.md) | Answers certified interventional and counterfactual queries |
 
 ## Temporal Semantics
 
@@ -39,7 +39,7 @@ Consider a study with `model_clock = "1d"` and an indicator *daily mean mood* (`
 | **Edit model** | The measurement structure declares `aggregation = mean` → `support_kind = interval`, `anchor_policy = support_end`. | `observation_window = "1d"` committed |
 | **Prepare data** | The extractor averages mood values from 2025-03-01 00:00 to 2025-03-02 00:00, producing value 6.2. | `ObservationRecord(anchor_time = 2025-03-02, support_start = 2025-03-01, support_end = 2025-03-02)` |
 | **Fit** | Consecutive prepared grid points are one day apart; the estimator evaluates the true nonlinear drift with `dt = 1.0 day`. | `dt = 1.0` day feeds the particle transition |
-| **Simulate** | A certified intervention `do(exercise = baseline+1)` is simulated forward 30 days at 1-day steps from the baseline equilibrium, retaining [`SimulationResult`](../pipeline/analysis.md#simulationresult) with an effect trajectory and peak timing. | Horizon = 30 d at `model_clock` resolution |
+| **Simulate** | A certified intervention `do(exercise = baseline+1)` is simulated forward 30 days at 1-day steps from the baseline equilibrium, retaining [`CausalEffectResult`](../pipeline/analysis.md#causaleffectresult) with an effect trajectory and peak timing. | Horizon = 30 d at `model_clock` resolution |
 
 The key invariant: `model_clock` sets the resolution; `observation_window` says how much real-world time each datum summarizes; `anchor_time` places it on the grid; `dt` discretizes the SDE between grid points; the intervention horizon projects the fitted model forward on that same grid.
 

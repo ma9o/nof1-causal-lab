@@ -87,12 +87,12 @@ TypeScript exports use the same names.
 | Compiled implementation or execution state | `Compiled...` or `...Runtime` | `CompiledDynamics`, `CompiledObservationModel`, `ObservationSupportRuntime` |
 | Executable mathematical operation | Name the operation | `ObservationKernel`, `ObservationOperator`, `VectorField` |
 | Validation, identification, or inference findings | `...Report` or a specific finding name | `IdentificationReport`, `InferenceReport`, `ValidationIssue` |
-| Completed operation output | `...Result` | `SimulationResult`, `PriorPredictiveResult` |
+| Completed operation output | `...Result` | `CausalEffectResult`, `PriorPredictiveResult` |
 | Recorded observation or event | `...Record` or `...Event` | `ObservationRecord`, `RuntimeEvent` |
 | Persistent scalar identity | `...Id` | `ConstructId`, `IndicatorId`, `ParameterId` |
 | Structured reference | `...Ref` | `ConstructRef`, `ArtifactRef`, `ParameterRef` |
 | Exact model version | `...Revision` | `ModelRevision` |
-| API request and its input values | `...Request` or `...Input` | `ScenarioRequest`, `ScenarioStartInput` |
+| API request and its input values | `...Request` or `...Input` | `SimulateRequest`, `SimulationSpec` |
 
 The scientific definition types are `ModelSpec`, `ConstructSpec`, `CausalEdgeSpec`,
 `IndicatorSpec`, `DynamicsMechanismSpec`, `LikelihoodSpec`, `ObservationLawSpec`,

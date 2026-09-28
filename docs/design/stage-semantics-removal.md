@@ -1,5 +1,7 @@
 # Removing Stage Semantics: Finishing the Asset-Centric Reframe
 
+Historical implementation plan. The current [four-action contract](action-hierarchy.md) supersedes the run/write API and actor metadata described below.
+
 Status: **implemented** (2026-07-07). Companion to [action-hierarchy.md](action-hierarchy.md),
 which established the artifact machine and deliberately deferred this cleanup.
 
@@ -17,7 +19,7 @@ The replacement vocabulary already exists and is already half-adopted: transitio
 the artifact they produce (`transition_id == produces` in
 [`machine/graph.py`](../../apps/data-pipeline/src/nof1_causal_lab/machine/graph.py)), and
 derivations already stamp artifact-named provenance (`produced_by="derive:causal_design"` in
-[`machine/derivations.py`](../../apps/data-pipeline/src/nof1_causal_lab/machine/derivations.py)).
+`machine/derivations.py`, since replaced by [action-owned checks](../../apps/data-pipeline/src/nof1_causal_lab/actions/model_checks.py)).
 The work is finishing that rename outward.
 
 **Ground rules** (from the repo conventions):

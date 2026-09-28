@@ -1,5 +1,9 @@
 - Add tests only when necessary to cover broad behavior; this repo's test suite is already costly.
 
+- Before running tests, follow the [test selection guide](docs/guides/agentic_integration_testing.md#choosing-tests-for-a-change). Start with affected test files or node IDs and an explicit concern selector: relevant contracts plus only the inference children or workflows exercised by the change. Broaden for affected shared behavior, failure diagnosis, or an explicit broader request; do not automatically run every category after focused checks pass. For documentation-only changes, run the documentation checks.
+
+- Every Python test must explicitly declare at least one concern owner: `pytest.mark.contract`, `pytest.mark.workflow`, or `pytest.mark.inference(concern="...")` with `sampling`, `warmup`, `simulation`, `predictive`, or `recovery`. Pytest selects the whole numerical group with `-m inference` and a child with `-m "inference(concern='warmup')"`. Use module, class, or function markers at the narrowest shared scope; collection rejects unowned tests and missing or invalid inference concerns before selection. Keep the default and specialized selections separate.
+
 - Project description: nof1-causal-lab is for observational longitudinal causal questions, especially intensive longitudinal data (ILD) and idiographic / N-of-1 settings where measurements are irregular, messy, and semantically heterogeneous. The LLM proposes constructs, indicators, causal structure, and priors. It combines explicit causal-identification checks with continuous-time latent state-space estimation, and only produces numeric causal claims when those checks support them.
 
 - TODO references mean the gitignored `scratchpad/TODO.md`.
@@ -37,7 +41,7 @@
 
 - Never put domain logic or statistical computations in frontend code.
 
-- Reuse the dev server on port 3000 if running; ask before restarting it.
+- Reuse the dev server on port 3000 if running; restart it when needed.
 - Check errors with the next-devtools MCP.
 - Use `bun` exclusively.
 
@@ -45,7 +49,7 @@
 
 - Budget GPU benchmarks carefully: a B200 on Modal costs $6/hour.
 
-- Never run evals (`inspect eval`) unless explicitly asked. Use `uv run pytest tests/` for testing; select specialized concern suites with `-m` when requested or directly affected.
+- Never run evals (`inspect eval`) unless explicitly asked. From `apps/data-pipeline`, use `uv run pytest <affected paths> -m "<selector>"` for focused testing. An explicit `-m` is necessary to include inference or workflow tests because the default selection excludes them. The Bun `test` wrapper always includes all of `tests/`; use it for a whole concern suite, not a file-scoped run.
 
 - Before committing, run `bun run --cwd apps/data-pipeline lint`.
 

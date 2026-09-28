@@ -25,6 +25,7 @@ Emax
 enabledness
 estimand
 evals
+Excalidraw
 Gaussianity
 hessmc
 Langevin
