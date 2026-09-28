@@ -75,6 +75,12 @@ bun run docs:check   # verify documentation drift, Markdown, and spelling
 
 `bun run check` runs both drift checks alongside the repository's lint, type, test, and build tasks.
 
+### Action-flow charts
+
+Each chart in [`docs/assets/action-flows`](../assets/action-flows) is a native Excalidraw scene, and the scene is the source. After editing a scene, export its SVG, then render and inspect the result. Use `edit_model` as the visual reference and keep its individual check nodes.
+
+Keep the shared styling: 16 px sans-serif body text, monospace titles and outcomes, solid 2 px outlines, rounded stacked cards, slate connectors and pale gray section panels. Requests are indigo, warnings amber, failures red and commits green. Skipped or unavailable results and subsequent actions use dashed gray cards.
+
 ## Type Naming Conventions
 
 Name types for the role their instances serve. Python contracts and generated
@@ -116,9 +122,8 @@ without retaining compatibility aliases.
 Use a scalar ID when a field identifies one known kind of entity: scenario
 `target` and `outcome`, model `default_outcome`, and validation `indicator_id`.
 Keep tagged references for mixed entity kinds and for shared graph endpoints.
-Python edges hold canonical `ConstructSpec` objects; their
-[JSON representation](../design/additive-model.md#proposed-ownership) defines a
-shared construct once and refers to it at subsequent endpoints.
+Python edges hold canonical `ConstructSpec` objects; their JSON representation
+defines a shared construct once and refers to it at subsequent endpoints.
 
 Scientific IDs are nominal Python `NewType` values with Pydantic format
 constraints. Construct IDs explicitly when allocating trusted identities; use
@@ -132,8 +137,7 @@ Entity identity survives renames and revisions. Exact provenance remains separat
 records an artifact and version; `TransitionRef` records a journal sequence in the
 enclosing workspace. A journal sequence is not a model artifact version.
 Snapshots carry `context.workspace_id` and the selected journal sequence, and pin
-each sourced value to its supporting version. See
-[model snapshots](../design/model-snapshot.md) for historical reads and freshness.
+each sourced value to its supporting version.
 
 ## Changing the schema
 

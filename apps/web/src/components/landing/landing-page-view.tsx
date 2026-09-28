@@ -1,6 +1,5 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { linkifyDocRefs } from "@/lib/utils/linkify-docs";
 import { ArrowRight, Eye, FileText, Loader2, Upload, X } from "lucide-react";
 import { motion } from "motion/react";
 import prettyBytes from "pretty-bytes";
@@ -110,9 +109,8 @@ export function LandingPageView({
               <CardHeader>
                 <CardTitle>Data Upload</CardTitle>
                 <CardDescription>
-                  {linkifyDocRefs(
-                    "Upload a ZIP or text file containing your observational data, without worrying about heterogeneity or sparsity. See docs/pipeline/extraction.md",
-                  )}
+                  Upload a ZIP or text file containing your observational data, without worrying
+                  about heterogeneity or sparsity.
                 </CardDescription>
               </CardHeader>
               <CardContent>

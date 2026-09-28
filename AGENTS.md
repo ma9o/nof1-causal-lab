@@ -33,9 +33,9 @@
 - Place references beside the claims they support or hyperlink the relevant terms.
 - After editing `README.md` or files under `docs/`, run `bun run docs:check`.
 
-- In `docs/pipeline`, each stage doc owns its output and artifact definitions; downstream stages link to them.
+- Each fact has one maintained owner: the action charts in `docs/assets/action-flows` own control flow, code owns field meanings and the API, and `docs/assumptions.md` owns modeling commitments and limits. Link to the owner instead of restating it.
 
-- In `docs/pipeline`, Outputs sections use field/description tables for core artifacts, without extra dataclass prose. Omit internal plumbing (`outcome`, `llm_trace`) and wrappers such as `IndicatorAudit`.
+- A change to an action's behavior updates its chart in the same commit.
 
 # Web app
 

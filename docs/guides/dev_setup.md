@@ -33,7 +33,7 @@ bun run docs:codegen
 
 Edit `.env` and fill in at minimum:
 
-- `OPENROUTER_API_KEY` — the ambient credential for LLM-backed pipeline stages (the only key mechanism; there is no per-user handoff)
+- `OPENROUTER_API_KEY` — the ambient credential for LLM-backed work such as ingestion and extraction (the only key mechanism; there is no per-user handoff)
 
 Optional keys:
 
@@ -62,7 +62,7 @@ Or individually:
 | Episode worker | `cd apps/data-pipeline && uv run python -m nof1_causal_lab.machine.temporal.worker` | — |
 | Tool server / episode facade | `cd apps/data-pipeline && bun run dev` | 8100 |
 
-The web viewer works standalone with mock data. Live episodes also need the Temporal dev server, the episode worker, and the tool server — `bun run integration:start` brings up the whole stack (see the [agent quickstart](agent_quickstart.md) and the [integration testing guide](agentic_integration_testing.md)).
+The web viewer works standalone with mock data. Live episodes also need the Temporal dev server, the episode worker, and the tool server — `bun run integration:start` brings up the whole stack (see the [integration testing guide](agentic_integration_testing.md)).
 
 ## Common Commands
 

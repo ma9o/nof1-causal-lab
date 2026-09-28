@@ -5,33 +5,27 @@
 ![Python 3.12+](https://img.shields.io/badge/python-3.12+-3776ab?logo=python&logoColor=white)
 ![Next.js 16](https://img.shields.io/badge/Next.js-16-000?logo=next.js)
 ![NumPyro + JAX](https://img.shields.io/badge/NumPyro-JAX-9b59b6)
-![Prefect](https://img.shields.io/badge/Prefect-3-070e10?logo=prefect&logoColor=white)
 
 **nof1-causal-lab** is an opinionated LLM harness for end-to-end Bayesian causal inference on N-of-1 time series data.
 
 The ultimate goal of the project is to facilitate epistemically optimal decision-making at the individual level, using dense digital trace datasets (medical records, chatbot conversation logs, browsing history, etc.) while transparently incorporating existing scientific knowledge, where available, in the form of prior distributions and modeling assumptions.
 
-The user supplies a scientific question and observational data. The framework exposes four [scientific actions](docs/reference/scientific-actions.md): edit the model, prepare data, fit, and simulate. Constructs, causal structure, measurements, fixed or estimable parameters, and probability laws can be revised together or incrementally. Applicable specification and data checks run on submission. Fitting conditions the selected continuous-time nonlinear state-space model; simulation samples its current laws before or after fitting. Numeric causal claims require identification and matching production-inference evidence.
+The user supplies a scientific question and observational data. The framework exposes four scientific actions: [edit the model](docs/assets/action-flows/edit-model.svg), [prepare data](docs/assets/action-flows/prepare-data.svg), [fit](docs/assets/action-flows/fit.svg), and [simulate](docs/assets/action-flows/simulate.svg). Constructs, causal structure, measurements, fixed or estimable parameters, and probability laws can be revised together or incrementally. Applicable specification and data checks run on submission. Fitting conditions the selected continuous-time nonlinear state-space model; simulation samples its current laws before or after fitting. [Numeric causal claims](docs/assumptions.md#numeric-causal-claims) require identification and matching production-inference evidence.
 
 In practice, the framework is designed for longitudinal consumer datasets that are easily accessible via data subject access requests (DSARs), from more domain specific ones like Apple Health, Oura, 23andMe, Strava (cardiometabolic health, chronic conditions, performance & adaptation), Anki, Duolingo, YouTube (education & deliberate practice) to more cross cutting ones like Google Takeout, WhatsApp, ChatGPT/Claude logs (mental health, cognition & attention, habit & behavior change) - and, most interestingly, their intersections!
 
 ## Features and Goals
 
 - **Methodological rigor without friction** - An user should be simply able to provide a dataset and a question, and the software should provide the most rigorous possible answer without pushing any methodological decision onto the user.
-- **Interpretability and interactivity** - At any stage, users can inspect and intervene on the LLM outputs in the UI, either by interactively challenging the LLM in conversation or directly overriding its decisions.
+- **Interpretability and interactivity** - Every model revision, check and result is recorded and can be inspected in the UI; users challenge or override the agent's decisions in conversation with it.
 - **Support for large datasets, irregular timestamps and semantic heterogeneity** - via a continuous-discrete nonlinear state-space model — continuous-time latent dynamics observed at discrete, irregular timestamps — with non-Gaussian indicator-specific likelihoods (Poisson, Bernoulli, Beta, etc.).
-- **Incremental numerical modeling and prior elicitation** - direct model revisions and explicit simulation support scientific iteration; an optional construct-authoring recipe adds saved proposals and exact prior-predictive checks.
+- **Incremental numerical modeling and prior elicitation** - model revisions can be small and interleaved; each edit reruns only the affected checks, including exact predictive checks against prepared data.
 - **Fast and accurate parameter and state estimation in `jax`** - Exact inference in minutes using [parallel-in-time particle smoothing](https://arxiv.org/pdf/2401.14868) on GPU. Efficient caching ensures that we never waste time waiting for compilation.
-- **Compatible with `codex` and `claude-code`** - Leverage your existing subscription for the interactive stages of the pipeline.
+- **Compatible with `codex` and `claude-code`** - Leverage your existing subscription, both for the agent that drives the study and for LLM-backed ingestion and extraction.
 
 ## Demo
 
-[Open the DEMO model](https://project-n98yx.vercel.app/model/DEMO)
-
-| <img src="docs/assets/stage1b.png" width="400" alt="stage2"><br>Causal design and measurement structure | <img src="docs/assets/stage2.gif" width="400" alt="stage2"><br>Parallel data extraction |
-|:--:|:--:|
-| <img src="docs/assets/stage4-loading.gif" width="400" alt="stage2"><br>**Construct-admission state machine** | <img src="docs/assets/stage4-done.gif" width="400" alt="stage4"><br>**Statistical model specification** <tr></tr> |
-| <img src="docs/assets/stage5.gif" width="400" alt="stage5"><br>**Inference diagnostics** | <img src="docs/assets/stage6.gif" width="400" alt="stage2"><br>**Counterfactual simulation** |
+[Open the DEMO model](https://project-n98yx.vercel.app/v2/DEMO)
 
 ## Modeling
 
@@ -53,7 +47,7 @@ Observations follow indicator-specific likelihoods (see the supported [distribut
 </p>
 <!-- docs-latex:end -->
 
-See [causal-design](docs/reference/causal-design/identifiability.md), [latent-structure](docs/reference/latent-structure/assumptions.md) and [measurement-structure](docs/reference/measurement-structure/assumptions.md) for the structural assumptions baked into the modeling framework.
+See [assumptions and limits](docs/assumptions.md) for the structural assumptions baked into the modeling framework and how far its results can be read.
 
 ## Quick Start
 
@@ -64,7 +58,8 @@ cd apps/data-pipeline && uv sync --frozen --group dev && cd ../..
 # Environment — set OPENROUTER_API_KEY at minimum
 cp .env.example.dev .env
 
-# Start all dev servers - NextJS, Prefect and LLM tools server
+# Start the web viewer and the tool server
+# (bun run integration:start runs the full stack, including Temporal and the worker)
 bun run dev
 ```
 
@@ -72,37 +67,9 @@ See the [dev setup guide](docs/guides/dev_setup.md) for full details including e
 
 ## Documentation
 
-| Section | Description |
-|---------|-------------|
-| **[Index](docs/index.md)** | Full documentation entrypoint with route-by-question |
-| **[Pipeline](docs/pipeline.md)** | Stage-by-stage walkthrough and artifact ownership |
-| **[Reference](docs/reference/)** | Assumptions, compilation, estimation, inference routing |
-| **[Guides](docs/guides/)** | Dev setup, code generation, integration testing, evaluations |
-
-## Project Structure
-
-```text
-nof1-causal-lab/                    # Turborepo monorepo
-├── apps/
-│   ├── data-pipeline/               # Python — Prefect pipeline + NumPyro models
-│   │   ├── src/nof1_causal_lab/
-│   │   │   ├── flows/               # Prefect stages (0–6) + orchestration
-│   │   │   ├── orchestrator/        # LLM agents: construct, measurement, prior proposals
-│   │   │   ├── workers/             # Parallel indicator extraction + prior research
-│   │   │   ├── models/              # NumPyro SSM compilation + predictive checks
-│   │   │   ├── distributions.py     # Indicator-specific likelihoods (Poisson, Bernoulli, Beta, …)
-│   │   │   ├── tool_server.py       # LLM tools server 
-│   │   │   └── utils/               # Identifiability, config, LLM runtime
-│   │   ├── notebooks/               # Exploratory analysis
-│   │   ├── evals/                   # Inspect AI evaluation suites
-│   │   └── tests/                   # pytest suite
-│   └── web/                         # Next.js — interactive frontend
-│       └── src/
-│           ├── app/                  # App router + API routes
-│           ├── components/           # DAG editor, charts, pipeline views
-│           └── lib/                  # Clients, hooks, types
-├── packages/
-│   └── api-types/                   # Generated TypeScript types from Pydantic
-├── data/                            # Workspace data (local inputs, runs, artifacts)
-└── docs/                            # Documentation
-```
+- **How each action works:** [edit_model](docs/assets/action-flows/edit-model.svg), [prepare_data](docs/assets/action-flows/prepare-data.svg), [fit](docs/assets/action-flows/fit.svg) and [simulate](docs/assets/action-flows/simulate.svg).
+- **[Bayesian workflow](docs/assets/bayesian-workflow.svg):** the book's workflow mapped onto the four actions, including what is still missing.
+- **[Assumptions and limits](docs/assumptions.md):** the modeling commitments behind every result.
+- **Supported laws:** [likelihoods](docs/reference/statistical-model-spec/likelihoods.md) and [priors](docs/reference/statistical-model-spec/parameters.md), generated from the code.
+- **API:** the Swagger UI at `http://localhost:8100/api/tools/docs` while the tool server runs, and the generated [agent skill](.agents/skills/nof1-episode-api/SKILL.md).
+- **Guides:** [dev setup](docs/guides/dev_setup.md), [integration testing](docs/guides/agentic_integration_testing.md), [code generation](docs/guides/codegen.md), [cached inference](docs/guides/cached_inference.md) and [benchmarks](docs/guides/running_evals.md).
