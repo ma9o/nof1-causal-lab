@@ -27,7 +27,7 @@ describe("GET /api/analysis/[workspaceId]", () => {
 
   it("derives readOnly from the facade capabilities", async () => {
     vi.mocked(buildAnalysisManifest).mockResolvedValue(manifest);
-    vi.mocked(getFacadeCapabilities).mockResolvedValue({ moves_enabled: false });
+    vi.mocked(getFacadeCapabilities).mockResolvedValue({ actions_enabled: false });
 
     const response = await GET(new Request("http://localhost/api/analysis/user-123"), {
       params: Promise.resolve({ workspaceId: "user-123" }),
@@ -42,7 +42,7 @@ describe("GET /api/analysis/[workspaceId]", () => {
 
   it("reports writable when the facade serves moves", async () => {
     vi.mocked(buildAnalysisManifest).mockResolvedValue(manifest);
-    vi.mocked(getFacadeCapabilities).mockResolvedValue({ moves_enabled: true });
+    vi.mocked(getFacadeCapabilities).mockResolvedValue({ actions_enabled: true });
 
     const response = await GET(new Request("http://localhost/api/analysis/user-123"), {
       params: Promise.resolve({ workspaceId: "user-123" }),
@@ -62,7 +62,7 @@ describe("GET /api/analysis/[workspaceId]", () => {
 
   it("returns 404 when the manifest cannot be built", async () => {
     vi.mocked(buildAnalysisManifest).mockResolvedValue(null);
-    vi.mocked(getFacadeCapabilities).mockResolvedValue({ moves_enabled: true });
+    vi.mocked(getFacadeCapabilities).mockResolvedValue({ actions_enabled: true });
 
     const response = await GET(new Request("http://localhost/api/analysis/user-123"), {
       params: Promise.resolve({ workspaceId: "user-123" }),

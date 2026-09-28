@@ -19,7 +19,7 @@ const data = demoPosterior as InferenceReport;
 
 const meta = {
   args: { indicators },
-  title: "Pipeline/Outputs/Posterior/Panel",
+  title: "V1/Pipeline/Outputs/Posterior/Panel",
   component: PosteriorView,
   decorators: outputStoryDecorators,
 } satisfies Meta<typeof PosteriorView>;

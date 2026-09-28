@@ -16,7 +16,7 @@ export interface PipelineProgress {
   /** Backend-computed freshness report, grouped by producing artifact for display. */
   staleArtifactsByProducer: StaleArtifactsByProducer;
   /** Whether the facade's auto-run driver is currently active. */
-  autoRunning: boolean;
+
   /** Artifact display order from the machine's topological artifact order. */
   transitionOrder: PipelineSectionId[];
   /** Currently running transitions; plural because independent branches can execute concurrently. */
@@ -68,7 +68,7 @@ export function initialProgress(transitionOrder: readonly PipelineSectionId[]): 
     timings: {},
     transitionErrors: {},
     staleArtifactsByProducer: {},
-    autoRunning: false,
+
     transitionOrder: [...transitionOrder],
     runningTransitions: [],
     isComplete: false,

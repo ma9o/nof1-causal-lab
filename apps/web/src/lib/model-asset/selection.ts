@@ -1,6 +1,5 @@
 import {
-  TRANSITION_META,
-  type Move,
+  type ScientificActionId,
   type ArtifactId,
   type ConstructId,
   type EdgeId,
@@ -8,29 +7,17 @@ import {
   type ParameterId,
 } from "@nof1-causal-lab/api-types";
 
-/** What the details pane is scoped to: the asset itself or one of its parts. */
+/** The model entity or recorded version shown in the details pane. */
 export type ModelSelection =
-  | { kind: "asset" }
-  | { kind: "version"; seq: number }
+  | { kind: "revision"; seq: number }
   | { kind: "construct"; id: ConstructId }
   | { kind: "edge"; id: EdgeId }
   | { kind: "indicator"; id: IndicatorId }
   | { kind: "parameter"; id: ParameterId };
 
-export type EditableSelection = Exclude<ModelSelection, { kind: "version" }>;
+export type EntitySelection = Exclude<ModelSelection, { kind: "revision" }>;
 
-export const ASSET_SELECTION: ModelSelection = { kind: "asset" };
-
-export const SCOPE_KIND_LABEL: Record<ModelSelection["kind"], string> = {
-  asset: "asset",
-  version: "action",
-  construct: "construct",
-  edge: "edge",
-  indicator: "indicator",
-  parameter: "parameter",
-};
-
-/** Short move labels for every artifact the machine can install. */
+/** Short action labels for every artifact the machine can install. */
 export const ARTIFACT_LABEL: Record<ArtifactId, string> = {
   raw_data: "Preprocess",
   model: "Model",
@@ -52,13 +39,12 @@ export function formatPlain(value: number, digits = 2): string {
   return `${value < 0 ? "−" : ""}${Math.abs(value).toFixed(digits)}`;
 }
 
-export function moveLabel(move: Move): string {
-  if (move.kind === "write" && move.artifact_id === "model") return "Edit model";
-  if (move.kind === "run") {
-    if (move.operation_id === "posterior") return "Fit";
-    if (move.operation_id === "simulate") return "Simulate";
-  }
-  return move.kind === "run"
-    ? TRANSITION_META[move.operation_id].label
-    : ARTIFACT_LABEL[move.artifact_id];
+export function actionLabel(action: ScientificActionId): string {
+  const labels: Record<ScientificActionId, string> = {
+    edit_model: "Edit model",
+    prepare_data: "Prepare data",
+    fit: "Fit",
+    simulate: "Simulate",
+  };
+  return labels[action];
 }

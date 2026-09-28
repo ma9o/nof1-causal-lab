@@ -12,7 +12,7 @@ const ppc = predictiveChecks;
 
 const meta = {
   args: { indicators },
-  title: "Pipeline/Outputs/Posterior/PPCWarningsTable",
+  title: "V1/Pipeline/Outputs/Posterior/PPCWarningsTable",
   component: PPCWarningsTable,
   decorators: [withContainer()],
 } satisfies Meta<typeof PPCWarningsTable>;

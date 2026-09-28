@@ -15,7 +15,7 @@ const data = demoRawData as RawDataData;
 const workspaceId = "demo-user";
 
 const meta = {
-  title: "Pipeline/Outputs/Raw Data/Panel",
+  title: "V1/Pipeline/Outputs/Raw Data/Panel",
   component: RawDataView,
   decorators: outputStoryDecorators,
 } satisfies Meta<typeof RawDataView>;

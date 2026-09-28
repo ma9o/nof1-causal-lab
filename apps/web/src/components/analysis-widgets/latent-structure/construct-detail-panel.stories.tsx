@@ -12,7 +12,7 @@ const exogenous = constructs.find((c) => c.role === "exogenous")!;
 const outcome = constructs.find((c) => c.id === data.default_outcome)!;
 
 const meta = {
-  title: "Pipeline/Outputs/Latent Structure/ConstructDetailPanel",
+  title: "V1/Pipeline/Outputs/Latent Structure/ConstructDetailPanel",
   component: ConstructDetailPanel,
   decorators: [withContainer("max-w-md")],
 } satisfies Meta<typeof ConstructDetailPanel>;

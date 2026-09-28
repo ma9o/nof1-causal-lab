@@ -1,3 +1,5 @@
+import type { RuntimeEvent } from "@nof1-causal-lab/api-types";
+
 export const EXTRACTION_EVENT_PREFIX = "nof1-causal-lab.extraction.";
 const EXTRACTION_RPM_WINDOW_MS = 60_000;
 
@@ -28,11 +30,7 @@ export interface ExtractionSnapshot {
   llm_requests_last_60s: number;
 }
 
-export interface ExtractionEventRecord {
-  event?: string | null;
-  occurred?: string | null;
-  payload?: Record<string, unknown>;
-}
+export type ExtractionEventRecord = RuntimeEvent & { occurred?: string | null };
 
 export type ExtractionEvent =
   | { type: "plan"; plan: ExtractionPlan }
@@ -61,10 +59,6 @@ export const EMPTY_EXTRACTION_REPLAY_STATE: ExtractionReplayState = {
 
 export function getExtractionStateQueryKey(workspaceId: string) {
   return ["pipeline", workspaceId, "extraction-state"] as const;
-}
-
-function isExtractionWorkerState(value: unknown): value is ExtractionWorkerState {
-  return value === "pending" || value === "running" || value === "completed" || value === "failed";
 }
 
 function stateRank(state: ExtractionWorkerState): number {
@@ -114,77 +108,48 @@ function mergeWorker(
   };
 }
 
-export function parseExtractionEvent(
-  event: ExtractionEventRecord | null | undefined,
-): ExtractionEvent | null {
-  if (!event?.event?.startsWith(EXTRACTION_EVENT_PREFIX)) {
-    return null;
+export function parseExtractionEvent(event: ExtractionEventRecord): ExtractionEvent | null {
+  switch (event.event) {
+    case "nof1-causal-lab.extraction.plan":
+      return {
+        type: "plan",
+        plan: {
+          total_workers: event.total_workers,
+          max_concurrent_workers: event.max_concurrent_workers ?? null,
+          max_rpm: event.max_rpm ?? null,
+        },
+      };
+    case "nof1-causal-lab.extraction.snapshot":
+      return {
+        type: "snapshot",
+        snapshot: {
+          total_workers: event.total_workers,
+          pending_workers: event.pending_workers,
+          running_workers: event.running_workers,
+          completed_workers: event.completed_workers,
+          failed_workers: event.failed_workers,
+          llm_requests_last_60s: event.llm_requests_last_60s,
+        },
+      };
+    case "nof1-causal-lab.extraction.worker":
+      return {
+        type: "worker",
+        worker: {
+          worker_id: event.worker_id,
+          state: event.state,
+          n_windows: event.n_windows,
+          n_extractions: event.n_extractions ?? null,
+          n_llm_calls: event.n_llm_calls ?? null,
+          error: event.error ?? null,
+          completed_at:
+            event.state === "completed" || event.state === "failed"
+              ? (event.occurred ?? null)
+              : null,
+        },
+      };
+    default:
+      return null;
   }
-
-  const payload = event.payload;
-  if (!payload) {
-    return null;
-  }
-
-  if (payload.type === "plan" && typeof payload.total_workers === "number") {
-    return {
-      type: "plan",
-      plan: {
-        total_workers: payload.total_workers,
-        max_concurrent_workers:
-          typeof payload.max_concurrent_workers === "number"
-            ? payload.max_concurrent_workers
-            : null,
-        max_rpm: typeof payload.max_rpm === "number" ? payload.max_rpm : null,
-      },
-    };
-  }
-
-  if (
-    payload.type === "snapshot" &&
-    typeof payload.total_workers === "number" &&
-    typeof payload.pending_workers === "number" &&
-    typeof payload.running_workers === "number" &&
-    typeof payload.completed_workers === "number" &&
-    typeof payload.failed_workers === "number" &&
-    typeof payload.llm_requests_last_60s === "number"
-  ) {
-    return {
-      type: "snapshot",
-      snapshot: {
-        total_workers: payload.total_workers,
-        pending_workers: payload.pending_workers,
-        running_workers: payload.running_workers,
-        completed_workers: payload.completed_workers,
-        failed_workers: payload.failed_workers,
-        llm_requests_last_60s: payload.llm_requests_last_60s,
-      },
-    };
-  }
-
-  if (
-    payload.type === "worker" &&
-    typeof payload.worker_id === "number" &&
-    isExtractionWorkerState(payload.state)
-  ) {
-    return {
-      type: "worker",
-      worker: {
-        worker_id: payload.worker_id,
-        state: payload.state,
-        n_windows: typeof payload.n_windows === "number" ? payload.n_windows : 0,
-        n_extractions: typeof payload.n_extractions === "number" ? payload.n_extractions : null,
-        n_llm_calls: typeof payload.n_llm_calls === "number" ? payload.n_llm_calls : null,
-        error: typeof payload.error === "string" ? payload.error : null,
-        completed_at:
-          payload.state === "completed" || payload.state === "failed"
-            ? (event.occurred ?? null)
-            : null,
-      },
-    };
-  }
-
-  return null;
 }
 
 export function applyExtractionEvent(

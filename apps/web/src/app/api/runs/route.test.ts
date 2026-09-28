@@ -1,3 +1,4 @@
+import { EpisodeRunError, createStudy } from "@/lib/server/episode-runs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/server/episode-runs", () => ({
@@ -9,11 +10,9 @@ vi.mock("@/lib/server/episode-runs", () => ({
       this.status = status;
     }
   },
-  startStudyRecipe: vi.fn(),
-  startEpisode: vi.fn(),
+  createStudy: vi.fn(),
 }));
 
-import { EpisodeRunError, startStudyRecipe, startEpisode } from "@/lib/server/episode-runs";
 import { POST } from "./route";
 
 describe("POST /api/runs", () => {
@@ -46,12 +45,11 @@ describe("POST /api/runs", () => {
     );
 
     expect(response.status).toBe(400);
-    expect(startEpisode).not.toHaveBeenCalled();
+    expect(createStudy).not.toHaveBeenCalled();
   });
 
   it("creates the workspace without starting an optional recipe", async () => {
-    vi.mocked(startEpisode).mockResolvedValue({} as never);
-    vi.mocked(startStudyRecipe).mockResolvedValue();
+    vi.mocked(createStudy).mockResolvedValue({ attempt_id: "accepted-attempt" });
 
     const response = await POST(
       new Request("http://localhost/api/runs", {
@@ -64,14 +62,16 @@ describe("POST /api/runs", () => {
       }),
     );
 
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ workspaceId: "USER123" });
-    expect(startEpisode).toHaveBeenCalledWith("USER123", "Why is sleep worse after travel?");
-    expect(startStudyRecipe).not.toHaveBeenCalled();
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toEqual({
+      workspaceId: "USER123",
+      attempt_id: "accepted-attempt",
+    });
+    expect(createStudy).toHaveBeenCalledWith("USER123", "Why is sleep worse after travel?");
   });
 
   it("returns a workspace revision conflict", async () => {
-    vi.mocked(startEpisode).mockRejectedValue(
+    vi.mocked(createStudy).mockRejectedValue(
       new EpisodeRunError(409, "auto-run already active for USER123"),
     );
 
@@ -90,7 +90,7 @@ describe("POST /api/runs", () => {
   });
 
   it("maps facade errors to their HTTP status", async () => {
-    vi.mocked(startEpisode).mockRejectedValue(new EpisodeRunError(403, "facade is read-only"));
+    vi.mocked(createStudy).mockRejectedValue(new EpisodeRunError(403, "facade is read-only"));
 
     const response = await POST(
       new Request("http://localhost/api/runs", {
@@ -105,7 +105,7 @@ describe("POST /api/runs", () => {
   });
 
   it("returns 502 on unexpected launch failures", async () => {
-    vi.mocked(startEpisode).mockRejectedValue(new Error("boom"));
+    vi.mocked(createStudy).mockRejectedValue(new Error("boom"));
 
     const response = await POST(
       new Request("http://localhost/api/runs", {

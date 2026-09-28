@@ -1,8 +1,5 @@
 "use client";
 
-import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
-import { PPC_P_LOWER, PPC_P_UPPER } from "@/lib/constants/diagnostics";
-import { formatNumber } from "@/lib/utils/format";
 import type {
   IndicatorSpec,
   PPCOverlay,
@@ -22,6 +19,9 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
+import { PPC_P_LOWER, PPC_P_UPPER } from "@/lib/constants/diagnostics";
+import { formatNumber } from "@/lib/utils/format";
 
 // ── Row type (one per variable) ──────────────────────────
 
@@ -171,11 +171,10 @@ const STAT_NAMES: StatName[] = ["mean", "sd", "min", "max"];
 
 const CHECK_TOOLTIPS: Record<CheckType, string> = {
   calibration:
-    "Fraction of observed timepoints falling within the 95% posterior predictive interval. Expected ~0.95.",
+    "Fraction of observed timepoints falling within the 95% predictive interval. Expected ~0.95.",
   autocorrelation:
     "Lag-1 autocorrelation of residuals (observed minus predicted mean). High values suggest missing dynamics.",
-  variance:
-    "Ratio of posterior predictive std to observed std. Values far from 1 indicate scale misfit.",
+  variance: "Ratio of predictive std to observed std. Values far from 1 indicate scale misfit.",
 };
 
 const STAT_TOOLTIPS: Record<StatName, string> = {
@@ -198,7 +197,7 @@ const columns: ColumnDef<PPCVariableRow, unknown>[] = [
     header: () => (
       <HeaderWithTooltip
         label="y vs y_rep"
-        tooltip="Observed data (solid) vs 95% posterior predictive band (shaded) and median (dashed). Data outside the band suggests misfit."
+        tooltip="Observed data (solid) vs 95% predictive band (shaded) and median (dashed). Data outside the band suggests misfit."
       />
     ),
     cell: ({ row }) => <OverlaySparkline overlay={row.original.overlay} />,

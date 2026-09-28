@@ -1,231 +1,120 @@
-import { primaryArtifact } from "@/lib/model-asset/journal";
-import { demoSnapshotAt } from "@/components/__fixtures__/demo-artifacts";
-import { demoTraces } from "@/components/__fixtures__/demo-traces";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import type { PipelineProgress } from "@/lib/hooks/pipeline-progress";
-import type { ArtifactFreshness, TransitionRecord } from "@nof1-causal-lab/api-types";
-import { TRANSITIONS, type LLMTrace } from "@nof1-causal-lab/api-types";
+import { TRANSITIONS } from "@nof1-causal-lab/api-types";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
+import { setupWorker } from "msw/browser";
+import { useState, type ReactNode } from "react";
+import {
+  WORKBENCH_WORKSPACE,
+  workbenchHandlers,
+  workbenchQuestion,
+  workbenchTraces,
+} from "@/components/__fixtures__/workbench";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { getEpisodeProgress } from "@/lib/api/analysis";
+import type { PipelineProgress } from "@/lib/hooks/pipeline-progress";
+import { useModelSnapshot } from "@/lib/hooks/use-model-snapshot";
+import { getEpisodeProgressQueryKey } from "@/lib/hooks/use-run-events";
 import { CausalModelAssetView } from "./causal-model-asset";
-import type { MoveTraceState } from "./conversation-pane";
+import type { ActionTraceState } from "./conversation-pane";
 
-type Produced = TransitionRecord["produced"][number];
-type Artifact = Produced["artifact_id"];
-
-const START = Date.parse("2026-07-08T11:40:00Z");
-let clock = START;
-
-function produced(artifactId: Artifact, version: number): Produced {
-  return {
-    artifact_id: artifactId,
-    version,
-    provenance: "computed",
-    derived_from: {},
-    model_inputs: {},
-    consumed_model_inputs: {},
-    produced_by: null,
-    created_at: new Date(clock).toISOString(),
-  };
-}
-
-function move(
-  seq: number,
-  seconds: number,
-  record: Omit<
-    TransitionRecord,
-    "seq" | "ts" | "reason" | "error_type" | "error_message" | "diagnostics" | "resume"
-  > &
-    Partial<Pick<TransitionRecord, "error_type" | "error_message">>,
-): TransitionRecord {
-  clock += seconds * 1000;
-  return {
-    seq,
-    ts: new Date(clock).toISOString(),
-    reason: null,
-    diagnostics: {},
-    resume: null,
-    error_type: null,
-    error_message: null,
-    ...record,
-  };
-}
-
-/** The DEMO fixture's journal, reconstructed: the same moves the canonical episode applied. */
-const JOURNAL: TransitionRecord[] = [
-  move(1, 212, {
-    move: { kind: "run", operation_id: "raw_data", input_versions: {} },
-    status: "applied",
-    produced: [produced("raw_data", 1)],
-    retracted: [],
-    trace_ids: ["raw_data"],
-  }),
-  move(2, 3, {
-    move: { kind: "write", artifact_id: "model", provenance: "human", expected_model_version: 0 },
-    status: "applied",
-    produced: [produced("model", 1)],
-    retracted: [],
-    trace_ids: [],
-  }),
-  move(3, 251, {
-    move: { kind: "run", operation_id: "latent_structure", input_versions: {} },
-    status: "applied",
-    produced: [produced("model", 2)],
-    retracted: [],
-    trace_ids: ["latent_structure"],
-  }),
-  move(4, 175, {
-    move: { kind: "run", operation_id: "measurement_structure", input_versions: {} },
-    status: "applied",
-    produced: [produced("model", 3), produced("identification_report", 1)],
-    retracted: [],
-    trace_ids: ["measurement_structure"],
-  }),
-  move(5, 318, {
-    move: { kind: "run", operation_id: "measurements", input_versions: {} },
-    status: "applied",
-    produced: [produced("panel", 1), produced("validation_report", 1)],
-    retracted: [],
-    trace_ids: ["measurements"],
-  }),
-  move(6, 74, {
-    move: { kind: "run", operation_id: "statistical_model_spec", input_versions: {} },
-    status: "raised",
-    produced: [],
-    retracted: [],
-    trace_ids: [],
-    error_type: "ValueError",
-    error_message: "ValueError: prior admission rejected a channel",
-  }),
-  move(7, 188, {
-    move: { kind: "run", operation_id: "statistical_model_spec", input_versions: {} },
-    status: "applied",
-    produced: [produced("model", 4)],
-    retracted: [],
-    trace_ids: ["statistical_model_spec"],
-  }),
-  move(8, 1843, {
-    move: { kind: "run", operation_id: "posterior", input_versions: {} },
-    status: "applied",
-    produced: [],
-    retracted: [],
-    trace_ids: [],
-  }),
-];
-
-const TRACE_BY_SEQ: Record<number, LLMTrace> = {
-  1: demoTraces.raw_data,
-  3: demoTraces.latent_structure,
-  4: demoTraces.measurement_structure,
-  5: demoTraces.measurements,
-  7: demoTraces.statistical_model_spec,
-};
-
-function useFixtureMoveTrace(seq: number, enabled: boolean): MoveTraceState {
-  const trace = TRACE_BY_SEQ[seq];
-  if (!enabled || !trace) return { status: "absent" };
-  return { status: "ready", trace };
-}
-
-const ARTIFACTS: ArtifactFreshness[] = JOURNAL.flatMap((record) =>
-  record.produced.map((info) => ({
-    artifact_id: info.artifact_id,
-    exists: true,
-    stale: false,
-    version: info.version,
-    provenance: "computed" as const,
-    produced_by: `run:${primaryArtifact(record.move)}`,
-  })),
-);
-
-const PROGRESS: PipelineProgress = {
+const worker = setupWorker();
+const progress: PipelineProgress = {
   artifacts: Object.fromEntries(
     TRANSITIONS.map((section) => [section.id, "completed"]),
   ) as PipelineProgress["artifacts"],
   timings: {},
   transitionErrors: {},
   staleArtifactsByProducer: {},
-  autoRunning: false,
+
   transitionOrder: TRANSITIONS.map((section) => section.id),
   runningTransitions: [],
   isComplete: true,
   isFailed: false,
 };
 
-const QUESTION =
-  "I've been on escitalopram for about two and a half years. I'm thinking about tapering. Has the medication actually been moving the needle, or did I just get better on my own — and what would my likely trajectory look like over the next two months if I taper off now versus stay on it?";
+function useStorySnapshot(commitId: string) {
+  return useModelSnapshot(WORKBENCH_WORKSPACE, commitId);
+}
+function useStoryTrace(seq: number, enabled: boolean): ActionTraceState {
+  const trace = workbenchTraces.get(seq);
+  return enabled && trace ? { status: "ready", trace } : { status: "absent" };
+}
+function StoryProviders({ children }: { children: ReactNode }) {
+  const [client] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
+      }),
+  );
+  return (
+    <QueryClientProvider client={client}>
+      <TooltipProvider>{children}</TooltipProvider>
+    </QueryClientProvider>
+  );
+}
+function WorkbenchStory() {
+  const episode = useQuery({
+    queryKey: getEpisodeProgressQueryKey(WORKBENCH_WORKSPACE),
+    queryFn: () => getEpisodeProgress(WORKBENCH_WORKSPACE),
+  });
+  if (episode.error) return <p role="alert">{episode.error.message}</p>;
+  if (!episode.data) return <p role="status">Loading the workbench…</p>;
+  return (
+    <>
+      <div
+        role="note"
+        className="flex h-6 items-center justify-end border-b px-5 text-[10px] text-muted-foreground"
+      >
+        Illustrative data
+      </div>
+      <div className="md:h-[calc(100dvh-24px)] [&>div]:md:h-full [&>div]:md:min-h-0">
+        <CausalModelAssetView
+          workspaceId={WORKBENCH_WORKSPACE}
+          question={workbenchQuestion}
+          useSnapshot={useStorySnapshot}
+          transitions={episode.data.transitions}
+          branches={episode.data.branches}
+          progress={progress}
+          useActionTrace={useStoryTrace}
+        />
+      </div>
+    </>
+  );
+}
 
 const meta = {
-  title: "Model/Causal Model Asset",
-  component: CausalModelAssetView,
-  parameters: { layout: "fullscreen" },
+  title: "V2/Model/Workbench",
+  component: WorkbenchStory,
+  parameters: {
+    layout: "fullscreen",
+    docs: {
+      description: {
+        component:
+          "A harness-driven model viewer: a branching version timeline above the graph, scoped details below it, and a persistent chat log on the right. Selecting a version or recorded turn updates all three panes; graph selections scope the details. Fit results and simulation evidence appear in the relevant details. Hover or focus another version to compare, and expand lineage to see both branches. After execution dispositions are established, the graph shows retained constructs and edges. Compare with an earlier structural version to inspect exclusions. All data is illustrative; the viewer offers no write controls.",
+      },
+    },
+  },
   decorators: [
     (Story) => (
-      <TooltipProvider>
+      <StoryProviders>
         <Story />
-      </TooltipProvider>
+      </StoryProviders>
     ),
   ],
-  args: {
-    workspaceId: "DEMO",
-    useSnapshot: (atSeq: number) => ({ data: demoSnapshotAt(atSeq), error: null }),
-    question: QUESTION,
-    readOnly: false,
-    transitions: JOURNAL,
-    artifacts: ARTIFACTS,
-    nextOperation: null,
-    progress: PROGRESS,
-    useMoveTrace: useFixtureMoveTrace,
-    onRun: null,
+  beforeEach: async () => {
+    worker.resetHandlers(...workbenchHandlers());
+    await worker.start({
+      quiet: true,
+      onUnhandledRequest: (request, print) => {
+        if (new URL(request.url).pathname.startsWith("/api/")) print.error();
+      },
+    });
+    return () => worker.stop();
   },
-} satisfies Meta<typeof CausalModelAssetView>;
-
+} satisfies Meta<typeof WorkbenchStory>;
 export default meta;
-
 type Story = StoryObj<typeof meta>;
 
-/** The fitted model; nothing selected shows the asset. */
-export const FinalState: Story = {};
-
-/** The same asset before the specification: no queries, no fitted layer. */
-export const Measured: Story = {
-  args: {
-    transitions: JOURNAL.slice(0, 5),
-    artifacts: ARTIFACTS.filter((artifact) =>
-      [
-        "raw_data",
-        "latent_structure",
-        "measurement_structure",
-        "causal_design",
-        "model",
-        "identification_report",
-        "measurements",
-        "panel",
-        "validation_report",
-      ].includes(artifact.artifact_id),
-    ),
-    progress: {
-      ...PROGRESS,
-      artifacts: {
-        ...PROGRESS.artifacts,
-        statistical_model_spec: "pending",
-        posterior: "pending",
-      },
-      isComplete: false,
-    },
-  },
-};
-
-/** Inference in flight: the running move pulses on the scrubber and in the thread. */
-export const Materializing: Story = {
-  args: {
-    transitions: JOURNAL.slice(0, 7),
-    artifacts: ARTIFACTS,
-    progress: {
-      ...PROGRESS,
-      artifacts: { ...PROGRESS.artifacts, posterior: "running" },
-      runningTransitions: ["posterior"],
-      autoRunning: true,
-      isComplete: false,
-    },
-  },
-};
+// Keep ONE comprehensive workbench story. Add new features and interactions to
+// this scenario instead of creating separate feature, timeline, or state stories.
+export const Complete: Story = {};

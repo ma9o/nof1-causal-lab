@@ -22,7 +22,7 @@ import { ModelSpecAdmissionRunningView } from "./statistical-model-spec-running-
 const output = TRANSITIONS.find((s) => s.id === "statistical_model_spec")!;
 
 const meta = {
-  title: "Pipeline/Outputs/Statistical Model Spec/Admission",
+  title: "V1/Pipeline/Outputs/Statistical Model Spec/Admission",
   component: ModelSpecAdmissionRunningView,
   decorators: outputStoryDecorators,
 } satisfies Meta<typeof ModelSpecAdmissionRunningView>;

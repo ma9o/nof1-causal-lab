@@ -14,7 +14,7 @@ import { LazyOutputMount } from "./lazy-output-mount";
 import { CompletedOutputsNotification } from "./completed-outputs-notification";
 import { PipelineProgressBar } from "./progress-bar";
 import { OutputSectionRouter } from "./output-section-router";
-import { StaleRecomputeBanner } from "./stale-recompute-banner";
+import { StaleResultsBanner } from "./stale-results-banner";
 
 function FeedContent({
   workspaceId,
@@ -42,7 +42,7 @@ function FeedContent({
     <div>
       <PipelineProgressBar progress={progress} question={question} workspaceId={workspaceId} />
       <div className="space-y-4 px-4 py-6 sm:space-y-6 sm:px-6 lg:px-10 2xl:px-12">
-        {!readOnly && <StaleRecomputeBanner workspaceId={workspaceId} progress={progress} />}
+        {!readOnly && <StaleResultsBanner progress={progress} />}
         {visibleOutputs.map((output) => (
           <LazyOutputMount key={output.id} output={output}>
             <OutputSectionRouter

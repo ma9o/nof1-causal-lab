@@ -25,8 +25,11 @@ export async function getLLMTrace(workspaceId: string, artifactId: string): Prom
   return apiFetch<LLMTrace>(`/api/traces/${workspaceId}?${search}`);
 }
 
-/** The merged traces of one journal move, by seq. */
-export async function getLLMTraceForMove(workspaceId: string, seq: number): Promise<LLMTrace> {
-  const search = new URLSearchParams({ seq: String(seq) }).toString();
+/** The merged traces of one recorded action, by commitId. */
+export async function getLLMTraceForAction(
+  workspaceId: string,
+  commitId: string,
+): Promise<LLMTrace> {
+  const search = new URLSearchParams({ commitId: String(commitId) }).toString();
   return apiFetch<LLMTrace>(`/api/traces/${workspaceId}?${search}`);
 }

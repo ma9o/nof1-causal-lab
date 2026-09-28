@@ -1,20 +1,21 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
 import type {
   CausalEdgeSpec,
   ConstructSpec,
-  PosteriorEstimate,
   IndicatorSpec,
+  PosteriorEstimate,
 } from "@nof1-causal-lab/api-types";
+
+import { useCallback, useMemo, useState } from "react";
 import { useDagLayout } from "@/lib/hooks/use-dag-layout";
-import { useGraphControls, usePlayback } from "./use-graph-controls";
-import { baseId } from "./unroll";
+import type { SimulationWithEffects } from "@/lib/simulation-report";
 import { buildSimulationGraph } from "./build-simulation-graph";
-import { getSimulationDays } from "./simulation";
-import type { AnalysisSimulationResult } from "./simulation-types";
 import type { ConstructStatus } from "./construct-statuses";
 import { buildSimulateInput, type SimulateFn } from "./simulate-input";
+import { getSimulationDays } from "./simulation";
+import { baseId } from "./unroll";
+import { useGraphControls, usePlayback } from "./use-graph-controls";
 
 export interface InteractiveGraphOptions {
   constructs: ConstructSpec[];
@@ -23,7 +24,7 @@ export interface InteractiveGraphOptions {
   edgePosteriors?: Record<string, PosteriorEstimate>;
   persistencePosteriors?: Record<string, PosteriorEstimate>;
   identifiableTreatments?: string[];
-  result: AnalysisSimulationResult;
+  result: SimulationWithEffects;
   height?: number;
   onSimulate?: SimulateFn;
   /** Controlled indicator visibility. Omit to retain the DAG's local toggle. */
@@ -44,7 +45,7 @@ export function useInteractiveGraph({
   onSimulate,
   indicatorsVisible,
 }: InteractiveGraphOptions) {
-  const outcome = result.labels[result.request.outcome];
+  const outcome = result.causal_result.labels[result.causal_result.outcome];
   const [dir, setDir] = useState<"LR" | "TB">("LR");
   const [localShowIndicators, setLocalShowIndicators] = useState(false);
   const showIndicators = indicatorsVisible ?? localShowIndicators;
@@ -86,7 +87,7 @@ export function useInteractiveGraph({
     [identifiableTreatments],
   );
   // Active interventions belong to the current resolved query.
-  const interventions = currentResult.request.clamps;
+  const interventions = currentResult.design.interventions;
   const maximumPosteriorMean = useMemo(
     () =>
       Math.max(
@@ -102,19 +103,18 @@ export function useInteractiveGraph({
       const fromDay = days[clampedDay];
       const horizonDay = days[n - 1];
       if (!onSimulate || fromDay == null || horizonDay == null) return;
-      const horizonDays = Math.max(horizonDay, 1);
+      const end = horizonDay;
       const res = await onSimulate(
         buildSimulateInput(
           result,
           [
             {
               target: constructs.find((c) => c.name === node)!.id,
-              mode: "set",
               value,
-              from_day: fromDay,
+              time: fromDay,
             },
           ],
-          horizonDays,
+          end,
         ),
       );
       setCurrentResult(res);

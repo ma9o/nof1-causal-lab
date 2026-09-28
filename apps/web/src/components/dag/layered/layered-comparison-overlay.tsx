@@ -38,7 +38,7 @@ export function LayeredComparisonOverlay({
             width={node.width}
             height={node.height}
             title={`${humanize(construct.name)}${history ? " · t−1" : ""}`}
-            subtitle="Added in the compared version"
+            subtitle="Added in the compared revision"
             accent={COMPARISON_COLORS.added}
             dashed={history}
             highlighted

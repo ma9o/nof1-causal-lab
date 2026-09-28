@@ -9,13 +9,13 @@ interface DagZoomControlsProps {
 export function DagZoomControls({ zoom, onZoomChange }: DagZoomControlsProps) {
   return (
     <>
-      <span style={LABEL}>Zoom</span>
       <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
         <button
           type="button"
           onClick={() => onZoomChange(zoom / 1.2)}
           style={ZOOM_BUTTON}
           title="zoom out"
+          aria-label="Zoom out"
         >
           −
         </button>
@@ -25,6 +25,7 @@ export function DagZoomControls({ zoom, onZoomChange }: DagZoomControlsProps) {
           onClick={() => onZoomChange(zoom * 1.2)}
           style={ZOOM_BUTTON}
           title="zoom in"
+          aria-label="Zoom in"
         >
           +
         </button>
@@ -33,6 +34,7 @@ export function DagZoomControls({ zoom, onZoomChange }: DagZoomControlsProps) {
           onClick={() => onZoomChange(1)}
           style={ZOOM_BUTTON}
           title="reset zoom"
+          aria-label="Reset zoom"
         >
           ⤢
         </button>
@@ -40,13 +42,6 @@ export function DagZoomControls({ zoom, onZoomChange }: DagZoomControlsProps) {
     </>
   );
 }
-
-const LABEL: CSSProperties = {
-  fontSize: 11,
-  letterSpacing: ".04em",
-  textTransform: "uppercase",
-  color: DAG_COLORS.muted,
-};
 
 const ZOOM_VALUE: CSSProperties = {
   fontVariantNumeric: "tabular-nums",

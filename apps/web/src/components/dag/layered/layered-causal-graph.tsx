@@ -1,24 +1,14 @@
 "use client";
 
 import type {
-  ConstructSpec,
   ConstructId,
+  ConstructSpec,
   IndicatorSpec,
-  LikelihoodSpec,
   PosteriorEstimate,
 } from "@nof1-causal-lab/api-types";
 import { Pause, Play } from "lucide-react";
 import type { KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button";
-import { formatPosteriorIntervalLabel } from "@/lib/utils/format";
-import { DagCanvasFrame, DagSvg } from "../core/dag-canvas";
-import { DagEdge } from "../core/dag-edge";
-import { DagNodeShell } from "../core/dag-node";
-import { DagZoomControls } from "../core/dag-zoom-controls";
-import { COMPARISON_COLORS, DAG_COLORS, BLOCKING, MARGINALIZED } from "@/lib/dag/palette";
-import { useLayeredGraph, type LayeredGraphOptions } from "@/lib/dag/use-layered-graph";
-import { getNodeActionSeries, getNodeReferenceSeries } from "@/lib/dag/simulation";
-import type { ConstructStatus } from "@/lib/dag/construct-statuses";
 import {
   LAYERED_EDGE_SLOT_HEIGHT,
   LAYERED_EDGE_SLOT_WIDTH,
@@ -28,7 +18,16 @@ import {
   LAYERED_NODE_WIDTH,
   type LayeredGraphEdgeMeta,
 } from "@/lib/dag/build-layered-causal-graph";
+import type { ConstructStatus } from "@/lib/dag/construct-statuses";
 import { boundsForBand, type CausalGraphLayerId } from "@/lib/dag/layered-model";
+import { BLOCKING, COMPARISON_COLORS, DAG_COLORS, MARGINALIZED } from "@/lib/dag/palette";
+import { getNodeActionSeries, getNodeReferenceSeries } from "@/lib/dag/simulation";
+import { type LayeredGraphOptions, useLayeredGraph } from "@/lib/dag/use-layered-graph";
+import { formatPosteriorIntervalLabel } from "@/lib/utils/format";
+import { DagCanvasFrame, DagSvg } from "../core/dag-canvas";
+import { DagEdge } from "../core/dag-edge";
+import { DagNodeShell } from "../core/dag-node";
+import { DagZoomControls } from "../core/dag-zoom-controls";
 import { LayeredComparisonOverlay } from "./layered-comparison-overlay";
 
 const CANVAS_PADDING = 36;
@@ -183,27 +182,10 @@ function MiniTrajectory({
   );
 }
 
-function measurementSummary(
-  indicators: IndicatorSpec[],
-  likelihoodByVariable: ReadonlyMap<string, LikelihoodSpec>,
-  warningVariables: ReadonlySet<string>,
-): string {
-  const rendered = indicators.slice(0, 2).map((indicator) => {
-    const likelihood = likelihoodByVariable.get(indicator.id);
-    const suffix = likelihood
-      ? `:${likelihood.law.distribution}`
-      : `:${indicator.measurement_dtype}`;
-    return `${warningVariables.has(indicator.id) ? "!" : "•"} ${truncate(humanize(indicator.name), 15)}${suffix}`;
-  });
-  if (indicators.length > 2) rendered.push(`+${indicators.length - 2}`);
-  return rendered.join("  ");
-}
-
 function ConstructCard({
   construct,
   isOutcome,
   indicators,
-  likelihoodByVariable,
   warningVariables,
   status,
   persistence,
@@ -219,7 +201,6 @@ function ConstructCard({
   construct: ConstructSpec;
   isOutcome: boolean;
   indicators: IndicatorSpec[];
-  likelihoodByVariable: ReadonlyMap<string, LikelihoodSpec>;
   warningVariables: ReadonlySet<string>;
   status?: ConstructStatus;
   persistence?: PosteriorEstimate;
@@ -235,7 +216,7 @@ function ConstructCard({
   const [descriptionLine1, descriptionLine2] = wrapDescription(construct.description);
   const label = statusLabel(status);
   const accent = clampLabel ? DAG_COLORS.intervention : statusAccent(status);
-  const summary = measurementSummary(indicators, likelihoodByVariable, warningVariables);
+  const hasMeasurementWarning = indicators.some((indicator) => warningVariables.has(indicator.id));
   const badge = clampLabel ?? label ?? null;
   const badgeColor = clampLabel
     ? DAG_COLORS.intervention
@@ -249,6 +230,7 @@ function ConstructCard({
     <g
       opacity={dimmed ? 0.18 : status === "marginalized" ? 0.62 : 1}
       role="button"
+      aria-label={humanize(construct.name)}
       tabIndex={0}
       style={{ cursor: "pointer" }}
       onClick={onSelect}
@@ -258,7 +240,6 @@ function ConstructCard({
         width={LAYERED_NODE_WIDTH}
         height={LAYERED_NODE_HEIGHT}
         title={`${isOutcome ? "★ " : ""}${truncate(humanize(construct.name), 29)}`}
-        subtitle={`${construct.role} · ${construct.temporal_status === "time_varying" ? "varying" : "invariant"}`}
         accent={selected ? "var(--primary)" : accent}
         dashed={status === "marginalized"}
         highlighted={selected}
@@ -284,17 +265,17 @@ function ConstructCard({
             {`decay ${persistence.mean.toFixed(2)} [${persistence.lower.toFixed(2)}, ${persistence.upper.toFixed(2)}] ${formatPosteriorIntervalLabel(persistence)}`}
           </text>
         ) : null}
-        {indicators.length > 0 ? (
-          <g>
-            <line x1={12} x2={LAYERED_NODE_WIDTH - 12} y1={110} y2={110} stroke="var(--border)" />
-            <text
-              x={14}
-              y={125}
-              fontSize={7.2}
-              fontFamily="ui-monospace, monospace"
-              fill={DAG_COLORS.muted}
-            >
-              {truncate(summary, 61)}
+        {hasMeasurementWarning ? (
+          <g role="img" aria-label="Measurement warnings">
+            <title>Measurement warnings — inspect the indicators.</title>
+            <path
+              d="M14 124 L20 113 L26 124 Z"
+              fill="none"
+              stroke="var(--warning-foreground)"
+              strokeWidth={1.2}
+            />
+            <text x={20} y={122} textAnchor="middle" fontSize={8} fill="var(--warning-foreground)">
+              !
             </text>
           </g>
         ) : null}
@@ -306,14 +287,12 @@ function ConstructCard({
 function HistoryCard({
   construct,
   status,
-  persistence,
   dimmed,
   selected,
   onSelect,
 }: {
   construct: ConstructSpec;
   status?: ConstructStatus;
-  persistence?: PosteriorEstimate;
   dimmed: boolean;
   selected: boolean;
   onSelect: () => void;
@@ -322,6 +301,7 @@ function HistoryCard({
     <g
       opacity={dimmed ? 0.13 : 0.45}
       role="button"
+      aria-label={`${humanize(construct.name)} at the previous time`}
       tabIndex={0}
       style={{ cursor: "pointer" }}
       onClick={onSelect}
@@ -330,10 +310,7 @@ function HistoryCard({
       <DagNodeShell
         width={LAYERED_HISTORY_WIDTH}
         height={LAYERED_HISTORY_HEIGHT}
-        title={`${truncate(humanize(construct.name), 20)} · t−1`}
-        subtitle={
-          persistence ? `fitted decay rate ${persistence.mean.toFixed(2)}` : "previous-time state"
-        }
+        title={truncate(humanize(construct.name), 20)}
         accent={selected ? "var(--primary)" : statusAccent(status)}
         dashed
         highlighted={selected}
@@ -348,7 +325,6 @@ function EdgeSlot({
   posterior,
   color,
   pruned,
-  specificationVisible,
   dimmed,
 }: {
   meta: LayeredGraphEdgeMeta;
@@ -356,26 +332,41 @@ function EdgeSlot({
   posterior?: PosteriorEstimate;
   color: string;
   pruned: boolean;
-  specificationVisible: boolean;
   dimmed: boolean;
 }) {
-  const top = meta.isSelf ? "AR(1)" : meta.lagged ? "lag 1" : "same t";
+  const timing = meta.isSelf
+    ? "Intrinsic dynamics"
+    : meta.lagged
+      ? "Lagged effect"
+      : "Contemporaneous effect";
   const bottom = pruned
-    ? "cut by do()"
+    ? "×"
     : posterior
       ? `${posterior.mean >= 0 ? "+" : ""}${posterior.mean.toFixed(2)}`
-      : disposition === "projected_edge"
-        ? "projected"
-        : specificationVisible
-          ? meta.isSelf
-            ? "ρ prior"
-            : "β prior"
-          : disposition === "retained_edge"
-            ? "retained"
-            : null;
+      : null;
+
+  if (bottom === null)
+    return (
+      <g opacity={dimmed ? 0.12 : 1}>
+        <title>
+          {timing}
+          {disposition === "projected_edge" ? " · projected" : ""}
+        </title>
+        <line
+          x1={0}
+          x2={LAYERED_EDGE_SLOT_WIDTH}
+          y1={LAYERED_EDGE_SLOT_HEIGHT / 2}
+          y2={LAYERED_EDGE_SLOT_HEIGHT / 2}
+          stroke={color}
+          strokeWidth={1.2}
+          strokeDasharray={disposition === "projected_edge" ? "4,3" : undefined}
+        />
+      </g>
+    );
 
   return (
     <g opacity={dimmed ? 0.12 : 1}>
+      <title>{pruned ? "Cut by intervention" : timing}</title>
       <rect
         width={LAYERED_EDGE_SLOT_WIDTH}
         height={LAYERED_EDGE_SLOT_HEIGHT}
@@ -387,26 +378,14 @@ function EdgeSlot({
       />
       <text
         x={LAYERED_EDGE_SLOT_WIDTH / 2}
-        y={bottom ? 12 : 19}
+        y={19}
         textAnchor="middle"
         fontSize={7.2}
         fontWeight={650}
         fill={color}
       >
-        {top}
+        {bottom}
       </text>
-      {bottom ? (
-        <text
-          x={LAYERED_EDGE_SLOT_WIDTH / 2}
-          y={24}
-          textAnchor="middle"
-          fontSize={7.2}
-          fontFamily="ui-monospace, monospace"
-          fill={color}
-        >
-          {bottom}
-        </text>
-      ) : null}
     </g>
   );
 }
@@ -469,12 +448,10 @@ export function LayeredCausalGraph({
     isLayouting,
     difference,
     designVisible,
-    specificationVisible,
     fitVisible,
     simulationVisible,
     nodeStatuses,
     indicatorsByConstruct,
-    likelihoodByVariable,
     warningVariables,
     persistencePosteriors,
     simulationResult,
@@ -585,7 +562,6 @@ export function LayeredCausalGraph({
                       posterior={visual.posterior}
                       color={visual.color}
                       pruned={visual.activeClamp}
-                      specificationVisible={specificationVisible}
                       dimmed={visual.dimmed}
                     />
                   </g>
@@ -608,7 +584,6 @@ export function LayeredCausalGraph({
                     <HistoryCard
                       construct={construct}
                       status={nodeStatuses.get(construct.id) ?? undefined}
-                      persistence={persistencePosteriors[construct.id]}
                       dimmed={dimmed}
                       selected={selected}
                       onSelect={select}
@@ -627,13 +602,10 @@ export function LayeredCausalGraph({
               const clamp =
                 currentDay == null
                   ? undefined
-                  : simulationResult?.request.clamps.find(
-                      (candidate) =>
-                        candidate.target === construct.id &&
-                        candidate.from_day <= currentDay &&
-                        (candidate.to_day == null || currentDay < candidate.to_day),
+                  : simulationResult?.design.interventions.find(
+                      (candidate) => candidate.target === construct.id,
                     );
-              const clampLabel = clamp ? `do(${clamp.mode})` : undefined;
+              const clampLabel = clamp ? `do(${clamp.value.toFixed(1)})` : undefined;
               return (
                 <g
                   key={node.id}
@@ -645,10 +617,9 @@ export function LayeredCausalGraph({
                     construct={construct}
                     isOutcome={
                       construct.id ===
-                      (simulation?.request.outcome ?? model.model?.value.default_outcome)
+                      (simulation?.causal_result.outcome ?? model.model?.value.default_outcome)
                     }
                     indicators={nodeIndicators}
-                    likelihoodByVariable={likelihoodByVariable}
                     warningVariables={warningVariables}
                     status={nodeStatuses.get(construct.id) ?? undefined}
                     persistence={persistencePosteriors[construct.id]}

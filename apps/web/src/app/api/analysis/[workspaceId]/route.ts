@@ -19,7 +19,7 @@ export async function GET(
       getFacadeCapabilities(),
     ]);
     if (manifest) {
-      return NextResponse.json({ ...manifest, readOnly: !capabilities.moves_enabled });
+      return NextResponse.json({ ...manifest, readOnly: !capabilities.actions_enabled });
     }
   } catch {
     // Fall through

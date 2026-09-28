@@ -101,14 +101,11 @@ function planEvent(occurred: string): ExtractionEventRecord {
   return {
     event: `${EXTRACTION_EVENT_PREFIX}plan`,
     occurred,
-    payload: {
-      context_id: "measurement",
-      type: "plan",
-      total_workers: STAGE2_STORY_TOTAL_WORKERS,
-      max_concurrent_workers: STAGE2_STORY_MAX_RUNNING,
-      max_rpm: STAGE2_STORY_MAX_RPM,
-    },
-  };
+    total_workers: STAGE2_STORY_TOTAL_WORKERS,
+    max_concurrent_workers: STAGE2_STORY_MAX_RUNNING,
+    max_rpm: STAGE2_STORY_MAX_RPM,
+    cursor: "",
+  } as const;
 }
 
 function workerEvent({
@@ -131,17 +128,14 @@ function workerEvent({
   return {
     event: `${EXTRACTION_EVENT_PREFIX}worker`,
     occurred,
-    payload: {
-      context_id: "measurement",
-      type: "worker",
-      worker_id: workerId,
-      state,
-      n_windows: nWindows,
-      ...(nExtractions !== undefined ? { n_extractions: nExtractions } : {}),
-      ...(nLlmCalls !== undefined ? { n_llm_calls: nLlmCalls } : {}),
-      ...(error ? { error } : {}),
-    },
-  };
+    worker_id: workerId,
+    state,
+    n_windows: nWindows,
+    ...(nExtractions !== undefined ? { n_extractions: nExtractions } : {}),
+    ...(nLlmCalls !== undefined ? { n_llm_calls: nLlmCalls } : {}),
+    ...(error ? { error } : {}),
+    cursor: "",
+  } as const;
 }
 
 function snapshotEvent({
@@ -162,17 +156,14 @@ function snapshotEvent({
   return {
     event: `${EXTRACTION_EVENT_PREFIX}snapshot`,
     occurred,
-    payload: {
-      context_id: "measurement",
-      type: "snapshot",
-      total_workers: STAGE2_STORY_TOTAL_WORKERS,
-      pending_workers: pending,
-      running_workers: running,
-      completed_workers: completed,
-      failed_workers: failed,
-      llm_requests_last_60s: rpm,
-    },
-  };
+    total_workers: STAGE2_STORY_TOTAL_WORKERS,
+    pending_workers: pending,
+    running_workers: running,
+    completed_workers: completed,
+    failed_workers: failed,
+    llm_requests_last_60s: rpm,
+    cursor: "",
+  } as const;
 }
 
 function applyRawExtractionEvent(state: ExtractionReplayState, record: ExtractionEventRecord) {
@@ -384,7 +375,7 @@ function AnimatedExtractionRunning() {
 
 const meta = {
   args: { indicators },
-  title: "Pipeline/Outputs/Measurements/Panel",
+  title: "V1/Pipeline/Outputs/Measurements/Panel",
   component: MeasurementsView,
   decorators: outputStoryDecorators,
 } satisfies Meta<typeof MeasurementsView>;

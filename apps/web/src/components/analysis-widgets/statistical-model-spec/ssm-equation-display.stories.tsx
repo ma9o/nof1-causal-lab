@@ -11,7 +11,7 @@ import {
 import { SSMEquationDisplay } from "./ssm-equation-display";
 
 const meta = {
-  title: "Pipeline/Outputs/Statistical Model Spec/SSMEquationDisplay",
+  title: "V1/Pipeline/Outputs/Statistical Model Spec/SSMEquationDisplay",
   component: SSMEquationDisplay,
   args: { model, equations, confounderEquations, observationEquations },
   decorators: [withContainer()],

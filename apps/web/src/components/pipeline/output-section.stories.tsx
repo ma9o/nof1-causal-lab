@@ -4,7 +4,7 @@ import { withContainer } from "@/components/story-decorators";
 import { OutputSection } from "./output-section";
 
 const meta = {
-  title: "Pipeline/OutputSection",
+  title: "V1/Pipeline/OutputSection",
   component: OutputSection,
   decorators: [withContainer("max-w-3xl")],
   args: {

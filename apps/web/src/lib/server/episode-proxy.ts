@@ -1,10 +1,12 @@
 import { getToolServerUrl } from "@/lib/runtime-urls";
 
-/** Preserve backend validation and version selection for scientific reads. */
-export async function proxyEpisodeRead(request: Request) {
+/** Preserve scientific payloads, branch selection and optimistic heads end to end. */
+export async function proxyEpisodeRequest(request: Request) {
   const url = new URL(request.url);
   const response = await fetch(`${getToolServerUrl()}${url.pathname}${url.search}`, {
-    headers: { Accept: "application/json" },
+    method: request.method,
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: request.method === "GET" ? undefined : await request.text(),
     cache: "no-store",
     signal: request.signal,
   });

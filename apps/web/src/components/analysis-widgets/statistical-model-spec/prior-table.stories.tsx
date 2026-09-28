@@ -8,7 +8,7 @@ import {
 } from "./__fixtures__/statistical-model-spec-fixtures";
 
 const meta = {
-  title: "Pipeline/Outputs/Statistical Model Spec/PriorTable",
+  title: "V1/Pipeline/Outputs/Statistical Model Spec/PriorTable",
   component: PriorTable,
   decorators: [withContainer()],
 } satisfies Meta<typeof PriorTable>;

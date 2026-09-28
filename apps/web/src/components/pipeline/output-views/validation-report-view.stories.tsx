@@ -20,7 +20,7 @@ const data = normalizeValidationReportData(demoValidationReport);
 
 const meta = {
   args: { indicators },
-  title: "Pipeline/Outputs/Validation Report/Panel",
+  title: "V1/Pipeline/Outputs/Validation Report/Panel",
   component: ValidationReportView,
   decorators: outputStoryDecorators,
 } satisfies Meta<typeof ValidationReportView>;

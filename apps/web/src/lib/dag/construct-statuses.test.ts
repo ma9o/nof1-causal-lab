@@ -8,14 +8,14 @@ describe("constructStatuses", () => {
     const snapshot = structuredClone(demoModelSnapshot);
     const model = snapshot.model!.value;
     const first = modelConstructs(model)[0];
-    snapshot.findings.graph_status = { [first.id]: "blocking" };
+    snapshot.findings.graph.status = { [first.id]: "blocking" };
     first.name = "a renamed construct";
     expect(constructStatuses(snapshot)).toEqual({ "a renamed construct": "blocking" });
   });
 
   it("does not invent findings for incomplete models", () => {
     const snapshot = structuredClone(demoModelSnapshot);
-    snapshot.findings.graph_status = {};
+    snapshot.findings.graph.status = {};
     expect(constructStatuses(snapshot)).toEqual({});
     snapshot.model = null;
     expect(constructStatuses(snapshot)).toEqual({});

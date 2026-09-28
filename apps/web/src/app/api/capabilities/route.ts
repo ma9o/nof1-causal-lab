@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * GET /api/capabilities — proxy over the facade's capability report.
- * moves_enabled=false means the backing facade is read-only (hosted
+ * actions_enabled=false means the backing facade is read-only (hosted
  * viewer): the UI hides run/edit/recompute/simulate affordances.
  */
 export async function GET() {

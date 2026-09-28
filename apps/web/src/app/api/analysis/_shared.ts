@@ -9,7 +9,7 @@ import {
   getEpisodeTimeline,
   type EpisodeStatus,
   type MachineDescription,
-  type TransitionRecord,
+  type StudyRevision,
 } from "@/lib/server/episode-runs";
 import { readArtifactJson } from "@/lib/server/artifacts";
 import { TRANSITIONS, type ModelSpec, type PipelineSectionId } from "@nof1-causal-lab/api-types";
@@ -46,7 +46,7 @@ async function readEpisodeQuestion(
     return undefined;
   }
 
-  const parsed = await readArtifactJson<ModelSpec>(workspaceId, "model", "model", model.version);
+  const parsed = await readArtifactJson<ModelSpec>(workspaceId, "model", "model", model.revision);
   return parsed.question ?? undefined;
 }
 
@@ -55,16 +55,16 @@ async function readEpisodeQuestion(
  * completed run attempt per artifact wins (applied -> completed, raised ->
  * failed; rejected attempts never executed).
  */
-function summarizeTimelineTransitionRuns(transitions: TransitionRecord[]): AnalysisTransitionRuns {
+function summarizeTimelineTransitionRuns(transitions: StudyRevision[]): AnalysisTransitionRuns {
   const transitionRuns = Object.fromEntries(
     TRANSITIONS.map((transition) => [transition.id, emptyTransitionRun()]),
   ) as AnalysisTransitionRuns;
 
   for (const record of transitions) {
-    if (record.move.kind !== "run") {
+    if (record.operation_id == null) {
       continue;
     }
-    const artifactId = record.move.operation_id;
+    const artifactId = record.operation_id;
     if (!isPipelineSectionId(artifactId)) {
       continue;
     }

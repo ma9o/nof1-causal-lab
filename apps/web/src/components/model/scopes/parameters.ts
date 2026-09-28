@@ -1,7 +1,5 @@
-import type { Expression, InferenceReport, ModelSpec } from "@nof1-causal-lab/api-types";
+import type { Expression, ModelSpec } from "@nof1-causal-lab/api-types";
 import { modelConstructs, referencedParameterIds } from "@/lib/model-accessors";
-import { distributionText } from "@/lib/utils/distribution-format";
-import type { PosteriorRow, PriorRow } from "../scope-primitives";
 
 function expressionComponentsForConstruct(expression: Expression, id: string): Expression[] {
   if (expression.kind === "state") return expression.construct_id === id ? [expression] : [];
@@ -56,31 +54,4 @@ export function parametersForOwner(model: ModelSpec | null | undefined, id: stri
   ];
   const ids = referencedParameterIds(components);
   return model.parameters.filter((parameter) => ids.has(parameter.id));
-}
-
-export function priorRows(
-  parameters: import("@nof1-causal-lab/api-types").ParameterSpec[],
-  distributions: ModelSpec["distributions"],
-): PriorRow[] {
-  return parameters.map(({ name, description, distribution_transform, distribution, value }) => {
-    return {
-      parameter: name,
-      role: `${description}${distribution_transform === "dt_persistence_to_ct_decay" ? " (prior: persistence; posterior: decay rate)" : distribution_transform === "dt_effect_to_ct_rate" ? " (prior: interval effect; posterior: rate)" : ""}`,
-      prior:
-        value != null
-          ? `Fixed: ${value}`
-          : distribution
-            ? distributionText(distributions[distribution])
-            : null,
-    };
-  });
-}
-
-export function posteriorRows(
-  parameters: import("@nof1-causal-lab/api-types").ParameterSpec[],
-  posterior: InferenceReport | undefined,
-): PosteriorRow[] {
-  const marginals = posterior?.posterior_marginals ?? [];
-  const ids = new Set(parameters.map((parameter) => parameter.id));
-  return marginals.filter((marginal) => ids.has(marginal.subject.parameter_id));
 }

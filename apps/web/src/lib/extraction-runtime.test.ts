@@ -20,48 +20,40 @@ describe("extraction-runtime", () => {
     const planRecord = {
       event: `${EXTRACTION_EVENT_PREFIX}plan`,
       occurred: "2026-04-02T10:00:00.000Z",
-      payload: {
-        type: "plan",
-        total_workers: 3,
-        max_concurrent_workers: 30,
-        max_rpm: 450,
-      },
-    };
+      total_workers: 3,
+      max_concurrent_workers: 30,
+      max_rpm: 450,
+      cursor: "",
+    } as const;
     const runningRecord = {
       event: `${EXTRACTION_EVENT_PREFIX}worker`,
       occurred: "2026-04-02T10:00:01.000Z",
-      payload: {
-        type: "worker",
-        worker_id: 0,
-        state: "running",
-        n_windows: 1,
-      },
-    };
+      worker_id: 0,
+      state: "running",
+      n_windows: 1,
+      cursor: "",
+    } as const;
     const completedRecord = {
       event: `${EXTRACTION_EVENT_PREFIX}worker`,
       occurred: "2026-04-02T10:00:02.000Z",
-      payload: {
-        type: "worker",
-        worker_id: 0,
-        state: "completed",
-        n_windows: 1,
-        n_extractions: 6,
-        n_llm_calls: 1,
-      },
-    };
+      worker_id: 0,
+      state: "completed",
+      n_windows: 1,
+      n_extractions: 6,
+      n_llm_calls: 1,
+      cursor: "",
+    } as const;
     const snapshotRecord = {
       event: `${EXTRACTION_EVENT_PREFIX}snapshot`,
       occurred: "2026-04-02T10:00:03.000Z",
-      payload: {
-        type: "snapshot",
-        total_workers: 3,
-        pending_workers: 2,
-        running_workers: 0,
-        completed_workers: 1,
-        failed_workers: 0,
-        llm_requests_last_60s: 9,
-      },
-    };
+      total_workers: 3,
+      pending_workers: 2,
+      running_workers: 0,
+      completed_workers: 1,
+      failed_workers: 0,
+      llm_requests_last_60s: 9,
+      cursor: "",
+    } as const;
 
     expect(parseExtractionEvent(planRecord)?.type).toBe("plan");
     expect(parseExtractionEvent(snapshotRecord)?.type).toBe("snapshot");
@@ -150,48 +142,40 @@ describe("extraction-runtime", () => {
       {
         event: `${EXTRACTION_EVENT_PREFIX}plan`,
         occurred: "2026-04-02T10:00:00.000Z",
-        payload: {
-          type: "plan",
-          total_workers: 2,
-          max_concurrent_workers: 30,
-          max_rpm: 450,
-        },
-      },
+        total_workers: 2,
+        max_concurrent_workers: 30,
+        max_rpm: 450,
+        cursor: "",
+      } as const,
       {
         event: `${EXTRACTION_EVENT_PREFIX}worker`,
         occurred: "2026-04-02T10:00:10.000Z",
-        payload: {
-          type: "worker",
-          worker_id: 0,
-          state: "completed",
-          n_windows: 1,
-          n_extractions: 6,
-          n_llm_calls: 3,
-        },
-      },
+        worker_id: 0,
+        state: "completed",
+        n_windows: 1,
+        n_extractions: 6,
+        n_llm_calls: 3,
+        cursor: "",
+      } as const,
       {
         event: `${EXTRACTION_EVENT_PREFIX}worker`,
         occurred: "2026-04-02T10:00:11.000Z",
-        payload: {
-          type: "worker",
-          worker_id: 1,
-          state: "running",
-          n_windows: 1,
-        },
-      },
+        worker_id: 1,
+        state: "running",
+        n_windows: 1,
+        cursor: "",
+      } as const,
       {
         event: `${EXTRACTION_EVENT_PREFIX}snapshot`,
         occurred: "2026-04-02T10:00:12.000Z",
-        payload: {
-          type: "snapshot",
-          total_workers: 2,
-          pending_workers: 0,
-          running_workers: 1,
-          completed_workers: 1,
-          failed_workers: 0,
-          llm_requests_last_60s: 7,
-        },
-      },
+        total_workers: 2,
+        pending_workers: 0,
+        running_workers: 1,
+        completed_workers: 1,
+        failed_workers: 0,
+        llm_requests_last_60s: 7,
+        cursor: "",
+      } as const,
     ]);
 
     expect(summarizeExtractionState(state)).toEqual({

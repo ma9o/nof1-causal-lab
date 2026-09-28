@@ -24,7 +24,7 @@ describe("GET /api/traces/[workspaceId]", () => {
   it("resolves the producing transition and merges its promoted traces", async () => {
     vi.mocked(getOperationTraceIndex).mockResolvedValue({
       workspace_id: "DEMO",
-      seq: 6,
+      commit_id: "a".repeat(40),
       trace_ids: ["construct-a", "construct-b"],
     });
     vi.mocked(getEpisodeTrace)
@@ -56,14 +56,14 @@ describe("GET /api/traces/[workspaceId]", () => {
       total_time_seconds: 5,
       usage: { input_tokens: 7, output_tokens: 9, reasoning_tokens: 7 },
     });
-    expect(getEpisodeTrace).toHaveBeenNthCalledWith(1, "DEMO", 6, "construct-a");
-    expect(getEpisodeTrace).toHaveBeenNthCalledWith(2, "DEMO", 6, "construct-b");
+    expect(getEpisodeTrace).toHaveBeenNthCalledWith(1, "DEMO", "a".repeat(40), "construct-a");
+    expect(getEpisodeTrace).toHaveBeenNthCalledWith(2, "DEMO", "a".repeat(40), "construct-b");
   });
 
   it("returns 404 when the producing transition has no promoted traces", async () => {
     vi.mocked(getOperationTraceIndex).mockResolvedValue({
       workspace_id: "DEMO",
-      seq: 8,
+      commit_id: "b".repeat(40),
       trace_ids: [],
     });
 

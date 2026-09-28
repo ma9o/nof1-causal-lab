@@ -1,60 +1,46 @@
 "use client";
 
-import { TRANSITION_META } from "@nof1-causal-lab/api-types";
-
-import { useModelSnapshot } from "@/lib/hooks/use-model-snapshot";
-
-import { DagCanvasFrame } from "@/components/dag/core/dag-canvas";
-import { LayeredCausalGraph } from "@/components/dag/layered/layered-causal-graph";
-import { Button } from "@/components/ui/button";
-import { type EpisodeProgressPayload, recomputeStaleArtifacts } from "@/lib/api/analysis";
-import type { PipelineProgress } from "@/lib/hooks/pipeline-progress";
-import { useLLMTraceForMove } from "@/lib/hooks/use-llm-trace";
-import { journalTicks, latestSeq, modelPosition } from "@/lib/model-asset/journal";
-import { cn } from "@/lib/utils";
-import type {
-  ArtifactFreshness,
-  ArtifactId,
-  SimulationResult,
-  ModelSnapshot,
-  TransitionRecord,
+import {
+  type ActionMessageEvent,
+  type ModelSnapshot,
+  type StudyRevision,
 } from "@nof1-causal-lab/api-types";
-import { useMutation } from "@tanstack/react-query";
-import { useCallback, useMemo, useState } from "react";
-import { indexModel } from "./asset-data";
-import { ConversationPane, type MoveTraceState, type UseMoveTrace } from "./conversation-pane";
+import Link from "next/link";
+import { useEffect, useMemo, useRef } from "react";
+import { LayeredCausalGraph } from "@/components/dag/layered/layered-causal-graph";
+import { graphEntities } from "@/lib/dag/layered-model";
+import { Button } from "@/components/ui/button";
+import type { EpisodeProgressPayload } from "@/lib/api/analysis";
+import type { PipelineProgress } from "@/lib/hooks/pipeline-progress";
+import { useLLMTraceForAction } from "@/lib/hooks/use-llm-trace";
+import { useModelSnapshot } from "@/lib/hooks/use-model-snapshot";
+import { useActionMessages } from "@/lib/hooks/use-run-events";
+import {
+  useWorkbench,
+  useWorkbenchSnapshots,
+  type SnapshotReader,
+} from "@/lib/model-asset/use-workbench";
+import { ConversationPane, type ActionTraceState, type UseActionTrace } from "./conversation-pane";
 import { DetailsPane } from "./details-pane";
-import { ASSET_SELECTION, type ModelSelection } from "./model-selection";
-import { buildModelQueries } from "./queries";
-import type { ScopeContext } from "./scopes/scope-context";
-import { ScientificActions } from "./scientific-actions";
 import { VersionScrubber } from "./version-scrubber";
 
 export interface CausalModelAssetViewProps {
   workspaceId: string;
   question: string | undefined;
-  readOnly: boolean;
-  useSnapshot: (atSeq: number) => { data: ModelSnapshot | undefined; error: Error | null };
-  transitions: TransitionRecord[];
-  artifacts: ArtifactFreshness[];
-  nextOperation: import("@nof1-causal-lab/api-types").OperationId | null;
+  useSnapshot: SnapshotReader;
+  transitions: StudyRevision[];
+  branches: EpisodeProgressPayload["branches"];
   progress: PipelineProgress;
-  useMoveTrace: UseMoveTrace;
-  /** Starts the machine's auto-run: the next legal moves in dependency order. */
-  onRun: (() => void) | null;
+  useActionTrace: UseActionTrace;
+  actionMessages?: ActionMessageEvent[];
 }
 
-/** The persistent model view: header, full-width scrubber, graph over details, conversation. */
 export function CausalModelAssetView(props: CausalModelAssetViewProps) {
-  const [selection, setSelection] = useState<ModelSelection>(ASSET_SELECTION);
-  const [focusSeq, setFocusSeq] = useState<number | null>(null);
-
-  const [playheadOverride, setPlayheadOverride] = useState<number | null>(null);
-  const latest = latestSeq(props.transitions);
-  const requested = playheadOverride ?? latest;
-  const playhead = latestSeq(props.transitions.filter((record) => record.seq <= requested));
-  const selected = props.useSnapshot(playhead);
-  const current = props.useSnapshot(latest);
+  const { selected, current, viewAt } = useWorkbenchSnapshots(
+    props.transitions,
+    props.branches,
+    props.useSnapshot,
+  );
   if (selected.error || current.error)
     return (
       <div role="alert" className="p-6">
@@ -64,7 +50,7 @@ export function CausalModelAssetView(props: CausalModelAssetViewProps) {
   if (!selected.data || !current.data)
     return (
       <div role="status" className="p-6">
-        Loading model revision…
+        Loading model version…
       </div>
     );
   return (
@@ -72,258 +58,258 @@ export function CausalModelAssetView(props: CausalModelAssetViewProps) {
       {...props}
       model={selected.data}
       currentModel={current.data}
-      viewAt={setPlayheadOverride}
-      selection={selection}
-      setSelection={setSelection}
-      focusSeq={focusSeq}
-      setFocusSeq={setFocusSeq}
+      loadingRevision={selected.isPlaceholderData === true || current.isPlaceholderData === true}
+      viewAt={viewAt}
     />
   );
 }
 
 function ModelRevision({
   workspaceId,
-  readOnly,
+  question: initialQuestion,
   transitions,
-  nextOperation,
+  branches,
   progress,
-  useMoveTrace,
-  onRun,
+  useActionTrace,
   model,
   currentModel,
+  loadingRevision,
   viewAt,
-  selection,
-  setSelection,
-  focusSeq,
-  setFocusSeq,
+  actionMessages = [],
 }: CausalModelAssetViewProps & {
   model: ModelSnapshot;
   currentModel: ModelSnapshot;
+  loadingRevision: boolean;
   viewAt: (seq: number | null) => void;
-  selection: ModelSelection;
-  setSelection: (selection: ModelSelection) => void;
-  focusSeq: number | null;
-  setFocusSeq: (seq: number | null) => void;
 }) {
-  const entities = useMemo(() => indexModel(model), [model]);
-  const question = model.model?.value.question ?? undefined;
-  const artifacts = model.context.artifacts;
-
-  const ticks = useMemo(() => journalTicks(transitions), [transitions]);
-  const latest = useMemo(() => latestSeq(transitions), [transitions]);
-  const playhead = model.context.seq;
-  const snapshot = useMemo(() => modelPosition(model), [model]);
-  const current = useMemo(() => modelPosition(currentModel), [currentModel]);
-  const outcome =
-    entities.constructs.find((construct) => construct.id === model.model?.value.default_outcome)
-      ?.name ?? null;
-  const [responses, setResponses] = useState<Record<string, SimulationResult>>({});
-  const setSimulation = useCallback((key: string, result: SimulationResult) => {
-    setResponses((current) => ({ ...current, [key]: result }));
-  }, []);
-  const queries = useMemo(() => buildModelQueries(model, responses), [model, responses]);
-  const selectedQuery =
-    selection.kind === "query" ? queries.find((query) => query.key === selection.key) : undefined;
-  const simulation =
-    selectedQuery?.simulation?.model.workspace_id === model.context.workspace_id &&
-    selectedQuery.simulation.model.version === model.context.state.current.model?.version
-      ? selectedQuery.simulation
-      : null;
-  const staleArtifacts = useMemo(
-    () =>
-      new Set<ArtifactId>(
-        artifacts.filter((artifact) => artifact.stale).map((artifact) => artifact.artifact_id),
-      ),
-    [artifacts],
-  );
-  const running = progress.runningTransitions;
-  const isNow = playhead >= latest && running.length === 0;
-  const nextRun = nextOperation;
-
-  const select = useCallback((next: ModelSelection) => setSelection(next), [setSelection]);
-  const selectTick = useCallback(
-    (seq: number) => {
-      setSelection({ kind: "version", seq });
-      setFocusSeq(seq);
-    },
-    [setSelection, setFocusSeq],
-  );
-
-  const context: ScopeContext = useMemo(
-    () => ({
-      model,
-      entities,
-      snapshot,
-      current,
-      canSimulate: !readOnly && model.context.can_simulate,
-      ticks,
-      artifacts,
-      question,
-      queries,
-      outcome,
-      select,
-      setSimulation,
-      viewAt,
-      focusConversation: setFocusSeq,
-    }),
-    [
-      model,
-      entities,
-      snapshot,
-      current,
-      readOnly,
-      ticks,
-      artifacts,
-      question,
-      queries,
-      outcome,
-      select,
-      setSimulation,
-      viewAt,
-      setFocusSeq,
-    ],
-  );
-
-  const selectedNode = selection.kind === "construct" ? selection.id : null;
-  const status =
-    running.length > 0
-      ? `running · ${running.map((id) => TRANSITION_META[id].label).join(", ")} running`
-      : !isNow
-        ? `viewing v${playhead} of v${latest} · read-only`
-        : "live · idle";
+  const {
+    selection,
+    focusSeq,
+    ticks,
+    latest,
+    playhead,
+    activeComparison,
+    compared,
+    retainPreview,
+    endPreview,
+    previewComparison,
+    dismissComparison,
+    toggleComparison,
+    selectVersion,
+    question,
+    running,
+    causalResult,
+    select,
+    context,
+  } = useWorkbench({
+    workspaceId,
+    question: initialQuestion,
+    transitions,
+    progress,
+    model,
+    currentModel,
+    viewAt,
+  });
+  const graph = useMemo(() => graphEntities(model), [model]);
+  const comparisonPane = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (activeComparison?.pinned) {
+      comparisonPane.current?.focus({ preventScroll: true });
+      comparisonPane.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }, [activeComparison?.pinned, activeComparison?.before, activeComparison?.after]);
 
   return (
-    <div className="flex h-screen flex-col bg-background">
-      <header className="flex h-12 flex-none items-center gap-3 border-b bg-background/80 px-6">
-        <div className="whitespace-nowrap text-base font-semibold tracking-tight">
+    <div
+      className="flex min-h-screen flex-col bg-muted/20 md:h-dvh md:overflow-hidden"
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && activeComparison) {
+          event.stopPropagation();
+          dismissComparison();
+        }
+      }}
+    >
+      <header className="flex flex-none flex-wrap items-center gap-x-4 gap-y-2 border-b bg-card px-4 py-3 sm:px-5">
+        <Link href="/" className="text-sm font-semibold tracking-tight">
           N-of-1 Causal Lab
-        </div>
-        <span className="rounded border bg-secondary/50 px-2 py-0.5 font-mono text-xs tracking-widest text-muted-foreground">
+        </Link>
+        <span className="rounded-md border px-2 py-1 font-mono text-[10px] tracking-widest text-muted-foreground">
           {workspaceId}
         </span>
-        <div className="min-w-0 flex-1 truncate text-[13px] text-muted-foreground">{question}</div>
-        <div className="flex flex-none items-center gap-2">
-          <span
-            className={cn(
-              "inline-flex h-5 items-center rounded-full border px-2 text-xs font-medium",
-              running.length > 0 && "border-[#2f6bf0] text-[#2f6bf0]",
-              !isNow &&
-                running.length === 0 &&
-                "border-transparent bg-warning/15 text-warning-foreground",
-            )}
-          >
-            {status}
-          </span>
-          {!isNow && running.length === 0 ? (
-            <Button type="button" variant="outline" size="sm" onClick={() => viewAt(null)}>
-              Return to now
-            </Button>
-          ) : null}
-        </div>
+        <div className="w-full text-sm leading-relaxed">{question ?? "Untitled causal model"}</div>
       </header>
-      {!readOnly && (
-        <ScientificActions
-          workspaceId={workspaceId}
-          currentVersion={currentModel.context.state.current.model?.version ?? 0}
-          panelVersion={currentModel.context.state.current.panel?.version ?? 0}
-          rawVersion={currentModel.context.state.current.raw_data?.version ?? 0}
-          busy={running.length > 0}
-          onRecipe={onRun}
-        />
-      )}
       <VersionScrubber
         ticks={ticks}
         playhead={playhead}
         latest={latest}
-        timings={progress.timings}
-        running={running}
-        staleArtifacts={staleArtifacts}
-        nextRun={nextRun}
-        selectedSeq={selection.kind === "version" ? selection.seq : null}
-        onSelectTick={selectTick}
-        onPlayhead={(seq) => viewAt(seq >= latest ? null : seq)}
+        branches={branches}
+        branch={model.context.branch}
+        comparedSeq={activeComparison?.after ?? null}
+        onPlayhead={selectVersion}
+        onPreviewComparison={(seq) => previewComparison(seq)}
+        onEndPreview={endPreview}
+        onKeepComparison={(seq) => previewComparison(seq, true)}
       />
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_400px] gap-3 px-6 pt-3 pb-4">
+      <main
+        aria-busy={loadingRevision}
+        className="relative grid min-h-0 flex-1 gap-3 p-3 md:grid-cols-[minmax(0,1fr)_320px] lg:px-5 lg:pb-4 xl:grid-cols-[minmax(0,1fr)_400px]"
+      >
         <div className="flex min-h-0 min-w-0 flex-col gap-3">
-          <div className="min-h-0 flex-1">
-            {entities.constructs.length > 0 ? (
-              <LayeredCausalGraph
-                model={model}
-                simulation={simulation}
-                selectedNode={selectedNode}
-                onSelectNode={(id) => select(id ? { kind: "construct", id } : ASSET_SELECTION)}
-                variant="asset"
-              />
-            ) : (
-              <DagCanvasFrame fill>{null}</DagCanvasFrame>
-            )}
-          </div>
-          <DetailsPane
-            selection={selection}
-            context={context}
-            posteriorStale={model.findings.fit?.source.validity === "stale"}
-          />
+          <section
+            aria-label="Causal graph"
+            className="relative flex h-[480px] flex-none flex-col overflow-hidden rounded-2xl border bg-card md:h-auto md:min-h-0 md:flex-1"
+          >
+            <div className="flex h-11 flex-none items-center justify-between gap-2 border-b px-4">
+              <h1 className="text-sm font-semibold">Causal model</h1>
+              {activeComparison ? (
+                <div
+                  ref={comparisonPane}
+                  id="model-comparison-preview"
+                  role="region"
+                  aria-label="Model comparison preview"
+                  tabIndex={-1}
+                  className="flex min-w-0 items-center gap-2 text-[11px]"
+                  onPointerEnter={retainPreview}
+                  onPointerLeave={endPreview}
+                  onFocus={retainPreview}
+                >
+                  <span className="whitespace-nowrap font-medium text-amber-700">
+                    version {playhead} → {activeComparison.after}
+                  </span>
+                  <span className="hidden items-center gap-2 text-[10px] text-muted-foreground sm:flex">
+                    <span className="text-amber-700">~ changed</span>
+                    <span className="text-emerald-700">+ added</span>
+                    <span className="text-rose-700">− removed</span>
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={activeComparison.pinned ? "secondary" : "ghost"}
+                    aria-label="Keep comparison"
+                    aria-pressed={activeComparison.pinned}
+                    onClick={toggleComparison}
+                  >
+                    Keep
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label="Close comparison"
+                    onClick={dismissComparison}
+                  >
+                    ×
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+            <div
+              className="relative min-h-0 flex-1"
+              onPointerEnter={retainPreview}
+              onPointerLeave={endPreview}
+            >
+              {activeComparison && (compared.isLoading || compared.error) && (
+                <p
+                  role={compared.error ? "alert" : "status"}
+                  className="absolute top-3 left-3 z-20 rounded border bg-card px-3 py-2 text-xs"
+                >
+                  {compared.error ? compared.error.message : "Reading differences…"}
+                </p>
+              )}
+              {graph.constructs.length > 0 || activeComparison ? (
+                <LayeredCausalGraph
+                  model={model}
+                  simulation={causalResult}
+                  selectedNode={selection?.kind === "construct" ? selection.id : null}
+                  onSelectNode={(id) => select(id ? { kind: "construct", id } : null)}
+                  comparison={activeComparison ? (compared.data ?? null) : null}
+                  variant="asset"
+                />
+              ) : (
+                <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
+                  <p className="text-sm font-medium">No structure defined yet</p>
+                  <p className="max-w-sm text-xs leading-relaxed text-muted-foreground">
+                    The graph will appear when the agent harness records a model definition.
+                  </p>
+                </div>
+              )}
+            </div>
+          </section>
+          {selection && (
+            <DetailsPane
+              selection={selection}
+              context={context}
+              loading={loadingRevision}
+              onClose={() => select(null)}
+            />
+          )}
         </div>
-        <ConversationPane
-          ticks={ticks}
-          playhead={playhead}
-          latest={latest}
-          running={running}
-          question={question}
-          focusSeq={focusSeq}
-          useMoveTrace={useMoveTrace}
-          onSelectTick={selectTick}
-        />
-      </div>
+        <aside
+          aria-label="Action log"
+          className="relative flex h-[480px] min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border bg-card md:h-auto"
+        >
+          <ConversationPane
+            ticks={ticks}
+            branches={branches}
+            branch={model.context.branch}
+            playhead={playhead}
+            latest={latest}
+            running={running}
+            focusSeq={focusSeq}
+            useActionTrace={useActionTrace}
+            onSelectTick={selectVersion}
+            actionMessages={actionMessages}
+          />
+        </aside>
+      </main>
     </div>
   );
 }
 
-/** The asset view fed by the selected semantic snapshot, journal and traces. */
+/** The workbench reads semantic snapshots, committed history and recorded traces. */
 export function CausalModelAsset({
   workspaceId,
   question,
-  readOnly,
   progress,
   episode,
 }: {
   workspaceId: string;
   question: string | undefined;
-  readOnly: boolean;
   progress: PipelineProgress;
   episode: EpisodeProgressPayload;
 }) {
+  const actionMessages = useActionMessages(workspaceId);
   const useSnapshot = useMemo(
     () =>
-      function useWorkspaceSnapshot(atSeq: number) {
-        return useModelSnapshot(workspaceId, atSeq);
+      function useWorkspaceSnapshot(commitId: string, branch: string) {
+        return useModelSnapshot(workspaceId, commitId, branch);
       },
     [workspaceId],
   );
-  const useMoveTrace = useMemo<UseMoveTrace>(
+  const useActionTrace = useMemo<UseActionTrace>(
     () =>
-      function useWorkspaceMoveTrace(seq, enabled): MoveTraceState {
-        const query = useLLMTraceForMove(workspaceId, seq, enabled);
+      function useWorkspaceActionTrace(seq, enabled): ActionTraceState {
+        const query = useLLMTraceForAction(
+          workspaceId,
+          episode.transitions.find((record) => record.seq === seq)?.commit_id ?? null,
+          enabled,
+        );
         if (!enabled || query.isError) return { status: "absent" };
         if (query.data) return { status: "ready", trace: query.data };
         return { status: "loading" };
       },
-    [workspaceId],
+    [workspaceId, episode.transitions],
   );
-  const run = useMutation({ mutationFn: () => recomputeStaleArtifacts(workspaceId) });
-
   return (
     <CausalModelAssetView
       workspaceId={workspaceId}
       question={question}
-      readOnly={readOnly}
       useSnapshot={useSnapshot}
       transitions={episode.transitions}
-      artifacts={episode.artifacts}
-      nextOperation={episode.nextOperation}
+      branches={episode.branches}
       progress={progress}
-      useMoveTrace={useMoveTrace}
-      onRun={readOnly ? null : () => run.mutate()}
+      useActionTrace={useActionTrace}
+      actionMessages={actionMessages}
     />
   );
 }

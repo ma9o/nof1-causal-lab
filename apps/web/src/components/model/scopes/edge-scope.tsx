@@ -1,109 +1,60 @@
 import type { EdgeId } from "@nof1-causal-lab/api-types";
-import {
-  ArtifactChip,
-  FactChip,
-  Hint,
-  KeyValue,
-  OwnerLink,
-  PosteriorTable,
-  PriorTable,
-  Prose,
-  Section,
-  Tag,
-} from "../scope-primitives";
-import { dispositionLabel } from "./construct-scope";
-import { parametersForOwner, posteriorRows, priorRows } from "./parameters";
-import { chipFor, has, type ScopeContext } from "./scope-context";
+import { dispositionLabel } from "@/lib/model-asset/inspector";
+import type { ScopeContext } from "@/lib/model-asset/scope";
+import { Hint, ParameterLinks, Prose, Section } from "../scope-primitives";
+import { parametersForOwner } from "./parameters";
 
 export function EdgeScope({ context, id }: { context: ScopeContext; id: EdgeId }) {
   const edge = context.entities.edgeById.get(id);
   if (!edge) return null;
-  const { lagged } = edge;
   const disposition = context.model.findings.dispositions?.value.find(
     (item) => item.target.id === id,
   );
-  const cause = context.entities.constructById.get(edge.cause.id)!.name;
-  const effect = context.entities.constructById.get(edge.effect.id)!.name;
-  const parameters = parametersForOwner(context.model.model?.value, edge.id);
-  const priorParameters = parametersForOwner(context.model.model?.value, id);
-  const priors = priorRows(priorParameters, context.model.model!.value.distributions);
-  const fitted = posteriorRows(parameters, context.model.findings.fit?.value.report);
+  const parameters = parametersForOwner(context.model.model?.value, id);
   return (
     <>
-      <Section title="Structure" chips={<ArtifactChip {...chipFor(context, "model")} />}>
-        <div className="flex flex-wrap items-center gap-1 text-[11px]">
-          <Tag>{lagged ? "t−1 → t" : "same t"}</Tag>
-          <OwnerLink onClick={() => context.select({ kind: "construct", id: edge.cause.id })}>
-            {cause}
-          </OwnerLink>
-          <span className="text-muted-foreground">→</span>
-          <OwnerLink onClick={() => context.select({ kind: "construct", id: edge.effect.id })}>
-            {effect}
-          </OwnerLink>
-        </div>
+      <Section title="Relationship">
         <Prose>{edge.description}</Prose>
-        {edge.sources.length > 0 ? (
-          <>
-            <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Sources
-            </div>
-            <ul className="m-0 flex list-none flex-col gap-1 p-0">
+        <Hint>
+          {edge.lagged ? "Effect follows the cause." : "Cause and effect occur at the same time."}
+        </Hint>
+        {edge.sources.length > 0 && (
+          <details>
+            <summary className="cursor-pointer text-muted-foreground">Sources</summary>
+            <ul className="mt-2 space-y-2">
               {edge.sources.map((source) => (
                 <li key={source.title}>
-                  <Hint>
-                    {source.url ? (
-                      <a
-                        href={source.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="underline underline-offset-[3px]"
-                      >
-                        {source.title}
-                      </a>
-                    ) : (
-                      source.title
-                    )}
-                  </Hint>
+                  {source.url ? (
+                    <a
+                      href={source.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline underline-offset-2"
+                    >
+                      {source.title}
+                    </a>
+                  ) : (
+                    source.title
+                  )}
                 </li>
               ))}
             </ul>
-          </>
-        ) : (
-          <Hint>no sources cited</Hint>
+          </details>
         )}
       </Section>
-      {disposition ? (
-        <Section title="Design" chips={<ArtifactChip {...chipFor(context, "model")} />}>
-          <KeyValue
-            rows={[
-              [
-                "disposition",
-                <Tag
-                  key="d"
-                  tone={disposition.disposition === "retained_edge" ? "success" : "warning"}
-                >
-                  {dispositionLabel(disposition.disposition)}
-                </Tag>,
-              ],
-              ["reason", disposition.reason],
-            ]}
-          />
+      {disposition && disposition.disposition !== "retained_edge" && (
+        <Section
+          title={dispositionLabel(disposition.disposition)}
+          source={context.model.findings.dispositions?.source}
+        >
+          <Hint issue>{disposition.reason}</Hint>
         </Section>
-      ) : null}
-      {has(context, "model") ? (
-        <Section title="Model" chips={<ArtifactChip {...chipFor(context, "model")} />}>
-          {priors.length > 0 ? (
-            <PriorTable rows={priors} />
-          ) : (
-            <Hint>No parameter: the edge is projected out of the executable state.</Hint>
-          )}
+      )}
+      {parameters.length > 0 && (
+        <Section title="Parameters">
+          <ParameterLinks parameters={parameters} onSelect={context.select} />
         </Section>
-      ) : null}
-      {fitted.length > 0 ? (
-        <Section title="Fit" chips={<FactChip source={context.model.findings.fit?.source} />}>
-          <PosteriorTable rows={fitted} />
-        </Section>
-      ) : null}
+      )}
     </>
   );
 }

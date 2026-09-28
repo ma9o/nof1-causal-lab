@@ -1,18 +1,15 @@
-import type { EpisodeStatus, TransitionRecord } from "@/lib/server/episode-runs";
+import type { EpisodeStatus, StudyRevision } from "@/lib/server/episode-runs";
 import { MACHINE_DESCRIPTION } from "@nof1-causal-lab/api-types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
 vi.mock("@/lib/server/episode-runs", () => ({
   getMachineDescription: vi.fn(),
   getEpisodeStatus: vi.fn(),
   getEpisodeTimeline: vi.fn(),
 }));
-
 vi.mock("@/lib/server/artifacts", () => ({
   ArtifactNotFoundError: class ArtifactNotFoundError extends Error {},
   readArtifactJson: vi.fn(),
 }));
-
 import { readArtifactJson } from "@/lib/server/artifacts";
 import {
   getEpisodeStatus,
@@ -20,27 +17,24 @@ import {
   getMachineDescription,
 } from "@/lib/server/episode-runs";
 import { buildAnalysisManifest } from "./_shared";
-
 function emptyStatus(workspaceId: string): EpisodeStatus {
   return {
     workspace_id: workspaceId,
+    branch: "main",
     seq: 0,
     state: { current: {} },
     artifacts: [],
-    legal: [],
-    auto_running: false,
+    actions: ["edit_model", "prepare_data", "fit", "simulate"],
   };
 }
-
-function statusWithQuestion(workspaceId: string, version = 1): EpisodeStatus {
+function statusWithQuestion(workspaceId: string, revision = "a".repeat(40)): EpisodeStatus {
   return {
     ...emptyStatus(workspaceId),
     state: {
       current: {
         model: {
           artifact_id: "model",
-          version,
-          provenance: "human",
+          revision,
           derived_from: {},
           model_inputs: {},
           consumed_model_inputs: {},
@@ -51,64 +45,79 @@ function statusWithQuestion(workspaceId: string, version = 1): EpisodeStatus {
     },
   };
 }
-
 function transition(
-  overrides: Partial<TransitionRecord> & Pick<TransitionRecord, "seq" | "ts" | "move" | "status">,
-): TransitionRecord {
+  overrides: Partial<StudyRevision> & Pick<StudyRevision, "seq" | "ts" | "action" | "status">,
+): StudyRevision {
   return {
+    commit_id: String(overrides.seq).padStart(40, "a"),
+    parent_ids: [],
+    branch: "main",
     reason: null,
     error_type: null,
     error_message: null,
     diagnostics: {},
+    messages: [],
     produced: [],
+    inputs: {},
     retracted: [],
     trace_ids: [],
     resume: null,
     ...overrides,
   };
 }
-
 describe("buildAnalysisManifest", () => {
   beforeEach(() => {
     vi.mocked(getMachineDescription).mockResolvedValue(MACHINE_DESCRIPTION);
   });
-
   afterEach(() => {
     vi.clearAllMocks();
   });
-
   it("returns null when the episode journal is empty", async () => {
     vi.mocked(getEpisodeStatus).mockResolvedValue(emptyStatus("user-1"));
     vi.mocked(getEpisodeTimeline).mockResolvedValue({
+      branches: {},
       workspace_id: "user-1",
       transitions: [],
     });
-
     await expect(buildAnalysisManifest("user-1")).resolves.toBeNull();
   });
-
   it("builds transition executions from journal run transitions", async () => {
     vi.mocked(getEpisodeStatus).mockResolvedValue(statusWithQuestion("user-1"));
     vi.mocked(readArtifactJson).mockResolvedValue({ question: "Does exercise help sleep?" });
     vi.mocked(getEpisodeTimeline).mockResolvedValue({
+      branches: {},
       workspace_id: "user-1",
       transitions: [
         transition({
           seq: 1,
+          commit_id: "a".repeat(40),
+          parent_ids: [],
           ts: "2026-07-01T00:00:00+00:00",
-          move: { kind: "write", artifact_id: "model", provenance: "human" },
+          ...{
+            action: "edit_model",
+            operation_id: null,
+            inputs: {},
+          },
           status: "applied",
         }),
         transition({
           seq: 2,
           ts: "2026-07-01T00:01:00+00:00",
-          move: { kind: "run", operation_id: "raw_data", input_versions: {} },
+          ...{
+            action: "prepare_data",
+            operation_id: "raw_data",
+            inputs: {},
+          },
           status: "applied",
         }),
         transition({
           seq: 3,
           ts: "2026-07-01T00:02:00+00:00",
-          move: { kind: "run", operation_id: "latent_structure", input_versions: {} },
+          ...{
+            action: "edit_model",
+            operation_id: "latent_structure",
+            inputs: {},
+          },
           status: "raised",
           error_type: "SchemaValidationError",
           error_message: "latent_structure payload failed validation",
@@ -116,15 +125,17 @@ describe("buildAnalysisManifest", () => {
         transition({
           seq: 4,
           ts: "2026-07-01T00:03:00+00:00",
-          move: { kind: "run", operation_id: "latent_structure", input_versions: {} },
+          ...{
+            action: "edit_model",
+            operation_id: "latent_structure",
+            inputs: {},
+          },
           status: "rejected",
           reason: "latent_structure requires artifacts that do not exist: raw_data",
         }),
       ],
     });
-
     const manifest = await buildAnalysisManifest("user-1");
-
     expect(manifest).not.toBeNull();
     expect(manifest?.createdAt).toBe("2026-07-01T00:00:00+00:00");
     expect(manifest?.question).toBe("Does exercise help sleep?");
@@ -132,13 +143,19 @@ describe("buildAnalysisManifest", () => {
       "raw_data",
       "latent_structure",
       "simulate",
+      "simulated_measurements",
       "measurement_structure",
       "measurements",
       "validation_report",
       "statistical_model_spec",
       "posterior",
     ]);
-    expect(vi.mocked(readArtifactJson)).toHaveBeenCalledWith("user-1", "model", "model", 1);
+    expect(vi.mocked(readArtifactJson)).toHaveBeenCalledWith(
+      "user-1",
+      "model",
+      "model",
+      "a".repeat(40),
+    );
     expect(manifest?.transitionRuns["raw_data"]).toEqual({
       execution: {
         stateType: "COMPLETED",
@@ -150,30 +167,38 @@ describe("buildAnalysisManifest", () => {
     expect(manifest?.transitionRuns["latent_structure"]?.execution?.stateType).toBe("FAILED");
     expect(manifest?.transitionRuns["measurements"]).toEqual({ execution: null });
   });
-
   it("prefers the latest run attempt per artifact", async () => {
     vi.mocked(getEpisodeStatus).mockResolvedValue(emptyStatus("user-1"));
     vi.mocked(getEpisodeTimeline).mockResolvedValue({
+      branches: {},
       workspace_id: "user-1",
       transitions: [
         transition({
           seq: 1,
+          commit_id: "a".repeat(40),
+          parent_ids: [],
           ts: "2026-07-01T00:00:00+00:00",
-          move: { kind: "run", operation_id: "raw_data", input_versions: {} },
+          ...{
+            action: "prepare_data",
+            operation_id: "raw_data",
+            inputs: {},
+          },
           status: "raised",
           error_type: "RuntimeError",
         }),
         transition({
           seq: 2,
           ts: "2026-07-01T00:05:00+00:00",
-          move: { kind: "run", operation_id: "raw_data", input_versions: {} },
+          ...{
+            action: "prepare_data",
+            operation_id: "raw_data",
+            inputs: {},
+          },
           status: "applied",
         }),
       ],
     });
-
     const manifest = await buildAnalysisManifest("user-1");
-
     expect(manifest?.transitionRuns["raw_data"]?.execution?.stateType).toBe("COMPLETED");
   });
 });

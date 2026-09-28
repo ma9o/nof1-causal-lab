@@ -1,7 +1,7 @@
 import { apiFetch } from "@/lib/api/client";
 
 export interface FacadeCapabilities {
-  moves_enabled: boolean;
+  actions_enabled: boolean;
 }
 
 export function getCapabilitiesQueryKey() {

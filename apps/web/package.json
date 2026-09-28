@@ -9,7 +9,6 @@
     "start": "next start",
     "storybook": "storybook dev -p 6006",
     "storybook:build": "storybook build",
-
     "check": "bun run --parallel --no-exit-on-error lint type-check test build",
     "lint": "bun run --parallel --no-exit-on-error lint:eslint format:check",
     "lint:fix": "eslint --fix && bun run format",
@@ -20,7 +19,6 @@
     "test": "vitest run",
     "test:visual": "vitest run --config vitest.visual.config.ts",
     "test:visual:update": "bun run test:visual --update",
-
     "postinstall": "node scripts/copy-perspective-assets.mjs"
   },
   "dependencies": {
@@ -78,6 +76,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.7",
     "eslint-plugin-storybook": "^10.3.0",
+    "msw": "2.12.10",
     "playwright": "^1.61.1",
     "storybook": "^10.2.17",
     "tailwindcss": "^4",
@@ -91,5 +90,10 @@
   "trustedDependencies": [
     "sharp",
     "unrs-resolver"
-  ]
+  ],
+  "msw": {
+    "workerDirectory": [
+      "public"
+    ]
+  }
 }

@@ -96,7 +96,7 @@ function ScenarioDetail({
         onSimulate={onSimulate}
         onNodeClick={onNodeClick}
       />
-      <SimulationWarnings warnings={scenario.result.warnings} />
+      <SimulationWarnings warnings={scenario.result.causal_result.warnings} />
       {scenario.manifestEffects ? (
         <ManifestProjection
           manifestEffects={scenario.manifestEffects}

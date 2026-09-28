@@ -10,7 +10,7 @@ import {
 } from "./__fixtures__/statistical-model-spec-fixtures";
 
 const meta = {
-  title: "Pipeline/Outputs/Statistical Model Spec/ObsModelTable",
+  title: "V1/Pipeline/Outputs/Statistical Model Spec/ObsModelTable",
   component: ObsModelTable,
   args: { constructs, observationEquations },
   decorators: [withContainer()],

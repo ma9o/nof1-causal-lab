@@ -25,10 +25,7 @@ const columns = [
       <span className="text-sm text-muted-foreground">{info.getValue() ?? "model_clock"}</span>
     ),
   }),
-  col.accessor("how_to_measure", {
-    header: "How to Measure",
-    cell: (info) => <p className="max-w-xs text-pretty text-muted-foreground">{info.getValue()}</p>,
-  }),
+
 ];
 
 export function IndicatorTable({

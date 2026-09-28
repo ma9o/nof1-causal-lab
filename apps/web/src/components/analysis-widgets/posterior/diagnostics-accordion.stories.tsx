@@ -10,7 +10,7 @@ import { DiagnosticsAccordion } from "./diagnostics-accordion";
 
 const meta = {
   args: { indicators },
-  title: "Pipeline/Outputs/Posterior/DiagnosticsAccordion",
+  title: "V1/Pipeline/Outputs/Posterior/DiagnosticsAccordion",
   component: DiagnosticsAccordion,
   decorators: [withContainer()],
 } satisfies Meta<typeof DiagnosticsAccordion>;

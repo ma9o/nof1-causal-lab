@@ -14,7 +14,7 @@ import { modelSpecData } from "@/components/analysis-widgets/statistical-model-s
 const output = TRANSITIONS.find((s) => s.id === "statistical_model_spec")!;
 
 const meta = {
-  title: "Pipeline/Outputs/Statistical Model Spec/Panel",
+  title: "V1/Pipeline/Outputs/Statistical Model Spec/Panel",
   component: StatisticalModelSpecView,
   decorators: outputStoryDecorators,
 } satisfies Meta<typeof StatisticalModelSpecView>;

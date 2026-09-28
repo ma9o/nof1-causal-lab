@@ -25,7 +25,7 @@ export default function LandingPage() {
     staleTime: Infinity,
     retry: false,
   });
-  const movesEnabled = capabilitiesQuery.data?.moves_enabled ?? null;
+  const movesEnabled = capabilitiesQuery.data?.actions_enabled ?? null;
 
   const workspacesQuery = useQuery({
     queryKey: getWorkspacesQueryKey(),
@@ -37,7 +37,7 @@ export default function LandingPage() {
   useEffect(() => {
     if (isMockMode() && !sessionStorage.getItem("mock-landed")) {
       sessionStorage.setItem("mock-landed", "true");
-      router.push(`/model/${getMockFixture()}`);
+      router.push(`/v2/${getMockFixture()}`);
     }
   }, [router]);
 
@@ -93,7 +93,7 @@ export default function LandingPage() {
         }),
       });
 
-      router.push(`/model/${workspaceId}`);
+      router.push(`/v2/${workspaceId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start analysis");
       setIsSubmitting(false);

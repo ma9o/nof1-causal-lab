@@ -1,7 +1,5 @@
 "use client";
 
-import { parseSimulationResult } from "@/lib/simulation-result";
-import type { SimulationResult } from "@nof1-causal-lab/api-types";
 import type { UIMessage } from "ai";
 import { Bot, Check, Eye, User, Wrench } from "lucide-react";
 import { memo } from "react";
@@ -14,6 +12,8 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
+import type { SimulationWithEffects } from "@/lib/simulation-report";
+import { parseSimulationReport } from "@/lib/simulation-report";
 import { cn } from "@/lib/utils";
 
 const remarkPlugins = [remarkGfm];
@@ -21,13 +21,11 @@ type DynamicToolMessagePart = Extract<UIMessage["parts"][number], { type: "dynam
 type StaticToolMessagePart = Extract<UIMessage["parts"][number], { type: `tool-${string}` }>;
 type ToolMessagePart = DynamicToolMessagePart | StaticToolMessagePart;
 
-export type { SimulationResult } from "@nof1-causal-lab/api-types";
-
 const SIMULATION_TOOLS = new Set(["simulate"]);
 
-function simulationHeadline(result: SimulationResult): string {
-  const { mean } = result.summary;
-  return `${mean >= 0 ? "+" : ""}${mean.toFixed(2)} SD on ${result.labels[result.request.outcome]}`;
+function simulationHeadline(result: SimulationWithEffects): string {
+  const { mean } = result.causal_result.summary;
+  return `${mean >= 0 ? "+" : ""}${mean.toFixed(2)} SD on ${result.causal_result.labels[result.causal_result.outcome]}`;
 }
 
 const TextPart = memo(function TextPart({ text }: { text: string }) {
@@ -233,7 +231,7 @@ function AssistantMessage({
 }: {
   msg: UIMessage;
   selectedSimulationKey?: string;
-  onSelectSimulation?: (key: string, result: SimulationResult) => void;
+  onSelectSimulation?: (key: string, result: SimulationWithEffects) => void;
 }) {
   return (
     <div className="rounded-md border border-primary/20 bg-primary/5 p-2.5">
@@ -253,7 +251,7 @@ function AssistantMessage({
           case "dynamic-tool": {
             const simulation =
               part.state === "output-available" && SIMULATION_TOOLS.has(part.toolName)
-                ? parseSimulationResult(part.output)
+                ? parseSimulationReport(part.output)
                 : null;
             if (simulation && onSelectSimulation) {
               const callKey = part.toolCallId;
@@ -291,7 +289,7 @@ export const ChatMessages = memo(function ChatMessages({
 }: {
   messages: UIMessage[];
   selectedSimulationKey?: string;
-  onSelectSimulation?: (key: string, result: SimulationResult) => void;
+  onSelectSimulation?: (key: string, result: SimulationWithEffects) => void;
 }) {
   return (
     <div className="flex flex-col gap-2">

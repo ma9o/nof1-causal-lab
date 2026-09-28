@@ -1,11 +1,11 @@
 "use client";
 
-import { useInteractiveGraph, type InteractiveGraphOptions } from "@/lib/dag/use-interactive-graph";
-import { baseId } from "@/lib/dag/unroll";
 import { CARD_H, CARD_W } from "@/lib/dag/build-simulation-graph";
-import { getNodeActionSeries, getNodeReferenceSeries } from "@/lib/dag/simulation";
-import { DAG_COLORS, signColor } from "@/lib/dag/palette";
 import { orthoPath } from "@/lib/dag/ortho-path";
+import { DAG_COLORS, signColor } from "@/lib/dag/palette";
+import { getNodeActionSeries, getNodeReferenceSeries } from "@/lib/dag/simulation";
+import { baseId } from "@/lib/dag/unroll";
+import { type InteractiveGraphOptions, useInteractiveGraph } from "@/lib/dag/use-interactive-graph";
 import { DagCanvasFrame, DagSvg } from "../core/dag-canvas";
 import { DagDirectionToggle } from "../core/dag-direction-toggle";
 import { DagZoomControls } from "../core/dag-zoom-controls";
@@ -192,10 +192,7 @@ export function InteractiveDag({
               const pruned =
                 currentDay != null &&
                 interventions.some(
-                  (clamp) =>
-                    currentResult.labels[clamp.target] === baseId(b) &&
-                    clamp.from_day <= currentDay &&
-                    (clamp.to_day == null || currentDay < clamp.to_day),
+                  (clamp) => currentResult.causal_result.labels[clamp.target] === baseId(b),
                 );
               const key = `${a}>${b}`;
               const hl = hoverEdge === key;
@@ -259,7 +256,9 @@ export function InteractiveDag({
               const actionSeries = getNodeActionSeries(currentResult, construct.id) ?? [];
               const nodeInterventions = isPrev
                 ? []
-                : interventions.filter((clamp) => currentResult.labels[clamp.target] === base);
+                : interventions.filter(
+                    (clamp) => currentResult.causal_result.labels[clamp.target] === base,
+                  );
               const cardHl = hoverEndpoints.includes(base);
               const status = nodeStatuses?.[base];
               const contextOnly = status === "marginalized";
@@ -289,7 +288,7 @@ export function InteractiveDag({
                     name={base}
                     kind={construct.role === "endogenous" ? "endo" : "exo"}
                     vary={construct.temporal_status === "time_varying" ? "varying" : "invariant"}
-                    isTarget={construct.id === result.request.outcome}
+                    isTarget={construct.id === result.causal_result.outcome}
                     isPrev={isPrev}
                     days={days}
                     reference={referenceSeries}
@@ -335,158 +334,142 @@ export function InteractiveDag({
       </div>
 
       {/* scrubber */}
-      {n > 0 ? (
-        <>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 14,
-              marginTop: 12,
-              background: "#fff",
-              border: `1px solid ${DAG_COLORS.line}`,
-              borderRadius: 12,
-              padding: "12px 16px",
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => setPlaying((p) => !p)}
-              style={iconBtn}
-              title="play / pause"
-            >
-              {playing ? "⏸" : "▶"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setPlaying(false);
-                setDay(0);
-              }}
-              style={iconBtn}
-              title="reset"
-            >
-              ↺
-            </button>
-            <div style={{ flex: 1, position: "relative", display: "flex", alignItems: "center" }}>
-              <input
-                type="range"
-                min={0}
-                max={Math.max(0, n - 1)}
-                step={1}
-                value={clampedDay}
-                onChange={(e) => setDay(Number(e.target.value))}
-                style={{ width: "100%", accentColor: INK }}
-              />
-              <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
-                {interventions.map((iv, index) => (
-                  <span
-                    key={`${iv.target}-${iv.from_day}-${index}`}
-                    style={{
-                      position: "absolute",
-                      top: 0,
-                      bottom: 0,
-                      left: `${(iv.from_day / Math.max(days[n - 1], 1)) * 100}%`,
-                    }}
-                  >
-                    <i
-                      style={{
-                        position: "absolute",
-                        top: 2,
-                        bottom: 2,
-                        left: -1.25,
-                        width: 2.5,
-                        background: BLUE,
-                        borderRadius: 2,
-                      }}
-                    />
-                    <span
-                      style={{
-                        position: "absolute",
-                        top: -16,
-                        left: 0,
-                        transform: "translateX(-50%)",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 3,
-                      }}
-                    >
-                      <b
-                        style={{
-                          fontSize: 9,
-                          fontWeight: 600,
-                          color: "#fff",
-                          background: BLUE,
-                          borderRadius: 4,
-                          padding: "1px 5px",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {`do · ${currentResult.labels[iv.target].replace(/_/g, " ")} @d${iv.from_day}`}
-                      </b>
-                      {currentResult !== result ? (
-                        <span
-                          title="Reset to the selected scenario"
-                          onClick={resetScenario}
-                          style={{
-                            cursor: "pointer",
-                            pointerEvents: "auto",
-                            fontSize: 9,
-                            fontWeight: 700,
-                            color: "#fff",
-                            background: RED,
-                            borderRadius: 4,
-                            padding: "1px 4px",
-                          }}
-                        >
-                          ↺
-                        </span>
-                      ) : null}
-                    </span>
-                  </span>
-                ))}
-              </div>
-            </div>
-            <span
-              style={{
-                fontVariantNumeric: "tabular-nums",
-                minWidth: 96,
-                textAlign: "right",
-                color: "#3a3f47",
-              }}
-            >
-              {`day ${days[clampedDay]}`}
-            </span>
-          </div>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              fontSize: 11,
-              color: MUTED,
-              margin: "6px 8px 0",
-            }}
-          >
-            <span>{`${days[0]}d`}</span>
-            <span>{`${days[Math.floor((n - 1) / 2)]}d`}</span>
-            <span>{`${days[n - 1]}d`}</span>
-          </div>
-        </>
-      ) : (
+      <>
         <div
           style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 14,
             marginTop: 12,
             background: "#fff",
             border: `1px solid ${DAG_COLORS.line}`,
             borderRadius: 12,
             padding: "12px 16px",
-            color: MUTED,
-            fontSize: 11.5,
           }}
         >
-          {`End-state result · effect ${currentResult.summary.mean.toFixed(3)} [${currentResult.summary.lower_95.toFixed(3)}, ${currentResult.summary.upper_95.toFixed(3)}] · no trajectory projection requested.`}
+          <button
+            type="button"
+            onClick={() => setPlaying((p) => !p)}
+            style={iconBtn}
+            title="play / pause"
+          >
+            {playing ? "⏸" : "▶"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setPlaying(false);
+              setDay(0);
+            }}
+            style={iconBtn}
+            title="reset"
+          >
+            ↺
+          </button>
+          <div style={{ flex: 1, position: "relative", display: "flex", alignItems: "center" }}>
+            <input
+              type="range"
+              min={0}
+              max={Math.max(0, n - 1)}
+              step={1}
+              value={clampedDay}
+              onChange={(e) => setDay(Number(e.target.value))}
+              style={{ width: "100%", accentColor: INK }}
+            />
+            <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
+              {interventions.map((iv) => (
+                <span
+                  key={`${iv.target}-${iv.time}`}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    bottom: 0,
+                    left: `${((iv.time - days[0]) / (days[n - 1] - days[0])) * 100}%`,
+                  }}
+                >
+                  <i
+                    style={{
+                      position: "absolute",
+                      top: 2,
+                      bottom: 2,
+                      left: -1.25,
+                      width: 2.5,
+                      background: BLUE,
+                      borderRadius: 2,
+                    }}
+                  />
+                  <span
+                    style={{
+                      position: "absolute",
+                      top: -16,
+                      left: 0,
+                      transform: "translateX(-50%)",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 3,
+                    }}
+                  >
+                    <b
+                      style={{
+                        fontSize: 9,
+                        fontWeight: 600,
+                        color: "#fff",
+                        background: BLUE,
+                        borderRadius: 4,
+                        padding: "1px 5px",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {`do · ${currentResult.causal_result.labels[iv.target].replace(/_/g, " ")} @d${iv.time}`}
+                    </b>
+                    {currentResult !== result ? (
+                      <span
+                        title="Reset to the selected scenario"
+                        onClick={resetScenario}
+                        style={{
+                          cursor: "pointer",
+                          pointerEvents: "auto",
+                          fontSize: 9,
+                          fontWeight: 700,
+                          color: "#fff",
+                          background: RED,
+                          borderRadius: 4,
+                          padding: "1px 4px",
+                        }}
+                      >
+                        ↺
+                      </span>
+                    ) : null}
+                  </span>
+                </span>
+              ))}
+            </div>
+          </div>
+          <span
+            style={{
+              fontVariantNumeric: "tabular-nums",
+              minWidth: 96,
+              textAlign: "right",
+              color: "#3a3f47",
+            }}
+          >
+            {`day ${days[clampedDay]}`}
+          </span>
         </div>
-      )}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            fontSize: 11,
+            color: MUTED,
+            margin: "6px 8px 0",
+          }}
+        >
+          <span>{`${days[0]}d`}</span>
+          <span>{`${days[Math.floor((n - 1) / 2)]}d`}</span>
+          <span>{`${days[n - 1]}d`}</span>
+        </div>
+      </>
     </div>
   );
 }

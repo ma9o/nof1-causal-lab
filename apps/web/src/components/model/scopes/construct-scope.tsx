@@ -1,212 +1,147 @@
 import type { ConstructId } from "@nof1-causal-lab/api-types";
-import { Button } from "@/components/ui/button";
-import { humanize } from "../model-selection";
+import { constructPresentation, dispositionLabel } from "@/lib/model-asset/inspector";
+import { humanize } from "@/lib/model-asset/selection";
+import type { ScopeContext } from "@/lib/model-asset/scope";
 import {
-  ArtifactChip,
-  FactChip,
   Callout,
   Hint,
   KeyValue,
   OwnerLink,
-  PosteriorTable,
-  PriorTable,
+  ParameterLinks,
   Prose,
   Section,
-  Tag,
+  StatusIcon,
 } from "../scope-primitives";
-import { parametersForOwner, posteriorRows, priorRows } from "./parameters";
-import { chipFor, has, type ScopeContext } from "./scope-context";
-
-const DISPOSITION_LABEL: Record<string, string> = {
-  unsupported: "unsupported",
-  retained_state: "retained state",
-  marginalized: "marginalized",
-  identification_only: "identification-only",
-  retained_edge: "retained edge",
-  projected_edge: "projected edge",
-  manifest: "manifest",
-  excluded_indicator: "excluded indicator",
-};
-
-export function dispositionLabel(disposition: string): string {
-  return DISPOSITION_LABEL[disposition] ?? humanize(disposition);
-}
+import { parametersForOwner } from "./parameters";
 
 export function ConstructScope({ context, id }: { context: ScopeContext; id: ConstructId }) {
-  const { model, entities, queries } = context;
-  const construct = entities.constructById.get(id);
-  if (!construct) return null;
-  const inEdges = entities.edges.filter((edge) => edge.effect.id === id);
-  const outEdges = entities.edges.filter((edge) => edge.cause.id === id);
-  const indicators = construct.indicators;
-  const disposition = context.model.findings.dispositions?.value.find(
-    (item) => item.target.id === id,
-  );
-  const finding = model.findings.identification?.value.treatments[id];
-  const identified = finding?.status === "identified" ? finding : null;
-  const notIdentified = finding?.status === "not_identified" ? finding : null;
-  const parameters = parametersForOwner(context.model.model?.value, id);
-  const priorParameters = parametersForOwner(context.model.model?.value, id);
-  const priors = priorRows(priorParameters, context.model.model!.value.distributions);
-  const admission =
-    model.findings.prior_predictive?.value.diagnostics.filter((item) => item.construct_id === id) ??
-    [];
-  const fitted = posteriorRows(parameters, context.model.findings.fit?.value.report);
-  const query = queries.find((query) => query.treatmentId === id);
-  const namesFor = (ids: ConstructId[]) =>
-    ids.map((id) => entities.constructById.get(id)?.name ?? id).join(", ");
-
+  const scope = constructPresentation(context, id);
+  if (!scope) return null;
+  const {
+    model,
+    entities,
+    construct,
+    inEdges,
+    outEdges,
+    indicators,
+    disposition,
+    identified,
+    notIdentified,
+    admission,
+    namesFor,
+  } = scope;
+  const parameters = parametersForOwner(model.model?.value, id);
   return (
     <>
-      <Section title="Structure" chips={<ArtifactChip {...chipFor(context, "model")} />}>
+      <Section title="Structure">
         <Prose>{construct.description}</Prose>
-        <KeyValue
-          rows={[
-            ["role", construct.role],
-            ["temporal", construct.temporal_status.replace("_", "-")],
-            [
-              "default query outcome",
-              model.model?.value.default_outcome === construct.id ? "yes" : "no",
-            ],
-          ]}
-        />
-        {inEdges.length + outEdges.length > 0 ? (
-          <>
-            <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Edges
-            </div>
-            <ul className="m-0 flex list-none flex-col gap-1 p-0">
-              {inEdges.map((edge) => (
-                <li key={edge.id} className="flex min-w-0 items-center gap-1.5 text-[11px]">
-                  <span className="flex-none text-muted-foreground">←</span>
-                  <OwnerLink
-                    onClick={() =>
-                      context.select({
-                        kind: "edge",
-                        id: edge.id,
-                      })
-                    }
-                  >
-                    {entities.constructById.get(edge.cause.id)!.name}
-                  </OwnerLink>
-                  <Tag>{edge.lagged ? "t−1 → t" : "same t"}</Tag>
-                </li>
-              ))}
-              {outEdges.map((edge) => (
-                <li key={edge.id} className="flex min-w-0 items-center gap-1.5 text-[11px]">
-                  <span className="flex-none text-muted-foreground">→</span>
-                  <OwnerLink
-                    onClick={() =>
-                      context.select({
-                        kind: "edge",
-                        id: edge.id,
-                      })
-                    }
-                  >
-                    {entities.constructById.get(edge.effect.id)!.name}
-                  </OwnerLink>
-                  <Tag>{edge.lagged ? "t−1 → t" : "same t"}</Tag>
-                </li>
-              ))}
-            </ul>
-          </>
-        ) : null}
-      </Section>
-      {model.model?.value.measurement_clock ? (
-        <Section title="Measurement" chips={<ArtifactChip {...chipFor(context, "model")} />}>
-          {indicators && indicators.length > 0 ? (
-            <ul className="m-0 flex list-none flex-col gap-1 p-0">
-              {indicators.map((indicator) => (
-                <li key={indicator.name}>
-                  <OwnerLink
-                    onClick={() => context.select({ kind: "indicator", id: indicator.id })}
-                  >
-                    {indicator.name}
-                  </OwnerLink>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <Hint>No indicator declared.</Hint>
-          )}
-        </Section>
-      ) : null}
-      {disposition ? (
-        <Section
-          title="Design"
-          chips={
-            <>
-              <ArtifactChip {...chipFor(context, "model")} />
-              <ArtifactChip {...chipFor(context, "model")} />
-              {has(context, "identification_report") ? (
-                <ArtifactChip {...chipFor(context, "identification_report")} />
-              ) : null}
-            </>
-          }
-        >
-          <KeyValue
-            rows={[
-              [
-                "disposition",
-                <Tag
-                  key="disposition"
-                  tone={disposition.disposition === "retained_state" ? "success" : "warning"}
+        <details className="text-xs">
+          <summary className="cursor-pointer text-muted-foreground">Properties</summary>
+          <div className="mt-2">
+            <KeyValue
+              rows={[
+                ["Role", construct.role],
+                ["Time", humanize(construct.temporal_status)],
+              ]}
+            />
+          </div>
+        </details>
+        {inEdges.length + outEdges.length > 0 && (
+          <ul className="mt-2 flex list-none flex-col gap-2 p-0">
+            {[
+              ...inEdges.map((edge) => ({ edge, incoming: true })),
+              ...outEdges.map((edge) => ({ edge, incoming: false })),
+            ].map(({ edge, incoming }) => (
+              <li key={edge.id} className="flex items-start gap-2">
+                <span
+                  className="text-muted-foreground"
+                  title={incoming ? "Incoming relationship" : "Outgoing relationship"}
+                  aria-hidden="true"
                 >
-                  {dispositionLabel(disposition.disposition)}
-                </Tag>,
-              ],
-              ["reason", disposition.reason],
-            ]}
-          />
-          {identified ? (
+                  {incoming ? "←" : "→"}
+                </span>
+                <OwnerLink onClick={() => context.select({ kind: "edge", id: edge.id })}>
+                  {humanize(
+                    entities.constructById.get(incoming ? edge.cause.id : edge.effect.id)!.name,
+                  )}
+                </OwnerLink>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
+      {indicators.length > 0 && (
+        <Section title="Indicators">
+          <ul className="m-0 flex list-none flex-col gap-2 p-0">
+            {indicators.map((indicator) => (
+              <li key={indicator.id}>
+                <OwnerLink onClick={() => context.select({ kind: "indicator", id: indicator.id })}>
+                  {humanize(indicator.name)}
+                </OwnerLink>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+      {disposition && disposition.disposition !== "retained_state" && (
+        <Section
+          title={dispositionLabel(disposition.disposition)}
+          source={model.findings.dispositions?.source}
+        >
+          <Hint issue>{disposition.reason}</Hint>
+        </Section>
+      )}
+      {(identified || notIdentified) && (
+        <Section title="Identification" source={model.findings.identification?.source}>
+          {identified && (
             <Callout tone="ok">
-              <b>Identified</b> via {identified.method.replaceAll("_", "-")}. Marginalized
-              confounders:{" "}
-              {identified.marginalized_confounders.length > 0
-                ? namesFor(identified.marginalized_confounders)
-                : "none"}
-              .
+              <div className="flex items-start gap-2">
+                <StatusIcon status="passed" label="Identified" />
+                <span>{humanize(identified.method)}</span>
+              </div>
+              {identified.marginalized_confounders.length > 0 && (
+                <p className="mt-2">
+                  Marginalized confounders: {namesFor(identified.marginalized_confounders)}.
+                </p>
+              )}
             </Callout>
-          ) : notIdentified ? (
+          )}
+          {notIdentified && (
             <Callout tone="bad">
-              <b>Not identified.</b> {namesFor(notIdentified.confounders)} confound this treatment
-              under the current design.{notIdentified.notes ? ` ${notIdentified.notes}` : ""}
+              <div className="flex items-start gap-2">
+                <StatusIcon status="failed" label="Not identified" />
+                <span>
+                  {namesFor(notIdentified.confounders)} confound this treatment under the current
+                  design.{notIdentified.notes ? ` ${notIdentified.notes}` : ""}
+                </span>
+              </div>
             </Callout>
-          ) : (
-            <Hint>
-              Not a treatment: identification is assessed per treatment against the outcome.
-            </Hint>
           )}
         </Section>
-      ) : null}
-      {priors.length > 0 ? (
-        <Section title="Model" chips={<ArtifactChip {...chipFor(context, "model")} />}>
-          <PriorTable rows={priors} />
-          {admission.map((entry) => (
-            <Hint key={`${entry.check}-${entry.mode}`}>
-              prior-predictive {humanize(entry.check)}: {entry.passed ? "passed" : "review"} ·{" "}
-              {entry.value}
-            </Hint>
-          ))}
+      )}
+      {parameters.length > 0 && (
+        <Section title="Parameters">
+          <ParameterLinks parameters={parameters} onSelect={context.select} />
         </Section>
-      ) : null}
-      {fitted.length > 0 ? (
-        <Section title="Fit" chips={<FactChip source={context.model.findings.fit?.source} />}>
-          <PosteriorTable rows={fitted} />
+      )}
+      {admission.length > 0 && (
+        <Section title="Prior checks" source={model.findings.prior_predictive?.source}>
+          <details open={admission.some((entry) => !entry.passed)}>
+            <summary className="cursor-pointer text-muted-foreground">Inspect checks</summary>
+            <ul className="mt-2 space-y-2">
+              {admission.map((entry) => (
+                <li key={`${entry.check}-${entry.mode}`} className="flex items-start gap-2">
+                  <StatusIcon status={entry.passed ? "passed" : "failed"} />
+                  <span>
+                    {humanize(entry.check)}
+                    <Hint>{entry.value}</Hint>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </details>
         </Section>
-      ) : null}
-      {query ? (
-        <Section title="Intervention">
-          <Hint>Explore the effect of changing this construct on {humanize(query.outcome)}.</Hint>
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => context.select({ kind: "query", key: query.key })}
-          >
-            Open the query
-          </Button>
-        </Section>
-      ) : null}
+      )}
     </>
   );
 }

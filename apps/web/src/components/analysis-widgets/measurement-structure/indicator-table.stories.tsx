@@ -9,7 +9,7 @@ const data = demoModelSnapshot as ModelSnapshot;
 const indicators = modelConstructs(data.model!.value).flatMap((construct) => construct.indicators);
 
 const meta = {
-  title: "Pipeline/Outputs/Measurement Structure/IndicatorTable",
+  title: "V1/Pipeline/Outputs/Measurement Structure/IndicatorTable",
   component: IndicatorTable,
   args: { constructs: modelConstructs(data.model!.value) },
   decorators: [withContainer("max-w-3xl")],

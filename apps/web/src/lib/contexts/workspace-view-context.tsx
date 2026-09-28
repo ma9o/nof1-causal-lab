@@ -3,7 +3,7 @@
 import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from "react";
 
 interface WorkspaceViewState {
-  /** Move affordances hidden: the backing facade is read-only (hosted viewer). */
+  /** Action controls hidden: the backing facade is read-only (hosted viewer). */
   readOnly: boolean;
   /** Currently focused analysis scenario key (simulate tool-call id or `baseline:<treatment>`). */
   selectedScenarioKey: string | null;

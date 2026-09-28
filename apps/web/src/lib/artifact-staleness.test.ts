@@ -7,8 +7,9 @@ function artifact(overrides: Partial<ArtifactFreshness>): ArtifactFreshness {
     artifact_id: "model",
     exists: true,
     stale: false,
-    version: 1,
-    provenance: "computed",
+    retracted: false,
+    revision: "0000000000000000000000000000000000000001",
+
     produced_by: "run:latent_structure",
     ...overrides,
   };
@@ -50,9 +51,7 @@ describe("groupStaleArtifactsByProducer", () => {
   });
 
   it("ignores root artifacts with no producer", () => {
-    const report = [
-      artifact({ artifact_id: "model", stale: true, produced_by: null, provenance: "human" }),
-    ];
+    const report = [artifact({ artifact_id: "model", stale: true, produced_by: null })];
 
     expect(groupStaleArtifactsByProducer(report)).toEqual({});
   });

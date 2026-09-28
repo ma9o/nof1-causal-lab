@@ -1,16 +1,14 @@
 import type {
   ArtifactFreshness,
   PipelineSectionId,
-  Move,
   RuntimeEvent,
-  TransitionRecord,
+  StudyRevision,
 } from "@nof1-causal-lab/api-types";
 import { apiFetch } from "./client";
 export type {
   ArtifactFreshness,
-  Move,
   RuntimeEvent,
-  TransitionRecord,
+  StudyRevision,
 } from "@nof1-causal-lab/api-types";
 
 export interface AnalysisTransitionExecution {
@@ -36,14 +34,14 @@ export interface AnalysisManifest {
 }
 
 export interface EpisodeProgressPayload {
-  nextOperation: import("@nof1-causal-lab/api-types").OperationId | null;
   workspaceId: string;
-  autoRunning: boolean;
+
   seq: number;
   artifacts: ArtifactFreshness[];
   /** Moves the machine accepts right now, as the facade reports them. */
-  legal: Move[];
-  transitions: TransitionRecord[];
+  actions: import("@nof1-causal-lab/api-types").ScientificActionId[];
+  transitions: StudyRevision[];
+  branches: Record<string, string>;
   events: RuntimeEvent[];
 }
 
@@ -61,12 +59,4 @@ export async function getEpisodeProgress(
 ): Promise<EpisodeProgressPayload> {
   const search = after ? `?${new URLSearchParams({ after }).toString()}` : "";
   return apiFetch<EpisodeProgressPayload>(`/api/analysis/${workspaceId}/progress${search}`);
-}
-
-export async function recomputeStaleArtifacts(
-  workspaceId: string,
-): Promise<{ ok: true; workspaceId: string }> {
-  return apiFetch<{ ok: true; workspaceId: string }>(`/api/analysis/${workspaceId}/recompute`, {
-    method: "POST",
-  });
 }

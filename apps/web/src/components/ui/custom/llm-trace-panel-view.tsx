@@ -1,12 +1,13 @@
 "use client";
 
-import { Badge } from "@/components/ui/badge";
-import { formatCompact } from "@/lib/utils/format";
-import { traceToUIMessages } from "@/lib/utils/trace-to-ui-messages";
 import type { LLMTrace } from "@nof1-causal-lab/api-types";
 import { Clock, Cpu } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
-import { ChatMessages, type SimulationResult } from "./chat-messages";
+import { Badge } from "@/components/ui/badge";
+import type { SimulationWithEffects } from "@/lib/simulation-report";
+import { formatCompact } from "@/lib/utils/format";
+import { traceToUIMessages } from "@/lib/utils/trace-to-ui-messages";
+import { ChatMessages } from "./chat-messages";
 
 function TraceSummary({ trace }: { trace: LLMTrace }) {
   const { usage } = trace;
@@ -43,7 +44,7 @@ export function LLMTracePanelView({
 }: {
   trace: LLMTrace;
   selectedSimulationKey?: string;
-  onSelectSimulation?: (key: string, result: SimulationResult) => void;
+  onSelectSimulation?: (key: string, result: SimulationWithEffects) => void;
 }) {
   const traceMessages = useMemo(() => traceToUIMessages(trace), [trace]);
   const scrollRef = useRef<HTMLDivElement>(null);

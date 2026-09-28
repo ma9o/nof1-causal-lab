@@ -7,7 +7,7 @@ import { demoRawData } from "../../__fixtures__/demo-artifacts";
 const data = demoRawData as RawDataData;
 
 const meta = {
-  title: "Pipeline/Outputs/Raw Data/DataSummaryStats",
+  title: "V1/Pipeline/Outputs/Raw Data/DataSummaryStats",
   component: DataSummaryStats,
   decorators: [withContainer("max-w-3xl")],
 } satisfies Meta<typeof DataSummaryStats>;

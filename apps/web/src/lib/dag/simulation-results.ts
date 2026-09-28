@@ -1,44 +1,32 @@
-import { modelConstructs } from "@/lib/model-accessors";
 /**
- * analysis scenario model.
- *
- * Every analysis "scenario" is a materialized `simulate` tool result — a start
- * state + a list of timed latent clamps — sourced from runtime tool responses,
- * carrying per-construct reference and action means on a shared time grid. The
- * production tool contract requires one or more `do()` clamps; each result also
- * carries the corresponding reference rollout for visual comparison.
- *
- * Each scenario also carries the natural-language **blurb** the LLM produced
- * alongside it (the assistant text co-located with the `simulate` tool call),
- * which explains the reasoning behind the intervention and its result.
+ * Causal scenarios select simulation reports with certified effects. Their dated
+ * interventions and paired paths come from the server; ordinary simulations may
+ * have no interventions. Assistant text beside a tool call supplies its blurb.
  */
 
 import type {
   EffectSummary,
-  ModelSpec,
   LLMTrace,
+  ModelSpec,
   PosteriorEstimate,
 } from "@nof1-causal-lab/api-types";
 import type { UIMessage } from "ai";
 import { formatScenarioActionDescription } from "@/lib/dag/simulation";
-import type { AnalysisSimulationResult } from "@/lib/dag/simulation-types";
-import { parseSimulationResult } from "@/lib/simulation-result";
+import { modelConstructs } from "@/lib/model-accessors";
+import { parseSimulationReport, type SimulationWithEffects } from "@/lib/simulation-report";
 import { traceToUIMessages } from "@/lib/utils/trace-to-ui-messages";
 
 // ── scenario types ──────────────────────────────────────────────────────────
 
-export type ScenarioProvenance = "intervention";
-
 export interface SimulationScenario {
   /** Stable selection key — the `simulate` tool-call id. */
   key: string;
-  provenance: ScenarioProvenance;
   /** Concise label for the rail card. */
   title: string;
   outcome: string;
   summary: EffectSummary;
   manifestEffects: Record<string, number> | null;
-  result: AnalysisSimulationResult;
+  result: SimulationWithEffects;
   requestedHorizonDays?: number;
   /** The user prompt that minted this scenario. */
   userQuery?: string;
@@ -52,7 +40,7 @@ const SIMULATION_TOOLS = new Set(["simulate"]);
 
 interface RawSimulation {
   toolCallId: string;
-  result: AnalysisSimulationResult;
+  result: SimulationWithEffects;
   userQuery?: string;
   blurb?: string;
   order: number;
@@ -96,7 +84,7 @@ function collectSimulations(
       ) {
         continue;
       }
-      const result = parseSimulationResult(part.output);
+      const result = parseSimulationReport(part.output);
       if (!result) {
         continue;
       }
@@ -115,13 +103,12 @@ function collectSimulations(
 function toScenario(raw: RawSimulation): SimulationScenario {
   return {
     key: raw.toolCallId,
-    provenance: "intervention",
     title: formatScenarioActionDescription(raw.result),
-    outcome: raw.result.labels[raw.result.request.outcome],
-    summary: raw.result.summary,
-    manifestEffects: raw.result.manifest_effects ?? null,
+    outcome: raw.result.causal_result.labels[raw.result.causal_result.outcome],
+    summary: raw.result.causal_result.summary,
+    manifestEffects: raw.result.causal_result.manifest_effects ?? null,
     result: raw.result,
-    requestedHorizonDays: raw.result.request.readout.horizon_days,
+    requestedHorizonDays: raw.result.times.at(-1)! - raw.result.times[0],
     userQuery: raw.userQuery,
     blurb: raw.blurb,
   };

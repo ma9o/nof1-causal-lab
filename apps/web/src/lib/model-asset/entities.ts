@@ -6,7 +6,7 @@ import type {
   ModelSpec,
   ParameterSpec,
 } from "@nof1-causal-lab/api-types";
-import { humanize, type EditableSelection, type ModelSelection } from "./selection";
+import { humanize, type EntitySelection, type ModelSelection } from "./selection";
 
 /** Index the authored graph; these maps are derived, never a second model definition. */
 export function indexModel(model: ModelSpec | undefined) {
@@ -15,7 +15,6 @@ export function indexModel(model: ModelSpec | undefined) {
   const indicators = constructs.flatMap((construct) => construct.indicators);
   const parameters = model?.parameters ?? [];
   return {
-    model,
     constructs,
     edges,
     indicators,
@@ -35,13 +34,12 @@ export function indexModel(model: ModelSpec | undefined) {
 export type ModelEntities = ReturnType<typeof indexModel>;
 
 export interface EntityLink {
-  selection: EditableSelection;
+  selection: EntitySelection;
   label: string;
 }
 
 export interface EntityPresentation extends EntityLink {
   definition:
-    | ModelSpec
     | ConstructSpec
     | IndicatorSpec
     | ParameterSpec
@@ -49,7 +47,7 @@ export interface EntityPresentation extends EntityLink {
   relationships: EntityLink[];
 }
 
-/** Viewing and editing share ownership, labels and fields regardless of where endpoints serialize. */
+/** Resolve ownership, labels and fields regardless of where endpoints serialize. */
 export function resolveEntity(
   entities: ModelEntities,
   selection: ModelSelection,
@@ -59,12 +57,8 @@ export function resolveEntity(
     label: humanize(construct.name),
   });
   switch (selection.kind) {
-    case "version":
+    case "revision":
       return undefined;
-    case "asset":
-      return entities.model
-        ? { selection, label: "Whole model", definition: entities.model, relationships: [] }
-        : undefined;
     case "edge": {
       const edge = entities.edgeById.get(selection.id);
       if (!edge) return undefined;
@@ -110,17 +104,14 @@ export function resolveEntity(
 }
 
 export function entityOptions(entities: ModelEntities): EntityLink[] {
-  const selections: EditableSelection[] = [
+  const selections: EntitySelection[] = [
     ...entities.constructs.map(({ id }) => ({ kind: "construct" as const, id })),
     ...entities.indicators.map(({ id }) => ({ kind: "indicator" as const, id })),
     ...entities.edges.map(({ id }) => ({ kind: "edge" as const, id })),
     ...entities.parameters.map(({ id }) => ({ kind: "parameter" as const, id })),
   ];
-  return [
-    { selection: { kind: "asset" }, label: "Whole model" },
-    ...selections.map((selection) => ({
-      selection,
-      label: `${selection.kind[0].toUpperCase()}${selection.kind.slice(1)} · ${resolveEntity(entities, selection)!.label}`,
-    })),
-  ];
+  return selections.map((selection) => ({
+    selection,
+    label: `${selection.kind[0].toUpperCase()}${selection.kind.slice(1)} · ${resolveEntity(entities, selection)!.label}`,
+  }));
 }

@@ -34,7 +34,7 @@ describe("semantic graph layers", () => {
     expect(graph.constructs.map((item) => item.id)).toEqual(measured.findings.graph.construct_ids);
     expect(graph.edges.map((item) => item.id)).toEqual(measured.findings.graph.edge_ids);
     // Identification status does not override the backend's retained-state selection.
-    measured.findings.graph_status[graph.constructs[0].id] = "blocking";
+    measured.findings.graph.status[graph.constructs[0].id] = "blocking";
     expect(graphEntities(measured)).toEqual(graph);
     expect(measured.model!.value.edges).toHaveLength(32);
     expect(graphEntities(demoSnapshotAt(2)).constructs).toEqual([]);

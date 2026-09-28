@@ -8,17 +8,17 @@ const noop = () => {};
 const localWorkspaces: WorkspaceList = {
   workspaces: [
     {
-      href: "/model/local-adhd-pilot",
+      href: "/v2/local-adhd-pilot",
       question: "Local ADHD pilot workspace with merged EMA and wearable measurements.",
       workspaceId: "local-adhd-pilot",
     },
     {
-      href: "/model/local-sleep-study",
+      href: "/v2/local-sleep-study",
       question: "Local sleep study workspace with irregular actigraphy and survey exports.",
       workspaceId: "local-sleep-study",
     },
     {
-      href: "/model/local-medication-trial",
+      href: "/v2/local-medication-trial",
       question: null,
       workspaceId: "local-medication-trial",
     },

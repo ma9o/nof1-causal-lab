@@ -14,7 +14,7 @@ const output = TRANSITIONS.find((s) => s.id === "latent_structure")!;
 const data = demoModel as ModelSpec;
 
 const meta = {
-  title: "Pipeline/Outputs/Latent Structure/Panel",
+  title: "V1/Pipeline/Outputs/Latent Structure/Panel",
   component: LatentStructureView,
   decorators: outputStoryDecorators,
 } satisfies Meta<typeof LatentStructureView>;

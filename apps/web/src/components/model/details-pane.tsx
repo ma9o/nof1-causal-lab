@@ -1,75 +1,20 @@
-import type { ReactNode } from "react";
-import { humanize, type ModelSelection, SCOPE_KIND_LABEL } from "./model-selection";
-import { QueryCollection } from "./query-collection";
-import { AssetScope } from "./scopes/asset-scope";
+import { DefinitionView } from "./definition-view";
+import { DefinitionContext } from "./definition-context";
+import { Button } from "@/components/ui/button";
+import { entityOptions, resolveEntity } from "@/lib/model-asset/entities";
+import { type ModelSelection, humanize } from "@/lib/model-asset/selection";
+import { Hint, PosteriorTable, Section } from "./scope-primitives";
+import { distributionText } from "@/lib/utils/distribution-format";
+import { posteriorRows } from "@/lib/model-asset/inspector";
 import { ConstructScope } from "./scopes/construct-scope";
 import { EdgeScope } from "./scopes/edge-scope";
 import { IndicatorScope } from "./scopes/indicator-scope";
-import { QueryScope } from "./scopes/query-scope";
-import type { ScopeContext } from "./scopes/scope-context";
+import type { ScopeContext } from "@/lib/model-asset/scope";
 import { VersionScope } from "./scopes/version-scope";
-
-function Crumb({ parts, onAsset }: { parts: ReactNode[]; onAsset: () => void }) {
-  return (
-    <div className="flex min-w-0 items-center gap-1.5 truncate text-[13px] text-muted-foreground">
-      <button
-        type="button"
-        onClick={onAsset}
-        className="cursor-pointer underline underline-offset-[3px]"
-      >
-        Asset
-      </button>
-      {parts.map((part, index) => (
-        <span key={index} className="flex min-w-0 items-center gap-1.5">
-          <span>›</span>
-          <span
-            className={
-              index === parts.length - 1 ? "truncate font-semibold text-foreground" : "truncate"
-            }
-          >
-            {part}
-          </span>
-        </span>
-      ))}
-    </div>
-  );
-}
-
-function crumbParts(selection: ModelSelection, context: ScopeContext): ReactNode[] {
-  switch (selection.kind) {
-    case "asset":
-      return [];
-    case "version":
-      return [`v${selection.seq}`];
-    case "construct":
-      return [humanize(context.entities.constructById.get(selection.id)?.name ?? selection.id)];
-    case "edge": {
-      const edge = context.entities.edgeById.get(selection.id);
-      return [
-        edge
-          ? `${humanize(context.entities.constructById.get(edge.cause.id)!.name)} → ${humanize(context.entities.constructById.get(edge.effect.id)!.name)}`
-          : selection.id,
-      ];
-    }
-    case "indicator": {
-      const indicator = context.entities.indicatorById.get(selection.id);
-      return indicator
-        ? [humanize(context.entities.indicatorOwnerById.get(indicator.id)!.name), indicator.name]
-        : [selection.id];
-    }
-    case "query":
-      return [
-        "query",
-        context.queries.find((query) => query.key === selection.key)?.title ?? selection.key,
-      ];
-  }
-}
 
 function ScopeBody({ selection, context }: { selection: ModelSelection; context: ScopeContext }) {
   switch (selection.kind) {
-    case "asset":
-      return <AssetScope context={context} />;
-    case "version": {
+    case "revision": {
       const tick = context.ticks.find((candidate) => candidate.seq === selection.seq);
       return tick ? <VersionScope context={context} tick={tick} /> : null;
     }
@@ -79,58 +24,126 @@ function ScopeBody({ selection, context }: { selection: ModelSelection; context:
       return <EdgeScope context={context} id={selection.id} />;
     case "indicator":
       return <IndicatorScope context={context} id={selection.id} />;
-    case "query": {
-      const query = context.queries.find((candidate) => candidate.key === selection.key);
-      return query ? (
-        <QueryScope
-          key={`${context.model.context.workspace_id}:${query.key}:${JSON.stringify(query.request)}`}
-          context={context}
-          query={query}
-        />
-      ) : null;
+    case "parameter": {
+      const model = context.model.model?.value;
+      const parameter = context.entities.parameterById.get(selection.id);
+      const fitted = posteriorRows(
+        parameter ? [parameter] : [],
+        context.model.findings.fit?.value.report,
+      );
+      return parameter ? (
+        <>
+          <Section title="Parameter">
+            <Hint>{humanize(parameter.description)}</Hint>
+            {parameter.value != null && <p className="font-mono">Fixed at {parameter.value}</p>}
+          </Section>
+          {parameter.distribution && (
+            <Section title="Probability law">
+              <p className="break-words font-mono">
+                {distributionText(model!.distributions[parameter.distribution])}
+              </p>
+              {parameter.distribution_transform === "dt_persistence_to_ct_decay" && (
+                <Hint>The law describes persistence; fitted values are decay rates.</Hint>
+              )}
+              {parameter.distribution_transform === "dt_effect_to_ct_rate" && (
+                <Hint>The law describes interval effects; fitted values are rates.</Hint>
+              )}
+            </Section>
+          )}
+          {fitted.length > 0 && (
+            <Section title="Fit" source={context.model.findings.fit?.source}>
+              <PosteriorTable rows={fitted} />
+            </Section>
+          )}
+        </>
+      ) : (
+        <Hint>This parameter is absent from this revision.</Hint>
+      );
     }
   }
 }
 
-/**
- * The bottom pane: one owner per view. Its sections flow into columns across the width;
- * the query collection stays at its left once the model has results.
- */
+/** The inspector follows a persistent model entity, without creating query identities. */
 export function DetailsPane({
   selection,
   context,
-  posteriorStale,
+  loading,
+  onClose,
 }: {
   selection: ModelSelection;
   context: ScopeContext;
-  posteriorStale: boolean;
+  loading: boolean;
+  onClose: () => void;
 }) {
-  const selectedQueryKey = selection.kind === "query" ? selection.key : null;
+  const entities = entityOptions(context.entities);
+  const selectedKey = JSON.stringify(selection);
+  const entity = resolveEntity(context.entities, selection);
+  const missingEntity = selection.kind !== "revision" && !entity;
   return (
-    <section className="flex h-[460px] flex-none flex-col gap-2 rounded-2xl border bg-card px-3 py-2.5">
-      <div className="flex h-[22px] flex-none items-center gap-2.5 overflow-hidden">
-        <Crumb
-          parts={crumbParts(selection, context)}
-          onAsset={() => context.select({ kind: "asset" })}
-        />
-        <span className="rounded border px-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-          {SCOPE_KIND_LABEL[selection.kind]}
-        </span>
+    <section
+      aria-label="Model details"
+      className="flex h-[460px] min-h-0 min-w-0 flex-none flex-col gap-3 overflow-hidden rounded-2xl border bg-card px-3 py-3 md:max-h-[52%]"
+    >
+      <div className="flex flex-none flex-wrap items-center gap-2 text-xs">
+        <h2 className="font-semibold">Details</h2>
+        <select
+          aria-label="Details scope"
+          className="min-w-0 flex-1 truncate rounded-md border bg-background px-2 py-1 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          value={selectedKey}
+          onChange={(event) => context.select(JSON.parse(event.target.value) as ModelSelection)}
+        >
+          {selection.kind === "revision" && (
+            <option value={selectedKey}>
+              {context.ticks.find((tick) => tick.seq === selection.seq)?.status === "applied"
+                ? `Version ${selection.seq}`
+                : `Attempt ${selection.seq}`}
+            </option>
+          )}
+          {missingEntity && (
+            <option value={selectedKey}>
+              Selected {selection.kind} · absent from this revision
+            </option>
+          )}
+          {entities.map((entity) => (
+            <option key={JSON.stringify(entity.selection)} value={JSON.stringify(entity.selection)}>
+              {entity.label}
+            </option>
+          ))}
+        </select>
+        <Button
+          type="button"
+          size="icon-sm"
+          variant="ghost"
+          aria-label="Close details"
+          onClick={onClose}
+        >
+          ×
+        </Button>
       </div>
-      <div className="flex min-h-0 flex-1 gap-3.5">
-        {context.queries.length > 0 ? (
-          <QueryCollection
-            queries={context.queries}
-            selectedKey={selectedQueryKey}
-            outcome={context.outcome}
-            modelVersion={context.snapshot.versions.model ?? null}
-            posteriorStale={posteriorStale}
-            onSelect={(key) => context.select({ kind: "query", key })}
-          />
-        ) : null}
-        <div className="flex h-full min-w-0 flex-1 flex-col flex-wrap content-start gap-x-[18px] gap-y-2 overflow-x-auto">
-          <ScopeBody selection={selection} context={context} />
-        </div>
+      {entity && <DefinitionContext entity={entity} onSelect={context.select} />}
+      <div
+        key={selectedKey}
+        className="flex min-h-0 flex-1 flex-col flex-wrap content-start items-start gap-x-[18px] gap-y-3 overflow-x-auto pb-2"
+      >
+        {loading ? (
+          <p role="status" className="text-xs text-muted-foreground">
+            Loading version…
+          </p>
+        ) : missingEntity ? (
+          <Hint>This {selection.kind} is absent from this revision.</Hint>
+        ) : (
+          <>
+            <ScopeBody selection={selection} context={context} />
+            {entity && (
+              <details className="max-h-full w-[400px] min-w-0 flex-none overflow-auto border-t pt-2 text-xs">
+                <summary className="cursor-pointer text-muted-foreground">Definition</summary>
+                <div className="mt-2">
+                  <DefinitionView value={entity.definition} />
+                </div>
+              </details>
+            )}
+          </>
+        )}
       </div>
     </section>
   );

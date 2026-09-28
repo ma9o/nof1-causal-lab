@@ -3,10 +3,6 @@ import { describe, expect, it } from "vitest";
 import { paramSymbol, priorLatex, priorLine, textify } from "./ssm-latex";
 
 describe("textify", () => {
-  it("replaces underscores with spaces", () => {
-    expect(textify("hello_world")).toBe("hello world");
-  });
-
   it("handles no underscores", () => {
     expect(textify("hello")).toBe("hello");
   });

@@ -1,17 +1,17 @@
 import { DAG_COLORS, signColor } from "@/lib/dag/palette";
-import type { AnalysisSimulationResult } from "@/lib/dag/simulation-types";
-import { formatClampValue } from "@/lib/dag/simulation";
+import { formatInterventionValue } from "@/lib/dag/simulation";
 import { formatSigned } from "@/lib/model-asset/selection";
+import type { SimulationWithEffects } from "@/lib/simulation-report";
 
 /** The effect on the outcome over the horizon, with the 95% interval at the end. */
 export function EffectChart({
   simulation,
   width = 340,
 }: {
-  simulation: AnalysisSimulationResult;
+  simulation: SimulationWithEffects;
   width?: number;
 }) {
-  const trajectory = simulation.effect_trajectory ?? [];
+  const trajectory = simulation.causal_result.effect_trajectory ?? [];
   if (trajectory.length < 2) {
     return null;
   }
@@ -24,8 +24,8 @@ export function EffectChart({
   const values = [
     0,
     ...trajectory.map((point) => point.effect),
-    simulation.summary.lower_95,
-    simulation.summary.upper_95,
+    simulation.causal_result.summary.lower_95,
+    simulation.causal_result.summary.upper_95,
   ];
   const lo = Math.min(...values);
   const hi = Math.max(...values);
@@ -37,9 +37,9 @@ export function EffectChart({
         `${index === 0 ? "M" : "L"}${sx(point.day).toFixed(1)},${sy(point.effect).toFixed(1)}`,
     )
     .join("");
-  const color = signColor(simulation.summary.mean);
-  const clamp = simulation.request.clamps[0];
-  const clampEnd = clamp.to_day ?? horizon;
+  const color = signColor(simulation.causal_result.summary.mean);
+  const clamp = simulation.design.interventions[0];
+  const clampStart = clamp.time - simulation.times[0];
   const axisDays = [0, 0.25, 0.5, 0.75, 1].map((fraction) => Math.round(horizon * fraction));
   return (
     <svg
@@ -51,22 +51,22 @@ export function EffectChart({
     >
       <line x1={x0} x2={x1} y1={sy(0)} y2={sy(0)} stroke={DAG_COLORS.line2} />
       <rect
-        x={sx(clamp.from_day)}
+        x={sx(clampStart)}
         y={y1 + 6}
-        width={Math.max(2, sx(clampEnd) - sx(clamp.from_day))}
+        width={2}
         height={5}
         rx={2}
         fill={DAG_COLORS.intervention}
       />
       <text
-        x={sx(clamp.from_day)}
+        x={sx(clampStart)}
         y={y1 + 22}
         fontSize={8.5}
         fill={DAG_COLORS.intervention}
         fontWeight={600}
       >
-        do · {simulation.labels[clamp.target]} {formatClampValue(clamp)} · d{clamp.from_day}–
-        {clampEnd}
+        do · {simulation.causal_result.labels[clamp.target]} {formatInterventionValue(clamp)} · d
+        {clampStart}
       </text>
       {axisDays.map((day) => (
         <text
@@ -94,21 +94,21 @@ export function EffectChart({
       <line
         x1={x1 + 3}
         x2={x1 + 3}
-        y1={sy(simulation.summary.lower_95)}
-        y2={sy(simulation.summary.upper_95)}
+        y1={sy(simulation.causal_result.summary.lower_95)}
+        y2={sy(simulation.causal_result.summary.upper_95)}
         stroke={color}
         strokeWidth={2}
       />
       <text
         x={x1 + 12}
-        y={sy(simulation.summary.mean)}
+        y={sy(simulation.causal_result.summary.mean)}
         fontSize={8.5}
         fontWeight={650}
         fontFamily="ui-monospace, monospace"
         fill={color}
         dominantBaseline="middle"
       >
-        posterior {formatSigned(simulation.summary.mean, 3)}
+        posterior {formatSigned(simulation.causal_result.summary.mean, 3)}
       </text>
     </svg>
   );

@@ -49,28 +49,26 @@ export async function GET(
 
   const search = new URL(request.url).searchParams;
   const artifactId = search.get("artifact")?.trim();
-  const seqParam = search.get("seq")?.trim();
-  if (!artifactId && !seqParam) {
-    return NextResponse.json({ error: "Missing artifact id or move seq" }, { status: 400 });
+  const commitId = search.get("commitId")?.trim();
+  if (!artifactId && !commitId) {
+    return NextResponse.json({ error: "Missing artifact id or action commit" }, { status: 400 });
   }
 
   try {
-    if (seqParam) {
-      // GET ?seq=<n>: the traces of one journal move, whichever artifact version it produced.
-      const seq = Number(seqParam);
-      if (!Number.isInteger(seq) || seq < 1) {
-        return NextResponse.json({ error: "Invalid move seq" }, { status: 400 });
+    if (commitId) {
+      if (!/^[0-9a-f]{40}$/.test(commitId)) {
+        return NextResponse.json({ error: "Invalid action commit" }, { status: 400 });
       }
       const timeline = await getEpisodeTimeline(safeWorkspaceId);
-      const record = timeline.transitions.find((transition) => transition.seq === seq);
+      const record = timeline.transitions.find((transition) => transition.commit_id === commitId);
       if (!record) {
-        return NextResponse.json({ error: "No such move" }, { status: 404 });
+        return NextResponse.json({ error: "No such action" }, { status: 404 });
       }
       if (record.trace_ids.length === 0) {
-        return NextResponse.json({ error: "No traces for this move" }, { status: 404 });
+        return NextResponse.json({ error: "No traces for this action" }, { status: 404 });
       }
       const traces = await Promise.all(
-        record.trace_ids.map((traceId) => getEpisodeTrace(safeWorkspaceId, seq, traceId)),
+        record.trace_ids.map((traceId) => getEpisodeTrace(safeWorkspaceId, commitId, traceId)),
       );
       return NextResponse.json(mergeTraces(traces));
     }
@@ -79,7 +77,7 @@ export async function GET(
       return NextResponse.json({ error: "No traces for this artifact" }, { status: 404 });
     }
     const traces = await Promise.all(
-      index.trace_ids.map((traceId) => getEpisodeTrace(safeWorkspaceId, index.seq, traceId)),
+      index.trace_ids.map((traceId) => getEpisodeTrace(safeWorkspaceId, index.commit_id, traceId)),
     );
     return NextResponse.json(mergeTraces(traces));
   } catch (error) {

@@ -1,146 +1,110 @@
 import type { IndicatorId } from "@nof1-causal-lab/api-types";
-import { humanize } from "../model-selection";
-import {
-  ArtifactChip,
-  FactChip,
-  Hint,
-  KeyValue,
-  OwnerLink,
-  PosteriorTable,
-  PriorTable,
-  Section,
-  Tag,
-} from "../scope-primitives";
-import { dispositionLabel } from "./construct-scope";
-import { parametersForOwner, posteriorRows, priorRows } from "./parameters";
-import { chipFor, type ScopeContext } from "./scope-context";
+import { indicatorPresentation, dispositionLabel } from "@/lib/model-asset/inspector";
+import { humanize } from "@/lib/model-asset/selection";
+import type { ScopeContext } from "@/lib/model-asset/scope";
+import { Hint, KeyValue, ParameterLinks, Section, StatusIcon } from "../scope-primitives";
+import { parametersForOwner } from "./parameters";
+
+const CHECK_STATUS = {
+  ok: "passed",
+  warning: "warning",
+  error: "failed",
+  not_evaluated: "not_evaluated",
+} as const;
 
 export function IndicatorScope({ context, id }: { context: ScopeContext; id: IndicatorId }) {
-  const indicator = context.entities.indicatorById.get(id);
-  if (!indicator) return null;
-  const disposition = context.model.findings.dispositions?.value.find(
-    (item) => item.target.id === id,
-  );
-  const audit = context.model.findings.validation_report?.value.indicators[id];
-  const counts = context.model.data.measurements?.value.per_indicator_counts[id];
-  const owner = context.entities.indicatorOwnerById.get(id)!;
-  const likelihood = indicator.likelihood;
+  const scope = indicatorPresentation(context, id);
+  if (!scope) return null;
+  const { indicator, disposition, audit, counts, likelihood, predictive, checks, issues } = scope;
+  const preparation = context.model.data.metadata?.value.preparation?.variables.find((variable) => variable.id === id);
   const parameters = parametersForOwner(context.model.model?.value, id);
-  const priorParameters = parametersForOwner(context.model.model?.value, id);
-  const fitted = posteriorRows(parameters, context.model.findings.fit?.value.report);
-  const simulation = context.model.findings.simulation;
-  const checks =
-    (simulation?.source.validity === "fresh"
-      ? simulation.value.predictive_checks?.per_variable_warnings
-      : []
-    )?.filter((item) => item.indicator_id === id) ?? [];
-  const issues = audit?.issues.filter((issue) => issue.severity !== "info") ?? [];
-  const checkEntries = audit ? Object.entries(audit.checks) : [];
-  const okChecks = checkEntries.filter(([, status]) => status === "ok").length;
   return (
     <>
-      <Section title="Measurement" chips={<ArtifactChip {...chipFor(context, "model")} />}>
-        <div className="text-[11px]">
-          <OwnerLink onClick={() => context.select({ kind: "construct", id: owner.id })}>
-            {context.entities.constructById.get(owner.id)!.name}
-          </OwnerLink>
-        </div>
-        <div className="flex flex-wrap gap-1">
-          <Tag>{indicator.measurement_dtype}</Tag>
-          <Tag tone="secondary">{indicator.aggregation}</Tag>
-          <Tag tone="secondary">{indicator.recording}</Tag>
-          <Tag tone="secondary">
-            window {indicator.observation_window ?? context.model.model?.value.measurement_clock}
-          </Tag>
-          <Tag tone="secondary">{indicator.extraction_mode}</Tag>
-          <Tag>{indicator.construct_polarity}</Tag>
-        </div>
-        <Hint>{indicator.how_to_measure}</Hint>
-        <div className="flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground">
-          sources:
-          {indicator.source_columns.map((column) => (
-            <span
-              key={column}
-              className="rounded border border-foreground px-1.5 font-mono text-[9px] text-foreground"
-            >
-              {column}
-            </span>
-          ))}
-        </div>
+      <Section title="Measurement">
+        <details>
+          <summary className="cursor-pointer text-muted-foreground">Measurement settings</summary>
+          <div className="mt-2">
+            <KeyValue
+              rows={[
+                ["Type", indicator.measurement_dtype],
+                ["Aggregation", indicator.aggregation],
+                [
+                  "Window",
+                  indicator.observation_window ?? context.model.model?.value.measurement_clock,
+                ],
+                ["Polarity", indicator.construct_polarity],
+                ...(likelihood
+                  ? ([
+                      ["Likelihood", likelihood.law.distribution],
+                      ["Standardized", likelihood.standardized ? "Yes" : "No"],
+                    ] as Array<[string, string]>)
+                  : []),
+              ]}
+            />
+          </div>
+        </details>
       </Section>
-      {disposition ? (
-        <Section title="Design" chips={<ArtifactChip {...chipFor(context, "model")} />}>
-          <KeyValue
-            rows={[
-              [
-                "disposition",
-                <Tag
-                  key="d"
-                  tone={disposition.disposition === "excluded_indicator" ? "warning" : "secondary"}
-                >
-                  {dispositionLabel(disposition.disposition)}
-                </Tag>,
-              ],
-              ["reason", disposition.reason],
-            ]}
-          />
+      {preparation && (
+        <Section title="Data preparation" source={context.model.data.metadata?.source}>
+          <Hint>{preparation.how_to_measure}</Hint>
+          <KeyValue rows={[
+            ["Recording", preparation.recording],
+            ["Extraction", preparation.extraction_mode],
+            ["Source columns", preparation.source_columns.join(", ")],
+          ]} />
         </Section>
-      ) : null}
-      {audit ? (
+      )}
+      {disposition && disposition.disposition !== "manifest" && (
         <Section
-          title="Evidence"
-          chips={
-            <>
-              <ArtifactChip {...chipFor(context, "panel")} />
-              <ArtifactChip {...chipFor(context, "validation_report")} />
-            </>
-          }
+          title={dispositionLabel(disposition.disposition)}
+          source={context.model.findings.dispositions?.source}
         >
-          <div className="flex flex-wrap gap-1">
-            <Tag tone={issues.length > 0 ? "warning" : "success"}>
-              {okChecks}/{checkEntries.length} checks ok
-            </Tag>
-            {checkEntries
-              .filter(([, status]) => status !== "ok")
-              .map(([check, status]) => (
-                <Tag key={check} tone={status === "error" ? "destructive" : "warning"}>
-                  {humanize(check)} · {status}
-                </Tag>
-              ))}
-          </div>
-          {counts != null ? <Hint>{counts.toLocaleString()} observations extracted</Hint> : null}
+          <Hint issue>{disposition.reason}</Hint>
+        </Section>
+      )}
+      {counts != null && (
+        <Section title="Observations" source={context.model.data.measurements?.source}>
+          <Hint>{counts.toLocaleString()} observations</Hint>
+        </Section>
+      )}
+      {audit && (
+        <Section title="Validation" source={context.model.findings.validation_report?.source}>
           {issues.map((issue) => (
-            <Hint key={`${issue.issue_type}-${issue.message}`} issue>
-              {humanize(issue.issue_type)}: {issue.message}
-            </Hint>
+            <div key={`${issue.issue_type}-${issue.message}`} className="flex items-start gap-2">
+              <StatusIcon status={issue.severity === "error" ? "failed" : "warning"} />
+              <Hint issue>{issue.message}</Hint>
+            </div>
+          ))}
+          <details>
+            <summary className="cursor-pointer text-muted-foreground">All checks</summary>
+            <ul className="mt-2 space-y-2">
+              {Object.entries(audit.checks).map(([check, status]) => (
+                <li key={check} className="flex items-center gap-2">
+                  <StatusIcon status={CHECK_STATUS[status]} />
+                  <span>{humanize(check)}</span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        </Section>
+      )}
+      {checks.length > 0 && (
+        <Section title="Predictive checks" source={predictive?.source}>
+          {checks.map((check) => (
+            <div key={check.check_type} className="flex items-center gap-2">
+              <StatusIcon status={check.passed ? "passed" : "failed"} />
+              <span>
+                {humanize(check.check_type)}: {check.value.toFixed(2)}
+              </span>
+            </div>
           ))}
         </Section>
-      ) : null}
-      {likelihood ? (
-        <Section title="Model" chips={<ArtifactChip {...chipFor(context, "model")} />}>
-          <div className="flex flex-wrap gap-1">
-            <Tag tone="secondary">{likelihood.law.distribution}</Tag>
-            {likelihood.standardized ? <Tag>standardized</Tag> : null}
-          </div>
-          <PriorTable rows={priorRows(priorParameters, context.model.model!.value.distributions)} />
+      )}
+      {parameters.length > 0 && (
+        <Section title="Parameters">
+          <ParameterLinks parameters={parameters} onSelect={context.select} />
         </Section>
-      ) : null}
-      {checks.length > 0 ? (
-        <Section title="Simulation" chips={<FactChip source={simulation?.source} />}>
-          <div className="flex flex-wrap gap-1">
-            {checks.map((check) => (
-              <Tag key={check.check_type} tone={check.passed ? "success" : "destructive"}>
-                {check.check_type} {check.passed ? "✓" : "✗"} {check.value.toFixed(2)}
-              </Tag>
-            ))}
-          </div>
-        </Section>
-      ) : null}
-      {parameters.length > 0 && fitted.length > 0 ? (
-        <Section title="Fit" chips={<FactChip source={context.model.findings.fit?.source} />}>
-          <PosteriorTable rows={fitted} />
-        </Section>
-      ) : null}
+      )}
     </>
   );
 }

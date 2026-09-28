@@ -1,12 +1,11 @@
-import { predictiveChecks } from "./inference-data";
-import { modelConstructs } from "@/lib/model-accessors";
-import { referencedParameterIds } from "@/lib/model-accessors";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { SimulationResult } from "@nof1-causal-lab/api-types";
 import { describe, expect, it } from "vitest";
-import { demoModelSnapshot, demoModel, demoPosterior } from "./demo-artifacts";
+import { modelConstructs, referencedParameterIds } from "@/lib/model-accessors";
+import type { SimulationWithEffects } from "@/lib/simulation-report";
+import { demoModel, demoModelSnapshot, demoPosterior } from "./demo-artifacts";
+import { predictiveChecks } from "./inference-data";
 
 const repoRoot = fileURLToPath(new URL("../../../../../", import.meta.url));
 
@@ -77,7 +76,7 @@ describe("promoted DEMO fixture", () => {
         (message): message is { tool_name: string; tool_result: string } =>
           message.tool_name === "simulate" && message.tool_result != null,
       )
-      .map((message) => JSON.parse(message.tool_result)) as SimulationResult[];
+      .map((message) => JSON.parse(message.tool_result)) as SimulationWithEffects[];
 
     // Retained illustrative traces cover the constructs with authored dynamics.
     const stateIds = modelConstructs(demoModel)
@@ -87,20 +86,24 @@ describe("promoted DEMO fixture", () => {
 
     expect(simulations).toHaveLength(5);
     for (const result of simulations) {
-      const trajectories = result.trajectories;
-      const trajectory = result.effect_trajectory!;
+      const trajectories = result.causal_result.trajectories;
+      const trajectory = result.causal_result.effect_trajectory!;
       expect(
-        result.warnings.some((warning) => warning.includes("Artificial Storybook simulation")),
+        result.causal_result.warnings.some((warning) =>
+          warning.includes("Artificial Storybook simulation"),
+        ),
       ).toBe(true);
-      expect(result.model.version).toBe(3);
-      expect(result.labels[result.request.outcome]).toBe("internalizing_symptom_burden");
-      expect(result.request.clamps).toHaveLength(1);
+      expect(result.model.revision).toBe("a".repeat(40));
+      expect(result.causal_result.labels[result.causal_result.outcome]).toBe(
+        "internalizing_symptom_burden",
+      );
+      expect(result.design.interventions).toHaveLength(1);
       expect(Object.keys(trajectories).sort()).toEqual(stateIds);
       expect(trajectory).toHaveLength(61);
       for (const series of Object.values(trajectories)) {
         expect(Object.keys(series).sort()).toEqual(["action_mean", "reference_mean"]);
-        expect(series.reference_mean).toHaveLength(result.time_grid_days.length);
-        expect(series.action_mean).toHaveLength(result.time_grid_days.length);
+        expect(series.reference_mean).toHaveLength(result.causal_result.time_grid_days.length);
+        expect(series.action_mean).toHaveLength(result.causal_result.time_grid_days.length);
       }
     }
   });

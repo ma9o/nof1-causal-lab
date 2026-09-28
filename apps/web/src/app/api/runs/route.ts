@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { EpisodeRunError, startEpisode } from "@/lib/server/episode-runs";
+import { EpisodeRunError, createStudy } from "@/lib/server/episode-runs";
 import { normalizeWorkspaceId } from "@/lib/workspace-id";
 
 export async function POST(request: Request) {
@@ -17,9 +17,9 @@ export async function POST(request: Request) {
   }
 
   try {
-    await startEpisode(safeWorkspaceId, query.trim());
+    const receipt = await createStudy(safeWorkspaceId, query.trim());
 
-    return NextResponse.json({ workspaceId: safeWorkspaceId });
+    return NextResponse.json({ workspaceId: safeWorkspaceId, ...receipt }, { status: 202 });
   } catch (error) {
     if (error instanceof EpisodeRunError) {
       if (error.status === 409) {

@@ -1,13 +1,12 @@
 "use client";
 
-import { formatPosteriorIntervalLabel } from "@/lib/utils/format";
-
-import type { PosteriorEstimate, ScenarioClamp } from "@nof1-causal-lab/api-types";
+import type { InterventionSpec, PosteriorEstimate } from "@nof1-causal-lab/api-types";
 import { ticks } from "d3-array";
 import { useState } from "react";
-import { DAG_COLORS, signColor } from "@/lib/dag/palette";
-import { formatClampValue } from "@/lib/dag/simulation";
 import type { ConstructStatus } from "@/lib/dag/construct-statuses";
+import { DAG_COLORS, signColor } from "@/lib/dag/palette";
+import { formatInterventionValue } from "@/lib/dag/simulation";
+import { formatPosteriorIntervalLabel } from "@/lib/utils/format";
 
 const {
   positive: TEAL,
@@ -34,7 +33,7 @@ interface TrajectoryCardProps {
   reference: number[];
   action: number[];
   timeIndex: number;
-  interventions: ScenarioClamp[];
+  interventions: InterventionSpec[];
   /** Backend disposition/identification status for retained theory context. */
   status?: ConstructStatus;
   /** Compiled as an observed transition input rather than a latent state. */
@@ -154,8 +153,7 @@ export function TrajectoryCard({
   const currentDay = hasReference ? days[day] : null;
   const currentReference = hasReference ? reference[day] : null;
   const currentAction = hasAction ? action[day] : null;
-  const atT =
-    currentDay != null && nodeInterventions.some((clamp) => currentDay === clamp.from_day);
+  const atT = currentDay != null && nodeInterventions.some((clamp) => currentDay === clamp.time);
   const border = contextOnly
     ? DAG_COLORS.line2
     : isPrev
@@ -220,7 +218,7 @@ export function TrajectoryCard({
                 }}
               >
                 {nodeInterventions.length === 1 && nodeInterventions[0]
-                  ? `${formatClampValue(nodeInterventions[0])} @d${nodeInterventions[0].from_day}`
+                  ? `${formatInterventionValue(nodeInterventions[0])} @d${nodeInterventions[0].time}`
                   : `${nodeInterventions.length} clamps`}
                 {onRemoveDo ? (
                   <button
@@ -322,10 +320,10 @@ export function TrajectoryCard({
           ) : null}
 
           {nodeInterventions.map((clamp, clampIndex) => (
-            <g key={`${clamp.target}-${clamp.from_day}-${clampIndex}`}>
+            <g key={`${clamp.target}-${clamp.time}`}>
               <line
-                x1={sx(clamp.from_day)}
-                x2={sx(clamp.from_day)}
+                x1={sx(clamp.time)}
+                x2={sx(clamp.time)}
                 y1={y1}
                 y2={y0}
                 stroke={BLUE}
@@ -333,25 +331,23 @@ export function TrajectoryCard({
                 strokeDasharray="3,2"
                 strokeOpacity={0.7}
               />
-              {clamp.mode === "set" && clamp.value != null ? (
-                <circle
-                  cx={sx(clamp.from_day)}
-                  cy={sy(clamp.value)}
-                  r={3.5}
-                  fill={BLUE}
-                  stroke="#fff"
-                  strokeWidth={1}
-                />
-              ) : null}
+              <circle
+                cx={sx(clamp.time)}
+                cy={sy(clamp.value)}
+                r={3.5}
+                fill={BLUE}
+                stroke="#fff"
+                strokeWidth={1}
+              />
               <text
-                x={sx(clamp.from_day)}
+                x={sx(clamp.time)}
                 y={y0 + 11 + (clampIndex % 2) * 9}
                 textAnchor="middle"
                 fontSize={8}
                 fontFamily="ui-monospace, monospace"
                 fill={BLUE}
               >
-                {`do @d${clamp.from_day}`}
+                {`do @d${clamp.time}`}
               </text>
             </g>
           ))}

@@ -14,7 +14,7 @@ const output = TRANSITIONS.find((s) => s.id === "measurement_structure")!;
 const data = demoModelSnapshot as ModelSnapshot;
 
 const meta = {
-  title: "Pipeline/Outputs/Measurement Structure/Panel",
+  title: "V1/Pipeline/Outputs/Measurement Structure/Panel",
   component: MeasurementStructureView,
   decorators: outputStoryDecorators,
 } satisfies Meta<typeof MeasurementStructureView>;

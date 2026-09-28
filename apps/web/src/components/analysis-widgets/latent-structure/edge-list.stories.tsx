@@ -9,7 +9,7 @@ const data = demoModel as ModelSpec;
 const edges = data.edges;
 
 const meta = {
-  title: "Pipeline/Outputs/Latent Structure/EdgeList",
+  title: "V1/Pipeline/Outputs/Latent Structure/EdgeList",
   component: EdgeList,
   args: { constructs: modelConstructs(data) },
   decorators: [withContainer("max-w-md")],

@@ -4,7 +4,7 @@ import { indicators, likelihoodDiagnostics } from "./__fixtures__/statistical-mo
 import { MeasurementTable } from "./measurement-table";
 
 const meta = {
-  title: "Pipeline/Outputs/Statistical Model Spec/MeasurementTable",
+  title: "V1/Pipeline/Outputs/Statistical Model Spec/MeasurementTable",
   component: MeasurementTable,
   decorators: [withContainer()],
 } satisfies Meta<typeof MeasurementTable>;

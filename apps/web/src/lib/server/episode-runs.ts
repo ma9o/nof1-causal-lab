@@ -5,9 +5,9 @@ import type {
   EpisodeStatus,
   LLMTrace,
   MachineDescription,
-  MoveOutcome,
+  ActionReceipt,
   RuntimeEvent,
-  TransitionRecord,
+  TimelineResponse,
   TransitionTraceIndex,
 } from "@nof1-causal-lab/api-types";
 import { getToolServerUrl } from "@/lib/runtime-urls";
@@ -20,12 +20,9 @@ export type {
   JournalStatus,
   JsonObject,
   MachineDescription,
-  Move,
-  MoveOutcome,
-  Provenance,
   RetractedArtifact,
   RuntimeEvent,
-  TransitionRecord,
+  StudyRevision,
   TransitionTraceIndex,
 } from "@nof1-causal-lab/api-types";
 
@@ -55,23 +52,10 @@ async function episodeFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export async function startEpisode(
-  workspaceId: string,
-  question?: string,
-): Promise<EpisodeStatus & { ok: boolean; outcome: MoveOutcome | null }> {
-  return episodeFetch("", {
+export async function createStudy(workspaceId: string, question: string): Promise<ActionReceipt> {
+  return episodeFetch<ActionReceipt>(`/${workspaceId}/actions`, {
     method: "POST",
-    body: JSON.stringify({
-      workspace_id: workspaceId,
-      ...(question !== undefined ? { question } : {}),
-    }),
-  });
-}
-
-export async function startStudyRecipe(workspaceId: string): Promise<void> {
-  await episodeFetch(`/${workspaceId}/recipes/observational-study`, {
-    method: "POST",
-    body: JSON.stringify({}),
+    body: JSON.stringify({ action: "edit_model", expected_revision: null, model: { question } }),
   });
 }
 
@@ -79,9 +63,7 @@ export async function getEpisodeStatus(workspaceId: string): Promise<EpisodeStat
   return episodeFetch(`/${workspaceId}`);
 }
 
-export async function getEpisodeTimeline(
-  workspaceId: string,
-): Promise<{ workspace_id: string; transitions: TransitionRecord[] }> {
+export async function getEpisodeTimeline(workspaceId: string): Promise<TimelineResponse> {
   return episodeFetch(`/${workspaceId}/timeline`);
 }
 
@@ -112,11 +94,11 @@ export async function getOperationTraceIndex(
 
 export async function getEpisodeTrace(
   workspaceId: string,
-  seq: number,
+  commitId: string,
   subroutineId: string,
 ): Promise<LLMTrace> {
   const response = await fetch(
-    `${TOOL_SERVER}/api/episodes/${workspaceId}/traces/${seq}/${encodeURIComponent(subroutineId)}`,
+    `${TOOL_SERVER}/api/episodes/${workspaceId}/traces/${commitId}/${encodeURIComponent(subroutineId)}`,
     { cache: "no-store" },
   );
   if (!response.ok) {
@@ -138,7 +120,7 @@ export async function getMachineDescription(): Promise<MachineDescription> {
 
 /**
  * Facade deployment capabilities. A read-only facade (the hosted viewer's
- * backend) reports moves_enabled=false; the UI hides move affordances.
+ * backend) reports actions_enabled=false; the UI hides action controls.
  */
 export async function getFacadeCapabilities(): Promise<CapabilitiesResponse> {
   const response = await fetch(`${TOOL_SERVER}/api/capabilities`, { cache: "no-store" });

@@ -18,15 +18,19 @@ describe("model read transport", () => {
       }),
     );
     vi.stubGlobal("fetch", fetch);
-    const request = new Request("http://localhost:3000/api/episodes/DEMO/model?at_seq=7");
+    const request = new Request(
+      "http://localhost:3000/api/episodes/DEMO/model?at=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    );
     const response = await GET(request);
     expect(await response.text()).toBe(body);
     expect(response.status).toBe(status);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(fetch).toHaveBeenCalledExactlyOnceWith(
-      "http://python:8100/api/episodes/DEMO/model?at_seq=7",
+      "http://python:8100/api/episodes/DEMO/model?at=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       {
-        headers: { Accept: "application/json" },
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        method: "GET",
+        body: undefined,
         cache: "no-store",
         signal: request.signal,
       },
@@ -41,11 +45,11 @@ describe("model read transport", () => {
     );
     const client = createModelClient({ baseUrl: "http://python:8100", fetch });
     const result = await client.GET("/api/episodes/{workspace_id}/model/constructs", {
-      params: { path: { workspace_id: "DEMO" }, query: { at_seq: 0 } },
+      params: { path: { workspace_id: "DEMO" }, query: { at: "a".repeat(40) } },
     });
     expect(result.data).toEqual([]);
     expect(fetch.mock.calls[0][0].url).toBe(
-      "http://python:8100/api/episodes/DEMO/model/constructs?at_seq=0",
+      "http://python:8100/api/episodes/DEMO/model/constructs?at=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     );
   });
 });

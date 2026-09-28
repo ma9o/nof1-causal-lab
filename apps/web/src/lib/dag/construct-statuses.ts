@@ -6,7 +6,7 @@ export type ConstructStatus = "observed" | "marginalized" | "blocking";
 export function constructStatuses(snapshot: ModelSnapshot): Record<string, ConstructStatus> {
   return Object.fromEntries(
     (modelConstructs(snapshot.model?.value) ?? []).flatMap((construct) => {
-      const status = snapshot.findings.graph_status[construct.id];
+      const status = snapshot.findings.graph.status[construct.id];
       return status ? [[construct.name, status]] : [];
     }),
   );

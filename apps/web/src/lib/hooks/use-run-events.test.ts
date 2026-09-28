@@ -29,9 +29,9 @@ describe("parseTransitionProgressEvent", () => {
   it("parses running events", () => {
     const event = parseTransitionProgressEvent({
       event: "nof1-causal-lab.transition.running",
-      payload: { transition_id: "latent_structure", status: "running" },
+      transition_id: "latent_structure",
       cursor,
-    });
+    } as const);
 
     expect(event).toEqual({
       artifactId: "latent_structure",
@@ -44,13 +44,10 @@ describe("parseTransitionProgressEvent", () => {
   it("parses failed events with error detail", () => {
     const event = parseTransitionProgressEvent({
       event: "nof1-causal-lab.transition.failed",
-      payload: {
-        transition_id: "measurements",
-        status: "failed",
-        error: { type: "RuntimeError", message: "boom" },
-      },
+      transition_id: "measurements",
+      error: { type: "RuntimeError", message: "boom" },
       cursor,
-    });
+    } as const);
 
     expect(event?.status).toBe("failed");
     expect(event?.error).toEqual({ type: "RuntimeError", message: "boom" });
@@ -60,15 +57,11 @@ describe("parseTransitionProgressEvent", () => {
     expect(
       parseTransitionProgressEvent({
         event: "nof1-causal-lab.extraction.worker",
-        payload: {
-          context_id: "measurement",
-          type: "worker",
-          worker_id: 1,
-          state: "running",
-          n_windows: 4,
-        },
+        worker_id: 1,
+        state: "running",
+        n_windows: 4,
         cursor,
-      }),
+      } as const),
     ).toBeNull();
   });
 
@@ -76,9 +69,9 @@ describe("parseTransitionProgressEvent", () => {
     expect(
       parseTransitionProgressEvent({
         event: "nof1-causal-lab.transition.running",
-        payload: { transition_id: "not-an-artifact", status: "running" },
+        transition_id: "not-an-artifact",
         cursor,
-      }),
+      } as const),
     ).toBeNull();
   });
 });

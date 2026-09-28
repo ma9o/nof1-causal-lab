@@ -9,6 +9,7 @@ import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { use, useEffect, useMemo } from "react";
 
+/** Preserved pipeline interface while the model workbench is validated. */
 export default function AnalysisPage({ params }: { params: Promise<{ workspaceId: string }> }) {
   const { workspaceId } = use(params);
   const progress = usePipelineStatus(workspaceId);

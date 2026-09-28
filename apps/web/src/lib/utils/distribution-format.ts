@@ -2,6 +2,7 @@ import type { JsonValue, NumPyroDistribution } from "@nof1-causal-lab/api-types"
 
 /** Render native constructor arguments; probability calculations stay in Python. */
 export function distributionArgumentText(value: JsonValue): string {
+  if (typeof value === "number") return String(Number(value.toPrecision(4)));
   if (Array.isArray(value)) return `[${value.map(distributionArgumentText).join(", ")}]`;
   if (value === null || typeof value !== "object") return String(value);
   if ("array" in value) return distributionArgumentText(value.array);

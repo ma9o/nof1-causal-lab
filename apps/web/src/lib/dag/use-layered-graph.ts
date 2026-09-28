@@ -1,31 +1,32 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   ConstructId,
   IndicatorSpec,
-  ModelSnapshot,
   ModelComparison,
-  SimulationResult,
+  ModelSnapshot,
 } from "@nof1-causal-lab/api-types";
-import type { DagLayoutNode } from "@/lib/utils/dag-graph-layout";
+
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useDagLayout } from "@/lib/hooks/use-dag-layout";
-import { useGraphControls, usePlayback } from "./use-graph-controls";
-import { selectedNeighbors } from "./selection";
+import type { SimulationWithEffects } from "@/lib/simulation-report";
+import type { DagLayoutNode } from "@/lib/utils/dag-graph-layout";
 import { buildLayeredCausalGraph, type LayeredGraphEdgeMeta } from "./build-layered-causal-graph";
+import { placeComparisonOverlay } from "./comparison-overlay";
 import {
-  graphEntities,
   availableGraphLayers,
   type CausalGraphLayerId,
   type GraphBand,
+  graphEntities,
 } from "./layered-model";
-import { placeComparisonOverlay } from "./comparison-overlay";
-import { DAG_COLORS, COMPARISON_COLORS, BLOCKING, MARGINALIZED, signColor } from "./palette";
+import { BLOCKING, COMPARISON_COLORS, DAG_COLORS, MARGINALIZED, signColor } from "./palette";
+import { selectedNeighbors } from "./selection";
 import { getSimulationDays } from "./simulation";
+import { useGraphControls, usePlayback } from "./use-graph-controls";
 
 export interface LayeredGraphOptions {
   model: ModelSnapshot;
-  simulation?: SimulationResult | null;
+  simulation?: SimulationWithEffects | null;
   comparison?: ModelComparison | null;
   selectedNode: ConstructId | null;
 }
@@ -74,7 +75,7 @@ export function useLayeredGraph({
   const nodeStatuses = new Map(
     entities.constructs.map((entity) => [
       entity.id,
-      designVisible ? model.findings.graph_status[entity.id] : null,
+      designVisible ? model.findings.graph.status[entity.id] : null,
     ]),
   );
   const edgeDispositions = new Map(
@@ -99,8 +100,8 @@ export function useLayeredGraph({
       : [],
   );
   const warningVariables = new Set(
-    model.findings.simulation?.source.validity === "fresh"
-      ? (model.findings.simulation?.value.predictive_checks?.per_variable_warnings ?? [])
+    model.findings.predictive?.source.validity === "fresh"
+      ? (model.findings.predictive?.value.predictive_checks?.per_variable_warnings ?? [])
           .filter((check) => !check.passed)
           .map((check) => check.indicator_id)
       : [],
@@ -172,12 +173,7 @@ export function useLayeredGraph({
     const posterior = meta.isSelf ? persistencePosteriors[meta.cause] : edgePosteriors[meta.id];
     const activeClamp =
       currentDay != null &&
-      simulationResult?.request.clamps.some(
-        (clamp) =>
-          clamp.target === meta.effect &&
-          clamp.from_day <= currentDay &&
-          (clamp.to_day == null || currentDay < clamp.to_day),
-      );
+      simulationResult?.design.interventions.some((clamp) => clamp.target === meta.effect);
     const blocking =
       nodeStatuses.get(meta.cause) === "blocking" || nodeStatuses.get(meta.effect) === "blocking";
     const marginalized =

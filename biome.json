@@ -19,10 +19,13 @@
       "!**/.next",
       "!**/.turbo",
       "!**/dist",
+      "!**/storybook-static",
       "!**/generated",
       "!packages/api-types/schemas",
       "!apps/web/public/perspective",
+      "!apps/web/public/mockServiceWorker.js",
       "!apps/web/src/components/__fixtures__/demo-run/*.json",
+      "!apps/web/src/components/__fixtures__/workbench-comparisons.json",
       "!apps/web/src/app/globals.css"
     ]
   }

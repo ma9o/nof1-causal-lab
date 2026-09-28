@@ -4,7 +4,7 @@ import {
   getEpisodeProgress,
   type EpisodeProgressPayload,
   type RuntimeEvent,
-  type TransitionRecord,
+  type StudyRevision,
 } from "@/lib/api/analysis";
 import { groupStaleArtifactsByProducer, hasStaleArtifacts } from "@/lib/artifact-staleness";
 import {
@@ -20,9 +20,9 @@ import {
   type ModelSpecAdmissionReplayState,
 } from "@/lib/model-spec-admission-runtime";
 import { type TransitionProgressStatus } from "@/lib/transition-runtime";
-import type { PipelineSectionId } from "@nof1-causal-lab/api-types";
+import type { ActionMessageEvent, PipelineSectionId } from "@nof1-causal-lab/api-types";
 import { TRANSITIONS } from "@nof1-causal-lab/api-types";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { skipToken, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef } from "react";
 import { isMockMode, simulatePipelineEvents } from "../api/mock-provider";
 import {
@@ -50,6 +50,19 @@ export function getEpisodeProgressQueryKey(workspaceId: string) {
   return ["episode", workspaceId, "progress"] as const;
 }
 
+export function getActionMessagesQueryKey(workspaceId: string) {
+  return ["episode", workspaceId, "action-messages"] as const;
+}
+
+export function useActionMessages(workspaceId: string) {
+  return useQuery<ActionMessageEvent[]>({
+    queryKey: getActionMessagesQueryKey(workspaceId),
+    queryFn: skipToken,
+    enabled: false,
+    initialData: [],
+  }).data;
+}
+
 /** Event cursors are `{time_ns:020d}-{uuid}.json` filenames — time-ordered by construction. */
 export function cursorTimestampMs(cursor: string): number | undefined {
   const nanos = cursor.split("-", 1)[0];
@@ -61,10 +74,6 @@ export function cursorTimestampMs(cursor: string): number | undefined {
 
 function isPipelineSectionId(value: unknown): value is PipelineSectionId {
   return typeof value === "string" && TRANSITIONS.some((transition) => transition.id === value);
-}
-
-function isTransitionRunStatus(value: unknown): value is TransitionProgressStatus {
-  return value === "running" || value === "completed" || value === "failed";
 }
 
 export interface TransitionProgressEvent {
@@ -83,31 +92,27 @@ export function parseTransitionProgressEvent(record: RuntimeEvent): TransitionPr
     return null;
   }
 
-  const payload = record.payload;
-  const artifactId = payload?.transition_id;
-  const status = payload?.status;
-  if (!isPipelineSectionId(artifactId) || !isTransitionRunStatus(status)) {
-    return null;
-  }
-
+  const artifactId = record.transition_id;
+  if (!isPipelineSectionId(artifactId)) return null;
+  const statuses = {
+    "nof1-causal-lab.transition.running": "running",
+    "nof1-causal-lab.transition.completed": "completed",
+    "nof1-causal-lab.transition.failed": "failed",
+  } as const;
   return {
     artifactId,
-    status,
+    status: statuses[record.event],
     eventTime: cursorTimestampMs(record.cursor),
-    error:
-      payload?.error && typeof payload.error === "object"
-        ? (payload.error as { type: string; message: string })
-        : undefined,
+    error: record.error ?? undefined,
   };
 }
 
-/** Adapt an episode event to the {event, occurred, payload} record telemetry parsers consume. */
+/** Attach display time to the canonical event. */
 function toRuntimeEventRecord(record: RuntimeEvent) {
   const timestampMs = cursorTimestampMs(record.cursor);
   return {
-    event: record.event,
+    ...record,
     occurred: timestampMs === undefined ? null : new Date(timestampMs).toISOString(),
-    payload: { ...record.payload },
   };
 }
 
@@ -127,13 +132,13 @@ function invalidateArtifactView(
  */
 function applyRunTransition(
   progress: PipelineProgress | undefined,
-  transition: TransitionRecord,
+  transition: StudyRevision,
   transitionOrder: readonly PipelineSectionId[],
 ): PipelineProgress | undefined {
-  if (transition.move.kind !== "run") {
+  if (transition.operation_id === null) {
     return progress;
   }
-  const artifactId = transition.move.operation_id;
+  const artifactId = transition.operation_id;
   if (!isPipelineSectionId(artifactId)) {
     return progress;
   }
@@ -213,6 +218,22 @@ export function useRunEvents(
       if (!workspaceId || !transitionOrder) {
         return;
       }
+
+      const completed = new Set(payload.transitions.map((record) => record.attempt_id));
+      queryClient.setQueryData<ActionMessageEvent[]>(
+        getActionMessagesQueryKey(workspaceId),
+        (old) => {
+          const messages = new Map(
+            (old ?? []).map((event) => [`${event.attempt_id}:${event.index}`, event]),
+          );
+          for (const event of payload.events) {
+            if (event.event === "nof1-causal-lab.action.message") {
+              messages.set(`${event.attempt_id}:${event.index}`, event);
+            }
+          }
+          return [...messages.values()].filter((event) => !completed.has(event.attempt_id));
+        },
+      );
 
       for (const record of payload.events) {
         const runtimeRecord = toRuntimeEventRecord(record);
@@ -294,7 +315,6 @@ export function useRunEvents(
       queryClient.setQueryData<PipelineProgress>(getPipelineStatusQueryKey(workspaceId), (old) => ({
         ...(old ?? initialProgress(transitionOrder)),
         staleArtifactsByProducer: groupStaleArtifactsByProducer(payload.artifacts),
-        autoRunning: payload.autoRunning,
       }));
     },
     [queryClient, transitionOrder, updateTransition, workspaceId],
@@ -315,6 +335,7 @@ export function useRunEvents(
     );
     queryClient.removeQueries({ queryKey: getExtractionStateQueryKey(workspaceId) });
     queryClient.removeQueries({ queryKey: getModelSpecAdmissionStateQueryKey(workspaceId) });
+    queryClient.removeQueries({ queryKey: getActionMessagesQueryKey(workspaceId) });
   }, [queryClient, transitionOrder, workspaceId]);
 
   useEffect(() => {
@@ -337,7 +358,7 @@ export function useRunEvents(
     }
   }, [queryClient, transitionOrder, updateTransition, workspaceId]);
 
-  useQuery({
+  return useQuery({
     queryKey: getEpisodeProgressQueryKey(workspaceId ?? "__none__"),
     queryFn: async () => {
       const payload = await getEpisodeProgress(workspaceId as string, cursorRef.current);
@@ -356,9 +377,11 @@ export function useRunEvents(
         ? queryClient.getQueryData<PipelineProgress>(getPipelineStatusQueryKey(workspaceId))
         : undefined;
       return progressPollIntervalMs(
-        payload.autoRunning ||
-          hasRunningTransition(progress) ||
-          hasStaleArtifacts(payload.artifacts),
+        hasRunningTransition(progress) ||
+          hasStaleArtifacts(payload.artifacts) ||
+          (workspaceId !== null &&
+            (queryClient.getQueryData<ActionMessageEvent[]>(getActionMessagesQueryKey(workspaceId))
+              ?.length ?? 0) > 0),
       );
     },
     staleTime: 0,

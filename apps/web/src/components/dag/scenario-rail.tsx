@@ -1,16 +1,12 @@
 "use client";
 
-import type { SimulationScenario } from "@/lib/dag/simulation-results";
 import { Badge } from "@/components/ui/badge";
+import type { SimulationScenario } from "@/lib/dag/simulation-results";
 import { cn } from "@/lib/utils";
 import { formatNumber } from "@/lib/utils/format";
 
 function signed(value: number): string {
   return `${value >= 0 ? "+" : ""}${formatNumber(value)}`;
-}
-
-function provenanceLabel(scenario: SimulationScenario): string {
-  return scenario.result.request.start.kind === "abducted" ? "Counterfactual" : "Interventional";
 }
 
 function ScenarioCard({
@@ -36,7 +32,7 @@ function ScenarioCard({
     >
       <div className="flex items-center justify-between gap-1">
         <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
-          {provenanceLabel(scenario)}
+          Causal effect
         </Badge>
         <span className="text-[10px] text-muted-foreground">
           P&gt;0 {Math.round(scenario.summary.prob_positive * 100)}%

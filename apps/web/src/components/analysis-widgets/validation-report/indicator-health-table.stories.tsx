@@ -13,7 +13,7 @@ const data = normalizeValidationReportData(demoValidationReport);
 
 const meta = {
   args: { indicators },
-  title: "Pipeline/Outputs/Validation Report/IndicatorHealthTable",
+  title: "V1/Pipeline/Outputs/Validation Report/IndicatorHealthTable",
   component: IndicatorHealthTable,
   decorators: [withContainer()],
 } satisfies Meta<typeof IndicatorHealthTable>;

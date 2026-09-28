@@ -1,38 +1,34 @@
 import { describe, expect, it } from "vitest";
 import {
   formatScenarioActionDescription,
-  getSimulationDays,
   getNodeActionSeries,
   getNodeReferenceSeries,
+  getSimulationDays,
 } from "@/lib/dag/simulation";
-import type { AnalysisSimulationResult } from "@/lib/dag/simulation-types";
+import type { SimulationWithEffects } from "@/lib/simulation-report";
 
 describe("intervention DAG semantics", () => {
   it("plots end-state responses on their simulation grid and formats clamp labels", () => {
     const result = {
-      request: {
-        readout: { estimand: "end_state" },
-        clamps: [
-          {
-            target: "construct:lipid",
-            mode: "shift",
-            amount: 1,
-            from_day: 0,
-          },
-        ],
+      design: {
+        end: 2,
+        interventions: [{ target: "construct:lipid", value: 1.85, time: 0 }],
       },
-      labels: { "construct:lipid": "lipid_burden" },
-      time_grid_days: [0, 0.5, 2],
-      effect_trajectory: null,
-      trajectories: {
-        "construct:lipid": {
-          reference_mean: [0.85, 0.9, 0.95],
-          action_mean: [1.85, 1.8, 1.75],
+      times: [0, 0.5, 2],
+      causal_result: {
+        labels: { "construct:lipid": "lipid_burden" },
+        time_grid_days: [0, 0.5, 2],
+        effect_trajectory: null,
+        trajectories: {
+          "construct:lipid": {
+            reference_mean: [0.85, 0.9, 0.95],
+            action_mean: [1.85, 1.8, 1.75],
+          },
         },
       },
-    } as unknown as AnalysisSimulationResult;
+    } as unknown as SimulationWithEffects;
 
-    expect(formatScenarioActionDescription(result)).toBe("do(lipid_burden shift +1.0)");
+    expect(formatScenarioActionDescription(result)).toBe("do(lipid_burden set 1.9)");
     expect(getSimulationDays(result)).toEqual([0, 0.5, 2]);
     expect(getNodeReferenceSeries(result, "construct:lipid")).toEqual([0.85, 0.9, 0.95]);
     expect(getNodeActionSeries(result, "construct:lipid")).toEqual([1.85, 1.8, 1.75]);

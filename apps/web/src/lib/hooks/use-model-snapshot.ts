@@ -5,14 +5,14 @@ import { useQuery } from "@tanstack/react-query";
 
 const modelClient = createModelClient();
 
-export function useModelSnapshot(workspaceId: string, atSeq?: number) {
+export function useModelSnapshot(workspaceId: string, commitId?: string, branch = "main") {
   return useQuery({
-    queryKey: ["model-snapshot", workspaceId, atSeq ?? "latest"],
+    queryKey: ["model-snapshot", workspaceId, commitId ?? "latest", branch],
     queryFn: async ({ signal }) => {
       const { data, error, response } = await modelClient.GET(
         "/api/episodes/{workspace_id}/model",
         {
-          params: { path: { workspace_id: workspaceId }, query: { at_seq: atSeq } },
+          params: { path: { workspace_id: workspaceId }, query: { at: commitId, branch } },
           signal,
         },
       );
@@ -23,6 +23,9 @@ export function useModelSnapshot(workspaceId: string, atSeq?: number) {
       }
       return data;
     },
-    staleTime: atSeq === undefined ? 0 : Infinity,
+    // Keep the workbench mounted while another version loads.
+    placeholderData: (previous, query) =>
+      query?.queryKey[1] === workspaceId ? previous : undefined,
+    staleTime: commitId === undefined ? 0 : Infinity,
   });
 }
