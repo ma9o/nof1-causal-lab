@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from functools import cache
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -28,6 +29,7 @@ from nof1_causal_lab.machine.view_models import (
     RawDataData,
     RawDataDateRange,
 )
+from nof1_causal_lab.numpyro_json import distribution_shape
 from nof1_causal_lab.utils.histograms import histogram_draws
 
 if TYPE_CHECKING:
@@ -45,7 +47,8 @@ def read_payload(store: ArtifactStore, artifact_id: ArtifactId, revision: str) -
     """Validate one immutable primary JSON payload with its production contract."""
     filename = next(iter(artifact_file_spec(artifact_id).json.values()))
     return ARTIFACT_CONTRACTS[artifact_id].model_validate(
-        store.read_json_file(artifact_id, revision, filename)
+        store.read_json_file(artifact_id, revision, filename),
+        context={"distribution_array_loader": cache(store.read_array)},
     )
 
 
@@ -193,8 +196,7 @@ def model_diagnostics_view(
             parameter.id: prior_density(law)
             for parameter in model.parameters
             if (law := model.distribution_for(parameter.id)) is not None
-            and not law.batch_shape
-            and not law.event_shape
+            and distribution_shape(law) == ((), ())
         },
         confounder_equations=confounder_equations(model)
         if model.measurement_clock is not None and model.indicators

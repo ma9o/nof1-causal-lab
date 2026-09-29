@@ -158,7 +158,7 @@ def test_local_fit_transfers_pins_and_retains_outputs_only_after_valid_response(
     np.testing.assert_array_equal(
         empirical_atoms(restored.distributions[layout.distribution_id]), atoms
     )
-    assert len(writes) == 1
+    assert len(writes) == 2  # the draws and their weights
     assert len(calls) == 1
     transferred = modal_fit.fit_on_modal(
         model_spec=restored,

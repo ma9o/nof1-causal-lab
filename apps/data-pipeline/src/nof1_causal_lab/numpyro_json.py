@@ -78,29 +78,25 @@ def materialize_distribution(value: dist.Distribution) -> dist.Distribution:
 
 
 def distribution_shape(value: dist.Distribution) -> tuple[tuple[int, ...], tuple[int, ...]]:
-    """Derive native shapes, reading only array metadata for stored point mixtures."""
+    """Derive native shapes, reading only array metadata for stored empirical laws."""
     if (
         isinstance(value, _StoredDistribution)
-        and value.constructor["distribution"] == "MixtureGeneral"
+        and value.constructor["distribution"] == "MixtureSameFamily"
     ):
         params = cast("dict[str, Any]", value.constructor["params"])
-        components = params["component_distributions"]
-        if components and all(item["distribution"] == "Delta" for item in components):
-            shapes = set()
-            for item in components:
-                arguments = item["params"]
-                values = arguments["v"]
-                if isinstance(values, dict) and "array_ref" in values:
-                    shape = tuple(values["shape"])[len(values["index"]) :]
-                else:
-                    shape = np.shape(_decode(values, value.loader))
-                event_dim = arguments["event_dim"]
-                if not isinstance(event_dim, int) or event_dim < 0 or event_dim > len(shape):
-                    raise ValueError("Invalid native Delta event dimensions")
-                shapes.add((shape[:-event_dim], shape[-event_dim:]) if event_dim else (shape, ()))
-            if len(shapes) != 1:
-                raise ValueError("Joint point-mixture components must have identical shapes")
-            return next(iter(shapes))
+        component = params["component_distribution"]
+        atoms = component["params"].get("v")
+        if (
+            component["distribution"] == "Delta"
+            and isinstance(atoms, dict)
+            and "array_ref" in atoms
+        ):
+            shape = tuple(atoms["shape"])[len(atoms["index"]) :]
+            event_dim = component["params"]["event_dim"]
+            if not isinstance(event_dim, int) or event_dim < 0 or event_dim >= len(shape):
+                raise ValueError("Invalid native Delta event dimensions")
+            # The component's rightmost batch axis enumerates the mixture's atoms.
+            return shape[: len(shape) - event_dim - 1], shape[len(shape) - event_dim :]
     native = materialize_distribution(value)
     return native.batch_shape, native.event_shape
 
@@ -111,63 +107,59 @@ def empirical_distribution(
     array_writer: Callable[[np.ndarray], str] | None = None,
     array_loader: ArrayLoader | None = None,
 ) -> dist.Distribution:
-    """Express aligned finite samples as a native categorical mixture of point masses."""
+    """Express aligned finite samples as a native categorical mixture of point masses.
+
+    One batched Delta holds every draw and its leading axis enumerates the equally
+    weighted atoms, so the law stores two arrays however many draws it retains.
+    """
     values = np.asarray(values)
     if values.ndim != 2 or not all(values.shape) or not np.isfinite(values).all():
         raise ValueError("Empirical laws require finite, nonempty draw and event axes")
-    identity = array_writer(values) if array_writer is not None else None
+
+    def argument(array: np.ndarray) -> JsonValue:
+        if array_writer is None:
+            return _encode(array)
+        return {
+            "array_ref": array_writer(array),
+            "shape": list(array.shape),
+            "dtype": str(array.dtype),
+            "index": [],
+        }
+
     constructor: dict[str, JsonValue] = {
-        "distribution": "MixtureGeneral",
+        "distribution": "MixtureSameFamily",
         "params": {
-            "mixing_distribution": encode_distribution(
-                dist.Categorical(probs=np.full(values.shape[0], 1.0 / values.shape[0]))
-            ),
-            "component_distributions": [
-                {
-                    "distribution": "Delta",
-                    "params": {
-                        "v": {
-                            "array_ref": identity,
-                            "shape": list(values.shape),
-                            "dtype": str(values.dtype),
-                            "index": [index],
-                        }
-                        if identity is not None
-                        else _encode(values[index]),
-                        "event_dim": 1,
-                    },
-                }
-                for index in range(values.shape[0])
-            ],
-            "support": _encode(constraints.real_vector),
+            "mixing_distribution": {
+                "distribution": "CategoricalProbs",
+                "params": {"probs": argument(np.full(values.shape[0], 1.0 / values.shape[0]))},
+            },
+            "component_distribution": {
+                "distribution": "Delta",
+                "params": {"v": argument(values), "event_dim": 1},
+            },
         },
     }
     return decode_distribution(constructor, array_loader=array_loader)
 
 
 def empirical_atoms(value: dist.Distribution) -> np.ndarray:
-    """Read equal-weight native point-mixture atoms without constructing each JAX component.
+    """Read the equal-weight atoms of a native empirical law as one array.
 
     This extracts retained particle draws, not fitted marginal approximations.
     Other probability families should be sampled through their native methods.
     """
-    constructor = encode_distribution(value)
-    if constructor["distribution"] != "MixtureGeneral":
-        raise ValueError("Retained draws require a native point-mixture distribution")
-    params = cast("dict[str, Any]", constructor["params"])
-    loader = value.loader if isinstance(value, _StoredDistribution) else None
-    weights = np.asarray(_decode(params["mixing_distribution"], loader).probs)
-    components = params["component_distributions"]
-    if not len(weights) or not np.all(weights == weights[0]):
-        raise ValueError("Retained particle draws must have equal weights")
-    if len(components) != len(weights) or any(
-        item["distribution"] != "Delta"
-        or item["params"]["event_dim"] != 1
-        or np.any(np.asarray(_decode(item["params"].get("log_density", 0.0), loader)) != 0.0)
-        for item in components
+    law = materialize_distribution(value)
+    if not isinstance(law, dist.MixtureSameFamily) or not isinstance(
+        law.component_distribution, dist.Delta
     ):
+        raise ValueError("Retained draws require a native point-mixture distribution")
+    weights = np.asarray(law.mixing_distribution.probs)
+    atoms = law.component_distribution
+    if not np.all(weights == weights[0]):
+        raise ValueError("Retained particle draws must have equal weights")
+    if atoms.event_dim != 1 or np.any(np.asarray(atoms.log_density) != 0.0):
         raise ValueError("Retained draws require vector point masses")
-    return np.stack([_decode(item["params"]["v"], loader) for item in components])
+    return np.asarray(atoms.v)
 
 
 def _has_array_refs(value: JsonValue) -> bool:

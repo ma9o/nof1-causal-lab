@@ -198,7 +198,7 @@ def test_fitted_snapshot_keeps_joint_arrays_lazy_and_workspace_bound(workspace, 
     # A consumer that needs the draws can still resolve them in this workspace.
     restored = _present(reader.model).distributions[layout.distribution_id]
     np.testing.assert_array_equal(empirical_atoms(restored), atoms)
-    assert len(reads) == 1
+    assert len(reads) == 2  # the draws and their weights, each read once
 
 
 @pytest.mark.parametrize("paired", [False, True])
