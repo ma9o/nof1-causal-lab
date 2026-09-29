@@ -3,6 +3,7 @@
 from typing import TYPE_CHECKING, cast
 
 import dynestyx as dsx
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 from dynestyx.inference.configs.discretizer import LocalLinearizationConfig
@@ -42,14 +43,26 @@ def build_discrete_transitions(
         if states.shape != shape:
             raise ValueError(f"linearization_states must have shape {shape}, got {states.shape}")
 
+    # The covariance extracted from the Van Loan exponential is linear in L Lᵀ.
+    # Keep its noise block near
+    # unit scale so large Pathfinder draws do not exhaust expm's squaring
+    # budget solely because of diffusion magnitude. Restore the exact scale
+    # afterward; no clipping, jitter, or alternative transition is introduced.
+    diffusion = dynamics.diffusion.as_matrix(x=None, u=None, t=0, state_dim=n_latent)
+    scale = jax.lax.stop_gradient(jnp.maximum(1.0, jnp.max(jnp.abs(diffusion))))
+    normalized = eqx.tree_at(
+        lambda value: value.diffusion, dynamics, dsx.FullDiffusion(diffusion / scale)
+    )
+
     def at_interval(state, dt):
-        return dsx.linearized_transition_parameters(
-            dynamics,
+        params = dsx.linearized_transition_parameters(
+            normalized,
             LocalLinearizationConfig(covariance_jitter=0.0),
             linearization_state=state,
             previous_control=None,
             previous_time=0.0,
             time=dt,
         )
+        return params._replace(cov=(params.cov * scale) * scale)
 
     return jax.vmap(at_interval)(states, time_intervals)
