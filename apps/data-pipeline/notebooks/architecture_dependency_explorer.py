@@ -11,6 +11,30 @@ def imports_marimo():
     return (mo,)
 
 
+@app.cell(hide_code=True)
+def intro(mo):
+    mo.md(r"""
+    # Architecture dependency explorer
+
+    This notebook turns the Python source tree into an **executable architecture map**. It
+    parses imports without importing application modules, so exploring the graph does not
+    initialize JAX, NumPyro, Temporal, Prefect, or any service clients.
+
+    Use the two lenses together:
+
+    - **Current package layout** shows the physical organization that exists today.
+    - **Proposed responsibility boundaries** classifies the same files into the candidate
+      domain, identification, structural front, SSM model, exact inference, analysis, and
+      application layers.
+
+    Every arrow points from the **importer to the module it imports**. In the proposed view,
+    red arrows violate the candidate dependency policy. The context-footprint section treats
+    another cluster as an opaque public boundary, giving an estimate of how much implementation
+    context a hard package seam could remove.
+    """)
+    return
+
+
 @app.cell
 def imports():
     import ast
@@ -36,30 +60,6 @@ def imports():
         np,
         nx,
     )
-
-
-@app.cell(hide_code=True)
-def intro(mo):
-    mo.md(r"""
-    # Architecture dependency explorer
-
-    This notebook turns the Python source tree into an **executable architecture map**. It
-    parses imports without importing application modules, so exploring the graph does not
-    initialize JAX, NumPyro, Temporal, Prefect, or any service clients.
-
-    Use the two lenses together:
-
-    - **Current package layout** shows the physical organization that exists today.
-    - **Proposed responsibility boundaries** classifies the same files into the candidate
-      domain, identification, structural front, SSM model, exact inference, analysis, and
-      application layers.
-
-    Every arrow points from the **importer to the module it imports**. In the proposed view,
-    red arrows violate the candidate dependency policy. The context-footprint section treats
-    another cluster as an opaque public boundary, giving an estimate of how much implementation
-    context a hard package seam could remove.
-    """)
-    return
 
 
 @app.cell
@@ -224,11 +224,13 @@ def cluster_model():
         "application": "#9D755D",
     }
     current_colors = {
+        "actions": "#54A24B",
         "artifacts": "#4C78A8",
         "models.ssm": "#F2CF5B",
         "models.other": "#B279A2",
         "flows": "#E45756",
         "machine": "#9D755D",
+        "recipes": "#EECA3B",
         "workers": "#FF9DA6",
         "utils": "#72B7B2",
         "package root": "#BAB0AC",
@@ -253,7 +255,7 @@ def cluster_model():
         first = relative.split(".", maxsplit=1)[0]
         if relative == "models" or relative.startswith("models."):
             return "models.ssm" if relative.startswith("models.ssm") else "models.other"
-        if first in {"artifacts", "flows", "machine", "workers", "utils"}:
+        if first in {"actions", "artifacts", "flows", "machine", "recipes", "workers", "utils"}:
             return first
         return "package root"
 
@@ -269,7 +271,6 @@ def cluster_model():
         )
         identification_prefixes = (
             "nof1_causal_lab.utils.causal_design",
-            "nof1_causal_lab.utils.estimation_projection",
             "nof1_causal_lab.utils.identifiability",
         )
         structural_front_prefixes = ("nof1_causal_lab.models.structural",)
@@ -277,7 +278,6 @@ def cluster_model():
             "nof1_causal_lab.models.causal_proofs",
             "nof1_causal_lab.models.posterior_predictive",
             "nof1_causal_lab.models.predictive_simulation",
-            "nof1_causal_lab.models.ssm.construct_admission",
             "nof1_causal_lab.models.ssm.counterfactual",
             "nof1_causal_lab.models.ssm.predictive",
         )
@@ -864,7 +864,7 @@ def overview_metrics(
     )
     mo.md(
         f"""
-        ## Overview · {scheme_label}
+        ## 1. Overview · {scheme_label}
 
         | modules | Python LOC | import references | distinct module edges | cross-cluster refs | forbidden refs | cyclic components |
         |---:|---:|---:|---:|---:|---:|---:|
@@ -969,7 +969,7 @@ def cluster_picker(clusters, mo, scheme_control):
     )
     mo.vstack(
         [
-            mo.md("## Context footprint"),
+            mo.md("## 2. Context footprint"),
             mo.md(
                 "Choose an entry point. The full closure follows every internal dependency; "
                 "the boundary-scoped estimate follows implementation inside the selected "
@@ -986,7 +986,7 @@ def module_picker(cluster_control, clusterer, mo, module_infos):
     _names = sorted(
         row.name for row in module_infos if clusterer(row.name) == cluster_control.value
     )
-    _compile_entry = "nof1_causal_lab.models.ssm.compile.artifact"
+    _compile_entry = "nof1_causal_lab.models.ssm.compile.inputs"
     _default = _compile_entry if _compile_entry in _names else _names[0]
     _options = {name.removeprefix("nof1_causal_lab."): name for name in _names}
     module_control = mo.ui.dropdown(
@@ -1083,7 +1083,7 @@ def context_footprint(
 @app.cell(hide_code=True)
 def interpretation_md(mo):
     mo.md(r"""
-    ## How to use this in an architecture decision
+    ## 3. How to use this in an architecture decision
 
     A promising package seam should improve several signals together:
 

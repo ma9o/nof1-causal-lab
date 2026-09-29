@@ -16,11 +16,10 @@ def intro(mo):
     mo.md(r"""
     # Two geometries of marginalization — the funnel it *kills* and the ridge it *reveals*
 
-    The companion notebook (`confounder_marginalization_walkthrough.py`) shows *where*
-    an unobserved confounder goes when you marginalize it: it collapses into a single
-    **covariance** between the things it touched. This notebook is about the other half
-    of that story — **why that collapse helps the sampler**, and why "helps inference"
-    and "identifies the effect" are two *different* things that get conflated.
+    Marginalizing an unobserved Gaussian confounder collapses it into a single
+    **covariance** between the things it touched. This notebook is about what that
+    collapse buys — **why it helps the sampler**, and why "helps inference" and
+    "identifies the effect" are two *different* things that get conflated.
 
     The whole thing rests on one fact you already know:
 
@@ -250,10 +249,10 @@ def ridge_md(mo):
     slope from the handshake. What differs is the **knife**: an independent constraint
     on $c$ that cuts across the ridge and pins $\beta$ at the crossing.
 
-    - **Off-path (§7).** The graph hands you the knife for free: with no $U \to X$ edge,
+    - **Off-path.** The graph hands you the knife for free: with no $U \to X$ edge,
       the residuals of $X$ and $Y$ are uncorrelated, so $c \equiv 0$ structurally. The
       ridge is cut at the true $\beta$ — identified, with $U$ never observed.
-    - **On-path (§1).** Nothing observable supplies a knife. The only way to learn $c$
+    - **On-path (the §1 world).** Nothing observable supplies a knife. The only way to learn $c$
       is to **measure $U$** (an anchor / proxy indicators); absent that, the entire
       ridge is admissible and you must report the equivalence class, not a point — the
       **drop**.
@@ -268,13 +267,13 @@ def ridge_md(mo):
 def ridge_dag(mo):
     mo.mermaid("""
     graph LR
-      subgraph onpath["§1 on-path — handshake hits the X-Y cell"]
+      subgraph onpath["on-path — handshake hits the X-Y cell"]
         Xa["X"]:::obs
         Ya["Y"]:::obs
         Xa -->|β| Ya
         Xa -. "c (handshake)" .- Ya
       end
-      subgraph offpath["§7 off-path — handshake lands on Y-S"]
+      subgraph offpath["off-path — handshake lands on Y-S"]
         Xb["X"]:::obs
         Yb["Y"]:::obs
         Sb["S"]:::obs
@@ -315,7 +314,7 @@ def synthesis_md(mo):
       information-theoretic non-identifiability. Marginalizing makes that plateau
       *visible* and *cheap to detect*; it does not make it go away.
 
-    So the honest summary of our whole exchange: marginalizing buys the funnel removal
+    So the honest summary: marginalizing buys the funnel removal
     every time (cheaper, lower-variance, funnel-free inference). Whether you *also* get
     an identified effect is the separate question of whether a knife — the graph's own
     $c = 0$, or an observable anchor on $U$ — cuts across the ridge. And even when no

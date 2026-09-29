@@ -184,7 +184,7 @@ def gallery_md(mo):
       above $\tilde\theta$, so few fall below it: ranks crowd *low*.
     - **biased low** — the mirror **↗ ramp**, ranks crowd *high*.
     - **under-thinned** (correct posterior, but autocorrelated draws) — a **∪ valley** again.
-      The shape collides with overconfidence on purpose; §8 untangles them.
+      The shape collides with overconfidence on purpose; §9 untangles them.
 
     Spread and location are the two axes of error, and SBC separates them cleanly:
     miscalibrated *width* bends the histogram into a curve (∪ or ∩), miscalibrated *centre*
@@ -379,7 +379,7 @@ def bridge_md(mo):
 
     | in this toy | in the codebase |
     |---|---|
-    | the candidate posterior $q$ under test | the particle/SMC posterior from `cuthbert` `smc.particle_filter` via `filtering.filter` |
+    | the candidate posterior $q$ under test | the marginalized particle Gibbs posterior (`fit_marginal_particle_gibbs`), whose latent paths come from the conditional-SMC smoother in `smoothers/dsmc.py` |
     | the exact sampler → uniform ranks | the exact engines: particle/SMC over the true emission, Euler–Maruyama over the true drift, and the exactly-corrected `amala_exact` proposal |
     | a deformed sampler → non-uniform ranks | the biased *uncorrected* proposals `amala` / `amala_plus`, or any linearized surrogate (IEKS/Laplace) standing in on a *reported* path |
     | the under-thinned ρ chain → a fake ∪ | an MCMC/SMC posterior read off without enough thinning |
@@ -392,10 +392,10 @@ def bridge_md(mo):
     posterior is sampled by MCMC/SMC, §9 is not a curiosity: ranks must be built from
     near-independent draws or the histogram lies in the direction of overconfidence.
 
-    The catch is cost. One SBC run is $S$ *full* posterior fits, which is why SBC sits
-    downstream of the fit in the pipeline (`specification_funnel_walkthrough.py` flags it as a
-    post-fit diagnostic) rather than inside the hot loop. This toy is the cheap sandbox where
-    the shapes are learned for free; the engine is where they are spent.
+    The catch is cost. One SBC run is $S$ *full* posterior fits, which is why SBC belongs
+    downstream of the fit, as a post-fit diagnostic of the engine, rather than inside the hot
+    loop. This toy is the cheap sandbox where the shapes are learned for free; the engine is
+    where they are spent.
     """)
     return
 

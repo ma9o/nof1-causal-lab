@@ -1,9 +1,31 @@
-"""Incremental whole-model editing through the scientific action API."""
-
 import marimo
 
-__generated_with = "0.23.5"
-app = marimo.App(width="full")
+__generated_with = "0.23.11"
+app = marimo.App(width="medium")
+
+
+@app.cell
+def imports_marimo():
+    import marimo as mo
+
+    return (mo,)
+
+
+@app.cell(hide_code=True)
+def intro(mo):
+    mo.md(r"""
+    # Model edit workbench
+
+    Load a study's current model, edit it as JSON, and submit it as an `edit_model` action.
+    The action runs or reuses the specification, identification, data-compatibility, and exact
+    predictive checks before it commits the revision. Its findings stay attached to the saved
+    model, and any of them can be addressed in a later edit.
+
+    Loading reads the study's local Git snapshot and needs no server. Submitting and polling go
+    through the action API, so start the local stack first, as described in the
+    [integration-testing guide](../../../docs/guides/agentic_integration_testing.md).
+    """)
+    return
 
 
 @app.cell
@@ -12,25 +34,15 @@ def imports():
     import urllib.parse
     import urllib.request
 
-    import marimo as mo
-
     from nof1_causal_lab.machine.snapshots import ModelReader
 
-    return ModelReader, json, mo, urllib
+    return ModelReader, json, urllib
 
 
 @app.cell(hide_code=True)
-def introduction(mo):
-    mo.md("""
-    # Incremental model workbench
-
-    Load a study, edit its whole model, and submit `edit_model`. The action runs or
-    reuses specification, identification, data-compatibility and exact predictive
-    checks before committing the revision. Scientific findings remain editable;
-    there is no construct admission order or full-model barrier.
-
-    Start the local stack separately using the agentic integration guide. Reading
-    a model here uses its local Git snapshot; submitting uses the action API.
+def load_md(mo):
+    mo.md(r"""
+    ## 1. Load a study's model
     """)
     return
 
@@ -52,6 +64,18 @@ def selected_model(ModelReader, load, mo, workspace):
     selected_revision = _reader.state.current["model"].revision
     selected_json = _reader.model.model_dump_json(indent=2)
     return selected_json, selected_revision
+
+
+@app.cell(hide_code=True)
+def edit_md(mo):
+    mo.md(r"""
+    ## 2. Edit and submit
+
+    The candidate replaces the whole model. The request carries the loaded revision as
+    `expected_revision`, so the action rejects the edit if the study's model changed after it
+    was loaded.
+    """)
+    return
 
 
 @app.cell
@@ -91,6 +115,17 @@ def submit_edit(backend, candidate, json, mo, selected_revision, urllib, workspa
         f"Accepted attempt `{receipt['attempt_id']}`. Refresh below to read progress and findings."
     )
     return (attempt_url,)
+
+
+@app.cell(hide_code=True)
+def result_md(mo):
+    mo.md(r"""
+    ## 3. Read the action result
+
+    The action runs asynchronously. Each refresh shows the attempt's messages so far and, once
+    it completes, its result body.
+    """)
+    return
 
 
 @app.cell

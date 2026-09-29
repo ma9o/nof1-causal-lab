@@ -11,30 +11,6 @@ def imports_marimo():
     return (mo,)
 
 
-@app.cell
-def imports():
-    import math
-
-    import jax
-
-    jax.config.update("jax_enable_x64", True)
-
-    import jax.numpy as jnp
-    import jax.random as random
-    import matplotlib.pyplot as plt
-    import numpy as np
-
-    palette = {
-        "state": "#3b6ea5",  # reference-local / baseline (blue)
-        "obs": "#e08a3c",  # per-time flips (orange)
-        "belief": "#4a9d5b",  # segment moves (green)
-        "operator": "#c0504d",  # failure / stuck (red)
-        "muted": "#999999",
-        "ink": "#333333",
-    }
-    return jax, jnp, math, np, palette, plt, random
-
-
 @app.cell(hide_code=True)
 def intro(mo):
     mo.md(r"""
@@ -102,16 +78,60 @@ def intro(mo):
     leaf's failure mode entirely: one MH decision per (coordinate, window) instead of a
     per-particle joint-coherence lottery over all `D` coordinates at once.
 
-    The lab: (A) on the factorised Kitagawa-D with its exact gold, does
-    tree + segment-MH crack the `D ≥ 16` wall that killed everything else? (B) does it
-    remain exact when coordinates are *coupled* (validated against a joint 2-D grid
-    gold), where per-coordinate sign problems no longer separate?
+    **The experiments**, one lettered section each:
+
+    - **A.** On the factorised Kitagawa-D with its exact gold, does tree + segment-MH
+      crack the `D ≥ 16` wall that killed everything else?
+    - **B.** Does it remain exact when coordinates are *coupled* (validated against a
+      joint 2-D grid gold), where per-coordinate sign problems no longer separate?
+    - **C.** Once signs are sampled exactly, which lever unfreezes the magnitudes?
+    - **D.** Does the construction extend to *asymmetric* folds, whose mirror map has a
+      non-unit Jacobian?
+    - **E.** Six cheap extensions of the composed kernel, each with its own exact check.
+
+    The verdict at the end collects the findings.
+
+    **Reading the results.** Every table and figure is computed in this notebook.
+    Chains are scored on their second half, against an exact grid gold wherever one
+    exists: the product of per-coordinate 1-D grid smoothers where the posterior
+    factorises, a joint 2-D grid for the coupled `D = 2` check. Tables report `W1/σ̄`
+    (the Wasserstein-1 distance between the chain's and the gold's marginal, averaged
+    over `(t, d)` and divided by the gold's mean posterior sd) and the sign error (the
+    RMSE over `t` of `P(x > 0)` against the gold, averaged over coordinates). Where no
+    gold exists (coupled `D = 30`), cross-seed agreement of the sign probabilities is
+    the gold-free signal. Model sizes, sweep counts and seeds are literals in each run
+    cell. All machinery (models, grid golds, the c-dSMC tree and the kernels) is
+    defined inline: shared pieces in the setup cells below, the rest next to the
+    section that first uses them.
     """)
     return
 
 
 @app.cell
-def model_cell(jnp, np):
+def imports():
+    import math
+
+    import jax
+
+    jax.config.update("jax_enable_x64", True)
+
+    import jax.numpy as jnp
+    import jax.random as random
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    palette = {
+        "state": "#3b6ea5",  # reference-local / baseline (blue)
+        "obs": "#e08a3c",  # per-time flips (orange)
+        "belief": "#4a9d5b",  # segment moves (green)
+        "muted": "#999999",
+        "ink": "#333333",
+    }
+    return jax, jnp, math, np, palette, plt, random
+
+
+@app.cell
+def kitagawa_model(jnp, np):
     # Kitagawa-D: per-coordinate Kitagawa dynamics, x^2/20 emission per coordinate,
     # optional mean-field drift coupling kappa*(x_bar - x_d) (kappa=0 => the posterior
     # factorises over coordinates and the product of 1-D grid smoothers is exact).
@@ -148,8 +168,6 @@ def model_cell(jnp, np):
             return (y_col - z**2 / 20.0) * (z / 10.0)
 
         return dict(
-            dim=dim,
-            kappa=kappa,
             drift=drift,
             log_obs=log_obs,
             obs_grad_1d=obs_grad_1d,
@@ -163,120 +181,7 @@ def model_cell(jnp, np):
 
 
 @app.cell
-def fold_model_cell(KIT_INIT_SD, KIT_SIG_V, KIT_SIG_W, jnp, np):
-    # ASYMMETRIC fold: same Kitagawa dynamics, emission y = h(x) + N(0,1) with
-    #   h(x) = (1 + beta*sign(x)) * |x| / 3
-    # Two preimages per level with DIFFERENT slopes: the mirror map
-    # rho(x) = -x (1+beta)/(1-beta) (from the + branch) has non-unit Jacobian
-    # (1+beta)/(1-beta), and the mode locations are asymmetric. beta = 0 recovers the
-    # symmetric |x| fold. This is the test bed for the branch-path FFBS with the
-    # Jacobian correction.
-    def make_fold_d(dim, beta, kappa=0.0):
-        def drift(t, x):
-            base = 0.5 * x + 25.0 * x / (1.0 + x**2) + 8.0 * jnp.cos(1.2 * t)
-            if kappa == 0.0:
-                return base
-            return base + kappa * (jnp.mean(x, axis=-1, keepdims=True) - x)
-
-        def h_fn(x):
-            return (1.0 + beta * jnp.sign(x)) * jnp.abs(x) / 3.0
-
-        def log_obs(x, y):
-            return jnp.sum(
-                -0.5 * (jnp.log(2.0 * jnp.pi * KIT_SIG_W**2) + (y - h_fn(x)) ** 2), axis=-1
-            )
-
-        def obs_grad_1d(z, y_col):
-            hp = jnp.sign(z) * (1.0 + beta * jnp.sign(z)) / 3.0
-            return (y_col - h_fn(z)) * hp
-
-        def branch_rep(v):  # canonical (positive) preimage of h(v)
-            return jnp.where(v >= 0, v, -v * (1.0 - beta) / (1.0 + beta))
-
-        def branch_mirror(r):  # the negative preimage at the same level
-            return -r * (1.0 + beta) / (1.0 - beta)
-
-        def simulate(seed, t_len):
-            rng = np.random.default_rng(seed)
-            x = np.zeros((t_len, dim))
-            x[0] = KIT_INIT_SD * rng.standard_normal(dim)
-            for t in range(1, t_len):
-                x[t] = np.asarray(drift(t, jnp.asarray(x[t - 1]))) + KIT_SIG_V * (
-                    rng.standard_normal(dim)
-                )
-            y = np.asarray(h_fn(jnp.asarray(x))) + KIT_SIG_W * rng.standard_normal((t_len, dim))
-            return x, y
-
-        return dict(
-            dim=dim,
-            kappa=kappa,
-            beta=beta,
-            drift=drift,
-            log_obs=log_obs,
-            obs_grad_1d=obs_grad_1d,
-            h_fn=h_fn,
-            branch_rep=branch_rep,
-            branch_mirror=branch_mirror,
-            branch_log_jac=float(np.log((1.0 + beta) / (1.0 - beta))),
-            simulate=simulate,
-            sig_v=KIT_SIG_V,
-            sig_w=KIT_SIG_W,
-            init_sd=KIT_INIT_SD,
-        )
-
-    return (make_fold_d,)
-
-
-@app.cell
-def fold_gold_cell(KIT_INIT_SD, KIT_SIG_V, KIT_SIG_W, np):
-    # Exact per-coordinate grid gold for the fold model (kappa = 0).
-    def _grid_1d_fold(y_d, beta, n_grid=601, lo=-32.0, hi=32.0):
-        t_len = len(y_d)
-        xs = np.linspace(lo, hi, n_grid)
-
-        def _logn(v, mu, sd):
-            return -0.5 * (np.log(2.0 * np.pi * sd**2) + ((v - mu) ** 2) / sd**2)
-
-        def _drift(t, x):
-            return 0.5 * x + 25.0 * x / (1.0 + x**2) + 8.0 * np.cos(1.2 * t)
-
-        h_xs = (1.0 + beta * np.sign(xs)) * np.abs(xs) / 3.0
-        log_obs = _logn(y_d[:, None], h_xs[None, :], KIT_SIG_W)
-        log_alpha = np.zeros((t_len, n_grid))
-        log_alpha[0] = _logn(xs, 0.0, KIT_INIT_SD) + log_obs[0]
-        for t in range(1, t_len):
-            lt = _logn(xs[None, :], _drift(t, xs)[:, None], KIT_SIG_V)
-            a = log_alpha[t - 1]
-            m = a.max()
-            log_alpha[t] = np.log(np.exp(a - m) @ np.exp(lt) + 1e-300) + m + log_obs[t]
-        log_beta = np.zeros((t_len, n_grid))
-        for t in range(t_len - 2, -1, -1):
-            lt = _logn(xs[None, :], _drift(t + 1, xs)[:, None], KIT_SIG_V)
-            b = log_beta[t + 1] + log_obs[t + 1]
-            m = b.max()
-            log_beta[t] = np.log(np.exp(lt) @ np.exp(b - m) + 1e-300) + m
-        g = np.exp((log_alpha + log_beta) - (log_alpha + log_beta).max(1, keepdims=True))
-        g /= g.sum(1, keepdims=True)
-        mean = (g * xs[None, :]).sum(1)
-        sd = np.sqrt((g * (xs[None, :] - mean[:, None]) ** 2).sum(1))
-        return {
-            "xs": xs,
-            "dx": xs[1] - xs[0],
-            "cdf": np.cumsum(g, 1),
-            "p_pos": g[:, xs > 0].sum(1),
-            "sd": sd,
-        }
-
-    def product_gold_fold(y, beta):
-        return [
-            _grid_1d_fold(np.asarray(y[:, d], dtype=np.float64), beta) for d in range(y.shape[1])
-        ]
-
-    return (product_gold_fold,)
-
-
-@app.cell
-def gold_1d_cell(KIT_INIT_SD, KIT_SIG_V, KIT_SIG_W, np):
+def product_gold_and_metrics(KIT_INIT_SD, KIT_SIG_V, KIT_SIG_W, np):
     # Exact gold for the factorised model: 1-D grid forward-backward per coordinate.
     # h_np overrides the emission mean function (default: the Kitagawa x²/20).
     def _grid_1d(y_d, h_np=None, n_grid=601, lo=-32.0, hi=32.0):
@@ -342,9 +247,10 @@ def gold_1d_cell(KIT_INIT_SD, KIT_SIG_V, KIT_SIG_W, np):
 
 
 @app.cell
-def tree_cell(jax, jnp, math, random):
-    # Compact multivariate c-dSMC tree (the same stitch as the audit notebook's §15
-    # tree, with (P, D) particles and model-supplied multivariate seams).
+def dsmc_tree(jax, jnp, math, random):
+    # Compact multivariate c-dSMC tree: the same stitch as sampler_audit's tree (built
+    # in sampler_audit §11, reused through §15), with (P, D) particles and
+    # model-supplied multivariate seams.
     def make_tree(t_len, p, dim, seam_pair, seam_sel):
         def _multinomial(draw_key, logits, num_draws):
             cum = jnp.cumsum(jax.nn.softmax(logits))
@@ -421,11 +327,11 @@ def tree_cell(jax, jnp, math, random):
 
 
 @app.cell
-def kernels_cell(jax, jnp, logn, make_tree, np, random):
+def segment_flip_kernels(jax, jnp, logn, make_tree, np, random):
     # The tree sweep with the (optionally sign-symmetric-auxiliary) reference-local
     # leaf: pflip = 0 gives plain amala_z (the sign-stuck baseline), pflip > 0 gives
-    # the §16 per-time flip leaf. Plus the NEW segment-flip MH kernel and the composed
-    # runner (tree sweep, then n_props segment proposals, both pi-invariant).
+    # sampler_audit §16's per-time flip leaf. Plus the segment-flip MH kernel and the
+    # composed runner (tree sweep, then n_props segment proposals, both pi-invariant).
     def make_leaf_sweep(model, y, p, delta=2.0, pflip=0.0):
         y_j = jnp.asarray(y)
         t_len, dim = y.shape
@@ -557,8 +463,158 @@ def kernels_cell(jax, jnp, logn, make_tree, np, random):
     return make_leaf_sweep, make_seg_mh, run_chain
 
 
+@app.cell(hide_code=True)
+def exp_a_md(mo):
+    mo.md(r"""
+    ## A. The factorised wall, attacked with segments
+
+    Four experiments on the factorised Kitagawa-D, all scored against its exact product
+    gold: A1 composes segment MH with the tree sweep, A2 multiplies its proposal count,
+    A3 replaces the random windows with the exact sign-path FFBS, and A4 runs 4× longer
+    chains at `D = 30` to identify the plateau the sign kernels share.
+
+    ### A1. Segment moves against per-time flips
+
+    Setup identical to the sampler_audit §16.2 frontier: `T = 48`, `P = 16`, 2 500
+    sweeps, exact product gold. Three kernels, all through the byte-identical tree:
+
+    - `amala_z` — reference-local paid leaf, no flips (the sign-stuck baseline);
+    - `flip leaf` — sampler_audit §16's per-time sign-symmetric-auxiliary flip
+      (p = 0.1, the best configuration from the D-sweep);
+    - `amala_z + segMH` — the same plain leaf, composed with `2D` segment sign-flip
+      proposals per sweep (mean window length 8, half of them suffix windows).
+
+    The nucleation hypothesis predicts: per-time flips fail for `D ≥ 16` (confirmed on
+    Modal at scale in sampler_audit §16.2), while segment moves — which propose the
+    whole domain wall at once and pay only the two boundary terms plus the forcing
+    interaction — should not care about `D` here at all, because each proposal is a
+    *single* MH decision on one coordinate rather than a joint-coherence event across
+    all `D`.
+    """)
+    return
+
+
 @app.cell
-def sign_ffbs_cell(jax, jnp, logn, random):
+def exp_a1_run(kit_metrics, make_kit_d, make_leaf_sweep, make_seg_mh, np, product_gold, run_chain):
+    _t_len, _p, _n_iter = 48, 16, 2500
+    a1_results = {}
+    for _dim in (2, 8, 16, 30):
+        _model = make_kit_d(_dim)
+        _, _y = _model["simulate"](0, _t_len)
+        _golds = product_gold(_y)
+        _x0 = np.sqrt(np.clip(20.0 * _y, 0.0, None))
+        _row = {}
+        _leaf_plain = make_leaf_sweep(_model, _y, _p, delta=2.0, pflip=0.0)
+        _leaf_flip = make_leaf_sweep(_model, _y, _p, delta=1.0, pflip=0.1)
+        _mh = make_seg_mh(_model, _y, n_props=2 * _dim)
+        for _name, _leaf, _mh_k in (
+            ("amala_z", _leaf_plain, None),
+            ("flip_leaf", _leaf_flip, None),
+            ("amala_z+segMH", _leaf_plain, _mh),
+        ):
+            _chain, _acc = run_chain(_leaf, _mh_k, _x0, _n_iter, seed=5)
+            _m = kit_metrics(_chain[_n_iter // 2 :], _golds)
+            _m["mh_accept"] = _acc
+            _row[_name] = _m
+        a1_results[_dim] = _row
+    return (a1_results,)
+
+
+@app.cell
+def exp_a1_table(a1_results, mo):
+    _lines = [
+        "| D | amala_z (stuck baseline) | flip leaf (per-time) | **amala_z + segMH** |",
+        "|--:|---|---|---|",
+    ]
+    for _d, _row in a1_results.items():
+        _cells = []
+        for _k in ("amala_z", "flip_leaf", "amala_z+segMH"):
+            _m = _row[_k]
+            _cells.append(f"{_m['w1_rel']:.3f} / {_m['sign_err']:.3f}")
+        _acc = _row["amala_z+segMH"]["mh_accept"]
+        _lines.append(f"| {_d} | {_cells[0]} | {_cells[1]} | **{_cells[2]}** (acc {_acc:.2f}) |")
+    mo.md(
+        "**A1 — factorised Kitagawa-D vs the exact product gold** (`W1/σ̄` / sign-error; "
+        "2 500 sweeps, single seed; the sampler_audit §16.2 Modal D-sweep numbers for "
+        "the first two kernels bracket these):\n\n" + "\n".join(_lines)
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def exp_a2_md(mo):
+    mo.md(r"""
+    ### A2. Feeding the sampler
+
+    The A1 table's residual gap at `D ∈ {16, 30}` comes with acceptance ≈ 1–2% and only
+    `2D` proposals per sweep — each of the `T·D` sign variables receives roughly two
+    accepted flips over the entire chain. If the gap is acceptance *starvation* rather
+    than anything structural, multiplying the proposal count (they cost `O(T·D)` each —
+    trivial next to the tree sweep) should close it. Same chains, `20D` proposals per
+    sweep:
+    """)
+    return
+
+
+@app.cell
+def exp_a2_run(kit_metrics, make_kit_d, make_leaf_sweep, make_seg_mh, np, product_gold, run_chain):
+    _t_len, _p, _n_iter = 48, 16, 2500
+    a2_results = {}
+    for _dim in (16, 30):
+        _model = make_kit_d(_dim)
+        _, _y = _model["simulate"](0, _t_len)
+        _golds = product_gold(_y)
+        _x0 = np.sqrt(np.clip(20.0 * _y, 0.0, None))
+        _leaf = make_leaf_sweep(_model, _y, _p, delta=2.0, pflip=0.0)
+        _mh = make_seg_mh(_model, _y, n_props=20 * _dim)
+        _chain, _acc = run_chain(_leaf, _mh, _x0, _n_iter, seed=5)
+        _m = kit_metrics(_chain[_n_iter // 2 :], _golds)
+        _m["mh_accept"] = _acc
+        a2_results[_dim] = _m
+    return (a2_results,)
+
+
+@app.cell
+def exp_a2_table(a1_results, a2_results, mo):
+    _lines = [
+        "| D | 2D proposals/sweep | 20D proposals/sweep |",
+        "|--:|---|---|",
+    ]
+    for _d in (16, 30):
+        _lo = a1_results[_d]["amala_z+segMH"]
+        _hi = a2_results[_d]
+        _lines.append(
+            f"| {_d} | {_lo['w1_rel']:.3f} / {_lo['sign_err']:.3f} "
+            f"(acc {_lo['mh_accept']:.2f}) | "
+            f"**{_hi['w1_rel']:.3f} / {_hi['sign_err']:.3f}** "
+            f"(acc {_hi['mh_accept']:.2f}) |"
+        )
+    mo.md(
+        "**A2 — the starvation test** (`W1/σ̄` / sign-error vs the exact product "
+        "gold):\n\n" + "\n".join(_lines)
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def exp_a3_md(mo):
+    mo.md(r"""
+    ### A3. The exact-cluster limit: sign-path FFBS
+
+    A2 says the binding constraint is window placement. Rather than *adapting* windows
+    (the Swendsen–Wang route), one can go to the limit: in 1-D time, conditioned on the
+    magnitudes, each coordinate's sign path is a **two-state Markov chain**, and its
+    exact conditional is sampled in `O(T)` by discrete forward-filtering
+    backward-sampling. This is the cluster construction with the stochasticity
+    integrated out — perfect windows, no acceptance, no tuning. Composed with the tree
+    sweep (magnitudes local, signs global), it should hit the exact floor at every `D`
+    on the factorised wall.
+    """)
+    return
+
+
+@app.cell
+def sign_path_ffbs(jax, jnp, logn, random):
     def make_sign_ffbs(model, y):
         """EXACT conditional Gibbs on each coordinate's sign path — the limit of
         adaptive windows.
@@ -650,90 +706,60 @@ def sign_ffbs_cell(jax, jnp, logn, random):
     return (make_sign_ffbs,)
 
 
-@app.cell(hide_code=True)
-def exp_a_md(mo):
-    mo.md(r"""
-    ## A. The factorised wall, attacked with segments
-
-    Setup identical to §16's frontier: `T = 48`, `P = 16`, 2 500 sweeps, exact product
-    gold. Three kernels, all through the byte-identical tree:
-
-    - `amala_z` — reference-local paid leaf, no flips (the sign-stuck baseline);
-    - `flip leaf` — the §16 per-time sign-symmetric-auxiliary flip (p = 0.1, the best
-      configuration from the D-sweep);
-    - `amala_z + segMH` — the same plain leaf, composed with `2D` segment sign-flip
-      proposals per sweep (mean window length 8, half of them suffix windows).
-
-    The nucleation hypothesis predicts: per-time flips fail for `D ≥ 16` (confirmed on
-    Modal at scale), while segment moves — which propose the whole domain wall at once
-    and pay only the two boundary terms plus the forcing interaction — should not care
-    about `D` here at all, because each proposal is a *single* MH decision on one
-    coordinate rather than a joint-coherence event across all `D`.
-    """)
-    return
-
-
 @app.cell
-def exp_a_run(kit_metrics, make_kit_d, make_leaf_sweep, make_seg_mh, np, product_gold, run_chain):
+def exp_a3_run(
+    kit_metrics, make_kit_d, make_leaf_sweep, make_sign_ffbs, np, product_gold, run_chain
+):
     _t_len, _p, _n_iter = 48, 16, 2500
-    a_results = {}
+    a3_results = {}
     for _dim in (2, 8, 16, 30):
         _model = make_kit_d(_dim)
         _, _y = _model["simulate"](0, _t_len)
         _golds = product_gold(_y)
         _x0 = np.sqrt(np.clip(20.0 * _y, 0.0, None))
-        _row = {}
-        _leaf_plain = make_leaf_sweep(_model, _y, _p, delta=2.0, pflip=0.0)
-        _leaf_flip = make_leaf_sweep(_model, _y, _p, delta=1.0, pflip=0.1)
-        _mh = make_seg_mh(_model, _y, n_props=2 * _dim)
-        for _name, _leaf, _mh_k in (
-            ("amala_z", _leaf_plain, None),
-            ("flip_leaf", _leaf_flip, None),
-            ("amala_z+segMH", _leaf_plain, _mh),
-        ):
-            _chain, _acc = run_chain(_leaf, _mh_k, _x0, _n_iter, seed=5)
-            _m = kit_metrics(_chain[_n_iter // 2 :], _golds)
-            _m["mh_accept"] = _acc
-            _row[_name] = _m
-        a_results[_dim] = _row
-    return (a_results,)
+        _leaf = make_leaf_sweep(_model, _y, _p, delta=2.0, pflip=0.0)
+        _ffbs = make_sign_ffbs(_model, _y)
+        _chain, _ = run_chain(_leaf, _ffbs, _x0, _n_iter, seed=5)
+        a3_results[_dim] = kit_metrics(_chain[_n_iter // 2 :], _golds)
+    return (a3_results,)
 
 
 @app.cell
-def exp_a_table(a_results, mo):
+def exp_a3_table(a1_results, a2_results, a3_results, mo):
     _lines = [
-        "| D | amala_z (stuck baseline) | flip leaf (per-time) | **amala_z + segMH** |",
+        "| D | segMH (2D props) | segMH (20D props) | **sign-path FFBS** |",
         "|--:|---|---|---|",
     ]
-    for _d, _row in a_results.items():
-        _cells = []
-        for _k in ("amala_z", "flip_leaf", "amala_z+segMH"):
-            _m = _row[_k]
-            _cells.append(f"{_m['w1_rel']:.3f} / {_m['sign_err']:.3f}")
-        _acc = _row["amala_z+segMH"]["mh_accept"]
-        _lines.append(f"| {_d} | {_cells[0]} | {_cells[1]} | **{_cells[2]}** (acc {_acc:.2f}) |")
+    for _d in (2, 8, 16, 30):
+        _seg = a1_results[_d]["amala_z+segMH"]
+        _seg20 = a2_results.get(_d)
+        _f = a3_results[_d]
+        _mid = f"{_seg20['w1_rel']:.3f} / {_seg20['sign_err']:.3f}" if _seg20 else "—"
+        _lines.append(
+            f"| {_d} | {_seg['w1_rel']:.3f} / {_seg['sign_err']:.3f} | {_mid} | "
+            f"**{_f['w1_rel']:.3f} / {_f['sign_err']:.3f}** |"
+        )
     mo.md(
-        "**Factorised Kitagawa-D vs the exact product gold** — `W1/σ̄` / sign-error "
-        "(2 500 sweeps, single seed; the Modal D-sweep numbers for the first two "
-        "kernels bracket these):\n\n" + "\n".join(_lines)
+        "**A3 — the exact-cluster limit vs the windowed approximations** "
+        "(`W1/σ̄` / sign-error vs the exact product gold, same budget):\n\n" + "\n".join(_lines)
     )
     return
 
 
 @app.cell
-def exp_a_fig(a4_results, a_results, mo, palette, plt):
-    _ds = sorted(a_results)
+def exp_a3_fig(a1_results, a3_results, mo, palette, plt):
+    _ds = sorted(a1_results)
     _fig, _ax = plt.subplots(figsize=(7.2, 4.2))
     for _k, _label, _c in (
         ("amala_z", "amala_z (reference-local)", palette["state"]),
         ("flip_leaf", "per-time flip leaf", palette["obs"]),
         ("amala_z+segMH", "amala_z + segment MH", palette["belief"]),
     ):
-        _v = [a_results[_d][_k]["sign_err"] for _d in _ds]
+        _v = [a1_results[_d][_k]["sign_err"] for _d in _ds]
         _ax.plot(_ds, _v, "o-", color=_c, lw=2.0, ms=6, label=_label)
     _ax.plot(
         _ds,
-        [a4_results[_d]["sign_err"] for _d in _ds],
+        [a3_results[_d]["sign_err"] for _d in _ds],
         "o-",
         color=palette["ink"],
         lw=2.0,
@@ -760,274 +786,16 @@ def exp_a_fig(a4_results, a_results, mo, palette, plt):
 
 
 @app.cell(hide_code=True)
-def exp_a3_md(mo):
-    mo.md(r"""
-    ### A3. Feeding the sampler
-
-    The A-table's residual gap at `D ∈ {16, 30}` comes with acceptance ≈ 1–2% and only
-    `2D` proposals per sweep — each of the `T·D` sign variables receives roughly two
-    accepted flips over the entire chain. If the gap is acceptance *starvation* rather
-    than anything structural, multiplying the proposal count (they cost `O(T·D)` each —
-    trivial next to the tree sweep) should close it. Same chains, `20D` proposals per
-    sweep:
-    """)
-    return
-
-
-@app.cell
-def exp_a3_run(kit_metrics, make_kit_d, make_leaf_sweep, make_seg_mh, np, product_gold, run_chain):
-    _t_len, _p, _n_iter = 48, 16, 2500
-    a3_results = {}
-    for _dim in (16, 30):
-        _model = make_kit_d(_dim)
-        _, _y = _model["simulate"](0, _t_len)
-        _golds = product_gold(_y)
-        _x0 = np.sqrt(np.clip(20.0 * _y, 0.0, None))
-        _leaf = make_leaf_sweep(_model, _y, _p, delta=2.0, pflip=0.0)
-        _mh = make_seg_mh(_model, _y, n_props=20 * _dim)
-        _chain, _acc = run_chain(_leaf, _mh, _x0, _n_iter, seed=5)
-        _m = kit_metrics(_chain[_n_iter // 2 :], _golds)
-        _m["mh_accept"] = _acc
-        a3_results[_dim] = _m
-    return (a3_results,)
-
-
-@app.cell
-def exp_a3_table(a3_results, a_results, mo):
-    _lines = [
-        "| D | 2D proposals/sweep | 20D proposals/sweep |",
-        "|--:|---|---|",
-    ]
-    for _d in (16, 30):
-        _lo = a_results[_d]["amala_z+segMH"]
-        _hi = a3_results[_d]
-        _lines.append(
-            f"| {_d} | {_lo['w1_rel']:.3f} / {_lo['sign_err']:.3f} "
-            f"(acc {_lo['mh_accept']:.2f}) | "
-            f"**{_hi['w1_rel']:.3f} / {_hi['sign_err']:.3f}** "
-            f"(acc {_hi['mh_accept']:.2f}) |"
-        )
-    mo.md(
-        "**A3 — the starvation test** (`W1/σ̄` / sign-error vs the exact product "
-        "gold):\n\n" + "\n".join(_lines)
-    )
-    return
-
-
-@app.cell(hide_code=True)
 def exp_a4_md(mo):
     mo.md(r"""
-    ### A4. The exact-cluster limit: sign-path FFBS
-
-    A3 says the binding constraint is window placement. Rather than *adapting* windows
-    (the Swendsen–Wang route), one can go to the limit: in 1-D time, conditioned on the
-    magnitudes, each coordinate's sign path is a **two-state Markov chain**, and its
-    exact conditional is sampled in `O(T)` by discrete forward-filtering
-    backward-sampling. This is the cluster construction with the stochasticity
-    integrated out — perfect windows, no acceptance, no tuning. Composed with the tree
-    sweep (magnitudes local, signs global), it should hit the exact floor at every `D`
-    on the factorised wall.
-    """)
-    return
-
-
-@app.cell
-def exp_a4_run(
-    kit_metrics, make_kit_d, make_leaf_sweep, make_sign_ffbs, np, product_gold, run_chain
-):
-    _t_len, _p, _n_iter = 48, 16, 2500
-    a4_results = {}
-    for _dim in (2, 8, 16, 30):
-        _model = make_kit_d(_dim)
-        _, _y = _model["simulate"](0, _t_len)
-        _golds = product_gold(_y)
-        _x0 = np.sqrt(np.clip(20.0 * _y, 0.0, None))
-        _leaf = make_leaf_sweep(_model, _y, _p, delta=2.0, pflip=0.0)
-        _ffbs = make_sign_ffbs(_model, _y)
-        _chain, _ = run_chain(_leaf, _ffbs, _x0, _n_iter, seed=5)
-        a4_results[_dim] = kit_metrics(_chain[_n_iter // 2 :], _golds)
-    return (a4_results,)
-
-
-@app.cell
-def exp_a4_table(a3_results, a4_results, a_results, mo):
-    _lines = [
-        "| D | segMH (2D props) | segMH (20D props) | **sign-path FFBS** |",
-        "|--:|---|---|---|",
-    ]
-    for _d in (2, 8, 16, 30):
-        _seg = a_results[_d]["amala_z+segMH"]
-        _seg20 = a3_results.get(_d)
-        _f = a4_results[_d]
-        _mid = f"{_seg20['w1_rel']:.3f} / {_seg20['sign_err']:.3f}" if _seg20 else "—"
-        _lines.append(
-            f"| {_d} | {_seg['w1_rel']:.3f} / {_seg['sign_err']:.3f} | {_mid} | "
-            f"**{_f['w1_rel']:.3f} / {_f['sign_err']:.3f}** |"
-        )
-    mo.md(
-        "**A4 — the exact-cluster limit vs the windowed approximations** "
-        "(`W1/σ̄` / sign-error vs the exact product gold, same budget):\n\n" + "\n".join(_lines)
-    )
-    return
-
-
-@app.cell
-def coord_leaf_cell(jnp, logn, make_tree, random):
-    def make_coord_leaf_sweep(model, y, p, delta=2.0):
-        """Coordinate-conditional tree sweep: each sweep picks ONE random coordinate d
-        and proposes amala-z candidates for that coordinate only (all other
-        coordinates copied from the reference into every particle).
-
-        Every particle then differs from the reference in a single coordinate, so the
-        stitch never faces the exponential-in-D joint-coherence lottery — it is cSMC
-        on the coordinate-d conditional sub-model, with the full-transition seams
-        automatically pricing every cross-coordinate coupling term. Random-scan over
-        coordinates is pi-invariant; at kappa = 0 each sweep is exactly the D = 1
-        kernel for its coordinate. The price: one sweep advances one coordinate, so
-        chains need ~D x more sweeps for the same per-coordinate update count."""
-        y_j = jnp.asarray(y)
-        t_len, dim = y.shape
-        tau = 0.5 * delta
-        sig_v2, init_var = model["sig_v"] ** 2, model["init_sd"] ** 2
-        drift = model["drift"]
-
-        def seam_pair(prev, nxt, seam):
-            mm = drift(seam, prev)
-            lp = jnp.sum(logn(nxt[None, :, :], mm[:, None, :], sig_v2), axis=-1)
-            return jnp.where(seam < t_len, lp, 0.0)
-
-        def seam_sel(prev, nxt, seam):
-            mm = drift(seam, prev)
-            lp = jnp.sum(logn(nxt, mm, sig_v2), axis=-1)
-            return jnp.where(seam < t_len, lp, 0.0)
-
-        smooth = make_tree(t_len, p, dim, seam_pair, seam_sel)
-
-        def sweep(x_ref, key):
-            kd, kz, kt = random.split(key, 3)
-            d = random.randint(kd, (), 0, dim)
-            z = x_ref[:, d] + jnp.sqrt(tau) * random.normal(kz, (t_len,))
-            center = z + tau * model["obs_grad_1d"](z, y_j[:, d])  # (T,)
-
-            def leaf(t, k):
-                free = center[t] + jnp.sqrt(tau) * random.normal(k, (p - 1,))
-                parts = jnp.broadcast_to(x_ref[t], (p, dim))
-                parts = parts.at[1:, d].set(free)
-                psi = (
-                    model["log_obs"](parts, y_j[t])
-                    + logn(z[t], parts[:, d], tau)
-                    - logn(parts[:, d], center[t], tau)
-                )
-                psi = jnp.where(t == 0, psi + jnp.sum(logn(parts, 0.0, init_var), -1), psi)
-                return parts, psi[:, None]
-
-            return smooth(kt, leaf)
-
-        return sweep
-
-    return (make_coord_leaf_sweep,)
-
-
-@app.cell
-def branch_ffbs_cell(jax, jnp, logn, random):
-    def make_branch_ffbs(model, y, include_jacobian=True):
-        """Branch-path FFBS for a GENERAL two-branch emission fold.
-
-        Parameterise trajectories by (canonical branch representative, branch path s):
-        r_t = branch_rep(x_t) is the positive preimage of the emission level and
-        z_t(1) = branch_mirror(r_t) the other one. The conditional of s given the
-        representatives is a two-state chain whose weights carry the change-of-
-        variables factor |d branch_mirror / d r| per mirrored site — the Jacobian
-        SITE term. With it, sampling s by FFBS is an exact Gibbs step on the discrete
-        component (the sign-symmetric case is beta = 0 with log-Jacobian 0);
-        include_jacobian=False is the deliberate NEGATIVE CONTROL showing the
-        correction is load-bearing."""
-        y_j = jnp.asarray(y)
-        t_len, dim = y.shape
-        sig_v2, init_var = model["sig_v"] ** 2, model["init_sd"] ** 2
-        drift = model["drift"]
-        t_arr = jnp.arange(1, t_len)
-        log_jac = model["branch_log_jac"] if include_jacobian else 0.0
-
-        def sweep(x, key):
-            def per_coord(x_cur, inp):
-                d, kd = inp
-                r_d = model["branch_rep"](x_cur[:, d])
-                xp = x_cur.at[:, d].set(r_d)
-                xm = x_cur.at[:, d].set(model["branch_mirror"](r_d))
-                mu_p = drift(t_arr[:, None], xp[:-1])
-                mu_m = drift(t_arr[:, None], xm[:-1])
-
-                def tl(xt, mu):
-                    return jnp.sum(logn(xt, mu, sig_v2), axis=-1)
-
-                lp = jnp.stack(
-                    [
-                        jnp.stack([tl(xm[1:], mu_m), tl(xp[1:], mu_m)], axis=-1),
-                        jnp.stack([tl(xm[1:], mu_p), tl(xp[1:], mu_p)], axis=-1),
-                    ],
-                    axis=-2,
-                )  # (T-1, s_prev, s_cur) with s = 1 the canonical branch
-                e = jnp.stack(
-                    [
-                        jax.vmap(model["log_obs"])(xm, y_j) + log_jac,
-                        jax.vmap(model["log_obs"])(xp, y_j),
-                    ],
-                    axis=-1,
-                )  # (T, 2)
-                alpha0 = (
-                    jnp.stack(
-                        [
-                            jnp.sum(logn(xm[0], 0.0, init_var)),
-                            jnp.sum(logn(xp[0], 0.0, init_var)),
-                        ]
-                    )
-                    + e[0]
-                )
-
-                def fstep(alpha, inp2):
-                    lp_t, e_t = inp2
-                    a_new = e_t + jax.scipy.special.logsumexp(alpha[:, None] + lp_t, axis=0)
-                    return a_new, a_new
-
-                alpha_last, alphas = jax.lax.scan(fstep, alpha0, (lp, e[1:]))
-                alphas_all = jnp.concatenate([alpha0[None], alphas[:-1]], axis=0)
-                k_last, k_back = random.split(kd)
-                s_last = random.categorical(k_last, alpha_last)
-
-                def bstep(s_next, inp2):
-                    alpha_t, lp_t, k_t = inp2
-                    s_t = random.categorical(k_t, alpha_t + lp_t[:, s_next])
-                    return s_t, s_t
-
-                keys_b = random.split(k_back, t_len - 1)
-                _, s_rev = jax.lax.scan(
-                    bstep, s_last, (jnp.flip(alphas_all, 0), jnp.flip(lp, 0), keys_b)
-                )
-                s = jnp.concatenate([jnp.flip(s_rev), s_last[None]])
-                x_out = x_cur.at[:, d].set(jnp.where(s == 1, r_d, model["branch_mirror"](r_d)))
-                return x_out, None
-
-            keys = random.split(key, dim)
-            x_new, _ = jax.lax.scan(per_coord, x, (jnp.arange(dim), keys))
-            return x_new, jnp.asarray(1.0)
-
-        return sweep
-
-    return (make_branch_ffbs,)
-
-
-@app.cell(hide_code=True)
-def exp_a5_md(mo):
-    mo.md(r"""
-    ### A5. What the shared plateau is
+    ### A4. What the shared plateau is
 
     At `D ∈ {16, 30}` the three sign kernels — including the *exact* conditional
     FFBS — land on numerically identical residuals. An exact sign sampler cannot be
     beaten by an approximate one, so signs are no longer the bottleneck; the common
     plateau must be the remaining shared component: **the magnitude path through the
-    tree sweep**, the ordinary unimodal high-D slowness measured in §16 (`amala_z`
-    ESS/sweep ≈ 0.0025 at `D = 30`). Two readings are possible: slow-but-moving
+    tree sweep**, the ordinary unimodal high-D slowness measured in sampler_audit §16.1
+    (`amala_z` ESS/sweep ≈ 0.0025 at `D = 30`). Two readings are possible: slow-but-moving
     magnitudes (the residual is Monte-Carlo error and shrinks with chain length by the
     √-law) or effectively *frozen* magnitudes (the sign chain keeps seeing the same
     distorted wall costs — inflated small magnitudes from the `√(20 y⁺)` init at
@@ -1038,8 +806,8 @@ def exp_a5_md(mo):
 
 
 @app.cell
-def exp_a5_run(
-    a4_results,
+def exp_a4_run(
+    a3_results,
     kit_metrics,
     make_kit_d,
     make_leaf_sweep,
@@ -1058,9 +826,9 @@ def exp_a5_run(
     _ffbs = make_sign_ffbs(_model, _y)
     _chain, _ = run_chain(_leaf, _ffbs, _x0, _n_iter, seed=5)
     _m10k = kit_metrics(_chain[_n_iter // 2 :], _golds)
-    _m25 = a4_results[30]
+    _m25 = a3_results[30]
     mo.md(
-        "**A5 — the discrimination** (D = 30, sign-path FFBS): "
+        "**A4 — the discrimination** (D = 30, sign-path FFBS): "
         f"2 500 sweeps → `W1/σ̄` {_m25['w1_rel']:.3f} / sign-error "
         f"{_m25['sign_err']:.3f}; **10 000 sweeps → {_m10k['w1_rel']:.3f} / "
         f"{_m10k['sign_err']:.3f}**, against a √-law prediction of "
@@ -1088,21 +856,20 @@ def exp_b_md(mo):
       from the full trajectory density, so coupling terms — including the effect of a
       coordinate-d flip on the *other* coordinates' transition densities — enter
       exactly. The kernel must stay exact.
-    - **B2 (directional, no gold).** The same coupled model at `D = 30`: three seeds of
-      tree + segMH, checked for cross-seed agreement of the per-(t, d) sign
-      probabilities — the honest, gold-free probe of whether segment moves keep mixing
-      signs when flips in one coordinate re-price every other coordinate's transitions.
+    - **B2 (directional, no gold).** The same coupled model at `D = 30`: three seeds
+      each of tree + segMH and tree + sign-path FFBS, checked for cross-seed agreement
+      of the per-(t, d) sign probabilities — the honest, gold-free probe of whether
+      sign moves keep mixing when flips in one coordinate re-price every other
+      coordinate's transitions.
     """)
     return
 
 
 @app.cell
-def gold_2d_cell(KIT_INIT_SD, KIT_SIG_V, np):
+def joint_2d_gold(KIT_INIT_SD, KIT_SIG_V, jnp, np):
     def joint_gold_2d(model, y, n_grid=71, lo=-26.0, hi=26.0):
         """Joint 2-D grid smoother for the coupled model; returns per-coordinate
         marginal summaries in the same format as the product gold."""
-        import jax.numpy as jnp
-
         t_len = y.shape[0]
         xs = np.linspace(lo, hi, n_grid)
         g1, g2 = np.meshgrid(xs, xs, indexing="ij")
@@ -1258,22 +1025,81 @@ def exp_c_md(mo):
     mo.md(r"""
     ## C. Closing the loop: unfreeze the magnitudes
 
-    A5 localised the plateau in the magnitude engine. Two levers, both from first
+    A4 localised the plateau in the magnitude engine. Two levers, both from first
     principles:
 
-    - **Width** (`P = 64`): §16's width-axis result — tree kernels convert particles
-      into mixing, because extra candidates dilute reference retention at every
-      stitch. A blunt lever: the joint leaf still asks all `D` coordinates to be
-      coherent at once.
+    - **Width** (`P = 64`): sampler_audit §12.3's width-axis result — tree kernels
+      convert particles into mixing, because extra candidates dilute reference
+      retention at every stitch. A blunt lever: the joint leaf still asks all `D`
+      coordinates to be coherent at once.
     - **Coordinate-conditional sweeps** (`P = 16`): one random coordinate per sweep
       through the same tree with full seams. This removes the joint-coherence lottery
       entirely — at κ = 0 each sweep *is* the `D = 1` kernel, which sits at the gold
       floor — at the price of needing ~`D`× more sweeps to service every coordinate
       equally.
 
-    Both compose with sign-path FFBS exactly as before.
+    Both compose with sign-path FFBS exactly as before. C1 scores both levers on the
+    factorised `D = 30` wall against the exact product gold; C2 repeats B2's gold-free
+    cross-seed check with the coordinate-conditional engine.
     """)
     return
+
+
+@app.cell
+def coord_conditional_sweep(jnp, logn, make_tree, random):
+    def make_coord_leaf_sweep(model, y, p, delta=2.0):
+        """Coordinate-conditional tree sweep: each sweep picks ONE random coordinate d
+        and proposes amala-z candidates for that coordinate only (all other
+        coordinates copied from the reference into every particle).
+
+        Every particle then differs from the reference in a single coordinate, so the
+        stitch never faces the exponential-in-D joint-coherence lottery — it is cSMC
+        on the coordinate-d conditional sub-model, with the full-transition seams
+        automatically pricing every cross-coordinate coupling term. Random-scan over
+        coordinates is pi-invariant; at kappa = 0 each sweep is exactly the D = 1
+        kernel for its coordinate. The price: one sweep advances one coordinate, so
+        chains need ~D x more sweeps for the same per-coordinate update count."""
+        y_j = jnp.asarray(y)
+        t_len, dim = y.shape
+        tau = 0.5 * delta
+        sig_v2, init_var = model["sig_v"] ** 2, model["init_sd"] ** 2
+        drift = model["drift"]
+
+        def seam_pair(prev, nxt, seam):
+            mm = drift(seam, prev)
+            lp = jnp.sum(logn(nxt[None, :, :], mm[:, None, :], sig_v2), axis=-1)
+            return jnp.where(seam < t_len, lp, 0.0)
+
+        def seam_sel(prev, nxt, seam):
+            mm = drift(seam, prev)
+            lp = jnp.sum(logn(nxt, mm, sig_v2), axis=-1)
+            return jnp.where(seam < t_len, lp, 0.0)
+
+        smooth = make_tree(t_len, p, dim, seam_pair, seam_sel)
+
+        def sweep(x_ref, key):
+            kd, kz, kt = random.split(key, 3)
+            d = random.randint(kd, (), 0, dim)
+            z = x_ref[:, d] + jnp.sqrt(tau) * random.normal(kz, (t_len,))
+            center = z + tau * model["obs_grad_1d"](z, y_j[:, d])  # (T,)
+
+            def leaf(t, k):
+                free = center[t] + jnp.sqrt(tau) * random.normal(k, (p - 1,))
+                parts = jnp.broadcast_to(x_ref[t], (p, dim))
+                parts = parts.at[1:, d].set(free)
+                psi = (
+                    model["log_obs"](parts, y_j[t])
+                    + logn(z[t], parts[:, d], tau)
+                    - logn(parts[:, d], center[t], tau)
+                )
+                psi = jnp.where(t == 0, psi + jnp.sum(logn(parts, 0.0, init_var), -1), psi)
+                return parts, psi[:, None]
+
+            return smooth(kt, leaf)
+
+        return sweep
+
+    return (make_coord_leaf_sweep,)
 
 
 @app.cell
@@ -1306,12 +1132,12 @@ def exp_c1_run(
 
 
 @app.cell
-def exp_c1_table(a4_results, c1_results, mo):
-    _base = a4_results[30]
+def exp_c1_table(a3_results, c1_results, mo):
+    _base = a3_results[30]
     _lines = [
         "| magnitude engine (all + sign-path FFBS) | W1/σ̄ | sign error |",
         "|---|--:|--:|",
-        f"| joint P=16, 2.5k sweeps (A4 baseline) | {_base['w1_rel']:.3f} "
+        f"| joint P=16, 2.5k sweeps (A3 baseline) | {_base['w1_rel']:.3f} "
         f"| {_base['sign_err']:.3f} |",
     ]
     for _name, _m in c1_results.items():
@@ -1385,6 +1211,202 @@ def exp_d_md(mo):
 
 
 @app.cell
+def asymmetric_fold_model(KIT_INIT_SD, KIT_SIG_V, KIT_SIG_W, jnp, np):
+    # ASYMMETRIC fold: same Kitagawa dynamics, emission y = h(x) + N(0,1) with
+    #   h(x) = (1 + beta*sign(x)) * |x| / 3
+    # Two preimages per level with DIFFERENT slopes: the mirror map
+    # rho(x) = -x (1+beta)/(1-beta) (from the + branch) has non-unit Jacobian
+    # (1+beta)/(1-beta), and the mode locations are asymmetric. beta = 0 recovers the
+    # symmetric |x| fold. This is the test bed for the branch-path FFBS with the
+    # Jacobian correction.
+    def make_fold_d(dim, beta):
+        def drift(t, x):
+            return 0.5 * x + 25.0 * x / (1.0 + x**2) + 8.0 * jnp.cos(1.2 * t)
+
+        def h_fn(x):
+            return (1.0 + beta * jnp.sign(x)) * jnp.abs(x) / 3.0
+
+        def log_obs(x, y):
+            return jnp.sum(
+                -0.5 * (jnp.log(2.0 * jnp.pi * KIT_SIG_W**2) + (y - h_fn(x)) ** 2), axis=-1
+            )
+
+        def obs_grad_1d(z, y_col):
+            hp = jnp.sign(z) * (1.0 + beta * jnp.sign(z)) / 3.0
+            return (y_col - h_fn(z)) * hp
+
+        def branch_rep(v):  # canonical (positive) preimage of h(v)
+            return jnp.where(v >= 0, v, -v * (1.0 - beta) / (1.0 + beta))
+
+        def branch_mirror(r):  # the negative preimage at the same level
+            return -r * (1.0 + beta) / (1.0 - beta)
+
+        def simulate(seed, t_len):
+            rng = np.random.default_rng(seed)
+            x = np.zeros((t_len, dim))
+            x[0] = KIT_INIT_SD * rng.standard_normal(dim)
+            for t in range(1, t_len):
+                x[t] = np.asarray(drift(t, jnp.asarray(x[t - 1]))) + KIT_SIG_V * (
+                    rng.standard_normal(dim)
+                )
+            y = np.asarray(h_fn(jnp.asarray(x))) + KIT_SIG_W * rng.standard_normal((t_len, dim))
+            return x, y
+
+        return dict(
+            drift=drift,
+            log_obs=log_obs,
+            obs_grad_1d=obs_grad_1d,
+            branch_rep=branch_rep,
+            branch_mirror=branch_mirror,
+            branch_log_jac=float(np.log((1.0 + beta) / (1.0 - beta))),
+            simulate=simulate,
+            sig_v=KIT_SIG_V,
+            sig_w=KIT_SIG_W,
+            init_sd=KIT_INIT_SD,
+        )
+
+    return (make_fold_d,)
+
+
+@app.cell
+def fold_product_gold(KIT_INIT_SD, KIT_SIG_V, KIT_SIG_W, np):
+    # Exact per-coordinate grid gold for the fold model (uncoupled, so its posterior
+    # factorises over coordinates).
+    def _grid_1d_fold(y_d, beta, n_grid=601, lo=-32.0, hi=32.0):
+        t_len = len(y_d)
+        xs = np.linspace(lo, hi, n_grid)
+
+        def _logn(v, mu, sd):
+            return -0.5 * (np.log(2.0 * np.pi * sd**2) + ((v - mu) ** 2) / sd**2)
+
+        def _drift(t, x):
+            return 0.5 * x + 25.0 * x / (1.0 + x**2) + 8.0 * np.cos(1.2 * t)
+
+        h_xs = (1.0 + beta * np.sign(xs)) * np.abs(xs) / 3.0
+        log_obs = _logn(y_d[:, None], h_xs[None, :], KIT_SIG_W)
+        log_alpha = np.zeros((t_len, n_grid))
+        log_alpha[0] = _logn(xs, 0.0, KIT_INIT_SD) + log_obs[0]
+        for t in range(1, t_len):
+            lt = _logn(xs[None, :], _drift(t, xs)[:, None], KIT_SIG_V)
+            a = log_alpha[t - 1]
+            m = a.max()
+            log_alpha[t] = np.log(np.exp(a - m) @ np.exp(lt) + 1e-300) + m + log_obs[t]
+        log_beta = np.zeros((t_len, n_grid))
+        for t in range(t_len - 2, -1, -1):
+            lt = _logn(xs[None, :], _drift(t + 1, xs)[:, None], KIT_SIG_V)
+            b = log_beta[t + 1] + log_obs[t + 1]
+            m = b.max()
+            log_beta[t] = np.log(np.exp(lt) @ np.exp(b - m) + 1e-300) + m
+        g = np.exp((log_alpha + log_beta) - (log_alpha + log_beta).max(1, keepdims=True))
+        g /= g.sum(1, keepdims=True)
+        mean = (g * xs[None, :]).sum(1)
+        sd = np.sqrt((g * (xs[None, :] - mean[:, None]) ** 2).sum(1))
+        return {
+            "xs": xs,
+            "dx": xs[1] - xs[0],
+            "cdf": np.cumsum(g, 1),
+            "p_pos": g[:, xs > 0].sum(1),
+            "sd": sd,
+        }
+
+    def product_gold_fold(y, beta):
+        return [
+            _grid_1d_fold(np.asarray(y[:, d], dtype=np.float64), beta) for d in range(y.shape[1])
+        ]
+
+    return (product_gold_fold,)
+
+
+@app.cell
+def branch_path_ffbs(jax, jnp, logn, random):
+    def make_branch_ffbs(model, y, include_jacobian=True):
+        """Branch-path FFBS for a GENERAL two-branch emission fold.
+
+        Parameterise trajectories by (canonical branch representative, branch path s):
+        r_t = branch_rep(x_t) is the positive preimage of the emission level and
+        z_t(1) = branch_mirror(r_t) the other one. The conditional of s given the
+        representatives is a two-state chain whose weights carry the change-of-
+        variables factor |d branch_mirror / d r| per mirrored site — the Jacobian
+        SITE term. With it, sampling s by FFBS is an exact Gibbs step on the discrete
+        component (the sign-symmetric case is beta = 0 with log-Jacobian 0);
+        include_jacobian=False is the deliberate NEGATIVE CONTROL showing the
+        correction is load-bearing."""
+        y_j = jnp.asarray(y)
+        t_len, dim = y.shape
+        sig_v2, init_var = model["sig_v"] ** 2, model["init_sd"] ** 2
+        drift = model["drift"]
+        t_arr = jnp.arange(1, t_len)
+        log_jac = model["branch_log_jac"] if include_jacobian else 0.0
+
+        def sweep(x, key):
+            def per_coord(x_cur, inp):
+                d, kd = inp
+                r_d = model["branch_rep"](x_cur[:, d])
+                xp = x_cur.at[:, d].set(r_d)
+                xm = x_cur.at[:, d].set(model["branch_mirror"](r_d))
+                mu_p = drift(t_arr[:, None], xp[:-1])
+                mu_m = drift(t_arr[:, None], xm[:-1])
+
+                def tl(xt, mu):
+                    return jnp.sum(logn(xt, mu, sig_v2), axis=-1)
+
+                lp = jnp.stack(
+                    [
+                        jnp.stack([tl(xm[1:], mu_m), tl(xp[1:], mu_m)], axis=-1),
+                        jnp.stack([tl(xm[1:], mu_p), tl(xp[1:], mu_p)], axis=-1),
+                    ],
+                    axis=-2,
+                )  # (T-1, s_prev, s_cur) with s = 1 the canonical branch
+                e = jnp.stack(
+                    [
+                        jax.vmap(model["log_obs"])(xm, y_j) + log_jac,
+                        jax.vmap(model["log_obs"])(xp, y_j),
+                    ],
+                    axis=-1,
+                )  # (T, 2)
+                alpha0 = (
+                    jnp.stack(
+                        [
+                            jnp.sum(logn(xm[0], 0.0, init_var)),
+                            jnp.sum(logn(xp[0], 0.0, init_var)),
+                        ]
+                    )
+                    + e[0]
+                )
+
+                def fstep(alpha, inp2):
+                    lp_t, e_t = inp2
+                    a_new = e_t + jax.scipy.special.logsumexp(alpha[:, None] + lp_t, axis=0)
+                    return a_new, a_new
+
+                alpha_last, alphas = jax.lax.scan(fstep, alpha0, (lp, e[1:]))
+                alphas_all = jnp.concatenate([alpha0[None], alphas[:-1]], axis=0)
+                k_last, k_back = random.split(kd)
+                s_last = random.categorical(k_last, alpha_last)
+
+                def bstep(s_next, inp2):
+                    alpha_t, lp_t, k_t = inp2
+                    s_t = random.categorical(k_t, alpha_t + lp_t[:, s_next])
+                    return s_t, s_t
+
+                keys_b = random.split(k_back, t_len - 1)
+                _, s_rev = jax.lax.scan(
+                    bstep, s_last, (jnp.flip(alphas_all, 0), jnp.flip(lp, 0), keys_b)
+                )
+                s = jnp.concatenate([jnp.flip(s_rev), s_last[None]])
+                x_out = x_cur.at[:, d].set(jnp.where(s == 1, r_d, model["branch_mirror"](r_d)))
+                return x_out, None
+
+            keys = random.split(key, dim)
+            x_new, _ = jax.lax.scan(per_coord, x, (jnp.arange(dim), keys))
+            return x_new, jnp.asarray(1.0)
+
+        return sweep
+
+    return (make_branch_ffbs,)
+
+
+@app.cell
 def exp_d_run(
     kit_metrics,
     make_branch_ffbs,
@@ -1434,19 +1456,20 @@ def exp_d_table(d_results, mo):
 @app.cell(hide_code=True)
 def exp_e_md(mo):
     mo.md(r"""
-    ## E. Six low-hanging fruits
+    ## E. Six extensions of the composed kernel
 
     With the loop closed, six cheap extensions — each one cell, each with its own
-    exact check. E1 reunites the §15 1-D leaf toolbox with the any-D engine; E2 is the
-    production-shaped factor-sign flip; E3 makes the sign pass parallel-in-time; E4
-    finds the optimal coordinate-block size; E5 removes the δ tuning surface; E6
-    generalises the branch chain to folds with more than two preimages.
+    exact check. E1 reunites the sampler_audit §15 1-D leaf toolbox with the any-D
+    engine; E2 is the production-shaped factor-sign flip; E3 makes the sign pass
+    parallel-in-time; E4 finds the optimal coordinate-block size; E5 removes the δ
+    tuning surface; E6 generalises the branch chain to folds with more than two
+    preimages.
     """)
     return
 
 
 @app.cell
-def block_leaf_cell(jax, jnp, logn, make_tree, np, random):
+def block_coord_sweep(jax, jnp, logn, make_tree, np, random):
     def make_block_leaf_sweep(model, y, p, k):
         """Block-k coordinate-conditional amala-z tree sweep (k = 1 is the C engine;
         k = D is the joint sweep). tau is a traced argument so E5 can adapt it."""
@@ -1507,7 +1530,7 @@ def block_leaf_cell(jax, jnp, logn, make_tree, np, random):
 
 
 @app.cell
-def mbranch_cell(jax, jnp, logn, random):
+def multi_branch_ffbs(jax, jnp, logn, random):
     def make_mbranch_ffbs(model, y, branch_values):
         """m-state branch-path FFBS: branch_values(v_col) -> (candidates (m, T),
         valid mask (m, T), per-branch log-Jacobians (m,)). Invalid branches (folds
@@ -1574,12 +1597,13 @@ def mbranch_cell(jax, jnp, logn, random):
 
 
 @app.cell
-def coord_root_cell(jax, jnp, logn, make_tree, np, random):
+def coord_root_leaf_sweep(jax, jnp, logn, make_tree, np, random):
     def make_coord_root_sweep(model, y, p, root_sd=2.5, w_root=0.45, inflate=3.0):
-        """E1: the coordinate-conditional engine with the §15 1-D twisted-ROOT leaf —
-        fixed per-coordinate mixture at both emission roots plus a damped-Laplace
-        pilot. Independence leaves die in JOINT D but each sweep here is a D = 1
-        problem, where they were best-in-class. tau argument ignored (fixed leaf)."""
+        """E1: the coordinate-conditional engine with sampler_audit §15's 1-D
+        twisted-ROOT leaf — fixed per-coordinate mixture at both emission roots plus a
+        damped-Laplace pilot. Independence leaves die in JOINT D but each sweep here is
+        a D = 1 problem, where they were best-in-class. tau argument ignored (fixed
+        leaf)."""
         y_j = jnp.asarray(y)
         t_len, dim = y.shape
         sig_v2, init_var = model["sig_v"] ** 2, model["init_sd"] ** 2
@@ -1737,10 +1761,11 @@ def exp_e1_table(e1_results, mo):
     for _n, _m in e1_results.items():
         _lines.append(f"| {_n} | {_m['w1_rel']:.3f} | {_m['sign_err']:.3f} |")
     mo.md(
-        "**E1 — the §15 toolbox transfers per coordinate.** The 1-D twisted-root leaf "
-        "(which dies in joint D) is best-in-class inside the coordinate-conditional "
-        "engine — its independence is safe again because each sweep is a D = 1 "
-        "problem, and its root components do the sign moves themselves:\n\n" + "\n".join(_lines)
+        "**E1 — the sampler_audit §15 toolbox transfers per coordinate.** The 1-D "
+        "twisted-root leaf (which dies in joint D) is best-in-class inside the "
+        "coordinate-conditional engine — its independence is safe again because each "
+        "sweep is a D = 1 problem, and its root components do the sign moves "
+        "themselves:\n\n" + "\n".join(_lines)
     )
     return
 
@@ -1925,7 +1950,11 @@ def exp_e3_run(jax, jnp, random):
         _s_par, _a_par = _par_path(_alpha0, _lp, _e, _u_last, _us)
         _max_diff = max(_max_diff, float(jnp.max(jnp.abs(_a_seq - _a_par))))
         _n_ok += int(jnp.all(_s_seq == _s_par))
-    e3_results = {"match_rate": _n_ok / _n_trials, "max_alpha_diff": _max_diff}
+    e3_results = {
+        "n_trials": _n_trials,
+        "match_rate": _n_ok / _n_trials,
+        "max_alpha_diff": _max_diff,
+    }
     return (e3_results,)
 
 
@@ -1933,12 +1962,12 @@ def exp_e3_run(jax, jnp, random):
 def exp_e3_table(e3_results, mo):
     mo.md(
         "**E3 — the sign pass is parallel-in-time.** Over "
-        f"{300} random two-state chains, the associative-scan FFBS reproduces the "
-        f"sequential scan with path match rate **{e3_results['match_rate']:.3f}** and "
-        f"forward-message max deviation {e3_results['max_alpha_diff']:.1e}. Both "
-        "passes are `associative_scan`s (2×2 log-matrix products forward; composition "
-        "of random threshold maps backward), so the composed kernel's sequential "
-        "depth returns to `O(log T)` end to end."
+        f"{e3_results['n_trials']} random two-state chains, the associative-scan FFBS "
+        "reproduces the sequential scan with path match rate "
+        f"**{e3_results['match_rate']:.3f}** and forward-message max deviation "
+        f"{e3_results['max_alpha_diff']:.1e}. Both passes are `associative_scan`s (2×2 "
+        "log-matrix products forward; composition of random threshold maps backward), so "
+        "the composed kernel's sequential depth returns to `O(log T)` end to end."
     )
     return
 
@@ -2147,30 +2176,29 @@ def exp_e6_table(e6_results, mo):
 
 
 @app.cell(hide_code=True)
-def verdict(mo):
+def verdict_md(mo):
     mo.md(r"""
     ## Verdict: the multimodal problem reduces to the unimodal one
 
     The lab's arc, each step forced by a measurement:
 
-    1. **Composition beats embedding.** Segment sign-flip MH breaches the wall where
-       every D-sweep kernel is fully blind (sign-error 0.62–0.70): the first method to
-       move sign mass at `D ≥ 16`.
-    2. **A3 rejected the starvation hypothesis.** 10× more random windows barely
+    1. **Composition beats embedding.** In A1, segment sign-flip MH breaches the wall
+       where every sampler_audit §16 D-sweep kernel is fully blind (sign-error
+       0.62–0.70): the first method to move sign mass at `D ≥ 16`.
+    2. **A2 rejected the starvation hypothesis.** 10× more random windows barely
        helped — accepted flips concentrate at cheap-wall sites.
-    3. **A4 went to the adaptive-window limit.** In 1-D time the cluster construction
+    3. **A3 went to the adaptive-window limit.** In 1-D time the cluster construction
        collapses to an *exact* conditional: sign-path FFBS. It is best-in-class at
        every `D` and near the floor at `D ≤ 8` — and at `D ∈ {16, 30}` all three sign
        kernels, exact FFBS included, land on numerically identical residuals.
     4. **The shared plateau is not a sign problem — and not chain length either.**
-       An exact sign sampler cannot be beaten by an approximate one, and A5 shows 4×
+       An exact sign sampler cannot be beaten by an approximate one, and A4 shows 4×
        the sweeps barely moves the `D = 30` residual (0.217 → 0.197 vs a √-law 0.109).
        So the magnitudes are effectively *frozen* at this (P, leaf, D): the sign chain
        exactly samples the sign law conditioned on magnitudes that never relax from
        their distorted init at precisely the sign-flexible (small-`|x|`) sites.
     5. **Coupling does not break any of it** (B1 exact against the joint 2-D gold;
        B2's gold-free cross-seed diagnostic favours FFBS at coupled `D = 30`).
-
     6. **C closed the loop.** The width lever barely moves the plateau (`P = 64`:
        0.217 → 0.173 sign-error — joint coherence, not particle count, is the
        disease). The coordinate-conditional sweep removes the joint-coherence lottery
@@ -2179,7 +2207,6 @@ def verdict(mo):
        where every D-sweep kernel sits at 0.62–0.70 — with `W1/σ̄` 0.212 limited only
        by the per-coordinate update budget. Under coupling the cross-seed sign RMS
        drops to 0.021 (from 0.081–0.102 for the joint-leaf kernels).
-
     7. **D generalised it beyond symmetry.** For an asymmetric fold (β = 0.3, mirror
        Jacobian ≈ 1.86) the branch-path FFBS with the **Jacobian site term** recovers
        the exact gold at `D = 2` and `D = 16` (branch-probability error 0.042 / 0.063
@@ -2188,6 +2215,22 @@ def verdict(mo):
        carry. The construction needs only the emission's preimage map and its
        derivative, both compile-time derivable from a measurement link — the
        production-shaped version.
+    8. **E hardened all of it.**
+        - **E1:** the sampler_audit §15 1-D root leaf, dead in joint D, is
+          best-in-class *inside* the coordinate-conditional engine — the program's
+          best `D = 30` result — because each sweep is a `D = 1` problem where
+          independence is safe again.
+        - **E2:** the production-shaped joint (x, λ) factor-sign flip has MH delta
+          identically 0 under the exact symmetry and restores `P(λ > 0) = 1/2` where
+          plain Gibbs freezes at 0 or 1.
+        - **E3:** both FFBS passes are associative scans (bitwise-equal to
+          sequential), so the composed kernel is `O(log T)` depth end to end.
+        - **E4:** coordinate blocks have a sweet spot at `k ≈ 2–4` — coverage beats
+          coherence until it doesn't.
+        - **E5:** δ self-tunes by moved-fraction-targeted warmup from bad
+          initialisations in either direction.
+        - **E6:** the branch chain generalises to `m`-preimage folds (4-state W-fold
+          recovered with branch-probability RMSE at the floor).
 
     **The closed claim:** the high-D far-mode cell — the one every paper in this
     family concedes — is solved for two-branch fold emissions (symmetric or not) by
@@ -2198,19 +2241,6 @@ def verdict(mo):
     price is sweeps scaling with `D` (one coordinate per sweep) — sequential-depth
     per sweep stays `⌈log₂T⌉`, and the moves cost `O(4·T·D)` and `O(P²·T·D)`
     respectively.
-
-    8. **Part E hardened all of it.** (E1) the §15 1-D root leaf, dead in joint D,
-       is best-in-class *inside* the coordinate-conditional engine — the program's
-       best `D = 30` result — because each sweep is a `D = 1` problem where
-       independence is safe again; (E2) the production-shaped joint (x, λ) factor-sign
-       flip has MH delta identically 0 under the exact symmetry and restores
-       `P(λ > 0) = 1/2` where plain Gibbs freezes at 0 or 1; (E3) both FFBS passes are
-       associative scans (bitwise-equal to sequential), so the composed kernel is
-       `O(log T)` depth end to end; (E4) coordinate blocks have a sweet spot at
-       `k ≈ 2–4` — coverage beats coherence until it doesn't; (E5) δ self-tunes by
-       moved-fraction-targeted warmup from bad initialisations in either direction;
-       (E6) the branch chain generalises to `m`-preimage folds (4-state W-fold
-       recovered with branch-probability RMSE at the floor).
 
     **Next steps, in order of expected value:**
 

@@ -1,9 +1,7 @@
 """Support code for the inference-geometry walkthrough notebook.
 
-This began as the companion to the (retired) confounder-marginalization
-walkthrough. That notebook asked *where the confounder goes* when you marginalize
-it; this one asks *why marginalizing helps the sampler*, and answers it with two
-pictures of likelihood geometry:
+The walkthrough asks *why marginalizing a Gaussian confounder helps the sampler*, and
+answers it with two pictures of likelihood geometry:
 
 1. **The funnel** — the explicit-latent parameterization (loading ``lambda`` times
    latent scale ``tau``) has a redundant direction: only the product ``lambda*tau``
@@ -18,9 +16,8 @@ pictures of likelihood geometry:
    whichever constraint ("knife") cuts across the ridge — the graph itself (``c = 0``
    off-path) or an observable anchor on the latent (on-path).
 
-The ground-truth simulator and palette are inlined from the retired
-``confounder_lab`` module, so every number still matches what that notebook
-reported; only the geometry helpers and their plots are new.
+The ground truth is the confounded triangle U -> X, U -> Y, X -> Y (plus an off-path
+variant with no U -> X edge), simulated from the fixed constants below.
 """
 
 from __future__ import annotations
@@ -36,7 +33,7 @@ BETA_TRUE = 0.5  # the causal slope the naive regression misses
 SX = 0.7  # cause residual sd
 SY = 0.6  # outcome residual sd
 
-# ── Palette (inlined from the retired confounder_lab) ─────────────────────────
+# ── Palette ──────────────────────────────────────────────────────────────────
 C_CLASS = "#4c78a8"
 C_ID = "#54a24b"
 C_NAIVE = "#e45756"
@@ -321,8 +318,8 @@ def fig_ridge_and_cuts(
         cols=2,
         horizontal_spacing=0.12,
         subplot_titles=(
-            "§1  on-path: U → X exists ⇒ c is free",
-            "§7  off-path: no U → X ⇒ graph pins c = 0",
+            "on-path: U → X exists ⇒ c is free",
+            "off-path: no U → X ⇒ graph pins c = 0",
         ),
     )
 

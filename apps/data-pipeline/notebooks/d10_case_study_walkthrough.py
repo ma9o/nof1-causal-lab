@@ -11,640 +11,271 @@ def imports_marimo():
     return (mo,)
 
 
-@app.cell
-def imports():
-    import math
-    from pathlib import Path
-
-    import case_study_support as cs
-    import jax.numpy as jnp
-    import matplotlib.pyplot as plt
-    import numpy as np
-    from predictive_support import ConstructEditSpec, evaluate_case_study
-
-    from nof1_causal_lab.artifacts.likelihood import (
-        DistributionFamily,
-        LikelihoodSpec,
-        LinkFunction,
-    )
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.models.ssm.simulation_checks import DesignInfo
-
-    return (
-        ConstructEditSpec,
-        evaluate_case_study,
-        DesignInfo,
-        DistributionFamily,
-        ModelSpec,
-        LikelihoodSpec,
-        LinkFunction,
-        Path,
-        cs,
-        jnp,
-        math,
-        np,
-        plt,
-    )
-
-
 @app.cell(hide_code=True)
 def intro(mo):
     mo.md(r"""
-    # A blind D = 10 case study with whole-model predictive checks
+    # A blind D = 10 case study through the predictive battery
 
-    This notebook assembles every authored construct and mechanism before running one
-    exact predictive batch. The shared production generator uses the current model laws,
-    nonlinear Diffrax dynamics and the declared emission density. The same C1–C5 reducers
-    used by scientific actions measure the resulting paths. Findings remain visible for
-    the next model revision; there are no construct admissions or repair loops.
+    A separate agent designed a hidden ten-construct ground truth — continuous-time,
+    **nonlinear and non-Gaussian**, a single-subject behavioral and physiological story —
+    generated 120 days of irregular observations from it, and wrote a study brief. This
+    notebook works on the other side of that firewall. It posits a model and elicits its priors
+    from the brief and from *legitimate summaries of the observed data only*, then runs the
+    production predictive checks on the whole model. The generator and its parameters under
+    `data/d10_case_study/hidden/` are never opened, so the priors are a genuine blind
+    elicitation, not reverse-engineered from the answer.
 
-    **The blind protocol.** A separate agent designed a hidden D = 10 continuous-time
-    **nonlinear, non-Gaussian** ground truth (a single-subject behavioral/physiological
-    story), generated 120 days of irregular data, and wrote the study brief. It operated behind
-    an information firewall: everything below is built from the brief and from *legitimate
-    summaries of the observed data only*. The generator and its parameters live under
-    `data/d10_case_study/hidden/` and were **never opened**, so the priors here are a genuine
-    blind elicitation, not reverse-engineered from the answer.
+    **How the checks run.** Every authored construct and mechanism is assembled into one model
+    before a single exact predictive batch: the production generator draws the model's own
+    prior laws, integrates the nonlinear dynamics with Diffrax, and applies the declared
+    emission densities. The C1–C5 reducers that the scientific actions use then measure the
+    simulated paths, and each checked edge adds one paired edge-knockout batch.
+    `reachability_checks_walkthrough.py` shows each check failing in isolation.
 
-    **Interpreting findings.** These are prior-design screens against the observed data.
-    Passing them does not establish recovery of the hidden truth, practical parameter
-    identification, or causal identification. Those require separate evidence.
+    **Reading the findings.** They screen the prior design against the observed data. Passing
+    them does not establish recovery of the hidden truth, practical parameter identification,
+    or causal identification; those need separate evidence. Failed checks stay attached to the
+    checked model and guide its next revision.
 
-    **Runtime.** The base batch is shared across all constructs. This notebook also requests
-    paired edge-knockout experiments, so each checked edge adds another trajectory batch.
+    The case-study machinery — model assembly, elicitation rules, evidence figures — lives in
+    `case_study_support.py`, and the whole notebook runs in about a minute.
+    `lake_ecosystem_case_study_walkthrough.py` runs the same protocol on a second blind
+    problem.
     """)
+    return
+
+
+@app.cell
+def imports():
+    import case_study_support as cs
+    from predictive_support import evaluate_case_study
+
+    return cs, evaluate_case_study
+
+
+@app.cell(hide_code=True)
+def brief_md(mo):
+    mo.md(r"""
+    ## 1. The brief
+
+    The verbatim study brief is everything the modeler may read: the constructs, the causal
+    DAG, the indicator families, and the observation design. It deliberately gives **no**
+    parameter values, scales, or timescales, and no hints about where the nonlinearities live.
+    """)
+    return
+
+
+@app.cell
+def brief_text(CASE, cs, mo):
+    mo.accordion({"brief.md": mo.md(cs.read_brief(CASE))})
     return
 
 
 @app.cell(hide_code=True)
-def firewall_md(mo):
+def model_md(mo):
     mo.md(r"""
-    ## 1. The brief (all the modeler is allowed to see)
+    ## 2. The posited model
 
-    The verbatim study brief: the constructs, the causal DAG, the indicator families, and the
-    observation design — and deliberately **no** parameter values, scales, timescales, or hints
-    about where the nonlinearities live.
+    The brief's DAG, taken as given: ten constructs in causal order and fifteen lagged edges.
+    Each observed construct has one indicator whose emission law follows from its response
+    scale — the 0–100 sliders as Beta/logit on the fraction, the daily counts as Poisson/log,
+    everything else Gaussian/identity. `AutonomicArousal` has no indicator: it is the
+    unobserved common cause of stress, sleep, and pain, and the structural compiler
+    marginalizes it. The self-relaxation timescales τ (days) come from what the brief says
+    each construct is, not from the data.
     """)
     return
 
 
 @app.cell
-def brief_render(Path, mo):
-    _brief = Path("notebooks/data/d10_case_study/brief.md")
-    if not _brief.exists():
-        _brief = Path("data/d10_case_study/brief.md")
-    brief_text = _brief.read_text()
-    mo.accordion({"📄 brief.md (click to expand)": mo.md(brief_text)})
-    return (brief_text,)
-
-
-@app.cell
-def dag_spec():
-    EDGES = [
-        ("CaffeineIntake", "SleepQuality"),
-        ("AutonomicArousal", "PerceivedStress"),
-        ("AutonomicArousal", "SleepQuality"),
-        ("AutonomicArousal", "MusculoskeletalPain"),
-        ("PerceivedStress", "SleepQuality"),
-        ("PerceivedStress", "NegativeMood"),
-        ("PerceivedStress", "Fatigue"),
-        ("SleepQuality", "Fatigue"),
-        ("Fatigue", "MusculoskeletalPain"),
-        ("Fatigue", "PhysicalActivity"),
-        ("Fatigue", "CognitiveFocus"),
-        ("MusculoskeletalPain", "PhysicalActivity"),
-        ("PhysicalActivity", "NegativeMood"),
-        ("NegativeMood", "SocialEngagement"),
-        ("NegativeMood", "CognitiveFocus"),
-    ]
-    ORDER = [
-        "CaffeineIntake",
-        "AutonomicArousal",
-        "PerceivedStress",
-        "SleepQuality",
-        "Fatigue",
-        "MusculoskeletalPain",
-        "PhysicalActivity",
-        "NegativeMood",
-        "CognitiveFocus",
-        "SocialEngagement",
-    ]
-    UNOBSERVED = {"AutonomicArousal"}
-    # indicator, construct, measurement_dtype, distribution family, link, self-relaxation τ (days)
-    INDICATORS = [
-        ("caffeine_servings", "CaffeineIntake", "count", "poisson", "log", 0.7),
-        ("stress_vas", "PerceivedStress", "continuous", "beta", "logit", 3.3),
-        ("sleep_quality_vas", "SleepQuality", "continuous", "beta", "logit", 1.4),
-        ("fatigue_score", "Fatigue", "continuous", "gaussian", "identity", 2.8),
-        ("pain_nrs", "MusculoskeletalPain", "continuous", "gaussian", "identity", 2.5),
-        ("active_minutes", "PhysicalActivity", "continuous", "gaussian", "identity", 1.2),
-        ("irritability_index", "NegativeMood", "continuous", "gaussian", "identity", 2.5),
-        ("reaction_time_ms", "CognitiveFocus", "continuous", "gaussian", "identity", 2.5),
-        ("social_contacts", "SocialEngagement", "count", "poisson", "log", 1.8),
-    ]
-    # AutonomicArousal is latent (no indicator); its τ prior only.
-    TAU = {c: tau for _i, c, _d, _f, _l, tau in INDICATORS}
-    TAU["AutonomicArousal"] = 2.0
-    return EDGES, INDICATORS, ORDER, TAU, UNOBSERVED
-
-
-@app.cell
-def dag_diagram(EDGES, ORDER, UNOBSERVED, mo, plt):
-    _parents = {n: [] for n in ORDER}
-    for _u, _v in EDGES:
-        _parents[_v].append(_u)
-    _depth = {}
-    for _n in ORDER:
-        _depth[_n] = 0 if not _parents[_n] else 1 + max(_depth[_p] for _p in _parents[_n])
-    _by_d = {}
-    for _n in ORDER:
-        _by_d.setdefault(_depth[_n], []).append(_n)
-    _pos = {}
-    for _d, _ns in _by_d.items():
-        for _k, _n in enumerate(_ns):
-            _pos[_n] = (_d * 1.9, (_k - (len(_ns) - 1) / 2) * 1.7)
-
-    _fig, _ax = plt.subplots(figsize=(11.5, 5.2))
-    for _u, _v in EDGES:
-        _x0, _y0 = _pos[_u]
-        _x1, _y1 = _pos[_v]
-        _ax.annotate(
-            "",
-            xy=(_x1, _y1),
-            xytext=(_x0, _y0),
-            arrowprops=dict(
-                arrowstyle="-|>",
-                color="#9a9a9a",
-                lw=1.2,
-                shrinkA=20,
-                shrinkB=20,
-                connectionstyle="arc3,rad=0.12",
+def case_spec(cs):
+    CASE = cs.CaseStudy(
+        directory="d10_case_study",
+        constructs=(
+            "CaffeineIntake",
+            "AutonomicArousal",
+            "PerceivedStress",
+            "SleepQuality",
+            "Fatigue",
+            "MusculoskeletalPain",
+            "PhysicalActivity",
+            "NegativeMood",
+            "CognitiveFocus",
+            "SocialEngagement",
+        ),
+        edges=(
+            ("CaffeineIntake", "SleepQuality"),
+            ("AutonomicArousal", "PerceivedStress"),
+            ("AutonomicArousal", "SleepQuality"),
+            ("AutonomicArousal", "MusculoskeletalPain"),
+            ("PerceivedStress", "SleepQuality"),
+            ("PerceivedStress", "NegativeMood"),
+            ("PerceivedStress", "Fatigue"),
+            ("SleepQuality", "Fatigue"),
+            ("Fatigue", "MusculoskeletalPain"),
+            ("Fatigue", "PhysicalActivity"),
+            ("Fatigue", "CognitiveFocus"),
+            ("MusculoskeletalPain", "PhysicalActivity"),
+            ("PhysicalActivity", "NegativeMood"),
+            ("NegativeMood", "SocialEngagement"),
+            ("NegativeMood", "CognitiveFocus"),
+        ),
+        indicators=(
+            cs.Indicator("caffeine_servings", "CaffeineIntake", "count", "poisson", "log"),
+            cs.Indicator("stress_vas", "PerceivedStress", "continuous", "beta", "logit"),
+            cs.Indicator("sleep_quality_vas", "SleepQuality", "continuous", "beta", "logit"),
+            cs.Indicator("fatigue_score", "Fatigue", "continuous", "gaussian", "identity"),
+            cs.Indicator("pain_nrs", "MusculoskeletalPain", "continuous", "gaussian", "identity"),
+            cs.Indicator(
+                "active_minutes", "PhysicalActivity", "continuous", "gaussian", "identity"
             ),
-        )
-    for _n, (_x, _y) in _pos.items():
-        _unobs = _n in UNOBSERVED
-        _ax.scatter(
-            [_x],
-            [_y],
-            s=2400,
-            facecolor="white" if _unobs else "#3b6ea5",
-            edgecolor="#c0504d" if _unobs else "#3b6ea5",
-            linewidth=2.2 if _unobs else 1.5,
-            zorder=3,
-        )
-        _ax.text(
-            _x,
-            _y,
-            _n.replace("Intake", "\nIntake")
-            .replace("Arousal", "\nArousal")
-            .replace("Stress", "\nStress")
-            .replace("Quality", "\nQuality")
-            .replace("Pain", "\nPain")
-            .replace("Activity", "\nActivity")
-            .replace("Mood", "\nMood")
-            .replace("Focus", "\nFocus")
-            .replace("Engagement", "\nEngagement"),
-            ha="center",
-            va="center",
-            fontsize=7.0,
-            color="#c0504d" if _unobs else "white",
-            fontweight="bold",
-            zorder=4,
-        )
-    _ax.set_title(
-        "The posited DAG — depth = longest path from a root. "
-        "AutonomicArousal (red, hollow) is the unobserved confounder.",
-        fontsize=11,
-        fontweight="bold",
+            cs.Indicator(
+                "irritability_index", "NegativeMood", "continuous", "gaussian", "identity"
+            ),
+            cs.Indicator(
+                "reaction_time_ms", "CognitiveFocus", "continuous", "gaussian", "identity"
+            ),
+            cs.Indicator("social_contacts", "SocialEngagement", "count", "poisson", "log"),
+        ),
+        timescales={
+            "CaffeineIntake": 0.7,
+            "PerceivedStress": 3.3,
+            "SleepQuality": 1.4,
+            "Fatigue": 2.8,
+            "MusculoskeletalPain": 2.5,
+            "PhysicalActivity": 1.2,
+            "NegativeMood": 2.5,
+            "CognitiveFocus": 2.5,
+            "SocialEngagement": 1.8,
+        },
+        seed=20260705,
     )
-    _ax.axis("off")
-    _fig.tight_layout()
-    mo.as_html(_fig)
-    return
+    MODEL = cs.scientific_model(CASE)
+    return CASE, MODEL
 
 
 @app.cell
-def scientific_model(EDGES, INDICATORS, ORDER, ModelSpec):
-    _constructs = {
-        item["name"]: item
-        for item in [
-            {
-                "id": f"construct:{_n}",
-                "name": _n,
-                "description": _n,
-                "role": "exogenous"
-                if _n in {"CaffeineIntake", "AutonomicArousal"}
-                else "endogenous",
-                "temporal_status": "time_varying",
-                "indicators": [
-                    {
-                        "id": f"indicator:{_ind}",
-                        "name": _ind,
-                        "construct_polarity": "positive",
-                        "measurement_dtype": _dtype,
-                        "aggregation": "last",
-                    }
-                    for _ind, _c, _dtype, _f, _l, _tau in INDICATORS
-                    if _c == _n
-                ],
-            }
-            for _n in ORDER
-        ]
-    }
-    SCIENTIFIC_MODEL = ModelSpec.model_validate(
-        {
-            "measurement_clock": "1d",
-            "edges": [
-                {
-                    "id": f"edge:{_c}-{_e}",
-                    "cause": _constructs[_c],
-                    "effect": _constructs[_e],
-                    "description": f"{_c} -> {_e}",
-                    "lagged": True,
-                }
-                for _c, _e in EDGES
-            ],
-        }
-    )
-    MODEL = SCIENTIFIC_MODEL
-    return SCIENTIFIC_MODEL, MODEL
+def dag_fig(CASE, cs):
+    cs.dag_figure(CASE)
+    return
 
 
 @app.cell(hide_code=True)
 def data_md(mo):
     mo.md(r"""
-    ## 2. The observed data, in emission space
+    ## 3. The observed data, in emission space
 
-    The prod battery compares the prior predictive to the observed indicators in the **link's
-    own space**. Continuous indicators (Gaussian / identity link) stay as-is; the 0–100 sliders
-    are modeled as **Beta / logit** on the fraction in `(0, 1)`; the daily counts are
-    **Poisson / log**. So the two slider columns are rescaled by 1/100 before anything else —
-    that rescaled value is what the Beta likelihood and every slider check see.
+    The battery compares the prior predictive with the observed indicators in each emission's
+    own space. Gaussian channels stay as recorded and counts stay counts, but the two 0–100
+    sliders are divided by 100 first: the fraction in (0, 1) is what the Beta likelihood and
+    every slider check see. The lag-1 rank correlation is shown for context only; the
+    elicitation below does not read timescales off it.
     """)
     return
 
 
 @app.cell
-def load_data(DesignInfo, INDICATORS, Path, MODEL, jnp, np):
-    _csv = Path("notebooks/data/d10_case_study/observations.csv")
-    if not _csv.exists():
-        _csv = Path("data/d10_case_study/observations.csv")
-    _raw = np.genfromtxt(_csv, delimiter=",", names=True)
-    obs_times = np.asarray(_raw["t"], dtype=float)
-    _data = {n: np.asarray(_raw[n], dtype=float) for n in _raw.dtype.names if n != "t"}
-
-    # Emission-space observed values: sliders (logit link) -> fraction in (0, 1).
-    data = {}
-    for _ind, _c, _dtype, _fam, _link, _tau in INDICATORS:
-        _v = _data[_ind]
-        data[_ind] = np.clip(_v / 100.0, 1e-3, 1 - 1e-3) if _link == "logit" else _v
-
-    # Fit-consistent design: the sampling grid IS the observation times, so the prior
-    # predictive is evaluated exactly where the subject was measured.
-    _obs_idx = np.arange(obs_times.size)
-    design = DesignInfo(
-        t_grid=jnp.asarray(obs_times),
-        obs_index_by_indicator={f"indicator:{_ind}": _obs_idx for _ind, *_ in INDICATORS},
-        values_by_indicator={f"indicator:{_ind}": data[_ind] for _ind, *_ in INDICATORS},
-        manifest_ids=tuple(MODEL.manifest_indicator_order),
-        n_draws=64,
-        seed=20260705,
-    )
-    return data, design, obs_times
-
-
-@app.cell
-def eda_table(INDICATORS, data, mo, np, obs_times):
-    def _rank1(v):
-        _u = np.argsort(np.argsort(v[:-1])).astype(float)
-        _w = np.argsort(np.argsort(v[1:])).astype(float)
-        return float(np.corrcoef(_u, _w)[0, 1])
-
-    _rows = []
-    for _ind, _c, _dtype, _fam, _link, _tau in INDICATORS:
-        _v = data[_ind]
-        _qs = np.percentile(_v, [25, 50, 75])
-        _rows.append(
-            f"| `{_ind}` | {_fam}/{_link} | {_v.mean():.2f} | {_v.std():.2f} | "
-            f"{_qs[0]:.2f} / {_qs[1]:.2f} / {_qs[2]:.2f} | {_rank1(_v):+.2f} |"
-        )
-    _hdr = (
-        f"Single subject · **{obs_times.size} retained days** over "
-        f"{obs_times.min():.0f}–{obs_times.max():.0f} d · median gap "
-        f"{np.median(np.diff(obs_times)):.2f} d. Values shown in **emission space** "
-        "(sliders as fractions).\n\n"
-        "| indicator | family/link | mean | sd | q25 / q50 / q75 | lag-1 rank-corr |\n"
-        "|---|---|---|---|---|---|\n"
-    )
-    mo.md(_hdr + "\n".join(_rows))
-    return
+def observed_data(CASE, cs):
+    observations = cs.load_observations(CASE)
+    cs.observation_summary(CASE, observations)
+    return (observations,)
 
 
 @app.cell(hide_code=True)
 def elicitation_md(mo):
     mo.md(r"""
-    ## 3. Elicitation strategy
+    ## 4. Elicitation strategy
 
-    Three rules turn the brief + summaries into **canonical priors** (keyed by the compiler's
-    parameter names: `rho_<c>`, `sigma_<c>`, `manifest_mean_<ind>`, `beta_<p>_<c>`), with **no**
-    reference to any hidden value:
+    Four rules turn the brief and the summaries into priors, keyed by the parameter names the
+    authoring defaults create (`rho_<c>`, `sigma_<c>`, `manifest_mean_<ind>`, `beta_<p>_<c>`),
+    with **no** reference to any hidden value:
 
-    - **AR persistence from the timescale.** Each construct's self-relaxation τ (from the
-      brief's semantics) sets its `rho` prior on the discrete-time persistence scale,
-      `mean = exp(-Δt/τ)` at the 1-day model clock. The compiler maps that to the continuous-time
-      decay. We do **not** read τ off indicator autocorrelation: a downstream indicator's serial
-      dependence mixes the construct's own relaxation with inherited parent persistence, an
-      unidentified split left to the fit.
-    - **Standardized latents via the diffusion.** `sigma` (the diffusion) is set so the OU
-      stationary sd ≈ the construct's data-implied scale anchor (the indicator's inverse-link
-      IQR / 1.349, since the reference indicator carries unit loading). This is the C2
-      convention; the loading carries the physical scale.
-    - **Location from the inverse-link median.** `manifest_mean` (the observation intercept) is
-      the data median mapped through the inverse link — identity mean for Gaussian, logit of the
-      median fraction for sliders, log of the median rate for counts.
+    - **Persistence from the timescale.** Each construct's τ sets its `rho` prior on the
+      discrete-time persistence scale at the 1-day model clock: centred on `exp(-Δt/τ)` with a
+      standard deviation of `0.35·Δt/τ` times that centre, truncated to the unit interval. The
+      compiler maps persistence to the continuous-time decay. τ is **not** read off indicator
+      autocorrelation: a downstream indicator's serial dependence mixes the construct's own
+      relaxation with persistence inherited from its parents, a split only the fit can make.
+    - **Standardized latents via the diffusion.** `sigma` puts the stationary sd of the latent
+      process near the construct's data-implied scale anchor, the indicator's inverse-link IQR
+      / 1.349. The reference indicator carries unit loading, so the loading carries the
+      physical scale; C2 checks this convention.
+    - **Location from the data.** The observation intercept `manifest_mean` is the data's
+      centre mapped through the inverse link: the mean for Gaussian channels, the logit of the
+      median fraction for sliders, and the log of the median rate for counts.
+    - **Edges scaled to the child.** Each edge prior is `Normal(0, s)`, with `s` tied to the
+      child's relaxation rate and rescaled by the parent/child anchor ratio so the edge acts on
+      standardized latents. A slow child integrates its parents' input over a long memory, so
+      it needs a tighter edge prior to stay self-driven; C4b checks this.
 
-    Edge priors are `Normal(0, s)` with `s` **tied to the child's relaxation rate** (a slow child
-    integrates parent input over a long memory, so it needs a tighter edge prior to stay
-    self-driven) and rescaled by the parent/child anchor ratio so the edge acts on standardized
-    latents.
+    Marginalizing `AutonomicArousal` leaves correlated innovations among its three children,
+    one `cor_<a>_<b>` diffusion loading per pair. Each gets `Normal(0, 0.5)`, the library
+    default for an off-diagonal diffusion coordinate. The confounder's own edges have no
+    mechanism, so they need no prior.
     """)
     return
 
 
 @app.cell
-def elicitation(
-    SCIENTIFIC_MODEL,
-    ConstructEditSpec,
-    DistributionFamily,
-    INDICATORS,
-    LikelihoodSpec,
-    LinkFunction,
-    MODEL,
-    TAU,
-    math,
-    np,
-):
-    from notebooks.model_mechanisms import declare_dynamics as _declare_dynamics
-    from notebooks.parameter_planning import (
-        complete_component_slots as _complete_slots,
-    )
-    from predictive_support import model_with_prior_payloads as _model_with_prior_payloads
-
-    from nof1_causal_lab.artifacts.construct import replace_constructs as _replace_constructs
-    from nof1_causal_lab.models.likelihoods import observation_law as _observation_law
-    from nof1_causal_lab.models.model_parameters import referenced_parameter_ids as _parameter_ids
-
-    _hill_choices = set()
-
-    _template = _declare_dynamics(
-        MODEL,
-        hill_edges=[
-            edge.id
-            for edge in SCIENTIFIC_MODEL.edges
-            if (
-                SCIENTIFIC_MODEL.get_construct(edge.cause.id).name,
-                SCIENTIFIC_MODEL.get_construct(edge.effect.id).name,
-            )
-            in _hill_choices
-        ],
-    )
-
-    _emission = {c: (ind, fam, link) for ind, c, _d, fam, link, _t in INDICATORS}
-    _construct_names = {c.id: c.name for c in SCIENTIFIC_MODEL.constructs}
-    _parents = {name: [] for name in _construct_names.values()}
-    for _e in SCIENTIFIC_MODEL.edges:
-        _parents[_construct_names[_e.effect.id]].append(_construct_names[_e.cause.id])
-    DT = 1.0  # model clock, days
-
-    def _inv_link(link, y):
-        if link == "identity":
-            return np.asarray(y, float)
-        if link == "logit":
-            _p = np.clip(np.asarray(y, float), 1e-3, 1 - 1e-3)
-            return np.log(_p / (1 - _p))
-        if link == "log":
-            return np.log(np.maximum(np.asarray(y, float), 0.5))
-        raise ValueError(link)
-
-    def anchor_for(c, data):
-        if c not in _emission:
-            return 1.0
-        ind, _fam, link = _emission[c]
-        _q75, _q25 = np.percentile(data[ind], [75, 25])
-        return abs(float(_inv_link(link, _q75) - _inv_link(link, _q25))) / 1.349
-
-    def _normal(mu, sigma):
-        return {"distribution": "Normal", "params": {"mu": mu, "sigma": sigma}}
-
-    def _lognormal(mu, sigma):
-        return {"distribution": "LogNormal", "params": {"mu": mu, "sigma": sigma}}
-
-    def contribution(c, data, edge_base=0.45):
-        _tau = TAU[c]
-        _anchor = anchor_for(c, data)
-        _mu_ar = math.exp(-DT / _tau)
-        _relax = DT / _tau  # child relaxation rate a = 1/τ (per model-clock step)
-        priors = {
-            f"rho_{c}": _normal(_mu_ar, 0.35 * _relax * _mu_ar),
-            f"sigma_{c}": _lognormal(math.log(_anchor * math.sqrt(2.0 / _tau)), 0.4),
-        }
-        for _p in _parents[c]:
-            # A parent should displace this child by ~edge_base × the child's own scale,
-            # independent of the child's timescale. The child relaxes at rate a = DT/τ, so a
-            # steady drift β·(parent ~ anchor_parent) settles to an offset τ·β·anchor_parent;
-            # scaling β by a keeps that offset at edge_base·anchor_child. WITHOUT this a slow
-            # node integrates even a modest edge into an overwhelming offset (C4b) that also
-            # blows the prior-predictive width up through the link (C5b).
-            _bscale = edge_base * _relax * _anchor / max(anchor_for(_p, data), 0.25)
-            priors[f"beta_{_p}_{c}"] = _normal(0.0, _bscale)
-        _entity = next(_item for _item in _template.constructs if _item.name == c)
-        if c in _emission:
-            _ind, _fam, _link = _emission[c]
-            _likelihood = LikelihoodSpec(
-                law=_observation_law(_entity.id, DistributionFamily(_fam), LinkFunction(_link)),
-                reasoning=f"{_fam}/{_link} for {_ind}",
-            )
-            _entity = _entity.model_copy(
-                update={
-                    "indicators": tuple(
-                        item.model_copy(update={"likelihood": _likelihood})
-                        for item in _entity.indicators
-                    )
-                }
-            )
-            _v = data[_ind]
-            if _link == "identity":
-                priors[f"manifest_mean_{_ind}"] = _normal(
-                    float(np.mean(_v)), 0.3 * float(np.std(_v))
-                )
-            elif _link == "logit":
-                _med = float(np.clip(np.median(_v), 0.02, 0.98))
-                priors[f"manifest_mean_{_ind}"] = _normal(math.log(_med / (1 - _med)), 0.4)
-            elif _link == "log":
-                priors[f"manifest_mean_{_ind}"] = _normal(
-                    math.log(max(float(np.median(_v)), 0.5)), 0.4
-                )
-        _proposal = _template.revised(
-            edges=_replace_constructs(
-                _template.edges,
-                tuple(_entity if item.id == _entity.id else item for item in _template.constructs),
-            )
-        )
-        _proposal = _complete_slots(_proposal)
-        _proposal = _model_with_prior_payloads(
-            _proposal,
-            {
-                _p.id: {**priors[_p.name], "reference_interval_days": DT}
-                for _p in _proposal.parameters
-                if _p.name in priors
-            },
-        )
-        _entity = _proposal.get_construct(_entity.id)
-        _edges = tuple(edge for edge in _proposal.edges if edge.effect.id == _entity.id)
-        _referenced = _parameter_ids(_entity, *_edges)
-        return ConstructEditSpec(
-            construct=_entity,
-            edges=_edges,
-            parameters=tuple(_p for _p in _proposal.parameters if _p.id in _referenced),
-            distributions={
-                _p.distribution: _proposal.distributions[_p.distribution]
-                for _p in _proposal.parameters
-                if _p.id in _referenced and _p.distribution is not None
-            },
-            edge_parents=tuple(_parents[c]),
-        )
-
-    return (contribution,)
+def elicitation(CASE, MODEL, cs, observations):
+    edits = cs.elicit(CASE, MODEL, observations)
+    return (edits,)
 
 
 @app.cell(hide_code=True)
-def build_md(mo):
-    mo.md("""
-    ## Full-model predictive checks
+def checks_md(mo):
+    mo.md(r"""
+    ## 5. Whole-model predictive checks
 
-    All authored definitions are assembled before one exact batch.
-    Failed findings remain visible for the next edit.
+    The per-construct definitions are merged into one candidate model, simulated once at the
+    observation times (64 prior draws), and measured construct by construct. Each block below
+    lists every check with its measured value and band, the note for any check that did not
+    pass, and an evidence figure per failed check family.
     """)
     return
 
 
 @app.cell
-def run_checks(MODEL, contribution, data, design, evaluate_case_study):
-    _edits = [
-        contribution(construct.name, data) for construct in MODEL.constructs if construct.indicators
-    ]
-    checked_model, reports = evaluate_case_study(MODEL, _edits, design)
+def run_checks(CASE, MODEL, cs, edits, evaluate_case_study, observations):
+    checked_model, reports = evaluate_case_study(MODEL, edits, cs.design(CASE, MODEL, observations))
     return checked_model, reports
 
 
 @app.cell
-def r_caffeine(cs, reports):
-    cs.render_report("CaffeineIntake — root, Poisson count indicator", reports["CaffeineIntake"])
+def construct_reports(CASE, cs, reports):
+    cs.render_reports(
+        CASE,
+        reports,
+        {
+            "CaffeineIntake": "root, Poisson count indicator",
+            "AutonomicArousal": "unobserved confounder",
+            "PerceivedStress": "slider (Beta/logit), driven only by the confounder",
+            "SleepQuality": "slider (Beta/logit), three parents",
+            "Fatigue": "continuous indicator, two parents",
+            "MusculoskeletalPain": "continuous indicator",
+            "PhysicalActivity": "continuous indicator (tens scale)",
+            "NegativeMood": "continuous indicator (near zero)",
+            "CognitiveFocus": "continuous indicator (reaction time, ms)",
+            "SocialEngagement": "Poisson count indicator",
+        },
+    )
     return
 
 
 @app.cell(hide_code=True)
-def r_arousal(mo):
+def outcome_md(mo):
     mo.md(r"""
-    ### AutonomicArousal — unobserved confounder
+    ## 6. Outcome
 
-    The structural compiler marginalizes this explicit scientific-DAG root instead of admitting
-    an unanchored latent state. Its shared-child dependence is represented by the compiled
-    innovation structure, so it has no standalone retained-state report.
+    The board is read straight off the report objects above, so every verdict is the
+    production battery's own.
     """)
     return
 
 
 @app.cell
-def r_stress(cs, reports):
-    cs.render_report(
-        "PerceivedStress — slider (Beta/logit), one parent", reports["PerceivedStress"]
-    )
-    return
-
-
-@app.cell
-def r_sleep(cs, reports):
-    cs.render_report("SleepQuality — slider (Beta/logit), three parents", reports["SleepQuality"])
-    return
-
-
-@app.cell
-def r_fatigue(cs, reports):
-    cs.render_report("Fatigue — continuous indicator, two parents", reports["Fatigue"])
-    return
-
-
-@app.cell
-def r_pain(cs, reports):
-    cs.render_report("MusculoskeletalPain — continuous indicator", reports["MusculoskeletalPain"])
-    return
-
-
-@app.cell
-def r_activity(cs, reports):
-    cs.render_report(
-        "PhysicalActivity — continuous indicator (tens scale)", reports["PhysicalActivity"]
-    )
-    return
-
-
-@app.cell
-def r_mood(cs, reports):
-    cs.render_report("NegativeMood — continuous indicator (near zero)", reports["NegativeMood"])
-    return
-
-
-@app.cell
-def r_focus(cs, reports):
-    cs.render_report(
-        "CognitiveFocus — continuous indicator (reaction time, ms)", reports["CognitiveFocus"]
-    )
-    return
-
-
-@app.cell
-def r_social(cs, reports):
-    cs.render_report("SocialEngagement — Poisson count indicator", reports["SocialEngagement"])
-    return
-
-
-@app.cell(hide_code=True)
-def summary_md(mo):
-    mo.md(r"""
-    ## 5. Outcome
-
-    The board below is read straight off the live `ConstructPredictiveReport` objects — every verdict is
-    the production battery's, not a narrated recollection.
-    """)
-    return
-
-
-@app.cell
-def summary_table(ORDER, mo, reports):
-    _rows = []
-    for _nm in ORDER:
-        if _nm not in reports:
-            _rows.append(f"| {_nm} | — | marginalized | structural compiler |")
-            continue
-        _r = reports[_nm]
-        _reds = [c.check for c in _r.results if not c.passed]
-        _outcome = "findings" if any(item.passed is False for item in _r.results) else "passed"
-        _rows.append(f"| {_nm} | {len(_r.results)} | {_outcome} | {', '.join(_reds) or '—'} |")
-    mo.md("| construct | # checks | outcome | reds |\n|---|---|---|---|\n" + "\n".join(_rows))
-    return
-
-
-@app.cell(hide_code=True)
-def closing(checked_model, reports, mo):
-    _failed = sum(
-        result.passed is False for report in reports.values() for result in report.results
-    )
-    mo.md(
-        f"The whole authored model retains {len(checked_model.constructs)} constructs. "
-        f"Its shared exact predictive batch produced {_failed} failed checks. "
-        "Findings guide the next edit; they do not admit constructs or certify causal claims."
-    )
+def outcome(CASE, checked_model, cs, reports):
+    cs.outcome_summary(CASE, checked_model, reports)
     return
 
 

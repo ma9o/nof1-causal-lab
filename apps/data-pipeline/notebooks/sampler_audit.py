@@ -11,18 +11,76 @@ def imports_marimo():
     return (mo,)
 
 
+@app.cell(hide_code=True)
+def intro(mo):
+    mo.md(r"""
+    # Parallelizability audit of the state-space sampler family
+
+    A particle sampler for a state-space model redraws the whole latent path in every sweep, so
+    the **sequential depth** of one sweep (its critical path over the `T` time steps) caps what
+    parallel hardware can do for it. This notebook asks which gradient-based particle samplers
+    can run **parallel-in-time (PIT)**, in `O(log T)` sequential rounds instead of `T`, and what
+    that buys once real chains are run. It audits the samplers of Corenflos–Finke
+    (*Particle-MALA / Particle-mGRAD*, [arXiv 2401.14868](https://arxiv.org/abs/2401.14868))
+    together with two parallel-in-time engines: the *auxiliary-Kalman* scan
+    ([arXiv 2303.00301](https://arxiv.org/abs/2303.00301)) and the *de-sequentialized particle
+    smoother* DSMC ([arXiv 2202.02264](https://arxiv.org/abs/2202.02264)).
+
+    - **Part I, the structural audit (§1–10).** One criterion decides PIT: a per-timestep
+      computation runs in `O(log T)` iff it is an associative scan over local operators (§1).
+      Part I verifies numerically that the operators which should parallelize re-bracket into a
+      tree (identical answer, log depth), reads each method's dependency footprint off its
+      published weight, and classifies every piece with the reason.
+    - **Part II, the empirical program (§11–16).** Real chains pit published Particle-mGRAD
+      against parallel tree kernels on progressively harder posteriors; each section's
+      verdict refines the one before.
+    - **The one open regime**, high state dimension with far-separated posterior modes,
+      continues in [`mode_nucleation_lab.py`](mode_nucleation_lab.py).
+
+    **Reading the figures and tables.** In Part I's diagrams, blue marks a particle's own
+    trajectory, red a particle-cloud statistic or a sequential chain, and green what re-brackets
+    into a tree. In Part II, **depth** counts sequential rounds per sweep (`T` for mGRAD's
+    forward filter, `⌈log₂ T⌉` for the c-dSMC tree), **ESS/sweep** is the median per-coordinate
+    effective sample size divided by the number of sweeps, and errors are distances to a
+    near-exact grid smoother of the same posterior (posterior-mean RMSE; Wasserstein-1 and
+    sign-probability error where the posterior is multimodal). The A100 per-sweep timings in
+    §13.2 and the Modal/A100 dimension sweeps in §16 are measured constants, not computed here,
+    as are the few side results the prose quotes without a cell behind them (for example the
+    extra `δ` and `P` sweeps behind §14.1).
+
+    **Knobs and code.** There is no global switch: each experiment's horizon `T`, particle count
+    `P`, step size `δ`, sweep budget, and seeds sit in its run cell. Part I uses only NumPy and
+    matplotlib. Part II implements Particle-mGRAD (Corenflos–Finke Algorithm 7), the aGRAD and
+    twisted leaves, and the c-dSMC tree stitch in the notebook, and drives the production
+    `amala_exact` leaf through the real `dsmc.step` in
+    [`smoothers/dsmc.py`](../src/nof1_causal_lab/models/ssm/inference/methods/marginal_particle_gibbs/smoothers/dsmc.py).
+    Its JAX chains run up to 60,000 sweeps, so Part II takes far longer than Part I.
+    """)
+    return
+
+
 @app.cell
 def imports():
+    import math
+
+    import jax
+    import jax.numpy as jnp
+    import jax.random as random
     import matplotlib.pyplot as plt
     import numpy as np
+    from matplotlib.colors import LogNorm
+    from matplotlib.patches import FancyBboxPatch
 
-    return np, plt
+    from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._contract import (
+        SmootherContext,
+    )
+    from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.smoothers import dsmc
+
+    return FancyBboxPatch, LogNorm, SmootherContext, dsmc, jax, jnp, math, np, plt, random
 
 
 @app.cell
-def viz_helpers():
-    from matplotlib.patches import FancyBboxPatch
-
+def viz_helpers(FancyBboxPatch):
     palette = {
         "state": "#3b6ea5",  # local / own-trajectory (blue)
         "obs": "#e08a3c",  # observations (orange)
@@ -93,26 +151,6 @@ def viz_helpers():
         )
 
     return arrow, box, palette
-
-
-@app.cell(hide_code=True)
-def intro(mo):
-    mo.md(r"""
-    # Parallelizability audit of the state-space sampler family
-
-    Across the last notebooks we reduced "parallel-in-time" to one criterion. This notebook
-    **applies that criterion, piece by piece**, to the gradient-based particle samplers of
-    Corenflos–Finke (*Particle-MALA / Particle-mGRAD*, arXiv 2401.14868) and the two
-    Corenflos parallel engines (the *auxiliary-Kalman* scan, arXiv 2303.00301, and the
-    *de-sequentialized particle smoother* DSMC, arXiv 2202.02264).
-
-    The plan: (1) restate the criterion; (2) **computationally verify** that the operators
-    which are supposed to parallelize actually re-bracket into a tree (identical answer,
-    log-depth); (3) read off each method's dependency footprint from its published weight; and
-    (4) classify every piece with the reason. No prose is taken on faith — the associative
-    engines are checked numerically.
-    """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -236,7 +274,7 @@ def reducer_engine():
 
 
 @app.cell(hide_code=True)
-def probe_md(mo):
+def associativity_md(mo):
     mo.md(r"""
     ## 3. Verify the operators that should parallelize
 
@@ -258,7 +296,7 @@ def probe_md(mo):
 
 
 @app.cell
-def probe_run(np, reduce_sequential, reduce_tree):
+def associativity_run(np, reduce_sequential, reduce_tree):
     _rng = np.random.default_rng(0)
     _t_len = 32
     _rows = []
@@ -341,7 +379,7 @@ def probe_run(np, reduce_sequential, reduce_tree):
 
 
 @app.cell
-def probe_table(assoc_rows, mo):
+def associativity_table(assoc_rows, mo):
     _head = "| local operator | block interface | tree = sequential? | max &#124;tree − seq&#124; | seq rounds | tree rounds |"
     _sep = "|---|---|:--:|--:|--:|--:|"
     _lines = [_head, _sep]
@@ -544,7 +582,7 @@ def mgrad_obstruction_md(mo):
     \]
 
     The cross-step term `Q_t(x_{t-1}, x_t)` is not the problem; a second-order or pairwise
-    potential can be lifted into a larger local state. The problem is `\bar v_t`. It is an average
+    potential can be lifted into a larger local state. The problem is `v̄_t`. It is an average
     over **all** ancestor-dependent transition centres at that time. So the weight of particle `n`
     changes when a different particle chooses a different left ancestor, even if particle `n`'s own
     pair `(x_{t-1}^{a_t^n}, x_t^n)` is unchanged.
@@ -736,7 +774,7 @@ def taxonomy_md(mo):
     mo.md(r"""
     ## 9. The audit
 
-    Every piece we discussed, with the extra information it injects, what its weight depends on,
+    Every piece audited above, with the extra information it injects, what its weight depends on,
     the resulting block interface, and the verdict. "Exact kernel" means the same published
     transition kernel; "target-correct PIT" means a different MCMC kernel with the same invariant
     posterior.
@@ -766,7 +804,7 @@ def taxonomy_table(mo):
 
 
 @app.cell(hide_code=True)
-def nuance_md(mo):
+def best_shot_md(mo):
     mo.md(r"""
     ## 10. What the best shot looks like
 
@@ -799,36 +837,58 @@ def nuance_md(mo):
 
 
 @app.cell(hide_code=True)
-def closing(mo):
+def part_one_summary_md(mo):
     mo.md(r"""
-    ## The audit in one line
-
-    Parallel-in-time is decided by a single measurable quantity — **the block interface**.
-    Keep or reintroduce the auxiliary variable and the **target** can be made local, so a PIT kernel
-    can use bounded seams. Marginalize it in Particle-mGRAD and `v̄_t` becomes a function of every
-    cross-boundary ancestor assignment (particle-system interface → no useful pairwise associative
-    combine → chain). The verified engines above (matrix product, affine-Gaussian ∘, lifted
-    transfer) are the three faces of "bounded interface"; Particle-mGRAD is what losing that
-    interface costs.
+    **Part I in one line.** Parallel-in-time is decided by a single measurable quantity — **the
+    block interface**. Keep or reintroduce the auxiliary variable and the **target** can be made
+    local, so a PIT kernel can use bounded seams. Marginalize it in Particle-mGRAD and `v̄_t`
+    becomes a function of every cross-boundary ancestor assignment (particle-system interface →
+    no useful pairwise associative combine → chain). The operators verified in §3 (matrix
+    product, affine-Gaussian ∘, lifted transfer) are the three faces of "bounded interface";
+    Particle-mGRAD is what losing that interface costs.
     """)
     return
 
 
 @app.cell(hide_code=True)
-def coda_intro(mo):
+def part_two_md(mo):
     mo.md(r"""
-    ## 11. Empirical coda — does the parallelizable replacement actually pay off?
+    ---
 
-    Sections 1–10 are structural: they argue on paper that published **Particle-mGRAD**
-    cannot re-bracket into a tree (the `v̄_t` obstruction), whereas an **auxiliary
-    target-correct** kernel keeps a bounded seam and trees to `O(log T)`. Our production
-    smoother is exactly that replacement: `amala_exact` and `paid_mix` are the corrected
+    # Part II: the empirical program
+
+    Part I settles which kernels *can* run as a log-depth tree; Part II measures what that buys.
+    Accuracy is scored against near-exact gold standards for the same posterior, with the same
+    ESS and depth accounting throughout, and each section moves the comparison onto harder
+    ground:
+
+    - §11 benchmarks the parallel replacements against published Particle-mGRAD on a friendly
+      nonlinear toy;
+    - §12 adds a twisted (lookahead) leaf and a particle-width sweep, and sharpens the
+      invariance check;
+    - §13 moves to hostile terrain: a stochastic-volatility emission and harsher drift curvature;
+    - §14 stages a multimodal posterior that local gradient moves cannot cross;
+    - §15 runs five posterior shapes against six kernels, every tree kernel through the same
+      stitch;
+    - §16 reports what survives growing state dimension, from measured Modal/A100 sweeps.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def replacement_md(mo):
+    mo.md(r"""
+    ## 11. Does the parallelizable replacement pay off?
+
+    Part I argues on paper that published **Particle-mGRAD** cannot re-bracket into a tree
+    (the `v̄_t` obstruction), whereas an **auxiliary target-correct** kernel keeps a bounded
+    seam and trees to `O(log T)`. Our production smoother is exactly that replacement:
+    `amala_exact` and `paid_mix` are the corrected
     **leaf proposals inside the conditional de-sequentialized SMC tree**
     ([the app's `smoothers/dsmc.py`](../src/nof1_causal_lab/models/ssm/inference/methods/marginal_particle_gibbs/smoothers/dsmc.py)).
 
     This section runs the real thing. It builds a toy **nonlinear** state-space model,
-    then puts four `π_T`-invariant latent-path kernels on the *same* posterior at growing
-    horizons `T`:
+    then puts four latent-path kernels on the *same* posterior at growing horizons `T`:
 
     - **Particle-mGRAD** — Corenflos–Finke Algorithm 7 (arXiv 2401.14868), implemented
       here from the paper: the guided proposal with the marginal `x̄_t`/`v̄_t` correction,
@@ -837,15 +897,18 @@ def coda_intro(mo):
       Gaussian prior dynamics into the proposal exactly like mGRAD, but *keeps* the
       auxiliary `u` instead of marginalising it, so the seam stays a bounded pairwise
       transition and the kernel runs on the c-dSMC tree. Implemented here from scratch as a
-      tree (our `dsmc.py` ships only isotropic leaves); the tree stitch is validated to
-      reproduce the real `dsmc.step` when given an isotropic leaf. (§12.2 stress-tests
-      this hand-built leaf and finds its invariance is only approximate — the mixing and
-      depth results below stand, but the exactness claim gets corrected there.)
+      tree (`dsmc.py` ships no prior-folding leaf); the tree stitch is validated to reproduce
+      the real `dsmc.step` when given an isotropic leaf. (§12.2 stress-tests this
+      hand-built leaf and finds its invariance is only approximate — the mixing and depth
+      results below stand, but the exactness claim gets corrected there.)
     - **`amala_exact`** — the real source leaf proposal, driven through the actual
       `dsmc.step` c-dSMC tree. Auxiliary trajectory kept ⇒ exact; isotropic (does not fold
-      the prior); bounded seam ⇒ trees. The shipped production default.
-    - **`amala_plus`** — the real source *biased* leaf proposal (reference-path
-      linearisation, no auxiliary correction). Same tree, no invariance guarantee.
+      the prior); bounded seam ⇒ trees. It is the z-anchored core of `paid_mix`, the
+      production default.
+    - **`amala_plus`** — the *biased* leaf that `dsmc.py` shipped until it was removed for
+      the defect §11.1 measures: a gradient step linearised on the reference path, with no
+      auxiliary correction. Reproduced here on the notebook's tree; no invariance
+      guarantee.
 
     So the parallel family is graded: aGRAD folds the prior (best mixing), `amala_exact` is
     its isotropic cousin, `amala_plus` drops exactness. mGRAD is the thing that *can't* tree.
@@ -853,7 +916,7 @@ def coda_intro(mo):
     The model is deliberately 1-D so the horizon `T` is the only axis that moves — the
     audit is about `T`, not `D`. It is nonlinear in the drift and conditionally Gaussian
     with a **constant** transition covariance, which is precisely the regime where
-    Particle-mGRAD is defined (Section 4.2's `C_t(x_{t-1}) = C_t`).
+    Particle-mGRAD is defined (Corenflos–Finke Section 4.2: `C_t(x_{t-1}) = C_t`).
 
     Three questions, each measured against a near-exact reference:
 
@@ -865,23 +928,7 @@ def coda_intro(mo):
 
 
 @app.cell
-def coda_imports():
-    import math
-
-    import jax
-    import jax.numpy as jnp
-    import jax.random as random
-
-    from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._contract import (
-        SmootherContext,
-    )
-    from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.smoothers import dsmc
-
-    return SmootherContext, dsmc, jax, jnp, math, random
-
-
-@app.cell
-def coda_model(np):
+def toy_model(np):
     # Toy nonlinear SSM (D=1): nonlinear drift, additive Gaussian process noise (constant
     # covariance — the Particle-mGRAD regime), linear-Gaussian emission (states identifiable,
     # so latent recovery is well posed).
@@ -946,7 +993,7 @@ def coda_model(np):
 
 
 @app.cell
-def coda_kernels(
+def toy_kernels(
     DRIFT_A,
     DRIFT_B,
     DRIFT_W,
@@ -978,9 +1025,10 @@ def coda_kernels(
     def _log_obs(x, y):
         return jnp.sum(-0.5 * (jnp.log(2.0 * jnp.pi * OBS_SD**2) + ((y - x) ** 2) / OBS_SD**2))
 
-    def _build_ctx(y_obs, delta, kappa, leaf):
-        # Hand-assemble the real SmootherContext for K=1 parameter particle (fixed
-        # parameters). smooth() consumes only this subset; the rest is unused plumbing.
+    def _build_ctx(y_obs, delta, kappa):
+        # Hand-assemble the real SmootherContext that dsmc.step consumes, for K=1 parameter
+        # particle (fixed parameters); fields the amala_exact leaf never reads are unused
+        # plumbing.
         _t_len = int(y_obs.shape[0])
         _k = 1
 
@@ -1028,16 +1076,17 @@ def coda_kernels(
             contexts=jnp.zeros((_k, 1), dtype=_DT),
             initial_label_log_probs=jnp.zeros((_k,), dtype=_DT),
             num_steps=_t_len,
-            num_free_particles=0,  # set by run_amala
+            num_free_particles=0,  # set by run_amala_exact
             num_parameter_particles=_k,
             latent_dtype=_DT,
             traj_dtype=_DT,
             obs_increment_fn=_obs_increment_fn,
             runtime_observations=jnp.asarray(y_obs).reshape(_t_len, 1),
+            latent_free_mask=jnp.ones((_t_len, _D), dtype=bool),
             amala_delta=jnp.full((_D,), delta, dtype=_DT),
             amala_kappa=jnp.asarray(kappa, dtype=_DT),
             amala_grad_clip=jnp.asarray(jnp.inf, dtype=_DT),
-            dsmc_leaf_proposal=leaf,
+            dsmc_leaf_proposal="amala_exact",
             latent_block_coords=None,
             paid_mix_z_weight=0.85,
             paid_mix_pilot_weight=0.1,
@@ -1052,10 +1101,11 @@ def coda_kernels(
             trajectory_label_log_probs=_trajectory_label_log_probs,
         )
 
-    def run_amala(y_obs, leaf, n_particles=16, delta=0.7, kappa=0.75, n_iter=700, seed=0):
-        """MCMC chain of latent paths from the REAL dsmc.step c-dSMC tree."""
+    def run_amala_exact(y_obs, n_particles=16, delta=0.7, kappa=0.75, n_iter=700, seed=0):
+        """MCMC chain of latent paths from the REAL dsmc.step c-dSMC tree and its
+        amala_exact leaf."""
         _t_len = int(y_obs.shape[0])
-        _ctx = _build_ctx(y_obs, delta, kappa, leaf)._replace(num_free_particles=n_particles - 1)
+        _ctx = _build_ctx(y_obs, delta, kappa)._replace(num_free_particles=n_particles - 1)
         _x0 = jnp.asarray(y_obs).reshape(_t_len, 1)
 
         def _body(x_ref, key):
@@ -1165,13 +1215,14 @@ def coda_kernels(
         _, _chain = jax.lax.scan(_sweep, _y, _keys)
         return np.asarray(_chain)
 
-    return run_amala, run_mgrad
+    return run_amala_exact, run_mgrad
 
 
 @app.cell
-def coda_tree_machinery(DRIFT_A, DRIFT_B, DRIFT_W, INIT_SD, PROC_SD, jax, jnp, math, random):
-    # c-dSMC tree stitch, extracted so §11's aGRAD leaf and §12's twisted leaf run on the
-    # byte-identical tree. Only the leaf proposal distinguishes the kernels.
+def dsmc_tree_machinery(DRIFT_A, DRIFT_B, DRIFT_W, INIT_SD, PROC_SD, jax, jnp, math, random):
+    # c-dSMC tree stitch shared by every hand-built tree kernel (§11's aGRAD leaf, §12's
+    # twisted leaf, the §13–15 leaves), so all of them run on the byte-identical tree. Only
+    # the leaf proposal distinguishes the kernels.
     def dsmc_prior_mean(time_idx, x_prev):
         return jnp.where(time_idx == 0, 0.0, DRIFT_A * x_prev + DRIFT_B * jnp.sin(DRIFT_W * x_prev))
 
@@ -1275,7 +1326,7 @@ def coda_tree_machinery(DRIFT_A, DRIFT_B, DRIFT_W, INIT_SD, PROC_SD, jax, jnp, m
 
 
 @app.cell
-def coda_agrad_kernel(
+def agrad_kernel(
     INIT_SD, OBS_SD, dsmc_prior_mean, dsmc_prior_var, jax, jnp, make_dsmc_tree, np, random
 ):
     def run_agrad(y_obs, n_particles=16, delta=0.7, kappa=1.0, n_iter=700, seed=0):
@@ -1333,7 +1384,69 @@ def coda_agrad_kernel(
 
 
 @app.cell
-def coda_diag(np):
+def amala_plus_kernel(
+    INIT_SD, OBS_SD, dsmc_prior_mean, dsmc_prior_var, jax, jnp, make_dsmc_tree, np, random
+):
+    def run_amala_plus(y_obs, n_particles=16, delta=0.7, kappa=0.75, n_iter=700, seed=0):
+        """The historical amala_plus leaf on the c-dSMC tree: biased by construction.
+
+        Production dsmc.py shipped this leaf until it was removed for the bias §11.1
+        measures. The proposal is one MALA step on the local smoothing target — the
+        transitions into and out of x_t plus the observation — taken AT the reference
+        path, and nothing in ψ pays for that reference dependence. Seams pay the true
+        transition, as for every tree kernel here.
+        """
+        _y = jnp.asarray(y_obs).reshape(-1)
+        _t_len = int(_y.shape[0])
+        _p = n_particles
+        _half = 0.5 * delta
+        _smooth = make_dsmc_tree(_t_len, _p, dsmc_prior_mean, dsmc_prior_var)
+
+        def _logn(v, mu, var):
+            return -0.5 * (jnp.log(2.0 * jnp.pi * var) + (v - mu) ** 2 / var)
+
+        def _local_log_target(x_t, x_prev, x_next, time_idx):
+            _into = _logn(x_t, dsmc_prior_mean(time_idx, x_prev), dsmc_prior_var(time_idx))
+            _out_of = _logn(
+                x_next, dsmc_prior_mean(time_idx + 1, x_t), dsmc_prior_var(time_idx + 1)
+            )
+            return (
+                _into
+                + _logn(_y[time_idx], x_t, OBS_SD**2)
+                + jnp.where(time_idx < _t_len - 1, _out_of, 0.0)
+            )
+
+        _local_grad = jax.grad(_local_log_target)
+
+        def _leaf(x_ref, time_idx, key):
+            _x_ref_t = x_ref[time_idx, 0]
+            _center = _x_ref_t + kappa * _half * _local_grad(
+                _x_ref_t,
+                x_ref[jnp.maximum(time_idx - 1, 0), 0],
+                x_ref[jnp.minimum(time_idx + 1, _t_len - 1), 0],
+                time_idx,
+            )
+            _free = _center + jnp.sqrt(_half) * random.normal(key, (_p - 1,))
+            _particles = jnp.concatenate([_x_ref_t[None], _free])[:, None]  # (P,1)
+            _psi = _logn(_y[time_idx], _particles[:, 0], OBS_SD**2) - _logn(
+                _particles[:, 0], _center, _half
+            )
+            _psi = jnp.where(time_idx == 0, _psi + _logn(_particles[:, 0], 0.0, INIT_SD**2), _psi)
+            return _particles, _psi[:, None]  # (P,1),(P,1)
+
+        def _body(x_ref, key):
+            _xp = _smooth(key, lambda t, k: _leaf(x_ref, t, k))
+            return _xp, _xp
+
+        _keys = random.split(random.PRNGKey(seed), n_iter)
+        _, _chain = jax.lax.scan(_body, _y.reshape(_t_len, 1), _keys)
+        return np.asarray(_chain)[:, :, 0]
+
+    return (run_amala_plus,)
+
+
+@app.cell
+def ess_diagnostics(np):
     def _iact_ess(x):
         """ESS via the initial-positive-sequence integrated autocorrelation."""
         _x = np.asarray(x, dtype=np.float64)
@@ -1364,7 +1477,7 @@ def coda_diag(np):
 
 
 @app.cell(hide_code=True)
-def coda_bias_md(mo):
+def replacement_exactness_md(mo):
     mo.md(r"""
     ### 11.1 Exactness — the price of dropping the auxiliary variable
 
@@ -1383,7 +1496,9 @@ def coda_bias_md(mo):
 
 
 @app.cell
-def coda_bias_run(grid_smoother, np, run_agrad, run_amala, run_mgrad, simulate_ssm):
+def replacement_exactness_run(
+    grid_smoother, np, run_agrad, run_amala_exact, run_amala_plus, run_mgrad, simulate_ssm
+):
     _x_true, _y = simulate_ssm(0, 64)
     _gold = grid_smoother(_y)
     _deltas = [0.25, 0.5, 1.0, 2.0, 4.0]
@@ -1394,8 +1509,8 @@ def coda_bias_run(grid_smoother, np, run_agrad, run_amala, run_mgrad, simulate_s
         _chains = {
             "mgrad": run_mgrad(_y, delta=_delta, n_iter=700, seed=5),
             "agrad": run_agrad(_y, delta=_delta, n_iter=700, seed=5),
-            "amala_exact": run_amala(_y, "amala_exact", delta=_delta, n_iter=700, seed=5),
-            "amala_plus": run_amala(_y, "amala_plus", delta=_delta, n_iter=700, seed=5),
+            "amala_exact": run_amala_exact(_y, delta=_delta, n_iter=700, seed=5),
+            "amala_plus": run_amala_plus(_y, delta=_delta, n_iter=700, seed=5),
         }
         for _name, _chain in _chains.items():
             _burn = _chain[350:]
@@ -1408,7 +1523,7 @@ def coda_bias_run(grid_smoother, np, run_agrad, run_amala, run_mgrad, simulate_s
 
 
 @app.cell
-def coda_bias_fig(bias_results, mo, palette, plt):
+def replacement_exactness_fig(bias_results, mo, palette, plt):
     _order = ("mgrad", "agrad", "amala_exact", "amala_plus")
     _colors = {
         "mgrad": palette["state"],
@@ -1455,7 +1570,7 @@ def coda_bias_fig(bias_results, mo, palette, plt):
 
 
 @app.cell(hide_code=True)
-def coda_bias_caption(mo):
+def replacement_exactness_caption(mo):
     mo.md(r"""
     mGRAD, aGRAD, and `amala_exact` all track the gold standard at every δ here (their
     curves sit on top of each other near zero, with only Monte-Carlo wobble). `amala_plus`
@@ -1464,7 +1579,7 @@ def coda_bias_caption(mo):
     than 90%. That is the concrete cost of dropping the auxiliary correction to buy a
     cheaper leaf.
 
-    One caution this panel earns in hindsight: at 700 sweeps, "tracks the gold standard"
+    One caution on this panel: at 700 sweeps, "tracks the gold standard"
     only bounds a bias below the ≈0.03 Monte-Carlo floor. §12.2 repeats this check with
     20,000-sweep chains and finds our hand-built aGRAD leaf is itself *not* exactly
     invariant — it adapts its proposal to the reference path without paying the matching
@@ -1476,7 +1591,7 @@ def coda_bias_caption(mo):
 
 
 @app.cell(hide_code=True)
-def coda_scaling_md(mo):
+def replacement_scaling_md(mo):
     mo.md(r"""
     ### 11.2 Mixing and depth — where the audit cashes out
 
@@ -1497,7 +1612,9 @@ def coda_scaling_md(mo):
 
 
 @app.cell
-def coda_scaling_run(ess_per_sweep, math, run_agrad, run_amala, run_mgrad, simulate_ssm):
+def replacement_scaling_run(
+    ess_per_sweep, math, run_agrad, run_amala_exact, run_amala_plus, run_mgrad, simulate_ssm
+):
     _t_lens = [16, 32, 64, 128, 256]
     _names = ("mgrad", "agrad", "amala_exact", "amala_plus")
     _ess = {_n: [] for _n in _names}
@@ -1509,8 +1626,8 @@ def coda_scaling_run(ess_per_sweep, math, run_agrad, run_amala, run_mgrad, simul
         _chains = {
             "mgrad": run_mgrad(_y, delta=0.7, n_iter=700, seed=3),
             "agrad": run_agrad(_y, delta=0.7, n_iter=700, seed=3),
-            "amala_exact": run_amala(_y, "amala_exact", delta=0.7, n_iter=700, seed=3),
-            "amala_plus": run_amala(_y, "amala_plus", delta=0.7, n_iter=700, seed=3),
+            "amala_exact": run_amala_exact(_y, delta=0.7, n_iter=700, seed=3),
+            "amala_plus": run_amala_plus(_y, delta=0.7, n_iter=700, seed=3),
         }
         _dseq = _t_len
         _dtree = math.ceil(math.log2(_t_len))
@@ -1531,7 +1648,7 @@ def coda_scaling_run(ess_per_sweep, math, run_agrad, run_amala, run_mgrad, simul
 
 
 @app.cell
-def coda_scaling_fig(mo, palette, plt, scaling_results):
+def replacement_scaling_fig(mo, palette, plt, scaling_results):
     _order = ("mgrad", "agrad", "amala_exact", "amala_plus")
     _colors = {
         "mgrad": palette["state"],
@@ -1603,7 +1720,7 @@ def coda_scaling_fig(mo, palette, plt, scaling_results):
 
 
 @app.cell(hide_code=True)
-def coda_recovery_md(mo):
+def replacement_recovery_md(mo):
     mo.md(r"""
     ### 11.3 Recovery at T = 1000
 
@@ -1621,8 +1738,16 @@ def coda_recovery_md(mo):
 
 
 @app.cell
-def coda_recovery_run(
-    ess_per_sweep, grid_smoother, math, np, run_agrad, run_amala, run_mgrad, simulate_ssm
+def replacement_recovery_run(
+    ess_per_sweep,
+    grid_smoother,
+    math,
+    np,
+    run_agrad,
+    run_amala_exact,
+    run_amala_plus,
+    run_mgrad,
+    simulate_ssm,
 ):
     _t_len = 1000
     _x_true, _y = simulate_ssm(0, _t_len)
@@ -1632,8 +1757,8 @@ def coda_recovery_run(
     _chains = {
         "mgrad": run_mgrad(_y, delta=_delta, n_iter=500, seed=7),
         "agrad": run_agrad(_y, delta=_delta, n_iter=500, seed=7),
-        "amala_exact": run_amala(_y, "amala_exact", delta=_delta, n_iter=500, seed=7),
-        "amala_plus": run_amala(_y, "amala_plus", delta=_delta, n_iter=500, seed=7),
+        "amala_exact": run_amala_exact(_y, delta=_delta, n_iter=500, seed=7),
+        "amala_plus": run_amala_plus(_y, delta=_delta, n_iter=500, seed=7),
     }
     _metrics = {}
     for _name, _chain in _chains.items():
@@ -1663,7 +1788,7 @@ def coda_recovery_run(
 
 
 @app.cell
-def coda_recovery_fig(mo, palette, plt, recovery_results):
+def replacement_recovery_fig(mo, palette, plt, recovery_results):
     _colors = {
         "mgrad": palette["state"],
         "agrad": palette["belief"],
@@ -1756,7 +1881,7 @@ def coda_recovery_fig(mo, palette, plt, recovery_results):
 
 
 @app.cell(hide_code=True)
-def coda_recovery_table(mo, recovery_results):
+def replacement_recovery_table(mo, recovery_results):
     _m = recovery_results["metrics"]
     _labels = {
         "mgrad": "Particle-mGRAD",
@@ -1787,7 +1912,7 @@ def coda_recovery_table(mo, recovery_results):
 
 
 @app.cell(hide_code=True)
-def coda_recovery_caption(mo):
+def replacement_recovery_caption(mo):
     mo.md(r"""
     All three exact kernels recover the T=1000 path essentially as well as the exact smoother
     itself — their *recovers-truth* RMSE sits on the floor, mGRAD and the two tree kernels
@@ -1801,7 +1926,7 @@ def coda_recovery_caption(mo):
 
 
 @app.cell(hide_code=True)
-def coda_verdict_md(mo):
+def replacement_verdict_md(mo):
     mo.md(r"""
     ### 11.4 The verdict
 
@@ -1809,12 +1934,12 @@ def coda_verdict_md(mo):
     |---|---|:--:|:--:|:--:|:--:|:--:|
     | **Particle-mGRAD** | Alg 7 (this notebook) | ✅ | ✅ | best | ⚠️ ≈ T | worst (falls like 1/T) |
     | **Particle-aGRAD** | tree (this notebook) | ✅ | ⚠️ approximate (§12.2) | ≈ mGRAD | ✅ ≈ log₂ T | **best** |
-    | **amala_exact** | dsmc.py (shipped default) | ❌ (isotropic) | ✅ | good | ✅ ≈ log₂ T | strong |
-    | **amala_plus** | dsmc.py (non-default) | ❌ | ❌ biased at large δ | good | ✅ ≈ log₂ T | — (biased) |
+    | **amala_exact** | dsmc.py (core of the `paid_mix` default) | ❌ (isotropic) | ✅ | good | ✅ ≈ log₂ T | strong |
+    | **amala_plus** | removed from dsmc.py (tree, this notebook) | ❌ | ❌ biased at large δ | good | ✅ ≈ log₂ T | — (biased) |
 
     Particle-mGRAD mixes best **per sweep** — folding the prior dynamics into the proposal is
     worth real ESS. But each sweep is a length-T sequential chain, exactly the `v̄_t`
-    obstruction of Sections 6–9, so its ESS *per unit of depth* falls like 1/T.
+    obstruction of §6–9, so its ESS *per unit of depth* falls like 1/T.
 
     **Particle-aGRAD is the resolution the audit predicted.** It folds the same prior dynamics
     as mGRAD — so it inherits most of mGRAD's per-sweep mixing (roughly twice `amala_exact`'s
@@ -1823,7 +1948,7 @@ def coda_verdict_md(mo):
     The result is the top line of the rightmost panel: aGRAD delivers the most effective
     samples per unit of sequential depth at every T, and by T = 256 it is roughly an order of
     magnitude ahead of published mGRAD while remaining exact (it tracks the gold posterior in
-    §11.1). `amala_exact`, our shipped default, is the isotropic cousin — it forgoes the
+    §11.1). `amala_exact`, the production leaf's core, is the isotropic cousin — it forgoes the
     prior-folding for simplicity, so it mixes less per sweep but shares the same exactness and
     tree depth. `amala_plus` shares the tree depth but not the invariance: cheap, parallel, and
     silently wrong once the steps are large.
@@ -1843,9 +1968,9 @@ def coda_verdict_md(mo):
 
 
 @app.cell(hide_code=True)
-def coda2_intro(mo):
+def twisted_md(mo):
     mo.md(r"""
-    ## 12. Coda 2 — the twisted leaf, the width axis, and an invariance correction
+    ## 12. The twisted leaf, the width axis, and an invariance correction
 
     §11 closed the case the audit opened, but it left three loose ends:
 
@@ -1862,14 +1987,14 @@ def coda2_intro(mo):
        only below ≈0.03. A sharper instrument finds something §11 missed — in our own
        hand-built leaf, not in the published kernels.
 
-    This coda answers all three with the same harness: same model, same gold-standard
+    This section answers all three with the same harness: same model, same gold-standard
     grid smoother, same ESS accounting.
     """)
     return
 
 
 @app.cell(hide_code=True)
-def coda2_twisted_md(mo):
+def twisted_leaf_md(mo):
     mo.md(r"""
     ### 12.1 The twisted leaf: lookahead proposals, exact correction
 
@@ -1906,7 +2031,7 @@ def coda2_twisted_md(mo):
 
 
 @app.cell
-def coda2_twisted_kernel(
+def twisted_kernel(
     DRIFT_A,
     DRIFT_B,
     DRIFT_W,
@@ -2014,7 +2139,7 @@ def coda2_twisted_kernel(
 
 
 @app.cell(hide_code=True)
-def coda2_invariance_md(mo):
+def invariance_probe_md(mo):
     mo.md(r"""
     ### 12.2 An honest correction: the aGRAD leaf is not exactly invariant
 
@@ -2051,8 +2176,16 @@ def coda2_invariance_md(mo):
 
 
 @app.cell
-def coda2_probe_run(
-    coord_ess, grid_smoother, mo, np, run_agrad, run_amala, run_mgrad, run_twisted, simulate_ssm
+def invariance_probe_run(
+    coord_ess,
+    grid_smoother,
+    mo,
+    np,
+    run_agrad,
+    run_amala_exact,
+    run_mgrad,
+    run_twisted,
+    simulate_ssm,
 ):
     _, _y = simulate_ssm(0, 16)
     _gold = grid_smoother(_y)
@@ -2075,7 +2208,7 @@ def coda2_probe_run(
         ),
         (
             "amala_exact (production), P=4, δ=4",
-            lambda: run_amala(_y, "amala_exact", n_particles=4, delta=4.0, n_iter=20000, seed=11),
+            lambda: run_amala_exact(_y, n_particles=4, delta=4.0, n_iter=20000, seed=11),
         ),
     )
     _lines = [
@@ -2098,18 +2231,18 @@ def coda2_probe_run(
 
 
 @app.cell(hide_code=True)
-def coda2_probe_caption(mo):
+def invariance_probe_caption(mo):
     mo.md(r"""
-    The prediction from §12.2, confirmed quantitatively. The aGRAD leaf at δ = 4 is
+    The prediction above, confirmed quantitatively. The aGRAD leaf at δ = 4 is
     biased beyond any doubt (|z| ≈ 15–17) — and note the P = 16 row sits *inside*
-    §11.1's sweep, hidden there beneath the 700-sweep Monte-Carlo floor. Doubling the
-    particle count shrinks the error (≈0.18 → ≈0.06, the O(1/N) dilution), but does not
-    remove it. Everything that pays its correction passes at the same stress level: the
-    twisted leaf (fixed proposals), published mGRAD (marginal weights), and the
+    §11.1's sweep, hidden there beneath the 700-sweep Monte-Carlo floor. Quadrupling the
+    particle count (P = 4 → 16) shrinks the error (≈0.18 → ≈0.06, the O(1/N) dilution),
+    but does not remove it. Everything that pays its correction passes at the same stress
+    level: the twisted leaf (fixed proposals), published mGRAD (marginal weights), and the
     production `amala_exact` leaf (auxiliary potential) — so `dsmc.py` is unaffected;
     the defect is confined to this notebook's §11 hand-built leaf.
 
-    At the coda's operating point (P = 16, δ = 0.7) the aGRAD bias is beneath even this
+    At §11's operating point (P = 16, δ = 0.7) the aGRAD bias is beneath even this
     probe's detection floor, so §11.2–11.3's mixing, depth, and recovery conclusions
     stand as stated. What changes is the label: aGRAD-as-implemented is *approximately*
     invariant, in exactly the way `amala_plus` is — only much milder.
@@ -2117,8 +2250,19 @@ def coda2_probe_caption(mo):
     return
 
 
+@app.cell(hide_code=True)
+def twisted_head_to_head_md(mo):
+    mo.md(r"""
+    ### 12.3 Head-to-head: mixing, width, recovery
+
+    The twisted leaf rejoins the §11 benchmarks: the horizon sweep of §11.2, a particle-width
+    sweep at `T = 64`, and the `T = 1000` recovery run of §11.3.
+    """)
+    return
+
+
 @app.cell
-def coda2_scaling_run(ess_per_sweep, math, run_twisted, scaling_results, simulate_ssm):
+def twisted_scaling_run(ess_per_sweep, math, run_twisted, scaling_results, simulate_ssm):
     _ess = []
     _ess_depth = []
     for _t_len in scaling_results["T"]:
@@ -2131,7 +2275,7 @@ def coda2_scaling_run(ess_per_sweep, math, run_twisted, scaling_results, simulat
 
 
 @app.cell
-def coda2_scaling_fig(mo, palette, plt, scaling_results, twisted_scaling):
+def twisted_scaling_fig(mo, palette, plt, scaling_results, twisted_scaling):
     _order = ("mgrad", "agrad", "amala_exact", "amala_plus")
     _colors = {
         "mgrad": palette["state"],
@@ -2194,10 +2338,8 @@ def coda2_scaling_fig(mo, palette, plt, scaling_results, twisted_scaling):
 
 
 @app.cell(hide_code=True)
-def coda2_scaling_caption(mo):
+def twisted_scaling_caption(mo):
     mo.md(r"""
-    ### 12.3 Head-to-head: mixing, width, recovery
-
     The twisted leaf dominates the aGRAD leaf pointwise — at every horizon it mixes
     better per sweep at identical depth, so its ESS-per-depth curve sits strictly above
     (both P = 16, and the twisted leaf needs no per-sweep gradient or auxiliary draw at
@@ -2208,7 +2350,7 @@ def coda2_scaling_caption(mo):
 
 
 @app.cell
-def coda2_width_run(ess_per_sweep, run_agrad, run_mgrad, run_twisted, simulate_ssm):
+def width_sweep_run(ess_per_sweep, run_agrad, run_mgrad, run_twisted, simulate_ssm):
     _, _y = simulate_ssm(0, 64)
     _ps = [8, 16, 32, 64]
     _ess = {"mgrad": [], "agrad": [], "twisted": []}
@@ -2225,7 +2367,7 @@ def coda2_width_run(ess_per_sweep, run_agrad, run_mgrad, run_twisted, simulate_s
 
 
 @app.cell
-def coda2_width_fig(mo, palette, plt, width_results):
+def width_sweep_fig(mo, palette, plt, width_results):
     _colors = {"mgrad": palette["state"], "agrad": palette["belief"], "twisted": palette["obs"]}
     _labels = {
         "mgrad": "Particle-mGRAD — saturated: depth T at any P",
@@ -2251,7 +2393,7 @@ def coda2_width_fig(mo, palette, plt, width_results):
 
 
 @app.cell(hide_code=True)
-def coda2_width_caption(mo):
+def width_sweep_caption(mo):
     mo.md(r"""
     This is the panel that removes mGRAD's last advantage. mGRAD saturates by P ≈ 16 —
     its per-sweep mixing is limited by the auxiliary step size δ, not by particle count —
@@ -2265,7 +2407,9 @@ def coda2_width_caption(mo):
 
 
 @app.cell
-def coda2_recovery_run(ess_per_sweep, grid_smoother, math, mo, np, recovery_results, run_twisted):
+def twisted_recovery_table(
+    ess_per_sweep, grid_smoother, math, mo, np, recovery_results, run_twisted
+):
     _y = recovery_results["obs"]
     _x_true = recovery_results["truth"]
     _gold = grid_smoother(_y)
@@ -2274,7 +2418,7 @@ def coda2_recovery_run(ess_per_sweep, grid_smoother, math, mo, np, recovery_resu
     _burn = _chain[200:]
     _pm = _burn.mean(0)
     _lo, _hi = np.percentile(_burn, 5, 0), np.percentile(_burn, 95, 0)
-    twisted_recovery = {
+    _twisted_recovery = {
         "rmse_truth": float(np.sqrt(np.mean((_pm - _x_true) ** 2))),
         "rmse_gold": float(np.sqrt(np.mean((_pm - _gold["mean"]) ** 2))),
         "cov": float(np.mean((_x_true >= _lo) & (_x_true <= _hi))),
@@ -2298,7 +2442,7 @@ def coda2_recovery_run(ess_per_sweep, grid_smoother, math, mo, np, recovery_resu
             f"| {_m['cov']:.3f} | {_m['ess']:.3f} | {_m['depth']} "
             f"| {_m['ess'] / _m['depth']:.5f} |"
         )
-    _m = twisted_recovery
+    _m = _twisted_recovery
     _lines.append(
         f"| **twisted leaf (§12)** | {_m['rmse_truth']:.4f} | {_m['rmse_gold']:.4f} "
         f"| {_m['cov']:.3f} | {_m['ess']:.3f} | {_m['depth']} "
@@ -2314,11 +2458,11 @@ def coda2_recovery_run(ess_per_sweep, grid_smoother, math, mo, np, recovery_resu
         "**Recovery at T = 1000** — same budget as §11.3 (500 sweeps, 200 burn-in), "
         "twisted leaf appended to the §11 table:\n\n" + "\n".join(_lines)
     )
-    return (twisted_recovery,)
+    return
 
 
 @app.cell(hide_code=True)
-def coda2_verdict(mo):
+def twisted_verdict_md(mo):
     mo.md(r"""
     ### 12.4 The amended verdict
 
@@ -2363,13 +2507,13 @@ def coda2_verdict(mo):
 
 
 @app.cell(hide_code=True)
-def coda3_intro(mo):
+def hostile_md(mo):
     mo.md(r"""
-    ## 13. Coda 3 — hostile terrain: non-Gaussian emissions, harsher curvature
+    ## 13. Hostile terrain: non-Gaussian emissions, harsher curvature
 
-    §12's toy was kind to linearisation: a Gaussian emission carrying per-observation
+    The §11–12 toy was kind to linearisation: a Gaussian emission carrying per-observation
     Fisher information 1/0.5² = 4 about the state, and drift curvature |m″| ≤ 1.6. This
-    coda turns both knobs at once:
+    section turns both knobs at once:
 
     - **Emission** → stochastic volatility, `y_t ~ N(0, exp(x_t))` — the emission family
       from the Corenflos–Finke experiments. Non-Gaussian, skewed, and *weak*: the Fisher
@@ -2400,7 +2544,7 @@ def coda3_intro(mo):
 
 
 @app.cell
-def coda3_model(np):
+def hostile_model(np):
     # Hostile toy: harsher sin-drift, constant transition covariance (still exactly the
     # Particle-mGRAD regime), stochastic-volatility emission.
     #     x_0 ~ N(0, SV_INIT_SD^2)
@@ -2471,7 +2615,7 @@ def coda3_model(np):
 
 
 @app.cell
-def coda3_terrain_fig(
+def hostile_terrain_fig(
     DRIFT_A,
     DRIFT_B,
     DRIFT_W,
@@ -2536,7 +2680,7 @@ def coda3_terrain_fig(
 
 
 @app.cell
-def coda3_kernels(SV_A, SV_B, SV_INIT_SD, SV_PROC_SD, SV_W, jax, jnp, make_dsmc_tree, np, random):
+def hostile_kernels(SV_A, SV_B, SV_INIT_SD, SV_PROC_SD, SV_W, jax, jnp, make_dsmc_tree, np, random):
     def _m_mean(x):
         return SV_A * x + SV_B * jnp.sin(SV_W * x)
 
@@ -2788,7 +2932,7 @@ def coda3_kernels(SV_A, SV_B, SV_INIT_SD, SV_PROC_SD, SV_W, jax, jnp, make_dsmc_
 
 
 @app.cell(hide_code=True)
-def coda3_pilot_md(mo):
+def hostile_pilot_md(mo):
     mo.md(r"""
     ### 13.1 What survived contact, before any benchmark
 
@@ -2818,7 +2962,7 @@ def coda3_pilot_md(mo):
 
 
 @app.cell
-def coda3_probe_run(
+def hostile_probe_run(
     coord_ess, grid_smoother_sv, mo, np, run_agrad_sv, run_mgrad_sv, run_twisted_sv, simulate_sv
 ):
     _, _y = simulate_sv(0, 16)
@@ -2871,7 +3015,7 @@ def coda3_probe_run(
 
 
 @app.cell(hide_code=True)
-def coda3_probe_caption(mo):
+def hostile_probe_caption(mo):
     mo.md(r"""
     Prediction 1, confirmed and amplified. The exactness accounting is indeed
     model-independent: mGRAD (marginal weights = the correction) and both defensive
@@ -2890,7 +3034,7 @@ def coda3_probe_caption(mo):
 
 
 @app.cell
-def coda3_scaling_run(
+def hostile_scaling_run(
     ess_per_sweep, grid_smoother_sv, math, run_agrad_sv, run_mgrad_sv, run_twisted_sv, simulate_sv
 ):
     _t_lens = [16, 32, 64, 128, 256]
@@ -2918,7 +3062,7 @@ def coda3_scaling_run(
 
 
 @app.cell
-def coda3_scaling_fig(mo, palette, plt, sv_scaling):
+def hostile_scaling_fig(mo, palette, plt, sv_scaling):
     _colors = {
         "mgrad": palette["state"],
         "agrad": palette["belief"],
@@ -2979,7 +3123,7 @@ def coda3_scaling_fig(mo, palette, plt, sv_scaling):
 
 
 @app.cell(hide_code=True)
-def coda3_scaling_caption(mo):
+def hostile_scaling_caption(mo):
     mo.md(r"""
     Predictions 2 and 3, measured. **mGRAD is untouched by the terrain**: per-sweep ESS
     ≈ 0.51–0.72 (essentially its Gaussian-model numbers) and it sits on the
@@ -2996,7 +3140,7 @@ def coda3_scaling_caption(mo):
 
 
 @app.cell
-def coda3_recovery_run(
+def hostile_recovery_table(
     count_multimodal,
     ess_per_sweep,
     grid_smoother_sv,
@@ -3079,7 +3223,7 @@ def coda3_recovery_run(
 
 
 @app.cell(hide_code=True)
-def coda3_budget_md(mo):
+def hostile_budget_md(mo):
     mo.md(r"""
     ### 13.2 The chain-length competition — anytime metrics per unit of hardware time
 
@@ -3098,19 +3242,20 @@ def coda3_budget_md(mo):
       chains that visit only one basin at the multimodal timepoints;
     - **90% coverage** — calibration against the true path.
 
-    The x-axis is measured A100 wall-clock: marginal cost per sweep on an
-    A100-SXM4-40GB (Modal, 2026-07-02), obtained from paired 500- vs 5000-sweep runs —
-    **49.8 ms/sweep for mGRAD** (a length-1000 launch-bound chain) versus
-    **1.28 ms/sweep for the twisted+def tree** (ten batched levels). One-time
-    compile/pilot costs are excluded for both. Per *sequential round* the two kernels
-    cost within 2.6× of each other (≈50 vs ≈130 µs), so this axis is, to a small
+    The x-axis converts sweeps to A100 wall-clock with two **measured constants**, not
+    computed here: the marginal cost per sweep on an A100-SXM4-40GB (Modal, 2026-07-02),
+    obtained from paired 500- vs 5000-sweep runs — **49.8 ms/sweep for mGRAD** (a
+    length-1000 launch-bound chain) versus **1.28 ms/sweep for the twisted+def tree** (ten
+    batched levels). The chains themselves run here; only their per-sweep price is carried
+    in. One-time compile/pilot costs are excluded for both. Per *sequential round* the two
+    kernels cost within 2.6× of each other (≈50 vs ≈130 µs), so this axis is, to a small
     constant, the notebook's depth accounting made physical.
     """)
     return
 
 
 @app.cell
-def coda3_budget_run(grid_smoother_sv, np, run_mgrad_sv, run_twisted_sv, simulate_sv):
+def hostile_budget_run(grid_smoother_sv, np, run_mgrad_sv, run_twisted_sv, simulate_sv):
     # Marginal ms/sweep measured on Modal A100-SXM4-40GB (2026-07-02), from paired
     # 500- vs 5000-sweep runs of these exact kernels; compile/pilot excluded (one-time).
     _ms_a100 = {"mgrad": 49.8, "twisted_def": 1.28}
@@ -3163,7 +3308,7 @@ def coda3_budget_run(grid_smoother_sv, np, run_mgrad_sv, run_twisted_sv, simulat
 
 
 @app.cell
-def coda3_budget_fig(mo, palette, plt, sv_budget):
+def hostile_budget_fig(mo, palette, plt, sv_budget):
     _colors = {"mgrad": palette["state"], "twisted_def": palette["obs"]}
     _labels = {"mgrad": "Particle-mGRAD (δ=4)", "twisted_def": "twisted+def (c=3, ε=0.25)"}
     _fig, _axes = plt.subplots(2, 2, figsize=(11.5, 7.6))
@@ -3212,7 +3357,7 @@ def coda3_budget_fig(mo, palette, plt, sv_budget):
 
 
 @app.cell
-def coda3_budget_table(mo, sv_budget):
+def hostile_budget_table(mo, sv_budget):
     _targets = (0.15, 0.10, 0.05, 0.035)
     _lines = [
         "| RMSE-vs-posterior target | mGRAD (A100 s) | twisted+def (A100 s) | speedup |",
@@ -3242,7 +3387,7 @@ def coda3_budget_table(mo, sv_budget):
 
 
 @app.cell(hide_code=True)
-def coda3_budget_caption(mo):
+def hostile_budget_caption(mo):
     mo.md(r"""
     The chain-length competition, settled panel by panel:
 
@@ -3270,7 +3415,7 @@ def coda3_budget_caption(mo):
 
 
 @app.cell(hide_code=True)
-def coda3_verdict(mo):
+def hostile_verdict_md(mo):
     mo.md(r"""
     ### 13.3 The hostile-terrain verdict
 
@@ -3304,11 +3449,11 @@ def coda3_verdict(mo):
        provably invariant and still practically useless off-pilot — invariance says
        where the chain converges, proposal coverage says whether it does so within
        your lifetime. On hostile terrain every kernel that failed, failed *silently*
-       (healthy-looking single-chain ESS while off-target); only the gold standard —or
+       (healthy-looking single-chain ESS while off-target); only the gold standard — or
        multi-seed comparison — exposes it.
 
     For production, the directional note (measured once, 1-D toy, lightly tuned): the
-    shipped `amala_exact` leaf stays exact here but mixes at ESS ≈ 0.10/sweep at its
+    production `amala_exact` leaf stays exact here but mixes at ESS ≈ 0.10/sweep at its
     best δ — 3–7× below the toy tree leaves and far off the floor at long horizons
     within these budgets. The same defensive-twisted construction (pilot = the
     existing Laplace warmup + wide-tail insurance + exact ψ) is the natural upgrade
@@ -3318,14 +3463,14 @@ def coda3_verdict(mo):
 
 
 @app.cell(hide_code=True)
-def coda4_intro(mo):
+def multimodal_md(mo):
     mo.md(r"""
-    ## 14. Coda 4 — where even mGRAD breaks: a multimodal posterior
+    ## 14. Where even mGRAD breaks: a multimodal posterior
 
     Every model so far has been *unimodal* given the data — hard to linearise, weak,
     curved, but with the posterior mass in one place. On such models §13 crowned mGRAD
     the robustness champion: fresh reference gradients and ancestor-diverse prior folds
-    let it track the mode from anywhere. This coda asks the opposite question — **what
+    let it track the mode from anywhere. This section asks the opposite question — **what
     breaks mGRAD?** — and the answer is not size.
 
     Dimension `D` is the axis this whole family scales *well* on, by construction: the
@@ -3348,11 +3493,11 @@ def coda4_intro(mo):
     Constant process covariance — still exactly the Particle-mGRAD regime. But the
     `x_t^2` emission is **sign-ambiguous**: `y_t` fixes `|x_t|`, never the sign, so the
     smoothing posterior is genuinely **bimodal** (here 32 of 100 marginals have two
-    well-separated modes, and the exact `P(x_t > 0 \mid y)` sweeps the whole `[0, 1]`).
+    well-separated modes, and the exact `P(x_t > 0 | y)` sweeps the whole `[0, 1]`).
     A local gradient move is *structurally* unable to cross this: the emission
-    log-likelihood has a valley at `x = 0` with `∂/∂x \log G` pointing *away* from zero
-    in both basins, so a MALA/mGRAD step started near `+\sqrt{20 y}` can never reach
-    `-\sqrt{20 y}`. Only the resampling/ancestor mechanism could flip the sign — and
+    log-likelihood has a valley at `x = 0` with `∂/∂x log G` pointing *away* from zero
+    in both basins, so a MALA/mGRAD step started near `+√(20y)` can never reach
+    `−√(20y)`. Only the resampling/ancestor mechanism could flip the sign — and
     only if some particle proposes it.
 
     Because the posterior is multimodal, the posterior *mean* is a poor summary (it sits
@@ -3361,14 +3506,14 @@ def coda4_intro(mo):
     - **Wasserstein-1 to the exact marginal** — the average over `t` of the 1-D optimal
       transport distance between the sampler's empirical marginal and the grid gold
       marginal. This is zero iff the sampler reproduces the full bimodal shape.
-    - **sign-probability error** — RMSE over `t` of `\lvert \hat P(x_t>0) - P_{\text{gold}}(x_t>0)\rvert`.
+    - **sign-probability error** — RMSE over `t` of `|P̂(x_t>0) − P_gold(x_t>0)|`.
       This is the direct "did you get the mode weights right" score.
     """)
     return
 
 
 @app.cell
-def coda4_model(math, np):
+def multimodal_model(math, np):
     KIT_SIG_V = math.sqrt(10.0)  # process sd (classic var = 10)
     KIT_SIG_W = 1.0  # obs sd
     KIT_INIT_SD = 5.0
@@ -3465,7 +3610,7 @@ def coda4_model(math, np):
 
 
 @app.cell
-def coda4_kernels(KIT_INIT_SD, KIT_SIG_V, KIT_SIG_W, jax, jnp, make_dsmc_tree, np, random):
+def multimodal_kernels(KIT_INIT_SD, KIT_SIG_V, KIT_SIG_W, jax, jnp, make_dsmc_tree, np, random):
     def _m_mean(time_idx, x):
         return 0.5 * x + 25.0 * x / (1.0 + x**2) + 8.0 * jnp.cos(1.2 * time_idx)
 
@@ -3709,7 +3854,7 @@ def coda4_kernels(KIT_INIT_SD, KIT_SIG_V, KIT_SIG_W, jax, jnp, make_dsmc_tree, n
 
 
 @app.cell
-def coda4_run(
+def multimodal_run(
     count_multimodal_kit,
     grid_smoother_kit,
     np,
@@ -3759,7 +3904,7 @@ def coda4_run(
 
 
 @app.cell
-def coda4_scoreboard(kit_results, mo):
+def multimodal_table(kit_results, mo):
     _labels = {
         "mgrad": "Particle-mGRAD (local gradient)",
         "twisted_def": "twisted + generic wide tail (§13 fix)",
@@ -3785,7 +3930,7 @@ def coda4_scoreboard(kit_results, mo):
 
 
 @app.cell
-def coda4_marginal_fig(kit_results, mo, np, palette, plt):
+def multimodal_marginal_fig(kit_results, mo, np, palette, plt):
     _gold = kit_results["gold"]
     _xs = _gold["xs"]
     # pick the most bimodal timepoint (grid mass most evenly split across the sign)
@@ -3855,8 +4000,8 @@ def coda4_marginal_fig(kit_results, mo, np, palette, plt):
     return
 
 
-@app.cell
-def coda4_verdict(mo):
+@app.cell(hide_code=True)
+def multimodal_verdict_md(mo):
     mo.md(r"""
     ### 14.1 The verdict — and why it inverts §13
 
@@ -3866,7 +4011,7 @@ def coda4_verdict(mo):
     | **twisted + wide tail** | ✅ | ⚠️ partial | independent tail *can* jump signs, but a single width can't span modes 40 apart |
     | **twisted + mode-aware roots** | ✅ | ✅ **recovers** | fixed proposal places mass at *both* `±√(20y)`; exact weight sorts the mode weights |
 
-    This coda inverts §13's ranking, and the reason is the whole point of the audit read
+    This section inverts §13's ranking, and the reason is the whole point of the audit read
     backwards.
 
     - **mGRAD's failure is structural, not a tuning miss.** It is flat across step size
@@ -3897,7 +4042,7 @@ def coda4_verdict(mo):
       structure has to come from the model — the emission's own roots — which the
       independent-proposal family can express and the local kernel cannot.
 
-    **The two codas together frame the real trade.** §13: on a unimodal-but-hard model
+    **§13 and §14 together frame the real trade.** §13: on a unimodal-but-hard model
     the local gradient kernel (mGRAD) is the robustness champion, and the tree only wins
     once you price sequential depth. §14: on a multimodal model the local kernel does not
     just mix slowly — it is *structurally blind* to the second mode, and the
@@ -3911,16 +4056,16 @@ def coda4_verdict(mo):
 
 
 @app.cell(hide_code=True)
-def coda5_intro(mo):
+def leaf_grid_md(mo):
     mo.md(r"""
-    ## 15. Coda 5 — the leaf grid: exactness is leaf-independent, mixing is shape-dependent
+    ## 15. The leaf grid: exactness is leaf-independent, mixing is shape-dependent
 
     §11–14 accumulated a claim one model at a time: on the c-dSMC tree the leaf proposal
     is a *free slot*. Any leaf that pays its correction (`ψ = log G − log q`, plus any
     reference-dependence paid as an auxiliary potential) yields an exactly `π_T`-invariant
     kernel, so **exactness never depends on the leaf**; what the leaf buys or forfeits is
     **mixing within a budget**, and that is set by how well its support covers the
-    posterior's shape. This coda tests the claim as a grid — five model shapes × six
+    posterior's shape. This section tests the claim as a grid — five model shapes × six
     kernels, every tree kernel through the byte-identical stitch, all scored against each
     model's own grid gold standard.
 
@@ -3931,7 +4076,7 @@ def coda5_intro(mo):
     | `friendly` | §11 sin drift | linear-Gaussian | unimodal, easy |
     | `sv` | §13 harsh sin | stochastic-volatility | unimodal, weak data |
     | `kitagawa` | §14 growth | `x²/20` (sign-ambiguous) | emission-fold modes, FAR apart |
-    | `absval` | AR(1) | `\|x\|` (sign-ambiguous) | emission-fold modes, CLOSE/symmetric |
+    | `absval` | AR(1) | `|x|` (sign-ambiguous) | emission-fold modes, CLOSE/symmetric |
     | `dwell` | double-well | linear-Gaussian, weak | dynamics-induced modes, CLOSE |
 
     **The kernels**: sequential Particle-mGRAD (the baseline with *no* swappable leaf),
@@ -3956,7 +4101,7 @@ def coda5_intro(mo):
 
 
 @app.cell
-def coda5_model_zoo(
+def leaf_grid_models(
     DRIFT_A,
     DRIFT_B,
     DRIFT_W,
@@ -4176,7 +4321,7 @@ def coda5_model_zoo(
 
 
 @app.cell
-def coda5_harness(jax, jnp, np):
+def leaf_grid_harness(jax, jnp, np):
     # One grid gold standard and one pilot for all five models — every statistical-model-specific
     # quantity (drift Jacobian, emission gradient and curvature) comes from jax.grad,
     # so nothing here knows which model it is running.
@@ -4298,7 +4443,7 @@ def coda5_harness(jax, jnp, np):
 
 
 @app.cell
-def coda5_kernels(jax, jnp, lg_make_pilot, lg_prior_fns, make_dsmc_tree, np, random):
+def leaf_grid_kernels(jax, jnp, lg_make_pilot, lg_prior_fns, make_dsmc_tree, np, random):
     def _logn(v, mu, var):
         return -0.5 * (jnp.log(2.0 * jnp.pi * var) + (v - mu) ** 2 / var)
 
@@ -4532,7 +4677,7 @@ def coda5_kernels(jax, jnp, lg_make_pilot, lg_prior_fns, make_dsmc_tree, np, ran
 
 
 @app.cell
-def coda5_metrics(ess_per_sweep, np, wasserstein1_kit):
+def leaf_grid_metrics(ess_per_sweep, np, wasserstein1_kit):
     def _w1_signcond(chain_burn, gold):
         # W1 against gold RESTRICTED to the sign basin the chain occupies at each t.
         # Small while full-W1 is large ⇒ 'exact but stuck in one mode'; large in both ⇒
@@ -4570,7 +4715,7 @@ def coda5_metrics(ess_per_sweep, np, wasserstein1_kit):
 
 
 @app.cell(hide_code=True)
-def coda5_probe_md(mo):
+def leaf_grid_probe_md(mo):
     mo.md(r"""
     ### 15.1 The exactness probe — one long chain per cell, hostile settings
 
@@ -4599,7 +4744,7 @@ def coda5_probe_md(mo):
 
 
 @app.cell
-def coda5_probe_run(lg_eval, lg_grid_smoother, lg_kernels, lg_models):
+def leaf_grid_probe_run(lg_eval, lg_grid_smoother, lg_kernels, lg_models):
     lg_probe = {}
     for _mname, _model in lg_models.items():
         _, _y = _model["simulate"](0, 24)
@@ -4616,7 +4761,7 @@ def coda5_probe_run(lg_eval, lg_grid_smoother, lg_kernels, lg_models):
 
 
 @app.cell
-def coda5_probe_table(lg_kernels, lg_models, lg_probe, mo):
+def leaf_grid_probe_table(lg_kernels, lg_models, lg_probe, mo):
     _kn = list(lg_kernels)
     _head = "| model | " + " | ".join(_kn) + " |"
     _sep = "|---|" + "--:|" * len(_kn)
@@ -4647,7 +4792,7 @@ def coda5_probe_table(lg_kernels, lg_models, lg_probe, mo):
 
 
 @app.cell(hide_code=True)
-def coda5_probe_caption(mo):
+def leaf_grid_probe_caption(mo):
     mo.md(r"""
     All three signatures appear exactly where the theory puts them.
 
@@ -4675,7 +4820,7 @@ def coda5_probe_caption(mo):
 
 
 @app.cell(hide_code=True)
-def coda5_budget_md(mo):
+def leaf_grid_budget_md(mo):
     mo.md(r"""
     ### 15.2 The budget grid — same kernels, fixed budget, tuned steps
 
@@ -4688,7 +4833,7 @@ def coda5_budget_md(mo):
 
 
 @app.cell
-def coda5_budget_run(lg_eval, lg_grid_smoother, lg_kernels, lg_models, np):
+def leaf_grid_budget_run(lg_eval, lg_grid_smoother, lg_kernels, lg_models, np):
     lg_budget = {}
     for _mname, _model in lg_models.items():
         _, _y = _model["simulate"](0, 64)
@@ -4709,9 +4854,7 @@ def coda5_budget_run(lg_eval, lg_grid_smoother, lg_kernels, lg_models, np):
 
 
 @app.cell
-def coda5_heatmap_fig(lg_budget, lg_kernels, lg_models, mo, np, plt):
-    from matplotlib.colors import LogNorm
-
+def leaf_grid_budget_fig(LogNorm, lg_budget, lg_kernels, lg_models, mo, np, plt):
     _kn = list(lg_kernels)
     _mn = list(lg_models)
     _vals = np.array([[lg_budget[_m][_k]["w1_rel"] for _k in _kn] for _m in _mn])
@@ -4751,7 +4894,7 @@ def coda5_heatmap_fig(lg_budget, lg_kernels, lg_models, mo, np, plt):
 
 
 @app.cell
-def coda5_budget_caption(lg_budget, mo):
+def leaf_grid_budget_caption(lg_budget, mo):
     _kit = lg_budget["kitagawa"]
     _dw = lg_budget["dwell"]
     _av = lg_budget["absval"]
@@ -4778,7 +4921,7 @@ def coda5_budget_caption(lg_budget, mo):
 
 
 @app.cell(hide_code=True)
-def coda5_verdict(mo):
+def leaf_grid_verdict_md(mo):
     mo.md(r"""
     ### 15.3 The verdict — a two-axis summary of the whole audit
 
@@ -4815,11 +4958,11 @@ def coda5_verdict(mo):
 
 
 @app.cell(hide_code=True)
-def coda6_intro(mo):
+def dimension_md(mo):
     mo.md(r"""
-    ## 16. Coda 6 — the D loop: what survives dimension
+    ## 16. The D loop: what survives dimension
 
-    §15 established the leaf toolbox at `D = 1`. This coda reports whether it lifts to
+    §15 established the leaf toolbox at `D = 1`. This section reports whether it lifts to
     the dimension regime the Particle-mGRAD paper targets — its headline experiment is a
     `D = 30`, `T = 128` multivariate stochastic-volatility model (3 840 unknowns). We
     reproduced that model exactly from the paper's own code (ν = 0, φ = 0.9,
@@ -4840,7 +4983,7 @@ def coda6_intro(mo):
     tables and figures below carry the measured values as documented constants, the
     same convention as §13.2's A100 timings.
 
-    Beyond the sweep, two NEW leaves were built and measured:
+    Beyond the sweep, two further leaves were built and measured:
 
     - **paid-mix** — one paid mixture combining a z-anchored (reference-local)
       component, the full-covariance pilot component, and a wide isotropic tail:
@@ -4861,15 +5004,15 @@ def coda6_intro(mo):
 
 
 @app.cell(hide_code=True)
-def coda6_sv_results(mo):
+def dimension_unimodal_md(mo):
     mo.md(r"""
     ### 16.1 The unimodal crossover — ESS per wall-clock second vs D
 
     The paper's SV model, τ = 0.1 (informative dynamics — the hardest seam-coherence
     case), `T = 128`, `P = 32`, best guarded configuration per cell (a config is
-    disqualified if its chains freeze), warm A100 ms/sweep:
+    disqualified if its chains freeze); ESS per second, measured on a warm A100:
 
-    | D | mGRAD | amala_z (paid, ref-local) | twisted_def (independence) | paid-mix (new) |
+    | D | mGRAD | amala_z (paid, ref-local) | twisted_def (independence) | paid-mix |
     |--:|--:|--:|--:|--:|
     | 4 | 4.6 | 11.5 | 7.3 | **12.2** |
     | 8 | 3.2 | **5.2** | 1.5 | 4.7 |
@@ -4904,7 +5047,7 @@ def coda6_sv_results(mo):
     disagreeing (cross-kernel rel-diff 2.38 vs the converged tree kernel) exposed it.
     The **frozen-coordinate fraction** is the indispensable companion metric at high D.
 
-    **Long-T addendum (measured on A100, τ = 0.1, best guarded configs).** Pushing
+    **Long horizons (measured on A100, τ = 0.1, best guarded configs).** Pushing
     mGRAD's home turf along the horizon, up to 34× the paper's problem size:
 
     | D | T | mGRAD ESS/s | amala_z ESS/s | tree advantage |
@@ -4927,7 +5070,7 @@ def coda6_sv_results(mo):
 
 
 @app.cell
-def coda6_crossover_fig(mo, np, palette, plt):
+def dimension_crossover_fig(mo, np, palette, plt):
     # Measured on Modal A100 (2026-07-03): the D-crossover sweep. Constants documented
     # here, same convention as §13.2's A100 timings. Left: SV tau=0.1 T=128 ESS/s
     # (best guarded config). Right: Kitagawa-D sign-probability error (best config).
@@ -4990,11 +5133,11 @@ def coda6_crossover_fig(mo, np, palette, plt):
 
 
 @app.cell(hide_code=True)
-def coda6_kit_results(mo):
+def dimension_multimodal_md(mo):
     mo.md(r"""
     ### 16.2 The multimodal frontier — Kitagawa-D against its exact product gold
 
-    `W1/σ̄` and sign-probability error at the best configuration per cell:
+    Measured `W1/σ̄` and sign-probability error at the best configuration per cell:
 
     | D | mGRAD | root leaf (independence) | amala_z (ref-local) | flip (sign-symmetric aux) |
     |--:|--|--|--|--|
@@ -5024,7 +5167,7 @@ def coda6_kit_results(mo):
 
 
 @app.cell(hide_code=True)
-def coda6_verdict(mo):
+def dimension_verdict_md(mo):
     mo.md(r"""
     ### 16.3 The verdict — one chassis, one composite leaf, one open cell
 
@@ -5053,9 +5196,15 @@ def coda6_verdict(mo):
     inherited by our methods"; the auxiliary-Kalman paper lists multi-modal posteriors
     as a class that "eludes" its samplers and points to tempering meta-algorithms; the
     DSMC paper names mode-capable proposals as future work. §15 executed that
-    future-work item at `D = 1`; this coda measured where it dies (`D ≈ 8`), why
+    future-work item at `D = 1`; this section measured where it dies (`D ≈ 8`), why
     (nucleation, not acceptance), and what survives.
+    """)
+    return
 
+
+@app.cell(hide_code=True)
+def production_prescription_md(mo):
+    mo.md(r"""
     ### 16.4 Prescription for production
 
     Our pipeline's regime is `D` = the number of latent constructs (typically ≤ 8),
@@ -5065,7 +5214,7 @@ def coda6_verdict(mo):
 
     1. **Keep `amala_exact` as the backbone.** It is the z-component of the composite
        and was the only kernel in the whole study that converged in every unimodal cell
-       at every `D`. This validates the production default.
+       at every `D`. This validates it as the core of the production leaf.
     2. **Upgrade the dsmc leaf to the paid mixture** (z + pilot + wide tail). The pilot
        already exists — it is the Laplace warmup, and moving it to the proposal side of
        exact weights is precisely what the init-only linearization policy permits.
@@ -5082,6 +5231,10 @@ def coda6_verdict(mo):
        literature's. If modality diagnostics ever indicate it, that is the open research
        cell; the attack (segment-level cluster flips, after the nucleation diagnosis)
        lives in [mode_nucleation_lab](mode_nucleation_lab.py).
+
+    Items 1 and 2 have since shipped as the `paid_mix` leaf, the production default in
+    `config.yaml` (with a per-coordinate pilot rather than §16's full-covariance one), and
+    every marginal particle Gibbs fit now traces item 4's frozen-coordinate fraction.
     """)
     return
 

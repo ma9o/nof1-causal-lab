@@ -107,9 +107,8 @@ def relaxations_md(mo):
     shared noise shape — Student-t vs Gaussian — which applies to both noise spots.) Relax
     **all four** and the model is an exact linear-Gaussian SSM, so the cheapest valid fit is the
     **exact Kalman filter**. Keep a nonlinear piece and the cheapest valid Gaussian fit is the
-    **extended Kalman filter** (EKF), which straightens that piece to its tangent each step
-    (mechanics in `filtering_anatomy_walkthrough.py`). Three static parameters are inferred
-    throughout: $q$, $r$, $\gamma$.
+    **extended Kalman filter** (EKF), which straightens that piece to its tangent each step.
+    Three static parameters are inferred throughout: $q$, $r$, $\gamma$.
 
     There is also a **fifth, different kind of spot** — *how* you compute the state posterior
     given the model: KF / EKF / UKF / particle filter. That is the inference axis, taken up in
@@ -305,9 +304,7 @@ def floor_md(mo):
 
     At gentle swings it is invisible (the tangent is a fine local stand-in); wind the
     amplitude up and a mild shape emerges as the straightened readout drifts from the curved
-    truth — precisely the curvature term the EKF drops, the same effect that
-    `filtering_anatomy_walkthrough.py` shows breaking the EKF on the $x^2$ and $x^3$ sensors.
-    The honest move is to **surface** this floor, not fix it: it is the irreducible price of
+    truth — precisely the curvature term the EKF drops. The honest move is to **surface** this floor, not fix it: it is the irreducible price of
     using *any* Gaussian filter on a curved model, and it sets the baseline the next panel's
     cheapest-faithful candidate can hope to reach.
     """)
@@ -469,11 +466,11 @@ def oracle_fig(lab):
 @app.cell(hide_code=True)
 def filter_md(mo):
     mo.md(r"""
-    ## 13. The fourth spot: how you compute the state
+    ## 13. The fifth spot: how you compute the state
 
-    Everything so far relaxed the *model*. There is one more place an approximation lives — the
-    one your question about "states" points at — and it is a different kind: **how you compute
-    the posterior over the latent state**, holding the model fixed. Four engines, in increasing
+    Everything so far relaxed the *model*. There is one more place an approximation lives, and
+    it is a different kind: **how you compute the posterior over the latent state**, holding the
+    model fixed. Four engines, in increasing
     fidelity, all run here on the *full* nonlinear model at the *true* parameters (so only the
     state inference differs), against a Gaussian-noise truth (so heavy tails are not a confound
     and this isolates state representation alone):
@@ -521,7 +518,7 @@ def bridge_md(mo):
     | in this demo | in the codebase |
     |---|---|
     | the relaxed Gaussian candidate (KF/EKF/UKF) | a linearized surrogate (IEKS / Laplace / local-linear) |
-    | the particle filter (§13) | `cuthbert`'s `smc.particle_filter` over the true emission |
+    | the particle filter (§13) | the conditional-SMC smoother (`smoothers/dsmc.py`) over the true emission density |
     | the full nonlinear/Student-t truth | the true continuous-time nonlinear SSM |
     | the exact production posterior | particle/SMC over the true emission, Euler–Maruyama over the true drift |
     | a flat predictive PIT in this regime | a regime where linear warm-starting is safe and cheap |
