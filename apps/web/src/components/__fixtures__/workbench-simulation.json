@@ -1,0 +1,224 @@
+{
+  "note": "Illustrative saved-draw projections for the comprehensive workbench story; not an estimate from DEMO.",
+  "report": {
+    "model": {
+      "workspace_id": "STORYBOOK",
+      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "path": "model.json"
+    },
+    "design": {
+      "end": 7.0,
+      "start": 0.0,
+      "interventions": [
+        {
+          "target": "construct:27f64faaddd59b2ad491",
+          "time": 0.0,
+          "value": 10.0
+        }
+      ]
+    },
+    "times": [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
+    "draws": 100,
+    "seed": 0,
+    "state_ids": ["construct:27f64faaddd59b2ad491", "construct:6ca86c47aaf18b2472ce"],
+    "parameter_draws": {},
+    "latent_paths": "action",
+    "observations": "observations",
+    "observation_layout": {
+      "variables": [
+        {
+          "id": "indicator:93c7007ff8e5a6565b25",
+          "name": "phq9_screening_score",
+          "measurement_dtype": "continuous",
+          "aggregation": "mean",
+          "observation_window": "1d",
+          "ordinal_levels": null,
+          "categorical_levels": null
+        }
+      ],
+      "support_start_times": "illustrative-starts",
+      "support_end_times": "illustrative-ends",
+      "mask": "mask"
+    },
+    "law": null,
+    "reference_latent_paths": "reference",
+    "reference_observations": "reference_observations",
+    "findings": [],
+    "causal_result": {
+      "time_grid_days": [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
+      "outcome": "construct:6ca86c47aaf18b2472ce",
+      "labels": {
+        "construct:6ca86c47aaf18b2472ce": "internalizing_symptom_burden",
+        "construct:27f64faaddd59b2ad491": "escitalopram_dose_taken"
+      },
+      "summary": {
+        "mean": -1.399999976158142,
+        "median": -1.4000000953674316,
+        "lower_95": -1.7324999570846558,
+        "upper_95": -1.0674999952316284,
+        "prob_positive": 0.0
+      },
+      "effect_trajectory": [
+        {
+          "day": 0.0,
+          "effect": 0.0
+        },
+        {
+          "day": 1.0,
+          "effect": -0.2000000000000002
+        },
+        {
+          "day": 2.0,
+          "effect": -0.40000000000000013
+        },
+        {
+          "day": 3.0,
+          "effect": -0.6
+        },
+        {
+          "day": 4.0,
+          "effect": -0.8
+        },
+        {
+          "day": 5.0,
+          "effect": -1.0000000000000018
+        },
+        {
+          "day": 6.0,
+          "effect": -1.2000000000000002
+        },
+        {
+          "day": 7.0,
+          "effect": -1.4000000000000012
+        }
+      ],
+      "trajectory_peak": null,
+      "trajectories": {
+        "construct:27f64faaddd59b2ad491": {
+          "reference_mean": [20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0],
+          "action_mean": [10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
+        },
+        "construct:6ca86c47aaf18b2472ce": {
+          "reference_mean": [
+            3.9999999999999964, 4.0, 4.000000000000001, 4.0, 4.0, 4.0, 4.000000000000001,
+            4.000000000000001
+          ],
+          "action_mean": [
+            3.9999999999999964, 3.8, 3.6, 3.4, 3.2, 3.0000000000000004, 2.7999999999999994, 2.6
+          ]
+        }
+      },
+      "manifest_effects": null,
+      "reference_mean": 4.000000000000001,
+      "warnings": []
+    },
+    "causal_unavailable_reason": null
+  },
+  "trajectories": {
+    "time_origin": "2026-09-01T00:00:00Z",
+    "times": [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
+    "interval_mass": 0.95,
+    "outcome": "construct:6ca86c47aaf18b2472ce",
+    "outcome_state": {
+      "label": "internalizing_symptom_burden",
+      "action": {
+        "mean": [4.0, 3.8, 3.6, 3.4, 3.2000000000000006, 3.0000000000000004, 2.8, 2.6],
+        "lower": [
+          2.1, 1.615, 1.13, 0.6450000000000001, 0.15999999999999995, -0.32500000000000007, -0.81,
+          -1.2950000000000002
+        ],
+        "upper": [
+          5.8999999999999995, 5.984999999999999, 6.07, 6.154999999999999, 6.24, 6.324999999999999,
+          6.409999999999999, 6.494999999999999
+        ],
+        "n_draws": [100, 100, 100, 100, 100, 100, 100, 100]
+      },
+      "reference": {
+        "mean": [
+          4.0, 4.000000000000001, 4.000000000000001, 4.0, 4.0, 4.000000000000001, 4.000000000000001,
+          4.000000000000001
+        ],
+        "lower": [
+          2.1, 1.8624999999999998, 1.625, 1.3875, 1.15, 0.9125, 0.6749999999999999,
+          0.43750000000000006
+        ],
+        "upper": [
+          5.8999999999999995, 6.1375, 6.375, 6.6125, 6.85, 7.0874999999999995, 7.324999999999999,
+          7.5625
+        ],
+        "n_draws": [100, 100, 100, 100, 100, 100, 100, 100]
+      }
+    },
+    "indicators": {
+      "indicator:93c7007ff8e5a6565b25": {
+        "label": "phq9_screening_score",
+        "action": {
+          "mean": [
+            null,
+            2.2837919462744933,
+            2.1637919462744937,
+            2.043791946274493,
+            1.9237919462744935,
+            1.8037919462744936,
+            1.6837919462744935,
+            1.5637919462744931
+          ],
+          "lower": [
+            null,
+            0.3296815479872147,
+            0.06668154798721483,
+            -0.19481018223342395,
+            -0.4444465458697876,
+            -0.6940829095061511,
+            -0.9437192731425149,
+            -1.1933556367788785
+          ],
+          "upper": [
+            null,
+            4.236752419217862,
+            4.271366580118591,
+            4.3064574892095,
+            4.341548398300409,
+            4.3759115191815114,
+            4.401456973726965,
+            4.427002428272419
+          ],
+          "n_draws": [0, 100, 100, 100, 100, 100, 100, 100]
+        },
+        "reference": {
+          "mean": [
+            null,
+            2.4037919462744934,
+            2.4037919462744934,
+            2.4037919462744934,
+            2.4037919462744934,
+            2.403791946274494,
+            2.4037919462744934,
+            2.4037919462744934
+          ],
+          "lower": [
+            null,
+            0.473514881320548,
+            0.35434821465388144,
+            0.23518154798721486,
+            0.12197769655445471,
+            0.013947393524151724,
+            -0.09408290950615122,
+            -0.20211321253645417
+          ],
+          "upper": [
+            null,
+            4.331085752551195,
+            4.459669610421622,
+            4.5889120346640455,
+            4.7181544589064695,
+            4.847396883148893,
+            4.975911519181511,
+            5.09719939796939
+          ],
+          "n_draws": [0, 100, 100, 100, 100, 100, 100, 100]
+        }
+      }
+    }
+  }
+}

@@ -4,6 +4,7 @@ import type {
   ModelSnapshot,
   ModelSpec,
   SimulationReport,
+  SimulationTrajectories,
   SpecificationReport,
   StudyRevision,
 } from "@nof1-causal-lab/api-types";
@@ -12,12 +13,13 @@ import type { EpisodeProgressPayload } from "@/lib/api/analysis";
 import { demoModelSnapshot, demoSnapshotAt } from "./demo-artifacts";
 import { demoTraces } from "./demo-traces";
 import comparisonFixture from "./workbench-comparisons.json";
+import simulationFixture from "./workbench-simulation.json";
 export const WORKBENCH_WORKSPACE = "STORYBOOK";
 const stamp = "2026-09-16T12:00:00Z";
 // Illustrative interface data. Branch metadata and parameter decisions are staged;
 // retained DEMO evidence is reused for presentation, not claimed as new inference.
 const freeModel = structuredClone(demoModelSnapshot.model!.value);
-// Generated and validated by scripts/generate_workbench_comparisons.py.
+// Generated and validated by scripts/fixtures/study.py.
 const pinnedModel = comparisonFixture.pinned_model as unknown as ModelSpec;
 const freeInputs = demoModelSnapshot.context.state.current.model!.model_inputs;
 const pinnedInputs = comparisonFixture.pinned_inputs;
@@ -40,7 +42,6 @@ const modelId = (ordinal: number): string =>
     ? demoSnapshotAt([2, 3, 4, 7][ordinal - 1]).context.state.current.model!.revision
     : ordinal.toString(16).padStart(40, "a");
 const panelId = demoModelSnapshot.context.state.current.panel!.revision;
-const rawId = demoModelSnapshot.context.state.current.raw_data!.revision;
 const modelRef = (revision: string) => ({
   workspace_id: WORKBENCH_WORKSPACE,
   revision,
@@ -95,28 +96,29 @@ function metadata(
 }
 function simulation(revision: string): SimulationReport {
   return {
+    ...structuredClone(simulationFixture.report as unknown as SimulationReport),
     model: modelRef(revision),
-    design: { start: 0, end: 7, interventions: [] },
-    times: [0, 1, 2, 3, 4, 5, 6, 7],
-    draws: 100,
-    seed: 0,
-    state_ids: [],
-    observation_layout: {
-      variables: [],
-      support_start_times: "storybook/starts",
-      support_end_times: "storybook/ends",
-      mask: "storybook/mask",
-    },
-    parameter_draws: {},
-    latent_paths: "storybook/latent-paths",
-    observations: "storybook/observations",
-    findings: [],
+    ...(revision === modelId(7)
+      ? {
+          causal_result: null,
+          causal_unavailable_reason:
+            "This edited model has no committed production fit at this revision.",
+        }
+      : {}),
   };
 }
 const simulations = new Map([
   [5, simulation(modelId(5))],
   [7, simulation(modelId(7))],
 ]);
+function simulationInputs(report: SimulationReport) {
+  return {
+    model_revision: report.model.revision,
+    start: report.design.start ?? null,
+    end: report.design.end,
+    interventions: report.design.interventions.map((event) => ({ ...event })),
+  };
+}
 const models = new Map<string, ModelSpec>(
   [1, 2, 3, 4].map((revision) => {
     const seq = [2, 3, 4, 7][revision - 1];
@@ -239,7 +241,14 @@ const journal: StudyRevision[] = [
     {
       action: "prepare_data",
       operation_id: "measurements",
-      inputs: { model_revision: modelId(3), raw_data_revision: rawId },
+      inputs: {
+        input: {
+          source: { file: "demo-observations.parquet" },
+          variables: snapshots
+            .get(5)!
+            .data.metadata!.value.variables.map((variable) => ({ ...variable })),
+        },
+      },
     },
     [snapshots.get(5)!.context.state.current.panel!],
   ),
@@ -250,7 +259,9 @@ const journal: StudyRevision[] = [
       inputs: {},
     }),
     status: "raised",
-    error_message: "Parameter proposal was rejected.",
+    error_type: "ValueError",
+    error_message:
+      "Parameter proposal was rejected.\nTraceback: illustrative full failure details are retained here, never on the timeline tick.",
   },
   {
     ...record(
@@ -276,7 +287,7 @@ const journal: StudyRevision[] = [
   record(9, {
     action: "simulate",
     operation_id: "simulate",
-    inputs: { model_revision: modelId(5) },
+    inputs: simulationInputs(simulations.get(5)!),
   }),
   record(
     10,
@@ -299,9 +310,18 @@ const journal: StudyRevision[] = [
   record(12, {
     action: "simulate",
     operation_id: "simulate",
-    inputs: { model_revision: modelId(7) },
+    inputs: simulationInputs(simulations.get(7)!),
   }),
 ];
+// This single scenario includes a table import, a backend convergence warning,
+// paired trajectories with bands, and a later simulation without a certified effect.
+for (const snapshot of snapshots.values()) {
+  if (snapshot.data.metadata)
+    snapshot.data.metadata.value.source = { file: "demo-observations.parquet" };
+}
+journal
+  .find((entry) => entry.seq === 8)!
+  .messages.push({ timestamp: stamp, level: "warn", label: "CONVERGENCE_CHECK_FAILED" });
 // Explicit illustrative Git topology: alternative forks from version 7.
 for (const [seq, snapshot] of snapshots) {
   snapshot.context.commit_id = commitId(seq);
@@ -327,6 +347,9 @@ for (const entry of journal) {
 const branches = { main: commitId(9), alternative: commitId(12) };
 const snapshotByCommit = (id: string | null) =>
   [...snapshots.values()].find((snapshot) => snapshot.context.commit_id === id);
+const snapshotByModelRef = (id: string | null) =>
+  snapshotByCommit(id) ??
+  [...snapshots.values()].find((snapshot) => snapshot.context.state.current.model?.revision === id);
 export const workbenchTraces = new Map([
   [3, demoTraces.latent_structure],
   [4, demoTraces.measurement_structure],
@@ -358,8 +381,8 @@ export function workbenchHandlers() {
     http.get(`/api/episodes/${WORKBENCH_WORKSPACE}/model-diff`, async ({ request }) => {
       const query = new URL(request.url).searchParams;
       await delay(180);
-      const before = snapshotByCommit(query.get("before"));
-      const after = snapshotByCommit(query.get("after"));
+      const before = snapshotByModelRef(query.get("before"));
+      const after = snapshotByModelRef(query.get("after"));
       if (!before?.model || !after?.model)
         return HttpResponse.json({ error: "Unknown story version" }, { status: 404 });
       const beforeVersion = before.context.state.current.model!.revision;
@@ -386,5 +409,20 @@ export function workbenchHandlers() {
             : null,
       } satisfies ModelDiffReport);
     }),
+    http.get(
+      `/api/episodes/${WORKBENCH_WORKSPACE}/model/simulation-trajectories`,
+      ({ request }) => {
+        const snapshot = snapshotByCommit(new URL(request.url).searchParams.get("at"));
+        const simulation = snapshot?.findings.simulation;
+        return HttpResponse.json(
+          simulation
+            ? {
+                value: simulationFixture.trajectories as unknown as SimulationTrajectories,
+                source: simulation.source,
+              }
+            : null,
+        );
+      },
+    ),
   ];
 }
