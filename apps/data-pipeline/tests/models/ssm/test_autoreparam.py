@@ -459,11 +459,19 @@ class TestAutoReparamSSM:
                 assert jnp.all(jnp.isfinite(site["value"])), f"Non-finite at {name}"
 
     def test_extract_constrained_samples_filters_auxiliary_sites(self):
-        """Replay-based extraction should drop internal reparam auxiliaries."""
+        """Report original parameters, excluding reparam auxiliaries and assembled matrices."""
+        from nof1_causal_lab.flows.transitions.inference.subjects import (
+            reference_posterior_findings,
+        )
+        from nof1_causal_lab.models.ssm.inference.types import (
+            JointPosteriorDraws,
+            ParticleMCMCPosterior,
+        )
         from nof1_causal_lab.models.ssm.inference.utils import (
             extract_constrained_samples,
             prepare_model_parameters,
         )
+        from nof1_causal_lab.models.ssm.parameterization import build_site_registry
 
         model = self._make_simple_ssm()
         observations = jnp.zeros((5, 2))
@@ -479,6 +487,15 @@ class TestAutoReparamSSM:
         assert all("_decentered" not in name for name in samples)
         assert samples["vf_0_p0"].shape[0] == 2
         assert samples["diffusion_diag_free"].shape[0] == 2
+        assert set(samples) == {site.name for site in build_site_registry(model.spec)}
+        posterior = ParticleMCMCPosterior(draws=JointPosteriorDraws(parameters=samples))
+        marginals, pairs = reference_posterior_findings(
+            model.spec, posterior.get_posterior_marginals(), posterior.get_posterior_pairs()
+        )
+        assert marginals
+        assert pairs
+        assert all("subject" in row for row in marginals)
+        assert all("subject_x" in row and "subject_y" in row for row in pairs)
 
     def test_particle_runtime_reconstructs_log_normal_hill_sites(self):
         """Nested TransformReparam + LocScaleReparam restores the public Hill site."""

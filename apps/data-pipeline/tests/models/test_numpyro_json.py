@@ -177,21 +177,3 @@ def test_law_memberships_reject_dangling_unused_and_accidentally_shared_scalar_l
                 k: v for k, v in model.distributions.items() if k != second.distribution
             },
         )
-
-
-@pytest.mark.contract
-def test_offline_inline_law_conversion_preserves_constructors_and_source():
-    from copy import deepcopy
-
-    from scripts.migrate_distribution_references import convert_distribution_references
-
-    model = complete_test_model(make_model(["X"]))
-    original = model.model_dump(mode="json")
-    for parameter in original["parameters"]:
-        parameter["distribution"] = original["distributions"][parameter["distribution"]]
-    original["distributions"] = {}
-    snapshot = deepcopy(original)
-    converted = convert_distribution_references(original)
-    assert original == snapshot
-    assert type(model).model_validate(converted) == model
-    assert convert_distribution_references(converted) == converted

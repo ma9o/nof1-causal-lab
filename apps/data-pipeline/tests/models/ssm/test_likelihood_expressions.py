@@ -8,7 +8,6 @@ import numpy as np
 import numpyro.distributions as dist
 import pytest
 from pydantic import ValidationError
-from scripts.migrate_likelihood_expressions import convert_likelihood, convert_payload
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.expressions import (
@@ -33,6 +32,7 @@ from nof1_causal_lab.models.model_parameters import iter_coefficient_uses
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.execution.observation_dispatch import get_emission_fn
 from tests.helpers import complete_test_model, make_model
+from tests.slot_fixtures import with_likelihood_coefficients
 
 CASES = [
     ("gaussian", "identity", 0.4),
@@ -150,27 +150,26 @@ def test_native_conditional_law_matches_exact_emission_lowering(family, link, ob
 
 @pytest.mark.contract
 @pytest.mark.parametrize(("family", "link", "_observed"), CASES)
-def test_offline_conversion_preserves_authored_coefficient_identities(family, link, _observed):
-    retired = {
-        "distribution": family,
-        "link": link,
-        "standardized": False,
-        "loading": {"kind": "fixed", "value": -1},
-        "intercept": {"kind": "parameter", "parameter_id": scientific_id("parameter", "baseline")},
-        "reasoning": "Retained scientific decision",
-        "sources": [],
-    }
-    converted = LikelihoodSpec.model_validate(convert_likelihood(retired, "construct:x"))
-    assert converted.terms.loadings[ConstructId("construct:x")].value == -1
-    assert converted.terms.intercept.value == scientific_id("parameter", "baseline")
-    assert (converted.terms.family, converted.terms.link) == (family, link)
-    assert set(converted.model_dump()) == {"law", "standardized", "reasoning", "sources"}
-    with pytest.raises(ValidationError, match="Extra inputs"):
-        LikelihoodSpec.model_validate(retired)
+def test_authored_laws_preserve_coefficient_identities(family, link, _observed):
+    likelihood = LikelihoodSpec(
+        law=observation_law(
+            ConstructId("construct:x"), DistributionFamily(family), LinkFunction(link)
+        ),
+        reasoning="Authored scientific decision",
+    )
+    authored = with_likelihood_coefficients(
+        likelihood,
+        {"loading": -1, "observation_intercept": scientific_id("parameter", "baseline")},
+    )
+    assert authored.terms.loadings[ConstructId("construct:x")].value == -1
+    assert authored.terms.intercept.value == scientific_id("parameter", "baseline")
+    assert (authored.terms.family, authored.terms.link) == (family, link)
+    assert set(authored.model_dump()) == {"law", "standardized", "reasoning", "sources"}
+    assert LikelihoodSpec.model_validate_json(authored.model_dump_json()) == authored
 
 
 @pytest.mark.contract
-def test_completion_binding_equations_and_migration_follow_the_same_cross_loading():
+def test_completion_binding_equations_and_serialization_follow_the_same_cross_loading():
     model = complete_test_model(make_model(["X", "Y"], [("X", "Y")]))
     owner, other = model.constructs
     indicator = owner.indicators[0]
@@ -197,7 +196,7 @@ def test_completion_binding_equations_and_migration_follow_the_same_cross_loadin
     assert r"\operatorname{Normal}" in equation
     assert r"0.25" in equation
     assert r"\eta_{\text{Y}}(t)" in equation
-    assert ModelSpec.model_validate(convert_payload(model.model_dump(mode="json"))) == model
+    assert ModelSpec.model_validate_json(model.model_dump_json()) == model
     renamed = model.revised(
         edges=replace_constructs(model.edges, (other.model_copy(update={"name": "Renamed"}),))
     )

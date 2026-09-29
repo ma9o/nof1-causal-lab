@@ -2,11 +2,15 @@
 
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
+from unittest.mock import AsyncMock, Mock
 from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from temporalio.client import WorkflowUpdateStage
+from temporalio.api.common.v1 import Payloads
+from temporalio.api.failure.v1 import Failure
+from temporalio.api.update.v1 import Outcome
+from temporalio.client import WorkflowUpdateHandle, WorkflowUpdateStage
 
 from nof1_causal_lab import episode_api
 from nof1_causal_lab.actions.contracts import EditModelRequest
@@ -43,6 +47,7 @@ def model_api(monkeypatch, tmp_path):
             assert wait_for_stage == WorkflowUpdateStage.ACCEPTED
             calls.append(envelope)
             pending[envelope.attempt_id] = (self.workspace, envelope)
+            return WorkflowUpdateHandle(Mock(), id, f"episode-{self.workspace}")
 
         async def query(self, method, attempt_id):
             return ActionPoll(done=False) if attempt_id in pending else None
@@ -129,6 +134,49 @@ def model_api(monkeypatch, tmp_path):
 
     monkeypatch.setattr(episode_api, "_get_client", get_client)
     return TestClient(create_read_facade_app()), calls, Handle("API").complete
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        None,
+        Outcome(success=Payloads()),
+        Outcome(
+            failure=Failure(
+                message="Failed decoding arguments",
+                cause=Failure(message="Cannot access os.environ.setdefault from inside a workflow"),
+            )
+        ),
+    ],
+)
+def test_action_submission_surfaces_known_rejection_without_waiting(
+    model_api, monkeypatch, outcome
+):
+    client, _, _ = model_api
+    repository = StudyRepository("API")
+    head = repository.head()
+    update = WorkflowUpdateHandle(Mock(), str(uuid4()), "episode-API", known_outcome=outcome)
+    update.result = AsyncMock(side_effect=AssertionError("Submission must not wait for completion"))
+    handle = Mock(start_update=AsyncMock(return_value=update))
+    monkeypatch.setattr(episode_api, "_episode_handle", AsyncMock(return_value=handle))
+
+    response = client.post(
+        "/api/episodes/API/actions",
+        json={"action": "edit_model", "expected_revision": None, "model": {"question": "Why?"}},
+    )
+
+    if outcome is not None and outcome.HasField("failure"):
+        assert response.status_code == 500
+        assert response.json() == {
+            "detail": "Workflow update rejected: Failed decoding arguments: "
+            "Cannot access os.environ.setdefault from inside a workflow"
+        }
+    else:
+        assert response.status_code == 202
+        assert set(response.json()) == {"attempt_id"}
+    update.result.assert_not_awaited()
+    assert repository.head() == head
+    assert repository.latest_seq() == 0
 
 
 def test_edit_action_validates_identity_and_base_before_publication(model_api, monkeypatch):

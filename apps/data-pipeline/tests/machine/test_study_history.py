@@ -1,6 +1,5 @@
 """Git branch isolation, publication and commit-local evidence across process restarts."""
 
-import json
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -106,45 +105,6 @@ def test_failed_attempt_and_stale_publication_do_not_advance_branch(study):
     assert len(repository.branches()) == 1
     with pytest.raises(ValueError, match="Invalid branch"):
         repository.create_branch("../escape", at=head)
-
-
-def test_migration_preserves_originals_and_embeds_traces(tmp_path, monkeypatch):
-    from scripts.migrate_study_history import migrate
-
-    monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path))
-    target = tmp_path / "LEGACY"
-    artifact = target / "store/model/v1"
-    artifact.mkdir(parents=True)
-    meta = {
-        "artifact_id": "model",
-        "version": 1,
-        "derived_from": {},
-        "provenance": "human",
-        "produced_by": None,
-        "created_at": "2026-09-23T12:00:00Z",
-    }
-    (artifact / "meta.json").write_text(json.dumps(meta))
-    (artifact / "model.json").write_text('{"question":"A retained question"}')
-    raw = _record(1).model_dump(mode="json")
-    raw.update(produced=[meta], trace_ids=["author"])
-    journal = target / "episode/journal/000001.json"
-    journal.parent.mkdir(parents=True)
-    journal.write_text(json.dumps(raw))
-    trace = target / "episode/traces/000001/author.json"
-    trace.parent.mkdir(parents=True)
-    trace.write_text('{"messages": []}')
-    original = journal.read_bytes()
-    assert migrate(target) == 1
-    assert journal.read_bytes() == original
-    migrated_model = ModelReader("LEGACY").model
-    assert migrated_model is not None
-    assert migrated_model.question == "A retained question"
-    migrated = StudyRepository("LEGACY")
-    assert json.loads(migrated.read_file(migrated.head(), "logs/traces/author.json")) == {
-        "messages": []
-    }
-    with pytest.raises(FileExistsError):
-        migrate(target)
 
 
 def test_action_captures_selected_branch_before_validation(study, monkeypatch):

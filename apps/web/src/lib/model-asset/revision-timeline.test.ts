@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { branchedRevisionRecords } from "@/components/__fixtures__/revision-timeline";
 import { journalTicks } from "./journal";
+import { actionSummary } from "./action-presentation";
 import { revisionBranch, revisionTimeline } from "./revision-timeline";
 
 describe("Git study timeline", () => {
@@ -25,5 +26,26 @@ describe("Git study timeline", () => {
       ),
     ).toBe(true);
     expect(revisionTimeline([], {}).nodes).toEqual([]);
+
+    const failures = ["main", "alternative"].map((branch, index) => ({
+      ...records[3],
+      seq: 5 + index,
+      commit_id: String(index).repeat(40),
+      branch,
+      parent_ids: [records[1].commit_id],
+      status: "raised" as const,
+      action: "fit" as const,
+      produced: [],
+      error_type: "ValueError",
+      error_message: 'INTERNAL: CpuCallback error: Traceback: File "/Users/example/engine.py"',
+    }));
+    const withFailures = revisionTimeline(journalTicks([...records, ...failures]), branches);
+    expect(
+      revisionBranch(withFailures, branches.alternative).nodes.map((node) => node.tick.seq),
+    ).toEqual([1, 2, 4, 6]);
+    const failed = withFailures.nodes.at(-1)!;
+    expect(actionSummary(failed.tick)).toBe("Fit failed · ValueError");
+    expect(failed.tick.error).toBe(failures[1].error_message);
+    expect(failed.modelRevision).toBeNull();
   });
 });

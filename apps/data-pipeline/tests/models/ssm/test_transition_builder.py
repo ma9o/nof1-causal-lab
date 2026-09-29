@@ -153,6 +153,33 @@ def test_transition_builder_requires_states_for_trajectory_dependent_dynamics():
         build_discrete_transitions(dynamics, time_intervals)
 
 
+@pytest.mark.inference(concern="warmup")
+def test_initialization_covariance_handles_large_diffusion_candidates():
+    """Large, low-density Pathfinder draws must remain scoreable in a mixed batch."""
+    intervals = jnp.array([0.01, 0.5, 1.0], dtype=jnp.float32)
+    decay = 0.08705525
+
+    def transitions(sigma):
+        dynamics = continuous_state_evolution(
+            vector_field=VectorField(n_latent=1, components=(DiagonalDecay(),)),
+            vf_params=({"decay": jnp.array([decay])},),
+            diffusion_cov=jnp.reshape(sigma**2, (1, 1)),
+        )
+        return build_discrete_transitions(dynamics, intervals)
+
+    scales = jnp.array([0.3, 1617.1584], dtype=jnp.float32)
+    result = jax.jit(jax.vmap(transitions))(scales)
+    factor = -np.expm1(-2 * decay * np.asarray(intervals)) / (2 * decay)
+    np.testing.assert_allclose(
+        result.cov[:, :, 0, 0],
+        np.asarray(scales[:, None]) ** 2 * factor,
+        rtol=2e-5,
+    )
+    np.testing.assert_allclose(result.A[1, :, 0, 0], np.exp(-decay * intervals), rtol=2e-5)
+    derivative = jax.jit(jax.grad(lambda sigma: transitions(sigma).cov.sum()))(scales[1])
+    np.testing.assert_allclose(derivative, 2 * scales[1] * factor.sum(), rtol=2e-5)
+
+
 @pytest.mark.contract
 def test_point_dynamic_linearization_states_use_interval_starts():
     init_mean = jnp.array([0.20, -0.10], dtype=jnp.float32)

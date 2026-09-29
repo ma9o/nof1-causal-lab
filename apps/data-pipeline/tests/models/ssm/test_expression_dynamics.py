@@ -49,26 +49,11 @@ def _component(value, *, source=None):
 
 @pytest.mark.contract
 def test_direct_values_preserve_fixed_zero_shared_identity_and_partial_authoring():
-    from scripts.migrate_coefficient_values import convert_payload
-
     identity = scientific_id("parameter", "shared")
-    old = [
-        {"kind": "coefficient", "role": "weight", "coefficient": value}
-        for value in (
-            {"kind": "fixed", "value": 0},
-            {"kind": "parameter", "parameter_id": identity},
-            None,
-        )
-    ]
-    converted = convert_payload(old)
-    operands = [CoefficientExpression.model_validate(value) for value in converted]
+    operands = [CoefficientExpression(role="weight", value=value) for value in (0, identity, None)]
     assert [operand.value for operand in operands] == [0, identity, None]
-    assert convert_payload(converted) == converted
-    assert "coefficient" in old[0]
     for operand in operands:
         assert CoefficientExpression.model_validate_json(operand.model_dump_json()) == operand
-    with pytest.raises(ValueError, match="extra_forbidden"):
-        CoefficientExpression.model_validate(old[0])
     for invalid in (float("inf"), float("nan"), "not-a-parameter-id"):
         with pytest.raises(ValueError, match=r"finite_number|string_pattern_mismatch"):
             CoefficientExpression(role="weight", value=invalid)

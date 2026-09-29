@@ -6,22 +6,78 @@ from typing import TYPE_CHECKING
 
 import polars as pl
 import pytest
+from pydantic import TypeAdapter
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.posterior import InferenceReport
+from nof1_causal_lab.json_types import JsonObject
 from nof1_causal_lab.machine.artifact_files import artifact_file_spec
 from nof1_causal_lab.machine.history import StudyRepository
+from nof1_causal_lab.machine.inference import scientific_inference_report
 from nof1_causal_lab.machine.snapshots import ModelReader
 from nof1_causal_lab.machine.store import ArtifactStore, TransitionRecord
 from nof1_causal_lab.models.likelihoods import observation_law
 from tests.git_fixtures import artifact_revision, commit_id
-from tests.helpers import make_model
+from tests.helpers import complete_test_model, make_model
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid
 
 FIXTURE = Path(__file__).resolve().parents[4] / "data/DEMO/fixture/artifacts"
+
+
+@pytest.mark.contract
+def test_runtime_diagnostic_subjects_match_posterior_marginals():
+    from nof1_causal_lab.flows.transitions.inference.subjects import reference_posterior_findings
+    from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
+
+    model = complete_test_model(make_model(["X", "Y"], [("X", "Y")]))
+    bindings, auxiliary = parameter_bindings(model)
+    coordinates = [coordinate for b in bindings for coordinate in b.coordinates.values()]
+    rows = [
+        {"coordinate": c.model_dump(mode="json"), "parameter": c.label, "r_hat": 1.001}
+        for c in [*coordinates, *auxiliary]
+    ]
+    marginals, _ = reference_posterior_findings(
+        model,
+        [
+            {
+                "coordinate": c.model_dump(mode="json"),
+                "parameter": c.label,
+                "mean": 0,
+                "sd": 1,
+                "lower": -1,
+                "upper": 1,
+                "interval_kind": "hdi",
+                "interval_mass": 0.94,
+                "x_values": [],
+                "density": [],
+            }
+            for c in coordinates
+        ],
+        [],
+    )
+    report = InferenceReport.model_validate(
+        {
+            "inference_metadata": {"method": "test", "n_samples": 10, "duration_seconds": 1},
+            "inference_diagnostics": {"mcmc": {"per_parameter": rows}},
+            "posterior_marginals": marginals,
+        }
+    )
+    view = scientific_inference_report(model, report)
+    mcmc = view.inference_diagnostics["mcmc"]
+    assert isinstance(mcmc, dict)
+    actual = TypeAdapter(list[JsonObject]).validate_python(mcmc["per_parameter"])
+    assert [(row["parameter"], row["subject"]) for row in actual] == [
+        (row["parameter"], row["subject"]) for row in marginals
+    ]
+    assert all(row["r_hat"] == 1.001 for row in actual)
+    original = report.inference_diagnostics["mcmc"]
+    assert isinstance(original, dict)
+    assert original["per_parameter"] == rows
+    assert scientific_inference_report(model, view) is view
 
 
 @pytest.mark.contract
@@ -125,8 +181,10 @@ def test_inference_log_keeps_findings_across_authoring_log_updates_and_tracks_ch
     assert current is not None
     assert current.source.validity == "stale"
     assert current_reader.artifact_view("inference_report") is current.value.report
-    assert not current.value.report.posterior_marginals
-    assert not current.value.edge_estimates
+    # Findings remain tied to their fit's pinned panel; freshness marks the
+    # changed panel without erasing the historical parameter/edge evidence.
+    assert current.value.report.posterior_marginals == historical.value.report.posterior_marginals
+    assert current.value.edge_estimates == historical.value.edge_estimates
     assert (
         current.value.report.inference_diagnostics == historical.value.report.inference_diagnostics
     )

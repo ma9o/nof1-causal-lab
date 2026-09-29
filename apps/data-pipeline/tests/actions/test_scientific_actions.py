@@ -468,45 +468,6 @@ def test_data_profile_reuse_and_historical_selection(tmp_path, monkeypatch):
     assert current.current["data_profile"] == state.current["data_profile"]
 
 
-@pytest.mark.contract
-def test_offline_predictive_migration_preserves_source_and_provenance(tmp_path):
-    import json
-    from pathlib import Path
-
-    from scripts.migrate_scientific_actions import migrate
-
-    source = tmp_path / "source"
-    logs = source / "episode" / "journal"
-    logs.mkdir(parents=True)
-    checks = json.loads(
-        (Path(__file__).parents[4] / "data/DEMO/fixture/predictive_checks.json").read_text()
-    )
-    record = {
-        "seq": 3,
-        "move": {"operation_id": "posterior"},
-        "produced": [{"artifact_id": "model", "version": 2}],
-        "diagnostics": {"input_pins": {"panel": 1}, "report": {"ppc": checks}},
-    }
-    original = json.dumps(record)
-    (logs / "000003.json").write_text(original)
-    target = tmp_path / "migrated"
-    inventory = migrate(source, target, check=True)
-    assert not target.exists()
-    assert inventory["predictive_archives"] == ["000003.json"]
-    migrate(source, target)
-    assert (logs / "000003.json").read_text() == original
-    assert (
-        "ppc"
-        not in json.loads((target / "episode/journal/000003.json").read_text())["diagnostics"][
-            "report"
-        ]
-    )
-    archive = json.loads((target / "episode/predictive-archive/000003.json").read_text())
-    assert archive["checks"] == checks
-    assert archive["model_version"] == 2
-    assert archive["arrays_available"] is False
-
-
 @pytest.mark.inference(concern="predictive")
 @pytest.mark.parametrize(
     "groups", [(), ("dynamics",), ("measurement",), ("dynamics", "measurement")]
