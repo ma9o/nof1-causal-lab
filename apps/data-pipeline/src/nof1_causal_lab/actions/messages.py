@@ -8,6 +8,7 @@ from pydantic import TypeAdapter
 
 from nof1_causal_lab.actions.results import ActionMessage
 from nof1_causal_lab.artifacts.identification import IdentificationReport
+from nof1_causal_lab.artifacts.posterior import InferenceReport
 from nof1_causal_lab.artifacts.simulation import SimulationReport
 from nof1_causal_lab.artifacts.validation_report import (
     DataProfileArtifact,
@@ -15,6 +16,7 @@ from nof1_causal_lab.artifacts.validation_report import (
 )
 from nof1_causal_lab.json_types import JsonObject
 from nof1_causal_lab.machine.store import ArtifactStore
+from nof1_causal_lab.models.ssm.inference.convergence import convergence_failures
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -96,6 +98,10 @@ def completion_messages(
             if any(finding.status == "failed" for finding in validation.preflight.findings):
                 labels["MODEL_DATA_INCOMPATIBLE"] = "warn"
 
+    if action == "fit" and convergence_failures(
+        InferenceReport.model_validate(diagnostics["report"]).inference_diagnostics
+    ):
+        labels["CONVERGENCE_CHECK_FAILED"] = "warn"
     if action == "prepare_data" and any(
         worker["status"] == "failed"
         for worker in TypeAdapter(list[JsonObject]).validate_python(diagnostics.get("workers", []))

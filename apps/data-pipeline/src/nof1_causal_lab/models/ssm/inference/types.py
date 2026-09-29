@@ -217,8 +217,6 @@ class ParticleMCMCPosterior:
         if mcmc is None:
             return None
 
-        from numpyro.diagnostics import summary as numpyro_summary
-
         result: JsonObject = {}
 
         chain_samples = mcmc.get_samples(group_by_chain=True)
@@ -226,10 +224,13 @@ class ParticleMCMCPosterior:
         if public_sites is not None:
             chain_samples = _filter_public_samples(chain_samples, set(public_sites))
 
-        summ = numpyro_summary(chain_samples)
-        from arviz_stats.sampling_diagnostics import ess, mcse
+        from arviz_stats.sampling_diagnostics import ess, mcse, rhat
 
+        # Rank-normalized R-hat and bulk/tail ESS, the estimators behind the
+        # convergence thresholds (Vehtari et al. 2021).
         idata = _arviz_idata_from_posterior(chain_samples)
+        r_hat = rhat(idata)
+        ess_bulk = ess(idata, method="bulk")
         ess_tail = ess(idata, method="tail")
         mcse_mean = mcse(idata, method="mean")
 
@@ -242,21 +243,17 @@ class ParticleMCMCPosterior:
             return value if math.isfinite(value) else None
 
         per_param: list[JsonObject] = []
-        for name, stats in summ.items():
-            for indices in np.ndindex(np.shape(stats["r_hat"])):
+        for name in chain_samples:
+            for indices in np.ndindex(np.shape(r_hat[name].values)):
                 coordinate = ParameterCoordinate(site_name=name, indices=indices)
                 per_param.append(
                     {
                         "parameter": coordinate.label,
                         "coordinate": coordinate.model_dump(mode="json"),
-                        "r_hat": metric(stats["r_hat"], indices),
-                        "ess_bulk": metric(stats["n_eff"], indices),
-                        "ess_tail": metric(ess_tail[name].values, indices)
-                        if name in ess_tail
-                        else None,
-                        "mcse_mean": metric(mcse_mean[name].values, indices)
-                        if name in mcse_mean
-                        else None,
+                        "r_hat": metric(r_hat[name].values, indices),
+                        "ess_bulk": metric(ess_bulk[name].values, indices),
+                        "ess_tail": metric(ess_tail[name].values, indices),
+                        "mcse_mean": metric(mcse_mean[name].values, indices),
                     }
                 )
         result["per_parameter"] = list(per_param)

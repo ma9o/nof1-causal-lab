@@ -48,7 +48,19 @@ def inference_log(
                     "n_samples": 3,
                     "duration_seconds": 0.0,
                 },
-                "inference_diagnostics": {},
+                "inference_diagnostics": {
+                    "mcmc": {
+                        "num_chains": 4,
+                        "per_parameter": [
+                            {
+                                "parameter": "beta",
+                                "r_hat": 1.0,
+                                "ess_bulk": 800.0,
+                                "ess_tail": 600.0,
+                            }
+                        ],
+                    }
+                },
             },
         },
     )

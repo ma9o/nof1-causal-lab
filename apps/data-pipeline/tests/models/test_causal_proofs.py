@@ -138,7 +138,7 @@ def test_conditioning_rejects_warmup_statically(tmp_path):
     assert "WarmupProposal" in checked.stdout
 
 
-def test_causal_reporting_requires_retained_uncertainty_and_exact_engine_evidence():
+def test_causal_reporting_requires_retained_uncertainty_and_converged_exact_engine_evidence():
     from nof1_causal_lab.models.causal_proofs import certify_conditioned_model
     from tests.inference_fixtures import inference_log
 
@@ -168,6 +168,20 @@ def test_causal_reporting_requires_retained_uncertainty_and_exact_engine_evidenc
     prior = _design()
     with pytest.raises(ValueError, match="no retained joint uncertainty"):
         certify_conditioned_model(prior, revision, inference_log(prior))
+    report = record.diagnostics["report"]
+    mixed_poorly = {
+        **report,
+        "inference_diagnostics": {
+            "mcmc": {
+                "num_chains": 4,
+                "per_parameter": [
+                    {"parameter": "beta", "r_hat": 1.05, "ess_bulk": 800.0, "ess_tail": 90.0}
+                ],
+            }
+        },
+    }
+    with pytest.raises(ValueError, match=r"R-hat < 1\.01 fails.*tail ESS ≥ 400 fails"):
+        certify_conditioned_model(model, revision, inference_log(model, report=mixed_poorly))
 
 
 def test_causal_analysis_joins_matching_proofs():

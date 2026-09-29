@@ -123,17 +123,18 @@ Some parameter pairs are only weakly separated, and the invariant deliberately d
 
 - The treatment's effect on the model's default outcome is identified within the [implemented graph check's scope](#a3a-scope-of-the-two-slice-check).
 - The simulated model was conditioned by a committed production fit, using the particle engine with the nonlinear Euler–Maruyama target, and it matches that fit's record exactly.
+- That fit passed its [convergence checks](assets/action-flows/fit.svg), within the [sampler diagnostics' limits](#reading-results). A fit that fails them still saves with a warning, and the model needs revising before its effects are reported.
 - The simulated paths are finite.
 
 Otherwise it still returns the generated histories and records why no effect is reported. Interventions are dated state assignments, after which the model's dynamics resume. Effects are reported for the default outcome only. Certification covers the identified treatment and outcome; it does not add a separate identification proof for a general timed joint intervention.
 
-Certification does not look at convergence (R-hat, ESS), predictive checks or LOO. Read those before trusting a reported effect.
+Certification does not look at predictive checks or LOO. Read those before trusting a reported effect.
 
 ## Reading results
 
 - **LOO**, when configured, estimates how well each measurement row is predicted from all other rows, including later ones; see [Vehtari, Gelman & Gabry (2017)](https://doi.org/10.1007/s11222-016-9696-4). It measures interpolation, not forecasting; forecasting needs [leave-future-out validation](https://doi.org/10.1080/00949655.2020.1783262), which is not implemented. LOO is omitted when the data contain exact observations, and LOO-PIT is not computed.
 - **Predictive checks** of fitted laws against the panel they were fitted on are in-sample. A different panel revision does not prove the observations were held out. Neither case establishes held-out calibration.
-- **Sampler diagnostics** cover parameters only: split R-hat, ESS and MCSE. Latent paths get no convergence diagnostics. All chains start near one Pathfinder mode, so R-hat cannot reveal a missed mode.
+- **Sampler diagnostics** cover parameters only: rank-normalized R-hat, bulk and tail ESS, and MCSE. Latent paths get no convergence diagnostics. All chains start near one Pathfinder mode, so R-hat cannot reveal a missed mode.
 - **Calibration and recovery** are not automated. A `simulate` → `prepare_data` → `fit` round trip mixes sampler error with the gap between the Diffrax solver and Euler–Maruyama.
 - **Prior sensitivity** is not measured: there is no power-scaling or posterior-contraction check.
 - **The DT-to-CT diagnostic** compares the elementwise conversion of a linear reference matrix, built from the priors, with its matrix logarithm. Its warning says nothing about the full nonlinear system.

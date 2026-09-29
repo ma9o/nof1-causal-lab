@@ -111,9 +111,11 @@ def certify_identified_estimand(
 
 
 def certify_conditioned_model(model: ModelSpec, revision: GitRef, record: TransitionRecord) -> None:
-    """Join the current scientific value to committed exact-engine evidence in its log."""
+    """Join the current scientific value to committed, converged exact-engine evidence."""
+    from nof1_causal_lab.artifacts.posterior import InferenceReport
     from nof1_causal_lab.machine.inference import inference_record
     from nof1_causal_lab.models.model_inputs import input_fingerprints
+    from nof1_causal_lab.models.ssm.inference.convergence import convergence_failures
 
     if inference_record([record], revision.revision) is None:
         raise ValueError(
@@ -129,3 +131,10 @@ def certify_conditioned_model(model: ModelSpec, revision: GitRef, record: Transi
         raise ValueError("Inference did not target the nonlinear Euler-Maruyama transition")
     if not model.distributions or not model.time_points:
         raise ValueError("The model has no retained joint uncertainty")
+    report = InferenceReport.model_validate(record.diagnostics["report"])
+    if failures := convergence_failures(report.inference_diagnostics):
+        raise ValueError(
+            "The fit did not pass its convergence checks: "
+            + "; ".join(failures)
+            + ". Revise the model before reporting causal effects."
+        )
