@@ -9768,6 +9768,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "low",
                     "moderate",
@@ -9796,6 +9798,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": "2w",
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "0",
                     "1",
@@ -9836,6 +9840,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": "2w",
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "0",
                     "1",
@@ -9870,6 +9876,8 @@
                   "measurement_dtype": "continuous",
                   "aggregation": "mean",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": null,
@@ -9881,6 +9889,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "none",
                     "mild",
@@ -9921,6 +9931,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "poor_or_harmful",
                     "mixed_or_unclear",
@@ -9967,6 +9979,8 @@
                   "measurement_dtype": "continuous",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": null,
@@ -10002,6 +10016,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "wants_continue",
                     "ambivalent",
@@ -10057,6 +10073,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "none_or_continue",
                     "slow_or_paused_reduction",
@@ -10097,6 +10115,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "poor",
                     "partial",
@@ -10136,6 +10156,8 @@
                   "measurement_dtype": "continuous",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": null,
@@ -10257,6 +10279,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "none",
                     "short_or_uncertain",
@@ -10368,6 +10392,8 @@
                   "measurement_dtype": "continuous",
                   "aggregation": "mean",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": null,
@@ -10409,6 +10435,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "none",
                     "mild",
@@ -10481,6 +10509,8 @@
                   "measurement_dtype": "count",
                   "aggregation": "count",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": null,
@@ -10552,6 +10582,8 @@
                   "measurement_dtype": "count",
                   "aggregation": "sum",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": null,
@@ -10663,6 +10695,8 @@
                   "measurement_dtype": "count",
                   "aggregation": "count",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": null,
@@ -10674,6 +10708,8 @@
                   "measurement_dtype": "binary",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": null,
@@ -10724,6 +10760,8 @@
                   "measurement_dtype": "count",
                   "aggregation": "count",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": null,
@@ -10766,7 +10804,7 @@
       "source": {
         "ref": {
           "workspace_id": "DEMO",
-          "revision": "93feb3d80e7d17455f78bbdad72b16a1033a63bb",
+          "revision": "13ace30a9389b871dd18d35e9aec496508074685",
           "path": "model.json"
         },
         "pointer": "",
@@ -10776,36 +10814,36 @@
     "context": {
       "workspace_id": "DEMO",
       "seq": 4,
-      "commit_id": "3a7e57b22899bf1d28abcdf490181052cacd853c",
+      "commit_id": "46dc665fd70963d8e112fbb93c4cb8483290b321",
       "branch": "main",
       "can_simulate": false,
       "state": {
         "current": {
           "identification_report": {
             "artifact_id": "identification_report",
-            "revision": "455f09e31785387d50f081daf996e05e6ed7fd02",
+            "revision": "5ed8b673a547f9ce3e31b2e3f87bc4781797b5c3",
             "derived_from": {
-              "model": "93feb3d80e7d17455f78bbdad72b16a1033a63bb"
+              "model": "13ace30a9389b871dd18d35e9aec496508074685"
             },
             "model_inputs": {},
             "consumed_model_inputs": {
-              "identification": "input:cbd249dc9cf57791add6b46cad664ed87cebf9c482e1ba07826e5ea4a2b0f384"
+              "identification": "input:1db982afa87d558c13e52762a0bfa882043e66d3026e2e29e123f1cd55088c73"
             },
             "produced_by": "run:measurement_structure",
             "created_at": "2026-07-08T12:00:00Z"
           },
           "model": {
             "artifact_id": "model",
-            "revision": "93feb3d80e7d17455f78bbdad72b16a1033a63bb",
+            "revision": "13ace30a9389b871dd18d35e9aec496508074685",
             "derived_from": {
               "model": "c8b8d58b780b0f51844f40eff0d043bbff723f6d",
               "raw_data": "a0d64bf84821bc6e87fbf2bea2a6a73997acdf19"
             },
             "model_inputs": {
-              "belief": "input:7d29186d2dffcb2b6e6e4732fb0e2c636fb2eceac69d017c29d46f3a84aee3c7",
-              "compilation": "input:931629a90e17383151755d3f24cfc7a1551c42ca9d4a963d8760a91e90db4122",
-              "identification": "input:cbd249dc9cf57791add6b46cad664ed87cebf9c482e1ba07826e5ea4a2b0f384",
-              "observations": "input:44f93e3878ee32f0de76ccc79f47aca9038789d3d37c8323623f26a354dba983"
+              "belief": "input:a6c0f711d5ce13f6e82d0c141718a03f2b7c717dd12f56a6ab80627526ed4389",
+              "compilation": "input:9a746ddb48bc49d41ec81bd19bcab7a8442be5cc1962e3c924400ccbbddcd577",
+              "identification": "input:1db982afa87d558c13e52762a0bfa882043e66d3026e2e29e123f1cd55088c73",
+              "observations": "input:3baa8f22dded838adbd82c401210e664c6e89eb4bb76418f4c503ce64a66d494"
             },
             "consumed_model_inputs": {},
             "produced_by": "run:measurement_structure",
@@ -10836,7 +10874,7 @@
           "artifact_id": "model",
           "exists": true,
           "stale": false,
-          "revision": "93feb3d80e7d17455f78bbdad72b16a1033a63bb",
+          "revision": "13ace30a9389b871dd18d35e9aec496508074685",
           "retracted": false,
           "produced_by": "run:measurement_structure"
         },
@@ -10844,7 +10882,7 @@
           "artifact_id": "identification_report",
           "exists": true,
           "stale": false,
-          "revision": "455f09e31785387d50f081daf996e05e6ed7fd02",
+          "revision": "5ed8b673a547f9ce3e31b2e3f87bc4781797b5c3",
           "retracted": false,
           "produced_by": "run:measurement_structure"
         },
@@ -13868,7 +13906,7 @@
         "source": {
           "ref": {
             "workspace_id": "DEMO",
-            "revision": "455f09e31785387d50f081daf996e05e6ed7fd02",
+            "revision": "5ed8b673a547f9ce3e31b2e3f87bc4781797b5c3",
             "path": "identification_report.json"
           },
           "pointer": "",
@@ -14425,7 +14463,7 @@
         "source": {
           "ref": {
             "workspace_id": "DEMO",
-            "revision": "93feb3d80e7d17455f78bbdad72b16a1033a63bb",
+            "revision": "13ace30a9389b871dd18d35e9aec496508074685",
             "path": "model.json"
           },
           "pointer": "",
@@ -14590,6 +14628,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "low",
                     "moderate",
@@ -14618,6 +14658,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": "2w",
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "0",
                     "1",
@@ -14658,6 +14700,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": "2w",
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "0",
                     "1",
@@ -14692,6 +14736,8 @@
                   "measurement_dtype": "continuous",
                   "aggregation": "mean",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": null,
@@ -14703,6 +14749,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "none",
                     "mild",
@@ -14743,6 +14791,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "poor_or_harmful",
                     "mixed_or_unclear",
@@ -14789,6 +14839,8 @@
                   "measurement_dtype": "continuous",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": null,
@@ -14824,6 +14876,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "wants_continue",
                     "ambivalent",
@@ -14879,6 +14933,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "none_or_continue",
                     "slow_or_paused_reduction",
@@ -14919,6 +14975,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "poor",
                     "partial",
@@ -14958,6 +15016,8 @@
                   "measurement_dtype": "continuous",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": null,
@@ -15079,6 +15139,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "none",
                     "short_or_uncertain",
@@ -15190,6 +15252,8 @@
                   "measurement_dtype": "continuous",
                   "aggregation": "mean",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": null,
@@ -15231,6 +15295,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "none",
                     "mild",
@@ -15303,6 +15369,8 @@
                   "measurement_dtype": "count",
                   "aggregation": "count",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": null,
@@ -15374,6 +15442,8 @@
                   "measurement_dtype": "count",
                   "aggregation": "sum",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": null,
@@ -15485,6 +15555,8 @@
                   "measurement_dtype": "count",
                   "aggregation": "count",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": null,
@@ -15496,6 +15568,8 @@
                   "measurement_dtype": "binary",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": null,
@@ -15546,6 +15620,8 @@
                   "measurement_dtype": "count",
                   "aggregation": "count",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": null,
@@ -15588,7 +15664,7 @@
       "source": {
         "ref": {
           "workspace_id": "DEMO",
-          "revision": "93feb3d80e7d17455f78bbdad72b16a1033a63bb",
+          "revision": "13ace30a9389b871dd18d35e9aec496508074685",
           "path": "model.json"
         },
         "pointer": "",
@@ -15598,16 +15674,16 @@
     "context": {
       "workspace_id": "DEMO",
       "seq": 5,
-      "commit_id": "d04d12a6753e713f8c925e286688c0c372bfb258",
+      "commit_id": "0f8456ba084856d67380e9c5d8197a58517ec891",
       "branch": "main",
       "can_simulate": false,
       "state": {
         "current": {
           "data_profile": {
             "artifact_id": "data_profile",
-            "revision": "18b22ccaed37049e2a3809606e328dc82babdbee",
+            "revision": "b654cd28e1edcf7ab17bee4499ddc4699d166411",
             "derived_from": {
-              "panel": "524b36a9606f41bbd821113765d6734a54354150"
+              "panel": "102c1d118ae5da8057444d8392291e139028047f"
             },
             "model_inputs": {},
             "consumed_model_inputs": {},
@@ -15616,29 +15692,29 @@
           },
           "identification_report": {
             "artifact_id": "identification_report",
-            "revision": "455f09e31785387d50f081daf996e05e6ed7fd02",
+            "revision": "5ed8b673a547f9ce3e31b2e3f87bc4781797b5c3",
             "derived_from": {
-              "model": "93feb3d80e7d17455f78bbdad72b16a1033a63bb"
+              "model": "13ace30a9389b871dd18d35e9aec496508074685"
             },
             "model_inputs": {},
             "consumed_model_inputs": {
-              "identification": "input:cbd249dc9cf57791add6b46cad664ed87cebf9c482e1ba07826e5ea4a2b0f384"
+              "identification": "input:1db982afa87d558c13e52762a0bfa882043e66d3026e2e29e123f1cd55088c73"
             },
             "produced_by": "run:measurement_structure",
             "created_at": "2026-07-08T12:00:00Z"
           },
           "model": {
             "artifact_id": "model",
-            "revision": "93feb3d80e7d17455f78bbdad72b16a1033a63bb",
+            "revision": "13ace30a9389b871dd18d35e9aec496508074685",
             "derived_from": {
               "model": "c8b8d58b780b0f51844f40eff0d043bbff723f6d",
               "raw_data": "a0d64bf84821bc6e87fbf2bea2a6a73997acdf19"
             },
             "model_inputs": {
-              "belief": "input:7d29186d2dffcb2b6e6e4732fb0e2c636fb2eceac69d017c29d46f3a84aee3c7",
-              "compilation": "input:931629a90e17383151755d3f24cfc7a1551c42ca9d4a963d8760a91e90db4122",
-              "identification": "input:cbd249dc9cf57791add6b46cad664ed87cebf9c482e1ba07826e5ea4a2b0f384",
-              "observations": "input:44f93e3878ee32f0de76ccc79f47aca9038789d3d37c8323623f26a354dba983"
+              "belief": "input:a6c0f711d5ce13f6e82d0c141718a03f2b7c717dd12f56a6ab80627526ed4389",
+              "compilation": "input:9a746ddb48bc49d41ec81bd19bcab7a8442be5cc1962e3c924400ccbbddcd577",
+              "identification": "input:1db982afa87d558c13e52762a0bfa882043e66d3026e2e29e123f1cd55088c73",
+              "observations": "input:3baa8f22dded838adbd82c401210e664c6e89eb4bb76418f4c503ce64a66d494"
             },
             "consumed_model_inputs": {},
             "produced_by": "run:measurement_structure",
@@ -15646,7 +15722,7 @@
           },
           "panel": {
             "artifact_id": "panel",
-            "revision": "524b36a9606f41bbd821113765d6734a54354150",
+            "revision": "102c1d118ae5da8057444d8392291e139028047f",
             "derived_from": {
               "raw_data": "a0d64bf84821bc6e87fbf2bea2a6a73997acdf19"
             },
@@ -15666,14 +15742,14 @@
           },
           "validation_report": {
             "artifact_id": "validation_report",
-            "revision": "b01571c26b252cc71098b36b09f362eff1170d9e",
+            "revision": "a469eda7a1e5e7c0fbdb5ddc0f4ee49839c91eea",
             "derived_from": {
-              "model": "93feb3d80e7d17455f78bbdad72b16a1033a63bb",
-              "panel": "524b36a9606f41bbd821113765d6734a54354150"
+              "model": "13ace30a9389b871dd18d35e9aec496508074685",
+              "panel": "102c1d118ae5da8057444d8392291e139028047f"
             },
             "model_inputs": {},
             "consumed_model_inputs": {
-              "belief": "input:7d29186d2dffcb2b6e6e4732fb0e2c636fb2eceac69d017c29d46f3a84aee3c7"
+              "belief": "input:a6c0f711d5ce13f6e82d0c141718a03f2b7c717dd12f56a6ab80627526ed4389"
             },
             "produced_by": "run:measurements",
             "created_at": "2026-07-08T12:00:00Z"
@@ -15694,7 +15770,7 @@
           "artifact_id": "model",
           "exists": true,
           "stale": false,
-          "revision": "93feb3d80e7d17455f78bbdad72b16a1033a63bb",
+          "revision": "13ace30a9389b871dd18d35e9aec496508074685",
           "retracted": false,
           "produced_by": "run:measurement_structure"
         },
@@ -15702,7 +15778,7 @@
           "artifact_id": "identification_report",
           "exists": true,
           "stale": false,
-          "revision": "455f09e31785387d50f081daf996e05e6ed7fd02",
+          "revision": "5ed8b673a547f9ce3e31b2e3f87bc4781797b5c3",
           "retracted": false,
           "produced_by": "run:measurement_structure"
         },
@@ -15710,7 +15786,7 @@
           "artifact_id": "panel",
           "exists": true,
           "stale": false,
-          "revision": "524b36a9606f41bbd821113765d6734a54354150",
+          "revision": "102c1d118ae5da8057444d8392291e139028047f",
           "retracted": false,
           "produced_by": "run:measurements"
         },
@@ -15718,7 +15794,7 @@
           "artifact_id": "data_profile",
           "exists": true,
           "stale": false,
-          "revision": "18b22ccaed37049e2a3809606e328dc82babdbee",
+          "revision": "b654cd28e1edcf7ab17bee4499ddc4699d166411",
           "retracted": false,
           "produced_by": "migration:data_profile"
         },
@@ -15726,7 +15802,7 @@
           "artifact_id": "validation_report",
           "exists": true,
           "stale": false,
-          "revision": "b01571c26b252cc71098b36b09f362eff1170d9e",
+          "revision": "a469eda7a1e5e7c0fbdb5ddc0f4ee49839c91eea",
           "retracted": false,
           "produced_by": "run:measurements"
         }
@@ -18889,7 +18965,7 @@
         "source": {
           "ref": {
             "workspace_id": "DEMO",
-            "revision": "524b36a9606f41bbd821113765d6734a54354150",
+            "revision": "102c1d118ae5da8057444d8392291e139028047f",
             "path": "panel.parquet"
           },
           "pointer": "",
@@ -18910,6 +18986,8 @@
               "measurement_dtype": "ordinal",
               "aggregation": "last",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": [
                 "low",
                 "moderate",
@@ -18923,6 +19001,8 @@
               "measurement_dtype": "ordinal",
               "aggregation": "last",
               "observation_window": "2w",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": [
                 "0",
                 "1",
@@ -18961,6 +19041,8 @@
               "measurement_dtype": "ordinal",
               "aggregation": "last",
               "observation_window": "2w",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": [
                 "0",
                 "1",
@@ -18993,6 +19075,8 @@
               "measurement_dtype": "continuous",
               "aggregation": "mean",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": null,
               "categorical_levels": null
             },
@@ -19002,6 +19086,8 @@
               "measurement_dtype": "ordinal",
               "aggregation": "last",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": [
                 "none",
                 "mild",
@@ -19016,6 +19102,8 @@
               "measurement_dtype": "ordinal",
               "aggregation": "last",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": [
                 "poor_or_harmful",
                 "mixed_or_unclear",
@@ -19030,6 +19118,8 @@
               "measurement_dtype": "continuous",
               "aggregation": "last",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": null,
               "categorical_levels": null
             },
@@ -19039,6 +19129,8 @@
               "measurement_dtype": "ordinal",
               "aggregation": "last",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": [
                 "wants_continue",
                 "ambivalent",
@@ -19053,6 +19145,8 @@
               "measurement_dtype": "ordinal",
               "aggregation": "last",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": [
                 "none_or_continue",
                 "slow_or_paused_reduction",
@@ -19067,6 +19161,8 @@
               "measurement_dtype": "ordinal",
               "aggregation": "last",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": [
                 "poor",
                 "partial",
@@ -19080,6 +19176,8 @@
               "measurement_dtype": "continuous",
               "aggregation": "last",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": null,
               "categorical_levels": null
             },
@@ -19089,6 +19187,8 @@
               "measurement_dtype": "ordinal",
               "aggregation": "last",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": [
                 "none",
                 "short_or_uncertain",
@@ -19103,6 +19203,8 @@
               "measurement_dtype": "continuous",
               "aggregation": "mean",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": null,
               "categorical_levels": null
             },
@@ -19112,6 +19214,8 @@
               "measurement_dtype": "ordinal",
               "aggregation": "last",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": [
                 "none",
                 "mild",
@@ -19126,6 +19230,8 @@
               "measurement_dtype": "count",
               "aggregation": "count",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": null,
               "categorical_levels": null
             },
@@ -19135,6 +19241,8 @@
               "measurement_dtype": "count",
               "aggregation": "sum",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": null,
               "categorical_levels": null
             },
@@ -19144,6 +19252,8 @@
               "measurement_dtype": "count",
               "aggregation": "count",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": null,
               "categorical_levels": null
             },
@@ -19153,6 +19263,8 @@
               "measurement_dtype": "binary",
               "aggregation": "last",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": null,
               "categorical_levels": null
             },
@@ -19162,6 +19274,8 @@
               "measurement_dtype": "count",
               "aggregation": "count",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": null,
               "categorical_levels": null
             }
@@ -19175,6 +19289,8 @@
                 "measurement_dtype": "ordinal",
                 "aggregation": "last",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": [
                   "low",
                   "moderate",
@@ -19182,7 +19298,6 @@
                 ],
                 "categorical_levels": null,
                 "how_to_measure": "Inspect `clinical_note_text`, `assessment_text`, `journal_text`, `mood_valence`, `phq9_score`, and `gad7_score` for evidence that symptoms improved or remained well during periods without medication change, through nonpharmacologic coping, stable life conditions, or spontaneous remission. Rate as low, moderate, or high. Return null if the available evidence cannot distinguish natural recovery or resilience from medication response.",
-                "recording": "samples",
                 "source_columns": [
                   "clinical_note_text",
                   "assessment_text",
@@ -19200,6 +19315,8 @@
                 "measurement_dtype": "ordinal",
                 "aggregation": "last",
                 "observation_window": "2w",
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": [
                   "0",
                   "1",
@@ -19232,7 +19349,6 @@
                 ],
                 "categorical_levels": null,
                 "how_to_measure": "Use the `phq9_score` column directly when a PHQ-9 screening scale score is recorded. The score reflects depressive symptom burden over the prior two weeks ending at the visit date. Return null for support windows with no recorded PHQ-9 score.",
-                "recording": "samples",
                 "source_columns": [
                   "phq9_score"
                 ],
@@ -19245,6 +19361,8 @@
                 "measurement_dtype": "ordinal",
                 "aggregation": "last",
                 "observation_window": "2w",
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": [
                   "0",
                   "1",
@@ -19271,7 +19389,6 @@
                 ],
                 "categorical_levels": null,
                 "how_to_measure": "Use the `gad7_score` column directly when a GAD-7 screening scale score is recorded. The score reflects anxiety symptom burden over the prior two weeks ending at the visit date. Return null for support windows with no recorded GAD-7 score.",
-                "recording": "samples",
                 "source_columns": [
                   "gad7_score"
                 ],
@@ -19284,10 +19401,11 @@
                 "measurement_dtype": "continuous",
                 "aggregation": "mean",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": null,
                 "categorical_levels": null,
                 "how_to_measure": "Use the `mood_valence` column directly from Apple State of Mind entries. Average all observed entries within the day. Higher valence means better mood and therefore less internalizing symptom burden.",
-                "recording": "samples",
                 "source_columns": [
                   "mood_valence"
                 ],
@@ -19300,6 +19418,8 @@
                 "measurement_dtype": "ordinal",
                 "aggregation": "last",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": [
                   "none",
                   "mild",
@@ -19308,7 +19428,6 @@
                 ],
                 "categorical_levels": null,
                 "how_to_measure": "Within each day, inspect `local_date`, `journal_text`, `imessage_text`, `mood_labels`, and `mood_associations` for first-person evidence of depressed mood, anhedonia, anxiety, worry, irritability, panic, somatic anxiety, hopelessness, guilt, or distress. Rate severity as none, mild, moderate, or severe based only on evidence in that day. Return `none` only when there is usable mood-related text or labels and they indicate no such symptoms; return null when there is no usable symptom evidence in the support window.",
-                "recording": "samples",
                 "source_columns": [
                   "local_date",
                   "journal_text",
@@ -19325,6 +19444,8 @@
                 "measurement_dtype": "ordinal",
                 "aggregation": "last",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": [
                   "poor_or_harmful",
                   "mixed_or_unclear",
@@ -19333,7 +19454,6 @@
                 ],
                 "categorical_levels": null,
                 "how_to_measure": "Inspect `clinical_note_text`, `assessment_text`, `plan_text`, `journal_text`, medication fields, `phq9_score`, and `gad7_score` for historical improvement, relapse prevention, side effects, dose changes due to response/tolerability, or patient-reported benefit/harm while taking escitalopram. Rate net historical response/tolerability as poor_or_harmful, mixed_or_unclear, beneficial_with_side_effects, or clearly_beneficial_tolerated. Return null if no usable escitalopram response/tolerability history is available.",
-                "recording": "samples",
                 "source_columns": [
                   "clinical_note_text",
                   "assessment_text",
@@ -19354,10 +19474,11 @@
                 "measurement_dtype": "continuous",
                 "aggregation": "last",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": null,
                 "categorical_levels": null,
                 "how_to_measure": "Use escitalopram-related `drug_name`, `medication_name`, `timestamp`, `local_date`, `days_supply`, `clinical_note_text`, and `plan_text` to estimate the length of continuous current escitalopram use before the taper decision. Prefer explicit duration statements in notes; otherwise use the span from first documented escitalopram record to the latest pre-taper escitalopram record when continuity is plausible from fills/notes. Return duration in days; return null if current-use duration cannot be estimated.",
-                "recording": "samples",
                 "source_columns": [
                   "drug_name",
                   "medication_name",
@@ -19376,6 +19497,8 @@
                 "measurement_dtype": "ordinal",
                 "aggregation": "last",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": [
                   "wants_continue",
                   "ambivalent",
@@ -19384,7 +19507,6 @@
                 ],
                 "categorical_levels": null,
                 "how_to_measure": "Within each day, inspect `journal_text`, `imessage_text`, `clinical_note_text`, and `plan_text` for the patient's motivation to taper or continue escitalopram, perceived benefit, side-effect concerns, dependence concerns, fear of relapse, and coping confidence. Rate taper preference as wants_continue, ambivalent, prefers_slow_taper, or wants_stop_or_fast_taper. Return null if there is no usable preference/belief evidence.",
-                "recording": "samples",
                 "source_columns": [
                   "journal_text",
                   "imessage_text",
@@ -19400,6 +19522,8 @@
                 "measurement_dtype": "ordinal",
                 "aggregation": "last",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": [
                   "none_or_continue",
                   "slow_or_paused_reduction",
@@ -19408,7 +19532,6 @@
                 ],
                 "categorical_levels": null,
                 "how_to_measure": "Within each day, inspect `plan_text`, `clinical_note_text`, `medication_action`, `medication_name`, and `drug_name` for the escitalopram taper plan. Classify the intended reduction speed as none_or_continue, slow_or_paused_reduction, moderate_reduction, or rapid_stop_or_large_reduction. Return null if no escitalopram taper or continuation plan is documented in the support window.",
-                "recording": "samples",
                 "source_columns": [
                   "plan_text",
                   "clinical_note_text",
@@ -19425,6 +19548,8 @@
                 "measurement_dtype": "ordinal",
                 "aggregation": "last",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": [
                   "poor",
                   "partial",
@@ -19432,7 +19557,6 @@
                 ],
                 "categorical_levels": null,
                 "how_to_measure": "Within each day, inspect `clinical_note_text`, `plan_text`, `journal_text`, and `imessage_text` for evidence about taking escitalopram as prescribed, missed doses, extra doses, self-directed changes, or reinstatement. Rate adherence as poor, partial, or consistent. Use `consistent` only when source evidence explicitly says the medication was taken as directed or no missed doses were reported in a medication-adherence context. Return null when there is no usable adherence evidence.",
-                "recording": "samples",
                 "source_columns": [
                   "clinical_note_text",
                   "plan_text",
@@ -19448,10 +19572,11 @@
                 "measurement_dtype": "continuous",
                 "aggregation": "last",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": null,
                 "categorical_levels": null,
                 "how_to_measure": "Within each day, use medication rows where `medication_name` or `drug_name` contains escitalopram or Lexapro. Return the last non-null `medication_dose_mg` documented for escitalopram that day, in milligrams. Return null if no escitalopram dose is documented that day. This is a documented dose proxy, not proof of ingestion.",
-                "recording": "samples",
                 "source_columns": [
                   "medication_name",
                   "drug_name",
@@ -19466,6 +19591,8 @@
                 "measurement_dtype": "ordinal",
                 "aggregation": "last",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": [
                   "none",
                   "short_or_uncertain",
@@ -19474,7 +19601,6 @@
                 ],
                 "categorical_levels": null,
                 "how_to_measure": "Within each day, inspect escitalopram-related `clinical_note_text`, `plan_text`, `medication_name`, `drug_name`, `medication_dose_mg`, `days_supply`, and `strength` for evidence of ongoing long-term escitalopram use or stable maintenance dosing. Rate adaptation proxy as none, short_or_uncertain, ongoing_maintenance, or long_term_maintenance. Return null if no escitalopram-use-duration or maintenance context is available in that day.",
-                "recording": "samples",
                 "source_columns": [
                   "clinical_note_text",
                   "plan_text",
@@ -19493,10 +19619,11 @@
                 "measurement_dtype": "continuous",
                 "aggregation": "mean",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": null,
                 "categorical_levels": null,
                 "how_to_measure": "Use the `sleep_efficiency_pct` column directly from Oura sleep periods. Average values over all sleep periods assigned to the day. Higher sleep efficiency indicates less sleep/circadian disruption.",
-                "recording": "samples",
                 "source_columns": [
                   "sleep_efficiency_pct"
                 ],
@@ -19509,6 +19636,8 @@
                 "measurement_dtype": "ordinal",
                 "aggregation": "last",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": [
                   "none",
                   "mild",
@@ -19517,7 +19646,6 @@
                 ],
                 "categorical_levels": null,
                 "how_to_measure": "Within each day, inspect `journal_text`, `imessage_text`, `mood_labels`, and `mood_associations` for subjective stress, overwhelm, threat, uncontrollability, pressure, daily hassles, or feeling unable to cope. Rate as none, mild, moderate, or severe. Return `none` only when usable affect/stress evidence is present and indicates low or absent stress; return null if there is no usable evidence.",
-                "recording": "samples",
                 "source_columns": [
                   "journal_text",
                   "imessage_text",
@@ -19533,10 +19661,11 @@
                 "measurement_dtype": "count",
                 "aggregation": "count",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": null,
                 "categorical_levels": null,
                 "how_to_measure": "Within each day, inspect `calendar_summary`, `calendar_description`, `journal_text`, `imessage_text`, `transaction_name`, `merchant_name`, `finance_category_primary`, and `finance_category_detailed` for external stressful events such as conflict, deadlines, job strain, illness in self/others, bereavement, financial shock, legal/administrative problems, travel disruption, or major schedule disruption. Count distinct stressful events in the day. Return 0 if there is usable daily source evidence and no stressful event is indicated; return null if no usable event/text/transaction evidence exists.",
-                "recording": "samples",
                 "source_columns": [
                   "calendar_summary",
                   "calendar_description",
@@ -19556,10 +19685,11 @@
                 "measurement_dtype": "count",
                 "aggregation": "sum",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": null,
                 "categorical_levels": null,
                 "how_to_measure": "Use the `step_count_count` column directly from Apple Health step count intervals. Sum all step counts within the day.",
-                "recording": "samples",
                 "source_columns": [
                   "step_count_count"
                 ],
@@ -19572,10 +19702,11 @@
                 "measurement_dtype": "count",
                 "aggregation": "count",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": null,
                 "categorical_levels": null,
                 "how_to_measure": "Count non-null `clinical_note_text` rows within each day. This measures clinical monitoring/contact volume. Return 0 when the day has rows from other sources but no clinical note; return null only if the support window has no rows at all.",
-                "recording": "samples",
                 "source_columns": [
                   "clinical_note_text"
                 ],
@@ -19588,10 +19719,11 @@
                 "measurement_dtype": "binary",
                 "aggregation": "last",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": null,
                 "categorical_levels": null,
                 "how_to_measure": "Within each day, inspect `plan_text`, `clinical_note_text`, `medication_action`, `visit_type`, `department`, `calendar_summary`, and `calendar_description` for monitoring visits, follow-up plans, medication rescue, dose reinstatement, urgent care, crisis support, safety monitoring, or advice to pause/reverse taper. Return 1 if such monitoring or rescue care is documented, 0 if a relevant clinical/taper plan is present and no monitoring or rescue action is indicated, and null if there is no usable clinical or taper-care evidence.",
-                "recording": "samples",
                 "source_columns": [
                   "plan_text",
                   "clinical_note_text",
@@ -19610,10 +19742,11 @@
                 "measurement_dtype": "count",
                 "aggregation": "count",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": null,
                 "categorical_levels": null,
                 "how_to_measure": "Within each day, inspect `medication_name`, `drug_name`, `medication_dose_mg`, `medication_action`, `clinical_note_text`, `assessment_text`, and `plan_text` for non-escitalopram psychotropic medications, sleep aids, anxiolytics, stimulants, supplements, hormonal treatments, or somatic treatments that are initiated, stopped, increased, decreased, or used as needed. Count distinct non-escitalopram treatment changes or active PRN uses. Return 0 if medication/treatment evidence is present and no relevant non-escitalopram treatment is active or changed; return null if there is no usable treatment evidence.",
-                "recording": "samples",
                 "source_columns": [
                   "medication_name",
                   "drug_name",
@@ -19633,7 +19766,7 @@
         "source": {
           "ref": {
             "workspace_id": "DEMO",
-            "revision": "524b36a9606f41bbd821113765d6734a54354150",
+            "revision": "102c1d118ae5da8057444d8392291e139028047f",
             "path": "metadata.json"
           },
           "pointer": "",
@@ -22686,7 +22819,7 @@
         "source": {
           "ref": {
             "workspace_id": "DEMO",
-            "revision": "18b22ccaed37049e2a3809606e328dc82babdbee",
+            "revision": "b654cd28e1edcf7ab17bee4499ddc4699d166411",
             "path": "data_profile.json"
           },
           "pointer": "",
@@ -22830,7 +22963,7 @@
         "source": {
           "ref": {
             "workspace_id": "DEMO",
-            "revision": "455f09e31785387d50f081daf996e05e6ed7fd02",
+            "revision": "5ed8b673a547f9ce3e31b2e3f87bc4781797b5c3",
             "path": "identification_report.json"
           },
           "pointer": "",
@@ -23387,7 +23520,7 @@
         "source": {
           "ref": {
             "workspace_id": "DEMO",
-            "revision": "93feb3d80e7d17455f78bbdad72b16a1033a63bb",
+            "revision": "13ace30a9389b871dd18d35e9aec496508074685",
             "path": "model.json"
           },
           "pointer": "",
@@ -24245,7 +24378,7 @@
         "source": {
           "ref": {
             "workspace_id": "DEMO",
-            "revision": "b01571c26b252cc71098b36b09f362eff1170d9e",
+            "revision": "a469eda7a1e5e7c0fbdb5ddc0f4ee49839c91eea",
             "path": "validation_report.json"
           },
           "pointer": "",
@@ -24351,6 +24484,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "low",
                     "moderate",
@@ -24379,6 +24514,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": "2w",
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "0",
                     "1",
@@ -24470,6 +24607,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": "2w",
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "0",
                     "1",
@@ -24555,6 +24694,8 @@
                   "measurement_dtype": "continuous",
                   "aggregation": "mean",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": {
@@ -24605,6 +24746,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "none",
                     "mild",
@@ -24788,6 +24931,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "poor_or_harmful",
                     "mixed_or_unclear",
@@ -24834,6 +24979,8 @@
                   "measurement_dtype": "continuous",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": null,
@@ -24869,6 +25016,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "wants_continue",
                     "ambivalent",
@@ -24924,6 +25073,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "none_or_continue",
                     "slow_or_paused_reduction",
@@ -25107,6 +25258,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "poor",
                     "partial",
@@ -25308,6 +25461,8 @@
                   "measurement_dtype": "continuous",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": {
@@ -25598,6 +25753,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "none",
                     "short_or_uncertain",
@@ -25709,6 +25866,8 @@
                   "measurement_dtype": "continuous",
                   "aggregation": "mean",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": {
@@ -25881,6 +26040,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "none",
                     "mild",
@@ -26134,6 +26295,8 @@
                   "measurement_dtype": "count",
                   "aggregation": "count",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": {
@@ -26275,6 +26438,8 @@
                   "measurement_dtype": "count",
                   "aggregation": "sum",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": {
@@ -26599,6 +26764,8 @@
                   "measurement_dtype": "count",
                   "aggregation": "count",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": null,
@@ -26610,6 +26777,8 @@
                   "measurement_dtype": "binary",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": null,
@@ -26660,6 +26829,8 @@
                   "measurement_dtype": "count",
                   "aggregation": "count",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": {
@@ -27757,7 +27928,7 @@
       "source": {
         "ref": {
           "workspace_id": "DEMO",
-          "revision": "7cabe24f5731864be83e10fb7dd876e35aeabb64",
+          "revision": "4610c64b1ba0362f2035899fe9c774ab3a38ef6a",
           "path": "model.json"
         },
         "pointer": "",
@@ -27767,16 +27938,16 @@
     "context": {
       "workspace_id": "DEMO",
       "seq": 7,
-      "commit_id": "2f2ec281a818b7749189d2732df1b27b6b04d096",
+      "commit_id": "8fa822f64424d156f1c9fa3943cb04cf302fc949",
       "branch": "main",
       "can_simulate": false,
       "state": {
         "current": {
           "data_profile": {
             "artifact_id": "data_profile",
-            "revision": "18b22ccaed37049e2a3809606e328dc82babdbee",
+            "revision": "b654cd28e1edcf7ab17bee4499ddc4699d166411",
             "derived_from": {
-              "panel": "524b36a9606f41bbd821113765d6734a54354150"
+              "panel": "102c1d118ae5da8057444d8392291e139028047f"
             },
             "model_inputs": {},
             "consumed_model_inputs": {},
@@ -27785,30 +27956,30 @@
           },
           "identification_report": {
             "artifact_id": "identification_report",
-            "revision": "455f09e31785387d50f081daf996e05e6ed7fd02",
+            "revision": "5ed8b673a547f9ce3e31b2e3f87bc4781797b5c3",
             "derived_from": {
-              "model": "93feb3d80e7d17455f78bbdad72b16a1033a63bb"
+              "model": "13ace30a9389b871dd18d35e9aec496508074685"
             },
             "model_inputs": {},
             "consumed_model_inputs": {
-              "identification": "input:cbd249dc9cf57791add6b46cad664ed87cebf9c482e1ba07826e5ea4a2b0f384"
+              "identification": "input:1db982afa87d558c13e52762a0bfa882043e66d3026e2e29e123f1cd55088c73"
             },
             "produced_by": "run:measurement_structure",
             "created_at": "2026-07-08T12:00:00Z"
           },
           "model": {
             "artifact_id": "model",
-            "revision": "7cabe24f5731864be83e10fb7dd876e35aeabb64",
+            "revision": "4610c64b1ba0362f2035899fe9c774ab3a38ef6a",
             "derived_from": {
-              "model": "93feb3d80e7d17455f78bbdad72b16a1033a63bb",
-              "panel": "524b36a9606f41bbd821113765d6734a54354150",
-              "validation_report": "b01571c26b252cc71098b36b09f362eff1170d9e"
+              "model": "13ace30a9389b871dd18d35e9aec496508074685",
+              "panel": "102c1d118ae5da8057444d8392291e139028047f",
+              "validation_report": "a469eda7a1e5e7c0fbdb5ddc0f4ee49839c91eea"
             },
             "model_inputs": {
-              "belief": "input:a451d204af0014a0de505eb5087d0c267c5fcc4264a9f52224f2028f9675d159",
-              "compilation": "input:1ae508dafffe4474dd1fed263924f6ea3803a6fbf1278965bbf4e219a183d8b5",
-              "identification": "input:cbd249dc9cf57791add6b46cad664ed87cebf9c482e1ba07826e5ea4a2b0f384",
-              "observations": "input:44f93e3878ee32f0de76ccc79f47aca9038789d3d37c8323623f26a354dba983"
+              "belief": "input:b56e7d4582162d836980fbcb5c8c6b39be550a07384f52aeb159cfbfc29fd848",
+              "compilation": "input:6aec54217e67f93920bdc9764ab8be54e7ece9c9f930ce2d7a53540383edf0f0",
+              "identification": "input:1db982afa87d558c13e52762a0bfa882043e66d3026e2e29e123f1cd55088c73",
+              "observations": "input:3baa8f22dded838adbd82c401210e664c6e89eb4bb76418f4c503ce64a66d494"
             },
             "consumed_model_inputs": {},
             "produced_by": "run:statistical_model_spec",
@@ -27816,7 +27987,7 @@
           },
           "panel": {
             "artifact_id": "panel",
-            "revision": "524b36a9606f41bbd821113765d6734a54354150",
+            "revision": "102c1d118ae5da8057444d8392291e139028047f",
             "derived_from": {
               "raw_data": "a0d64bf84821bc6e87fbf2bea2a6a73997acdf19"
             },
@@ -27836,14 +28007,14 @@
           },
           "validation_report": {
             "artifact_id": "validation_report",
-            "revision": "b01571c26b252cc71098b36b09f362eff1170d9e",
+            "revision": "a469eda7a1e5e7c0fbdb5ddc0f4ee49839c91eea",
             "derived_from": {
-              "model": "93feb3d80e7d17455f78bbdad72b16a1033a63bb",
-              "panel": "524b36a9606f41bbd821113765d6734a54354150"
+              "model": "13ace30a9389b871dd18d35e9aec496508074685",
+              "panel": "102c1d118ae5da8057444d8392291e139028047f"
             },
             "model_inputs": {},
             "consumed_model_inputs": {
-              "belief": "input:7d29186d2dffcb2b6e6e4732fb0e2c636fb2eceac69d017c29d46f3a84aee3c7"
+              "belief": "input:a6c0f711d5ce13f6e82d0c141718a03f2b7c717dd12f56a6ab80627526ed4389"
             },
             "produced_by": "run:measurements",
             "created_at": "2026-07-08T12:00:00Z"
@@ -27864,7 +28035,7 @@
           "artifact_id": "model",
           "exists": true,
           "stale": false,
-          "revision": "7cabe24f5731864be83e10fb7dd876e35aeabb64",
+          "revision": "4610c64b1ba0362f2035899fe9c774ab3a38ef6a",
           "retracted": false,
           "produced_by": "run:statistical_model_spec"
         },
@@ -27872,7 +28043,7 @@
           "artifact_id": "identification_report",
           "exists": true,
           "stale": false,
-          "revision": "455f09e31785387d50f081daf996e05e6ed7fd02",
+          "revision": "5ed8b673a547f9ce3e31b2e3f87bc4781797b5c3",
           "retracted": false,
           "produced_by": "run:measurement_structure"
         },
@@ -27880,7 +28051,7 @@
           "artifact_id": "panel",
           "exists": true,
           "stale": false,
-          "revision": "524b36a9606f41bbd821113765d6734a54354150",
+          "revision": "102c1d118ae5da8057444d8392291e139028047f",
           "retracted": false,
           "produced_by": "run:measurements"
         },
@@ -27888,7 +28059,7 @@
           "artifact_id": "data_profile",
           "exists": true,
           "stale": false,
-          "revision": "18b22ccaed37049e2a3809606e328dc82babdbee",
+          "revision": "b654cd28e1edcf7ab17bee4499ddc4699d166411",
           "retracted": false,
           "produced_by": "migration:data_profile"
         },
@@ -27896,7 +28067,7 @@
           "artifact_id": "validation_report",
           "exists": true,
           "stale": true,
-          "revision": "b01571c26b252cc71098b36b09f362eff1170d9e",
+          "revision": "a469eda7a1e5e7c0fbdb5ddc0f4ee49839c91eea",
           "retracted": false,
           "produced_by": "run:measurements"
         }
@@ -31059,7 +31230,7 @@
         "source": {
           "ref": {
             "workspace_id": "DEMO",
-            "revision": "524b36a9606f41bbd821113765d6734a54354150",
+            "revision": "102c1d118ae5da8057444d8392291e139028047f",
             "path": "panel.parquet"
           },
           "pointer": "",
@@ -31080,6 +31251,8 @@
               "measurement_dtype": "ordinal",
               "aggregation": "last",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": [
                 "low",
                 "moderate",
@@ -31093,6 +31266,8 @@
               "measurement_dtype": "ordinal",
               "aggregation": "last",
               "observation_window": "2w",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": [
                 "0",
                 "1",
@@ -31131,6 +31306,8 @@
               "measurement_dtype": "ordinal",
               "aggregation": "last",
               "observation_window": "2w",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": [
                 "0",
                 "1",
@@ -31163,6 +31340,8 @@
               "measurement_dtype": "continuous",
               "aggregation": "mean",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": null,
               "categorical_levels": null
             },
@@ -31172,6 +31351,8 @@
               "measurement_dtype": "ordinal",
               "aggregation": "last",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": [
                 "none",
                 "mild",
@@ -31186,6 +31367,8 @@
               "measurement_dtype": "ordinal",
               "aggregation": "last",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": [
                 "poor_or_harmful",
                 "mixed_or_unclear",
@@ -31200,6 +31383,8 @@
               "measurement_dtype": "continuous",
               "aggregation": "last",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": null,
               "categorical_levels": null
             },
@@ -31209,6 +31394,8 @@
               "measurement_dtype": "ordinal",
               "aggregation": "last",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": [
                 "wants_continue",
                 "ambivalent",
@@ -31223,6 +31410,8 @@
               "measurement_dtype": "ordinal",
               "aggregation": "last",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": [
                 "none_or_continue",
                 "slow_or_paused_reduction",
@@ -31237,6 +31426,8 @@
               "measurement_dtype": "ordinal",
               "aggregation": "last",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": [
                 "poor",
                 "partial",
@@ -31250,6 +31441,8 @@
               "measurement_dtype": "continuous",
               "aggregation": "last",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": null,
               "categorical_levels": null
             },
@@ -31259,6 +31452,8 @@
               "measurement_dtype": "ordinal",
               "aggregation": "last",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": [
                 "none",
                 "short_or_uncertain",
@@ -31273,6 +31468,8 @@
               "measurement_dtype": "continuous",
               "aggregation": "mean",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": null,
               "categorical_levels": null
             },
@@ -31282,6 +31479,8 @@
               "measurement_dtype": "ordinal",
               "aggregation": "last",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": [
                 "none",
                 "mild",
@@ -31296,6 +31495,8 @@
               "measurement_dtype": "count",
               "aggregation": "count",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": null,
               "categorical_levels": null
             },
@@ -31305,6 +31506,8 @@
               "measurement_dtype": "count",
               "aggregation": "sum",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": null,
               "categorical_levels": null
             },
@@ -31314,6 +31517,8 @@
               "measurement_dtype": "count",
               "aggregation": "count",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": null,
               "categorical_levels": null
             },
@@ -31323,6 +31528,8 @@
               "measurement_dtype": "binary",
               "aggregation": "last",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": null,
               "categorical_levels": null
             },
@@ -31332,6 +31539,8 @@
               "measurement_dtype": "count",
               "aggregation": "count",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": null,
               "categorical_levels": null
             }
@@ -31345,6 +31554,8 @@
                 "measurement_dtype": "ordinal",
                 "aggregation": "last",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": [
                   "low",
                   "moderate",
@@ -31352,7 +31563,6 @@
                 ],
                 "categorical_levels": null,
                 "how_to_measure": "Inspect `clinical_note_text`, `assessment_text`, `journal_text`, `mood_valence`, `phq9_score`, and `gad7_score` for evidence that symptoms improved or remained well during periods without medication change, through nonpharmacologic coping, stable life conditions, or spontaneous remission. Rate as low, moderate, or high. Return null if the available evidence cannot distinguish natural recovery or resilience from medication response.",
-                "recording": "samples",
                 "source_columns": [
                   "clinical_note_text",
                   "assessment_text",
@@ -31370,6 +31580,8 @@
                 "measurement_dtype": "ordinal",
                 "aggregation": "last",
                 "observation_window": "2w",
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": [
                   "0",
                   "1",
@@ -31402,7 +31614,6 @@
                 ],
                 "categorical_levels": null,
                 "how_to_measure": "Use the `phq9_score` column directly when a PHQ-9 screening scale score is recorded. The score reflects depressive symptom burden over the prior two weeks ending at the visit date. Return null for support windows with no recorded PHQ-9 score.",
-                "recording": "samples",
                 "source_columns": [
                   "phq9_score"
                 ],
@@ -31415,6 +31626,8 @@
                 "measurement_dtype": "ordinal",
                 "aggregation": "last",
                 "observation_window": "2w",
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": [
                   "0",
                   "1",
@@ -31441,7 +31654,6 @@
                 ],
                 "categorical_levels": null,
                 "how_to_measure": "Use the `gad7_score` column directly when a GAD-7 screening scale score is recorded. The score reflects anxiety symptom burden over the prior two weeks ending at the visit date. Return null for support windows with no recorded GAD-7 score.",
-                "recording": "samples",
                 "source_columns": [
                   "gad7_score"
                 ],
@@ -31454,10 +31666,11 @@
                 "measurement_dtype": "continuous",
                 "aggregation": "mean",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": null,
                 "categorical_levels": null,
                 "how_to_measure": "Use the `mood_valence` column directly from Apple State of Mind entries. Average all observed entries within the day. Higher valence means better mood and therefore less internalizing symptom burden.",
-                "recording": "samples",
                 "source_columns": [
                   "mood_valence"
                 ],
@@ -31470,6 +31683,8 @@
                 "measurement_dtype": "ordinal",
                 "aggregation": "last",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": [
                   "none",
                   "mild",
@@ -31478,7 +31693,6 @@
                 ],
                 "categorical_levels": null,
                 "how_to_measure": "Within each day, inspect `local_date`, `journal_text`, `imessage_text`, `mood_labels`, and `mood_associations` for first-person evidence of depressed mood, anhedonia, anxiety, worry, irritability, panic, somatic anxiety, hopelessness, guilt, or distress. Rate severity as none, mild, moderate, or severe based only on evidence in that day. Return `none` only when there is usable mood-related text or labels and they indicate no such symptoms; return null when there is no usable symptom evidence in the support window.",
-                "recording": "samples",
                 "source_columns": [
                   "local_date",
                   "journal_text",
@@ -31495,6 +31709,8 @@
                 "measurement_dtype": "ordinal",
                 "aggregation": "last",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": [
                   "poor_or_harmful",
                   "mixed_or_unclear",
@@ -31503,7 +31719,6 @@
                 ],
                 "categorical_levels": null,
                 "how_to_measure": "Inspect `clinical_note_text`, `assessment_text`, `plan_text`, `journal_text`, medication fields, `phq9_score`, and `gad7_score` for historical improvement, relapse prevention, side effects, dose changes due to response/tolerability, or patient-reported benefit/harm while taking escitalopram. Rate net historical response/tolerability as poor_or_harmful, mixed_or_unclear, beneficial_with_side_effects, or clearly_beneficial_tolerated. Return null if no usable escitalopram response/tolerability history is available.",
-                "recording": "samples",
                 "source_columns": [
                   "clinical_note_text",
                   "assessment_text",
@@ -31524,10 +31739,11 @@
                 "measurement_dtype": "continuous",
                 "aggregation": "last",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": null,
                 "categorical_levels": null,
                 "how_to_measure": "Use escitalopram-related `drug_name`, `medication_name`, `timestamp`, `local_date`, `days_supply`, `clinical_note_text`, and `plan_text` to estimate the length of continuous current escitalopram use before the taper decision. Prefer explicit duration statements in notes; otherwise use the span from first documented escitalopram record to the latest pre-taper escitalopram record when continuity is plausible from fills/notes. Return duration in days; return null if current-use duration cannot be estimated.",
-                "recording": "samples",
                 "source_columns": [
                   "drug_name",
                   "medication_name",
@@ -31546,6 +31762,8 @@
                 "measurement_dtype": "ordinal",
                 "aggregation": "last",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": [
                   "wants_continue",
                   "ambivalent",
@@ -31554,7 +31772,6 @@
                 ],
                 "categorical_levels": null,
                 "how_to_measure": "Within each day, inspect `journal_text`, `imessage_text`, `clinical_note_text`, and `plan_text` for the patient's motivation to taper or continue escitalopram, perceived benefit, side-effect concerns, dependence concerns, fear of relapse, and coping confidence. Rate taper preference as wants_continue, ambivalent, prefers_slow_taper, or wants_stop_or_fast_taper. Return null if there is no usable preference/belief evidence.",
-                "recording": "samples",
                 "source_columns": [
                   "journal_text",
                   "imessage_text",
@@ -31570,6 +31787,8 @@
                 "measurement_dtype": "ordinal",
                 "aggregation": "last",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": [
                   "none_or_continue",
                   "slow_or_paused_reduction",
@@ -31578,7 +31797,6 @@
                 ],
                 "categorical_levels": null,
                 "how_to_measure": "Within each day, inspect `plan_text`, `clinical_note_text`, `medication_action`, `medication_name`, and `drug_name` for the escitalopram taper plan. Classify the intended reduction speed as none_or_continue, slow_or_paused_reduction, moderate_reduction, or rapid_stop_or_large_reduction. Return null if no escitalopram taper or continuation plan is documented in the support window.",
-                "recording": "samples",
                 "source_columns": [
                   "plan_text",
                   "clinical_note_text",
@@ -31595,6 +31813,8 @@
                 "measurement_dtype": "ordinal",
                 "aggregation": "last",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": [
                   "poor",
                   "partial",
@@ -31602,7 +31822,6 @@
                 ],
                 "categorical_levels": null,
                 "how_to_measure": "Within each day, inspect `clinical_note_text`, `plan_text`, `journal_text`, and `imessage_text` for evidence about taking escitalopram as prescribed, missed doses, extra doses, self-directed changes, or reinstatement. Rate adherence as poor, partial, or consistent. Use `consistent` only when source evidence explicitly says the medication was taken as directed or no missed doses were reported in a medication-adherence context. Return null when there is no usable adherence evidence.",
-                "recording": "samples",
                 "source_columns": [
                   "clinical_note_text",
                   "plan_text",
@@ -31618,10 +31837,11 @@
                 "measurement_dtype": "continuous",
                 "aggregation": "last",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": null,
                 "categorical_levels": null,
                 "how_to_measure": "Within each day, use medication rows where `medication_name` or `drug_name` contains escitalopram or Lexapro. Return the last non-null `medication_dose_mg` documented for escitalopram that day, in milligrams. Return null if no escitalopram dose is documented that day. This is a documented dose proxy, not proof of ingestion.",
-                "recording": "samples",
                 "source_columns": [
                   "medication_name",
                   "drug_name",
@@ -31636,6 +31856,8 @@
                 "measurement_dtype": "ordinal",
                 "aggregation": "last",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": [
                   "none",
                   "short_or_uncertain",
@@ -31644,7 +31866,6 @@
                 ],
                 "categorical_levels": null,
                 "how_to_measure": "Within each day, inspect escitalopram-related `clinical_note_text`, `plan_text`, `medication_name`, `drug_name`, `medication_dose_mg`, `days_supply`, and `strength` for evidence of ongoing long-term escitalopram use or stable maintenance dosing. Rate adaptation proxy as none, short_or_uncertain, ongoing_maintenance, or long_term_maintenance. Return null if no escitalopram-use-duration or maintenance context is available in that day.",
-                "recording": "samples",
                 "source_columns": [
                   "clinical_note_text",
                   "plan_text",
@@ -31663,10 +31884,11 @@
                 "measurement_dtype": "continuous",
                 "aggregation": "mean",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": null,
                 "categorical_levels": null,
                 "how_to_measure": "Use the `sleep_efficiency_pct` column directly from Oura sleep periods. Average values over all sleep periods assigned to the day. Higher sleep efficiency indicates less sleep/circadian disruption.",
-                "recording": "samples",
                 "source_columns": [
                   "sleep_efficiency_pct"
                 ],
@@ -31679,6 +31901,8 @@
                 "measurement_dtype": "ordinal",
                 "aggregation": "last",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": [
                   "none",
                   "mild",
@@ -31687,7 +31911,6 @@
                 ],
                 "categorical_levels": null,
                 "how_to_measure": "Within each day, inspect `journal_text`, `imessage_text`, `mood_labels`, and `mood_associations` for subjective stress, overwhelm, threat, uncontrollability, pressure, daily hassles, or feeling unable to cope. Rate as none, mild, moderate, or severe. Return `none` only when usable affect/stress evidence is present and indicates low or absent stress; return null if there is no usable evidence.",
-                "recording": "samples",
                 "source_columns": [
                   "journal_text",
                   "imessage_text",
@@ -31703,10 +31926,11 @@
                 "measurement_dtype": "count",
                 "aggregation": "count",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": null,
                 "categorical_levels": null,
                 "how_to_measure": "Within each day, inspect `calendar_summary`, `calendar_description`, `journal_text`, `imessage_text`, `transaction_name`, `merchant_name`, `finance_category_primary`, and `finance_category_detailed` for external stressful events such as conflict, deadlines, job strain, illness in self/others, bereavement, financial shock, legal/administrative problems, travel disruption, or major schedule disruption. Count distinct stressful events in the day. Return 0 if there is usable daily source evidence and no stressful event is indicated; return null if no usable event/text/transaction evidence exists.",
-                "recording": "samples",
                 "source_columns": [
                   "calendar_summary",
                   "calendar_description",
@@ -31726,10 +31950,11 @@
                 "measurement_dtype": "count",
                 "aggregation": "sum",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": null,
                 "categorical_levels": null,
                 "how_to_measure": "Use the `step_count_count` column directly from Apple Health step count intervals. Sum all step counts within the day.",
-                "recording": "samples",
                 "source_columns": [
                   "step_count_count"
                 ],
@@ -31742,10 +31967,11 @@
                 "measurement_dtype": "count",
                 "aggregation": "count",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": null,
                 "categorical_levels": null,
                 "how_to_measure": "Count non-null `clinical_note_text` rows within each day. This measures clinical monitoring/contact volume. Return 0 when the day has rows from other sources but no clinical note; return null only if the support window has no rows at all.",
-                "recording": "samples",
                 "source_columns": [
                   "clinical_note_text"
                 ],
@@ -31758,10 +31984,11 @@
                 "measurement_dtype": "binary",
                 "aggregation": "last",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": null,
                 "categorical_levels": null,
                 "how_to_measure": "Within each day, inspect `plan_text`, `clinical_note_text`, `medication_action`, `visit_type`, `department`, `calendar_summary`, and `calendar_description` for monitoring visits, follow-up plans, medication rescue, dose reinstatement, urgent care, crisis support, safety monitoring, or advice to pause/reverse taper. Return 1 if such monitoring or rescue care is documented, 0 if a relevant clinical/taper plan is present and no monitoring or rescue action is indicated, and null if there is no usable clinical or taper-care evidence.",
-                "recording": "samples",
                 "source_columns": [
                   "plan_text",
                   "clinical_note_text",
@@ -31780,10 +32007,11 @@
                 "measurement_dtype": "count",
                 "aggregation": "count",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": null,
                 "categorical_levels": null,
                 "how_to_measure": "Within each day, inspect `medication_name`, `drug_name`, `medication_dose_mg`, `medication_action`, `clinical_note_text`, `assessment_text`, and `plan_text` for non-escitalopram psychotropic medications, sleep aids, anxiolytics, stimulants, supplements, hormonal treatments, or somatic treatments that are initiated, stopped, increased, decreased, or used as needed. Count distinct non-escitalopram treatment changes or active PRN uses. Return 0 if medication/treatment evidence is present and no relevant non-escitalopram treatment is active or changed; return null if there is no usable treatment evidence.",
-                "recording": "samples",
                 "source_columns": [
                   "medication_name",
                   "drug_name",
@@ -31803,7 +32031,7 @@
         "source": {
           "ref": {
             "workspace_id": "DEMO",
-            "revision": "524b36a9606f41bbd821113765d6734a54354150",
+            "revision": "102c1d118ae5da8057444d8392291e139028047f",
             "path": "metadata.json"
           },
           "pointer": "",
@@ -34856,7 +35084,7 @@
         "source": {
           "ref": {
             "workspace_id": "DEMO",
-            "revision": "18b22ccaed37049e2a3809606e328dc82babdbee",
+            "revision": "b654cd28e1edcf7ab17bee4499ddc4699d166411",
             "path": "data_profile.json"
           },
           "pointer": "",
@@ -35000,7 +35228,7 @@
         "source": {
           "ref": {
             "workspace_id": "DEMO",
-            "revision": "455f09e31785387d50f081daf996e05e6ed7fd02",
+            "revision": "5ed8b673a547f9ce3e31b2e3f87bc4781797b5c3",
             "path": "identification_report.json"
           },
           "pointer": "",
@@ -35557,7 +35785,7 @@
         "source": {
           "ref": {
             "workspace_id": "DEMO",
-            "revision": "7cabe24f5731864be83e10fb7dd876e35aeabb64",
+            "revision": "4610c64b1ba0362f2035899fe9c774ab3a38ef6a",
             "path": "model.json"
           },
           "pointer": "",
@@ -36415,7 +36643,7 @@
         "source": {
           "ref": {
             "workspace_id": "DEMO",
-            "revision": "b01571c26b252cc71098b36b09f362eff1170d9e",
+            "revision": "a469eda7a1e5e7c0fbdb5ddc0f4ee49839c91eea",
             "path": "validation_report.json"
           },
           "pointer": "",
@@ -37496,7 +37724,7 @@
         "source": {
           "ref": {
             "workspace_id": "DEMO",
-            "revision": "2f2ec281a818b7749189d2732df1b27b6b04d096",
+            "revision": "8fa822f64424d156f1c9fa3943cb04cf302fc949",
             "path": "logs/transition.json"
           },
           "pointer": "/diagnostics/prior_predictive",
@@ -55705,6 +55933,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "low",
                     "moderate",
@@ -55733,6 +55963,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": "2w",
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "0",
                     "1",
@@ -55824,6 +56056,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": "2w",
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "0",
                     "1",
@@ -55909,6 +56143,8 @@
                   "measurement_dtype": "continuous",
                   "aggregation": "mean",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": {
@@ -55959,6 +56195,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "none",
                     "mild",
@@ -56142,6 +56380,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "poor_or_harmful",
                     "mixed_or_unclear",
@@ -56188,6 +56428,8 @@
                   "measurement_dtype": "continuous",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": null,
@@ -56223,6 +56465,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "wants_continue",
                     "ambivalent",
@@ -56278,6 +56522,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "none_or_continue",
                     "slow_or_paused_reduction",
@@ -56461,6 +56707,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "poor",
                     "partial",
@@ -56662,6 +56910,8 @@
                   "measurement_dtype": "continuous",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": {
@@ -56952,6 +57202,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "none",
                     "short_or_uncertain",
@@ -57063,6 +57315,8 @@
                   "measurement_dtype": "continuous",
                   "aggregation": "mean",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": {
@@ -57235,6 +57489,8 @@
                   "measurement_dtype": "ordinal",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": [
                     "none",
                     "mild",
@@ -57488,6 +57744,8 @@
                   "measurement_dtype": "count",
                   "aggregation": "count",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": {
@@ -57629,6 +57887,8 @@
                   "measurement_dtype": "count",
                   "aggregation": "sum",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": {
@@ -57953,6 +58213,8 @@
                   "measurement_dtype": "count",
                   "aggregation": "count",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": null,
@@ -57964,6 +58226,8 @@
                   "measurement_dtype": "binary",
                   "aggregation": "last",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": null,
@@ -58014,6 +58278,8 @@
                   "measurement_dtype": "count",
                   "aggregation": "count",
                   "observation_window": null,
+                  "fill_null": null,
+                  "fill_null_limit": null,
                   "ordinal_levels": null,
                   "categorical_levels": null,
                   "likelihood": {
@@ -59111,7 +59377,7 @@
       "source": {
         "ref": {
           "workspace_id": "DEMO",
-          "revision": "7cabe24f5731864be83e10fb7dd876e35aeabb64",
+          "revision": "4610c64b1ba0362f2035899fe9c774ab3a38ef6a",
           "path": "model.json"
         },
         "pointer": "",
@@ -59121,16 +59387,16 @@
     "context": {
       "workspace_id": "DEMO",
       "seq": 8,
-      "commit_id": "fa01ee54f27792d09c9be207a83db467f12c707b",
+      "commit_id": "28672d2a5667c922e06af517599f626e8bb6fe13",
       "branch": "main",
       "can_simulate": false,
       "state": {
         "current": {
           "data_profile": {
             "artifact_id": "data_profile",
-            "revision": "18b22ccaed37049e2a3809606e328dc82babdbee",
+            "revision": "b654cd28e1edcf7ab17bee4499ddc4699d166411",
             "derived_from": {
-              "panel": "524b36a9606f41bbd821113765d6734a54354150"
+              "panel": "102c1d118ae5da8057444d8392291e139028047f"
             },
             "model_inputs": {},
             "consumed_model_inputs": {},
@@ -59139,30 +59405,30 @@
           },
           "identification_report": {
             "artifact_id": "identification_report",
-            "revision": "455f09e31785387d50f081daf996e05e6ed7fd02",
+            "revision": "5ed8b673a547f9ce3e31b2e3f87bc4781797b5c3",
             "derived_from": {
-              "model": "93feb3d80e7d17455f78bbdad72b16a1033a63bb"
+              "model": "13ace30a9389b871dd18d35e9aec496508074685"
             },
             "model_inputs": {},
             "consumed_model_inputs": {
-              "identification": "input:cbd249dc9cf57791add6b46cad664ed87cebf9c482e1ba07826e5ea4a2b0f384"
+              "identification": "input:1db982afa87d558c13e52762a0bfa882043e66d3026e2e29e123f1cd55088c73"
             },
             "produced_by": "run:measurement_structure",
             "created_at": "2026-07-08T12:00:00Z"
           },
           "model": {
             "artifact_id": "model",
-            "revision": "7cabe24f5731864be83e10fb7dd876e35aeabb64",
+            "revision": "4610c64b1ba0362f2035899fe9c774ab3a38ef6a",
             "derived_from": {
-              "model": "93feb3d80e7d17455f78bbdad72b16a1033a63bb",
-              "panel": "524b36a9606f41bbd821113765d6734a54354150",
-              "validation_report": "b01571c26b252cc71098b36b09f362eff1170d9e"
+              "model": "13ace30a9389b871dd18d35e9aec496508074685",
+              "panel": "102c1d118ae5da8057444d8392291e139028047f",
+              "validation_report": "a469eda7a1e5e7c0fbdb5ddc0f4ee49839c91eea"
             },
             "model_inputs": {
-              "belief": "input:a451d204af0014a0de505eb5087d0c267c5fcc4264a9f52224f2028f9675d159",
-              "compilation": "input:1ae508dafffe4474dd1fed263924f6ea3803a6fbf1278965bbf4e219a183d8b5",
-              "identification": "input:cbd249dc9cf57791add6b46cad664ed87cebf9c482e1ba07826e5ea4a2b0f384",
-              "observations": "input:44f93e3878ee32f0de76ccc79f47aca9038789d3d37c8323623f26a354dba983"
+              "belief": "input:b56e7d4582162d836980fbcb5c8c6b39be550a07384f52aeb159cfbfc29fd848",
+              "compilation": "input:6aec54217e67f93920bdc9764ab8be54e7ece9c9f930ce2d7a53540383edf0f0",
+              "identification": "input:1db982afa87d558c13e52762a0bfa882043e66d3026e2e29e123f1cd55088c73",
+              "observations": "input:3baa8f22dded838adbd82c401210e664c6e89eb4bb76418f4c503ce64a66d494"
             },
             "consumed_model_inputs": {},
             "produced_by": "run:statistical_model_spec",
@@ -59170,7 +59436,7 @@
           },
           "panel": {
             "artifact_id": "panel",
-            "revision": "524b36a9606f41bbd821113765d6734a54354150",
+            "revision": "102c1d118ae5da8057444d8392291e139028047f",
             "derived_from": {
               "raw_data": "a0d64bf84821bc6e87fbf2bea2a6a73997acdf19"
             },
@@ -59190,14 +59456,14 @@
           },
           "validation_report": {
             "artifact_id": "validation_report",
-            "revision": "b01571c26b252cc71098b36b09f362eff1170d9e",
+            "revision": "a469eda7a1e5e7c0fbdb5ddc0f4ee49839c91eea",
             "derived_from": {
-              "model": "93feb3d80e7d17455f78bbdad72b16a1033a63bb",
-              "panel": "524b36a9606f41bbd821113765d6734a54354150"
+              "model": "13ace30a9389b871dd18d35e9aec496508074685",
+              "panel": "102c1d118ae5da8057444d8392291e139028047f"
             },
             "model_inputs": {},
             "consumed_model_inputs": {
-              "belief": "input:7d29186d2dffcb2b6e6e4732fb0e2c636fb2eceac69d017c29d46f3a84aee3c7"
+              "belief": "input:a6c0f711d5ce13f6e82d0c141718a03f2b7c717dd12f56a6ab80627526ed4389"
             },
             "produced_by": "run:measurements",
             "created_at": "2026-07-08T12:00:00Z"
@@ -59218,7 +59484,7 @@
           "artifact_id": "model",
           "exists": true,
           "stale": false,
-          "revision": "7cabe24f5731864be83e10fb7dd876e35aeabb64",
+          "revision": "4610c64b1ba0362f2035899fe9c774ab3a38ef6a",
           "retracted": false,
           "produced_by": "run:statistical_model_spec"
         },
@@ -59226,7 +59492,7 @@
           "artifact_id": "identification_report",
           "exists": true,
           "stale": false,
-          "revision": "455f09e31785387d50f081daf996e05e6ed7fd02",
+          "revision": "5ed8b673a547f9ce3e31b2e3f87bc4781797b5c3",
           "retracted": false,
           "produced_by": "run:measurement_structure"
         },
@@ -59234,7 +59500,7 @@
           "artifact_id": "panel",
           "exists": true,
           "stale": false,
-          "revision": "524b36a9606f41bbd821113765d6734a54354150",
+          "revision": "102c1d118ae5da8057444d8392291e139028047f",
           "retracted": false,
           "produced_by": "run:measurements"
         },
@@ -59242,7 +59508,7 @@
           "artifact_id": "data_profile",
           "exists": true,
           "stale": false,
-          "revision": "18b22ccaed37049e2a3809606e328dc82babdbee",
+          "revision": "b654cd28e1edcf7ab17bee4499ddc4699d166411",
           "retracted": false,
           "produced_by": "migration:data_profile"
         },
@@ -59250,7 +59516,7 @@
           "artifact_id": "validation_report",
           "exists": true,
           "stale": true,
-          "revision": "b01571c26b252cc71098b36b09f362eff1170d9e",
+          "revision": "a469eda7a1e5e7c0fbdb5ddc0f4ee49839c91eea",
           "retracted": false,
           "produced_by": "run:measurements"
         }
@@ -62413,7 +62679,7 @@
         "source": {
           "ref": {
             "workspace_id": "DEMO",
-            "revision": "524b36a9606f41bbd821113765d6734a54354150",
+            "revision": "102c1d118ae5da8057444d8392291e139028047f",
             "path": "panel.parquet"
           },
           "pointer": "",
@@ -62434,6 +62700,8 @@
               "measurement_dtype": "ordinal",
               "aggregation": "last",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": [
                 "low",
                 "moderate",
@@ -62447,6 +62715,8 @@
               "measurement_dtype": "ordinal",
               "aggregation": "last",
               "observation_window": "2w",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": [
                 "0",
                 "1",
@@ -62485,6 +62755,8 @@
               "measurement_dtype": "ordinal",
               "aggregation": "last",
               "observation_window": "2w",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": [
                 "0",
                 "1",
@@ -62517,6 +62789,8 @@
               "measurement_dtype": "continuous",
               "aggregation": "mean",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": null,
               "categorical_levels": null
             },
@@ -62526,6 +62800,8 @@
               "measurement_dtype": "ordinal",
               "aggregation": "last",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": [
                 "none",
                 "mild",
@@ -62540,6 +62816,8 @@
               "measurement_dtype": "ordinal",
               "aggregation": "last",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": [
                 "poor_or_harmful",
                 "mixed_or_unclear",
@@ -62554,6 +62832,8 @@
               "measurement_dtype": "continuous",
               "aggregation": "last",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": null,
               "categorical_levels": null
             },
@@ -62563,6 +62843,8 @@
               "measurement_dtype": "ordinal",
               "aggregation": "last",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": [
                 "wants_continue",
                 "ambivalent",
@@ -62577,6 +62859,8 @@
               "measurement_dtype": "ordinal",
               "aggregation": "last",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": [
                 "none_or_continue",
                 "slow_or_paused_reduction",
@@ -62591,6 +62875,8 @@
               "measurement_dtype": "ordinal",
               "aggregation": "last",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": [
                 "poor",
                 "partial",
@@ -62604,6 +62890,8 @@
               "measurement_dtype": "continuous",
               "aggregation": "last",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": null,
               "categorical_levels": null
             },
@@ -62613,6 +62901,8 @@
               "measurement_dtype": "ordinal",
               "aggregation": "last",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": [
                 "none",
                 "short_or_uncertain",
@@ -62627,6 +62917,8 @@
               "measurement_dtype": "continuous",
               "aggregation": "mean",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": null,
               "categorical_levels": null
             },
@@ -62636,6 +62928,8 @@
               "measurement_dtype": "ordinal",
               "aggregation": "last",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": [
                 "none",
                 "mild",
@@ -62650,6 +62944,8 @@
               "measurement_dtype": "count",
               "aggregation": "count",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": null,
               "categorical_levels": null
             },
@@ -62659,6 +62955,8 @@
               "measurement_dtype": "count",
               "aggregation": "sum",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": null,
               "categorical_levels": null
             },
@@ -62668,6 +62966,8 @@
               "measurement_dtype": "count",
               "aggregation": "count",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": null,
               "categorical_levels": null
             },
@@ -62677,6 +62977,8 @@
               "measurement_dtype": "binary",
               "aggregation": "last",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": null,
               "categorical_levels": null
             },
@@ -62686,6 +62988,8 @@
               "measurement_dtype": "count",
               "aggregation": "count",
               "observation_window": "1d",
+              "fill_null": null,
+              "fill_null_limit": null,
               "ordinal_levels": null,
               "categorical_levels": null
             }
@@ -62699,6 +63003,8 @@
                 "measurement_dtype": "ordinal",
                 "aggregation": "last",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": [
                   "low",
                   "moderate",
@@ -62706,7 +63012,6 @@
                 ],
                 "categorical_levels": null,
                 "how_to_measure": "Inspect `clinical_note_text`, `assessment_text`, `journal_text`, `mood_valence`, `phq9_score`, and `gad7_score` for evidence that symptoms improved or remained well during periods without medication change, through nonpharmacologic coping, stable life conditions, or spontaneous remission. Rate as low, moderate, or high. Return null if the available evidence cannot distinguish natural recovery or resilience from medication response.",
-                "recording": "samples",
                 "source_columns": [
                   "clinical_note_text",
                   "assessment_text",
@@ -62724,6 +63029,8 @@
                 "measurement_dtype": "ordinal",
                 "aggregation": "last",
                 "observation_window": "2w",
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": [
                   "0",
                   "1",
@@ -62756,7 +63063,6 @@
                 ],
                 "categorical_levels": null,
                 "how_to_measure": "Use the `phq9_score` column directly when a PHQ-9 screening scale score is recorded. The score reflects depressive symptom burden over the prior two weeks ending at the visit date. Return null for support windows with no recorded PHQ-9 score.",
-                "recording": "samples",
                 "source_columns": [
                   "phq9_score"
                 ],
@@ -62769,6 +63075,8 @@
                 "measurement_dtype": "ordinal",
                 "aggregation": "last",
                 "observation_window": "2w",
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": [
                   "0",
                   "1",
@@ -62795,7 +63103,6 @@
                 ],
                 "categorical_levels": null,
                 "how_to_measure": "Use the `gad7_score` column directly when a GAD-7 screening scale score is recorded. The score reflects anxiety symptom burden over the prior two weeks ending at the visit date. Return null for support windows with no recorded GAD-7 score.",
-                "recording": "samples",
                 "source_columns": [
                   "gad7_score"
                 ],
@@ -62808,10 +63115,11 @@
                 "measurement_dtype": "continuous",
                 "aggregation": "mean",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": null,
                 "categorical_levels": null,
                 "how_to_measure": "Use the `mood_valence` column directly from Apple State of Mind entries. Average all observed entries within the day. Higher valence means better mood and therefore less internalizing symptom burden.",
-                "recording": "samples",
                 "source_columns": [
                   "mood_valence"
                 ],
@@ -62824,6 +63132,8 @@
                 "measurement_dtype": "ordinal",
                 "aggregation": "last",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": [
                   "none",
                   "mild",
@@ -62832,7 +63142,6 @@
                 ],
                 "categorical_levels": null,
                 "how_to_measure": "Within each day, inspect `local_date`, `journal_text`, `imessage_text`, `mood_labels`, and `mood_associations` for first-person evidence of depressed mood, anhedonia, anxiety, worry, irritability, panic, somatic anxiety, hopelessness, guilt, or distress. Rate severity as none, mild, moderate, or severe based only on evidence in that day. Return `none` only when there is usable mood-related text or labels and they indicate no such symptoms; return null when there is no usable symptom evidence in the support window.",
-                "recording": "samples",
                 "source_columns": [
                   "local_date",
                   "journal_text",
@@ -62849,6 +63158,8 @@
                 "measurement_dtype": "ordinal",
                 "aggregation": "last",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": [
                   "poor_or_harmful",
                   "mixed_or_unclear",
@@ -62857,7 +63168,6 @@
                 ],
                 "categorical_levels": null,
                 "how_to_measure": "Inspect `clinical_note_text`, `assessment_text`, `plan_text`, `journal_text`, medication fields, `phq9_score`, and `gad7_score` for historical improvement, relapse prevention, side effects, dose changes due to response/tolerability, or patient-reported benefit/harm while taking escitalopram. Rate net historical response/tolerability as poor_or_harmful, mixed_or_unclear, beneficial_with_side_effects, or clearly_beneficial_tolerated. Return null if no usable escitalopram response/tolerability history is available.",
-                "recording": "samples",
                 "source_columns": [
                   "clinical_note_text",
                   "assessment_text",
@@ -62878,10 +63188,11 @@
                 "measurement_dtype": "continuous",
                 "aggregation": "last",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": null,
                 "categorical_levels": null,
                 "how_to_measure": "Use escitalopram-related `drug_name`, `medication_name`, `timestamp`, `local_date`, `days_supply`, `clinical_note_text`, and `plan_text` to estimate the length of continuous current escitalopram use before the taper decision. Prefer explicit duration statements in notes; otherwise use the span from first documented escitalopram record to the latest pre-taper escitalopram record when continuity is plausible from fills/notes. Return duration in days; return null if current-use duration cannot be estimated.",
-                "recording": "samples",
                 "source_columns": [
                   "drug_name",
                   "medication_name",
@@ -62900,6 +63211,8 @@
                 "measurement_dtype": "ordinal",
                 "aggregation": "last",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": [
                   "wants_continue",
                   "ambivalent",
@@ -62908,7 +63221,6 @@
                 ],
                 "categorical_levels": null,
                 "how_to_measure": "Within each day, inspect `journal_text`, `imessage_text`, `clinical_note_text`, and `plan_text` for the patient's motivation to taper or continue escitalopram, perceived benefit, side-effect concerns, dependence concerns, fear of relapse, and coping confidence. Rate taper preference as wants_continue, ambivalent, prefers_slow_taper, or wants_stop_or_fast_taper. Return null if there is no usable preference/belief evidence.",
-                "recording": "samples",
                 "source_columns": [
                   "journal_text",
                   "imessage_text",
@@ -62924,6 +63236,8 @@
                 "measurement_dtype": "ordinal",
                 "aggregation": "last",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": [
                   "none_or_continue",
                   "slow_or_paused_reduction",
@@ -62932,7 +63246,6 @@
                 ],
                 "categorical_levels": null,
                 "how_to_measure": "Within each day, inspect `plan_text`, `clinical_note_text`, `medication_action`, `medication_name`, and `drug_name` for the escitalopram taper plan. Classify the intended reduction speed as none_or_continue, slow_or_paused_reduction, moderate_reduction, or rapid_stop_or_large_reduction. Return null if no escitalopram taper or continuation plan is documented in the support window.",
-                "recording": "samples",
                 "source_columns": [
                   "plan_text",
                   "clinical_note_text",
@@ -62949,6 +63262,8 @@
                 "measurement_dtype": "ordinal",
                 "aggregation": "last",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": [
                   "poor",
                   "partial",
@@ -62956,7 +63271,6 @@
                 ],
                 "categorical_levels": null,
                 "how_to_measure": "Within each day, inspect `clinical_note_text`, `plan_text`, `journal_text`, and `imessage_text` for evidence about taking escitalopram as prescribed, missed doses, extra doses, self-directed changes, or reinstatement. Rate adherence as poor, partial, or consistent. Use `consistent` only when source evidence explicitly says the medication was taken as directed or no missed doses were reported in a medication-adherence context. Return null when there is no usable adherence evidence.",
-                "recording": "samples",
                 "source_columns": [
                   "clinical_note_text",
                   "plan_text",
@@ -62972,10 +63286,11 @@
                 "measurement_dtype": "continuous",
                 "aggregation": "last",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": null,
                 "categorical_levels": null,
                 "how_to_measure": "Within each day, use medication rows where `medication_name` or `drug_name` contains escitalopram or Lexapro. Return the last non-null `medication_dose_mg` documented for escitalopram that day, in milligrams. Return null if no escitalopram dose is documented that day. This is a documented dose proxy, not proof of ingestion.",
-                "recording": "samples",
                 "source_columns": [
                   "medication_name",
                   "drug_name",
@@ -62990,6 +63305,8 @@
                 "measurement_dtype": "ordinal",
                 "aggregation": "last",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": [
                   "none",
                   "short_or_uncertain",
@@ -62998,7 +63315,6 @@
                 ],
                 "categorical_levels": null,
                 "how_to_measure": "Within each day, inspect escitalopram-related `clinical_note_text`, `plan_text`, `medication_name`, `drug_name`, `medication_dose_mg`, `days_supply`, and `strength` for evidence of ongoing long-term escitalopram use or stable maintenance dosing. Rate adaptation proxy as none, short_or_uncertain, ongoing_maintenance, or long_term_maintenance. Return null if no escitalopram-use-duration or maintenance context is available in that day.",
-                "recording": "samples",
                 "source_columns": [
                   "clinical_note_text",
                   "plan_text",
@@ -63017,10 +63333,11 @@
                 "measurement_dtype": "continuous",
                 "aggregation": "mean",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": null,
                 "categorical_levels": null,
                 "how_to_measure": "Use the `sleep_efficiency_pct` column directly from Oura sleep periods. Average values over all sleep periods assigned to the day. Higher sleep efficiency indicates less sleep/circadian disruption.",
-                "recording": "samples",
                 "source_columns": [
                   "sleep_efficiency_pct"
                 ],
@@ -63033,6 +63350,8 @@
                 "measurement_dtype": "ordinal",
                 "aggregation": "last",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": [
                   "none",
                   "mild",
@@ -63041,7 +63360,6 @@
                 ],
                 "categorical_levels": null,
                 "how_to_measure": "Within each day, inspect `journal_text`, `imessage_text`, `mood_labels`, and `mood_associations` for subjective stress, overwhelm, threat, uncontrollability, pressure, daily hassles, or feeling unable to cope. Rate as none, mild, moderate, or severe. Return `none` only when usable affect/stress evidence is present and indicates low or absent stress; return null if there is no usable evidence.",
-                "recording": "samples",
                 "source_columns": [
                   "journal_text",
                   "imessage_text",
@@ -63057,10 +63375,11 @@
                 "measurement_dtype": "count",
                 "aggregation": "count",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": null,
                 "categorical_levels": null,
                 "how_to_measure": "Within each day, inspect `calendar_summary`, `calendar_description`, `journal_text`, `imessage_text`, `transaction_name`, `merchant_name`, `finance_category_primary`, and `finance_category_detailed` for external stressful events such as conflict, deadlines, job strain, illness in self/others, bereavement, financial shock, legal/administrative problems, travel disruption, or major schedule disruption. Count distinct stressful events in the day. Return 0 if there is usable daily source evidence and no stressful event is indicated; return null if no usable event/text/transaction evidence exists.",
-                "recording": "samples",
                 "source_columns": [
                   "calendar_summary",
                   "calendar_description",
@@ -63080,10 +63399,11 @@
                 "measurement_dtype": "count",
                 "aggregation": "sum",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": null,
                 "categorical_levels": null,
                 "how_to_measure": "Use the `step_count_count` column directly from Apple Health step count intervals. Sum all step counts within the day.",
-                "recording": "samples",
                 "source_columns": [
                   "step_count_count"
                 ],
@@ -63096,10 +63416,11 @@
                 "measurement_dtype": "count",
                 "aggregation": "count",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": null,
                 "categorical_levels": null,
                 "how_to_measure": "Count non-null `clinical_note_text` rows within each day. This measures clinical monitoring/contact volume. Return 0 when the day has rows from other sources but no clinical note; return null only if the support window has no rows at all.",
-                "recording": "samples",
                 "source_columns": [
                   "clinical_note_text"
                 ],
@@ -63112,10 +63433,11 @@
                 "measurement_dtype": "binary",
                 "aggregation": "last",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": null,
                 "categorical_levels": null,
                 "how_to_measure": "Within each day, inspect `plan_text`, `clinical_note_text`, `medication_action`, `visit_type`, `department`, `calendar_summary`, and `calendar_description` for monitoring visits, follow-up plans, medication rescue, dose reinstatement, urgent care, crisis support, safety monitoring, or advice to pause/reverse taper. Return 1 if such monitoring or rescue care is documented, 0 if a relevant clinical/taper plan is present and no monitoring or rescue action is indicated, and null if there is no usable clinical or taper-care evidence.",
-                "recording": "samples",
                 "source_columns": [
                   "plan_text",
                   "clinical_note_text",
@@ -63134,10 +63456,11 @@
                 "measurement_dtype": "count",
                 "aggregation": "count",
                 "observation_window": null,
+                "fill_null": null,
+                "fill_null_limit": null,
                 "ordinal_levels": null,
                 "categorical_levels": null,
                 "how_to_measure": "Within each day, inspect `medication_name`, `drug_name`, `medication_dose_mg`, `medication_action`, `clinical_note_text`, `assessment_text`, and `plan_text` for non-escitalopram psychotropic medications, sleep aids, anxiolytics, stimulants, supplements, hormonal treatments, or somatic treatments that are initiated, stopped, increased, decreased, or used as needed. Count distinct non-escitalopram treatment changes or active PRN uses. Return 0 if medication/treatment evidence is present and no relevant non-escitalopram treatment is active or changed; return null if there is no usable treatment evidence.",
-                "recording": "samples",
                 "source_columns": [
                   "medication_name",
                   "drug_name",
@@ -63157,7 +63480,7 @@
         "source": {
           "ref": {
             "workspace_id": "DEMO",
-            "revision": "524b36a9606f41bbd821113765d6734a54354150",
+            "revision": "102c1d118ae5da8057444d8392291e139028047f",
             "path": "metadata.json"
           },
           "pointer": "",
@@ -66210,7 +66533,7 @@
         "source": {
           "ref": {
             "workspace_id": "DEMO",
-            "revision": "18b22ccaed37049e2a3809606e328dc82babdbee",
+            "revision": "b654cd28e1edcf7ab17bee4499ddc4699d166411",
             "path": "data_profile.json"
           },
           "pointer": "",
@@ -66354,7 +66677,7 @@
         "source": {
           "ref": {
             "workspace_id": "DEMO",
-            "revision": "455f09e31785387d50f081daf996e05e6ed7fd02",
+            "revision": "5ed8b673a547f9ce3e31b2e3f87bc4781797b5c3",
             "path": "identification_report.json"
           },
           "pointer": "",
@@ -66911,7 +67234,7 @@
         "source": {
           "ref": {
             "workspace_id": "DEMO",
-            "revision": "7cabe24f5731864be83e10fb7dd876e35aeabb64",
+            "revision": "4610c64b1ba0362f2035899fe9c774ab3a38ef6a",
             "path": "model.json"
           },
           "pointer": "",
@@ -67769,7 +68092,7 @@
         "source": {
           "ref": {
             "workspace_id": "DEMO",
-            "revision": "b01571c26b252cc71098b36b09f362eff1170d9e",
+            "revision": "a469eda7a1e5e7c0fbdb5ddc0f4ee49839c91eea",
             "path": "validation_report.json"
           },
           "pointer": "",
@@ -68850,7 +69173,7 @@
         "source": {
           "ref": {
             "workspace_id": "DEMO",
-            "revision": "2f2ec281a818b7749189d2732df1b27b6b04d096",
+            "revision": "8fa822f64424d156f1c9fa3943cb04cf302fc949",
             "path": "logs/transition.json"
           },
           "pointer": "/diagnostics/prior_predictive",
@@ -105307,7 +105630,7 @@
         "source": {
           "ref": {
             "workspace_id": "DEMO",
-            "revision": "fa01ee54f27792d09c9be207a83db467f12c707b",
+            "revision": "28672d2a5667c922e06af517599f626e8bb6fe13",
             "path": "logs/transition.json"
           },
           "pointer": "/diagnostics/report",
