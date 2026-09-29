@@ -36,7 +36,7 @@ const checks: SpecificationReport = {
     },
   ],
 };
-const commitId = (seq: number) => seq.toString(16).padStart(40, "c");
+const commitId = (seq: number) => (0xc000000 + seq).toString(16).padEnd(40, "c");
 const modelId = (ordinal: number): string =>
   ordinal <= 4
     ? demoSnapshotAt([2, 3, 4, 7][ordinal - 1]).context.state.current.model!.revision
@@ -364,6 +364,13 @@ export function workbenchHandlers() {
     seq: journal.at(-1)!.seq,
     artifacts: latest.context.artifacts,
     actions: ["edit_model", "prepare_data", "fit", "simulate"],
+    // A fit dispatched after the alternative branch's simulation is still executing.
+    running: {
+      attempt_id: "0f17a770-5d1e-4c2b-9a3f-6b8e2d4c1a90",
+      action: "fit",
+      branch: "alternative",
+      messages: [{ timestamp: "2026-09-16T12:05:00Z", level: "info", label: "FIT_STARTED" }],
+    },
     transitions: journal,
     branches,
     events: [],

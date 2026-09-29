@@ -3,12 +3,13 @@ import { getEpisodeEvents, getEpisodeStatus, getEpisodeTimeline } from "@/lib/se
 import { normalizeWorkspaceId } from "@/lib/workspace-id";
 
 /**
- * GET /api/analysis/[workspaceId]/progress?after=<cursor>
+ * GET /api/analysis/[workspaceId]/progress?after=<cursor>&seq=<journal seq>
  *
  * Server-side proxy over the episode facade for client polling: episode
  * status (the per-artifact freshness report and available
  * actions), the transition journal, and transition telemetry events after
- * the given cursor.
+ * the given cursor. The journal is omitted (null) when the caller already
+ * holds it at the current `seq`; every attempt, failed or not, advances it.
  */
 export async function GET(
   request: Request,
@@ -22,13 +23,17 @@ export async function GET(
 
   const url = new URL(request.url);
   const after = url.searchParams.get("after");
+  const knownSeq = url.searchParams.get("seq");
 
   try {
-    const [status, timeline, events] = await Promise.all([
+    const [status, events] = await Promise.all([
       getEpisodeStatus(safeWorkspaceId),
-      getEpisodeTimeline(safeWorkspaceId),
       getEpisodeEvents(safeWorkspaceId, after),
     ]);
+    const timeline =
+      knownSeq !== null && Number(knownSeq) === status.seq
+        ? null
+        : await getEpisodeTimeline(safeWorkspaceId);
 
     return NextResponse.json({
       workspaceId: safeWorkspaceId,
@@ -36,8 +41,9 @@ export async function GET(
       seq: status.seq,
       artifacts: status.artifacts,
       actions: status.actions,
-      transitions: timeline.transitions,
-      branches: timeline.branches,
+      running: status.running,
+      transitions: timeline?.transitions ?? null,
+      branches: timeline?.branches ?? null,
       events: events.events,
     });
   } catch {

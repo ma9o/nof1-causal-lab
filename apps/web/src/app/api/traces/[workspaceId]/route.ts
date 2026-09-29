@@ -3,7 +3,6 @@ import { NextResponse } from "next/server";
 import {
   EpisodeRunError,
   getOperationTraceIndex,
-  getEpisodeTimeline,
   getEpisodeTrace,
 } from "@/lib/server/episode-runs";
 import { normalizeWorkspaceId } from "@/lib/workspace-id";
@@ -59,16 +58,14 @@ export async function GET(
       if (!/^[0-9a-f]{40}$/.test(commitId)) {
         return NextResponse.json({ error: "Invalid action commit" }, { status: 400 });
       }
-      const timeline = await getEpisodeTimeline(safeWorkspaceId);
-      const record = timeline.transitions.find((transition) => transition.commit_id === commitId);
-      if (!record) {
-        return NextResponse.json({ error: "No such action" }, { status: 404 });
-      }
-      if (record.trace_ids.length === 0) {
+      // The caller names the action's trace IDs from the journal it already holds,
+      // so this read never re-downloads the whole journal.
+      const traceIds = search.getAll("trace").filter((traceId) => traceId.length > 0);
+      if (traceIds.length === 0) {
         return NextResponse.json({ error: "No traces for this action" }, { status: 404 });
       }
       const traces = await Promise.all(
-        record.trace_ids.map((traceId) => getEpisodeTrace(safeWorkspaceId, commitId, traceId)),
+        traceIds.map((traceId) => getEpisodeTrace(safeWorkspaceId, commitId, traceId)),
       );
       return NextResponse.json(mergeTraces(traces));
     }

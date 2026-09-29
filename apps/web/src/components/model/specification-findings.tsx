@@ -10,7 +10,9 @@ export function SpecificationFindings({ report }: { report: SpecificationReport 
           <StatusIcon status={finding.status} />
           <div className="min-w-0 space-y-1">
             <span className="font-medium">{humanize(finding.check)}</span>
-            <p className="leading-relaxed text-muted-foreground">{finding.message}</p>
+            <p className="whitespace-pre-line leading-relaxed text-muted-foreground">
+              {[...new Set(finding.message.split("\n"))].join("\n")}
+            </p>
           </div>
         </li>
       ))}

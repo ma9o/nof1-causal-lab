@@ -11,6 +11,7 @@ import { EdgeScope } from "./scopes/edge-scope";
 import { IndicatorScope } from "./scopes/indicator-scope";
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import { VersionScope } from "./scopes/version-scope";
+import { timelineTickLabel } from "@/lib/model-asset/timeline-presentation";
 
 function ScopeBody({ selection, context }: { selection: ModelSelection; context: ScopeContext }) {
   switch (selection.kind) {
@@ -79,6 +80,10 @@ export function DetailsPane({
   const selectedKey = JSON.stringify(selection);
   const entity = resolveEntity(context.entities, selection);
   const missingEntity = selection.kind !== "revision" && !entity;
+  const selectedTick =
+    selection.kind === "revision"
+      ? context.ticks.find((tick) => tick.seq === selection.seq)
+      : undefined;
   return (
     <section
       aria-label="Model details"
@@ -92,13 +97,7 @@ export function DetailsPane({
           value={selectedKey}
           onChange={(event) => context.select(JSON.parse(event.target.value) as ModelSelection)}
         >
-          {selection.kind === "revision" && (
-            <option value={selectedKey}>
-              {context.ticks.find((tick) => tick.seq === selection.seq)?.status === "applied"
-                ? `Version ${selection.seq}`
-                : `Attempt ${selection.seq}`}
-            </option>
-          )}
+          {selectedTick && <option value={selectedKey}>{timelineTickLabel(selectedTick)}</option>}
           {missingEntity && (
             <option value={selectedKey}>
               Selected {selection.kind} · absent from this revision

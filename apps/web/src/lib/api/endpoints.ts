@@ -25,11 +25,15 @@ export async function getLLMTrace(workspaceId: string, artifactId: string): Prom
   return apiFetch<LLMTrace>(`/api/traces/${workspaceId}?${search}`);
 }
 
-/** The merged traces of one recorded action, by commitId. */
+/** The merged traces of one recorded action; the caller holds its trace IDs from the journal. */
 export async function getLLMTraceForAction(
   workspaceId: string,
   commitId: string,
+  traceIds: readonly string[],
 ): Promise<LLMTrace> {
-  const search = new URLSearchParams({ commitId: String(commitId) }).toString();
+  const search = new URLSearchParams([
+    ["commitId", commitId],
+    ...traceIds.map((traceId) => ["trace", traceId]),
+  ]).toString();
   return apiFetch<LLMTrace>(`/api/traces/${workspaceId}?${search}`);
 }

@@ -21,10 +21,13 @@ export function useRevisionTimeline(
   const { width, height } = timelineSize(
     visible.nodes.length,
     expanded ? timeline.lanes.length : 1,
+    visible.nodes.some((node) => node.tick.status !== "applied"),
   );
   const selectedNode = visible.nodes.find((node) => node.tick.seq === playhead);
   const position = (node: RevisionTimelineNode) => timelinePosition(node, expanded);
-  const hasComparisons = timeline.nodes.some((node) => node.tick.seq !== playhead);
+  const hasComparisons = timeline.nodes.some(
+    (node) => node.tick.status === "applied" && node.tick.seq !== playhead,
+  );
 
   return {
     timeline,

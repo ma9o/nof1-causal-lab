@@ -14,6 +14,16 @@ export function formatDate(iso: string): string {
   });
 }
 
+/** Calendar display of a model day using the backend's pinned UTC origin. */
+export function formatModelDate(day: number, origin: string): string {
+  return new Date(Date.parse(origin) + day * 86_400_000).toLocaleDateString(undefined, {
+    timeZone: "UTC",
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
 const compactFormatter = new Intl.NumberFormat("en", {
   notation: "compact",
   maximumFractionDigits: 1,

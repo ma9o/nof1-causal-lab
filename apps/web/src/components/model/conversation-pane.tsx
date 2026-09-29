@@ -1,12 +1,11 @@
 "use client";
 
-import type { ActionMessage, ActionMessageEvent, LLMTrace } from "@nof1-causal-lab/api-types";
+import type { ActionMessage, LLMTrace, RunningAction } from "@nof1-causal-lab/api-types";
 import { LoaderCircle, X } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { useMemo } from "react";
 import { ChatMessages } from "@/components/ui/custom/chat-messages";
 import type { JournalTick } from "@/lib/model-asset/journal";
-import { revisionBranch, revisionTimeline } from "@/lib/model-asset/revision-timeline";
-import { ARTIFACT_LABEL, actionLabel } from "@/lib/model-asset/selection";
+import { timelineTickLabel } from "@/lib/model-asset/timeline-presentation";
 import { cn } from "@/lib/utils";
 import { traceToUIMessages } from "@/lib/utils/trace-to-ui-messages";
 
@@ -39,162 +38,90 @@ function ActionLabels({ messages }: { messages: ActionMessage[] }) {
   );
 }
 
-function TurnBody({ tick, useActionTrace }: { tick: JournalTick; useActionTrace: UseActionTrace }) {
+/** The model calls recorded inside the action, failed attempts included. */
+function ActionTrace({
+  tick,
+  useActionTrace,
+}: {
+  tick: JournalTick;
+  useActionTrace: UseActionTrace;
+}) {
   const traceState = useActionTrace(tick.seq, tick.traceIds.length > 0);
   const messages = useMemo(
     () => (traceState.status === "ready" ? traceToUIMessages(traceState.trace) : []),
     [traceState],
   );
-  if (tick.status !== "applied" || tick.traceIds.length === 0) return null;
+  if (tick.traceIds.length === 0) return null;
   if (traceState.status === "loading")
     return (
-      <p role="status" className="pl-4 text-xs text-muted-foreground">
+      <p role="status" className="px-4 text-xs text-muted-foreground">
         Loading conversation…
       </p>
     );
   if (traceState.status === "absent")
-    return <p className="pl-4 text-xs text-muted-foreground">Conversation unavailable.</p>;
+    return <p className="px-4 text-xs text-muted-foreground">Conversation unavailable.</p>;
   return (
-    <div className="pl-4 [&_.prose]:text-[11.5px] [&_pre]:text-[10px]">
+    <div className="px-4 [&_.prose]:text-[11.5px] [&_pre]:text-[10px]">
       <ChatMessages messages={messages} />
     </div>
   );
 }
 
-function Turn({
-  tick,
-  open,
-  future,
-  focused,
-  useActionTrace,
-  onSelect,
-}: {
-  tick: JournalTick;
-  open: boolean;
-  future: boolean;
-  focused: boolean;
-  useActionTrace: UseActionTrace;
-  onSelect: () => void;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (focused) ref.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [focused]);
-  const failed = tick.status !== "applied";
-  return (
-    <div
-      ref={ref}
-      className={cn(
-        "flex flex-col gap-1.5 border-b px-2 py-2.5 last:border-b-0",
-        focused && "rounded-lg bg-muted ring-1 ring-inset ring-border",
-        future && !focused && "opacity-40",
-      )}
-    >
-      <button
-        type="button"
-        aria-label={
-          failed
-            ? `Inspect failed attempt ${tick.seq}: ${actionLabel(tick.action)}`
-            : `View version ${tick.seq}: ${actionLabel(tick.action)}`
-        }
-        aria-current={focused ? "step" : undefined}
-        onClick={onSelect}
-        className="flex min-w-0 cursor-pointer items-center gap-2 text-left text-[11px] text-muted-foreground"
-      >
-        {failed ? (
-          <X className="size-3.5 flex-none text-destructive" aria-hidden="true" />
-        ) : (
-          <span
-            aria-hidden="true"
-            className={cn(
-              "inline-block size-2 flex-none rounded-full bg-foreground",
-              tick.action === "edit_model" && "rotate-45 rounded-[1px]",
-            )}
-          />
-        )}
-        <span className="min-w-0 flex-1 font-medium text-foreground">
-          {actionLabel(tick.action)}
-        </span>
-        <span className="flex-none font-mono text-[10px]">
-          {failed ? `attempt ${tick.seq}` : `v${tick.seq}`}
-        </span>
-      </button>
-      {open && (
-        <>
-          <ActionLabels messages={tick.messages} />
-          <TurnBody tick={tick} useActionTrace={useActionTrace} />
-        </>
-      )}
-    </div>
-  );
-}
-
-/** The log owns recorded conversation; results are inspected through the selected action. */
+/**
+ * The selected action's own log: its messages and recorded model calls. An action the episode
+ * workflow is executing has no timeline node yet, so it streams in under the head it started from.
+ */
 export function ConversationPane({
-  ticks,
-  branches,
-  branch,
-  playhead,
-  latest,
+  tick,
   running,
-  focusSeq,
   useActionTrace,
-  onSelectTick,
-  actionMessages,
 }: {
-  ticks: JournalTick[];
-  branches: Record<string, string>;
-  branch: string;
-  playhead: number;
-  latest: number;
-  running: string[];
-  focusSeq: number;
+  tick: JournalTick | undefined;
+  running: RunningAction | null;
   useActionTrace: UseActionTrace;
-  onSelectTick: (seq: number) => void;
-  actionMessages: ActionMessageEvent[];
 }) {
-  const turns = useMemo(() => {
-    const lineage = revisionBranch(revisionTimeline(ticks, branches), branches[branch]);
-    const commits = new Set(lineage.nodes.map((node) => node.tick.commitId));
-    return ticks.filter((tick) =>
-      tick.status === "applied"
-        ? commits.has(tick.commitId)
-        : tick.parentIds.some((id) => commits.has(id)),
-    );
-  }, [ticks, branches, branch]);
-  const open = new Set([focusSeq, playhead]);
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <div className="flex-none border-b px-3 py-2.5">
+      <div className="flex flex-none items-center gap-2 border-b px-3 py-2.5">
         <h2 className="text-xs font-semibold">Action log</h2>
-      </div>
-      <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-1 py-1.5">
-        {turns.map((tick) => (
-          <Turn
-            key={tick.seq}
-            tick={tick}
-            open={open.has(tick.seq)}
-            future={playhead < latest && tick.seq > playhead}
-            focused={focusSeq === tick.seq}
-            useActionTrace={useActionTrace}
-            onSelect={() => onSelectTick(tick.seq)}
-          />
-        ))}
-        {actionMessages.length > 0 && (
-          <div role="log" aria-live="polite">
-            <ActionLabels messages={actionMessages.map((event) => event.message)} />
-          </div>
+        {tick && (
+          <span className="ml-auto flex min-w-0 items-center gap-1 font-mono text-[10px] text-muted-foreground">
+            {tick.status !== "applied" && (
+              <X className="size-3 flex-none text-destructive" aria-hidden="true" />
+            )}
+            <span className="truncate">{timelineTickLabel(tick)}</span>
+            {tick.status !== "applied" && <span className="sr-only"> · failed</span>}
+          </span>
         )}
-        {running.length > 0 && (
-          <div role="status" className="flex items-center gap-2 px-2 py-3 text-xs">
-            <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
-            <span>
-              {running
-                .map((id) => ARTIFACT_LABEL[id as keyof typeof ARTIFACT_LABEL] ?? id)
-                .join(", ")}
-            </span>
-            <span className="sr-only">running</span>
-          </div>
+      </div>
+      <div key={tick?.seq} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto py-2">
+        {tick ? (
+          <>
+            {tick.messages.length > 0 ? (
+              <ActionLabels messages={tick.messages} />
+            ) : (
+              tick.traceIds.length === 0 && (
+                <p className="px-4 text-xs text-muted-foreground">No log was recorded.</p>
+              )
+            )}
+            <ActionTrace tick={tick} useActionTrace={useActionTrace} />
+          </>
+        ) : (
+          !running && <p className="px-4 text-xs text-muted-foreground">No actions yet.</p>
+        )}
+        {running && (
+          <section
+            role="log"
+            aria-live="polite"
+            aria-label={`${running.action} · running`}
+            className="border-t pt-2 first:border-t-0 first:pt-0"
+          >
+            <h3 className="flex items-center gap-2 px-4 pb-1 text-[11px] font-medium">
+              <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
+              {running.action} · running
+            </h3>
+            <ActionLabels messages={running.messages} />
+          </section>
         )}
       </div>
     </div>

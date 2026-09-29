@@ -40,7 +40,3 @@ export function groupStaleArtifactsByProducer(
   }
   return byProducer;
 }
-
-export function hasStaleArtifacts(artifacts: readonly ArtifactFreshness[]): boolean {
-  return Object.keys(groupStaleArtifactsByProducer(artifacts)).length > 0;
-}

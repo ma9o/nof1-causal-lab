@@ -3,14 +3,12 @@
 import type { ModelSnapshot, StudyRevision } from "@nof1-causal-lab/api-types";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { PipelineProgress } from "@/lib/hooks/pipeline-progress";
 import { useModelDiff } from "@/lib/hooks/use-model-diff";
 import { hasCausalEffects } from "@/lib/simulation-report";
 import { indexModel } from "./entities";
 import { journalTicks, latestSeq } from "./journal";
 import type { ScopeContext } from "./scope";
 import type { ModelSelection } from "./selection";
-import { isModelOperation } from "./workbench";
 
 export type SnapshotReader = (
   commitId: string,
@@ -46,7 +44,6 @@ interface WorkbenchOptions {
   workspaceId: string;
   question: string | undefined;
   transitions: StudyRevision[];
-  progress: PipelineProgress;
   model: ModelSnapshot;
   currentModel: ModelSnapshot;
   viewAt: (seq: number | null) => void;
@@ -57,12 +54,14 @@ export function useWorkbench({
   workspaceId,
   question: initialQuestion,
   transitions,
-  progress,
   model,
   currentModel,
   viewAt,
 }: WorkbenchOptions) {
-  const [selectionOverride, setSelection] = useState<ModelSelection | null>(null);
+  const [selectionOverride, setSelection] = useState<ModelSelection | null>({
+    kind: "revision",
+    seq: model.context.seq,
+  });
   const [comparison, setComparison] = useState<{
     before: number;
     after: number;
@@ -121,7 +120,6 @@ export function useWorkbench({
     viewAt(seq === latest ? null : seq);
   };
   const question = model.model?.value.question ?? initialQuestion;
-  const running = progress.runningTransitions.filter(isModelOperation);
   const simulation = model.findings.simulation;
   const causalResult =
     simulation?.source.validity === "fresh" &&
@@ -159,7 +157,6 @@ export function useWorkbench({
     toggleComparison,
     selectVersion,
     question,
-    running,
     causalResult,
     select,
     context,

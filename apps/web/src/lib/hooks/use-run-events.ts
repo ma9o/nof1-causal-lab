@@ -6,7 +6,7 @@ import {
   type RuntimeEvent,
   type StudyRevision,
 } from "@/lib/api/analysis";
-import { groupStaleArtifactsByProducer, hasStaleArtifacts } from "@/lib/artifact-staleness";
+import { groupStaleArtifactsByProducer } from "@/lib/artifact-staleness";
 import {
   applyExtractionEvent,
   getExtractionStateQueryKey,
@@ -20,9 +20,9 @@ import {
   type ModelSpecAdmissionReplayState,
 } from "@/lib/model-spec-admission-runtime";
 import { type TransitionProgressStatus } from "@/lib/transition-runtime";
-import type { ActionMessageEvent, PipelineSectionId } from "@nof1-causal-lab/api-types";
+import type { PipelineSectionId } from "@nof1-causal-lab/api-types";
 import { TRANSITIONS } from "@nof1-causal-lab/api-types";
-import { skipToken, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef } from "react";
 import { isMockMode, simulatePipelineEvents } from "../api/mock-provider";
 import {
@@ -48,19 +48,6 @@ function getPipelineStatusQueryKey(workspaceId: string) {
 
 export function getEpisodeProgressQueryKey(workspaceId: string) {
   return ["episode", workspaceId, "progress"] as const;
-}
-
-export function getActionMessagesQueryKey(workspaceId: string) {
-  return ["episode", workspaceId, "action-messages"] as const;
-}
-
-export function useActionMessages(workspaceId: string) {
-  return useQuery<ActionMessageEvent[]>({
-    queryKey: getActionMessagesQueryKey(workspaceId),
-    queryFn: skipToken,
-    enabled: false,
-    initialData: [],
-  }).data;
 }
 
 /** Event cursors are `{time_ns:020d}-{uuid}.json` filenames — time-ordered by construction. */
@@ -219,22 +206,6 @@ export function useRunEvents(
         return;
       }
 
-      const completed = new Set(payload.transitions.map((record) => record.attempt_id));
-      queryClient.setQueryData<ActionMessageEvent[]>(
-        getActionMessagesQueryKey(workspaceId),
-        (old) => {
-          const messages = new Map(
-            (old ?? []).map((event) => [`${event.attempt_id}:${event.index}`, event]),
-          );
-          for (const event of payload.events) {
-            if (event.event === "nof1-causal-lab.action.message") {
-              messages.set(`${event.attempt_id}:${event.index}`, event);
-            }
-          }
-          return [...messages.values()].filter((event) => !completed.has(event.attempt_id));
-        },
-      );
-
       for (const record of payload.events) {
         const runtimeRecord = toRuntimeEventRecord(record);
 
@@ -335,7 +306,6 @@ export function useRunEvents(
     );
     queryClient.removeQueries({ queryKey: getExtractionStateQueryKey(workspaceId) });
     queryClient.removeQueries({ queryKey: getModelSpecAdmissionStateQueryKey(workspaceId) });
-    queryClient.removeQueries({ queryKey: getActionMessagesQueryKey(workspaceId) });
   }, [queryClient, transitionOrder, workspaceId]);
 
   useEffect(() => {
@@ -361,7 +331,23 @@ export function useRunEvents(
   return useQuery({
     queryKey: getEpisodeProgressQueryKey(workspaceId ?? "__none__"),
     queryFn: async () => {
-      const payload = await getEpisodeProgress(workspaceId as string, cursorRef.current);
+      const held = queryClient.getQueryData<EpisodeProgressPayload>(
+        getEpisodeProgressQueryKey(workspaceId as string),
+      );
+      const response = await getEpisodeProgress(
+        workspaceId as string,
+        cursorRef.current,
+        held?.seq,
+      );
+      // The journal is only resent when its seq moved; otherwise keep the one already held.
+      let payload: EpisodeProgressPayload;
+      if (response.transitions !== null && response.branches !== null) {
+        payload = { ...response, transitions: response.transitions, branches: response.branches };
+      } else if (held) {
+        payload = { ...response, transitions: held.transitions, branches: held.branches };
+      } else {
+        throw new Error("Progress omitted a journal this client does not hold");
+      }
       applyProgressPayload(payload);
       return payload;
     },
@@ -376,13 +362,9 @@ export function useRunEvents(
       const progress = workspaceId
         ? queryClient.getQueryData<PipelineProgress>(getPipelineStatusQueryKey(workspaceId))
         : undefined;
-      return progressPollIntervalMs(
-        hasRunningTransition(progress) ||
-          hasStaleArtifacts(payload.artifacts) ||
-          (workspaceId !== null &&
-            (queryClient.getQueryData<ActionMessageEvent[]>(getActionMessagesQueryKey(workspaceId))
-              ?.length ?? 0) > 0),
-      );
+      // Poll fast only while an attempt is in flight: a running transition, or an action the
+      // episode workflow is executing. Stale artifacts are a resting state.
+      return progressPollIntervalMs(hasRunningTransition(progress) || payload.running !== null);
     },
     staleTime: 0,
     gcTime: 0,

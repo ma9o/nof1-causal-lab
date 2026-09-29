@@ -25,8 +25,22 @@ export function revisionBranch(timeline: ReturnType<typeof revisionTimeline>, he
     selected.add(id);
     pending.push(...(byId.get(id)?.tick.parentIds ?? []));
   }
+  const branchName = byId.get(head)?.tick.branch;
   const nodes = timeline.nodes
-    .filter((node) => selected.has(node.tick.commitId))
+    .filter(
+      (node) =>
+        selected.has(node.tick.commitId) ||
+        (node.tick.status !== "applied" &&
+          node.tick.parentIds.some((id) => selected.has(id)) &&
+          (node.tick.branch === branchName ||
+            timeline.nodes.some(
+              (child) =>
+                selected.has(child.tick.commitId) &&
+                child.tick.branch === node.tick.branch &&
+                child.tick.seq > node.tick.seq &&
+                child.tick.parentIds.some((id) => node.tick.parentIds.includes(id)),
+            ))),
+    )
     .map((node, column) => ({ ...node, column }));
   const visible = new Map(nodes.map((node) => [node.tick.commitId, node]));
   const links = timeline.links.flatMap((link) => {
@@ -39,17 +53,16 @@ export function revisionBranch(timeline: ReturnType<typeof revisionTimeline>, he
 
 /** Presentation only: commits supply ancestry; refs supply the branch lanes. */
 export function revisionTimeline(ticks: readonly JournalTick[], branches: Record<string, string>) {
-  const lanes = Object.keys(branches).map((name) => ({ name }));
-  const nodes: RevisionTimelineNode[] = ticks
-    .filter((tick) => tick.status === "applied")
-    .map((tick, column) => ({
-      tick,
-      column,
-      inputModels:
-        typeof tick.inputs.model_revision === "string" ? [tick.inputs.model_revision] : [],
-      lane: lanes.findIndex((lane) => lane.name === tick.branch),
-      modelRevision: tick.produced.find((info) => info.artifact_id === "model")?.revision ?? null,
-    }));
+  const lanes = [...new Set([...Object.keys(branches), ...ticks.map((tick) => tick.branch)])].map(
+    (name) => ({ name }),
+  );
+  const nodes: RevisionTimelineNode[] = ticks.map((tick, column) => ({
+    tick,
+    column,
+    inputModels: typeof tick.inputs.model_revision === "string" ? [tick.inputs.model_revision] : [],
+    lane: lanes.findIndex((lane) => lane.name === tick.branch),
+    modelRevision: tick.produced.find((info) => info.artifact_id === "model")?.revision ?? null,
+  }));
   const commits = new Map(nodes.map((node) => [node.tick.commitId, node]));
   const links: RevisionTimelineLink[] = nodes.flatMap((to) =>
     to.tick.parentIds.flatMap((id) => {

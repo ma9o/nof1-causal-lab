@@ -1,4 +1,3 @@
-import { TRANSITIONS } from "@nof1-causal-lab/api-types";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { setupWorker } from "msw/browser";
@@ -12,26 +11,12 @@ import {
 } from "@/components/__fixtures__/workbench";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { getEpisodeProgress } from "@/lib/api/analysis";
-import type { PipelineProgress } from "@/lib/hooks/pipeline-progress";
 import { useModelSnapshot } from "@/lib/hooks/use-model-snapshot";
 import { getEpisodeProgressQueryKey } from "@/lib/hooks/use-run-events";
 import { CausalModelAssetView } from "./causal-model-asset";
 import type { ActionTraceState } from "./conversation-pane";
 
 const worker = setupWorker();
-const progress: PipelineProgress = {
-  artifacts: Object.fromEntries(
-    TRANSITIONS.map((section) => [section.id, "completed"]),
-  ) as PipelineProgress["artifacts"],
-  timings: {},
-  transitionErrors: {},
-  staleArtifactsByProducer: {},
-
-  transitionOrder: TRANSITIONS.map((section) => section.id),
-  runningTransitions: [],
-  isComplete: true,
-  isFailed: false,
-};
 
 function useStorySnapshot(commitId: string) {
   return useModelSnapshot(WORKBENCH_WORKSPACE, commitId);
@@ -75,8 +60,8 @@ function WorkbenchStory() {
           useSnapshot={useStorySnapshot}
           transitions={episode.data.transitions}
           branches={episode.data.branches}
-          progress={progress}
           useActionTrace={useStoryTrace}
+          running={episode.data.running}
         />
       </div>
     </>
@@ -91,7 +76,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "A harness-driven model viewer: meaningful action summaries and compact failures above the graph, selected-version details below, and a persistent action log on the right. The story walks from a question through structure, measurement and laws, a table import, a convergence warning, paired outcome trajectories with 95% bands, and an edited-model simulation whose causal effect is unavailable. Expand lineage to see both branches and inspect any version or failed attempt. All data is illustrative; statistics and differences are read from backend-shaped fixtures, and the viewer offers no write controls.",
+          "A harness-driven model viewer: exact API action names and short commit hashes above the graph, selected-action details below, and the selected action's log on the right. Failed actions keep their cross marker and attempt commit hash. The story walks from a question through structure, measurement and laws, a table import, a convergence warning, paired outcome trajectories with 95% bands, an edited-model simulation whose causal effect is unavailable, and a fit still running after it. Expand lineage to see both branches and inspect any action. All data is illustrative; statistics and differences are read from backend-shaped fixtures, and the viewer offers no write controls.",
       },
     },
   },
@@ -123,21 +108,31 @@ export const Complete: Story = {
     const canvas = within(canvasElement);
     await userEvent.click(await canvas.findByRole("button", { name: "Expand lineage" }));
     for (const [label, section] of [
-      ["Edit model · version 2", "Model changes"],
-      ["Prepare data · version 5", "Prepared data"],
-      ["Edit model · failed attempt 6", "Edit model failed"],
-      ["Fit · version 8", "Parameter diagnostics"],
-      ["Simulate · version 9", "Simulation design"],
+      ["edit_model · c000002", "Model changes"],
+      ["prepare_data · c000005", "Prepared data"],
+      ["edit_model · c000006 · failed", "Edit model failed"],
+      ["fit · c000008", "Parameter diagnostics"],
+      ["simulate · c000009", "Simulation design"],
     ]) {
       await userEvent.click(canvas.getByRole("button", { name: label }));
+      await expect(
+        await canvas.findByRole("option", { name: label.replace(" · failed", ""), selected: true }),
+      ).toBeInTheDocument();
+      await expect(
+        within(canvas.getByRole("complementary", { name: "Action log" })).getByText(
+          label.replace(" · failed", ""),
+        ),
+      ).toBeVisible();
       await expect(await canvas.findByRole("region", { name: section })).toBeVisible();
     }
-    await userEvent.click(canvas.getByRole("button", { name: "Simulate · version 12 · latest" }));
+    await expect(canvas.queryByRole("log", { name: "fit · running" })).not.toBeInTheDocument();
+    await userEvent.click(canvas.getByRole("button", { name: "simulate · c00000c · latest" }));
     await expect(
       await canvas.findByText(
         "This edited model has no committed production fit at this revision.",
       ),
     ).toBeVisible();
+    await expect(canvas.getByRole("log", { name: "fit · running" })).toBeVisible();
     await userEvent.click(canvas.getByRole("button", { name: "Collapse lineage" }));
   },
 };

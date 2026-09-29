@@ -1,6 +1,6 @@
 import type { ArtifactFreshness } from "@/lib/api/analysis";
 import { describe, expect, it } from "vitest";
-import { groupStaleArtifactsByProducer, hasStaleArtifacts } from "./artifact-staleness";
+import { groupStaleArtifactsByProducer } from "./artifact-staleness";
 
 function artifact(overrides: Partial<ArtifactFreshness>): ArtifactFreshness {
   return {
@@ -54,12 +54,5 @@ describe("groupStaleArtifactsByProducer", () => {
     const report = [artifact({ artifact_id: "model", stale: true, produced_by: null })];
 
     expect(groupStaleArtifactsByProducer(report)).toEqual({});
-  });
-});
-
-describe("hasStaleArtifacts", () => {
-  it("is true iff any produced artifact is stale", () => {
-    expect(hasStaleArtifacts([artifact({ stale: false })])).toBe(false);
-    expect(hasStaleArtifacts([artifact({ stale: true })])).toBe(true);
   });
 });

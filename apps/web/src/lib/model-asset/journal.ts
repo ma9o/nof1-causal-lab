@@ -15,10 +15,11 @@ export function primaryArtifact(record: StudyRevision): ArtifactId | null {
 }
 
 /**
- * A journal attempt for activity. Only applied attempts are committed history checkpoints.
+ * A journal attempt; only applied attempts install a new scientific version.
  */
 export interface JournalTick {
   seq: number;
+  attemptId: string | null;
   commitId: string;
   parentIds: string[];
   branch: string;
@@ -33,6 +34,7 @@ export interface JournalTick {
   derived: ArtifactId[];
   retracted: ArtifactId[];
   error: string | null;
+  errorType: string | null;
   traceIds: string[];
   diagnostics: StudyRevision["diagnostics"];
   messages: StudyRevision["messages"];
@@ -44,6 +46,7 @@ export function journalTicks(transitions: readonly StudyRevision[]): JournalTick
     const own = record.produced.find((info) => info.artifact_id === primaryArtifact(record));
     ticks.push({
       seq: record.seq,
+      attemptId: record.attempt_id ?? null,
       commitId: record.commit_id,
       parentIds: record.parent_ids,
       branch: record.branch,
@@ -58,6 +61,7 @@ export function journalTicks(transitions: readonly StudyRevision[]): JournalTick
         .map((info) => info.artifact_id),
       retracted: record.retracted.map((entry) => entry.artifact_id),
       error: record.reason ?? record.error_message ?? record.error_type ?? null,
+      errorType: record.error_type ?? null,
       traceIds: record.trace_ids,
       diagnostics: record.diagnostics,
       messages: record.messages,

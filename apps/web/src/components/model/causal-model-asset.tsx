@@ -1,8 +1,8 @@
 "use client";
 
 import {
-  type ActionMessageEvent,
   type ModelSnapshot,
+  type RunningAction,
   type StudyRevision,
 } from "@nof1-causal-lab/api-types";
 import Link from "next/link";
@@ -11,10 +11,8 @@ import { LayeredCausalGraph } from "@/components/dag/layered/layered-causal-grap
 import { graphEntities } from "@/lib/dag/layered-model";
 import { Button } from "@/components/ui/button";
 import type { EpisodeProgressPayload } from "@/lib/api/analysis";
-import type { PipelineProgress } from "@/lib/hooks/pipeline-progress";
 import { useLLMTraceForAction } from "@/lib/hooks/use-llm-trace";
 import { useModelSnapshot } from "@/lib/hooks/use-model-snapshot";
-import { useActionMessages } from "@/lib/hooks/use-run-events";
 import {
   useWorkbench,
   useWorkbenchSnapshots,
@@ -30,9 +28,8 @@ export interface CausalModelAssetViewProps {
   useSnapshot: SnapshotReader;
   transitions: StudyRevision[];
   branches: EpisodeProgressPayload["branches"];
-  progress: PipelineProgress;
   useActionTrace: UseActionTrace;
-  actionMessages?: ActionMessageEvent[];
+  running: RunningAction | null;
 }
 
 export function CausalModelAssetView(props: CausalModelAssetViewProps) {
@@ -69,13 +66,12 @@ function ModelRevision({
   question: initialQuestion,
   transitions,
   branches,
-  progress,
   useActionTrace,
   model,
   currentModel,
   loadingRevision,
   viewAt,
-  actionMessages = [],
+  running,
 }: CausalModelAssetViewProps & {
   model: ModelSnapshot;
   currentModel: ModelSnapshot;
@@ -97,7 +93,6 @@ function ModelRevision({
     toggleComparison,
     selectVersion,
     question,
-    running,
     causalResult,
     select,
     context,
@@ -105,7 +100,6 @@ function ModelRevision({
     workspaceId,
     question: initialQuestion,
     transitions,
-    progress,
     model,
     currentModel,
     viewAt,
@@ -140,7 +134,7 @@ function ModelRevision({
       </header>
       <VersionScrubber
         ticks={ticks}
-        playhead={playhead}
+        playhead={focusSeq}
         latest={latest}
         branches={branches}
         branch={model.context.branch}
@@ -249,16 +243,16 @@ function ModelRevision({
           className="relative flex h-[480px] min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border bg-card md:h-auto"
         >
           <ConversationPane
-            ticks={ticks}
-            branches={branches}
-            branch={model.context.branch}
-            playhead={playhead}
-            latest={latest}
-            running={running}
-            focusSeq={focusSeq}
+            tick={ticks.find((tick) => tick.seq === focusSeq)}
+            running={
+              // Work dispatched after a branch head has no node yet; it runs under that head.
+              running &&
+              focusSeq === playhead &&
+              model.context.commit_id === branches[running.branch]
+                ? running
+                : null
+            }
             useActionTrace={useActionTrace}
-            onSelectTick={selectVersion}
-            actionMessages={actionMessages}
           />
         </aside>
       </main>
@@ -270,15 +264,12 @@ function ModelRevision({
 export function CausalModelAsset({
   workspaceId,
   question,
-  progress,
   episode,
 }: {
   workspaceId: string;
   question: string | undefined;
-  progress: PipelineProgress;
   episode: EpisodeProgressPayload;
 }) {
-  const actionMessages = useActionMessages(workspaceId);
   const useSnapshot = useMemo(
     () =>
       function useWorkspaceSnapshot(commitId: string, branch: string) {
@@ -289,12 +280,15 @@ export function CausalModelAsset({
   const useActionTrace = useMemo<UseActionTrace>(
     () =>
       function useWorkspaceActionTrace(seq, enabled): ActionTraceState {
+        const record = episode.transitions.find((transition) => transition.seq === seq);
+        const traceIds = record?.trace_ids ?? [];
         const query = useLLMTraceForAction(
           workspaceId,
-          episode.transitions.find((record) => record.seq === seq)?.commit_id ?? null,
+          record?.commit_id ?? null,
+          traceIds,
           enabled,
         );
-        if (!enabled || query.isError) return { status: "absent" };
+        if (!enabled || traceIds.length === 0 || query.isError) return { status: "absent" };
         if (query.data) return { status: "ready", trace: query.data };
         return { status: "loading" };
       },
@@ -307,9 +301,8 @@ export function CausalModelAsset({
       useSnapshot={useSnapshot}
       transitions={episode.transitions}
       branches={episode.branches}
-      progress={progress}
       useActionTrace={useActionTrace}
-      actionMessages={actionMessages}
+      running={episode.running}
     />
   );
 }

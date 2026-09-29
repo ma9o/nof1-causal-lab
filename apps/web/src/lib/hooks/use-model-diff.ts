@@ -18,6 +18,7 @@ export function useModelDiff(workspaceId: string, before: string, after: string 
       if (response.error || !response.data) throw new Error(JSON.stringify(response.error));
       return response.data;
     },
-    staleTime: 60_000,
+    // Both sides are immutable commits or revisions, so a diff never changes.
+    staleTime: Number.POSITIVE_INFINITY,
   });
 }

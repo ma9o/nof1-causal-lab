@@ -25,6 +25,7 @@ function emptyStatus(workspaceId: string): EpisodeStatus {
     state: { current: {} },
     artifacts: [],
     actions: ["edit_model", "prepare_data", "fit", "simulate"],
+    running: null,
   };
 }
 function statusWithQuestion(workspaceId: string, revision = "a".repeat(40)): EpisodeStatus {

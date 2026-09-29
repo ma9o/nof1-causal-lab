@@ -41,6 +41,8 @@
 
 - Never put domain logic or statistical computations in frontend code.
 
+- v2 (`/v2/{workspaceId}`) is the only maintained interface. v1 (`/v1/{workspaceId}`) is unmaintained: keep it only as a reference for things v2 might surface, and don't worry about breaking it.
+
 - Reuse the dev server on port 3000 if running; restart it when needed.
 - Check errors with the next-devtools MCP.
 - Use `bun` exclusively.

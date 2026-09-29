@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { branchedRevisionRecords } from "@/components/__fixtures__/revision-timeline";
 import { journalTicks } from "./journal";
-import { actionSummary } from "./action-presentation";
+import { timelineTickLabel } from "./timeline-presentation";
 import { revisionBranch, revisionTimeline } from "./revision-timeline";
 
 describe("Git study timeline", () => {
@@ -44,7 +44,7 @@ describe("Git study timeline", () => {
       revisionBranch(withFailures, branches.alternative).nodes.map((node) => node.tick.seq),
     ).toEqual([1, 2, 4, 6]);
     const failed = withFailures.nodes.at(-1)!;
-    expect(actionSummary(failed.tick)).toBe("Fit failed · ValueError");
+    expect(timelineTickLabel(failed.tick)).toBe("fit · 1111111");
     expect(failed.tick.error).toBe(failures[1].error_message);
     expect(failed.modelRevision).toBeNull();
   });

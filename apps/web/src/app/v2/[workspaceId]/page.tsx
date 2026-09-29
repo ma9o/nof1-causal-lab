@@ -4,7 +4,6 @@ import { TRANSITIONS } from "@nof1-causal-lab/api-types";
 import Link from "next/link";
 import { use, useEffect } from "react";
 import { CausalModelAsset } from "@/components/model/causal-model-asset";
-import { usePipelineStatus } from "@/lib/hooks/use-pipeline-status";
 import { useRunEvents } from "@/lib/hooks/use-run-events";
 
 const ACTIVITY_SECTIONS = TRANSITIONS.map((transition) => transition.id);
@@ -13,7 +12,6 @@ const ACTIVITY_SECTIONS = TRANSITIONS.map((transition) => transition.id);
 export default function ModelPage({ params }: { params: Promise<{ workspaceId: string }> }) {
   const { workspaceId } = use(params);
   const episodeQuery = useRunEvents(workspaceId, ACTIVITY_SECTIONS);
-  const progress = usePipelineStatus(workspaceId);
   const episode = episodeQuery.data;
 
   useEffect(() => {
@@ -37,7 +35,7 @@ export default function ModelPage({ params }: { params: Promise<{ workspaceId: s
     );
   }
 
-  if (!progress || !episode) {
+  if (!episode) {
     return (
       <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
         Reading the journal…
@@ -45,12 +43,5 @@ export default function ModelPage({ params }: { params: Promise<{ workspaceId: s
     );
   }
 
-  return (
-    <CausalModelAsset
-      workspaceId={workspaceId}
-      question={undefined}
-      progress={progress}
-      episode={episode}
-    />
-  );
+  return <CausalModelAsset workspaceId={workspaceId} question={undefined} episode={episode} />;
 }

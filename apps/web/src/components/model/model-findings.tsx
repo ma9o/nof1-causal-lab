@@ -1,65 +1,68 @@
-import { JsonViewer } from "@/components/ui/json-viewer";
+import { PPCWarningsTable } from "@/components/analysis-widgets/posterior/ppc-warnings-table";
 import type { ScopeContext } from "@/lib/model-asset/scope";
-import { Hint, KeyValue, Section, StatusIcon } from "./scope-primitives";
-import { PredictiveFindings, SimulationEvidence } from "./simulation-evidence";
+import { humanize } from "@/lib/model-asset/selection";
+import { Hint, Section, StatusIcon } from "./scope-primitives";
+import { PredictiveFindings } from "./simulation-evidence";
 import { SpecificationFindings } from "./specification-findings";
 
-/** Findings recorded for the version shared by the graph, details and chat. */
+/** Recorded checks for the selected version, without browser-side judgments. */
 export function ModelFindings({ context }: { context: ScopeContext }) {
-  const fit = context.model.findings.fit?.value;
-  const specification = context.model.findings.specification;
-  const predictive = context.model.findings.predictive;
+  const { specification, identification, validation_report, predictive } = context.model.findings;
   const comparison = predictive?.value.predictive_checks;
-  const loo = fit?.report.loo_diagnostics;
+  const name = (id: string) =>
+    humanize(context.entities.constructs.find((item) => item.id === id)?.name ?? id);
   return (
     <>
-      {fit && (
-        <Section title="Fit" source={context.model.findings.fit?.source}>
-          {loo?.n_bad_k != null && loo.n_bad_k > 0 && (
-            <div className="flex items-start gap-2">
-              <StatusIcon status="warning" />
-              <Hint issue>{loo.n_bad_k} observations have high Pareto k.</Hint>
-            </div>
-          )}
-          <details className="text-xs">
-            <summary className="cursor-pointer text-muted-foreground">
-              Inference diagnostics
-            </summary>
-            <div className="mt-3 space-y-3">
-              <KeyValue
-                rows={[
-                  ["Method", fit.report.inference_metadata.method.replaceAll("_", " ")],
-                  ["Draws", fit.report.inference_metadata.n_samples.toLocaleString()],
-                  ...(loo
-                    ? ([["LOO", `elpd ${loo.elpd_loo.toFixed(0)} ± ${loo.se.toFixed(0)}`]] as Array<
-                        [string, string]
-                      >)
-                    : []),
-                  ...(loo?.n_bad_k != null
-                    ? ([["High Pareto k", `${loo.n_bad_k} of ${loo.n_data_points}`]] as Array<
-                        [string, string]
-                      >)
-                    : []),
-                ]}
-              />
-              {Object.keys(fit.report.inference_diagnostics).length > 0 && (
-                <JsonViewer data={fit.report.inference_diagnostics} />
-              )}
-            </div>
-          </details>
+      {specification && (
+        <Section title="Specification" source={specification.source}>
+          <SpecificationFindings report={specification.value} />
         </Section>
       )}
-      {specification && (
-        <Section title="Checks" source={specification.source}>
-          <SpecificationFindings report={specification.value} />
+      {identification && (
+        <Section title="Identification" source={identification.source}>
+          {identification.value.outcome && (
+            <Hint>Outcome: {name(identification.value.outcome)}</Hint>
+          )}
+          {Object.keys(identification.value.treatments).length === 0 && (
+            <Hint>No treatment identification findings recorded.</Hint>
+          )}
+          {Object.entries(identification.value.treatments).map(([id, finding]) => (
+            <div key={id} className="space-y-1 border-b pb-2">
+              <div className="flex items-start gap-2">
+                <StatusIcon status={finding.status === "identified" ? "passed" : "failed"} />
+                <span>
+                  {name(id)} · {humanize(finding.status)}
+                </span>
+              </div>
+              {finding.status === "identified" ? (
+                <>
+                  <Hint>{humanize(finding.method)}</Hint>
+                  <details>
+                    <summary className="cursor-pointer text-muted-foreground">Estimand</summary>
+                    <p className="break-words font-mono">{finding.estimand}</p>
+                  </details>
+                </>
+              ) : (
+                <Hint issue>
+                  {finding.notes}
+                  {finding.confounders.length > 0 &&
+                    ` Confounders: ${finding.confounders.map(name).join(", ")}.`}
+                </Hint>
+              )}
+            </div>
+          ))}
+        </Section>
+      )}
+      {validation_report && (
+        <Section title="Fit preflight" source={validation_report.source}>
+          <SpecificationFindings report={validation_report.value.preflight} />
         </Section>
       )}
       {predictive && (
         <Section title="Predictive checks" source={predictive.source} wide>
           {predictive.value.status === "not_evaluated" && (
             <Hint>
-              {predictive.value.detail ??
-                predictive.value.reason?.replaceAll("_", " ").toLowerCase()}
+              {predictive.value.detail ?? humanize(predictive.value.reason ?? "Not evaluated")}
             </Hint>
           )}
           <PredictiveFindings findings={predictive.value.findings} />
@@ -73,9 +76,6 @@ export function ModelFindings({ context }: { context: ScopeContext }) {
           )}
         </Section>
       )}
-      <SimulationEvidence model={context.model} />
     </>
   );
 }
-
-import { PPCWarningsTable } from "@/components/analysis-widgets/posterior/ppc-warnings-table";

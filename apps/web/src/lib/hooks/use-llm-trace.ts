@@ -40,12 +40,14 @@ export function getLLMTraceForActionQueryKey(workspaceId: string | null, commitI
 export function useLLMTraceForAction(
   workspaceId: string | null,
   commitId: string | null,
+  traceIds: readonly string[],
   enabled: boolean,
 ) {
   return useQuery({
     queryKey: getLLMTraceForActionQueryKey(workspaceId, commitId),
-    queryFn: () => getLLMTraceForAction(workspaceId as string, commitId as string),
-    enabled: !!workspaceId && commitId != null && enabled,
+    queryFn: () => getLLMTraceForAction(workspaceId as string, commitId as string, traceIds),
+    // An action without traces (e.g. submitted directly through the API) has nothing to fetch.
+    enabled: !!workspaceId && commitId != null && traceIds.length > 0 && enabled,
     staleTime: Number.POSITIVE_INFINITY,
     retry: false,
   });

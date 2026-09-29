@@ -1,6 +1,6 @@
 import type { IndicatorId } from "@nof1-causal-lab/api-types";
 import { indicatorPresentation, dispositionLabel } from "@/lib/model-asset/inspector";
-import { humanize } from "@/lib/model-asset/selection";
+import { formatFillNull, humanize } from "@/lib/model-asset/selection";
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import { Hint, KeyValue, ParameterLinks, Section, StatusIcon } from "../scope-primitives";
 import { parametersForOwner } from "./parameters";
@@ -30,6 +30,7 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
               rows={[
                 ["Type", indicator.measurement_dtype],
                 ["Aggregation", indicator.aggregation],
+                ["Null filling", formatFillNull(indicator)],
                 [
                   "Window",
                   indicator.observation_window ?? context.model.model?.value.measurement_clock,
@@ -51,7 +52,7 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
           <Hint>{preparation.how_to_measure}</Hint>
           <KeyValue
             rows={[
-              ["Recording", preparation.recording],
+              ["Null filling", formatFillNull(preparation)],
               ["Extraction", preparation.extraction_mode],
               ["Source columns", preparation.source_columns.join(", ")],
             ]}

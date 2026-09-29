@@ -5,9 +5,15 @@ import { useQuery } from "@tanstack/react-query";
 
 const modelClient = createModelClient();
 
-export function useModelSnapshot(workspaceId: string, commitId?: string, branch = "main") {
+export function useModelSnapshot(
+  workspaceId: string,
+  commitId?: string,
+  branch = "main",
+  enabled = true,
+) {
   return useQuery({
     queryKey: ["model-snapshot", workspaceId, commitId ?? "latest", branch],
+    enabled,
     queryFn: async ({ signal }) => {
       const { data, error, response } = await modelClient.GET(
         "/api/episodes/{workspace_id}/model",
