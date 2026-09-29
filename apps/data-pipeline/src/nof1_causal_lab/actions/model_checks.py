@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from nof1_causal_lab.machine.artifacts import ArtifactRecord, EpisodeState
 
 # Bump when a check's interpretation or implementation changes.
-CHECK_POLICY_VERSION = "model-checks-v2"
+CHECK_POLICY_VERSION = "model-checks-v3"
 
 
 def evaluate_model_checks(

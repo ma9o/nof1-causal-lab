@@ -47,7 +47,12 @@ def _trace_public_sites(
     *,
     exclude: set[str] | None = None,
 ) -> set[str]:
-    """Trace a model once and return user-facing sample/deterministic site names."""
+    """Trace the original prior and select its parameter sample sites for reporting.
+
+    Reparameterization may later turn these sites into deterministics; replay
+    still restores their original names. Assembled matrices are deterministic
+    outputs of this original trace, not additional scientific parameters.
+    """
     excluded = set(INTERNAL_DIAGNOSTIC_SITES)
     if exclude is not None:
         excluded.update(exclude)
@@ -58,9 +63,7 @@ def _trace_public_sites(
     return {
         name
         for name, site in trace.items()
-        if site["type"] in ("sample", "deterministic")
-        and not site.get("is_observed", False)
-        and name not in excluded
+        if site["type"] == "sample" and not site.get("is_observed", False) and name not in excluded
     }
 
 

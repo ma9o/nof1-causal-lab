@@ -166,20 +166,24 @@ def test_observation_table_selection_validation_and_publication(
         )
 
 
-def test_observation_table_recording_is_bounded_and_retained(tmp_path, monkeypatch):
+def test_observation_table_fill_null_is_bounded_and_retained(tmp_path, monkeypatch):
     from nof1_causal_lab.utils import data as data_module
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path))
     variables = [
         {
-            "id": f"indicator:{recording}",
-            "name": recording,
-            "measurement_dtype": "count" if recording == "events" else "continuous",
-            "aggregation": "sum" if recording == "events" else "last",
+            "id": f"indicator:{name}",
+            "name": name,
+            "measurement_dtype": "count" if name == "zero" else "continuous",
+            "aggregation": "sum" if name == "zero" else "last",
             "observation_window": "1d",
-            **({"recording": recording} if recording != "samples" else {}),
+            "fill_null": fill_null,
         }
-        for recording in ("samples", "changes", "events")
+        for name, fill_null in (
+            ("unfilled", None),
+            ("forward", "forward"),
+            ("zero", 0),
+        )
     ]
     source = {"file": "panel.parquet", "start": "2026-01-02", "end": "2026-01-08"}
     request = PrepareDataRequest.model_validate(
@@ -200,7 +204,7 @@ def test_observation_table_recording_is_bounded_and_retained(tmp_path, monkeypat
                 "observation_window": "1d",
             }
             for variable in request.input.variables
-            for day, value in ((1, 99.0), (2, None), (3, 10.0), (6, 20.0), (8, 40.0))
+            for day, value in ((1, 99.0), (2, None), (3, 10.0), (4, None), (6, 20.0), (8, 40.0))
         ]
     )
     upload = tmp_path / "TEST" / "input" / "panel.parquet"
@@ -212,12 +216,12 @@ def test_observation_table_recording_is_bounded_and_retained(tmp_path, monkeypat
     panel_info = effects.produced[0]
     store = ArtifactStore("TEST")
     panel = store.read_parquet_file("panel", panel_info.revision, "panel.parquet")
-    for recording, days, values in (
-        ("samples", [2, 3, 6], [None, 10.0, 20.0]),
-        ("changes", [2, 3, 4, 5, 6, 7], [None, 10.0, 10.0, 10.0, 20.0, 20.0]),
-        ("events", [2, 3, 4, 5, 6, 7], [None, 10.0, 0.0, 0.0, 20.0, 0.0]),
+    for name, days, values in (
+        ("unfilled", [2, 3, 4, 6], [None, 10.0, None, 20.0]),
+        ("forward", [2, 3, 4, 5, 6, 7], [None, 10.0, 10.0, 10.0, 20.0, 20.0]),
+        ("zero", [2, 3, 4, 5, 6, 7], [0.0, 10.0, 0.0, 0.0, 20.0, 0.0]),
     ):
-        rows = panel.filter(pl.col("indicator_id") == f"indicator:{recording}")
+        rows = panel.filter(pl.col("indicator_id") == f"indicator:{name}")
         assert rows["anchor_time"].dt.day().to_list() == days
         assert rows["value"].to_list() == values
         assert rows["support_end"].equals(rows["anchor_time"])
@@ -225,32 +229,66 @@ def test_observation_table_recording_is_bounded_and_retained(tmp_path, monkeypat
     metadata = read_data_metadata(store, panel_info.revision)
     assert metadata.source.model_dump(mode="json") == source
     assert metadata.variables == request.input.variables
-    assert [item.model_dump()["recording"] for item in metadata.variables] == [
-        "samples",
-        "changes",
-        "events",
+    assert [item.model_dump(exclude_none=True).get("fill_null") for item in metadata.variables] == [
+        None,
+        "forward",
+        0,
     ]
     assert metadata.preparation is None
     checked = evaluate_data_checks("TEST", EpisodeState(), effects)
-    assert checked.diagnostics["n_observations"] == 12
-
-    for recording, aggregation in (("changes", "mean"), ("events", "last")):
-        with pytest.raises(ValidationError, match="require"):
-            ObservationTableSpec.model_validate(
-                {
-                    "source": source,
-                    "variables": [
-                        {**variables[0], "recording": recording, "aggregation": aggregation}
-                    ],
-                }
-            )
+    assert checked.diagnostics["n_observations"] == 13
 
     def forbidden_write(*_args, **_kwargs):
-        raise AssertionError("Ambiguous complete records must not stage an artifact")
+        raise AssertionError("Ambiguous null filling must not stage an artifact")
 
     monkeypatch.setattr(ArtifactStore, "write_artifact", forbidden_write)
-    pl.concat([frame, frame.filter(pl.col("indicator_id") == "indicator:changes")]).write_parquet(
+    pl.concat([frame, frame.filter(pl.col("indicator_id") == "indicator:forward")]).write_parquet(
         upload
     )
     with pytest.raises(ValueError, match="one row per indicator"):
         run_async(execute_transition("TEST", command.operation, EpisodeState()))
+
+    # Filling cannot bypass the declared value domain.
+    frame.write_parquet(upload)
+    invalid = PrepareDataRequest.model_validate(
+        {"input": {"source": source, "variables": [{**variables[2], "fill_null": 0.5}]}}
+    )
+    invalid_operation = plan_execution(invalid).operation
+    assert isinstance(invalid_operation, PrepareObservationTableOperation)
+    with pytest.raises(ValueError, match="non-negative integers"):
+        run_async(execute_transition("TEST", invalid_operation, EpisodeState()))
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"recording": "changes"},
+        {"fill_null": {}},
+        {"fill_null": {"strategy": "forward"}},
+        {"fill_null": "interpolate"},
+        {"fill_null": 0, "fill_null_limit": 1},
+        {"fill_null": "mean", "fill_null_limit": 1},
+        {"fill_null": "forward", "fill_null_limit": -1},
+        {"fill_null": float("inf")},
+        {"fill_null": "0"},
+        {"fill_null": False},
+        {"fill_null_limit": 1},
+    ],
+)
+def test_fill_null_contract_rejects_non_polars_arguments(fields):
+    with pytest.raises(ValidationError):
+        ObservationTableSpec.model_validate(
+            {
+                "source": {"file": "panel.parquet"},
+                "variables": [
+                    {
+                        "id": "indicator:dose",
+                        "name": "dose",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "last",
+                        "observation_window": "1d",
+                        **fields,
+                    }
+                ],
+            }
+        )

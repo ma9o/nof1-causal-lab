@@ -14,6 +14,43 @@ from tests.helpers import make_model
 pytestmark = pytest.mark.contract
 
 
+def test_one_observation_definition_is_shared_by_preparation_import_and_model():
+    from nof1_causal_lab.artifacts.data_preparation import (
+        DataPreparationSpec,
+        DataVariableSpec,
+        ObservationTableSpec,
+    )
+    from nof1_causal_lab.artifacts.indicator import IndicatorSpec
+    from nof1_causal_lab.artifacts.observations import ObservationSpec
+
+    observation = ObservationSpec(
+        id="indicator:dose",
+        name="dose",
+        measurement_dtype="continuous",
+        aggregation="last",
+        observation_window="1d",
+        fill_null="forward",
+        fill_null_limit=2,
+    )
+    fields = observation.model_dump()
+    recipe = DataPreparationSpec(
+        default_window="1d",
+        variables=(
+            DataVariableSpec(
+                **fields,
+                extraction_mode="computed",
+                source_columns=("dose",),
+                how_to_measure="Read dose",
+            ),
+        ),
+    )
+    assert recipe.observation_schema() == (observation,)
+    imported = ObservationTableSpec(source={"file": "panel.parquet"}, variables=(observation,))
+    assert imported.variables == recipe.observation_schema()
+    indicator = IndicatorSpec(**fields, construct_polarity="positive")
+    assert indicator.model_dump(include=set(ObservationSpec.model_fields)) == fields
+
+
 def _measurement(name="Mood"):
     return {
         "model_clock": "1d",

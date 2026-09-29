@@ -23,6 +23,7 @@ from nof1_causal_lab.models.ssm.inference.conditioning import (
 from nof1_causal_lab.models.ssm.inference.utils import (
     prepare_model_parameters,
 )
+from nof1_causal_lab.models.ssm.preflight import validate_observation_support_for_fit
 from nof1_causal_lab.models.ssm.spec_metadata import has_student_t_diffusion
 from nof1_causal_lab.models.ssm.transition_kinds import LATENT_TRANSITION_EULER_MARUYAMA
 
@@ -56,9 +57,7 @@ def build_particle_problem(model, observations, times, *, scheme, trace_key, rep
         raise ValueError(
             "Particle inference currently requires Gaussian latent diffusion for every state."
         )
-    support = model.observation_support
-    if support is not None and support.requires_interval_summary_handling:
-        raise ValueError("Particle inference supports only point measurements.")
+    validate_observation_support_for_fit(model)
     parameters, site_info, public_sites = prepare_model_parameters(
         model, observations, times, trace_key, reparam
     )

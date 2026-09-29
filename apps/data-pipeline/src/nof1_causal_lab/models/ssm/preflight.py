@@ -47,6 +47,17 @@ class ObservationPreflightError(ValueError):
     """Observed data is inconsistent with the spec/prior configuration."""
 
 
+def validate_observation_support_for_fit(model: SSMModel) -> None:
+    """Reject observation semantics the particle target cannot represent."""
+    support = model.observation_support
+    if support is not None and support.requires_interval_summary_handling:
+        names = ", ".join(support.interval_summary_manifest_names)
+        raise ObservationPreflightError(
+            "Particle inference supports only point measurements; "
+            f"unsupported interval summaries: {names}."
+        )
+
+
 def _prior_loc_scale(
     prior: dist.Distribution, n_free: int, free_idx: int
 ) -> tuple[str, float, float] | None:
@@ -71,6 +82,7 @@ def validate_observations_for_fit(model: SSMModel, observations: Any) -> None:
     Raises:
         ObservationPreflightError: listing every violating channel.
     """
+    validate_observation_support_for_fit(model)
     spec = model.spec
     obs = np.asarray(observations, dtype=np.float64)
     if obs.ndim != 2 or obs.shape[1] != numeric.n_observations(spec):

@@ -32,6 +32,11 @@ def episode_workflow_id(workspace_id: str) -> str:
     return f"episode-{workspace_id}"
 
 
+# The episode workflow keeps its executing attempt in this memo key. The server returns
+# memos with the workflow's description, so status reads need no worker.
+RUNNING_ACTION_MEMO = "running_action"
+
+
 async def connect_client() -> Client:
     return await Client.connect(
         os.environ.get("TEMPORAL_ADDRESS", "localhost:7233"),

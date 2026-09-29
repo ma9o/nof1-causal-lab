@@ -4,14 +4,70 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from pydantic import TypeAdapter
+
+from nof1_causal_lab.json_types import JsonObject
 from nof1_causal_lab.machine.execution import is_stale
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from nof1_causal_lab.artifacts.identity import GitOid
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.posterior import InferenceReport
     from nof1_causal_lab.machine.artifacts import EpisodeState
     from nof1_causal_lab.machine.store import ArtifactStore, TransitionRecord
+
+
+def scientific_inference_report(model: ModelSpec, report: InferenceReport) -> InferenceReport:
+    """Join engine diagnostics to the same exact scientific bindings as posterior marginals."""
+    from nof1_causal_lab.artifacts.identity import ParameterRef
+    from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
+    from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
+
+    mcmc = report.inference_diagnostics.get("mcmc")
+    if not isinstance(mcmc, dict) or "per_parameter" not in mcmc:
+        return report
+    rows = TypeAdapter(list[JsonObject]).validate_python(mcmc["per_parameter"])
+    # Already-referenced scientific reports need no runtime compilation (and
+    # may describe archived models whose executable definitions were not retained).
+    if all("subject" in row for row in rows):
+        return report
+    bindings, auxiliary = parameter_bindings(model)
+    subjects = {
+        coordinate: ParameterRef(parameter_id=binding.parameter_id, element_id=element)
+        for binding in bindings
+        for element, coordinate in binding.coordinates.items()
+    }
+    labels = {
+        (binding.parameter_id, element): label
+        for binding in bindings
+        for element, label in binding.elements.items()
+    }
+    referenced: list[JsonObject] = []
+    for row in rows:
+        if "coordinate" in row:
+            coordinate = ParameterCoordinate.model_validate(row["coordinate"])
+            if coordinate in auxiliary:
+                continue
+            subject = subjects[coordinate]
+        else:
+            subject = ParameterRef.model_validate(row["subject"])
+        referenced.append(
+            {
+                **row,
+                "subject": subject.model_dump(mode="json"),
+                "parameter": labels[(subject.parameter_id, subject.element_id)],
+            }
+        )
+    return report.model_copy(
+        update={
+            "inference_diagnostics": {
+                **report.inference_diagnostics,
+                "mcmc": {**mcmc, "per_parameter": referenced},
+            }
+        }
+    )
 
 
 def inference_record[T: TransitionRecord](records: Iterable[T], model_revision: GitOid) -> T | None:

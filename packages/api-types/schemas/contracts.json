@@ -1593,9 +1593,12 @@
         },
         {
           "$ref": "#/$defs/SimulationReplicateRef"
+        },
+        {
+          "$ref": "#/$defs/ObservationTableRef"
         }
       ],
-      "description": "A data source selects uploaded files or one recorded simulation replicate.",
+      "description": "Uploaded sources, one simulation replicate, or a bounded observation table.",
       "x-python-module": "nof1_causal_lab.artifacts.data_preparation",
       "x-layer": "authored",
       "x-concern": "scientific_model"
@@ -1815,6 +1818,45 @@
           "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock.",
           "title": "Observation Window"
         },
+        "fill_null": {
+          "anyOf": [
+            {
+              "enum": [
+                "forward",
+                "backward",
+                "min",
+                "max",
+                "mean",
+                "zero",
+                "one"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.",
+          "title": "Fill Null"
+        },
+        "fill_null_limit": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.",
+          "title": "Fill Null Limit"
+        },
         "ordinal_levels": {
           "anyOf": [
             {
@@ -1851,17 +1893,6 @@
           "description": "Scoring rubric and extraction instructions.",
           "minLength": 1,
           "title": "How To Measure",
-          "type": "string"
-        },
-        "recording": {
-          "default": "samples",
-          "description": "Source recording semantics within the raw dataset's covered time span. samples: absent readings are unknown. events: a complete event record; empty sum/count windows are zero. changes: a complete change record; the last recorded value persists, with leading gaps unknown. events and changes require computed extraction.",
-          "enum": [
-            "samples",
-            "events",
-            "changes"
-          ],
-          "title": "Recording",
           "type": "string"
         },
         "source_columns": {
@@ -1902,7 +1933,6 @@
         "id",
         "measurement_dtype",
         "name",
-        "recording",
         "source_columns"
       ],
       "title": "DataVariableSpec",
@@ -2219,7 +2249,7 @@
     },
     "EpisodeStatus": {
       "additionalProperties": false,
-      "description": "Episode status reports committed artifacts, their freshness, and scientific actions.",
+      "description": "Episode status reports committed artifacts, their freshness, actions, and any running one.",
       "properties": {
         "workspace_id": {
           "title": "Workspace Id",
@@ -2261,12 +2291,23 @@
           },
           "title": "Actions",
           "type": "array"
+        },
+        "running": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunningAction"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
         "actions",
         "artifacts",
         "branch",
+        "running",
         "seq",
         "state",
         "workspace_id"
@@ -3189,6 +3230,45 @@
           "default": null,
           "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock.",
           "title": "Observation Window"
+        },
+        "fill_null": {
+          "anyOf": [
+            {
+              "enum": [
+                "forward",
+                "backward",
+                "min",
+                "max",
+                "mean",
+                "zero",
+                "one"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.",
+          "title": "Fill Null"
+        },
+        "fill_null_limit": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.",
+          "title": "Fill Null Limit"
         },
         "ordinal_levels": {
           "anyOf": [
@@ -5102,6 +5182,45 @@
           "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock.",
           "title": "Observation Window"
         },
+        "fill_null": {
+          "anyOf": [
+            {
+              "enum": [
+                "forward",
+                "backward",
+                "min",
+                "max",
+                "mean",
+                "zero",
+                "one"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.",
+          "title": "Fill Null"
+        },
+        "fill_null_limit": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.",
+          "title": "Fill Null Limit"
+        },
         "ordinal_levels": {
           "anyOf": [
             {
@@ -5147,6 +5266,53 @@
       "x-layer": "authored",
       "x-concern": "scientific_model"
     },
+    "ObservationTableRef": {
+      "additionalProperties": false,
+      "description": "An uploaded Parquet observation table and its selected UTC calendar interval.",
+      "properties": {
+        "file": {
+          "description": "Uploaded Parquet filename, without directory components.",
+          "title": "File",
+          "type": "string"
+        },
+        "start": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Inclusive UTC anchor date (ISO YYYY-MM-DD).",
+          "title": "Start"
+        },
+        "end": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Exclusive UTC anchor date (ISO YYYY-MM-DD).",
+          "title": "End"
+        }
+      },
+      "required": [
+        "file"
+      ],
+      "title": "ObservationTableRef",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.data_preparation",
+      "x-layer": "authored",
+      "x-concern": "scientific_model"
+    },
     "OperationId": {
       "enum": [
         "raw_data",
@@ -5154,6 +5320,7 @@
         "measurement_structure",
         "measurements",
         "simulated_measurements",
+        "imported_measurements",
         "statistical_model_spec",
         "posterior",
         "simulate"
@@ -6282,6 +6449,42 @@
       "x-concern": "execution_history",
       "description": "A root declares an independently writable artifact and any contextual input pins."
     },
+    "RunningAction": {
+      "additionalProperties": false,
+      "description": "The attempt an episode is executing, with the labels it has emitted so far.",
+      "properties": {
+        "attempt_id": {
+          "format": "uuid",
+          "title": "Attempt Id",
+          "type": "string"
+        },
+        "action": {
+          "$ref": "#/$defs/ScientificActionId"
+        },
+        "branch": {
+          "title": "Branch",
+          "type": "string"
+        },
+        "messages": {
+          "items": {
+            "$ref": "#/$defs/ActionMessage"
+          },
+          "title": "Messages",
+          "type": "array"
+        }
+      },
+      "required": [
+        "action",
+        "attempt_id",
+        "branch",
+        "messages"
+      ],
+      "title": "RunningAction",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.actions.results",
+      "x-layer": "transport",
+      "x-concern": "api_tools"
+    },
     "RuntimeEvent": {
       "discriminator": {
         "mapping": {
@@ -6603,6 +6806,82 @@
       "x-layer": "authored",
       "x-concern": "scientific_model"
     },
+    "SimulationTrajectories": {
+      "additionalProperties": false,
+      "description": "Read-only pointwise summaries of the saved outcome state and its indicators.",
+      "properties": {
+        "times": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Times",
+          "type": "array"
+        },
+        "time_origin": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "UTC calendar instant of model day zero, from the fitted law's pinned observation panel when it has calendar provenance.",
+          "title": "Time Origin"
+        },
+        "interval_mass": {
+          "default": 0.95,
+          "maximum": 0.95,
+          "minimum": 0.95,
+          "title": "Interval Mass",
+          "type": "number"
+        },
+        "outcome": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConstructId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "outcome_state": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SimulationTrajectoryBands"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "indicators": {
+          "additionalProperties": {
+            "$ref": "#/$defs/SimulationTrajectoryBands"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/IndicatorId"
+          },
+          "title": "Indicators",
+          "type": "object"
+        }
+      },
+      "required": [
+        "indicators",
+        "interval_mass",
+        "outcome",
+        "outcome_state",
+        "times"
+      ],
+      "title": "SimulationTrajectories",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.machine.view_models",
+      "x-layer": "read_models",
+      "x-concern": "read_models"
+    },
     "SimulationTrajectory": {
       "additionalProperties": false,
       "description": "One construct's mean reference and intervention paths across simulated draws.",
@@ -6635,6 +6914,39 @@
       "x-python-module": "nof1_causal_lab.artifacts.scenarios",
       "x-layer": "findings",
       "x-concern": "scientific_model"
+    },
+    "SimulationTrajectoryBands": {
+      "additionalProperties": false,
+      "description": "One named state's or indicator's simulated history, with its paired reference if present.",
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "action": {
+          "$ref": "#/$defs/TrajectorySummary"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TrajectorySummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "action",
+        "label"
+      ],
+      "title": "SimulationTrajectoryBands",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.machine.view_models",
+      "x-layer": "read_models",
+      "x-concern": "read_models"
     },
     "SnapshotContext": {
       "additionalProperties": false,
@@ -6697,6 +7009,26 @@
       ],
       "title": "SourceValidity",
       "type": "string",
+      "x-python-module": "nof1_causal_lab.machine.snapshot_models",
+      "x-layer": "read_models",
+      "x-concern": "read_models"
+    },
+    "Sourced[SimulationTrajectories]": {
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "$ref": "#/$defs/SimulationTrajectories"
+        },
+        "source": {
+          "$ref": "#/$defs/FactSource"
+        }
+      },
+      "required": [
+        "source",
+        "value"
+      ],
+      "title": "Sourced[SimulationTrajectories]",
+      "type": "object",
       "x-python-module": "nof1_causal_lab.machine.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
@@ -7490,6 +7822,72 @@
         "input_tokens",
         "output_tokens"
       ]
+    },
+    "TrajectorySummary": {
+      "additionalProperties": false,
+      "description": "Pointwise mean and equal-tail interval across saved draws; empty anchors are null.",
+      "properties": {
+        "mean": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Mean",
+          "type": "array"
+        },
+        "lower": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Lower",
+          "type": "array"
+        },
+        "upper": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Upper",
+          "type": "array"
+        },
+        "n_draws": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "N Draws",
+          "type": "array"
+        }
+      },
+      "required": [
+        "lower",
+        "mean",
+        "n_draws",
+        "upper"
+      ],
+      "title": "TrajectorySummary",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.machine.view_models",
+      "x-layer": "read_models",
+      "x-concern": "read_models"
     },
     "TransitionRuntimeEvent": {
       "additionalProperties": false,

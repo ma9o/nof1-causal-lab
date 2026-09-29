@@ -17,7 +17,7 @@ from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 with workflow.unsafe.imports_passed_through():
     from nof1_causal_lab.actions.contracts import EditModelRequest, ScientificActionRequest
     from nof1_causal_lab.actions.execution import plan_execution
-    from nof1_causal_lab.actions.results import ActionMessage, ActionPoll
+    from nof1_causal_lab.actions.results import ActionMessage, ActionPoll, RunningAction
     from nof1_causal_lab.artifacts.identity import SCIENTIFIC_ACTION_IDS, OperationId
     from nof1_causal_lab.artifacts.model_checks import ModelCheckReport  # noqa: TC001
     from nof1_causal_lab.machine.artifacts import (
@@ -34,7 +34,10 @@ with workflow.unsafe.imports_passed_through():
     from nof1_causal_lab.machine.history_models import BranchBase
     from nof1_causal_lab.machine.status import ActionOutcome, EpisodeStatus
     from nof1_causal_lab.machine.store import ResumeRef
-    from nof1_causal_lab.machine.temporal.client import MODEL_CHECKS_TASK_QUEUE
+    from nof1_causal_lab.machine.temporal.client import (
+        MODEL_CHECKS_TASK_QUEUE,
+        RUNNING_ACTION_MEMO,
+    )
     from nof1_causal_lab.machine.temporal.messages import (
         ActionRequest,
         EditModelInput,
@@ -96,6 +99,7 @@ class EpisodeWorkflow:
         self._attempts: dict[UUID, ActionPoll] = {}
         self._active_attempt_id: UUID | None = None
         self._messages: tuple[ActionMessage, ...] = ()
+        self._running: RunningAction | None = None
 
     @workflow.run
     async def run(self, init: EpisodeInit) -> EpisodeState:
@@ -135,6 +139,9 @@ class EpisodeWorkflow:
                     error_message=message,
                     diagnostics=diagnostics,
                 )
+            finally:
+                self._running = None
+                workflow.upsert_memo({RUNNING_ACTION_MEMO: None})
 
     async def _execute_action(self, request: ActionRequest) -> ActionOutcome:
         self._active_attempt_id = request.attempt_id
@@ -145,7 +152,7 @@ class EpisodeWorkflow:
                 label=f"{request.request.action.upper()}_STARTED",
             ),
         )
-        self._attempts[request.attempt_id] = ActionPoll(done=False, messages=self._messages)
+        self._report_progress(request)
         await workflow.execute_activity(
             "emit_action_message_activity",
             EmitActionMessageInput(
@@ -263,7 +270,7 @@ class EpisodeWorkflow:
                     else "MODEL_CHECKS_STARTED",
                 )
                 self._messages = (*self._messages, message)
-                self._attempts[request.attempt_id] = ActionPoll(done=False, messages=self._messages)
+                self._report_progress(request)
                 await workflow.execute_activity(
                     "emit_action_message_activity",
                     EmitActionMessageInput(
@@ -378,9 +385,21 @@ class EpisodeWorkflow:
             state=self._state,
             artifacts=freshness_report(self._state),
             actions=list(SCIENTIFIC_ACTION_IDS),
+            running=self._running,
         )
 
     # -- internals -------------------------------------------------------
+
+    def _report_progress(self, request: ActionRequest) -> None:
+        """Expose the executing attempt's labels to its poll query and to the memo."""
+        self._attempts[request.attempt_id] = ActionPoll(done=False, messages=self._messages)
+        self._running = RunningAction(
+            attempt_id=request.attempt_id,
+            action=request.request.action,
+            branch=request.branch,
+            messages=self._messages,
+        )
+        workflow.upsert_memo({RUNNING_ACTION_MEMO: self._running})
 
     def _outcome(self, seq: int, **kwargs: Any) -> ActionOutcome:
         return ActionOutcome(

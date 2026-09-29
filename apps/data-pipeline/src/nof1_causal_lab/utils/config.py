@@ -233,6 +233,7 @@ class MarginalParticleGibbsConfig:
 class InferenceConfig:
     """Inference configuration (method + sampler settings)."""
 
+    compute_backend: Literal["local", "modal"] = "local"
     method: Literal["marginal_particle_gibbs"] = "marginal_particle_gibbs"
     num_warmup: int = 4000
     num_samples: int = 1000

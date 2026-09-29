@@ -93,15 +93,30 @@ come from its versioned artifacts and append-only transition log.
    - `edit_model`: `{"action":"edit_model","expected_revision":null,"model":{"question":"Does workload affect sleep?"}}`.
      Model structure, measurements, mechanisms, constants, and laws can be edited together.
      Valid incomplete models are saved with applicable specification findings.
-   - `prepare_data`: supply `source={"files":["diary.csv"]}` plus a `preparation` spec
-     containing `default_window`, `variables`, and optional interpretation `context`.
+   - `prepare_data`: supply `input={"source":{"files":["diary.csv"]},"definition":{...}}`
+     with `default_window`, `variables`, and optional interpretation `context` in the definition.
      Each variable has a stable ID, dtype, summary, scoring rubric, extraction mode,
      source columns, window and codebook as appropriate. The action ingests and extracts
      in one call, retaining the semantic worker fan-out and deterministic scoring paths.
-     Alternatively, `source={"revision":"<simulation commit OID>","replicate":0}`
+     Alternatively, `input={"revision":"<simulation commit OID>","replicate":0}`
      selects one recorded simulation draw. Its observations, schema and support layout
-     are already defined, so extraction is skipped. Both branches run numerical data
-     checks without loading a model. Latent paths and parameter truths stay in the source.
+     are already defined, so extraction is skipped. To reuse pre-extracted observations,
+     use `input={"source":{"file":"observations.parquet","start":"2022-01-01","end":"2026-06-01"},"variables":[...]}`.
+     The uploaded Parquet uses the canonical long observation columns: `indicator_id`, `value`,
+     `anchor_time`, `support_kind`, `summary_operator`, `anchor_policy`, `observation_window`,
+     `support_start`, `support_end`. Variables use the shared ObservationSpec definition with
+     resolved windows and codebooks. Optional `fill_null` is a Polars strategy name
+     (forward, backward, min, max, mean, zero, one) or a numeric constant,
+     with an optional `fill_null_limit` for forward/backward. For example, `aggregation="last"`
+     with `fill_null="forward"` carries the latest dose until the next value;
+     leading nulls remain unknown. Filling runs after aggregation on the sorted time grid,
+     replacing all nulls, including explicit unknowns. Omitted means no filling. The same
+     setting is available for computed file extraction and is retained in the preparation
+     metadata. Only declared IDs are selected; UTC dates select
+     `start <= anchor_time < end` and remain in the saved source. Missing declared variables,
+     incompatible support or invalid numeric codes fail without saving a panel. This branch
+     runs no ingestion or extraction workers. All three branches run numerical data checks
+     without loading a model. Latent paths and parameter truths stay in simulation sources.
    - `fit`: `{"action":"fit","model_revision":"<model tree OID>","panel_revision":"<panel tree OID>"}` conditions the selected
      model on observations. Returns joint uncertainty and fit diagnostics; predictive
      simulation is a separate request. Current fitting supports independent scalar laws.
@@ -155,7 +170,7 @@ The `analysis` context is read-only model introspection.
 ## Data in, results out
 
 Upload files at `POST /api/upload` (`multipart/form-data` with `workspaceId` and
-`file`) before `prepare_data` with `source.files` and its preparation spec. Read artifact payloads at
+`file`) before `prepare_data` with its file preparation or observation-table input. Read artifact payloads at
 `GET /api/episodes/{workspace_id}/artifacts/{artifact_id}`; binary files are served
 from `.../files/{filename}`. Long jobs may outlive an HTTP client timeout; inspect
 the timeline before submitting another request.

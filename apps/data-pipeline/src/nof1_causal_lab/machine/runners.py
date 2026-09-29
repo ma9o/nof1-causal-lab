@@ -19,6 +19,7 @@ from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filena
 from nof1_causal_lab.machine.execution import (
     FitOperation,
     LocalOperation,
+    PrepareObservationTableOperation,
     PrepareSimulationOperation,
     SimulateOperation,
     TransitionEffects,
@@ -30,7 +31,10 @@ from nof1_causal_lab.machine.store import ArtifactStore
 if TYPE_CHECKING:
     import polars as pl
 
-    from nof1_causal_lab.artifacts.data_preparation import SimulationReplicateRef
+    from nof1_causal_lab.artifacts.data_preparation import (
+        ObservationTableSpec,
+        SimulationReplicateRef,
+    )
     from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid
     from nof1_causal_lab.artifacts.posterior import FitSettingsSpec
     from nof1_causal_lab.artifacts.simulation import SimulationSpec
@@ -51,6 +55,7 @@ async def _run_posterior(
         build_sampler_config,
         fit,
     )
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.posterior import InferenceReport
     from nof1_causal_lab.utils.config import get_config
 
@@ -67,18 +72,25 @@ async def _run_posterior(
     sampler_config = build_sampler_config()
     sampler_config.update(settings.model_dump(exclude_none=True))
 
+    config = get_config().inference
+    if config.compute_backend == "modal" and os.environ.get("DEPLOYMENT_ENV") != "production":
+        from nof1_causal_lab.flows.modal_fit import fit_on_modal
+
+        compute_fit = fit_on_modal
+    else:
+        compute_fit = fit
     result = await asyncio.to_thread(
-        fit,
+        compute_fit,
         model_spec=model_spec,
         data_for_model=panel,
         sampler_config=sampler_config,
         array_writer=store.write_array,
         array_loader=cache(store.read_array),
         workspace_id=workspace_id,
-        compute_loo_diagnostics=get_config().inference.compute_loo_diagnostics,
+        compute_loo_diagnostics=config.compute_loo_diagnostics,
     )
 
-    conditioned = result.pop("_model")
+    conditioned = ModelSpec.model_validate(result.pop("_model"))
     evidence = result.pop("engine_evidence")
     report = InferenceReport.model_validate(result)
     info = store.write_artifact(
@@ -191,6 +203,39 @@ async def _run_simulated_measurements(
     )
 
 
+async def _run_imported_measurements(
+    workspace_id: str,
+    store: ArtifactStore,
+    preparation: ObservationTableSpec,
+) -> TransitionEffects:
+    from nof1_causal_lab.actions.prepare_data import prepare_observation_panel
+    from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
+    from nof1_causal_lab.utils import storage
+    from nof1_causal_lab.utils.data import input_dir
+
+    source = preparation.source
+    data = await asyncio.to_thread(
+        storage.read_parquet, storage.join(input_dir(workspace_id), source.file)
+    )
+    panel = await asyncio.to_thread(prepare_observation_panel, data, preparation)
+    metadata = PreparedDataMetadata(source=source, variables=preparation.variables)
+    info = store.write_artifact(
+        "panel",
+        derived_from={},
+        produced_by="run:imported_measurements",
+        json_files={json_filename("panel", "metadata"): metadata.model_dump(mode="json")},
+        parquet_files={parquet_filename("panel", "panel"): panel},
+    )
+    return TransitionEffects(
+        produced=[info],
+        diagnostics={
+            "input_pins": {},
+            "observation_source": source.model_dump(mode="json"),
+            "n_observations": panel["value"].count(),
+        },
+    )
+
+
 async def execute_transition_locally(
     workspace_id: str,
     operation: LocalOperation,
@@ -210,6 +255,8 @@ async def execute_transition_locally(
             run = await _run_simulate(workspace_id, store, pins, operation.design)
         elif isinstance(operation, PrepareSimulationOperation):
             run = await _run_simulated_measurements(workspace_id, store, pins, operation.source)
+        elif isinstance(operation, PrepareObservationTableOperation):
+            run = await _run_imported_measurements(workspace_id, store, operation.preparation)
         else:
             assert_never(operation)
         effects = run.model_copy(

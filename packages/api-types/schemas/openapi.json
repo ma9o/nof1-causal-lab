@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "nof1-causal-lab episode API",
-    "description": "The scientific interface has four actions: `edit_model`, `prepare_data`, `fit`,\nand `simulate`. Requests commit through the serialized episode machine; reads\ncome from its versioned artifacts and append-only transition log.\n\n## Scientific loop\n\n1. Read `GET /api/machine` for action responsibilities, then\n   `GET /api/episodes/{workspace_id}/model` for current model/data versions and findings.\n2. Submit to `POST /api/episodes/{workspace_id}/actions`:\n   - `edit_model`: `{\"action\":\"edit_model\",\"expected_revision\":null,\"model\":{\"question\":\"Does workload affect sleep?\"}}`.\n     Model structure, measurements, mechanisms, constants, and laws can be edited together.\n     Valid incomplete models are saved with applicable specification findings.\n   - `prepare_data`: supply `source={\"files\":[\"diary.csv\"]}` plus a `preparation` spec\n     containing `default_window`, `variables`, and optional interpretation `context`.\n     Each variable has a stable ID, dtype, summary, scoring rubric, extraction mode,\n     source columns, window and codebook as appropriate. The action ingests and extracts\n     in one call, retaining the semantic worker fan-out and deterministic scoring paths.\n     Alternatively, `source={\"revision\":\"<simulation commit OID>\",\"replicate\":0}`\n     selects one recorded simulation draw. Its observations, schema and support layout\n     are already defined, so extraction is skipped. Both branches run numerical data\n     checks without loading a model. Latent paths and parameter truths stay in the source.\n   - `fit`: `{\"action\":\"fit\",\"model_revision\":\"<model tree OID>\",\"panel_revision\":\"<panel tree OID>\"}` conditions the selected\n     model on observations. Returns joint uncertainty and fit diagnostics; predictive\n     simulation is a separate request. Current fitting supports independent scalar laws.\n   - `simulate`: `{\"action\":\"simulate\",\"model_revision\":\"<model tree OID>\",\"end\":30,\"interventions\":[]}`\n     generates forward from the model's current laws. `start` optionally selects an earlier\n     model time; otherwise generation starts at its latest retained state, or zero when it\n     has only an initial-state law. Times use absolute model days. Interventions are optional:\n     `{\"target\":\"<construct ID>\",\"time\":5,\"value\":1}` assigns a state at that time,\n     then its natural dynamics resume. The framework derives the grid and always includes\n     process and observation uncertainty.\n     Compare the saved observations separately with `data_diff`; simulation does not\n     accept comparison data or change its generation rules for predictive checks.\n3. Dispatch returns HTTP 202 with only `{\"attempt_id\":\"<UUID>\"}` after durable acceptance.\n   Poll `GET /api/episodes/{workspace_id}/actions/{attempt_id}` for `{done, body, messages}`.\n   While running, `done` is false and `body` is null. At completion, `body` contains the\n   scientific result, or is null on failure. Messages accumulate as\n   `{timestamp, level, label}` with UTC timestamps, `debug|info|warn|error` levels,\n   and stable `SCREAMING_SNAKE_CASE` labels. Warnings can accompany a saved result;\n   failed actions leave the scientific branch unchanged. Do not redispatch while polling.\n   `GET /api/episodes/{workspace_id}/timeline` retains `applied`, `rejected`, or `raised`\n   attempts and their messages. Numerical arrays have immutable store references.\n   `GET /api/episodes/{workspace_id}/model` includes separately sourced specification,\n   identification, data-compatibility, fitting, and simulation findings.\n\nThe same requests are available as tools through `GET /api/tools/scientific` and\n`POST /api/tools/scientific/{action}`; these tools return the receipt in `result`.\nUse `poll_action` with `{attempt_id}` to read the same poll response in `result`.\nHTTP and tool calls share execution contracts. V2 is a read-only inspector.\n\n## Revisions and execution\n\nRequests name stored input revisions. Fits check the selected model/data pair; model edits reject base revision conflicts. Read `/revisions` to select history. `GET /model-diff?before=...&after=...` compares model trees or Git checkpoints; `POST /data-diff` compares saved data selections in `left` and `right`. Both are read-only inspection operations and create no action attempt.\nAn edit does not require prior simulation or an authoring admission. Causal numerical\nclaims still require matching identification and production inference evidence.\nModel edits automatically run affected checks, including one exact whole-model\npredictive batch when a compatible panel is available. Data preparation runs only\ndata checks. Unchanged checks reuse\ntheir recorded results. Scientific failures save as findings; missing prerequisites carry\nnot_evaluated reasons. Read predictive details and law provenance in the action body.\nSimulation reports retain their own generating model revision; a later edit makes that\nreport historical rather than evidence for the edited model.\n\nOnly the four scientific actions submit scientific work. Execution jobs and\nLLM subroutines are private implementation details; callers do not select them.\nSimulation always uses the same nonlinear generator. Paired intervention histories share\njoint parameter/state draws and random streams. Causal effects on the model's default\noutcome are reported only when identification and committed production-fit evidence support\nthat interpretation; otherwise the report keeps its histories with an explicit reason.\nThe `analysis` context is read-only model introspection.\n\n## Data in, results out\n\nUpload files at `POST /api/upload` (`multipart/form-data` with `workspaceId` and\n`file`) before `prepare_data` with `source.files` and its preparation spec. Read artifact payloads at\n`GET /api/episodes/{workspace_id}/artifacts/{artifact_id}`; binary files are served\nfrom `.../files/{filename}`. Long jobs may outlive an HTTP client timeout; inspect\nthe timeline before submitting another request.\n\n## Read-only deployments\n\n`GET /api/capabilities` reports `actions_enabled`. Read-only deployments reject scientific action submissions with 403.\n",
+    "description": "The scientific interface has four actions: `edit_model`, `prepare_data`, `fit`,\nand `simulate`. Requests commit through the serialized episode machine; reads\ncome from its versioned artifacts and append-only transition log.\n\n## Scientific loop\n\n1. Read `GET /api/machine` for action responsibilities, then\n   `GET /api/episodes/{workspace_id}/model` for current model/data versions and findings.\n2. Submit to `POST /api/episodes/{workspace_id}/actions`:\n   - `edit_model`: `{\"action\":\"edit_model\",\"expected_revision\":null,\"model\":{\"question\":\"Does workload affect sleep?\"}}`.\n     Model structure, measurements, mechanisms, constants, and laws can be edited together.\n     Valid incomplete models are saved with applicable specification findings.\n   - `prepare_data`: supply `input={\"source\":{\"files\":[\"diary.csv\"]},\"definition\":{...}}`\n     with `default_window`, `variables`, and optional interpretation `context` in the definition.\n     Each variable has a stable ID, dtype, summary, scoring rubric, extraction mode,\n     source columns, window and codebook as appropriate. The action ingests and extracts\n     in one call, retaining the semantic worker fan-out and deterministic scoring paths.\n     Alternatively, `input={\"revision\":\"<simulation commit OID>\",\"replicate\":0}`\n     selects one recorded simulation draw. Its observations, schema and support layout\n     are already defined, so extraction is skipped. To reuse pre-extracted observations,\n     use `input={\"source\":{\"file\":\"observations.parquet\",\"start\":\"2022-01-01\",\"end\":\"2026-06-01\"},\"variables\":[...]}`.\n     The uploaded Parquet uses the canonical long observation columns: `indicator_id`, `value`,\n     `anchor_time`, `support_kind`, `summary_operator`, `anchor_policy`, `observation_window`,\n     `support_start`, `support_end`. Variables use the shared ObservationSpec definition with\n     resolved windows and codebooks. Optional `fill_null` is a Polars strategy name\n     (forward, backward, min, max, mean, zero, one) or a numeric constant,\n     with an optional `fill_null_limit` for forward/backward. For example, `aggregation=\"last\"`\n     with `fill_null=\"forward\"` carries the latest dose until the next value;\n     leading nulls remain unknown. Filling runs after aggregation on the sorted time grid,\n     replacing all nulls, including explicit unknowns. Omitted means no filling. The same\n     setting is available for computed file extraction and is retained in the preparation\n     metadata. Only declared IDs are selected; UTC dates select\n     `start <= anchor_time < end` and remain in the saved source. Missing declared variables,\n     incompatible support or invalid numeric codes fail without saving a panel. This branch\n     runs no ingestion or extraction workers. All three branches run numerical data checks\n     without loading a model. Latent paths and parameter truths stay in simulation sources.\n   - `fit`: `{\"action\":\"fit\",\"model_revision\":\"<model tree OID>\",\"panel_revision\":\"<panel tree OID>\"}` conditions the selected\n     model on observations. Returns joint uncertainty and fit diagnostics; predictive\n     simulation is a separate request. Current fitting supports independent scalar laws.\n   - `simulate`: `{\"action\":\"simulate\",\"model_revision\":\"<model tree OID>\",\"end\":30,\"interventions\":[]}`\n     generates forward from the model's current laws. `start` optionally selects an earlier\n     model time; otherwise generation starts at its latest retained state, or zero when it\n     has only an initial-state law. Times use absolute model days. Interventions are optional:\n     `{\"target\":\"<construct ID>\",\"time\":5,\"value\":1}` assigns a state at that time,\n     then its natural dynamics resume. The framework derives the grid and always includes\n     process and observation uncertainty.\n     Compare the saved observations separately with `data_diff`; simulation does not\n     accept comparison data or change its generation rules for predictive checks.\n3. Dispatch returns HTTP 202 with only `{\"attempt_id\":\"<UUID>\"}` after durable acceptance.\n   Poll `GET /api/episodes/{workspace_id}/actions/{attempt_id}` for `{done, body, messages}`.\n   While running, `done` is false and `body` is null. At completion, `body` contains the\n   scientific result, or is null on failure. Messages accumulate as\n   `{timestamp, level, label}` with UTC timestamps, `debug|info|warn|error` levels,\n   and stable `SCREAMING_SNAKE_CASE` labels. Warnings can accompany a saved result;\n   failed actions leave the scientific branch unchanged. Do not redispatch while polling.\n   `GET /api/episodes/{workspace_id}/timeline` retains `applied`, `rejected`, or `raised`\n   attempts and their messages. Numerical arrays have immutable store references.\n   `GET /api/episodes/{workspace_id}/model` includes separately sourced specification,\n   identification, data-compatibility, fitting, and simulation findings.\n\nThe same requests are available as tools through `GET /api/tools/scientific` and\n`POST /api/tools/scientific/{action}`; these tools return the receipt in `result`.\nUse `poll_action` with `{attempt_id}` to read the same poll response in `result`.\nHTTP and tool calls share execution contracts. V2 is a read-only inspector.\n\n## Revisions and execution\n\nRequests name stored input revisions. Fits check the selected model/data pair; model edits reject base revision conflicts. Read `/revisions` to select history. `GET /model-diff?before=...&after=...` compares model trees or Git checkpoints; `POST /data-diff` compares saved data selections in `left` and `right`. Both are read-only inspection operations and create no action attempt.\nAn edit does not require prior simulation or an authoring admission. Causal numerical\nclaims still require matching identification and production inference evidence.\nModel edits automatically run affected checks, including one exact whole-model\npredictive batch when a compatible panel is available. Data preparation runs only\ndata checks. Unchanged checks reuse\ntheir recorded results. Scientific failures save as findings; missing prerequisites carry\nnot_evaluated reasons. Read predictive details and law provenance in the action body.\nSimulation reports retain their own generating model revision; a later edit makes that\nreport historical rather than evidence for the edited model.\n\nOnly the four scientific actions submit scientific work. Execution jobs and\nLLM subroutines are private implementation details; callers do not select them.\nSimulation always uses the same nonlinear generator. Paired intervention histories share\njoint parameter/state draws and random streams. Causal effects on the model's default\noutcome are reported only when identification and committed production-fit evidence support\nthat interpretation; otherwise the report keeps its histories with an explicit reason.\nThe `analysis` context is read-only model introspection.\n\n## Data in, results out\n\nUpload files at `POST /api/upload` (`multipart/form-data` with `workspaceId` and\n`file`) before `prepare_data` with its file preparation or observation-table input. Read artifact payloads at\n`GET /api/episodes/{workspace_id}/artifacts/{artifact_id}`; binary files are served\nfrom `.../files/{filename}`. Long jobs may outlive an HTTP client timeout; inspect\nthe timeline before submitting another request.\n\n## Read-only deployments\n\n`GET /api/capabilities` reports `actions_enabled`. Read-only deployments reject scientific action submissions with 403.\n",
     "version": "0.1.0"
   },
   "paths": {
@@ -158,7 +158,7 @@
     "/api/episodes/{workspace_id}": {
       "get": {
         "summary": "Get Episode",
-        "description": "Current episode state: the single read to poll while navigating.\n\nReturns the four scientific action names and per-artifact existence,\nfreshness and revision. Reads the selected Git branch snapshot.",
+        "description": "Current episode state: the single read to poll while navigating.\n\nReturns the four scientific action names and per-artifact existence,\nfreshness and revision from the selected Git branch snapshot, and the\nattempt the episode's Temporal workflow is executing on any branch, if any.",
         "operationId": "get_episode_api_episodes__workspace_id__get",
         "parameters": [
           {
@@ -650,6 +650,82 @@
                     }
                   ],
                   "title": "Response Get Model Inference Report Api Episodes  Workspace Id  Model Inference Report Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/episodes/{workspace_id}/model/simulation-trajectories": {
+      "get": {
+        "summary": "Get Simulation Trajectories",
+        "description": "Pointwise means and 95% equal-tail bands from saved outcome histories.\n\nPin `at` to a commit to read its latest recorded simulation. Both paired\nhistories use the simulation's own model, ordered variables and observation\nmask. Empty measurement anchors stay null. No fit or simulation is run.",
+        "operationId": "get_simulation_trajectories_api_episodes__workspace_id__model_simulation_trajectories_get",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "title": "Workspace Id"
+            }
+          },
+          {
+            "name": "branch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "main",
+              "title": "Branch"
+            }
+          },
+          {
+            "name": "at",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/GitOid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "At"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Sourced_SimulationTrajectories_"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Simulation Trajectories Api Episodes  Workspace Id  Model Simulation Trajectories Get"
                 }
               }
             }
@@ -1472,6 +1548,7 @@
                 "measurement_structure",
                 "measurements",
                 "simulated_measurements",
+                "imported_measurements",
                 "statistical_model_spec",
                 "posterior",
                 "simulate"
@@ -3537,9 +3614,12 @@
           },
           {
             "$ref": "#/components/schemas/SimulationReplicateRef"
+          },
+          {
+            "$ref": "#/components/schemas/ObservationTableRef"
           }
         ],
-        "description": "A data source selects uploaded files or one recorded simulation replicate."
+        "description": "Uploaded sources, one simulation replicate, or a bounded observation table."
       },
       "DataStatisticComparison": {
         "properties": {
@@ -3746,6 +3826,43 @@
             "title": "Observation Window",
             "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock."
           },
+          "fill_null": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "forward",
+                  "backward",
+                  "min",
+                  "max",
+                  "mean",
+                  "zero",
+                  "one"
+                ]
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fill Null",
+            "description": "Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown."
+          },
+          "fill_null_limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fill Null Limit",
+            "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward."
+          },
           "ordinal_levels": {
             "anyOf": [
               {
@@ -3781,17 +3898,6 @@
             "minLength": 1,
             "title": "How To Measure",
             "description": "Scoring rubric and extraction instructions."
-          },
-          "recording": {
-            "type": "string",
-            "enum": [
-              "samples",
-              "events",
-              "changes"
-            ],
-            "title": "Recording",
-            "description": "Source recording semantics within the raw dataset's covered time span. samples: absent readings are unknown. events: a complete event record; empty sum/count windows are zero. changes: a complete change record; the last recorded value persists, with leading gaps unknown. events and changes require computed extraction.",
-            "default": "samples"
           },
           "source_columns": {
             "items": {
@@ -4201,6 +4307,16 @@
             },
             "type": "array",
             "title": "Actions"
+          },
+          "running": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunningAction"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
@@ -4210,10 +4326,11 @@
           "seq",
           "state",
           "artifacts",
-          "actions"
+          "actions",
+          "running"
         ],
         "title": "EpisodeStatus",
-        "description": "Episode status reports committed artifacts, their freshness, and scientific actions."
+        "description": "Episode status reports committed artifacts, their freshness, actions, and any running one."
       },
       "EventsResponse": {
         "properties": {
@@ -5201,6 +5318,43 @@
             "title": "Observation Window",
             "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock."
           },
+          "fill_null": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "forward",
+                  "backward",
+                  "min",
+                  "max",
+                  "mean",
+                  "zero",
+                  "one"
+                ]
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fill Null",
+            "description": "Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown."
+          },
+          "fill_null_limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fill Null Limit",
+            "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward."
+          },
           "ordinal_levels": {
             "anyOf": [
               {
@@ -5288,6 +5442,43 @@
             ],
             "title": "Observation Window",
             "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock."
+          },
+          "fill_null": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "forward",
+                  "backward",
+                  "min",
+                  "max",
+                  "mean",
+                  "zero",
+                  "one"
+                ]
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fill Null",
+            "description": "Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown."
+          },
+          "fill_null_limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fill Null Limit",
+            "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward."
           },
           "ordinal_levels": {
             "anyOf": [
@@ -7188,6 +7379,43 @@
             "title": "Observation Window",
             "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock."
           },
+          "fill_null": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "forward",
+                  "backward",
+                  "min",
+                  "max",
+                  "mean",
+                  "zero",
+                  "one"
+                ]
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fill Null",
+            "description": "Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown."
+          },
+          "fill_null_limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fill Null Limit",
+            "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward."
+          },
           "ordinal_levels": {
             "anyOf": [
               {
@@ -7230,6 +7458,71 @@
         "title": "ObservationSpec",
         "description": "A stable observed variable, reusable across scientific model definitions."
       },
+      "ObservationTableRef": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "title": "File",
+            "description": "Uploaded Parquet filename, without directory components."
+          },
+          "start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start",
+            "description": "Inclusive UTC anchor date (ISO YYYY-MM-DD)."
+          },
+          "end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End",
+            "description": "Exclusive UTC anchor date (ISO YYYY-MM-DD)."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "ObservationTableRef",
+        "description": "An uploaded Parquet observation table and its selected UTC calendar interval."
+      },
+      "ObservationTableSpec": {
+        "properties": {
+          "source": {
+            "$ref": "#/components/schemas/ObservationTableRef"
+          },
+          "variables": {
+            "items": {
+              "$ref": "#/components/schemas/ObservationSpec"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Variables"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source",
+          "variables"
+        ],
+        "title": "ObservationTableSpec",
+        "description": "Select already extracted observations by their declared variable schema."
+      },
       "OperationId": {
         "type": "string",
         "enum": [
@@ -7238,6 +7531,7 @@
           "measurement_structure",
           "measurements",
           "simulated_measurements",
+          "imported_measurements",
           "statistical_model_spec",
           "posterior",
           "simulate"
@@ -7947,6 +8241,9 @@
               },
               {
                 "$ref": "#/components/schemas/SimulationReplicateRef"
+              },
+              {
+                "$ref": "#/components/schemas/ObservationTableSpec"
               }
             ],
             "title": "Input"
@@ -7958,7 +8255,7 @@
           "input"
         ],
         "title": "PrepareDataRequest",
-        "description": "Prepare uploaded sources or a recorded simulation replicate, without a model."
+        "description": "Prepare uploaded sources, a simulation replicate, or extracted observations without a model."
       },
       "PreparedDataMetadata": {
         "properties": {
@@ -8285,6 +8582,39 @@
           "artifact_id"
         ],
         "title": "Root"
+      },
+      "RunningAction": {
+        "properties": {
+          "attempt_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Attempt Id"
+          },
+          "action": {
+            "$ref": "#/components/schemas/ScientificActionId"
+          },
+          "branch": {
+            "type": "string",
+            "title": "Branch"
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/ActionMessage"
+            },
+            "type": "array",
+            "title": "Messages"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "attempt_id",
+          "action",
+          "branch",
+          "messages"
+        ],
+        "title": "RunningAction",
+        "description": "The attempt an episode is executing, with the labels it has emitted so far."
       },
       "RuntimeEvent": {
         "oneOf": [
@@ -8622,6 +8952,77 @@
         "title": "SimulationSpec",
         "description": "Generate through end, optionally starting earlier and applying dated interventions."
       },
+      "SimulationTrajectories": {
+        "properties": {
+          "times": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Times"
+          },
+          "time_origin": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Origin",
+            "description": "UTC calendar instant of model day zero, from the fitted law's pinned observation panel when it has calendar provenance."
+          },
+          "interval_mass": {
+            "type": "number",
+            "maximum": 0.95,
+            "minimum": 0.95,
+            "title": "Interval Mass",
+            "default": 0.95
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConstructId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outcome_state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SimulationTrajectoryBands"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "indicators": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/SimulationTrajectoryBands"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/IndicatorId"
+            },
+            "type": "object",
+            "title": "Indicators"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "times",
+          "outcome",
+          "outcome_state",
+          "indicators"
+        ],
+        "title": "SimulationTrajectories",
+        "description": "Read-only pointwise summaries of the saved outcome state and its indicators."
+      },
       "SimulationTrajectory": {
         "properties": {
           "reference_mean": {
@@ -8651,6 +9052,35 @@
         ],
         "title": "SimulationTrajectory",
         "description": "One construct's mean reference and intervention paths across simulated draws."
+      },
+      "SimulationTrajectoryBands": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "action": {
+            "$ref": "#/components/schemas/TrajectorySummary"
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrajectorySummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "label",
+          "action"
+        ],
+        "title": "SimulationTrajectoryBands",
+        "description": "One named state's or indicator's simulated history, with its paired reference if present."
       },
       "SnapshotContext": {
         "properties": {
@@ -8905,6 +9335,24 @@
           "source"
         ],
         "title": "Sourced[SimulationReport]",
+        "x-python-module": "nof1_causal_lab.machine.snapshot_models"
+      },
+      "Sourced_SimulationTrajectories_": {
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/SimulationTrajectories"
+          },
+          "source": {
+            "$ref": "#/components/schemas/FactSource"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "value",
+          "source"
+        ],
+        "title": "Sourced[SimulationTrajectories]",
         "x-python-module": "nof1_causal_lab.machine.snapshot_models"
       },
       "Sourced_SpecificationReport_": {
@@ -9452,6 +9900,69 @@
         "type": "object",
         "title": "TraceUsage",
         "description": "Trace usage records the input, output, and reasoning tokens consumed by a conversation."
+      },
+      "TrajectorySummary": {
+        "properties": {
+          "mean": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Mean"
+          },
+          "lower": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Lower"
+          },
+          "upper": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Upper"
+          },
+          "n_draws": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "N Draws"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "mean",
+          "lower",
+          "upper",
+          "n_draws"
+        ],
+        "title": "TrajectorySummary",
+        "description": "Pointwise mean and equal-tail interval across saved draws; empty anchors are null."
       },
       "TransitionRuntimeEvent": {
         "properties": {

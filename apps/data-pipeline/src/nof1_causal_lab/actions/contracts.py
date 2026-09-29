@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from nof1_causal_lab.artifacts.data_preparation import (  # noqa: TC001
     FilePreparationSpec,
+    ObservationTableSpec,
     SimulationReplicateRef,
 )
 from nof1_causal_lab.artifacts.identity import GitOid  # noqa: TC001
@@ -27,12 +28,12 @@ class EditModelRequest(BaseModel):
 
 
 class PrepareDataRequest(BaseModel):
-    """Prepare uploaded sources or a recorded simulation replicate, without a model."""
+    """Prepare uploaded sources, a simulation replicate, or extracted observations without a model."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     action: Literal["prepare_data"] = "prepare_data"
-    input: FilePreparationSpec | SimulationReplicateRef
+    input: FilePreparationSpec | SimulationReplicateRef | ObservationTableSpec
 
 
 class FitRequest(BaseModel):

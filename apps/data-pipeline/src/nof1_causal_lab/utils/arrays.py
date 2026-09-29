@@ -9,11 +9,24 @@ import numpy as np
 from nof1_causal_lab.utils import storage
 
 
-def write_array(directory: str, values: np.ndarray) -> str:
+def encode_array(values: np.ndarray) -> tuple[str, bytes]:
+    """Encode the portable bytes used by both storage and compute transfers."""
     buffer = io.BytesIO()
     np.save(buffer, np.asarray(values), allow_pickle=False)
     payload = buffer.getvalue()
     identity = hashlib.sha256(payload).hexdigest()
+    return identity, payload
+
+
+def decode_array(identity: str, payload: bytes) -> np.ndarray:
+    """Verify content identity before loading a numerical value."""
+    if hashlib.sha256(payload).hexdigest() != identity:
+        raise ValueError("Stored numerical array failed its content identity check")
+    return np.load(io.BytesIO(payload), allow_pickle=False)
+
+
+def write_array(directory: str, values: np.ndarray) -> str:
+    identity, payload = encode_array(values)
     storage.makedirs(directory)
     path = storage.join(directory, f"{identity}.npy")
     if not storage.exists(path):
@@ -27,6 +40,4 @@ def read_array(directory: str, identity: str) -> np.ndarray:
         raise ValueError("Invalid numerical array identity")
     with storage.open_file(storage.join(directory, f"{identity}.npy"), "rb") as stream:
         payload = stream.read()
-    if hashlib.sha256(payload).hexdigest() != identity:
-        raise ValueError("Stored numerical array failed its content identity check")
-    return np.load(io.BytesIO(payload), allow_pickle=False)
+    return decode_array(identity, payload)

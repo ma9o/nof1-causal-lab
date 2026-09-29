@@ -32,6 +32,8 @@ def test_migration_moves_scoring_to_data_and_preserves_original_workspace(tmp_pa
     def add_scoring(value):
         if isinstance(value, dict):
             if "measurement_dtype" in value and "construct_polarity" in value:
+                value.pop("fill_null")
+                value.pop("fill_null_limit")
                 value.update(
                     how_to_measure="Extract the stated stress rating",
                     recording="samples",

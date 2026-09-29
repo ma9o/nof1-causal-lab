@@ -29,6 +29,23 @@ from tests.helpers import graph_constructs
 
 pytestmark = [pytest.mark.workflow, pytest.mark.timeout(60, method="thread")]
 _QUESTION = "does exercise improve sleep?"
+_PREPARATION: dict[str, Any] = {
+    "source": {"files": ["observations.csv"]},
+    "definition": {
+        "default_window": "1d",
+        "variables": [
+            {
+                "id": "indicator:sleep",
+                "name": "sleep_steps_proxy",
+                "measurement_dtype": "continuous",
+                "aggregation": "mean",
+                "how_to_measure": "Read the steps column",
+                "source_columns": ["steps"],
+                "extraction_mode": "computed",
+            }
+        ],
+    },
+}
 
 
 def _proposed_model() -> dict[str, Any]:
@@ -237,27 +254,7 @@ def test_episode_workflow_journey(machine_env, monkeypatch):
                     )
                 )
                 assert initial.status == "applied"
-                prepared = await execute(
-                    PrepareDataRequest(
-                        input={
-                            "source": {"files": ["observations.csv"]},
-                            "definition": {
-                                "default_window": "1d",
-                                "variables": [
-                                    {
-                                        "id": "indicator:sleep",
-                                        "name": "sleep_steps_proxy",
-                                        "measurement_dtype": "continuous",
-                                        "aggregation": "mean",
-                                        "how_to_measure": "Read the steps column",
-                                        "source_columns": ["steps"],
-                                        "extraction_mode": "computed",
-                                    }
-                                ],
-                            },
-                        },
-                    )
-                )
+                prepared = await execute(PrepareDataRequest(input=_PREPARATION))
                 assert prepared.status == "applied", prepared
                 assert prepared.state.has("panel")
                 assert prepared.state.has("data_profile")
@@ -347,6 +344,78 @@ def test_episode_workflow_journey(machine_env, monkeypatch):
                 await handle.signal(EpisodeWorkflow.close)
                 await handle.result()
         finally:
+            await env.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_status_reports_only_attempts_a_live_workflow_executes(machine_env, monkeypatch):
+    import nof1_causal_lab.utils.openrouter_client as openrouter_client
+
+    workspace_id = machine_env
+    ingest = openrouter_client.call_model
+
+    async def scenario():
+        from temporalio.testing import WorkflowEnvironment
+
+        from nof1_causal_lab import episode_api
+        from nof1_causal_lab.actions.results import RunningAction
+        from nof1_causal_lab.machine.temporal.client import (
+            RUNNING_ACTION_MEMO,
+            pydantic_data_converter,
+        )
+        from nof1_causal_lab.machine.temporal.worker import (
+            build_model_checks_worker,
+            build_openrouter_worker,
+            build_worker,
+        )
+
+        # Ingestion waits here, so data preparation stays in flight until released.
+        release = asyncio.Event()
+
+        async def held_call_model(*args, **kwargs):
+            await release.wait()
+            return await ingest(*args, **kwargs)
+
+        monkeypatch.setattr(openrouter_client, "call_model", held_call_model)
+        env = await WorkflowEnvironment.start_local(data_converter=pydantic_data_converter)
+        try:
+            async with (
+                build_worker(env.client),
+                build_model_checks_worker(env.client),
+                build_openrouter_worker(env.client),
+                asyncio.timeout(30),
+            ):
+                monkeypatch.setenv("EPISODE_FACADE_READ_ONLY", "0")
+                monkeypatch.setattr(episode_api, "_client", env.client)
+                handle = await episode_api._episode_handle(workspace_id)
+                created = await episode_api.execute_scientific_action(
+                    workspace_id,
+                    EditModelRequest(expected_revision=None, model=ModelSpec(question=_QUESTION)),
+                )
+                await handle.get_update_handle(
+                    str(created.attempt_id), result_type=ActionOutcome
+                ).result()
+                assert (await episode_api.get_episode(workspace_id))["running"] is None
+
+                preparing = await episode_api.execute_scientific_action(
+                    workspace_id, PrepareDataRequest(input=_PREPARATION)
+                )
+                while (running := await episode_api._running_action(workspace_id)) is None:
+                    await asyncio.sleep(0.05)
+                assert running.attempt_id == preparing.attempt_id
+                assert (running.action, running.branch) == ("prepare_data", "main")
+                assert [message.label for message in running.messages] == ["PREPARE_DATA_STARTED"]
+
+                # A terminated workflow can never finish the attempt its memo still names.
+                await handle.terminate()
+                memo = await (await handle.describe()).memo_value(
+                    RUNNING_ACTION_MEMO, type_hint=RunningAction
+                )
+                assert memo == running
+                assert (await episode_api.get_episode(workspace_id))["running"] is None
+        finally:
+            release.set()
             await env.shutdown()
 
     asyncio.run(scenario())

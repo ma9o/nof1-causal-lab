@@ -4,9 +4,17 @@ from __future__ import annotations
 
 import ast
 import re
+from datetime import date  # noqa: TC003 - Pydantic resolves date bounds at runtime.
 from typing import Annotated, Literal, Self, override
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from nof1_causal_lab.json_types import JsonObject  # noqa: TC001
 from nof1_causal_lab.measurement_types import AggregationFunction  # noqa: TC001
@@ -131,16 +139,6 @@ class DataVariableSpec(ObservationSpec):
     how_to_measure: str = Field(
         min_length=1, description="Scoring rubric and extraction instructions."
     )
-    recording: Literal["samples", "events", "changes"] = Field(
-        default="samples",
-        description=(
-            "Source recording semantics within the raw dataset's covered time span. "
-            "samples: absent readings are unknown. events: a complete event record; "
-            "empty sum/count windows are zero. changes: a complete change record; "
-            "the last recorded value persists, with leading gaps unknown. "
-            "events and changes require computed extraction."
-        ),
-    )
     source_columns: tuple[str, ...] = Field(
         default_factory=tuple,
         description=(
@@ -168,13 +166,9 @@ class DataVariableSpec(ObservationSpec):
     )
 
     @model_validator(mode="after")
-    def validate_recording(self) -> DataVariableSpec:
-        if self.recording != "samples" and self.extraction_mode != "computed":
-            raise ValueError("Complete event/change records require computed extraction")
-        if self.recording == "events" and self.aggregation not in {"sum", "count"}:
-            raise ValueError("Complete event records require sum/count aggregation")
-        if self.recording == "changes" and self.aggregation != "last":
-            raise ValueError("Change records require last aggregation")
+    def validate_fill_null(self) -> DataVariableSpec:
+        if self.fill_null is not None and self.extraction_mode != "computed":
+            raise ValueError("fill_null requires computed extraction")
         return self
 
     @model_validator(mode="after")
@@ -222,6 +216,12 @@ class DataVariableSpec(ObservationSpec):
         )
 
 
+def _validate_uploaded_filename(value: str) -> str:
+    if not value or value in {".", ".."} or "/" in value or "\\" in value:
+        raise ValueError("Use uploaded filenames, without directory components")
+    return value
+
+
 class FileSourceRef(BaseModel):
     """Explicit uploaded filenames, relative to this study's input directory."""
 
@@ -234,11 +234,32 @@ class FileSourceRef(BaseModel):
     def validate_filenames(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         if len(set(values)) != len(values):
             raise ValueError("Source filenames must be unique")
-        if any(
-            not value or value in {".", ".."} or "/" in value or "\\" in value for value in values
-        ):
-            raise ValueError("Use uploaded filenames, without directory components")
-        return values
+        return tuple(_validate_uploaded_filename(value) for value in values)
+
+
+class ObservationTableRef(BaseModel):
+    """An uploaded Parquet observation table and its selected UTC calendar interval."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    file: str = Field(description="Uploaded Parquet filename, without directory components.")
+    start: date | None = Field(
+        default=None, description="Inclusive UTC anchor date (ISO YYYY-MM-DD)."
+    )
+    end: date | None = Field(
+        default=None, description="Exclusive UTC anchor date (ISO YYYY-MM-DD)."
+    )
+
+    @field_validator("file")
+    @classmethod
+    def validate_filename(cls, value: str) -> str:
+        return _validate_uploaded_filename(value)
+
+    @model_validator(mode="after")
+    def ordered_bounds(self) -> Self:
+        if self.start is not None and self.end is not None and self.start >= self.end:
+            raise ValueError("Observation table start must precede end")
+        return self
 
 
 class SimulationReplicateRef(BaseModel):
@@ -251,8 +272,10 @@ class SimulationReplicateRef(BaseModel):
 
 
 type DataSourceRef = Annotated[
-    FileSourceRef | SimulationReplicateRef,
-    Field(description="A data source selects uploaded files or one recorded simulation replicate."),
+    FileSourceRef | SimulationReplicateRef | ObservationTableRef,
+    Field(
+        description="Uploaded sources, one simulation replicate, or a bounded observation table."
+    ),
 ]
 
 
@@ -324,8 +347,23 @@ class PreparedDataMetadata(BaseModel):
             raise ValueError("Prepared variables must record their resolved observation windows")
         if isinstance(self.source, FileSourceRef) != (self.preparation is not None):
             raise ValueError(
-                "File sources require preparation instructions; simulation sources retain their recorded schema"
+                "File sources require preparation instructions; simulation and observation table "
+                "sources retain their declared schema without extraction"
             )
         if self.preparation is not None and self.variables != self.preparation.observation_schema():
             raise ValueError("Prepared schema must match its preparation instructions")
+        return self
+
+
+class ObservationTableSpec(BaseModel):
+    """Select already extracted observations by their declared variable schema."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    source: ObservationTableRef
+    variables: tuple[ObservationSpec, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def resolved_variables(self) -> Self:
+        PreparedDataMetadata(source=self.source, variables=self.variables)
         return self

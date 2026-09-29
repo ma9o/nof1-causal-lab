@@ -27,6 +27,7 @@ from nof1_causal_lab.artifacts.observations import ObservationSpec
 from nof1_causal_lab.machine.git_objects import write_tree
 from nof1_causal_lab.models.model_inputs import input_fingerprints
 from nof1_causal_lab.utils.arrays import read_array, write_array
+from scripts.migrations.migrate_fill_null import update_observation_definitions
 
 EXTRACTION_FIELDS = {
     "how_to_measure",
@@ -34,6 +35,8 @@ EXTRACTION_FIELDS = {
     "computed_rule",
     "extraction_mode",
     "recording",
+    "fill_null",
+    "fill_null_limit",
 }
 
 
@@ -139,7 +142,7 @@ def migrate_workspace(
                 DataVariableSpec.model_validate(
                     {
                         key: value
-                        for key, value in item.items()
+                        for key, value in update_observation_definitions(item).items()
                         if key in DataVariableSpec.model_fields
                     }
                 )

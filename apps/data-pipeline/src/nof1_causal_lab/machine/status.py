@@ -2,6 +2,7 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from nof1_causal_lab.actions.results import RunningAction
 from nof1_causal_lab.artifacts.identity import GitOid, ScientificActionId
 from nof1_causal_lab.json_types import JsonObject
 
@@ -29,7 +30,7 @@ class ActionOutcome(BaseModel):
 
 
 class EpisodeStatus(BaseModel):
-    """Episode status reports committed artifacts, their freshness, and scientific actions."""
+    """Episode status reports committed artifacts, their freshness, actions, and any running one."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -40,3 +41,4 @@ class EpisodeStatus(BaseModel):
     state: EpisodeState
     artifacts: list[ArtifactFreshness]
     actions: list[ScientificActionId]
+    running: RunningAction | None

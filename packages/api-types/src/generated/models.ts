@@ -3,7 +3,7 @@
  * AUTO-GENERATED — DO NOT EDIT
  *
  * Generated from Python Pydantic models via:
- *   cd apps/data-pipeline && uv run python -m scripts.export_schemas
+ *   cd apps/data-pipeline && uv run python -m scripts.codegen.export_api
  *   cd packages/api-types && bun run scripts/generate.ts
  *
  * Source of truth: apps/data-pipeline/src/nof1_causal_lab/artifacts/catalog.py
@@ -11,12 +11,12 @@
  */
 
 /**
- * A data source selects uploaded files or one recorded simulation replicate.
+ * Uploaded sources, one simulation replicate, or a bounded observation table.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "DataSourceRef".
  */
-export type DataSourceRef = FileSourceRef | SimulationReplicateRef;
+export type DataSourceRef = FileSourceRef | SimulationReplicateRef | ObservationTableRef;
 /**
  * A native Git object identity for an immutable tree or commit.
  *
@@ -342,6 +342,7 @@ export type OperationId =
   | "measurement_structure"
   | "measurements"
   | "simulated_measurements"
+  | "imported_measurements"
   | "statistical_model_spec"
   | "posterior"
   | "simulate";
@@ -393,6 +394,26 @@ export interface SimulationReplicateRef {
   replicate: number;
 }
 /**
+ * An uploaded Parquet observation table and its selected UTC calendar interval.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ObservationTableRef".
+ */
+export interface ObservationTableRef {
+  /**
+   * Uploaded Parquet filename, without directory components.
+   */
+  file: string;
+  /**
+   * Inclusive UTC anchor date (ISO YYYY-MM-DD).
+   */
+  start?: string | null;
+  /**
+   * Exclusive UTC anchor date (ISO YYYY-MM-DD).
+   */
+  end?: string | null;
+}
+/**
  * A stable observed variable, reusable across scientific model definitions.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
@@ -410,6 +431,14 @@ export interface ObservationSpec {
    * Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock.
    */
   observation_window?: string | null;
+  /**
+   * Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.
+   */
+  fill_null?: ("forward" | "backward" | "min" | "max" | "mean" | "zero" | "one") | number | null;
+  /**
+   * Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.
+   */
+  fill_null_limit?: number | null;
   /**
    * Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.
    */
@@ -455,6 +484,14 @@ export interface DataVariableSpec {
    */
   observation_window?: string | null;
   /**
+   * Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.
+   */
+  fill_null?: ("forward" | "backward" | "min" | "max" | "mean" | "zero" | "one") | number | null;
+  /**
+   * Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.
+   */
+  fill_null_limit?: number | null;
+  /**
    * Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.
    */
   ordinal_levels?: string[] | null;
@@ -466,10 +503,6 @@ export interface DataVariableSpec {
    * Scoring rubric and extraction instructions.
    */
   how_to_measure: string;
-  /**
-   * Source recording semantics within the raw dataset's covered time span. samples: absent readings are unknown. events: a complete event record; empty sum/count windows are zero. changes: a complete change record; the last recorded value persists, with leading gaps unknown. events and changes require computed extraction.
-   */
-  recording: "samples" | "events" | "changes";
   /**
    * Raw data column names referenced by how_to_measure. Used to project chunks to only relevant columns before extraction.
    */
@@ -653,6 +686,14 @@ export interface IndicatorSpec {
    * Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock.
    */
   observation_window?: string | null;
+  /**
+   * Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.
+   */
+  fill_null?: ("forward" | "backward" | "min" | "max" | "mean" | "zero" | "one") | number | null;
+  /**
+   * Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.
+   */
+  fill_null_limit?: number | null;
   /**
    * Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.
    */
@@ -1927,7 +1968,7 @@ export interface ModelCheckReport {
   reused: (CheckGroup | "predictive")[];
 }
 /**
- * Episode status reports committed artifacts, their freshness, and scientific actions.
+ * Episode status reports committed artifacts, their freshness, actions, and any running one.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "EpisodeStatus".
@@ -1940,6 +1981,19 @@ export interface EpisodeStatus {
   state: EpisodeState;
   artifacts: ArtifactFreshness[];
   actions: ScientificActionId[];
+  running: RunningAction | null;
+}
+/**
+ * The attempt an episode is executing, with the labels it has emitted so far.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "RunningAction".
+ */
+export interface RunningAction {
+  attempt_id: string;
+  action: ScientificActionId;
+  branch: string;
+  messages: ActionMessage[];
 }
 /**
  * An events response pages runtime telemetry without reconstructing model state.
@@ -2448,6 +2502,56 @@ export interface RevisionCatalog {
   models: ArtifactRecord[];
   raw_data: ArtifactRecord[];
   panels: ArtifactRecord[];
+}
+/**
+ * Read-only pointwise summaries of the saved outcome state and its indicators.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "SimulationTrajectories".
+ */
+export interface SimulationTrajectories {
+  times: number[];
+  /**
+   * UTC calendar instant of model day zero, from the fitted law's pinned observation panel when it has calendar provenance.
+   */
+  time_origin?: string | null;
+  interval_mass: number;
+  outcome: ConstructId | null;
+  outcome_state: SimulationTrajectoryBands | null;
+  indicators: {
+    [k: string]: SimulationTrajectoryBands;
+  };
+}
+/**
+ * One named state's or indicator's simulated history, with its paired reference if present.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "SimulationTrajectoryBands".
+ */
+export interface SimulationTrajectoryBands {
+  label: string;
+  action: TrajectorySummary;
+  reference?: TrajectorySummary | null;
+}
+/**
+ * Pointwise mean and equal-tail interval across saved draws; empty anchors are null.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "TrajectorySummary".
+ */
+export interface TrajectorySummary {
+  mean: (number | null)[];
+  lower: (number | null)[];
+  upper: (number | null)[];
+  n_draws: number[];
+}
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "Sourced[SimulationTrajectories]".
+ */
+export interface SourcedSimulationTrajectories {
+  value: SimulationTrajectories;
+  source: FactSource;
 }
 /**
  * One Git commit's parent links and its action log.

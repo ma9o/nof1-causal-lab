@@ -4,15 +4,22 @@ Provides non-continuous dtype encoding (binary, ordinal, categorical -> numeric)
 and Polars aggregation expression builders used by the pipeline's stage 2 logic.
 """
 
+from __future__ import annotations
+
 import ast
 import logging
+from typing import TYPE_CHECKING
 
 import numpy as np
 import polars as pl
 
-from nof1_causal_lab.json_types import UncheckedJsonObject
 from nof1_causal_lab.utils.data import ensure_datetime_column, support_window_tick_frame
 from nof1_causal_lab.utils.observation_semantics import derive_indicator_observation_semantics
+
+if TYPE_CHECKING:
+    from polars._typing import FillNullStrategy
+
+    from nof1_causal_lab.json_types import UncheckedJsonObject
 
 logger = logging.getLogger(__name__)
 
@@ -425,7 +432,7 @@ def compute_indicators(
         observation_window = ind.get("observation_window") or model_clock
         source_columns = list(ind.get("source_columns", []))
         computed_rule = ind.get("computed_rule")
-        recording = ind.get("recording", "samples")
+        fill_null = ind.get("fill_null")
 
         if not source_columns:
             logger.warning(
@@ -457,7 +464,6 @@ def compute_indicators(
                     computed_rule,
                     allowed_names=set(source_columns),
                 ),
-                empty_value=0 if recording == "events" else None,
             )
             agg_df = prepared.group_by("__tick__", maintain_order=True).agg(expr)
         else:
@@ -486,13 +492,13 @@ def compute_indicators(
                     .map_groups(fn)
                 )
             else:
-                expr = _build_dense_agg_expr(agg_name, "__value__")
-                if recording == "events":
-                    expr = _missing_window_guard(expr, empty_value=0)
+                expr = _missing_window_guard(_build_agg_expr(agg_name, "__value__"))
                 agg_df = prepared.group_by("__tick__", maintain_order=True).agg(expr)
 
-        if recording == "changes":
-            agg_df = agg_df.sort("__tick__").with_columns(pl.col("value").forward_fill())
+        if fill_null is not None:
+            agg_df = agg_df.sort("__tick__").with_columns(
+                fill_null_expression(pl.col("value"), fill_null, limit=ind.get("fill_null_limit"))
+            )
         agg_df = agg_df.select(
             pl.lit(ind["id"]).alias("indicator_id"),
             pl.col("value").cast(pl.Utf8).alias("value"),
@@ -506,27 +512,19 @@ def compute_indicators(
     return pl.concat(frames, how="vertical").sort("timestamp", "indicator_id")
 
 
-def _missing_window_guard(expr: pl.Expr, *, empty_value: int | None = None) -> pl.Expr:
-    """Apply the declared empty-window value only where no source row exists."""
-    return (
-        pl.when(pl.col("__observed_row__").fill_null(False).any())
-        .then(expr)
-        .otherwise(empty_value)
-        .alias("value")
-    )
+def fill_null_expression(
+    value: pl.Expr, fill_null: FillNullStrategy | float, *, limit: int | None = None
+) -> pl.Expr:
+    """Execute a flat observation declaration with Polars' native null-filling semantics."""
+    if isinstance(fill_null, str):
+        return value.fill_null(strategy=fill_null, limit=limit)
+    return value.fill_null(value=fill_null)
 
 
-def _build_dense_agg_expr(agg_name: str, col_name: str) -> pl.Expr:
-    """Build aggregation over a dense support grid with missing-window nulls."""
-    if agg_name == "count":
-        col = pl.col(col_name)
-        return (
-            pl.when(pl.col("__observed_row__").fill_null(False).any())
-            .then(col.drop_nulls().count())
-            .otherwise(None)
-            .alias("value")
-        )
-    return _build_agg_expr(agg_name, col_name)
+def _missing_window_guard(expr: pl.Expr) -> pl.Expr:
+    """Represent empty windows as null before any across-window fill_null operation."""
+    has_records = pl.col("__observed_row__").fill_null(False).any()
+    return pl.when(has_records).then(expr).otherwise(None).alias("value")
 
 
 def _prepare_computed_indicator_frame(

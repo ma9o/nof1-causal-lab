@@ -215,6 +215,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/episodes/{workspace_id}/model/simulation-trajectories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Simulation Trajectories
+         * @description Pointwise means and 95% equal-tail bands from saved outcome histories.
+         *
+         *     Pin `at` to a commit to read its latest recorded simulation. Both paired
+         *     histories use the simulation's own model, ordered variables and observation
+         *     mask. Empty measurement anchors stay null. No fit or simulation is run.
+         */
+        get: operations["get_simulation_trajectories_api_episodes__workspace_id__model_simulation_trajectories_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/episodes/{workspace_id}/model/constructs": {
         parameters: {
             query?: never;
@@ -622,7 +646,7 @@ export interface components {
          * @description One variable's recorded measurements in one history; no pooling across replicas.
          */
         DataSeries: Domain.DataSeries;
-        /** @description A data source selects uploaded files or one recorded simulation replicate. */
+        /** @description Uploaded sources, one simulation replicate, or a bounded observation table. */
         DataSourceRef: Domain.DataSourceRef;
         /**
          * DataStatisticComparison
@@ -656,6 +680,16 @@ export interface components {
              */
             observation_window?: string | null;
             /**
+             * Fill Null
+             * @description Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.
+             */
+            fill_null?: ("forward" | "backward" | "min" | "max" | "mean" | "zero" | "one") | number | null;
+            /**
+             * Fill Null Limit
+             * @description Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.
+             */
+            fill_null_limit?: number | null;
+            /**
              * Ordinal Levels
              * @description Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.
              */
@@ -670,13 +704,6 @@ export interface components {
              * @description Scoring rubric and extraction instructions.
              */
             how_to_measure: string;
-            /**
-             * Recording
-             * @description Source recording semantics within the raw dataset's covered time span. samples: absent readings are unknown. events: a complete event record; empty sum/count windows are zero. changes: a complete change record; the last recorded value persists, with leading gaps unknown. events and changes require computed extraction.
-             * @default samples
-             * @enum {string}
-             */
-            recording?: "samples" | "events" | "changes";
             /**
              * Source Columns
              * @description Raw data column names referenced by how_to_measure. Used to project chunks to only relevant columns before extraction.
@@ -904,6 +931,16 @@ export interface components {
              * @description Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock.
              */
             observation_window?: string | null;
+            /**
+             * Fill Null
+             * @description Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.
+             */
+            fill_null?: ("forward" | "backward" | "min" | "max" | "mean" | "zero" | "one") | number | null;
+            /**
+             * Fill Null Limit
+             * @description Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.
+             */
+            fill_null_limit?: number | null;
             /**
              * Ordinal Levels
              * @description Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.
@@ -1188,7 +1225,74 @@ export interface components {
          * ObservationSpec
          * @description A stable observed variable, reusable across scientific model definitions.
          */
-        ObservationSpec: Domain.ObservationSpec;
+        ObservationSpec: {
+            /** @description Persistent identity. Preserve when revising or renaming. */
+            id: components["schemas"]["IndicatorId"];
+            /**
+             * Name
+             * @description Indicator name (e.g., 'hrv', 'self_reported_stress')
+             */
+            name: string;
+            /** @description 'continuous', 'binary', 'count', 'ordinal', 'categorical' */
+            measurement_dtype: components["schemas"]["MeasurementDtype"];
+            /** @description Aggregation function applied when bucketing raw extractions within the indicator support window. Measurement-structure support is currently limited to: first, last, sum, count, mean, std. A computed_rule must produce this same summary. Available parser operators: count, cv, entropy, first, instability, iqr, kurtosis, last, max, mean, median, min, n_unique, p10, p25, p75, p90, p99, range, skew, std, sum, trend, var */
+            aggregation: components["schemas"]["AggregationFunction"];
+            /**
+             * Observation Window
+             * @description Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock.
+             */
+            observation_window?: string | null;
+            /**
+             * Fill Null
+             * @description Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.
+             */
+            fill_null?: ("forward" | "backward" | "min" | "max" | "mean" | "zero" | "one") | number | null;
+            /**
+             * Fill Null Limit
+             * @description Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.
+             */
+            fill_null_limit?: number | null;
+            /**
+             * Ordinal Levels
+             * @description Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.
+             */
+            ordinal_levels?: string[] | null;
+            /**
+             * Categorical Levels
+             * @description Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding.
+             */
+            categorical_levels?: string[] | null;
+        };
+        /**
+         * ObservationTableRef
+         * @description An uploaded Parquet observation table and its selected UTC calendar interval.
+         */
+        ObservationTableRef: {
+            /**
+             * File
+             * @description Uploaded Parquet filename, without directory components.
+             */
+            file: string;
+            /**
+             * Start
+             * @description Inclusive UTC anchor date (ISO YYYY-MM-DD).
+             */
+            start?: string | null;
+            /**
+             * End
+             * @description Exclusive UTC anchor date (ISO YYYY-MM-DD).
+             */
+            end?: string | null;
+        };
+        /**
+         * ObservationTableSpec
+         * @description Select already extracted observations by their declared variable schema.
+         */
+        ObservationTableSpec: {
+            source: components["schemas"]["ObservationTableRef"];
+            /** Variables */
+            variables: components["schemas"]["ObservationSpec"][];
+        };
         /**
          * PPCOverlay
          * @description A predictive overlay compares observed values with posterior predictive bands for one
@@ -1297,7 +1401,7 @@ export interface components {
         PredictiveLawProvenance: Domain.PredictiveLawProvenance;
         /**
          * PrepareDataRequest
-         * @description Prepare uploaded sources or a recorded simulation replicate, without a model.
+         * @description Prepare uploaded sources, a simulation replicate, or extracted observations without a model.
          */
         PrepareDataRequest: {
             /**
@@ -1306,7 +1410,7 @@ export interface components {
              */
             action: "prepare_data";
             /** Input */
-            input: components["schemas"]["FilePreparationSpec"] | components["schemas"]["SimulationReplicateRef"];
+            input: components["schemas"]["FilePreparationSpec"] | components["schemas"]["SimulationReplicateRef"] | components["schemas"]["ObservationTableSpec"];
         };
         /**
          * PreparedDataMetadata
@@ -1402,10 +1506,20 @@ export interface components {
          */
         SimulationSpec: Domain.SimulationSpec;
         /**
+         * SimulationTrajectories
+         * @description Read-only pointwise summaries of the saved outcome state and its indicators.
+         */
+        SimulationTrajectories: Domain.SimulationTrajectories;
+        /**
          * SimulationTrajectory
          * @description One construct's mean reference and intervention paths across simulated draws.
          */
         SimulationTrajectory: Domain.SimulationTrajectory;
+        /**
+         * SimulationTrajectoryBands
+         * @description One named state's or indicator's simulated history, with its paired reference if present.
+         */
+        SimulationTrajectoryBands: Domain.SimulationTrajectoryBands;
         /**
          * SnapshotContext
          * @description A snapshot context identifies the selected Git commit and its artifact versions.
@@ -1472,6 +1586,11 @@ export interface components {
             value: components["schemas"]["SimulationReport"];
             source: components["schemas"]["FactSource"];
         };
+        /** Sourced[SimulationTrajectories] */
+        Sourced_SimulationTrajectories_: {
+            value: components["schemas"]["SimulationTrajectories"];
+            source: components["schemas"]["FactSource"];
+        };
         /** Sourced[SpecificationReport] */
         Sourced_SpecificationReport_: {
             value: components["schemas"]["SpecificationReport"];
@@ -1534,6 +1653,11 @@ export interface components {
          * @enum {string}
          */
         TemporalStatus: "time_varying" | "time_invariant";
+        /**
+         * TrajectorySummary
+         * @description Pointwise mean and equal-tail interval across saved draws; empty anchors are null.
+         */
+        TrajectorySummary: Domain.TrajectorySummary;
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -1892,6 +2016,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Sourced_InferenceReport_"] | null;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_simulation_trajectories_api_episodes__workspace_id__model_simulation_trajectories_get: {
+        parameters: {
+            query?: {
+                branch?: string;
+                at?: components["schemas"]["GitOid"] | null;
+            };
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Sourced_SimulationTrajectories_"] | null;
                 };
             };
             /** @description Validation Error */

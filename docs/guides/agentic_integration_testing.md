@@ -140,8 +140,8 @@ Format-3 studies still store extraction instructions on their models. To convert
 2. Run the converter with the original uploaded filenames. The destination must be new and outside the source, and the source is left untouched.
 
    ```bash
-   uv run --project apps/data-pipeline python apps/data-pipeline/scripts/migrations/migrate_data_preparation.py \
-     data/STUDY /tmp/migrated/STUDY --files diary.csv
+   uv run --directory apps/data-pipeline python -m scripts.migrations.migrate_data_preparation \
+     ../../data/STUDY /tmp/migrated/STUDY --files diary.csv
    ```
 
    The converter moves scoring instructions into panel metadata and adds numerical data profiles, without fitting or generating trajectories. It doesn't invent scoring rules or codebooks: variables without retained definitions stay explicit profile findings. `--preparations-json` can supply reviewed panel-revision-to-preparation specs.
@@ -149,6 +149,24 @@ Format-3 studies still store extraction instructions on their models. To convert
 4. Restart the workers with the new code and start a fresh episode workflow from the migrated Git state; don't replay the previous workflow. Regenerate any fixture bundle from the migrated repository.
 
 Older numbered-artifact and format-2 histories have no validated route to the current runtime.
+
+For a format-4 study that still declares `recording` or nested `fill_null`, follow the same stop, review and restart steps with the [null-filling converter](../../apps/data-pipeline/scripts/migrations/migrate_fill_null.py):
+
+```bash
+uv run --directory apps/data-pipeline python -m scripts.migrations.migrate_fill_null \
+  ../../data/STUDY /tmp/migrated/STUDY
+```
+
+The converter rewrites observation definitions, model-input fingerprints and revision references in a new copy, preserving saved numerical tables and results. It translates retired fields to the shared [`ObservationSpec`](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/observations.py) with flat `fill_null`; subsequent preparation uses [Polars null-filling semantics](https://docs.pola.rs/api/python/stable/reference/expressions/api/polars.Expr.fill_null.html), including explicitly null values.
+
+For a format-4 study whose fitted models list one point mass per retained posterior draw, follow the same steps with the [posterior-law converter](../../apps/data-pipeline/scripts/migrations/migrate_empirical_laws.py):
+
+```bash
+uv run --directory apps/data-pipeline python -m scripts.migrations.migrate_empirical_laws \
+  ../../data/STUDY /tmp/migrated/STUDY
+```
+
+It stores each retained posterior as one batched point mass over its saved draws and moves the equal weights into the array store, rewriting model-input fingerprints and revision references in a new copy. Draws, tables and results are reused unchanged.
 
 ### Local stack
 
@@ -280,7 +298,8 @@ curl -s -X POST http://localhost:3000/api/runs \
 The episode facade (tool server, port `8100`) is the source of truth:
 
 ```bash
-# Current state: artifact existence, freshness, revisions, and the four action names
+# Current state: artifact existence, freshness, revisions, the four action names,
+# and `running`, the attempt the episode's Temporal workflow is executing
 curl -s http://localhost:8100/api/episodes/$WORKSPACE_ID | jq '.artifacts'
 
 # The transition journal: every action attempt (applied / rejected / raised)

@@ -3,7 +3,7 @@
  * AUTO-GENERATED — DO NOT EDIT
  *
  * Generated from Python distribution catalog via:
- *   cd apps/data-pipeline && uv run python -m scripts.export_schemas
+ *   cd apps/data-pipeline && uv run python -m scripts.codegen.export_api
  *   cd packages/api-types && bun run scripts/generate.ts
  *
  * Source of truth: apps/data-pipeline/src/nof1_causal_lab/distributions.py
@@ -32,7 +32,8 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
     "measurements",
     "posterior",
     "simulate",
-    "simulated_measurements"
+    "simulated_measurements",
+    "imported_measurements"
   ],
   "contexts": [
     {
@@ -198,7 +199,7 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
     },
     {
       "action_id": "prepare_data",
-      "description": "Prepare uploaded files with scoring instructions and semantic workers, or materialize one recorded simulation replicate; return model-independent observations, metadata and numerical data checks.",
+      "description": "Prepare uploaded files with scoring instructions and semantic workers, materialize one recorded simulation replicate, or select a pre-extracted Parquet observation table with declared variables and optional date bounds; return model-independent observations, metadata and numerical data checks.",
       "consumes": [],
       "optional_consumes": [
         "raw_data",
@@ -291,6 +292,15 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
     },
     {
       "transition_id": "simulated_measurements",
+      "consumes": [],
+      "produces": [
+        "panel"
+      ],
+      "produces_optional": [],
+      "creation_class": "deterministic"
+    },
+    {
+      "transition_id": "imported_measurements",
       "consumes": [],
       "produces": [
         "panel"

@@ -3,19 +3,21 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
+import pathlib
 import re
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, Response, UploadFile
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from nof1_causal_lab.actions.contracts import ScientificActionRequest  # noqa: TC001
 from nof1_causal_lab.actions.data_diff import DataDiffReport, DataDiffRequest
-from nof1_causal_lab.actions.results import ActionPoll, ActionReceipt
+from nof1_causal_lab.actions.results import ActionPoll, ActionReceipt, RunningAction
 from nof1_causal_lab.actions.revisions import ModelDiffReport, RevisionCatalog
 from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
 from nof1_causal_lab.artifacts.identity import (
@@ -57,10 +59,50 @@ from nof1_causal_lab.machine.store import (
     read_current_state,
     read_episode_trace,
 )
-from nof1_causal_lab.machine.view_models import ArtifactViewResponse
+from nof1_causal_lab.machine.view_models import ArtifactViewResponse, SimulationTrajectories
+from nof1_causal_lab.utils.data import cache_dir
 from nof1_causal_lab.utils.llm import LLMTrace
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
 logger = logging.getLogger(__name__)
+
+
+# A cached read is a function of immutable Git objects and of the code that renders it.
+_CODE_DIGEST = hashlib.sha256(
+    b"".join(path.read_bytes() for path in sorted(pathlib.Path(__file__).parent.rglob("*.py")))
+).hexdigest()
+
+
+def _cached_read(
+    workspace_id: str, key: tuple[str, ...], adapter: TypeAdapter[Any], render: Callable[[], Any]
+) -> Response:
+    """Serve a read pinned to immutable Git objects from the workspace cache tier.
+
+    Keys name exact commits, revisions or finished attempts, and the code digest pins the
+    renderer, so an entry never goes stale. All server processes share the files; a hit
+    skips re-validating and re-serializing the stored artifacts.
+    """
+    digest = hashlib.sha256("\0".join((_CODE_DIGEST, *key)).encode()).hexdigest()
+    path = pathlib.Path(cache_dir(workspace_id)) / "reads" / f"{digest}.json"
+    if path.exists():
+        return Response(content=path.read_bytes(), media_type="application/json")
+    body = adapter.dump_json(render(), by_alias=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # Processes may render one entry concurrently; the rename publishes only whole files.
+    partial = path.with_name(f"{digest}.{os.getpid()}.partial")
+    partial.write_bytes(body)
+    partial.replace(path)
+    return Response(content=body, media_type="application/json")
+
+
+_SNAPSHOT_JSON = TypeAdapter(ModelSnapshot)
+_MODEL_JSON = TypeAdapter(ModelSpec)
+_MODEL_DIFF_JSON = TypeAdapter(ModelDiffReport)
+_ACTION_POLL_JSON = TypeAdapter(ActionPoll)
+_INFERENCE_REPORT_JSON = TypeAdapter(Sourced[InferenceReport] | None)
+_TRAJECTORIES_JSON = TypeAdapter(Sourced[SimulationTrajectories] | None)
 
 router = APIRouter(prefix="/api/episodes")
 
@@ -296,7 +338,7 @@ def get_machine() -> UncheckedJsonObject:
 
 
 # ---------------------------------------------------------------------------
-# Temporal client plumbing (actions only; reads never touch Temporal)
+# Temporal client plumbing (actions and the running attempt; other reads never touch Temporal)
 # ---------------------------------------------------------------------------
 
 _client_lock = asyncio.Lock()
@@ -341,6 +383,26 @@ async def _episode_handle(workspace_id: str):
     )
 
 
+async def _running_action(workspace_id: str) -> RunningAction | None:
+    """The attempt the episode workflow is executing, read from its memo without a worker."""
+    from temporalio.client import WorkflowExecutionStatus
+    from temporalio.service import RPCError, RPCStatusCode
+
+    from nof1_causal_lab.machine.temporal.client import RUNNING_ACTION_MEMO, episode_workflow_id
+
+    client = await _get_client()
+    try:
+        description = await client.get_workflow_handle(episode_workflow_id(workspace_id)).describe()
+    except RPCError as exc:
+        if exc.status == RPCStatusCode.NOT_FOUND:
+            return None
+        raise
+    # A terminated or failed workflow never finishes its attempt; only a live one executes.
+    if description.status != WorkflowExecutionStatus.RUNNING:
+        return None
+    return await description.memo_value(RUNNING_ACTION_MEMO, None, type_hint=RunningAction)
+
+
 # ---------------------------------------------------------------------------
 # Request/response bodies
 # ---------------------------------------------------------------------------
@@ -367,7 +429,7 @@ async def execute_scientific_action(
         raise HTTPException(404, str(exc)) from exc
     attempt_id = uuid4()
     handle = await _episode_handle(workspace_id)
-    await handle.start_update(
+    update = await handle.start_update(
         EpisodeWorkflow.execute_action,
         ActionRequest(
             branch=branch, expected_head=expected_head, request=body, attempt_id=attempt_id
@@ -375,11 +437,24 @@ async def execute_scientific_action(
         id=str(attempt_id),
         wait_for_stage=WorkflowUpdateStage.ACCEPTED,
     )
+    # Temporal can return a rejected update at ACCEPTED without raising. The SDK
+    # exposes no public nonblocking outcome accessor; result() would wait for an
+    # accepted action to finish. Only inspect the outcome returned by this RPC.
+    outcome = update._known_outcome
+    if outcome is not None and outcome.HasField("failure"):
+        failure = outcome.failure
+        reasons = [failure.message]
+        while failure.HasField("cause"):
+            failure = failure.cause
+            reasons.append(failure.message)
+        detail = "Workflow update rejected: " + ": ".join(reasons)
+        logger.error("Action %s for workspace %s: %s", attempt_id, workspace_id, detail)
+        raise HTTPException(500, detail)
     return ActionReceipt(attempt_id=attempt_id)
 
 
 @router.get("/{workspace_id}/actions/{attempt_id}", response_model=ActionPoll)
-async def poll_scientific_action(workspace_id: str, attempt_id: UUID) -> ActionPoll:
+async def poll_scientific_action(workspace_id: str, attempt_id: UUID) -> ActionPoll | Response:
     """Read accumulated labels and the final scientific body without dispatching work."""
     from temporalio.service import RPCError, RPCStatusCode
 
@@ -390,10 +465,20 @@ async def poll_scientific_action(workspace_id: str, attempt_id: UUID) -> ActionP
     workspace_id = _safe_workspace_id(workspace_id)
     record = StudyRepository(workspace_id).dispatched_attempt(attempt_id)
     if record is not None:
-        return ActionPoll(
-            done=True,
-            body=read_action_body(workspace_id, record) if record.status == "applied" else None,
-            messages=record.messages,
+        journaled = record
+        # A journaled attempt never changes; build its body off the event loop once.
+        return await asyncio.to_thread(
+            _cached_read,
+            workspace_id,
+            ("action", str(attempt_id)),
+            _ACTION_POLL_JSON,
+            lambda: ActionPoll(
+                done=True,
+                body=read_action_body(workspace_id, journaled)
+                if journaled.status == "applied"
+                else None,
+                messages=journaled.messages,
+            ),
         )
     if not actions_enabled():
         raise HTTPException(404, "Unknown action attempt")
@@ -431,13 +516,16 @@ def _episode_status(workspace_id: str, *, branch: str = "main") -> UncheckedJson
 
 
 @router.get("/{workspace_id}", response_model=EpisodeStatus)
-def get_episode(workspace_id: str, branch: str = "main") -> UncheckedJsonObject:
+async def get_episode(workspace_id: str, branch: str = "main") -> UncheckedJsonObject:
     """Current episode state: the single read to poll while navigating.
 
     Returns the four scientific action names and per-artifact existence,
-    freshness and revision. Reads the selected Git branch snapshot.
+    freshness and revision from the selected Git branch snapshot, and the
+    attempt the episode's Temporal workflow is executing on any branch, if any.
     """
-    return _episode_status(workspace_id, branch=branch)
+    status = await asyncio.to_thread(_episode_status, workspace_id, branch=branch)
+    running = await _running_action(workspace_id) if actions_enabled() else None
+    return {**status, "running": running.model_dump(mode="json") if running else None}
 
 
 def model_reader(
@@ -452,13 +540,18 @@ def model_reader(
 
 
 @router.get("/{workspace_id}/model", response_model=ModelSnapshot)
-def get_model_snapshot(reader: Annotated[ModelReader, Depends(model_reader)]) -> ModelSnapshot:
+def get_model_snapshot(reader: Annotated[ModelReader, Depends(model_reader)]) -> Response:
     """Batch canonical aggregates in one committed read transaction.
 
     Omit `at` for the selected branch head, or pass an exact Git commit ID.
     Use `context.commit_id` to pin subsequent reads. Failed attempts retain logs without advancing scientific state.
     """
-    return reader.snapshot()
+    return _cached_read(
+        reader.workspace_id,
+        ("snapshot", reader.commit_id, reader.branch),
+        _SNAPSHOT_JSON,
+        reader.snapshot,
+    )
 
 
 @router.get("/{workspace_id}/revisions", response_model=RevisionCatalog)
@@ -484,11 +577,17 @@ def get_revisions(workspace_id: str) -> RevisionCatalog:
 
 
 @router.get("/{workspace_id}/revisions/model/{revision}", response_model=ModelSpec)
-def read_model_revision(workspace_id: str, revision: GitOid) -> ModelSpec:
+def read_model_revision(workspace_id: str, revision: GitOid) -> Response:
     """Read a historical definition, including the input to an earlier fit."""
     from nof1_causal_lab.machine.store import read_model
 
-    return read_model(ArtifactStore(_safe_workspace_id(workspace_id)), revision)
+    workspace_id = _safe_workspace_id(workspace_id)
+    return _cached_read(
+        workspace_id,
+        ("model-revision", revision),
+        _MODEL_JSON,
+        lambda: read_model(ArtifactStore(workspace_id), revision),
+    )
 
 
 @router.get("/{workspace_id}/model-diff", response_model=ModelDiffReport, operation_id="model_diff")
@@ -496,7 +595,7 @@ def get_model_diff(
     workspace_id: str,
     before: GitOid,
     after: GitOid,
-) -> ModelDiffReport:
+) -> Response:
     """Compare two model artifact revisions or Git checkpoints containing a model.
 
     Returns identity-aligned definition changes, parameter decisions and graph
@@ -505,8 +604,14 @@ def get_model_diff(
     """
     from nof1_causal_lab.actions.revisions import model_diff
 
+    workspace_id = _safe_workspace_id(workspace_id)
     try:
-        return model_diff(_safe_workspace_id(workspace_id), before, after)
+        return _cached_read(
+            workspace_id,
+            ("model-diff", before, after),
+            _MODEL_DIFF_JSON,
+            lambda: model_diff(workspace_id, before, after),
+        )
     except SnapshotRevisionNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -557,9 +662,56 @@ def get_model_definition(reader: Annotated[ModelReader, Depends(model_reader)]):
 @router.get(
     "/{workspace_id}/model/inference-report", response_model=Sourced[InferenceReport] | None
 )
-def get_model_inference_report(reader: Annotated[ModelReader, Depends(model_reader)]):
+def get_model_inference_report(reader: Annotated[ModelReader, Depends(model_reader)]) -> Response:
     """Read the inference transition report associated with the selected model revision."""
-    return reader.inference_report
+    return _cached_read(
+        reader.workspace_id,
+        ("inference-report", reader.commit_id, reader.branch),
+        _INFERENCE_REPORT_JSON,
+        lambda: reader.inference_report,
+    )
+
+
+@router.get(
+    "/{workspace_id}/model/simulation-trajectories",
+    response_model=Sourced[SimulationTrajectories] | None,
+)
+def get_simulation_trajectories(reader: Annotated[ModelReader, Depends(model_reader)]) -> Response:
+    """Pointwise means and 95% equal-tail bands from saved outcome histories.
+
+    Pin `at` to a commit to read its latest recorded simulation. Both paired
+    histories use the simulation's own model, ordered variables and observation
+    mask. Empty measurement anchors stay null. No fit or simulation is run.
+    """
+    from nof1_causal_lab.machine.simulation_views import (
+        simulation_time_origin,
+        simulation_trajectories,
+    )
+    from nof1_causal_lab.machine.store import read_model
+
+    def render() -> Sourced[SimulationTrajectories] | None:
+        simulation = reader.simulation()
+        if simulation is None:
+            return None
+        try:
+            value = simulation_trajectories(
+                read_model(reader.store, simulation.value.model.revision),
+                simulation.value,
+                read_array=reader.store.read_array,
+                time_origin=simulation_time_origin(reader.store, simulation.value),
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(404, "Saved simulation arrays were not found") from exc
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return Sourced(value=value, source=simulation.source)
+
+    return _cached_read(
+        reader.workspace_id,
+        ("simulation-trajectories", reader.commit_id, reader.branch),
+        _TRAJECTORIES_JSON,
+        render,
+    )
 
 
 @router.get("/{workspace_id}/model/constructs", response_model=tuple[ConstructSpec, ...])

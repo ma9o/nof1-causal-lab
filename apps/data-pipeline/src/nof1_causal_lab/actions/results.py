@@ -8,7 +8,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 from nof1_causal_lab.artifacts.checks import SpecificationReport
 from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
 from nof1_causal_lab.artifacts.identification import IdentificationReport
-from nof1_causal_lab.artifacts.identity import GitOid, GitRef
+from nof1_causal_lab.artifacts.identity import GitOid, GitRef, ScientificActionId
 from nof1_causal_lab.artifacts.model_checks import ModelPredictiveReport
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.posterior import InferenceReport
@@ -110,6 +110,17 @@ class ActionPoll(BaseModel):
     done: bool
     body: ActionBody | None = None
     messages: tuple[ActionMessage, ...] = ()
+
+
+class RunningAction(BaseModel):
+    """The attempt an episode is executing, with the labels it has emitted so far."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    attempt_id: UUID
+    action: ScientificActionId
+    branch: str
+    messages: tuple[ActionMessage, ...]
 
 
 class PollActionRequest(BaseModel):

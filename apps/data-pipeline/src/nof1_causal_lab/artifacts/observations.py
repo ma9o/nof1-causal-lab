@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import get_args
+from typing import Annotated, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from polars._typing import (
+    FillNullStrategy,  # noqa: TC002 - Pydantic resolves the native vocabulary.
+)
+from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, field_validator, model_validator
 
 from nof1_causal_lab.measurement_types import AggregationFunction, MeasurementDtype
 from nof1_causal_lab.utils.observation_semantics import (
@@ -48,6 +51,24 @@ class ObservationSpec(BaseModel):
             "Resolved by the preparation window or the generative model clock."
         ),
     )
+    fill_null: FillNullStrategy | Annotated[FiniteFloat, Field(strict=True)] | None = Field(
+        default=None,
+        description=(
+            "Optional Polars null filling during preparation, after aggregation on the sorted "
+            "time grid within the selected data span. Use forward, backward, min, max, mean, "
+            "zero, one, or a numeric constant. Fills every null, including explicit unknown "
+            "readings. Omitted leaves nulls unknown. Forward carries the last value and leaves "
+            "leading nulls unknown."
+        ),
+    )
+    fill_null_limit: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. "
+            "Only valid when fill_null is forward or backward."
+        ),
+    )
     ordinal_levels: tuple[str, ...] | None = Field(
         default=None,
         description=(
@@ -72,6 +93,12 @@ class ObservationSpec(BaseModel):
             return None
         parse_duration_to_hours(value)
         return value
+
+    @model_validator(mode="after")
+    def validate_fill_null_limit(self) -> ObservationSpec:
+        if self.fill_null_limit is not None and self.fill_null not in {"forward", "backward"}:
+            raise ValueError("fill_null_limit requires fill_null='forward' or 'backward'")
+        return self
 
     @model_validator(mode="after")
     def validate_discrete_levels(self) -> ObservationSpec:

@@ -56,7 +56,7 @@ def test_preparation_without_model_combines_computed_and_semantic_workers(monkey
                 how_to_measure="Total recorded steps",
                 extraction_mode="computed",
                 source_columns=("steps",),
-                recording="events",
+                fill_null=0,
             ),
             DataVariableSpec(
                 id="indicator:stress",

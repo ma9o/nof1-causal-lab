@@ -845,38 +845,67 @@ class TestComputeIndicators:
 
 
 @pytest.mark.parametrize(
-    ("recording", "aggregation", "expected"),
+    ("fields", "aggregation", "expected"),
     [
-        ("samples", "last", [None, 4.0, None, 8.0]),
-        ("changes", "last", [None, 4.0, 4.0, 8.0]),
-        ("samples", "sum", [None, 4.0, None, 8.0]),
-        ("events", "sum", [None, 4.0, 0.0, 8.0]),
-        ("events", "count", [0.0, 1.0, 0.0, 1.0]),
+        ({}, "last", [None, 4.0, None, None, None, None, 8.0]),
+        ({"fill_null": "forward"}, "last", [None, 4.0, 4.0, 4.0, 4.0, 4.0, 8.0]),
+        (
+            {"fill_null": "forward", "fill_null_limit": 1},
+            "last",
+            [None, 4.0, 4.0, None, None, None, 8.0],
+        ),
+        (
+            {"fill_null": "forward", "fill_null_limit": 0},
+            "last",
+            [None, 4.0, None, None, None, None, 8.0],
+        ),
+        ({"fill_null": "backward"}, "last", [4.0, 4.0, 8.0, 8.0, 8.0, 8.0, 8.0]),
+        (
+            {"fill_null": "backward", "fill_null_limit": 1},
+            "last",
+            [4.0, 4.0, None, None, None, 8.0, 8.0],
+        ),
+        ({"fill_null": "min"}, "last", [4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 8.0]),
+        ({"fill_null": "max"}, "last", [8.0, 4.0, 8.0, 8.0, 8.0, 8.0, 8.0]),
+        ({"fill_null": "mean"}, "last", [6.0, 4.0, 6.0, 6.0, 6.0, 6.0, 8.0]),
+        ({"fill_null": "zero"}, "last", [0.0, 4.0, 0.0, 0.0, 0.0, 0.0, 8.0]),
+        ({"fill_null": "one"}, "last", [1.0, 4.0, 1.0, 1.0, 1.0, 1.0, 8.0]),
+        ({"fill_null": 2.5}, "last", [2.5, 4.0, 2.5, 2.5, 2.5, 2.5, 8.0]),
+        ({}, "sum", [None, 6.0, None, None, None, None, 8.0]),
+        ({"fill_null": 0}, "sum", [0.0, 6.0, 0.0, 0.0, 0.0, 0.0, 8.0]),
+        ({"fill_null": 0}, "count", [0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 1.0]),
+        ({"fill_null": "forward"}, "mean", [None, 3.0, 3.0, 3.0, 3.0, 3.0, 8.0]),
     ],
 )
-def test_recording_semantics_resolve_only_declared_gaps(recording, aggregation, expected):
+def test_fill_null_uses_polars_after_window_aggregation(fields, aggregation, expected):
     from nof1_causal_lab.artifacts.data_preparation import DataVariableSpec
 
     indicator = DataVariableSpec(
         id="indicator:record",
         name="record",
         how_to_measure="Read the recorded value",
-        measurement_dtype="count",
+        measurement_dtype="count" if aggregation == "count" else "continuous",
         aggregation=aggregation,
-        recording=recording,
         extraction_mode="computed",
         source_columns=("reading",),
+        **fields,
     )
     raw = pl.DataFrame(
         {
-            "timestamp": [datetime(2026, 1, 4), datetime(2026, 1, 1), datetime(2026, 1, 2)],
-            "reading": [8.0, None, 4.0],
+            "timestamp": [
+                datetime(2026, 1, 7),
+                datetime(2026, 1, 1),
+                datetime(2026, 1, 2),
+                datetime(2026, 1, 4),
+                datetime(2026, 1, 2, 12),
+            ],
+            "reading": [8.0, None, 2.0, None, 4.0],
         }
     )
     result = compute_indicators(raw, [indicator.model_dump(mode="json")], "1d", "timestamp")
     assert result["value"].cast(pl.Float64).to_list() == expected
-    # Conversions belong to the deterministic recipe and precede persistence.
-    if recording == "changes":
+    # Conversions precede filling, which also covers explicit null readings.
+    if fields == {"fill_null": "forward"} and aggregation == "last":
         converted = indicator.model_copy(update={"computed_rule": "last(reading) / 2"})
         result = compute_indicators(raw, [converted.model_dump(mode="json")], "1d", "timestamp")
-        assert result["value"].cast(pl.Float64).to_list() == [None, 2.0, 2.0, 4.0]
+        assert result["value"].cast(pl.Float64).to_list() == [None, 2.0, 2.0, 2.0, 2.0, 2.0, 4.0]

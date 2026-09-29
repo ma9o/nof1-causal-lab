@@ -70,22 +70,31 @@ class ModelReader:
             self.commit_id = self.repository.resolve(branch=branch, at=at)
         except (ValueError, KeyError) as exc:
             raise SnapshotRevisionNotFound(str(exc)) from exc
-        self.state = self.repository.state(self.commit_id)
-        self.seq = self.records[-1].seq if self.records else 0
-        self.retracted = {
-            item.artifact_id
-            for record in self.records
-            for item in record.retracted
-            if not self.state.has(item.artifact_id)
-        }
         self.branch = branch
         self.store = ArtifactStore(workspace_id)
         self.workspace_id = workspace_id
         self.selected = cache(self._selected)
 
     @cached_property
+    def state(self):
+        return self.repository.state(self.commit_id)
+
+    @cached_property
     def records(self):
         return self.repository.records(self.commit_id)
+
+    @cached_property
+    def seq(self) -> int:
+        return self.records[-1].seq if self.records else 0
+
+    @cached_property
+    def retracted(self) -> set[ArtifactId]:
+        return {
+            item.artifact_id
+            for record in self.records
+            for item in record.retracted
+            if not self.state.has(item.artifact_id)
+        }
 
     def _selected(self, artifact_id: ArtifactId):
         return read_payload(
@@ -259,6 +268,7 @@ class ModelReader:
         from nof1_causal_lab.machine.inference import (
             inference_report_is_current,
             inference_report_record,
+            scientific_inference_report,
         )
 
         if not self.state.has("model"):
@@ -269,12 +279,13 @@ class ModelReader:
         )
         if record is None:
             return None
-        report = InferenceReport.model_validate(record.diagnostics["report"])
+        assert self.model is not None
+        report = scientific_inference_report(
+            self.model, InferenceReport.model_validate(record.diagnostics["report"])
+        )
         current = inference_report_is_current(record, self.state)
         return Sourced(
-            value=report
-            if current
-            else report.model_copy(update={"posterior_marginals": [], "posterior_pairs": []}),
+            value=report,
             source=FactSource(
                 ref=GitRef(
                     workspace_id=self.workspace_id,

@@ -25,6 +25,7 @@ from nof1_causal_lab.models.ssm.observation_support import (
 from nof1_causal_lab.models.ssm.parameterization import (
     build_prior_runtime_bundle,
 )
+from nof1_causal_lab.models.ssm.preflight import ObservationPreflightError
 from nof1_causal_lab.utils.data import pivot_to_wide
 
 if TYPE_CHECKING:
@@ -216,6 +217,14 @@ def project_observation_data(
     """Resolve indicator identities without compiling parameter laws or fitting."""
     labels = {indicator.id: indicator.name for indicator in model_spec.indicators}
     selected = data_for_model.filter(pl.col("indicator_id").is_in(list(labels)))
+    present = set(selected["indicator_id"])
+    missing = [
+        f"{name} ({identity})" for identity, name in labels.items() if identity not in present
+    ]
+    if missing:
+        raise ObservationPreflightError(
+            "Prepared observations are missing model indicators: " + ", ".join(missing)
+        )
     wide_data = pivot_to_wide(selected)
     runtime_rows = selected.rename({"indicator_id": "indicator"})
     wide_data = wide_data.rename(

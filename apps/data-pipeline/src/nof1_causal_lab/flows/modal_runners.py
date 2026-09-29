@@ -106,7 +106,8 @@ async def _run_transition_gpu(
 
 
 @app.function(
-    image=cpu_image.env({"EPISODE_FACADE_READ_ONLY": "1"}),
+    image=cpu_image,
+    env={"EPISODE_FACADE_READ_ONLY": "1"},
     secrets=[secrets],
 )
 @modal.asgi_app()

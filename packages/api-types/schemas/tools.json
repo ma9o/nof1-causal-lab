@@ -376,6 +376,45 @@
                                     "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock.",
                                     "title": "Observation Window"
                                   },
+                                  "fill_null": {
+                                    "anyOf": [
+                                      {
+                                        "enum": [
+                                          "forward",
+                                          "backward",
+                                          "min",
+                                          "max",
+                                          "mean",
+                                          "zero",
+                                          "one"
+                                        ],
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ],
+                                    "default": null,
+                                    "description": "Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.",
+                                    "title": "Fill Null"
+                                  },
+                                  "fill_null_limit": {
+                                    "anyOf": [
+                                      {
+                                        "minimum": 0,
+                                        "type": "integer"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ],
+                                    "default": null,
+                                    "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.",
+                                    "title": "Fill Null Limit"
+                                  },
                                   "ordinal_levels": {
                                     "anyOf": [
                                       {
@@ -1219,6 +1258,45 @@
                                     "default": null,
                                     "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock.",
                                     "title": "Observation Window"
+                                  },
+                                  "fill_null": {
+                                    "anyOf": [
+                                      {
+                                        "enum": [
+                                          "forward",
+                                          "backward",
+                                          "min",
+                                          "max",
+                                          "mean",
+                                          "zero",
+                                          "one"
+                                        ],
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "number"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ],
+                                    "default": null,
+                                    "description": "Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.",
+                                    "title": "Fill Null"
+                                  },
+                                  "fill_null_limit": {
+                                    "anyOf": [
+                                      {
+                                        "minimum": 0,
+                                        "type": "integer"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ],
+                                    "default": null,
+                                    "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.",
+                                    "title": "Fill Null Limit"
                                   },
                                   "ordinal_levels": {
                                     "anyOf": [
@@ -2708,6 +2786,45 @@
                 "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock.",
                 "title": "Observation Window"
               },
+              "fill_null": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "forward",
+                      "backward",
+                      "min",
+                      "max",
+                      "mean",
+                      "zero",
+                      "one"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.",
+                "title": "Fill Null"
+              },
+              "fill_null_limit": {
+                "anyOf": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.",
+                "title": "Fill Null Limit"
+              },
               "ordinal_levels": {
                 "anyOf": [
                   {
@@ -3190,10 +3307,10 @@
     },
     {
       "name": "prepare_data",
-      "description": "Prepare uploaded files with scoring instructions and semantic workers, or materialize one recorded simulation replicate; return model-independent observations, metadata and numerical data checks. Dispatch returns only attempt_id. Use poll_action for messages and the final result.",
+      "description": "Prepare uploaded files with scoring instructions and semantic workers, materialize one recorded simulation replicate, or select a pre-extracted Parquet observation table with declared variables and optional date bounds; return model-independent observations, metadata and numerical data checks. Dispatch returns only attempt_id. Use poll_action for messages and the final result.",
       "parameters": {
         "additionalProperties": false,
-        "description": "Prepare uploaded sources or a recorded simulation replicate, without a model.",
+        "description": "Prepare uploaded sources, a simulation replicate, or extracted observations without a model.",
         "properties": {
           "action": {
             "const": "prepare_data",
@@ -3301,6 +3418,45 @@
                               "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock.",
                               "title": "Observation Window"
                             },
+                            "fill_null": {
+                              "anyOf": [
+                                {
+                                  "enum": [
+                                    "forward",
+                                    "backward",
+                                    "min",
+                                    "max",
+                                    "mean",
+                                    "zero",
+                                    "one"
+                                  ],
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "default": null,
+                              "description": "Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.",
+                              "title": "Fill Null"
+                            },
+                            "fill_null_limit": {
+                              "anyOf": [
+                                {
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "default": null,
+                              "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.",
+                              "title": "Fill Null Limit"
+                            },
                             "ordinal_levels": {
                               "anyOf": [
                                 {
@@ -3337,17 +3493,6 @@
                               "description": "Scoring rubric and extraction instructions.",
                               "minLength": 1,
                               "title": "How To Measure",
-                              "type": "string"
-                            },
-                            "recording": {
-                              "default": "samples",
-                              "description": "Source recording semantics within the raw dataset's covered time span. samples: absent readings are unknown. events: a complete event record; empty sum/count windows are zero. changes: a complete change record; the last recorded value persists, with leading gaps unknown. events and changes require computed extraction.",
-                              "enum": [
-                                "samples",
-                                "events",
-                                "changes"
-                              ],
-                              "title": "Recording",
                               "type": "string"
                             },
                             "source_columns": {
@@ -3450,6 +3595,214 @@
                   "replicate"
                 ],
                 "title": "SimulationReplicateRef",
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "description": "Select already extracted observations by their declared variable schema.",
+                "properties": {
+                  "source": {
+                    "additionalProperties": false,
+                    "description": "An uploaded Parquet observation table and its selected UTC calendar interval.",
+                    "properties": {
+                      "file": {
+                        "description": "Uploaded Parquet filename, without directory components.",
+                        "title": "File",
+                        "type": "string"
+                      },
+                      "start": {
+                        "anyOf": [
+                          {
+                            "format": "date",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "description": "Inclusive UTC anchor date (ISO YYYY-MM-DD).",
+                        "title": "Start"
+                      },
+                      "end": {
+                        "anyOf": [
+                          {
+                            "format": "date",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "description": "Exclusive UTC anchor date (ISO YYYY-MM-DD).",
+                        "title": "End"
+                      }
+                    },
+                    "required": [
+                      "file"
+                    ],
+                    "title": "ObservationTableRef",
+                    "type": "object"
+                  },
+                  "variables": {
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "A stable observed variable, reusable across scientific model definitions.",
+                      "properties": {
+                        "id": {
+                          "pattern": "^indicator:[A-Za-z0-9_.-]+$",
+                          "tsType": "`indicator:${string}`",
+                          "type": "string"
+                        },
+                        "name": {
+                          "description": "Indicator name (e.g., 'hrv', 'self_reported_stress')",
+                          "title": "Name",
+                          "type": "string"
+                        },
+                        "measurement_dtype": {
+                          "enum": [
+                            "continuous",
+                            "binary",
+                            "count",
+                            "ordinal",
+                            "categorical"
+                          ],
+                          "type": "string"
+                        },
+                        "aggregation": {
+                          "enum": [
+                            "mean",
+                            "sum",
+                            "min",
+                            "max",
+                            "std",
+                            "var",
+                            "last",
+                            "first",
+                            "count",
+                            "median",
+                            "p10",
+                            "p25",
+                            "p75",
+                            "p90",
+                            "p99",
+                            "skew",
+                            "kurtosis",
+                            "iqr",
+                            "range",
+                            "cv",
+                            "entropy",
+                            "instability",
+                            "trend",
+                            "n_unique"
+                          ],
+                          "type": "string"
+                        },
+                        "observation_window": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock.",
+                          "title": "Observation Window"
+                        },
+                        "fill_null": {
+                          "anyOf": [
+                            {
+                              "enum": [
+                                "forward",
+                                "backward",
+                                "min",
+                                "max",
+                                "mean",
+                                "zero",
+                                "one"
+                              ],
+                              "type": "string"
+                            },
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "description": "Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.",
+                          "title": "Fill Null"
+                        },
+                        "fill_null_limit": {
+                          "anyOf": [
+                            {
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.",
+                          "title": "Fill Null Limit"
+                        },
+                        "ordinal_levels": {
+                          "anyOf": [
+                            {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "description": "Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.",
+                          "title": "Ordinal Levels"
+                        },
+                        "categorical_levels": {
+                          "anyOf": [
+                            {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "description": "Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding.",
+                          "title": "Categorical Levels"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name",
+                        "measurement_dtype",
+                        "aggregation"
+                      ],
+                      "title": "ObservationSpec",
+                      "type": "object"
+                    },
+                    "minItems": 1,
+                    "title": "Variables",
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "source",
+                  "variables"
+                ],
+                "title": "ObservationTableSpec",
                 "type": "object"
               }
             ],
@@ -4100,6 +4453,45 @@
                                                 "default": null,
                                                 "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock.",
                                                 "title": "Observation Window"
+                                              },
+                                              "fill_null": {
+                                                "anyOf": [
+                                                  {
+                                                    "enum": [
+                                                      "forward",
+                                                      "backward",
+                                                      "min",
+                                                      "max",
+                                                      "mean",
+                                                      "zero",
+                                                      "one"
+                                                    ],
+                                                    "type": "string"
+                                                  },
+                                                  {
+                                                    "type": "number"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ],
+                                                "default": null,
+                                                "description": "Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.",
+                                                "title": "Fill Null"
+                                              },
+                                              "fill_null_limit": {
+                                                "anyOf": [
+                                                  {
+                                                    "minimum": 0,
+                                                    "type": "integer"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ],
+                                                "default": null,
+                                                "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.",
+                                                "title": "Fill Null Limit"
                                               },
                                               "ordinal_levels": {
                                                 "anyOf": [
@@ -4944,6 +5336,45 @@
                                                 "default": null,
                                                 "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock.",
                                                 "title": "Observation Window"
+                                              },
+                                              "fill_null": {
+                                                "anyOf": [
+                                                  {
+                                                    "enum": [
+                                                      "forward",
+                                                      "backward",
+                                                      "min",
+                                                      "max",
+                                                      "mean",
+                                                      "zero",
+                                                      "one"
+                                                    ],
+                                                    "type": "string"
+                                                  },
+                                                  {
+                                                    "type": "number"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ],
+                                                "default": null,
+                                                "description": "Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.",
+                                                "title": "Fill Null"
+                                              },
+                                              "fill_null_limit": {
+                                                "anyOf": [
+                                                  {
+                                                    "minimum": 0,
+                                                    "type": "integer"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ],
+                                                "default": null,
+                                                "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.",
+                                                "title": "Fill Null Limit"
                                               },
                                               "ordinal_levels": {
                                                 "anyOf": [
@@ -7399,9 +7830,53 @@
                                 ],
                                 "title": "SimulationReplicateRef",
                                 "type": "object"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "description": "An uploaded Parquet observation table and its selected UTC calendar interval.",
+                                "properties": {
+                                  "file": {
+                                    "description": "Uploaded Parquet filename, without directory components.",
+                                    "title": "File",
+                                    "type": "string"
+                                  },
+                                  "start": {
+                                    "anyOf": [
+                                      {
+                                        "format": "date",
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ],
+                                    "default": null,
+                                    "description": "Inclusive UTC anchor date (ISO YYYY-MM-DD).",
+                                    "title": "Start"
+                                  },
+                                  "end": {
+                                    "anyOf": [
+                                      {
+                                        "format": "date",
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ],
+                                    "default": null,
+                                    "description": "Exclusive UTC anchor date (ISO YYYY-MM-DD).",
+                                    "title": "End"
+                                  }
+                                },
+                                "required": [
+                                  "file"
+                                ],
+                                "title": "ObservationTableRef",
+                                "type": "object"
                               }
                             ],
-                            "description": "A data source selects uploaded files or one recorded simulation replicate."
+                            "description": "Uploaded sources, one simulation replicate, or a bounded observation table."
                           },
                           "variables": {
                             "items": {
@@ -7469,6 +7944,45 @@
                                   "default": null,
                                   "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock.",
                                   "title": "Observation Window"
+                                },
+                                "fill_null": {
+                                  "anyOf": [
+                                    {
+                                      "enum": [
+                                        "forward",
+                                        "backward",
+                                        "min",
+                                        "max",
+                                        "mean",
+                                        "zero",
+                                        "one"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "number"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ],
+                                  "default": null,
+                                  "description": "Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.",
+                                  "title": "Fill Null"
+                                },
+                                "fill_null_limit": {
+                                  "anyOf": [
+                                    {
+                                      "minimum": 0,
+                                      "type": "integer"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ],
+                                  "default": null,
+                                  "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.",
+                                  "title": "Fill Null Limit"
                                 },
                                 "ordinal_levels": {
                                   "anyOf": [
@@ -7593,6 +8107,45 @@
                                           "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock.",
                                           "title": "Observation Window"
                                         },
+                                        "fill_null": {
+                                          "anyOf": [
+                                            {
+                                              "enum": [
+                                                "forward",
+                                                "backward",
+                                                "min",
+                                                "max",
+                                                "mean",
+                                                "zero",
+                                                "one"
+                                              ],
+                                              "type": "string"
+                                            },
+                                            {
+                                              "type": "number"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ],
+                                          "default": null,
+                                          "description": "Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.",
+                                          "title": "Fill Null"
+                                        },
+                                        "fill_null_limit": {
+                                          "anyOf": [
+                                            {
+                                              "minimum": 0,
+                                              "type": "integer"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ],
+                                          "default": null,
+                                          "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.",
+                                          "title": "Fill Null Limit"
+                                        },
                                         "ordinal_levels": {
                                           "anyOf": [
                                             {
@@ -7629,17 +8182,6 @@
                                           "description": "Scoring rubric and extraction instructions.",
                                           "minLength": 1,
                                           "title": "How To Measure",
-                                          "type": "string"
-                                        },
-                                        "recording": {
-                                          "default": "samples",
-                                          "description": "Source recording semantics within the raw dataset's covered time span. samples: absent readings are unknown. events: a complete event record; empty sum/count windows are zero. changes: a complete change record; the last recorded value persists, with leading gaps unknown. events and changes require computed extraction.",
-                                          "enum": [
-                                            "samples",
-                                            "events",
-                                            "changes"
-                                          ],
-                                          "title": "Recording",
                                           "type": "string"
                                         },
                                         "source_columns": {
@@ -8502,6 +9044,45 @@
                                                 "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock.",
                                                 "title": "Observation Window"
                                               },
+                                              "fill_null": {
+                                                "anyOf": [
+                                                  {
+                                                    "enum": [
+                                                      "forward",
+                                                      "backward",
+                                                      "min",
+                                                      "max",
+                                                      "mean",
+                                                      "zero",
+                                                      "one"
+                                                    ],
+                                                    "type": "string"
+                                                  },
+                                                  {
+                                                    "type": "number"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ],
+                                                "default": null,
+                                                "description": "Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.",
+                                                "title": "Fill Null"
+                                              },
+                                              "fill_null_limit": {
+                                                "anyOf": [
+                                                  {
+                                                    "minimum": 0,
+                                                    "type": "integer"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ],
+                                                "default": null,
+                                                "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.",
+                                                "title": "Fill Null Limit"
+                                              },
                                               "ordinal_levels": {
                                                 "anyOf": [
                                                   {
@@ -9345,6 +9926,45 @@
                                                 "default": null,
                                                 "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock.",
                                                 "title": "Observation Window"
+                                              },
+                                              "fill_null": {
+                                                "anyOf": [
+                                                  {
+                                                    "enum": [
+                                                      "forward",
+                                                      "backward",
+                                                      "min",
+                                                      "max",
+                                                      "mean",
+                                                      "zero",
+                                                      "one"
+                                                    ],
+                                                    "type": "string"
+                                                  },
+                                                  {
+                                                    "type": "number"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ],
+                                                "default": null,
+                                                "description": "Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.",
+                                                "title": "Fill Null"
+                                              },
+                                              "fill_null_limit": {
+                                                "anyOf": [
+                                                  {
+                                                    "minimum": 0,
+                                                    "type": "integer"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ],
+                                                "default": null,
+                                                "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.",
+                                                "title": "Fill Null Limit"
                                               },
                                               "ordinal_levels": {
                                                 "anyOf": [
@@ -11139,6 +11759,45 @@
                                       "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock.",
                                       "title": "Observation Window"
                                     },
+                                    "fill_null": {
+                                      "anyOf": [
+                                        {
+                                          "enum": [
+                                            "forward",
+                                            "backward",
+                                            "min",
+                                            "max",
+                                            "mean",
+                                            "zero",
+                                            "one"
+                                          ],
+                                          "type": "string"
+                                        },
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "default": null,
+                                      "description": "Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.",
+                                      "title": "Fill Null"
+                                    },
+                                    "fill_null_limit": {
+                                      "anyOf": [
+                                        {
+                                          "minimum": 0,
+                                          "type": "integer"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "default": null,
+                                      "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.",
+                                      "title": "Fill Null Limit"
+                                    },
                                     "ordinal_levels": {
                                       "anyOf": [
                                         {
@@ -12281,9 +12940,12 @@
               },
               {
                 "$ref": "#/$defs/SimulationReplicateRef"
+              },
+              {
+                "$ref": "#/$defs/ObservationTableRef"
               }
             ],
-            "description": "A data source selects uploaded files or one recorded simulation replicate."
+            "description": "Uploaded sources, one simulation replicate, or a bounded observation table."
           },
           "DataVariableSpec": {
             "additionalProperties": false,
@@ -12318,6 +12980,45 @@
                 "default": null,
                 "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock.",
                 "title": "Observation Window"
+              },
+              "fill_null": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "forward",
+                      "backward",
+                      "min",
+                      "max",
+                      "mean",
+                      "zero",
+                      "one"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.",
+                "title": "Fill Null"
+              },
+              "fill_null_limit": {
+                "anyOf": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.",
+                "title": "Fill Null Limit"
               },
               "ordinal_levels": {
                 "anyOf": [
@@ -12355,17 +13056,6 @@
                 "description": "Scoring rubric and extraction instructions.",
                 "minLength": 1,
                 "title": "How To Measure",
-                "type": "string"
-              },
-              "recording": {
-                "default": "samples",
-                "description": "Source recording semantics within the raw dataset's covered time span. samples: absent readings are unknown. events: a complete event record; empty sum/count windows are zero. changes: a complete change record; the last recorded value persists, with leading gaps unknown. events and changes require computed extraction.",
-                "enum": [
-                  "samples",
-                  "events",
-                  "changes"
-                ],
-                "title": "Recording",
                 "type": "string"
               },
               "source_columns": {
@@ -13054,6 +13744,45 @@
                 "default": null,
                 "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock.",
                 "title": "Observation Window"
+              },
+              "fill_null": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "forward",
+                      "backward",
+                      "min",
+                      "max",
+                      "mean",
+                      "zero",
+                      "one"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.",
+                "title": "Fill Null"
+              },
+              "fill_null_limit": {
+                "anyOf": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.",
+                "title": "Fill Null Limit"
               },
               "ordinal_levels": {
                 "anyOf": [
@@ -14040,6 +14769,45 @@
                 "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock.",
                 "title": "Observation Window"
               },
+              "fill_null": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "forward",
+                      "backward",
+                      "min",
+                      "max",
+                      "mean",
+                      "zero",
+                      "one"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.",
+                "title": "Fill Null"
+              },
+              "fill_null_limit": {
+                "anyOf": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.",
+                "title": "Fill Null Limit"
+              },
               "ordinal_levels": {
                 "anyOf": [
                   {
@@ -14080,6 +14848,50 @@
               "aggregation"
             ],
             "title": "ObservationSpec",
+            "type": "object"
+          },
+          "ObservationTableRef": {
+            "additionalProperties": false,
+            "description": "An uploaded Parquet observation table and its selected UTC calendar interval.",
+            "properties": {
+              "file": {
+                "description": "Uploaded Parquet filename, without directory components.",
+                "title": "File",
+                "type": "string"
+              },
+              "start": {
+                "anyOf": [
+                  {
+                    "format": "date",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Inclusive UTC anchor date (ISO YYYY-MM-DD).",
+                "title": "Start"
+              },
+              "end": {
+                "anyOf": [
+                  {
+                    "format": "date",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exclusive UTC anchor date (ISO YYYY-MM-DD).",
+                "title": "End"
+              }
+            },
+            "required": [
+              "file"
+            ],
+            "title": "ObservationTableRef",
             "type": "object"
           },
           "PPCOverlay": {

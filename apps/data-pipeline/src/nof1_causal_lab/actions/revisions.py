@@ -120,18 +120,16 @@ class ModelDiffReport(BaseModel):
 def compare_parameters(left: ModelSpec, right: ModelSpec) -> list[ParameterChange]:
     """Compare native parameter decisions and law contents by persistent identity."""
     old, new = {p.id: p for p in left.parameters}, {p.id: p for p in right.parameters}
+    old_laws = left.model_dump(mode="json")["distributions"]
+    new_laws = right.model_dump(mode="json")["distributions"]
     changes = []
     for identity in sorted(old.keys() | new.keys()):
         a, b = old.get(identity), new.get(identity)
         if a == b and (
             a is None
             or a.distribution is None
-            or json.dumps(
-                left.model_dump(mode="json")["distributions"][a.distribution], sort_keys=True
-            )
-            == json.dumps(
-                right.model_dump(mode="json")["distributions"][a.distribution], sort_keys=True
-            )
+            or json.dumps(old_laws[a.distribution], sort_keys=True)
+            == json.dumps(new_laws[a.distribution], sort_keys=True)
         ):
             continue
         change = (

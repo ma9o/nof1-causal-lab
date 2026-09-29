@@ -37,7 +37,7 @@ def fit(
     sampler_config: SamplerConfig,
     array_writer: Callable[[np.ndarray], str],
     array_loader: ArrayLoader,
-    workspace_id: str,
+    workspace_id: str | None,
     compute_loo_diagnostics: bool,
 ) -> UncheckedJsonObject:
     """Fit the model from materialized model-spec/2 artifacts and shape posterior."""

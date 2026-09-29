@@ -125,7 +125,7 @@ ACTIONS: tuple[ActionSpec, ...] = (
     ),
     ActionSpec(
         "prepare_data",
-        "Prepare uploaded files with scoring instructions and semantic workers, or materialize one recorded simulation replicate; return model-independent observations, metadata and numerical data checks.",
+        "Prepare uploaded files with scoring instructions and semantic workers, materialize one recorded simulation replicate, or select a pre-extracted Parquet observation table with declared variables and optional date bounds; return model-independent observations, metadata and numerical data checks.",
         optional_consumes=("raw_data", "model"),
         produces_optional=("raw_data", "panel"),
         derives=("data_profile", "validation_report"),

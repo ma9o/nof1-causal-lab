@@ -51,10 +51,13 @@ def episode_workflow_runner() -> SandboxedWorkflowRunner:
     by construction (the workflow only calls the pure machine functions).
     Typed model requests run deterministic NetworkX graph validation during
     payload decoding; its import-time backend configuration stays outside replay.
+    Native prior constructors also lazily import JAX/NumPyro while decoding;
+    encoding their array dtypes lazily imports NumPy. These numerical modules
+    must retain the worker's initialized instances in both directions.
     """
     return SandboxedWorkflowRunner(
         restrictions=SandboxRestrictions.default.with_passthrough_modules(
-            "nof1_causal_lab", "pydantic", "networkx"
+            "nof1_causal_lab", "pydantic", "networkx", "jax", "jaxlib", "numpyro", "numpy"
         )
     )
 
@@ -149,4 +152,6 @@ async def run_worker() -> None:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
+    # The SDK reports update decoding/validation rejections only at DEBUG.
+    logging.getLogger("temporalio.worker._workflow_instance").setLevel(logging.DEBUG)
     asyncio.run(run_worker())

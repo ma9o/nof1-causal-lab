@@ -13,6 +13,7 @@ from nof1_causal_lab.machine.execution import (
     ExecutionOperation,
     FitOperation,
     PrepareFilesOperation,
+    PrepareObservationTableOperation,
     PrepareSimulationOperation,
     SimulateOperation,
 )
@@ -28,11 +29,19 @@ class ActionExecution:
 
 def plan_execution(request: PrepareDataRequest | FitRequest | SimulateRequest) -> ActionExecution:
     if isinstance(request, PrepareDataRequest):
-        from nof1_causal_lab.artifacts.data_preparation import SimulationReplicateRef
+        from nof1_causal_lab.artifacts.data_preparation import (
+            ObservationTableSpec,
+            SimulationReplicateRef,
+        )
 
         if isinstance(request.input, SimulationReplicateRef):
             return ActionExecution(
                 operation=PrepareSimulationOperation(source=request.input), input_revisions={}
+            )
+        if isinstance(request.input, ObservationTableSpec):
+            return ActionExecution(
+                operation=PrepareObservationTableOperation(preparation=request.input),
+                input_revisions={},
             )
         return ActionExecution(
             operation=PrepareFilesOperation(preparation=request.input), input_revisions={}
