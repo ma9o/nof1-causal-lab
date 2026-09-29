@@ -173,7 +173,7 @@ function generateTools(): void {
     " * AUTO-GENERATED — DO NOT EDIT",
     " *",
     " * Generated from Python ToolDefinition definitions via:",
-    " *   cd apps/data-pipeline && uv run python -m scripts.export_schemas",
+    " *   cd apps/data-pipeline && uv run python -m scripts.codegen.export_api",
     " *   cd packages/api-types && bun run scripts/generate.ts",
     " *",
     " * Source of truth: apps/data-pipeline/src/nof1_causal_lab/flows/context_tools.py",
@@ -237,7 +237,7 @@ function generateMetadata(): void {
     " * AUTO-GENERATED — DO NOT EDIT",
     " *",
     " * Generated from Python distribution catalog via:",
-    " *   cd apps/data-pipeline && uv run python -m scripts.export_schemas",
+    " *   cd apps/data-pipeline && uv run python -m scripts.codegen.export_api",
     " *   cd packages/api-types && bun run scripts/generate.ts",
     " *",
     " * Source of truth: apps/data-pipeline/src/nof1_causal_lab/distributions.py",
@@ -275,7 +275,7 @@ async function main() {
       " * AUTO-GENERATED — DO NOT EDIT\n" +
       " *\n" +
       " * Generated from Python Pydantic models via:\n" +
-      " *   cd apps/data-pipeline && uv run python -m scripts.export_schemas\n" +
+      " *   cd apps/data-pipeline && uv run python -m scripts.codegen.export_api\n" +
       " *   cd packages/api-types && bun run scripts/generate.ts\n" +
       " *\n" +
       " * Source of truth: apps/data-pipeline/src/nof1_causal_lab/artifacts/catalog.py\n" +

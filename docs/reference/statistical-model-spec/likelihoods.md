@@ -28,7 +28,7 @@ Particle inference supports direct point bindings `Delta(v=state(x))`. Observed 
 The numerical backend derives its family and response from these expressions, and it rejects unsupported formulas before fitting.
 
 > The sections below are generated from `nof1_causal_lab.distributions`.
-> Edit the Python catalog and re-run `uv run python scripts/export_distribution_docs.py` instead of editing them manually.
+> Edit the Python catalog and re-run `uv run python scripts/codegen/export_distribution_docs.py` instead of editing them manually.
 
 ## Dtype-to-Distribution Mapping
 

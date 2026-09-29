@@ -163,7 +163,7 @@ indent-style = "space"
 skip-magic-trailing-comma = false
 
 [tool.vulture]
-# src must prove its own liveness. scripts/run_vulture.py checks evaluation,
+# src must prove its own liveness. scripts/checks/run_vulture.py checks evaluation,
 # scripts, notebooks, and tests as independent ownership seams; none of them can
 # keep a definition in src alive.
 paths = ["src"]

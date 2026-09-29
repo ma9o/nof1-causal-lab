@@ -3,7 +3,7 @@
 Defines the parameter roles, prior vocabulary, and default guidance for `ParameterSpec` entries with native priors in a `ModelSpec`.
 
 > All sections below are generated from `nof1_causal_lab.distributions`.
-> Edit the Python catalog and re-run `uv run python scripts/export_distribution_docs.py` instead of editing them manually.
+> Edit the Python catalog and re-run `uv run python scripts/codegen/export_distribution_docs.py` instead of editing them manually.
 
 ## Parameter Roles
 

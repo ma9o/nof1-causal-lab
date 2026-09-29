@@ -140,7 +140,7 @@ Format-3 studies still store extraction instructions on their models. To convert
 2. Run the converter with the original uploaded filenames. The destination must be new and outside the source, and the source is left untouched.
 
    ```bash
-   uv run --project apps/data-pipeline python apps/data-pipeline/scripts/migrate_data_preparation.py \
+   uv run --project apps/data-pipeline python apps/data-pipeline/scripts/migrations/migrate_data_preparation.py \
      data/STUDY /tmp/migrated/STUDY --files diary.csv
    ```
 
@@ -181,7 +181,19 @@ process-compose --port 8181 process restart worker
 
 The worker caches `apps/data-pipeline/config.yaml` at first read
 (`lru_cache`), so after editing pipeline config, restart the `worker`
-process — no need to bounce the whole stack. The Temporal dev server
+process — no need to bounce the whole stack. If the supervisor was started with
+`up --no-deps web`, `process-compose project update` can disable its dependency
+processes; check that Temporal is still running afterward.
+
+For local-study GPU fits, set `inference.compute_backend: modal` in
+[`config.yaml`](../../apps/data-pipeline/config.yaml) and restart the worker.
+The [Modal compute adapter](../../apps/data-pipeline/src/nof1_causal_lab/flows/modal_fit.py)
+uses the installed Modal credentials, creates an ephemeral
+`nof1-causal-lab-pipeline` app with the current source, and reuses
+`nof1-cached-fit-cache:/jax`. The study remains local; the
+[fit chart](../assets/action-flows/fit.svg) owns its failure and publication flow.
+
+The Temporal dev server
 persists its event history to `.local/agentic-integration-stack/temporal.db`
 (the `--db-filename` on its command), so restarting the `temporal`
 process — to serve the UI, pick up a change, or recover from a crash —
@@ -226,11 +238,11 @@ artifact trees while its local bare repository remains gitignored. The files in
 The tracked `data/DEMO/episode/history.bundle` and `data/DEMO/store/` are the fixture's authoritative inputs. Files under `data/DEMO/fixture/` are generated projections for Storybook and tests. Regenerate or check them with:
 
 ```bash
-bun run fixture:demo
-bun run fixture:demo:check
+bun run fixture:build
+bun run fixture:check
 ```
 
-Both commands restore the bundle into an isolated temporary repository and use the production readers to project artifacts, logs, traces and historical snapshots. They do not read the local `history.git` or the generated projections as inputs. DEMO has no numbered artifact directories or separate journal and trace directories.
+Both commands restore the bundle into an isolated temporary repository and use the production readers to project artifacts, logs, traces, historical snapshots and workbench comparisons in one pass. They do not read the local `history.git` or the generated projections as inputs. DEMO has no numbered artifact directories or separate journal and trace directories.
 
 The bundle preserves the existing illustrative history and numerical findings. Its original posterior samples were not retained, so the fit remains explicitly report-only. Archived predictive checks belong to that attempt at `logs/predictive_checks.json` and are projected into the fixture directory. Regeneration does not fit, simulate, or invent missing scientific artifacts. Prior plot viewports use a small deterministic draw from the retained prior laws.
 
@@ -283,7 +295,7 @@ curl -s "http://localhost:8100/api/episodes/$WORKSPACE_ID/events" | jq '.events[
 
 - `http://localhost:3000/v2/{WORKSPACE_ID}` is the model workbench, the default destination from the workspace list. `http://localhost:3000/v1/{WORKSPACE_ID}` keeps the older stage-by-stage interface, whose interactivity is not a compatibility requirement.
 - After each backend action, check that the workbench shows the question, graph, entity details, data, findings, history and action log. The workbench is read-only: the agent submits every change through the backend API.
-- Storybook's **V2 / Model / Workbench / Complete** story covers the workbench with mocked responses. Extend it rather than adding separate stories. `bun run fixture:workbench` regenerates its pinned responses, and `bun run fixture:workbench:check` verifies them.
+- Storybook's **V2 / Model / Workbench / Complete** story covers the workbench with mocked responses. Extend it rather than adding separate stories. Its pinned responses are included in the [fixture build and check](#promoting-a-workspace-to-the-demo-fixture).
 
 If the UI behaves unexpectedly, check Next.js devtools MCP errors before debugging the browser script.
 

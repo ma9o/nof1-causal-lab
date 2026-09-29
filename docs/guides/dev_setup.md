@@ -58,7 +58,7 @@ Or individually:
 | App | Command | Port |
 |-----|---------|------|
 | Web viewer | `cd apps/web && bun run dev` | 3000 |
-| Temporal dev server | `cd apps/data-pipeline && uv run python scripts/temporal_dev_server.py` | 7233 |
+| Temporal dev server | `cd apps/data-pipeline && uv run python scripts/dev/temporal_dev_server.py` | 7233 |
 | Episode worker | `cd apps/data-pipeline && uv run python -m nof1_causal_lab.machine.temporal.worker` | — |
 | Tool server / episode facade | `cd apps/data-pipeline && bun run dev` | 8100 |
 
@@ -92,9 +92,9 @@ subcommands. Related commands share a colon namespace; artifact checks end in
 |----------|---------------|
 | Development | `dev`, `build`, `storybook`, `integration:start` |
 | Quality | `check`, `lint`, `lint:fix`, `format`, `format:check`, `type-check`, `test`, `test:all`, `test:fixture-promotion`, `knip`, `duplicates` |
-| API generation | `codegen`, `codegen:check`, `types:graph` |
+| API generation | `codegen`, `codegen:check` |
 | Documentation | `docs:codegen`, `docs:check`; individual tasks under `docs:distribution`, `docs:latex`, `docs:markdown:check`, `docs:spell:check` |
-| Fixtures | `fixture:promote`, `fixture:demo`, `fixture:demo:check` |
+| Fixtures | `fixture:promote`, `fixture:build`, `fixture:check` |
 
 Use `bun run` to list root scripts, or `bun run --cwd <workspace>` to list one
 package's scripts. Run focused tasks in their workspace, for example:
@@ -102,7 +102,7 @@ package's scripts. Run focused tasks in their workspace, for example:
 ```bash
 bun run --cwd apps/web storybook:build
 bun run --cwd apps/data-pipeline lint:type-boundaries:tests
-bun run --cwd packages/api-types codegen:contracts:json:check
+bun run --cwd packages/api-types codegen:schemas:check
 ```
 
 Check and update variants reuse their base command with the relevant flag. Keep

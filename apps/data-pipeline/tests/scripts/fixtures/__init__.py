@@ -1,0 +1,1 @@
+"""Fixture generation test support."""

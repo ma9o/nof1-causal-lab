@@ -34,7 +34,7 @@ async function seedCompleteWorkspace(
       "--project",
       "apps/data-pipeline",
       "python",
-      "apps/data-pipeline/tests/scripts/promotion_fixture.py",
+      "apps/data-pipeline/tests/scripts/fixtures/promotion_fixture.py",
       dataRoot,
       workspaceId,
       JSON.stringify(options),

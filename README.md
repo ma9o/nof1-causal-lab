@@ -68,8 +68,8 @@ See the [dev setup guide](docs/guides/dev_setup.md) for full details including e
 ## Documentation
 
 - **How each action works:** [edit_model](docs/assets/action-flows/edit-model.svg), [prepare_data](docs/assets/action-flows/prepare-data.svg), [fit](docs/assets/action-flows/fit.svg) and [simulate](docs/assets/action-flows/simulate.svg).
-- **[Bayesian workflow](docs/assets/bayesian-workflow.svg):** the book's workflow mapped onto the four actions, including what is still missing.
+- **[Bayesian workflow](docs/assets/bayesian-workflow.svg):** the book's workflow mapped onto the four actions and the two read-only comparisons, including what is still missing.
 - **[Assumptions and limits](docs/assumptions.md):** the modeling commitments behind every result.
 - **Supported laws:** [likelihoods](docs/reference/statistical-model-spec/likelihoods.md) and [priors](docs/reference/statistical-model-spec/parameters.md), generated from the code.
 - **API:** the Swagger UI at `http://localhost:8100/api/tools/docs` while the tool server runs, and the generated [agent skill](.agents/skills/nof1-episode-api/SKILL.md).
-- **Guides:** [dev setup](docs/guides/dev_setup.md), [integration testing](docs/guides/agentic_integration_testing.md), [code generation](docs/guides/codegen.md), [cached inference](docs/guides/cached_inference.md) and [benchmarks](docs/guides/running_evals.md).
+- **Guides:** [dev setup](docs/guides/dev_setup.md), [integration testing](docs/guides/agentic_integration_testing.md), [code generation](docs/guides/codegen.md) and [benchmarks](docs/guides/running_evals.md).
