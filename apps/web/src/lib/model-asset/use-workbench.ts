@@ -4,7 +4,6 @@ import type { ModelSnapshot, StudyRevision } from "@nof1-causal-lab/api-types";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useModelDiff } from "@/lib/hooks/use-model-diff";
-import { hasCausalEffects } from "@/lib/simulation-report";
 import { indexModel } from "./entities";
 import { journalTicks, latestSeq } from "./journal";
 import type { ScopeContext } from "./scope";
@@ -121,10 +120,9 @@ export function useWorkbench({
   };
   const question = model.model?.value.question ?? initialQuestion;
   const simulation = model.findings.simulation;
-  const causalResult =
-    simulation?.source.validity === "fresh" &&
-    hasCausalEffects(simulation.value) &&
-    simulation.value.model.revision === modelRevision
+  // Node histories need a simulation of the viewed model revision, certified or not.
+  const simulationResult =
+    simulation?.source.validity === "fresh" && simulation.value.model.revision === modelRevision
       ? simulation.value
       : null;
   const select = (next: ModelSelection | null) => {
@@ -157,7 +155,7 @@ export function useWorkbench({
     toggleComparison,
     selectVersion,
     question,
-    causalResult,
+    simulationResult,
     select,
     context,
   };

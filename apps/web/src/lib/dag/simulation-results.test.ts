@@ -56,9 +56,7 @@ describe("buildSimulationScenarios — interventions from a persisted trace", ()
     expect(newest.result.causal_result.summary.mean).toBe(
       interventionResult.causal_result.summary.mean,
     );
-    expect(
-      newest.result.causal_result.trajectories[newest.result.causal_result.outcome],
-    ).toBeDefined();
+    expect(newest.result.predictive.states[newest.result.causal_result.outcome]).toBeDefined();
   });
 
   it("captures historical starts and manifest effects", () => {

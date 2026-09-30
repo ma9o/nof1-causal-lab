@@ -24,10 +24,10 @@ export function parseSimulationReport(output: unknown): SimulationWithEffects | 
     report.design.interventions.length > 0 &&
     report.model?.revision != null &&
     Array.isArray(report.times) &&
-    Array.isArray(result?.time_grid_days) &&
+    Array.isArray(result?.effect_trajectory) &&
     result.outcome != null &&
     result.labels != null &&
-    result.trajectories != null &&
+    report.predictive?.states != null &&
     result.summary != null
     ? (value as SimulationWithEffects)
     : null;

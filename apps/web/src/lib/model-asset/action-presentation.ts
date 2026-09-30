@@ -1,16 +1,10 @@
 import type { ModelDiffReport, ModelSnapshot } from "@nof1-causal-lab/api-types";
-import type { JournalTick } from "./journal";
 import { humanize } from "./selection";
 
 export function recordValue(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
-}
-
-export function editBase(tick: JournalTick): string | null {
-  const model = tick.produced.find((item) => item.artifact_id === "model");
-  return model?.derived_from.model ?? null;
 }
 
 const countLabel = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;

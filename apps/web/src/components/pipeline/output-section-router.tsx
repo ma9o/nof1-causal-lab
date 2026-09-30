@@ -12,17 +12,11 @@ import { resolveTransitionObservedStatus } from "@/lib/transition-runtime";
 import { OutputPresentationShell } from "./output-presentation-shell";
 
 const RawDataView = lazy(() => import("./output-views/raw-data-view"));
-const LatentStructureView = lazy(() => import("./output-views/latent-structure-view"));
-const MeasurementStructureView = lazy(() => import("./output-views/measurement-structure-view"));
 const MeasurementsView = lazy(() => import("./output-views/measurements-view"));
 const MeasurementsRunningOutputView = lazy(
   () => import("./output-views/measurements-running-view"),
 );
-const StatisticalModelSpecRunningOutputView = lazy(
-  () => import("./output-views/statistical-model-spec-running-view"),
-);
 const ValidationReportView = lazy(() => import("./output-views/validation-report-view"));
-const StatisticalModelSpecView = lazy(() => import("./output-views/statistical-model-spec-view"));
 const PosteriorView = lazy(() => import("./output-views/posterior-view"));
 const LLMTracePanel = lazy(() =>
   import("@/components/ui/custom/llm-trace-panel").then((module) => ({
@@ -83,14 +77,6 @@ function OutputSectionRouterInner({
           <Suspense fallback={null}>
             <MeasurementsRunningOutputView workspaceId={workspaceId} />
           </Suspense>
-        ) : output.id === "statistical_model_spec" &&
-          (effectiveStatus === "running" || effectiveStatus === "failed") ? (
-          <Suspense fallback={null}>
-            <StatisticalModelSpecRunningOutputView
-              workspaceId={workspaceId}
-              showError={effectiveStatus !== "failed"}
-            />
-          </Suspense>
         ) : undefined
       }
       panelContent={
@@ -144,12 +130,6 @@ function OutputView({
           <RawDataView workspaceId={workspaceId} data={data.data.raw_data.value} />
         )
       );
-    case "latent_structure":
-      return data.model && <LatentStructureView data={data.model.value} />;
-    case "measurement_structure":
-      return data.model && <MeasurementStructureView data={data} />;
-    case "statistical_model_spec":
-      return data.model && <StatisticalModelSpecView data={data} />;
     case "measurements":
       return (
         data.data.measurements && (

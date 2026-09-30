@@ -48,7 +48,7 @@ function measurementXDomain(data: MeasurementChartPoint[]): [number, number] {
 
 // ── Inline chart ──────────────────────────────────────────
 
-const MeasurementSparkline = memo(
+export const MeasurementSparkline = memo(
   function MeasurementSparkline({ row }: { row: MeasurementRow }) {
     const nObs = row.diagnostics?.profile?.n_obs ?? 0;
     const bins = (row.diagnostics?.histogram ?? []).map((bin) => ({

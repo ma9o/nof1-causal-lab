@@ -11,8 +11,8 @@ export const LAYERED_NODE_WIDTH = 250;
 export const LAYERED_NODE_HEIGHT = 132;
 export const LAYERED_HISTORY_WIDTH = 156;
 export const LAYERED_HISTORY_HEIGHT = 54;
-export const LAYERED_EDGE_SLOT_WIDTH = 78;
-export const LAYERED_EDGE_SLOT_HEIGHT = 32;
+export const LAYERED_EDGE_SLOT_WIDTH = 96;
+export const LAYERED_EDGE_SLOT_HEIGHT = 40;
 
 export type LayeredGraphNodeMeta =
   | { kind: "construct"; construct: ConstructSpec }
@@ -25,7 +25,7 @@ export interface LayeredGraphEdgeMeta {
   effect: ConstructId;
   source: string;
   target: string;
-  lagged: boolean;
+  crossSlice: boolean;
   isSelf: boolean;
   slotId: string;
 }
@@ -46,10 +46,6 @@ const partition = (value: 0 | 1 | 2): Record<string, string> => ({
   "elk.partitioning.partition": String(value),
 });
 
-function constructPartition(construct: ConstructSpec): 0 | 2 {
-  return construct.temporal_status === "time_invariant" ? 0 : 2;
-}
-
 /**
  * Lay out the backend-selected constructs and edges for a committed checkpoint.
  * Comparisons decorate this layout without moving its existing nodes.
@@ -57,6 +53,7 @@ function constructPartition(construct: ConstructSpec): 0 | 2 {
 export function buildLayeredCausalGraph(
   constructs: ConstructSpec[],
   edges: CausalEdgeSpec[],
+  dynamicConstructIds: readonly ConstructId[],
 ): LayeredGraphBundle {
   const constructById = new Map(constructs.map((construct) => [construct.id, construct] as const));
   const historyById = new Map(constructs.map((construct) => [ghostId(construct.id), construct]));
@@ -68,20 +65,15 @@ export function buildLayeredCausalGraph(
     }
   }
 
-  const timeVaryingIds = new Set(
-    constructs
-      .filter((construct) => construct.temporal_status === "time_varying")
-      .map((construct) => construct.id),
-  );
-  const selfDynamicConstructs = constructs.filter(
-    (construct) => construct.role === "endogenous" && construct.temporal_status === "time_varying",
-  );
+  const timeVaryingIds = new Set(dynamicConstructIds);
+  const constructPartition = (construct: ConstructSpec): 0 | 2 =>
+    timeVaryingIds.has(construct.id) ? 2 : 0;
+  const selfDynamicConstructs = constructs.filter((construct) => timeVaryingIds.has(construct.id));
   const causalLinks = edges
     .filter((edge) => edge.cause.id !== edge.effect.id)
     .map((edge) => ({
       ...edge,
-      source:
-        edge.lagged && timeVaryingIds.has(edge.cause.id) ? ghostId(edge.cause.id) : edge.cause.id,
+      source: timeVaryingIds.has(edge.cause.id) ? ghostId(edge.cause.id) : edge.cause.id,
       target: edge.effect.id,
     }));
   const ghosts = new Set([
@@ -96,7 +88,7 @@ export function buildLayeredCausalGraph(
       effect: edge.effect.id,
       source: edge.source,
       target: edge.target,
-      lagged: edge.lagged,
+      crossSlice: isGhost(edge.source),
       isSelf: false,
     })),
     ...selfDynamicConstructs.map((construct) => ({
@@ -105,7 +97,7 @@ export function buildLayeredCausalGraph(
       effect: construct.id,
       source: ghostId(construct.id),
       target: construct.id,
-      lagged: true,
+      crossSlice: true,
       isSelf: true,
     })),
   ];
@@ -115,7 +107,7 @@ export function buildLayeredCausalGraph(
       a: edge.source,
       b: edge.target,
       isSelf: edge.isSelf,
-      lagged: edge.lagged,
+      crossSlice: isGhost(edge.source),
     })),
     { width: LAYERED_EDGE_SLOT_WIDTH, height: LAYERED_EDGE_SLOT_HEIGHT },
   );

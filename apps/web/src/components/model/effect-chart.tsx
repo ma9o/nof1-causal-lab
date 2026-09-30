@@ -3,7 +3,7 @@ import { formatInterventionValue } from "@/lib/dag/simulation";
 import { formatSigned } from "@/lib/model-asset/selection";
 import type { SimulationWithEffects } from "@/lib/simulation-report";
 
-/** The effect on the outcome over the horizon, with the 95% interval at the end. */
+/** The effect on the outcome over the horizon, with paired 95% intervals at every model time. */
 export function EffectChart({
   simulation,
   width = 340,
@@ -11,7 +11,7 @@ export function EffectChart({
   simulation: SimulationWithEffects;
   width?: number;
 }) {
-  const trajectory = simulation.causal_result.effect_trajectory ?? [];
+  const trajectory = simulation.causal_result.effect_trajectory;
   if (trajectory.length < 2) {
     return null;
   }
@@ -20,16 +20,17 @@ export function EffectChart({
   const x1 = width - 118;
   const y0 = 18;
   const y1 = height - 30;
-  const horizon = trajectory[trajectory.length - 1].day;
+  const start = trajectory[0].day;
+  const end = trajectory[trajectory.length - 1].day;
   const values = [
     0,
-    ...trajectory.map((point) => point.effect),
+    ...trajectory.flatMap((point) => [point.lower_95, point.effect, point.upper_95]),
     simulation.causal_result.summary.lower_95,
     simulation.causal_result.summary.upper_95,
   ];
   const lo = Math.min(...values);
   const hi = Math.max(...values);
-  const sx = (day: number) => x0 + (day / horizon) * (x1 - x0);
+  const sx = (day: number) => x0 + ((day - start) / (end - start)) * (x1 - x0);
   const sy = (value: number) => y1 - ((value - lo) / (hi - lo || 1)) * (y1 - y0);
   const path = trajectory
     .map(
@@ -37,10 +38,19 @@ export function EffectChart({
         `${index === 0 ? "M" : "L"}${sx(point.day).toFixed(1)},${sy(point.effect).toFixed(1)}`,
     )
     .join("");
+  const band =
+    [
+      ...trajectory.map((point) => [point.day, point.upper_95]),
+      ...trajectory.toReversed().map((point) => [point.day, point.lower_95]),
+    ]
+      .map(([day, value], index) => `${index === 0 ? "M" : "L"}${sx(day)},${sy(value)}`)
+      .join("") + "Z";
   const color = signColor(simulation.causal_result.summary.mean);
   const clamp = simulation.design.interventions[0];
-  const clampStart = clamp.time - simulation.times[0];
-  const axisDays = [0, 0.25, 0.5, 0.75, 1].map((fraction) => Math.round(horizon * fraction));
+  const clampStart = clamp.time;
+  const axisDays = [0, 0.25, 0.5, 0.75, 1].map((fraction) =>
+    Number((start + (end - start) * fraction).toFixed(2)),
+  );
   return (
     <svg
       viewBox={`0 0 ${width} ${height}`}
@@ -90,6 +100,7 @@ export function EffectChart({
       >
         0
       </text>
+      <path d={band} fill={color} fillOpacity={0.15} />
       <path d={path} fill="none" stroke={color} strokeWidth={2} strokeOpacity={0.95} />
       <line
         x1={x1 + 3}
@@ -108,7 +119,7 @@ export function EffectChart({
         fill={color}
         dominantBaseline="middle"
       >
-        posterior {formatSigned(simulation.causal_result.summary.mean, 3)}
+        effect {formatSigned(simulation.causal_result.summary.mean, 3)}
       </text>
     </svg>
   );

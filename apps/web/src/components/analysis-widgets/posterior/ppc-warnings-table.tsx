@@ -8,7 +8,6 @@ import type {
 } from "@nof1-causal-lab/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 import {
-  Area,
   Bar,
   BarChart,
   CartesianGrid,
@@ -73,7 +72,7 @@ function buildRows(
 
 // ── Test stat sparkline (mini histogram + p-value) ──────
 
-function TestStatSparkline({ stat }: { stat?: PPCTestStat }) {
+export function TestStatSparkline({ stat }: { stat?: PPCTestStat }) {
   if (!stat) return <span className="text-xs text-muted-foreground">—</span>;
 
   const bins = stat.histogram;
@@ -106,54 +105,59 @@ function TestStatSparkline({ stat }: { stat?: PPCTestStat }) {
   );
 }
 
-// ── Overlay sparkline (mini ribbon chart) ────────────────
+// ── Overlay sparkline (observed series over simulated ones) ─
 
-function OverlaySparkline({ overlay }: { overlay?: PPCOverlay }) {
+const SAMPLE_LINES = 5;
+
+export function OverlaySparkline({ overlay }: { overlay?: PPCOverlay }) {
   if (!overlay) return <span className="text-xs text-muted-foreground">—</span>;
 
+  const samples = overlay.spaghetti_draws.slice(0, SAMPLE_LINES);
   const data = overlay.observed.map((obs, i) => ({
     t: i,
     observed: obs,
-    q025: overlay.q025[i],
-    q975: overlay.q975[i],
     median: overlay.median[i],
+    ...Object.fromEntries(samples.map((draw, s) => [`sample${s}`, draw[i]])),
   }));
+  // Simulated values exist only where the indicator was measured, so lines join
+  // the defined points; sparse observed series also mark each measurement.
+  const measured = overlay.observed.filter((value) => value != null).length;
+  const sparse = measured * 2 < overlay.observed.length;
 
   return (
-    <div className="h-16 w-48">
+    <div className="h-20 w-60">
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={data} margin={{ top: 2, right: 2, left: 0, bottom: 0 }}>
           <YAxis hide />
           <XAxis dataKey="t" hide />
-          <Area
-            dataKey="q975"
-            stroke="none"
-            fill="var(--primary)"
-            fillOpacity={0.15}
-            type="monotone"
-            isAnimationActive={false}
-          />
-          <Area
-            dataKey="q025"
-            stroke="none"
-            fill="var(--background)"
-            fillOpacity={1}
-            type="monotone"
-            isAnimationActive={false}
-          />
+          {samples.map((_, s) => (
+            <Line
+              // biome-ignore lint/suspicious/noArrayIndexKey: draws have no identity beyond their position
+              key={s}
+              dataKey={`sample${s}`}
+              stroke="var(--primary)"
+              strokeOpacity={0.35}
+              strokeWidth={0.75}
+              dot={false}
+              connectNulls
+              isAnimationActive={false}
+            />
+          ))}
           <Line
             dataKey="median"
             stroke="var(--primary)"
             strokeWidth={1}
             strokeDasharray="3 3"
             dot={false}
+            connectNulls
             isAnimationActive={false}
           />
           <Line
             dataKey="observed"
             stroke="var(--foreground)"
             strokeWidth={1.5}
-            dot={false}
+            dot={sparse ? { r: 1.5, strokeWidth: 0, fill: "var(--foreground)" } : false}
+            connectNulls
             isAnimationActive={false}
           />
         </ComposedChart>

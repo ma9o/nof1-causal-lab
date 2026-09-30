@@ -10,7 +10,7 @@ function artifact(overrides: Partial<ArtifactFreshness>): ArtifactFreshness {
     retracted: false,
     revision: "0000000000000000000000000000000000000001",
 
-    produced_by: "run:latent_structure",
+    produced_by: "run:posterior",
     ...overrides,
   };
 }
@@ -21,29 +21,29 @@ describe("groupStaleArtifactsByProducer", () => {
       artifact({
         artifact_id: "model",
         stale: true,
-        produced_by: "run:latent_structure",
+        produced_by: "run:posterior",
       }),
       artifact({
-        artifact_id: "identification_report",
+        artifact_id: "panel",
         stale: true,
-        produced_by: "run:measurement_structure",
+        produced_by: "run:measurements",
       }),
       artifact({ artifact_id: "panel", stale: false, produced_by: "run:measurements" }),
     ];
 
     expect(groupStaleArtifactsByProducer(report)).toEqual({
-      latent_structure: ["model"],
-      measurement_structure: ["identification_report"],
+      posterior: ["model"],
+      measurements: ["panel"],
     });
   });
 
   it("ignores absent artifacts even when flagged stale", () => {
     const report = [
       artifact({
-        artifact_id: "identification_report",
+        artifact_id: "panel",
         exists: false,
         stale: true,
-        produced_by: "run:measurement_structure",
+        produced_by: "run:measurements",
       }),
     ];
 

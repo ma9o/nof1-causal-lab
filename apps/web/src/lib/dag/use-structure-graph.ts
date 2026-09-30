@@ -67,9 +67,7 @@ export function useStructureGraph({
 
   const nodeWidth = indicatorsByConstruct.size > 0 ? NODE_W_WITH_INDICATORS : NODE_W;
 
-  // Lagged cross-construct edges start at the cause's t−1 copy, while
-  // contemporaneous edges stay within t. Endogenous time-varying self-dynamics
-  // are added separately. The spacer preserves the established layout rhythm.
+  // Dynamic causes and state carryover start at the previous slice.
   const { graph, glyphs } = useMemo(() => {
     const timeVaryingNames = new Set(
       constructs
@@ -82,16 +80,12 @@ export function useStructureGraph({
         .map((edge) => ({
           cause: byId.get(edge.cause.id)!.name,
           effect: byId.get(edge.effect.id)!.name,
-          lagged: edge.lagged,
         })),
       timeVaryingNames,
     );
     const selfLinks = buildGhostLinks(
       constructs
-        .filter(
-          (construct) =>
-            construct.role === "endogenous" && construct.temporal_status === "time_varying",
-        )
+        .filter((construct) => construct.temporal_status === "time_varying")
         .map((construct) => ({ from: construct.name, to: construct.name })),
     );
     const ghosts = new Set([...causalLinks.ghosts, ...selfLinks.ghosts]);
@@ -100,13 +94,13 @@ export function useStructureGraph({
         a: edge.source,
         b: edge.target,
         isSelf: false,
-        lagged: edge.lagged,
+        crossSlice: edge.crossSlice,
       })),
       ...selfLinks.edges.map((edge) => ({
         a: edge.source,
         b: edge.target,
         isSelf: true,
-        lagged: true,
+        crossSlice: true,
       })),
     ];
     const split = splitEdgesWithGlyphs(pairs);
@@ -158,17 +152,13 @@ export function useStructureGraph({
     [onNodeClick],
   );
 
-  const hasGhosts = constructs.some(
-    (construct) =>
-      construct.temporal_status === "time_varying" &&
-      (construct.role === "endogenous" ||
-        edges.some((edge) => edge.lagged && byId.get(edge.cause.id)!.name === construct.name)),
-  );
+  const hasGhosts = constructs.some((construct) => construct.temporal_status === "time_varying");
   const hasCrossLagged = edges.some(
-    (edge) =>
-      edge.lagged && byName.get(byId.get(edge.cause.id)!.name)?.temporal_status === "time_varying",
+    (edge) => byId.get(edge.cause.id)!.temporal_status === "time_varying",
   );
-  const hasContemporaneous = edges.some((edge) => !edge.lagged);
+  const hasContemporaneous = edges.some(
+    (edge) => byId.get(edge.cause.id)!.temporal_status === "time_invariant",
+  );
   const statusValues = nodeStatuses ? Object.values(nodeStatuses) : [];
   const hasMarginalized = statusValues.includes("marginalized");
   const hasBlocking = statusValues.includes("blocking");

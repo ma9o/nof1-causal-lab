@@ -1,5 +1,6 @@
 import type { ConstructId } from "@nof1-causal-lab/api-types";
 import { constructPresentation, dispositionLabel } from "@/lib/model-asset/inspector";
+import { ownLawUses } from "@/lib/model-asset/laws";
 import { humanize } from "@/lib/model-asset/selection";
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import {
@@ -12,7 +13,9 @@ import {
   Section,
   StatusIcon,
 } from "../scope-primitives";
+import { LawSections, SimulatedHistory } from "./law-sections";
 import { parametersForOwner } from "./parameters";
+import { MechanismResponse } from "./mechanism-response";
 
 export function ConstructScope({ context, id }: { context: ScopeContext; id: ConstructId }) {
   const scope = constructPresentation(context, id);
@@ -83,6 +86,9 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
           </ul>
         </Section>
       )}
+      <LawSections context={context} uses={ownLawUses(construct)} />
+      {construct.dynamics.length > 0 && <MechanismResponse context={context} owner={id} />}
+      <SimulatedHistory context={context} id={id} kind="states" />
       {disposition && disposition.disposition !== "retained_state" && (
         <Section
           title={dispositionLabel(disposition.disposition)}

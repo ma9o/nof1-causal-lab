@@ -13,7 +13,7 @@ export function nodeHeight(indicatorCount: number): number {
   return SEPARATOR_Y + indicatorCount * INDICATOR_ROW_H + 8;
 }
 
-// Cross-construct lagged edges and self-dynamics originate from t−1 ghosts;
+// Dynamic causal edges and self-dynamics originate from t−1 ghosts;
 // contemporaneous edges stay within the present-time slice.
 const EDGE_DEFAULT = "var(--edge-contemporary)";
 const EDGE_BLOCKING = "var(--destructive)";

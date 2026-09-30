@@ -1,7 +1,9 @@
 import type { ValidationIssue } from "@nof1-causal-lab/api-types";
+import { QuantileStrip } from "@/components/charts/quantile-strip";
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import { formatFillNull, humanize } from "@/lib/model-asset/selection";
 import { Hint, KeyValue, Section, StatusIcon } from "../scope-primitives";
+import { ObservationPlots } from "./recorded-history";
 
 function DataIssues({ issues }: { issues: ValidationIssue[] }) {
   return issues.map((issue) => (
@@ -25,22 +27,26 @@ export function DataDetails({ context }: { context: ScopeContext }) {
     );
   const { source, variables } = metadata.value;
   const sourceRows: Array<[string, string]> =
-    "file" in source
+    "files" in source
       ? [
-          ["File", source.file],
+          ["Files", source.files.join(", ")],
           ["Start (inclusive)", source.start ?? "Unbounded"],
           ["End (exclusive)", source.end ?? "Unbounded"],
         ]
-      : "files" in source
-        ? [["Files", source.files.join(", ")]]
-        : [
-            ["Simulation", source.revision],
-            ["Replicate", String(source.replicate)],
-          ];
+      : [
+          ["Simulation", source.revision],
+          ["Replicate", String(source.replicate)],
+        ];
   return (
     <>
       <Section title="Prepared data" source={metadata.source}>
-        <KeyValue rows={[...sourceRows, ["Variables", String(variables.length)]]} />
+        <KeyValue
+          rows={[
+            ...sourceRows,
+            ["Variables", String(variables.length)],
+            ["Model day zero", metadata.value.time_origin ?? "Calendar-free"],
+          ]}
+        />
         <DataIssues issues={profile?.value.dataset_issues ?? []} />
       </Section>
       {variables.map((variable) => {
@@ -48,26 +54,33 @@ export function DataDetails({ context }: { context: ScopeContext }) {
         const empirical = audit?.profile;
         const levels = variable.ordinal_levels ?? variable.categorical_levels;
         return (
-          <Section key={variable.id} title={humanize(variable.name)} source={profile?.source}>
-            <KeyValue
-              rows={[
-                ["Type", variable.measurement_dtype],
-                ["Aggregation", variable.aggregation],
-                ["Window", variable.observation_window ?? "Not recorded"],
-                ["Null filling", formatFillNull(variable)],
-                ...(levels?.length ? [["Levels", levels.join(" · ")] as [string, string]] : []),
-                ["Observations", empirical?.n_obs.toLocaleString() ?? "Not recorded"],
-                [
-                  "Time coverage",
-                  empirical?.time_coverage_ratio != null
-                    ? new Intl.NumberFormat(undefined, {
-                        style: "percent",
-                        maximumFractionDigits: 1,
-                      }).format(empirical.time_coverage_ratio)
-                    : "Not recorded",
-                ],
-              ]}
-            />
+          <Section key={variable.id} title={humanize(variable.name)} source={profile?.source} wide>
+            <ObservationPlots model={context.model} id={variable.id} />
+            <details>
+              <summary className="cursor-pointer text-muted-foreground">
+                Preparation and numerical summary
+              </summary>
+              <KeyValue
+                rows={[
+                  ["Type", variable.measurement_dtype],
+                  ["Aggregation", variable.aggregation],
+                  ["Window", variable.observation_window ?? "Not recorded"],
+                  ["Null filling", formatFillNull(variable)],
+                  ...(levels?.length ? [["Levels", levels.join(" · ")] as [string, string]] : []),
+                  ["Observations", empirical?.n_obs.toLocaleString() ?? "Not recorded"],
+                  [
+                    "Time coverage",
+                    empirical?.time_coverage_ratio != null
+                      ? new Intl.NumberFormat(undefined, {
+                          style: "percent",
+                          maximumFractionDigits: 1,
+                        }).format(empirical.time_coverage_ratio)
+                      : "Not recorded",
+                  ],
+                ]}
+              />
+              {empirical && <QuantileStrip profile={empirical} />}
+            </details>
             <DataIssues issues={audit?.issues ?? []} />
           </Section>
         );

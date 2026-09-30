@@ -20,7 +20,7 @@ export const DAG_COLORS = {
   /** Contemporaneous structural edge (static DAG). */
   contemporaneous: "#5b6470",
   /** Lagged (t−1) structural edge (static DAG). */
-  lagged: "#9aa0a8",
+  crossSlice: "#9aa0a8",
   /** Counterfactual 95% CrI fill. */
   tealSoft: "rgba(15,155,142,.16)",
   /** Baseline 95% CrI fill. */

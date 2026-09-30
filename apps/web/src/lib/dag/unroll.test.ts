@@ -2,36 +2,36 @@ import { describe, expect, it } from "vitest";
 import { unrollCausalLinks } from "@/lib/dag/unroll";
 
 describe("unrollCausalLinks", () => {
-  it("maps lagged and contemporaneous cross-construct edges to different time slices", () => {
+  it("routes dynamic causes from history and static causes from their single node", () => {
     const built = unrollCausalLinks(
       [
-        { cause: "varying", effect: "outcome", lagged: true },
-        { cause: "same_time", effect: "outcome", lagged: false },
-        { cause: "stable", effect: "outcome", lagged: true },
+        { cause: "varying", effect: "outcome" },
+        { cause: "another_dynamic", effect: "outcome" },
+        { cause: "stable", effect: "outcome" },
       ],
-      new Set(["varying", "same_time"]),
+      new Set(["varying", "another_dynamic"]),
     );
 
-    expect(built.ghosts).toEqual(["varying__p"]);
+    expect(built.ghosts).toEqual(["varying__p", "another_dynamic__p"]);
     expect(built.edges).toEqual([
       {
         cause: "varying",
         effect: "outcome",
-        lagged: true,
+        crossSlice: true,
         source: "varying__p",
         target: "outcome",
       },
       {
-        cause: "same_time",
+        cause: "another_dynamic",
         effect: "outcome",
-        lagged: false,
-        source: "same_time",
+        crossSlice: true,
+        source: "another_dynamic__p",
         target: "outcome",
       },
       {
         cause: "stable",
         effect: "outcome",
-        lagged: true,
+        crossSlice: false,
         source: "stable",
         target: "outcome",
       },

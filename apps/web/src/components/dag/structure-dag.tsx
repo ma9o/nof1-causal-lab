@@ -134,7 +134,7 @@ function LegendSwatch({ border, faded }: { border?: string; faded?: boolean }) {
  * Topology AND layout mirror the analysis interactive DAG (the reference "good
  * state"): the ELK graph is built the same way — every causal edge is split
  * a → [glyph] → b (the glyph node per edge gives the layered layout its column
- * rhythm; see `splitEdgesWithGlyphs`), lagged causal arrows originate at faded
+ * rhythm; see `splitEdgesWithGlyphs`), dynamic causal arrows originate at faded
  * t−1 copies, contemporaneous arrows remain within t, and self-dynamics use
  * separate t−1 → matching-t edges. The same ELK spacing
  * (`DAG_LAYOUT_OPTIONS`) is used — so nodes land in the same columns. The

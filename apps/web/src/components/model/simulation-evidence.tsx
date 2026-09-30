@@ -1,21 +1,15 @@
 import type { ModelSnapshot, PredictiveCheckFinding } from "@nof1-causal-lab/api-types";
-import { useSimulationTrajectories } from "@/lib/hooks/use-simulation-trajectories";
 import { modelConstructs } from "@/lib/model-accessors";
 import { formatPlain, humanize } from "@/lib/model-asset/selection";
 import { hasCausalEffects } from "@/lib/simulation-report";
 import { formatModelDate } from "@/lib/utils/format";
 import { EffectChart } from "./effect-chart";
 import { Hint, KeyValue, Section, StatusIcon } from "./scope-primitives";
-import { TrajectoryChart } from "./trajectory-chart";
+import { SimulationHistory } from "./scopes/recorded-history";
 
 /** The design, saved histories and certified effect of the selected simulation. */
 export function SimulationEvidence({ model }: { model: ModelSnapshot }) {
   const simulation = model.findings.simulation;
-  const projection = useSimulationTrajectories(
-    model.context.workspace_id,
-    model.context.commit_id,
-    !!simulation,
-  );
   if (!simulation)
     return (
       <Section title="Simulation">
@@ -26,11 +20,9 @@ export function SimulationEvidence({ model }: { model: ModelSnapshot }) {
   const names = new Map(
     modelConstructs(model.model?.value).map((item) => [item.id, humanize(item.name)]),
   );
-  const trajectories = projection.data?.value;
+
   const timeLabel = (day: number) =>
-    trajectories?.time_origin
-      ? `${formatModelDate(day, trajectories.time_origin)} (day ${day})`
-      : `Day ${day}`;
+    report.time_origin ? `${formatModelDate(day, report.time_origin)} (day ${day})` : `Day ${day}`;
   return (
     <>
       <Section title="Simulation design" source={simulation.source}>
@@ -40,6 +32,8 @@ export function SimulationEvidence({ model }: { model: ModelSnapshot }) {
             ["End", timeLabel(report.design.end)],
             ["Draws", report.draws.toLocaleString()],
             ["Seed", String(report.seed)],
+            ["Fit reliability", humanize(report.predictive.fit_reliability)],
+            ["Laws", humanize(report.law?.interpretation ?? "unknown")],
           ]}
         />
         {report.design.interventions.length === 0 ? (
@@ -53,49 +47,22 @@ export function SimulationEvidence({ model }: { model: ModelSnapshot }) {
           ))
         )}
         <Hint>
-          Shading shows pointwise 95% intervals across saved draws (2.5th–97.5th percentiles).
+          Inspect individual saved draws below. Draw numbers stay paired across states, indicators
+          and intervention/reference arms; every saved time point is retained.
         </Hint>
       </Section>
-      {projection.error ? (
-        <Section title="Outcome trajectories" wide>
-          <p role="alert" className="text-xs text-destructive">
-            Unable to read saved trajectories: {projection.error.message}
-          </p>
+      {Object.entries(report.predictive.states).map(([id, series]) => (
+        <Section key={id} title={humanize(series.label)} source={simulation.source} wide>
+          <Hint>Latent state</Hint>
+          <SimulationHistory model={model} id={id} kind="states" summary={series} />
         </Section>
-      ) : !projection.isSuccess ? (
-        <Section title="Outcome trajectories" wide>
-          <p role="status">Reading saved trajectories…</p>
+      ))}
+      {Object.entries(report.predictive.indicators).map(([id, series]) => (
+        <Section key={id} title={humanize(series.label)} source={simulation.source} wide>
+          <Hint>Simulated indicator · gaps have no contributing observations</Hint>
+          <SimulationHistory model={model} id={id} kind="indicators" summary={series} />
         </Section>
-      ) : trajectories?.outcome_state ? (
-        <>
-          <Section
-            title={humanize(trajectories.outcome_state.label)}
-            source={projection.data?.source}
-            wide
-          >
-            <Hint>Latent outcome</Hint>
-            <TrajectoryChart
-              times={trajectories.times}
-              timeOrigin={trajectories.time_origin}
-              series={trajectories.outcome_state}
-            />
-          </Section>
-          {Object.entries(trajectories.indicators).map(([id, series]) => (
-            <Section key={id} title={humanize(series.label)} source={projection.data?.source} wide>
-              <Hint>Simulated indicator · gaps mark unobserved anchors</Hint>
-              <TrajectoryChart
-                times={trajectories.times}
-                timeOrigin={trajectories.time_origin}
-                series={series}
-              />
-            </Section>
-          ))}
-        </>
-      ) : (
-        <Section title="Outcome trajectories">
-          <Hint>No default outcome is recorded for this simulation.</Hint>
-        </Section>
-      )}
+      ))}
       <Section title="Causal effect" source={simulation.source} wide>
         {hasCausalEffects(report) ? (
           <>
@@ -104,16 +71,22 @@ export function SimulationEvidence({ model }: { model: ModelSnapshot }) {
               {humanize(report.causal_result.labels[report.causal_result.outcome])} at the end of
               the simulation.
             </Hint>
-            <KeyValue
-              rows={[
-                ["Mean", formatPlain(report.causal_result.summary.mean)],
-                [
-                  "95% interval",
-                  `[${formatPlain(report.causal_result.summary.lower_95)}, ${formatPlain(report.causal_result.summary.upper_95)}]`,
-                ],
-              ]}
-            />
-            <EffectChart simulation={report} />
+            <SimulationHistory model={model} id={report.causal_result.outcome} kind="effect" />
+            <details>
+              <summary className="cursor-pointer text-muted-foreground">
+                Mean and interval summaries
+              </summary>
+              <KeyValue
+                rows={[
+                  ["Mean", formatPlain(report.causal_result.summary.mean)],
+                  [
+                    "95% interval",
+                    `[${formatPlain(report.causal_result.summary.lower_95)}, ${formatPlain(report.causal_result.summary.upper_95)}]`,
+                  ],
+                ]}
+              />
+              <EffectChart simulation={report} />
+            </details>
             {report.causal_result.warnings.map((warning) => (
               <Hint key={warning} issue>
                 {warning}

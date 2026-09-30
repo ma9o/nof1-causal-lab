@@ -53,6 +53,6 @@ export const FailedWithError: Story = {
     title: "Latent Structure",
     status: "failed",
     context: "Generates the latent structure from the user question.",
-    errorMessage: "SchemaValidationError: latent_structure payload failed validation",
+    errorMessage: "SchemaValidationError: raw_data payload failed validation",
   },
 };

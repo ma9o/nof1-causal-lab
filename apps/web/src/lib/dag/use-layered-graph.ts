@@ -2,14 +2,16 @@
 
 import type {
   ConstructId,
+  EdgeId,
   IndicatorSpec,
   ModelDiffReport,
   ModelSnapshot,
+  SimulationReport,
 } from "@nof1-causal-lab/api-types";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useDagLayout } from "@/lib/hooks/use-dag-layout";
-import type { SimulationWithEffects } from "@/lib/simulation-report";
+import { type LawCurve, lawCurves, ownLawUses } from "@/lib/model-asset/laws";
 import type { DagLayoutNode } from "@/lib/utils/dag-graph-layout";
 import { buildLayeredCausalGraph, type LayeredGraphEdgeMeta } from "./build-layered-causal-graph";
 import { placeComparisonOverlay } from "./comparison-overlay";
@@ -19,14 +21,14 @@ import {
   type GraphBand,
   graphEntities,
 } from "./layered-model";
-import { BLOCKING, COMPARISON_COLORS, DAG_COLORS, MARGINALIZED, signColor } from "./palette";
+import { BLOCKING, COMPARISON_COLORS, DAG_COLORS, MARGINALIZED } from "./palette";
 import { selectedNeighbors } from "./selection";
-import { getSimulationDays } from "./simulation";
 import { useGraphControls, usePlayback } from "./use-graph-controls";
 
 export interface LayeredGraphOptions {
   model: ModelSnapshot;
-  simulation?: SimulationWithEffects | null;
+  /** A simulation of the viewed model revision; its node histories replace the law charts. */
+  simulation?: SimulationReport | null;
   comparison?: ModelDiffReport | null;
   selectedNode: ConstructId | null;
 }
@@ -50,7 +52,8 @@ export function useLayeredGraph({
 
   const entities = useMemo(() => graphEntities(model), [model]);
   const topology = useMemo(
-    () => buildLayeredCausalGraph(entities.constructs, entities.edges),
+    () =>
+      buildLayeredCausalGraph(entities.constructs, entities.edges, entities.dynamicConstructIds),
     [entities],
   );
   const { nodes, edges: routedSegments, width, height, isLayouting } = useDagLayout(topology.graph);
@@ -106,19 +109,29 @@ export function useLayeredGraph({
           .map((check) => check.indicator_id)
       : [],
   );
+  const lawsVisible = specificationVisible || fitVisible;
+  const constructLaws = useMemo(
+    () =>
+      new Map<ConstructId, LawCurve[]>(
+        entities.constructs.map((construct) => [
+          construct.id,
+          lawCurves(model, ownLawUses(construct)),
+        ]),
+      ),
+    [model, entities.constructs],
+  );
+  const edgeLaws = useMemo(
+    () =>
+      new Map<EdgeId, LawCurve[]>(
+        entities.edges.map((edge) => [edge.id, lawCurves(model, ownLawUses(edge))]),
+      ),
+    [model, entities.edges],
+  );
   const edgePosteriors = fitVisible ? (model.findings.fit?.value.edge_estimates ?? {}) : {};
   const persistencePosteriors = fitVisible ? (model.findings.fit?.value.decay_estimates ?? {}) : {};
-  const maximumPosteriorMean = Math.max(
-    0,
-    ...Object.values(edgePosteriors).map((posterior) => Math.abs(posterior.mean)),
-    ...Object.values(persistencePosteriors).map((posterior) => Math.abs(posterior.mean)),
-  );
 
   const simulationResult = simulationVisible ? simulation : null;
-  const days = useMemo(
-    () => (simulationResult ? getSimulationDays(simulationResult) : []),
-    [simulationResult],
-  );
+  const days = useMemo(() => simulationResult?.times ?? [], [simulationResult]);
   const {
     index: clampedDayIndex,
     setIndex: setDayIndex,
@@ -136,6 +149,7 @@ export function useLayeredGraph({
   );
 
   const graphBands = useMemo<GraphBand[]>(() => {
+    const dynamicIds = new Set(entities.dynamicConstructIds);
     const staticNodes: DagLayoutNode[] = [];
     const historyNodes: DagLayoutNode[] = [];
     const presentNodes: DagLayoutNode[] = [];
@@ -143,7 +157,7 @@ export function useLayeredGraph({
       const meta = topology.nodeMeta.get(node.id);
       if (meta?.kind === "history") historyNodes.push(node);
       if (meta?.kind === "construct") {
-        if (meta.construct.temporal_status === "time_invariant") staticNodes.push(node);
+        if (!dynamicIds.has(meta.construct.id)) staticNodes.push(node);
         else presentNodes.push(node);
       }
     }
@@ -152,7 +166,7 @@ export function useLayeredGraph({
       { key: "history", label: "t−1", nodes: historyNodes },
       { key: "present", label: "t", nodes: presentNodes },
     ];
-  }, [nodes, topology.nodeMeta]);
+  }, [nodes, topology.nodeMeta, entities.dynamicConstructIds]);
 
   const toggleLayer = (layer: CausalGraphLayerId) => {
     if (layer === "structure") return;
@@ -171,48 +185,37 @@ export function useLayeredGraph({
         : undefined
       : edgeDispositions.get(meta.id as import("@nof1-causal-lab/api-types").EdgeId);
     const posterior = meta.isSelf ? persistencePosteriors[meta.cause] : edgePosteriors[meta.id];
-    const activeClamp =
-      currentDay != null &&
-      simulationResult?.design.interventions.some((clamp) => clamp.target === meta.effect);
     const blocking =
       nodeStatuses.get(meta.cause) === "blocking" || nodeStatuses.get(meta.effect) === "blocking";
     const marginalized =
       nodeStatuses.get(meta.cause) === "marginalized" ||
       nodeStatuses.get(meta.effect) === "marginalized";
-    const color = activeClamp
-      ? DAG_COLORS.pruned
-      : blocking
-        ? BLOCKING
-        : marginalized
-          ? MARGINALIZED
-          : posterior
-            ? signColor(posterior.mean)
-            : disposition === "projected_edge"
-              ? DAG_COLORS.muted
-              : meta.lagged
-                ? DAG_COLORS.lagged
-                : DAG_COLORS.contemporaneous;
-    const width = posterior
-      ? 1.5 +
-        (maximumPosteriorMean > 0 ? (Math.abs(posterior.mean) / maximumPosteriorMean) * 3.5 : 0)
-      : 1.7;
+    const color = blocking
+      ? BLOCKING
+      : marginalized
+        ? MARGINALIZED
+        : disposition === "projected_edge"
+          ? DAG_COLORS.muted
+          : meta.crossSlice
+            ? DAG_COLORS.crossSlice
+            : DAG_COLORS.contemporaneous;
+    // A coefficient's mean is not the strength or sign of a nonlinear state-dependent effect.
+    const width = 1.7;
     const selectedEdge =
       selectedNode == null || meta.cause === selectedNode || meta.effect === selectedNode;
     const dimmed = !selectedEdge || (hoveredEdge != null && hoveredEdge !== meta.id);
     const opacity = dimmed
       ? 0.1
-      : activeClamp
-        ? 0.45
-        : marginalized || disposition === "projected_edge"
-          ? 0.38
-          : posterior
-            ? 0.92
-            : 0.78;
+      : marginalized || disposition === "projected_edge"
+        ? 0.38
+        : posterior
+          ? 0.92
+          : 0.78;
     const change = difference.edgeChanges.get(meta.id);
     return {
       disposition,
       posterior,
-      activeClamp: Boolean(activeClamp),
+      laws: meta.isSelf || !lawsVisible ? [] : (edgeLaws.get(meta.id as EdgeId) ?? []),
       color: change ? COMPARISON_COLORS[change] : color,
       width: change ? Math.max(width, 3 / zoom) : width,
       opacity: change ? 1 : opacity,
@@ -244,7 +247,7 @@ export function useLayeredGraph({
     indicatorsByConstruct,
     likelihoodByVariable,
     warningVariables,
-    persistencePosteriors,
+    constructLaws: lawsVisible ? constructLaws : new Map<ConstructId, LawCurve[]>(),
     simulationResult,
     days,
     clampedDayIndex,

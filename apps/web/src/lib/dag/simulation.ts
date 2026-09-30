@@ -23,12 +23,18 @@ export function getNodeReferenceSeries(
   result: SimulationWithEffects,
   nodeId: ConstructId,
 ): number[] | null {
-  return result.causal_result.trajectories[nodeId]?.reference_mean ?? null;
+  const series = result.predictive.states[nodeId]?.reference;
+  return series?.kind === "numeric" && series.mean.every((value) => value !== null)
+    ? series.mean
+    : null;
 }
 
 export function getNodeActionSeries(
   result: SimulationWithEffects,
   nodeId: ConstructId,
 ): number[] | null {
-  return result.causal_result.trajectories[nodeId]?.action_mean ?? null;
+  const series = result.predictive.states[nodeId]?.action;
+  return series?.kind === "numeric" && series.mean.every((value) => value !== null)
+    ? series.mean
+    : null;
 }

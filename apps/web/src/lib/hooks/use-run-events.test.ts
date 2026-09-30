@@ -29,12 +29,12 @@ describe("parseTransitionProgressEvent", () => {
   it("parses running events", () => {
     const event = parseTransitionProgressEvent({
       event: "nof1-causal-lab.transition.running",
-      transition_id: "latent_structure",
+      transition_id: "simulate",
       cursor,
     } as const);
 
     expect(event).toEqual({
-      artifactId: "latent_structure",
+      artifactId: "simulate",
       status: "running",
       eventTime: cursorTimestampMs(cursor),
       error: undefined,

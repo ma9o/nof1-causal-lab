@@ -1,20 +1,4 @@
-/**
- * Time-unrolling for the causal-DAG renderers (shared by the static structure
- * DAG and the analysis interactive DAG).
- *
- * A lagged dependency — something at t−1 driving an effect at t — is drawn by
- * *unrolling time* rather than merely tagging the edge: the t−1 source becomes
- * a faded "ghost" copy of the present node and the edge runs ghost → present.
- * A contemporaneous dependency stays present → present. State persistence is a
- * separate ghost → matching-present self edge. This mirrors the backend's
- * 2-timestep unrolling for identification.
- *
- * This module owns only the cross-consumer *convention* (the `__p` id suffix,
- * the ghost fade, and the ghost→present link builder). It is deliberately NOT
- * in `core/`: the core renderer is domain-agnostic (plain `{nodes, edges}`),
- * whereas which constructs are time-varying and which self-dynamics have
- * materialized is a domain decision each consumer makes.
- */
+/** Temporal layout helpers. The backend selects evolving states; ghosts are their previous slice. */
 
 /** Suffix marking a node id as the t−1 (previous-timestep) ghost of its base. */
 export const GHOST_SUFFIX = "__p";
@@ -48,43 +32,33 @@ export interface GhostLinks {
 export interface CausalLink {
   cause: string;
   effect: string;
-  lagged: boolean;
 }
 
 export interface UnrolledCausalLink extends CausalLink {
+  crossSlice: boolean;
   source: string;
   target: string;
 }
 
 export interface UnrolledCausalLinks {
-  /** Distinct t−1 copies required by lagged, time-varying causes. */
+  /** Distinct t−1 copies required by time-varying causes. */
   ghosts: string[];
   /** Causal links with their rendered temporal endpoints. */
   edges: UnrolledCausalLink[];
 }
 
-/**
- * Resolve the temporal endpoints of backend-declared causal edges.
- *
- * - lagged, time-varying cause: cause(t−1) → effect(t)
- * - contemporaneous cause: cause(t) → effect(t)
- * - time-invariant cause: cause → effect(t), regardless of the lag flag, because
- *   the stable construct has only one node in the backend unrolling
- *
- * Self-dynamics are intentionally not created here; callers add those as a
- * separate set of ghost → matching-present links.
- */
+/** Route dynamic causes from their previous slice and static causes from their single node. */
 export function unrollCausalLinks(
   links: CausalLink[],
   timeVaryingNames: ReadonlySet<string>,
 ): UnrolledCausalLinks {
   const ghosts = new Set<string>();
   const edges = links.map((link) => {
-    const source =
-      link.lagged && timeVaryingNames.has(link.cause) ? ghostId(link.cause) : link.cause;
+    const source = timeVaryingNames.has(link.cause) ? ghostId(link.cause) : link.cause;
     if (isGhost(source)) ghosts.add(source);
     return {
       ...link,
+      crossSlice: isGhost(source),
       source,
       target: link.effect,
     };
@@ -129,7 +103,7 @@ export interface GlyphPair {
   b: string;
   /** Self-dynamics edge (ghost → its own present node) rather than a cross-edge. */
   isSelf: boolean;
-  lagged: boolean;
+  crossSlice: boolean;
 }
 
 export interface GlyphSplit {

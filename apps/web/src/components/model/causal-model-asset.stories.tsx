@@ -76,7 +76,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "A harness-driven model viewer: exact API action names and short commit hashes above the graph, selected-action details below, and the selected action's log on the right. Failed actions keep their cross marker and attempt commit hash. The story walks from a question through structure, measurement and laws, a table import, a convergence warning, paired outcome trajectories with 95% bands, an edited-model simulation whose causal effect is unavailable, and a fit still running after it. Expand lineage to see both branches and inspect any action. All data is illustrative; statistics and differences are read from backend-shaped fixtures, and the viewer offers no write controls.",
+          "A harness-driven model viewer: exact API action names and short commit hashes above the graph, selected-action details below, and the selected action's log on the right. Failed actions keep their cross marker and attempt commit hash. The story walks from a question through structure, measurement and laws, a table import, a convergence warning, individual paired outcome paths with optional summaries, an edited-model simulation whose causal effect is unavailable, and a fit still running after it. Expand lineage to see both branches and inspect any action. All data is illustrative; statistics and differences are read from backend-shaped fixtures, and the viewer offers no write controls.",
       },
     },
   },
@@ -124,6 +124,21 @@ export const Complete: Story = {
         ),
       ).toBeVisible();
       await expect(await canvas.findByRole("region", { name: section })).toBeVisible();
+      if (section === "Prepared data") {
+        await expect(
+          (await canvas.findAllByRole("img", { name: /prepared observations/ }))[0],
+        ).toBeInTheDocument();
+      }
+      if (section === "Simulation design") {
+        await expect(
+          (await canvas.findAllByRole("img", { name: /recorded draws/ }))[0],
+        ).toBeInTheDocument();
+        const firstDraw = (await canvas.findAllByRole("spinbutton", { name: "First draw" }))[0];
+        await userEvent.clear(firstDraw);
+        await userEvent.type(firstDraw, "25");
+        await userEvent.tab();
+        await expect(await canvas.findByText(/25–48 of 100/)).toBeInTheDocument();
+      }
     }
     await expect(canvas.queryByRole("log", { name: "fit · running" })).not.toBeInTheDocument();
     await userEvent.click(canvas.getByRole("button", { name: "simulate · c00000c · latest" }));

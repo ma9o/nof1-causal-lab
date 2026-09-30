@@ -1,7 +1,6 @@
-import type { ModelSnapshot } from "@nof1-causal-lab/api-types";
+import type { ModelSnapshot, SimulationReport } from "@nof1-causal-lab/api-types";
 import { modelConstructs } from "@/lib/model-accessors";
 import { indexModel } from "@/lib/model-asset/entities";
-import type { SimulationWithEffects } from "@/lib/simulation-report";
 
 export const CAUSAL_GRAPH_LAYER_ORDER = [
   "structure",
@@ -19,6 +18,7 @@ export function graphEntities(model: ModelSnapshot) {
   const constructs = model.findings.graph.construct_ids.map((id) => indexed.constructById.get(id)!);
   return {
     constructs,
+    dynamicConstructIds: model.findings.graph.dynamic_construct_ids,
     edges: model.findings.graph.edge_ids.map((id) => indexed.edgeById.get(id)!),
     indicators: constructs.flatMap((construct) => construct.indicators),
   };
@@ -27,7 +27,7 @@ export function graphEntities(model: ModelSnapshot) {
 /** Layer visibility reflects facts in the selected revision, including partial models. */
 export function availableGraphLayers(
   model: ModelSnapshot,
-  simulation?: SimulationWithEffects | null,
+  simulation?: SimulationReport | null,
 ): CausalGraphLayerId[] {
   const available = {
     structure: (modelConstructs(model.model?.value).length ?? 0) > 0,

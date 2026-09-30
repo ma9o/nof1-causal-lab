@@ -7,6 +7,7 @@ import { ModelFindings } from "../model-findings";
 import { SimulationEvidence } from "../simulation-evidence";
 import { DataDetails } from "./data-details";
 import { EditDetails } from "./edit-details";
+import { FitCalibration } from "./fit-calibration";
 import { FitDetails } from "./fit-details";
 
 export function VersionScope({ context, tick }: { context: ScopeContext; tick: JournalTick }) {
@@ -30,7 +31,12 @@ export function VersionScope({ context, tick }: { context: ScopeContext; tick: J
     <>
       {tick.action === "edit_model" && <EditDetails context={context} tick={tick} />}
       {tick.action === "prepare_data" && <DataDetails context={context} />}
-      {tick.action === "fit" && <FitDetails context={context} tick={tick} />}
+      {tick.action === "fit" && (
+        <>
+          <FitDetails context={context} tick={tick} />
+          <FitCalibration context={context} />
+        </>
+      )}
       {tick.action === "simulate" && <SimulationEvidence model={context.model} />}
       {messages.length > 0 && (
         <Section title="Action messages">

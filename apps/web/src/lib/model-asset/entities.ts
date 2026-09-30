@@ -68,7 +68,6 @@ export function resolveEntity(
       const definition = {
         id: edge.id,
         description: edge.description,
-        lagged: edge.lagged,
         mechanisms: edge.mechanisms,
         sources: edge.sources,
       };

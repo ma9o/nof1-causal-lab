@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import type { EpisodeProgressPayload } from "@/lib/api/analysis";
 import { useLLMTraceForAction } from "@/lib/hooks/use-llm-trace";
 import { useModelSnapshot } from "@/lib/hooks/use-model-snapshot";
+import { useSimulationPaths } from "@/lib/hooks/use-visuals";
 import {
   useWorkbench,
   useWorkbenchSnapshots,
@@ -93,7 +94,7 @@ function ModelRevision({
     toggleComparison,
     selectVersion,
     question,
-    causalResult,
+    simulationResult,
     select,
     context,
   } = useWorkbench({
@@ -105,6 +106,9 @@ function ModelRevision({
     viewAt,
   });
   const graph = useMemo(() => graphEntities(model), [model]);
+  const recordedPaths = useSimulationPaths(model);
+  // Nodes chart what the viewed version's action produced.
+  const step = ticks.find((tick) => tick.seq === playhead)?.action ?? null;
   const comparisonPane = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (activeComparison?.pinned) {
@@ -153,7 +157,7 @@ function ModelRevision({
             aria-label="Causal graph"
             className="relative flex h-[480px] flex-none flex-col overflow-hidden rounded-2xl border bg-card md:h-auto md:min-h-0 md:flex-1"
           >
-            <div className="flex h-11 flex-none items-center justify-between gap-2 border-b px-4">
+            <div className="flex min-h-11 flex-none flex-wrap items-center justify-between gap-2 border-b px-4 py-1.5">
               <h1 className="text-sm font-semibold">Causal model</h1>
               {activeComparison ? (
                 <div
@@ -162,19 +166,28 @@ function ModelRevision({
                   role="region"
                   aria-label="Model comparison preview"
                   tabIndex={-1}
-                  className="flex min-w-0 items-center gap-2 text-[11px]"
+                  className="flex min-w-0 flex-wrap items-center gap-2 text-[11px]"
                   onPointerEnter={retainPreview}
                   onPointerLeave={endPreview}
                   onFocus={retainPreview}
                 >
                   <span className="whitespace-nowrap font-medium text-amber-700">
-                    version {playhead} → {activeComparison.after}
+                    Topology · {playhead} → {activeComparison.after}
                   </span>
-                  <span className="hidden items-center gap-2 text-[10px] text-muted-foreground sm:flex">
-                    <span className="text-amber-700">~ changed</span>
-                    <span className="text-emerald-700">+ added</span>
-                    <span className="text-rose-700">− removed</span>
-                  </span>
+                  {compared.data &&
+                    ([...compared.data.graph.constructs, ...compared.data.graph.edges].every(
+                      (item) => item.change === "unchanged",
+                    ) ? (
+                      <span className="whitespace-nowrap text-muted-foreground">
+                        No topology changes
+                      </span>
+                    ) : (
+                      <span className="hidden items-center gap-2 text-[10px] text-muted-foreground sm:flex">
+                        <span className="text-amber-700">~ changed</span>
+                        <span className="text-emerald-700">+ added</span>
+                        <span className="text-rose-700">− removed</span>
+                      </span>
+                    ))}
                   <Button
                     type="button"
                     size="sm"
@@ -213,7 +226,9 @@ function ModelRevision({
               {graph.constructs.length > 0 || activeComparison ? (
                 <LayeredCausalGraph
                   model={model}
-                  simulation={causalResult}
+                  simulation={step === "simulate" ? simulationResult : null}
+                  simulationPaths={step === "simulate" ? recordedPaths.data : null}
+                  step={step}
                   selectedNode={selection?.kind === "construct" ? selection.id : null}
                   onSelectNode={(id) => select(id ? { kind: "construct", id } : null)}
                   comparison={activeComparison ? (compared.data ?? null) : null}

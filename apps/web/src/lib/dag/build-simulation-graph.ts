@@ -11,13 +11,13 @@ export const ISTACK_TOP = 16;
 
 export interface SimulationGraph {
   graph: DagGraphInput;
-  edgeMeta: Map<string, { a: string; b: string; isSelf: boolean; lagged: boolean }>;
+  edgeMeta: Map<string, { a: string; b: string; isSelf: boolean; crossSlice: boolean }>;
 }
 
 /**
  * Build the scientific DAG directly from backend-declared constructs and edges.
- * Lagged cross-construct effects originate at t−1; contemporaneous effects stay
- * within t. A fitted state gets a separate persistence edge only when an
+ * Dynamic cross-construct effects originate at t−1. A fitted state gets a
+ * separate persistence edge only when an
  * `ar_coefficient` posterior exists.
  */
 export function buildSimulationGraph(
@@ -57,7 +57,6 @@ export function buildSimulationGraph(
       .map((edge) => ({
         cause: byId.get(edge.cause.id)!.name,
         effect: byId.get(edge.effect.id)!.name,
-        lagged: edge.lagged,
       }))
       .filter(
         (edge) => edge.cause !== edge.effect && present.has(edge.cause) && present.has(edge.effect),
@@ -86,19 +85,22 @@ export function buildSimulationGraph(
     nodes.push({ id: g, width: CARD_W, height: HISTORY_H });
   }
 
-  const pairs: { a: string; b: string; lagged: boolean }[] = [];
+  const pairs: { a: string; b: string; crossSlice: boolean }[] = [];
   for (const edge of causalLinks.edges) {
-    pairs.push({ a: edge.source, b: edge.target, lagged: edge.lagged });
+    pairs.push({ a: edge.source, b: edge.target, crossSlice: edge.crossSlice });
   }
   for (const link of selfLinks.edges) {
-    pairs.push({ a: link.source, b: link.target, lagged: true });
+    pairs.push({ a: link.source, b: link.target, crossSlice: true });
   }
 
-  const edgeMeta = new Map<string, { a: string; b: string; isSelf: boolean; lagged: boolean }>();
+  const edgeMeta = new Map<
+    string,
+    { a: string; b: string; isSelf: boolean; crossSlice: boolean }
+  >();
   const elkEdges: DagGraphInput["edges"] = [];
-  pairs.forEach(({ a, b, lagged }, i) => {
+  pairs.forEach(({ a, b, crossSlice }, i) => {
     const id = `e${i}`;
-    edgeMeta.set(id, { a, b, isSelf: baseId(a) === baseId(b), lagged });
+    edgeMeta.set(id, { a, b, isSelf: baseId(a) === baseId(b), crossSlice });
     elkEdges.push({ id, source: a, target: b });
   });
 

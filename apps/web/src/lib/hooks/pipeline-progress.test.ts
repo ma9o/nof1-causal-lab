@@ -9,11 +9,10 @@ import {
 
 const TEST_ORDER: PipelineSectionId[] = [
   "raw_data",
-  "latent_structure",
-  "measurement_structure",
+  "simulate",
+  "simulated_measurements",
   "measurements",
   "validation_report",
-  "statistical_model_spec",
   "posterior",
 ];
 
@@ -72,44 +71,42 @@ describe("applyTransitionUpdate", () => {
   it("tracks every running transition in machine order", () => {
     let progress = applyUpdate(undefined, "raw_data", "completed", 1_000);
     progress = applyUpdate(progress, "measurements", "running", 2_000);
-    progress = applyUpdate(progress, "latent_structure", "running", 3_000);
+    progress = applyUpdate(progress, "simulate", "running", 3_000);
 
-    expect(progress.runningTransitions).toEqual(["latent_structure", "measurements"]);
+    expect(progress.runningTransitions).toEqual(["simulate", "measurements"]);
   });
 
   it("stores the failure detail and flips isFailed", () => {
     const progress = applyUpdate(
       undefined,
-      "latent_structure",
+      "simulate",
       "failed",
       2_000,
       "SchemaValidationError: bad payload",
     );
 
-    expect(progress.artifacts["latent_structure"]).toBe("failed");
-    expect(progress.transitionErrors["latent_structure"]).toBe(
-      "SchemaValidationError: bad payload",
-    );
+    expect(progress.artifacts["simulate"]).toBe("failed");
+    expect(progress.transitionErrors["simulate"]).toBe("SchemaValidationError: bad payload");
     expect(progress.isFailed).toBe(true);
   });
 
   it("restarts a failed transition on a new running attempt", () => {
-    let progress = applyUpdate(undefined, "latent_structure", "failed", 2_000, "boom");
-    progress = restartAttempt(progress, "latent_structure", 3_000);
+    let progress = applyUpdate(undefined, "simulate", "failed", 2_000, "boom");
+    progress = restartAttempt(progress, "simulate", 3_000);
 
-    expect(progress.artifacts["latent_structure"]).toBe("running");
-    expect(progress.timings["latent_structure"]).toEqual({ startedAt: 3_000 });
-    expect(progress.transitionErrors["latent_structure"]).toBeUndefined();
+    expect(progress.artifacts["simulate"]).toBe("running");
+    expect(progress.timings["simulate"]).toEqual({ startedAt: 3_000 });
+    expect(progress.transitionErrors["simulate"]).toBeUndefined();
     expect(progress.isFailed).toBe(false);
   });
 
   it("restarts a completed transition when its inputs are recomputed", () => {
-    let progress = applyUpdate(undefined, "measurement_structure", "completed", 2_000);
-    progress = restartAttempt(progress, "measurement_structure", 9_000);
-    progress = applyUpdate(progress, "measurement_structure", "completed", 12_000);
+    let progress = applyUpdate(undefined, "simulated_measurements", "completed", 2_000);
+    progress = restartAttempt(progress, "simulated_measurements", 9_000);
+    progress = applyUpdate(progress, "simulated_measurements", "completed", 12_000);
 
-    expect(progress.artifacts["measurement_structure"]).toBe("completed");
-    expect(progress.timings["measurement_structure"]).toEqual({
+    expect(progress.artifacts["simulated_measurements"]).toBe("completed");
+    expect(progress.timings["simulated_measurements"]).toEqual({
       startedAt: 9_000,
       completedAt: 12_000,
     });
@@ -135,34 +132,34 @@ describe("applyTransitionUpdate", () => {
   });
 
   it("flips a failed transition to completed when a later attempt succeeds (latest wins)", () => {
-    let progress = applyUpdate(undefined, "latent_structure", "failed", 2_000, "boom");
-    progress = applyUpdate(progress, "latent_structure", "completed", 5_000);
+    let progress = applyUpdate(undefined, "simulate", "failed", 2_000, "boom");
+    progress = applyUpdate(progress, "simulate", "completed", 5_000);
 
-    expect(progress.artifacts["latent_structure"]).toBe("completed");
+    expect(progress.artifacts["simulate"]).toBe("completed");
   });
 
   it("flips a completed transition to failed on a later failure", () => {
-    let progress = applyUpdate(undefined, "latent_structure", "completed", 2_000);
-    progress = applyUpdate(progress, "latent_structure", "failed", 5_000, "regressed");
+    let progress = applyUpdate(undefined, "simulate", "completed", 2_000);
+    progress = applyUpdate(progress, "simulate", "failed", 5_000, "regressed");
 
-    expect(progress.artifacts["latent_structure"]).toBe("failed");
-    expect(progress.transitionErrors["latent_structure"]).toBe("regressed");
+    expect(progress.artifacts["simulate"]).toBe("failed");
+    expect(progress.transitionErrors["simulate"]).toBe("regressed");
   });
 
   it("ignores a stale terminal signal that predates the recorded outcome", () => {
-    let progress = applyUpdate(undefined, "latent_structure", "failed", 5_000, "boom");
-    progress = applyUpdate(progress, "latent_structure", "completed", 3_000);
+    let progress = applyUpdate(undefined, "simulate", "failed", 5_000, "boom");
+    progress = applyUpdate(progress, "simulate", "completed", 3_000);
 
-    expect(progress.artifacts["latent_structure"]).toBe("failed");
+    expect(progress.artifacts["simulate"]).toBe("failed");
   });
 
   it("ignores an earlier failed journal record after a newer attempt starts", () => {
-    let progress = applyUpdate(undefined, "statistical_model_spec", "failed", 2_000, "old failure");
-    progress = restartAttempt(progress, "statistical_model_spec", 5_000);
-    progress = applyUpdate(progress, "statistical_model_spec", "failed", 2_000, "old failure");
+    let progress = applyUpdate(undefined, "posterior", "failed", 2_000, "old failure");
+    progress = restartAttempt(progress, "posterior", 5_000);
+    progress = applyUpdate(progress, "posterior", "failed", 2_000, "old failure");
 
-    expect(progress.artifacts["statistical_model_spec"]).toBe("running");
-    expect(progress.transitionErrors["statistical_model_spec"]).toBeUndefined();
+    expect(progress.artifacts["posterior"]).toBe("running");
+    expect(progress.transitionErrors["posterior"]).toBeUndefined();
     expect(progress.isFailed).toBe(false);
   });
 });

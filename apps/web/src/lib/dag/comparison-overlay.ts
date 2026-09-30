@@ -1,9 +1,4 @@
-import type {
-  ConstructId,
-  ConstructSpec,
-  ModelDiffReport,
-  ParameterSpec,
-} from "@nof1-causal-lab/api-types";
+import type { ConstructId, ConstructSpec, ModelDiffReport } from "@nof1-causal-lab/api-types";
 import type { DagLayoutNode, Point } from "@/lib/utils/dag-graph-layout";
 import { humanize } from "@/lib/model-asset/selection";
 import { ghostId } from "@/lib/dag/unroll";
@@ -16,12 +11,6 @@ import {
 } from "@/lib/dag/build-layered-causal-graph";
 
 type Change = "added" | "removed" | "revised";
-
-function decision(parameter: ParameterSpec | null): string {
-  if (!parameter) return "absent";
-  if (parameter.value != null) return `pinned ${parameter.value}`;
-  return parameter.distribution ? "free" : "unspecified";
-}
 
 interface DifferenceMark {
   id: string;
@@ -40,14 +29,15 @@ export function placeComparisonOverlay(
   width: number,
   height: number,
 ) {
+  const dynamicIds = new Set(comparison?.graph.after_dynamic_construct_ids);
+  const previousDynamicIds = new Set(comparison?.graph.before_dynamic_construct_ids);
   const positions = new Map(nodes.map((node) => [node.id, node]));
   const constructs = new Map(comparison?.graph.constructs.map((item) => [item.construct_id, item]));
   const edgeChanges = new Map<string, Change>();
   const constructChanges = new Map<ConstructId, Change>();
   const addedNodes: Array<{ node: DagLayoutNode; construct: ConstructSpec; history: boolean }> = [];
-  const addedEdges: Array<{ id: string; points: Point[]; lagged: boolean }> = [];
+  const addedEdges: Array<{ id: string; points: Point[]; crossSlice: boolean }> = [];
   const marks: DifferenceMark[] = [];
-  const parameters = new Map(comparison?.parameters.map((item) => [item.parameter_id, item]));
   let overlayWidth = width,
     overlayHeight = height;
 
@@ -66,7 +56,7 @@ export function placeComparisonOverlay(
     overlayWidth = Math.max(overlayWidth, node.x + node.width);
     overlayHeight = Math.max(overlayHeight, node.y + node.height);
   };
-  const addEdge = (id: string, sourceId: string, targetId: string, lagged: boolean) => {
+  const addEdge = (id: string, sourceId: string, targetId: string, crossSlice: boolean) => {
     const source = positions.get(sourceId)!,
       target = positions.get(targetId)!;
     const start = { x: source.x + source.width, y: source.y + source.height / 2 };
@@ -74,33 +64,24 @@ export function placeComparisonOverlay(
     const middle = (start.x + end.x) / 2;
     addedEdges.push({
       id,
-      lagged,
+      crossSlice,
       points: [start, { x: middle, y: start.y }, { x: middle, y: end.y }, end],
     });
     return { id, x: middle, y: (start.y + end.y) / 2, width: 0, height: 0 };
   };
-  const detail = (
-    ids: ModelDiffReport["graph"]["edges"][number]["parameter_ids"],
-    text: string,
-  ) => {
-    if (ids.length === 1) {
-      const parameter = parameters.get(ids[0])!;
-      return `${decision(parameter.before)} → ${decision(parameter.after)}`;
-    }
-    return ids.length ? `${ids.length} parameters changed` : text;
-  };
-
   for (const item of comparison?.graph.constructs ?? []) {
     if (item.change === "unchanged") continue;
     constructChanges.set(item.construct_id, item.change);
-    if (!item.before && item.after) {
-      addNode(item.after);
-      if (item.after.role === "endogenous" && item.after.temporal_status === "time_varying") {
+    if (item.after) {
+      if (!item.before) addNode(item.after);
+      if (dynamicIds.has(item.construct_id) && !previousDynamicIds.has(item.construct_id)) {
         addNode(item.after, true);
         addEdge(`self:${item.construct_id}`, ghostId(item.construct_id), item.construct_id, true);
       }
     }
-    if (item.change === "removed") edgeChanges.set(`self:${item.construct_id}`, "removed");
+    if (previousDynamicIds.has(item.construct_id) && !dynamicIds.has(item.construct_id)) {
+      edgeChanges.set(`self:${item.construct_id}`, "removed");
+    }
     const exclusion = item.change === "removed" ? item.after_disposition : null;
     const node = positions.get(item.construct_id)!;
     marks.push({
@@ -111,12 +92,11 @@ export function placeComparisonOverlay(
       title: `${exclusion ? "Excluded" : item.change === "revised" ? "Changed" : humanize(item.change)} construct`,
       detail: exclusion
         ? `${humanize(exclusion.disposition)}: ${exclusion.reason}`
-        : detail(
-            item.parameter_ids,
-            item.before && item.after && item.before.name !== item.after.name
-              ? `${humanize(item.before.name)} → ${humanize(item.after.name)}`
-              : humanize((item.after ?? item.before)!.name),
-          ),
+        : item.change === "revised"
+          ? dynamicIds.has(item.construct_id)
+            ? "History node and persistence added"
+            : "History node and persistence removed"
+          : humanize((item.after ?? item.before)!.name),
     });
   }
   for (const item of comparison?.graph.edges ?? []) {
@@ -126,14 +106,11 @@ export function placeComparisonOverlay(
     let anchor = existing ? positions.get(existing.slotId) : undefined;
     if (item.after) {
       const cause = constructs.get(item.after.cause.id)!.after!;
-      const sourceId =
-        item.after.lagged && cause.temporal_status === "time_varying"
-          ? ghostId(cause.id)
-          : cause.id;
+      const sourceId = dynamicIds.has(cause.id) ? ghostId(cause.id) : cause.id;
       if (sourceId !== cause.id) addNode(cause, true);
       if (!existing || existing.source !== sourceId || existing.target !== item.after.effect.id) {
         if (existing) edgeChanges.set(item.edge_id, "removed");
-        anchor = addEdge(item.edge_id, sourceId, item.after.effect.id, item.after.lagged);
+        anchor = addEdge(item.edge_id, sourceId, item.after.effect.id, dynamicIds.has(cause.id));
       }
     }
     if (anchor)
@@ -142,13 +119,11 @@ export function placeComparisonOverlay(
         x: anchor.x + anchor.width / 2,
         y: anchor.y + anchor.height / 2,
         change: item.change,
-        title: item.parameter_ids.length
-          ? "Parameter change"
-          : `${item.change === "revised" ? "Changed" : humanize(item.change)} connection`,
+        title: `${item.change === "revised" ? "Rerouted" : humanize(item.change)} connection`,
         detail:
           item.change === "removed" && item.after_disposition
             ? `${humanize(item.after_disposition.disposition)}: ${item.after_disposition.reason}`
-            : detail(item.parameter_ids, (item.after ?? item.before)!.description),
+            : (item.after ?? item.before)!.description,
       });
   }
   return {

@@ -24,6 +24,13 @@ export function formatModelDate(day: number, origin: string): string {
   });
 }
 
+const significantFormatter = new Intl.NumberFormat("en", { maximumSignificantDigits: 3 });
+
+/** Three significant digits, so small rates and large intercepts both stay legible. */
+export function formatSignificant(n: number): string {
+  return significantFormatter.format(n).replace("-", "−");
+}
+
 const compactFormatter = new Intl.NumberFormat("en", {
   notation: "compact",
   maximumFractionDigits: 1,

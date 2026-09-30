@@ -1,4 +1,10 @@
-import type { ConstructSpec, ModelSpec } from "@nof1-causal-lab/api-types";
+import type {
+  CoefficientExpression,
+  CoefficientRole,
+  ConstructSpec,
+  ModelSpec,
+  ParameterId,
+} from "@nof1-causal-lab/api-types";
 
 /** Follow the serialized graph's endpoint definitions; references carry identity only. */
 export function modelConstructs(model: ModelSpec | null | undefined): ConstructSpec[] {
@@ -19,9 +25,15 @@ export function indicatorOwners(constructs: readonly ConstructSpec[]) {
   );
 }
 
-/** Follow serialized coefficient references for presentation; labels do not identify parameters. */
-export function referencedParameterIds(component: unknown): Set<string> {
-  const ids = new Set<string>();
+/** A coefficient operand that names a parameter, with the quantity its authored role declares. */
+export interface CoefficientUse {
+  role: CoefficientRole;
+  parameterId: ParameterId;
+}
+
+/** Follow serialized coefficient references in declaration order, keeping each parameter's first role. */
+export function coefficientUses(component: unknown): CoefficientUse[] {
+  const uses = new Map<ParameterId, CoefficientUse>();
   const visit = (value: unknown) => {
     if (!value || typeof value !== "object") return;
     if (Array.isArray(value)) {
@@ -29,12 +41,19 @@ export function referencedParameterIds(component: unknown): Set<string> {
       return;
     }
     const record = value as Record<string, unknown>;
-    if (record.kind === "coefficient" && typeof record.value === "string") {
-      ids.add(record.value);
+    if (record.kind === "coefficient") {
+      const operand = record as unknown as CoefficientExpression;
+      if (typeof operand.value === "string" && !uses.has(operand.value))
+        uses.set(operand.value, { role: operand.role, parameterId: operand.value });
       return;
     }
     Object.values(record).forEach(visit);
   };
   visit(component);
-  return ids;
+  return [...uses.values()];
+}
+
+/** Follow serialized coefficient references for presentation; labels do not identify parameters. */
+export function referencedParameterIds(component: unknown): Set<string> {
+  return new Set(coefficientUses(component).map((use) => use.parameterId));
 }

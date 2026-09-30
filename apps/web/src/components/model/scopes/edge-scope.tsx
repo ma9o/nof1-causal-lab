@@ -1,8 +1,11 @@
 import type { EdgeId } from "@nof1-causal-lab/api-types";
 import { dispositionLabel } from "@/lib/model-asset/inspector";
+import { ownLawUses } from "@/lib/model-asset/laws";
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import { Hint, ParameterLinks, Prose, Section } from "../scope-primitives";
+import { LawSections } from "./law-sections";
 import { parametersForOwner } from "./parameters";
+import { MechanismResponse } from "./mechanism-response";
 
 export function EdgeScope({ context, id }: { context: ScopeContext; id: EdgeId }) {
   const edge = context.entities.edgeById.get(id);
@@ -15,9 +18,6 @@ export function EdgeScope({ context, id }: { context: ScopeContext; id: EdgeId }
     <>
       <Section title="Relationship">
         <Prose>{edge.description}</Prose>
-        <Hint>
-          {edge.lagged ? "Effect follows the cause." : "Cause and effect occur at the same time."}
-        </Hint>
         {edge.sources.length > 0 && (
           <details>
             <summary className="cursor-pointer text-muted-foreground">Sources</summary>
@@ -42,6 +42,8 @@ export function EdgeScope({ context, id }: { context: ScopeContext; id: EdgeId }
           </details>
         )}
       </Section>
+      {edge.mechanisms.length > 0 && <MechanismResponse context={context} owner={id} />}
+      <LawSections context={context} uses={ownLawUses(edge)} />
       {disposition && disposition.disposition !== "retained_edge" && (
         <Section
           title={dispositionLabel(disposition.disposition)}

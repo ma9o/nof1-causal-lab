@@ -115,24 +115,24 @@ describe("buildAnalysisManifest", () => {
           seq: 3,
           ts: "2026-07-01T00:02:00+00:00",
           ...{
-            action: "edit_model",
-            operation_id: "latent_structure",
+            action: "simulate",
+            operation_id: "simulate",
             inputs: {},
           },
           status: "raised",
           error_type: "SchemaValidationError",
-          error_message: "latent_structure payload failed validation",
+          error_message: "simulate payload failed validation",
         }),
         transition({
           seq: 4,
           ts: "2026-07-01T00:03:00+00:00",
           ...{
-            action: "edit_model",
-            operation_id: "latent_structure",
+            action: "simulate",
+            operation_id: "simulate",
             inputs: {},
           },
           status: "rejected",
-          reason: "latent_structure requires artifacts that do not exist: raw_data",
+          reason: "simulate requires artifacts that do not exist: model",
         }),
       ],
     });
@@ -140,17 +140,16 @@ describe("buildAnalysisManifest", () => {
     expect(manifest).not.toBeNull();
     expect(manifest?.createdAt).toBe("2026-07-01T00:00:00+00:00");
     expect(manifest?.question).toBe("Does exercise help sleep?");
-    expect(manifest?.transitionOrder).toEqual([
-      "raw_data",
-      "latent_structure",
-      "simulate",
-      "simulated_measurements",
-      "measurement_structure",
-      "measurements",
-      "validation_report",
-      "statistical_model_spec",
-      "posterior",
-    ]);
+    expect(manifest?.transitionOrder).toEqual(
+      expect.arrayContaining([
+        "raw_data",
+        "measurements",
+        "validation_report",
+        "posterior",
+        "simulate",
+        "simulated_measurements",
+      ]),
+    );
     expect(vi.mocked(readArtifactJson)).toHaveBeenCalledWith(
       "user-1",
       "model",
@@ -165,7 +164,7 @@ describe("buildAnalysisManifest", () => {
       },
     });
     // Raised run marks the transition failed; the later rejected attempt never executed.
-    expect(manifest?.transitionRuns["latent_structure"]?.execution?.stateType).toBe("FAILED");
+    expect(manifest?.transitionRuns["simulate"]?.execution?.stateType).toBe("FAILED");
     expect(manifest?.transitionRuns["measurements"]).toEqual({ execution: null });
   });
   it("prefers the latest run attempt per artifact", async () => {

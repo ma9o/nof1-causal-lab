@@ -149,8 +149,8 @@ export function VersionScrubber({
       </div>
       {hasComparisons && selectedNode && (
         <span id="model-version-comparison-instructions" className="sr-only">
-          Preview differences with {timelineTickLabel(selectedNode.tick)}. Use Compare to keep the
-          comparison open.
+          Preview topology differences with {timelineTickLabel(selectedNode.tick)}. Use Compare to
+          keep the comparison open.
         </span>
       )}
       {visible.nodes.length === 0 ? (

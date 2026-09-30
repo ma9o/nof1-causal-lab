@@ -1,9 +1,6 @@
 import { useModelDiff } from "@/lib/hooks/use-model-diff";
-import {
-  editBase,
-  initialModelSummary,
-  modelChangeSummary,
-} from "@/lib/model-asset/action-presentation";
+import { useModelSnapshot } from "@/lib/hooks/use-model-snapshot";
+import { initialModelSummary, modelChangeSummary } from "@/lib/model-asset/action-presentation";
 import type { JournalTick } from "@/lib/model-asset/journal";
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import { humanize } from "@/lib/model-asset/selection";
@@ -11,12 +8,13 @@ import { DefinitionView } from "../definition-view";
 import { Hint, Section } from "../scope-primitives";
 
 export function EditDetails({ context, tick }: { context: ScopeContext; tick: JournalTick }) {
-  const base = editBase(tick);
-  const diff = useModelDiff(
-    context.model.context.workspace_id,
-    base ?? "",
-    base ? tick.commitId : null,
-  );
+  const workspaceId = context.model.context.workspace_id;
+  const base = tick.parentIds[0];
+  const previous = useModelSnapshot(workspaceId, base, tick.branch, base !== undefined);
+  const ready = base === undefined || (previous.data && !previous.isPlaceholderData);
+  const hasModel = ready && previous.data?.model != null;
+  const diff = useModelDiff(workspaceId, base ?? "", hasModel ? tick.commitId : null);
+  const error = previous.error ?? diff.error;
   const names = new Map<string, string>(
     [
       ...context.entities.constructs,
@@ -29,18 +27,18 @@ export function EditDetails({ context, tick }: { context: ScopeContext; tick: Jo
   }
   return (
     <Section title="Model changes" wide>
-      {!base ? (
+      {error ? (
+        <p role="alert" className="text-destructive">
+          Unable to read model changes: {error.message}
+        </p>
+      ) : !ready || (hasModel && !diff.data) ? (
+        <p role="status">Reading model changes…</p>
+      ) : !hasModel ? (
         <>
           <p className="font-medium">{initialModelSummary(context.model)}</p>
           <Hint>{context.model.model?.value.question}</Hint>
         </>
-      ) : diff.error ? (
-        <p role="alert" className="text-destructive">
-          Unable to read model changes: {diff.error.message}
-        </p>
-      ) : !diff.data ? (
-        <p role="status">Reading model changes…</p>
-      ) : (
+      ) : diff.data ? (
         <>
           <p className="font-medium">{modelChangeSummary(diff.data)}</p>
           {diff.data.definition_changes.map((change) => (
@@ -71,7 +69,7 @@ export function EditDetails({ context, tick }: { context: ScopeContext; tick: Jo
             </details>
           ))}
         </>
-      )}
+      ) : null}
     </Section>
   );
 }

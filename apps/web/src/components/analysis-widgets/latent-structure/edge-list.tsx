@@ -1,4 +1,3 @@
-import { Badge } from "@/components/ui/badge";
 import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
 import type { CausalEdgeSpec, ConstructSpec } from "@nof1-causal-lab/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
@@ -16,14 +15,6 @@ function columns(constructs: ConstructSpec[]) {
     col.accessor("effect.id", {
       header: "Effect",
       cell: (info) => <span className="font-medium">{names.get(info.getValue())}</span>,
-    }),
-    col.accessor("lagged", {
-      header: "Timing",
-      cell: (info) => (
-        <Badge variant={info.getValue() ? "default" : "secondary"}>
-          {info.getValue() ? "Lagged" : "Contemporaneous"}
-        </Badge>
-      ),
     }),
     col.accessor("description", {
       header: "Description",

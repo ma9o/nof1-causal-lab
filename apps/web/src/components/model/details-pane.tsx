@@ -6,9 +6,11 @@ import { type ModelSelection, humanize } from "@/lib/model-asset/selection";
 import { Hint, PosteriorTable, Section } from "./scope-primitives";
 import { distributionText } from "@/lib/utils/distribution-format";
 import { posteriorRows } from "@/lib/model-asset/inspector";
+import { coefficientUses } from "@/lib/model-accessors";
 import { ConstructScope } from "./scopes/construct-scope";
 import { EdgeScope } from "./scopes/edge-scope";
 import { IndicatorScope } from "./scopes/indicator-scope";
+import { LawSections, PosteriorPairs } from "./scopes/law-sections";
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import { VersionScope } from "./scopes/version-scope";
 import { timelineTickLabel } from "@/lib/model-asset/timeline-presentation";
@@ -32,12 +34,14 @@ function ScopeBody({ selection, context }: { selection: ModelSelection; context:
         parameter ? [parameter] : [],
         context.model.findings.fit?.value.report,
       );
+      const use = coefficientUses(model?.edges).find((item) => item.parameterId === selection.id);
       return parameter ? (
         <>
           <Section title="Parameter">
             <Hint>{humanize(parameter.description)}</Hint>
             {parameter.value != null && <p className="font-mono">Fixed at {parameter.value}</p>}
           </Section>
+          {use && <LawSections context={context} uses={[use]} linked={false} />}
           {parameter.distribution && (
             <Section title="Probability law">
               <p className="break-words font-mono">
@@ -56,6 +60,7 @@ function ScopeBody({ selection, context }: { selection: ModelSelection; context:
               <PosteriorTable rows={fitted} />
             </Section>
           )}
+          {context.model.findings.fit && <PosteriorPairs context={context} id={parameter.id} />}
         </>
       ) : (
         <Hint>This parameter is absent from this revision.</Hint>

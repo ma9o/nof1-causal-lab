@@ -17,12 +17,13 @@ describe("intervention DAG semantics", () => {
       times: [0, 0.5, 2],
       causal_result: {
         labels: { "construct:lipid": "lipid_burden" },
-        time_grid_days: [0, 0.5, 2],
-        effect_trajectory: null,
-        trajectories: {
+        effect_trajectory: [],
+      },
+      predictive: {
+        states: {
           "construct:lipid": {
-            reference_mean: [0.85, 0.9, 0.95],
-            action_mean: [1.85, 1.8, 1.75],
+            reference: { kind: "numeric", mean: [0.85, 0.9, 0.95] },
+            action: { kind: "numeric", mean: [1.85, 1.8, 1.75] },
           },
         },
       },

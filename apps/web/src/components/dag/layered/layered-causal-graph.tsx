@@ -3,11 +3,20 @@
 import type {
   ConstructId,
   ConstructSpec,
+  IndicatorEmpiricalProfile,
   IndicatorSpec,
+  InterventionSpec,
   PosteriorEstimate,
+  ScientificActionId,
+  PathSeries,
+  SimulationPaths,
 } from "@nof1-causal-lab/api-types";
+import { scaleLinear } from "d3-scale";
+import { extent } from "d3-array";
+import { line } from "d3-shape";
 import { Pause, Play } from "lucide-react";
-import type { KeyboardEvent } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
+import { LawPlot, lawExtent } from "@/components/charts/law-density";
 import { Button } from "@/components/ui/button";
 import {
   LAYERED_EDGE_SLOT_HEIGHT,
@@ -21,9 +30,13 @@ import {
 import type { ConstructStatus } from "@/lib/dag/construct-statuses";
 import { boundsForBand, type CausalGraphLayerId } from "@/lib/dag/layered-model";
 import { BLOCKING, COMPARISON_COLORS, DAG_COLORS, MARGINALIZED } from "@/lib/dag/palette";
-import { getNodeActionSeries, getNodeReferenceSeries } from "@/lib/dag/simulation";
 import { type LayeredGraphOptions, useLayeredGraph } from "@/lib/dag/use-layered-graph";
-import { formatPosteriorIntervalLabel } from "@/lib/utils/format";
+import { type LawCurve, lawLabel } from "@/lib/model-asset/laws";
+import {
+  formatModelDate,
+  formatPosteriorIntervalLabel,
+  formatSignificant,
+} from "@/lib/utils/format";
 import { DagCanvasFrame, DagSvg } from "../core/dag-canvas";
 import { DagEdge } from "../core/dag-edge";
 import { DagNodeShell } from "../core/dag-node";
@@ -44,7 +57,10 @@ const LAYER_LABELS: Record<CausalGraphLayerId, string> = {
 export type LayeredCausalGraphVariant = "workbench" | "asset";
 
 export interface LayeredCausalGraphProps extends LayeredGraphOptions {
+  simulationPaths?: SimulationPaths | null;
   onSelectNode: (construct: ConstructId | null) => void;
+  /** The action whose version is viewed; a data preparation shows each node's prepared data. */
+  step?: ScientificActionId | null;
   /**
    * `workbench` keeps the layer toggles, simulation timeline and legend around the canvas;
    * `asset` renders the canvas alone, filling its container, with only the zoom control.
@@ -91,10 +107,21 @@ function statusLabel(status: ConstructStatus | undefined): string | null {
   return null;
 }
 
-function LayerPill({ x, label, color }: { x: number; label: string; color: string }) {
+function LayerPill({
+  x,
+  label,
+  color,
+  description,
+}: {
+  x: number;
+  label: string;
+  color: string;
+  description?: string;
+}) {
   const width = Math.max(38, label.length * 5.3 + 14);
   return (
-    <g transform={`translate(${x - width},8)`}>
+    <g transform={`translate(${x - width},8)`} role="img" aria-label={description ?? label}>
+      <title>{description ?? label}</title>
       <rect width={width} height={17} rx={8.5} fill={color} fillOpacity={0.11} />
       <text x={width / 2} y={11.5} textAnchor="middle" fontSize={7.5} fontWeight={650} fill={color}>
         {label}
@@ -103,81 +130,310 @@ function LayerPill({ x, label, color }: { x: number; label: string; color: strin
   );
 }
 
-function pathForSeries(
-  series: number[],
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  minimum: number,
-  maximum: number,
-): string {
-  const range = maximum - minimum || 1;
-  const denominator = Math.max(1, series.length - 1);
-  return series
-    .map((value, index) => {
-      const px = x + (index / denominator) * width;
-      const py = y + height - ((value - minimum) / range) * height;
-      return `${index === 0 ? "M" : "L"}${px.toFixed(1)},${py.toFixed(1)}`;
-    })
-    .join("");
+function assignmentLabel(event: InterventionSpec, timeOrigin: string | null): string {
+  const when = timeOrigin
+    ? `${formatModelDate(event.time, timeOrigin)} (day ${event.time})`
+    : `Day ${event.time}`;
+  return `${when}: set to ${event.value}`;
 }
 
-function MiniTrajectory({
-  days,
-  reference,
-  action,
-  dayIndex,
+/** The card's chart strip, below its title and description. */
+const STRIP = { x: 14, top: 56, width: LAYERED_NODE_WIDTH - 28, height: 64 } as const;
+/** One row per law or indicator: label, value, then its chart. */
+const STRIP_ROW = { height: 21, value: 108, plot: 114 } as const;
+const STRIP_ROWS = 3;
+const rowTop = (index: number) => STRIP.top + index * STRIP_ROW.height;
+
+function lawTitle(curve: LawCurve): string {
+  const posterior = curve.posteriors.length === 1 ? curve.posteriors[0] : null;
+  const summary = posterior
+    ? `posterior ${formatSignificant(posterior.mean)} [${formatSignificant(posterior.lower)}, ${formatSignificant(posterior.upper)}] ${formatPosteriorIntervalLabel(posterior)}`
+    : curve.posteriors.length > 1
+      ? `${curve.posteriors.length} posterior elements`
+      : `authored ${curve.family ? `${curve.family} ` : ""}prior`;
+  return [
+    lawLabel(curve),
+    humanize(curve.parameter.name),
+    summary,
+    ...(curve.stale ? ["fitted on an earlier panel"] : []),
+  ].join(" · ");
+}
+
+/** One labelled row of a card's chart strip; its chart sits right of the value. */
+function StripRow({
+  index,
+  title,
+  label,
+  value,
+  valueTone,
+  range,
+  children,
 }: {
-  days: number[];
-  reference: number[];
-  action: number[];
-  dayIndex: number;
+  index: number;
+  title: string;
+  label: string;
+  value: string;
+  valueTone: string;
+  /** The chart's value range, labelled under its ends. */
+  range?: [number, number];
+  children: ReactNode;
 }) {
-  if (reference.length !== days.length) {
-    throw new Error("A simulation reference trajectory is not aligned to its day axis.");
-  }
-  if (action.length > 0 && action.length !== days.length) {
-    throw new Error("A simulation action trajectory is not aligned to its day axis.");
-  }
-  if (reference.length === 0) return null;
+  const top = rowTop(index);
+  const bottom = top + STRIP_ROW.height - 0.5;
+  return (
+    <g role="img" aria-label={title}>
+      <title>{title}</title>
+      <rect x={STRIP.x} y={top} width={STRIP.width} height={STRIP_ROW.height} fill="transparent" />
+      <text x={STRIP.x} y={top + 11} fontSize={7.5} fontWeight={600} fill={DAG_COLORS.slate}>
+        {truncate(label, 17)}
+      </text>
+      <text
+        x={STRIP.x + STRIP_ROW.value}
+        y={top + 11}
+        textAnchor="end"
+        fontSize={7.5}
+        fontFamily="ui-monospace, monospace"
+        fill={valueTone}
+      >
+        {value}
+      </text>
+      {children}
+      {range ? (
+        <>
+          <text x={STRIP.x + STRIP_ROW.plot} y={bottom} fontSize={5.5} fill={DAG_COLORS.muted}>
+            {formatSignificant(range[0])}
+          </text>
+          <text
+            x={STRIP.x + STRIP.width}
+            y={bottom}
+            textAnchor="end"
+            fontSize={5.5}
+            fill={DAG_COLORS.muted}
+          >
+            {formatSignificant(range[1])}
+          </text>
+        </>
+      ) : null}
+    </g>
+  );
+}
 
-  const values = [...reference, ...action];
-  const minimum = Math.min(...values);
-  const maximum = Math.max(...values);
-  const x = 14;
-  const y = 77;
-  const width = LAYERED_NODE_WIDTH - 28;
-  const height = 27;
-  const index = Math.max(0, Math.min(reference.length - 1, dayIndex));
-  const markerX = x + (index / Math.max(1, reference.length - 1)) * width;
+/** Rows past the strip stay in the inspector. */
+function StripOverflow({ hidden }: { hidden: number }) {
+  return hidden > 0 ? (
+    <text
+      x={LAYERED_NODE_WIDTH - 8}
+      y={LAYERED_NODE_HEIGHT - 4}
+      textAnchor="end"
+      fontSize={6.5}
+      fill={DAG_COLORS.muted}
+    >
+      {`+${hidden} more`}
+    </text>
+  ) : null;
+}
 
+/** Each own law's backend curves: the prior outlined, posteriors filled after a fit. */
+function LawStrip({ laws }: { laws: LawCurve[] }) {
+  const shown = laws.slice(0, STRIP_ROWS);
   return (
     <g>
-      <line x1={x} x2={x + width} y1={y + height / 2} y2={y + height / 2} stroke="#edf0f3" />
-      <path
-        d={pathForSeries(reference, x, y, width, height, minimum, maximum)}
-        fill="none"
-        stroke={DAG_COLORS.slate}
-        strokeWidth={1.35}
-        strokeOpacity={0.7}
-      />
-      {action.length > 0 ? (
+      {shown.map((curve, index) => {
+        const posterior = curve.posteriors.length === 1 ? curve.posteriors[0] : null;
+        return (
+          <StripRow
+            key={curve.parameter.id}
+            index={index}
+            title={lawTitle(curve)}
+            label={lawLabel(curve)}
+            value={
+              posterior
+                ? formatSignificant(posterior.mean)
+                : curve.posteriors.length > 1
+                  ? `×${curve.posteriors.length}`
+                  : truncate(curve.family ?? "prior", 9)
+            }
+            valueTone={posterior && !curve.stale ? DAG_COLORS.ink : DAG_COLORS.muted}
+            range={lawExtent(curve)}
+          >
+            <LawPlot
+              curve={curve}
+              x={STRIP.x + STRIP_ROW.plot}
+              y={rowTop(index) + 2}
+              width={STRIP.width - STRIP_ROW.plot}
+              height={STRIP_ROW.height - 8}
+            />
+          </StripRow>
+        );
+      })}
+      <StripOverflow hidden={laws.length - shown.length} />
+    </g>
+  );
+}
+
+/** A node's prepared indicators: observation counts and recorded range, quartiles and median. */
+function DataStrip({
+  rows,
+}: {
+  rows: Array<{ indicator: IndicatorSpec; profile: IndicatorEmpiricalProfile }>;
+}) {
+  const shown = rows.slice(0, STRIP_ROWS);
+  return (
+    <g>
+      {shown.map(({ indicator, profile }, index) => {
+        const { min, q25, q50, q75, max } = profile;
+        const quartiles =
+          min != null && q25 != null && q50 != null && q75 != null && max != null
+            ? { min, q25, q50, q75, max }
+            : null;
+        const name = humanize(indicator.name);
+        const counted = `${name} · ${profile.n_obs.toLocaleString()} observations`;
+        const sx = scaleLinear()
+          .domain(
+            quartiles && quartiles.min !== quartiles.max
+              ? [quartiles.min, quartiles.max]
+              : [(min ?? 0) - 0.5, (max ?? 0) + 0.5],
+          )
+          .range([STRIP.x + STRIP_ROW.plot, STRIP.x + STRIP.width]);
+        const mid = rowTop(index) + 8.5;
+        return (
+          <StripRow
+            key={indicator.id}
+            index={index}
+            title={
+              quartiles
+                ? `${counted} · min ${formatSignificant(quartiles.min)} · quartiles ${formatSignificant(quartiles.q25)}–${formatSignificant(quartiles.q75)} · median ${formatSignificant(quartiles.q50)} · max ${formatSignificant(quartiles.max)}`
+                : counted
+            }
+            label={name}
+            value={`n ${formatSignificant(profile.n_obs)}`}
+            valueTone={DAG_COLORS.ink}
+            range={quartiles ? [quartiles.min, quartiles.max] : undefined}
+          >
+            {quartiles ? (
+              <>
+                <line
+                  x1={sx(quartiles.min)}
+                  x2={sx(quartiles.max)}
+                  y1={mid}
+                  y2={mid}
+                  stroke={DAG_COLORS.muted}
+                />
+                <rect
+                  x={sx(quartiles.q25)}
+                  y={mid - 4}
+                  width={Math.max(1.2, sx(quartiles.q75) - sx(quartiles.q25))}
+                  height={8}
+                  rx={1.5}
+                  fill={DAG_COLORS.intervention}
+                  fillOpacity={0.14}
+                  stroke={DAG_COLORS.intervention}
+                  strokeWidth={0.8}
+                />
+                <line
+                  x1={sx(quartiles.q50)}
+                  x2={sx(quartiles.q50)}
+                  y1={mid - 4}
+                  y2={mid + 4}
+                  stroke={DAG_COLORS.intervention}
+                  strokeWidth={1.4}
+                />
+              </>
+            ) : null}
+          </StripRow>
+        );
+      })}
+      <StripOverflow hidden={rows.length - shown.length} />
+    </g>
+  );
+}
+
+/** The same saved draws shown in the inspector, with reference paths dashed. */
+function NodeTrajectory({
+  times,
+  series,
+  marker,
+  assignments,
+  timeOrigin,
+}: {
+  times: number[];
+  series: PathSeries;
+  marker?: number;
+  assignments: InterventionSpec[];
+  timeOrigin: string | null;
+}) {
+  const { action, reference } = series;
+  const values = [...action, ...reference]
+    .flatMap((path) => path.values)
+    .filter((value): value is number => value != null);
+  if (values.length === 0) return null;
+  const top = STRIP.top + 4;
+  const bottom = STRIP.top + STRIP.height - 4;
+  const sx = scaleLinear()
+    .domain([times[0], times[times.length - 1]])
+    .range([STRIP.x, STRIP.x + STRIP.width]);
+  const sy = scaleLinear()
+    .domain(extent(values) as [number, number])
+    .range([bottom, top]);
+  const indices = times.map((_, index) => index);
+  const trace = (values: (number | null)[]) =>
+    line<number>()
+      .defined((index) => values[index] != null)
+      .x((index) => sx(times[index]))
+      .y((index) => sy(values[index]!))(indices) ?? "";
+  return (
+    <g
+      role="img"
+      aria-label={`${humanize(series.label)}: ${action.length} individual simulation draws`}
+    >
+      <title>
+        {`${action.length} recorded draws; open the inspector to select any saved draw. Reference paths are dashed.`}
+      </title>
+      {reference.map((path) => (
         <path
-          d={pathForSeries(action, x, y, width, height, minimum, maximum)}
+          key={path.draw}
+          d={trace(path.values)}
+          fill="none"
+          stroke={DAG_COLORS.slate}
+          strokeWidth={0.7}
+          strokeOpacity={0.3}
+          strokeDasharray="3 2"
+        />
+      ))}
+      {action.map((path) => (
+        <path
+          key={path.draw}
+          d={trace(path.values)}
           fill="none"
           stroke={DAG_COLORS.intervention}
-          strokeWidth={1.8}
+          strokeWidth={0.7}
+          strokeOpacity={0.4}
+        />
+      ))}
+      {assignments.map((event) => (
+        <g key={event.time} role="img" aria-label={assignmentLabel(event, timeOrigin)}>
+          <title>{assignmentLabel(event, timeOrigin)}</title>
+          <line
+            x1={sx(event.time)}
+            x2={sx(event.time)}
+            y1={top - 2}
+            y2={bottom + 2}
+            stroke={DAG_COLORS.intervention}
+            strokeDasharray="2 2"
+            strokeOpacity={0.6}
+          />
+        </g>
+      ))}
+      {marker != null ? (
+        <line
+          x1={sx(marker)}
+          x2={sx(marker)}
+          y1={top - 2}
+          y2={bottom + 2}
+          stroke={DAG_COLORS.ink}
+          strokeOpacity={0.18}
         />
       ) : null}
-      <line
-        x1={markerX}
-        x2={markerX}
-        y1={y - 2}
-        y2={y + height + 2}
-        stroke={DAG_COLORS.ink}
-        strokeOpacity={0.18}
-      />
     </g>
   );
 }
@@ -188,12 +444,11 @@ function ConstructCard({
   indicators,
   warningVariables,
   status,
-  persistence,
-  days,
-  reference,
-  action,
-  dayIndex,
-  clampLabel,
+  laws,
+  trajectory,
+  data,
+  assignments,
+  timeOrigin,
   selected,
   dimmed,
   onSelect,
@@ -203,22 +458,26 @@ function ConstructCard({
   indicators: IndicatorSpec[];
   warningVariables: ReadonlySet<string>;
   status?: ConstructStatus;
-  persistence?: PosteriorEstimate;
-  days: number[];
-  reference: number[];
-  action: number[];
-  dayIndex: number;
-  clampLabel?: string;
+  laws: LawCurve[];
+  /** A simulated history replaces the law strip on the card. */
+  trajectory?: { times: number[]; series: PathSeries; marker?: number };
+  /** Prepared indicator data replaces the law strip on the card. */
+  data?: Array<{ indicator: IndicatorSpec; profile: IndicatorEmpiricalProfile }>;
+  assignments: InterventionSpec[];
+  timeOrigin: string | null;
   selected: boolean;
   dimmed: boolean;
   onSelect: () => void;
 }) {
   const [descriptionLine1, descriptionLine2] = wrapDescription(construct.description);
   const label = statusLabel(status);
-  const accent = clampLabel ? DAG_COLORS.intervention : statusAccent(status);
+  const hasAssignments = assignments.length > 0;
+  const accent = hasAssignments ? DAG_COLORS.intervention : statusAccent(status);
   const hasMeasurementWarning = indicators.some((indicator) => warningVariables.has(indicator.id));
-  const badge = clampLabel ?? label ?? null;
-  const badgeColor = clampLabel
+  const badge = hasAssignments
+    ? `${assignments.length} assignment${assignments.length === 1 ? "" : "s"}`
+    : label;
+  const badgeColor = hasAssignments
     ? DAG_COLORS.intervention
     : status === "blocking"
       ? BLOCKING
@@ -245,36 +504,41 @@ function ConstructCard({
         highlighted={selected}
         outcome={isOutcome}
       >
-        {badge ? <LayerPill x={LAYERED_NODE_WIDTH - 8} label={badge} color={badgeColor} /> : null}
-        <text x={14} y={61} fontSize={8.2} fill="var(--muted-foreground)">
+        {badge ? (
+          <LayerPill
+            x={LAYERED_NODE_WIDTH - 8}
+            label={badge}
+            color={badgeColor}
+            description={
+              hasAssignments
+                ? assignments.map((event) => assignmentLabel(event, timeOrigin)).join("; ")
+                : undefined
+            }
+          />
+        ) : null}
+        <text x={14} y={39} fontSize={8.2} fill="var(--muted-foreground)">
           {descriptionLine1}
         </text>
-        <text x={14} y={72} fontSize={8.2} fill="var(--muted-foreground)">
+        <text x={14} y={49} fontSize={8.2} fill="var(--muted-foreground)">
           {descriptionLine2}
         </text>
-        {days.length > 0 && reference.length > 0 ? (
-          <MiniTrajectory days={days} reference={reference} action={action} dayIndex={dayIndex} />
-        ) : persistence ? (
-          <text
-            x={14}
-            y={94}
-            fontSize={8}
-            fontFamily="ui-monospace, monospace"
-            fill={DAG_COLORS.muted}
-          >
-            {`decay ${persistence.mean.toFixed(2)} [${persistence.lower.toFixed(2)}, ${persistence.upper.toFixed(2)}] ${formatPosteriorIntervalLabel(persistence)}`}
-          </text>
+        {trajectory ? (
+          <NodeTrajectory {...trajectory} assignments={assignments} timeOrigin={timeOrigin} />
+        ) : data ? (
+          <DataStrip rows={data} />
+        ) : laws.length > 0 ? (
+          <LawStrip laws={laws} />
         ) : null}
         {hasMeasurementWarning ? (
           <g role="img" aria-label="Measurement warnings">
             <title>Measurement warnings — inspect the indicators.</title>
             <path
-              d="M14 124 L20 113 L26 124 Z"
+              d="M224 45 L230 34 L236 45 Z"
               fill="none"
               stroke="var(--warning-foreground)"
               strokeWidth={1.2}
             />
-            <text x={20} y={122} textAnchor="middle" fontSize={8} fill="var(--warning-foreground)">
+            <text x={230} y={43} textAnchor="middle" fontSize={8} fill="var(--warning-foreground)">
               !
             </text>
           </g>
@@ -323,35 +587,73 @@ function EdgeSlot({
   meta,
   disposition,
   posterior,
+  laws,
   color,
-  pruned,
   dimmed,
 }: {
   meta: LayeredGraphEdgeMeta;
   disposition?: import("@nof1-causal-lab/api-types").StructuralItemDisposition["disposition"];
   posterior?: PosteriorEstimate;
+  /** The edge mechanism's own laws; the first is drawn in the slot. */
+  laws: LawCurve[];
   color: string;
-  pruned: boolean;
   dimmed: boolean;
 }) {
   const timing = meta.isSelf
     ? "Intrinsic dynamics"
-    : meta.lagged
-      ? "Lagged effect"
+    : meta.crossSlice
+      ? "State evolution"
       : "Contemporaneous effect";
-  const bottom = pruned
-    ? "×"
-    : posterior
-      ? `${posterior.mean >= 0 ? "+" : ""}${posterior.mean.toFixed(2)}`
-      : null;
+  const law = laws[0];
+  if (law) {
+    const effect = law.posteriors.length === 1 ? law.posteriors[0] : null;
+    const tone = law.stale ? DAG_COLORS.muted : DAG_COLORS.slate;
+    return (
+      <g opacity={dimmed ? 0.12 : 1}>
+        <title>
+          {[
+            `${timing}${disposition === "projected_edge" ? " · projected" : ""}`,
+            ...laws.map(lawTitle),
+          ].join("\n")}
+        </title>
+        <rect
+          width={LAYERED_EDGE_SLOT_WIDTH}
+          height={LAYERED_EDGE_SLOT_HEIGHT}
+          rx={8}
+          fill="var(--card)"
+          stroke={color}
+          strokeOpacity={0.55}
+          strokeDasharray={disposition === "projected_edge" ? "4,3" : undefined}
+        />
+        <LawPlot
+          curve={law}
+          x={7}
+          y={5}
+          width={LAYERED_EDGE_SLOT_WIDTH - 14}
+          height={LAYERED_EDGE_SLOT_HEIGHT - 19}
+          color={tone}
+        />
+        <text
+          x={LAYERED_EDGE_SLOT_WIDTH / 2}
+          y={LAYERED_EDGE_SLOT_HEIGHT - 5}
+          textAnchor="middle"
+          fontSize={7.2}
+          fontWeight={650}
+          fill={tone}
+        >
+          {`${lawLabel(law)} · ${effect ? `μ ${formatSignificant(effect.mean)}` : (law.family ?? "prior")}${laws.length > 1 ? ` +${laws.length - 1}` : ""}`}
+        </text>
+      </g>
+    );
+  }
+  const bottom = posterior
+    ? `${posterior.mean >= 0 ? "+" : ""}${formatSignificant(posterior.mean)}`
+    : null;
 
   if (bottom === null)
     return (
       <g opacity={dimmed ? 0.12 : 1}>
-        <title>
-          {timing}
-          {disposition === "projected_edge" ? " · projected" : ""}
-        </title>
+        <title>{`${timing}${disposition === "projected_edge" ? " · projected" : ""}`}</title>
         <line
           x1={0}
           x2={LAYERED_EDGE_SLOT_WIDTH}
@@ -366,7 +668,7 @@ function EdgeSlot({
 
   return (
     <g opacity={dimmed ? 0.12 : 1}>
-      <title>{pruned ? "Cut by intervention" : timing}</title>
+      <title>{timing}</title>
       <rect
         width={LAYERED_EDGE_SLOT_WIDTH}
         height={LAYERED_EDGE_SLOT_HEIGHT}
@@ -378,7 +680,7 @@ function EdgeSlot({
       />
       <text
         x={LAYERED_EDGE_SLOT_WIDTH / 2}
-        y={19}
+        y={LAYERED_EDGE_SLOT_HEIGHT / 2 + 2.5}
         textAnchor="middle"
         fontSize={7.2}
         fontWeight={650}
@@ -427,9 +729,11 @@ function LayerControls({
 export function LayeredCausalGraph({
   model,
   simulation = null,
+  simulationPaths = null,
   comparison = null,
   selectedNode,
   onSelectNode,
+  step = null,
   variant = "workbench",
 }: LayeredCausalGraphProps) {
   const {
@@ -453,7 +757,7 @@ export function LayeredCausalGraph({
     nodeStatuses,
     indicatorsByConstruct,
     warningVariables,
-    persistencePosteriors,
+    constructLaws,
     simulationResult,
     days,
     clampedDayIndex,
@@ -533,7 +837,7 @@ export function LayeredCausalGraph({
                     width={visual.width}
                     dashed={visual.disposition === "projected_edge"}
                     opacity={visual.opacity}
-                    markerEnd={segmentMeta.markerEnd && !visual.activeClamp}
+                    markerEnd={segmentMeta.markerEnd}
                     highlighted={hoveredEdge === meta.id}
                     onHoverChange={(hovered) => setHoveredEdge(hovered ? meta.id : null)}
                   />
@@ -560,8 +864,8 @@ export function LayeredCausalGraph({
                       meta={edge}
                       disposition={visual.disposition}
                       posterior={visual.posterior}
+                      laws={visual.laws}
                       color={visual.color}
-                      pruned={visual.activeClamp}
                       dimmed={visual.dimmed}
                     />
                   </g>
@@ -593,19 +897,18 @@ export function LayeredCausalGraph({
               }
 
               const nodeIndicators = indicatorsByConstruct.get(construct.id) ?? [];
-              const reference = simulationResult
-                ? (getNodeReferenceSeries(simulationResult, construct.id) ?? [])
-                : [];
-              const action = simulationResult
-                ? (getNodeActionSeries(simulationResult, construct.id) ?? [])
-                : [];
-              const clamp =
-                currentDay == null
-                  ? undefined
-                  : simulationResult?.design.interventions.find(
-                      (candidate) => candidate.target === construct.id,
-                    );
-              const clampLabel = clamp ? `do(${clamp.value.toFixed(1)})` : undefined;
+              const series = simulationPaths?.states[construct.id];
+              const prepared =
+                step === "prepare_data"
+                  ? nodeIndicators.flatMap((indicator) => {
+                      const profile = model.data.profile?.value.indicators[indicator.id]?.profile;
+                      return profile ? [{ indicator, profile }] : [];
+                    })
+                  : [];
+              const assignments =
+                simulationResult?.design.interventions.filter(
+                  (event) => event.target === construct.id,
+                ) ?? [];
               return (
                 <g
                   key={node.id}
@@ -617,17 +920,24 @@ export function LayeredCausalGraph({
                     construct={construct}
                     isOutcome={
                       construct.id ===
-                      (simulation?.causal_result.outcome ?? model.model?.value.default_outcome)
+                      (simulation?.causal_result?.outcome ?? model.model?.value.default_outcome)
                     }
                     indicators={nodeIndicators}
                     warningVariables={warningVariables}
                     status={nodeStatuses.get(construct.id) ?? undefined}
-                    persistence={persistencePosteriors[construct.id]}
-                    days={days}
-                    reference={reference}
-                    action={action}
-                    dayIndex={clampedDayIndex}
-                    clampLabel={clampLabel}
+                    laws={constructLaws.get(construct.id) ?? []}
+                    trajectory={
+                      series
+                        ? {
+                            times: simulationPaths!.times,
+                            series,
+                            marker: variant === "workbench" ? currentDay : undefined,
+                          }
+                        : undefined
+                    }
+                    data={prepared.length > 0 ? prepared : undefined}
+                    assignments={assignments}
+                    timeOrigin={simulationResult?.time_origin ?? null}
                     selected={selected}
                     dimmed={dimmed}
                     onSelect={select}
@@ -713,8 +1023,8 @@ export function LayeredCausalGraph({
       ) : null}
 
       <div className="flex flex-wrap gap-x-4 gap-y-1 px-1 text-[9px] text-muted-foreground">
-        <span>Lagged effects physically originate in t−1.</span>
-        <span>Contemporaneous effects remain inside t.</span>
+        <span>Dynamic causes connect successive state slices.</span>
+        {simulationVisible ? <span>Dashed blue markers show dated assignments.</span> : null}
         {designVisible ? <span>Dashed edge slots are projected by design.</span> : null}
         {fitVisible ? <span>Edge color and weight show fitted sign and magnitude.</span> : null}
       </div>

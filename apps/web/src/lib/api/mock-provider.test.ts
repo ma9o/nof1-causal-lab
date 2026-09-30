@@ -64,7 +64,7 @@ describe("getMockFixture", () => {
 describe("simulatePipelineEvents", () => {
   it("emits paired start and complete callbacks in machine order", () => {
     const events: Array<{ type: string; id: string }> = [];
-    const transitionOrder: PipelineSectionId[] = ["raw_data", "latent_structure", "measurements"];
+    const transitionOrder: PipelineSectionId[] = ["raw_data", "simulate", "measurements"];
 
     const cleanup = simulatePipelineEvents(
       {

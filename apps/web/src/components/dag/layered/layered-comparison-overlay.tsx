@@ -23,7 +23,7 @@ export function LayeredComparisonOverlay({
             points={edge.points}
             color={COMPARISON_COLORS.added}
             width={3 / zoom}
-            dashed={edge.lagged}
+            dashed={edge.crossSlice}
           />
         </g>
       ))}

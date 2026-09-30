@@ -1,1 +1,1 @@
-export { proxyEpisodeRequest as GET } from "@/lib/server/episode-proxy";
+export { proxyEpisodeRequest as GET, proxyEpisodeRequest as POST } from "@/lib/server/episode-proxy";

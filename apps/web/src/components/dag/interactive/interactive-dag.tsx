@@ -178,7 +178,7 @@ export function InteractiveDag({
             {routed.map((e) => {
               const meta = edgeMeta.get(e.id);
               if (!meta) return null;
-              const { a, b, isSelf, lagged } = meta;
+              const { a, b, isSelf, crossSlice } = meta;
               const posterior = isSelf
                 ? persistencePosteriors[baseId(b)]
                 : edgePosteriors[`${baseId(a)}→${baseId(b)}`];
@@ -214,7 +214,7 @@ export function InteractiveDag({
                     strokeWidth={pruned ? 1.4 : hl ? fittedWidth + 1.4 : fittedWidth}
                     strokeOpacity={contextOnly ? 0.3 : pruned ? 0.5 : theoryOnly ? 0.35 : 0.9}
                     strokeDasharray={
-                      contextOnly || pruned || theoryOnly || lagged ? "5,4" : undefined
+                      contextOnly || pruned || theoryOnly || crossSlice ? "5,4" : undefined
                     }
                     markerEnd={
                       !pruned ? `url(#${markerFor(contextOnly ? NEUTRAL : col)})` : undefined
