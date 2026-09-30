@@ -13,7 +13,6 @@ import jax.random as random
 import numpy as np
 import pytest
 from dynestyx import StochasticContinuousTimeStateEvolution
-from dynestyx.inference.particle_runtime import Parameterization
 from numpyro.distributions import MultivariateNormal
 
 from nof1_causal_lab.artifacts.likelihood import LinkFunction
@@ -37,6 +36,7 @@ from nof1_causal_lab.models.ssm.execution.observation_operator import (
 )
 from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior, fit
 from nof1_causal_lab.models.ssm.inference.backend_factory import get_laplace_backend
+from nof1_causal_lab.models.ssm.inference.parameter_transform import ParameterTransform
 from nof1_causal_lab.models.ssm.inference.targets.laplace import (
     LaplaceLikelihood,
     _assemble_support_aware_observation_system,
@@ -1144,7 +1144,7 @@ def test_map_bundle_reuses_runtime_objectives_across_same_shape_datasets(monkeyp
         del reparam
         counters["discover"] += 1
         values = jnp.array([0.5, -0.25], dtype=jnp.float32)
-        parameters = Parameterization(
+        parameters = ParameterTransform(
             values, lambda z: {"theta": z}, lambda z: {"theta": z}, lambda z: -jnp.sum(z**2)
         )
         return parameters, {"theta": {"value": values}}, {"theta"}

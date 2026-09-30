@@ -18,7 +18,7 @@ bun install --frozen-lockfile
 # 2. Python deps
 cd apps/data-pipeline
 uv sync --frozen --group dev
-# Optional: --group cloud (Modal, R2/S3)  --group eval (Inspect AI)
+# Optional: --group cloud (Modal, R2/S3)
 
 # 3. Environment
 cd ../..

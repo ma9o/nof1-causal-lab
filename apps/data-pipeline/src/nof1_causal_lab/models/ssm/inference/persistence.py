@@ -52,9 +52,7 @@ def condition_model(
         raise ValueError("Conditioning must retain the complete aligned latent trajectories")
     if result.draws.state_ids and tuple(result.draws.state_ids) != tuple(state_ids):
         raise ValueError("Engine latent trajectories do not match the model's state identities")
-    conditioned_parameters = {
-        parameter.id for parameter in model_spec.execution_parameters if parameter.value is None
-    }
+    conditioned_parameters = {parameter.id for parameter in model_spec.execution_parameters}
     layout = JointLawLayout.from_bindings(
         bindings,
         parameters=conditioned_parameters,

@@ -28,7 +28,7 @@ data/DEMO/cache/
 data/processed/**
 .prefect-cache/
 
-# Inspect AI eval logs
+# Evaluation logs
 apps/data-pipeline/logs/
 
 # Local scratchpad

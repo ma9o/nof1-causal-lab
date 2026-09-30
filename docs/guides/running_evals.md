@@ -1,9 +1,7 @@
 # Running Evaluation Benchmarks
 
 The maintained evaluation surface is the nonlinear SSM benchmark suite under
-`apps/data-pipeline/evaluation/benchmarks/`. The retired Inspect tasks were
-removed because they imported transition modules that no longer exist and used
-obsolete worker APIs.
+`apps/data-pipeline/evaluation/benchmarks/`.
 
 From `apps/data-pipeline/`, the local CPU benchmark entrypoint is:
 

@@ -9,7 +9,6 @@ from unittest.mock import Mock
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from dynestyx.inference.particle_runtime import Parameterization, ParticleRuntime
 
 from nof1_causal_lab.artifacts.posterior_diagnostics import LOODiagnostics
 from nof1_causal_lab.models.ssm.inference.mcmc_state import TrajectoryMCMCResult
@@ -19,7 +18,9 @@ from nof1_causal_lab.models.ssm.inference.methods._pmcmc_shared.extraction impor
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.runner import (
     _initialize_chain_state,
 )
+from nof1_causal_lab.models.ssm.inference.parameter_transform import ParameterTransform
 from nof1_causal_lab.models.ssm.inference.problem import ParticleProblem
+from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleTarget
 from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws, ParticleMCMCPosterior
 from nof1_causal_lab.models.ssm.inference.utils import extract_constrained_samples
 
@@ -59,17 +60,16 @@ def test_inference_uses_dynestyx_targets_without_external_sampler_implementation
 
 def test_library_parameter_output_preserves_public_vector_sites_and_chain_order():
     positions = jnp.arange(12.0).reshape(2, 3, 2)
-    parameters = Parameterization(
+    parameters = ParameterTransform(
         initial_position=jnp.zeros(2),
         unravel=_no_numerical_execution,
         constrain=lambda z: {"beta": 2 * z, "beta_decentered": z},
         log_prior=_no_numerical_execution,
     )
-    runtime = ParticleRuntime(
+    runtime = ParticleTarget(
         parameters=parameters,
         context=_no_numerical_execution,
         model=_no_numerical_execution,
-        schedule=_no_numerical_execution,
         observations=jnp.zeros((4, 1)),
         times=jnp.arange(4.0),
     )
@@ -88,7 +88,7 @@ def test_library_parameter_output_preserves_public_vector_sites_and_chain_order(
 
 def test_supplied_initial_path_does_not_compute_a_predictive_rollout():
     target = Mock(
-        spec=ParticleRuntime,
+        spec=ParticleTarget,
         context=Mock(),
         initial_path=Mock(side_effect=_no_numerical_execution),
         initial_moments=Mock(return_value=(jnp.zeros(1), jnp.eye(1))),
@@ -113,7 +113,7 @@ def test_supplied_initial_path_does_not_compute_a_predictive_rollout():
 
 
 def test_fixed_model_samples_replay_deterministics_with_zero_parameter_dimension():
-    parameters = Parameterization(
+    parameters = ParameterTransform(
         initial_position=jnp.zeros(0),
         unravel=_no_numerical_execution,
         constrain=lambda _: {"lambda": jnp.ones((2, 1)), "internal": jnp.array(5.0)},

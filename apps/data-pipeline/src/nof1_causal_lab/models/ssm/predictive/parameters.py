@@ -28,8 +28,6 @@ def validate_simulation_laws(model: ModelSpec) -> None:
     model.require_priors()
     semantics = build_semantic_prior_bindings(model).by_parameter
     for parameter in model.execution_parameters:
-        if parameter.value is not None:
-            continue
         assert parameter.distribution is not None
         law = model.distributions[parameter.distribution]
         if not any(distribution_shape(law)):

@@ -6,10 +6,8 @@ from typing import TYPE_CHECKING
 
 from nof1_causal_lab.artifacts.construct import CausalEdgeSpec
 from nof1_causal_lab.artifacts.expressions import (
-    CoefficientExpression,
     expression_states,
     linear_coefficient,
-    map_expression,
 )
 from nof1_causal_lab.compilation_errors import IncompleteModelError
 from nof1_causal_lab.models.model_parameters import coefficient_value
@@ -25,14 +23,13 @@ if TYPE_CHECKING:
 
 
 def _is_projected_loading(
-    model: ModelSpec,
     owner: ConstructSpec | CausalEdgeSpec,
     mechanism: DynamicsMechanismSpec,
     retained_states: Collection[str],
 ) -> bool:
     if not isinstance(owner, CausalEdgeSpec) or owner.cause.id in retained_states:
         return False
-    weight = coefficient_value(model, linear_coefficient(mechanism.expression, owner.cause.id))
+    weight = coefficient_value(linear_coefficient(mechanism.expression, owner.cause.id))
     if weight is None:
         raise ValueError("Marginalized confounders support fixed linear loadings")
     return True
@@ -48,7 +45,7 @@ def lower_mechanisms(model: ModelSpec) -> tuple[ExpressionComponentSpec, ...]:
         target = owner.effect.id if isinstance(owner, CausalEdgeSpec) else owner.id
         if target not in states:
             continue
-        if _is_projected_loading(model, owner, mechanism, states):
+        if _is_projected_loading(owner, mechanism, states):
             continue
         if isinstance(owner, CausalEdgeSpec):
             dependencies = expression_states(mechanism.expression)
@@ -77,19 +74,11 @@ def iter_mechanism_components(
     """Emit a bound expression alongside the exact scientific term that produced it."""
     state_index = {key: index for index, key in enumerate(state_order)}
 
-    def resolve_constant(node):
-        if isinstance(node, CoefficientExpression) and isinstance(node.value, str):
-            value = coefficient_value(model, node.value)
-            if value is not None:
-                node.validate_value(value)
-                return node.model_copy(update={"value": value})
-        return node
-
     for owner, mechanism in model.iter_mechanisms():
         target_id = owner.effect.id if isinstance(owner, CausalEdgeSpec) else owner.id
         if target_id not in state_index:
             continue
-        if _is_projected_loading(model, owner, mechanism, state_index):
+        if _is_projected_loading(owner, mechanism, state_index):
             continue
         if isinstance(owner, CausalEdgeSpec):
             target = state_index[owner.effect.id]
@@ -98,7 +87,7 @@ def iter_mechanism_components(
         yield (
             mechanism,
             ExpressionComponentSpec(
-                expression=map_expression(mechanism.expression, resolve_constant),
+                expression=mechanism.expression,
                 target=target,
                 state_ids=tuple(state_order),
                 source=state_index[owner.cause.id] if isinstance(owner, CausalEdgeSpec) else None,

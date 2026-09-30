@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 import numpy as np
-import numpyro.distributions as dist
 import numpyro.distributions as ndist
 import pytest
 from dynestyx import StochasticContinuousTimeStateEvolution
@@ -112,7 +111,7 @@ class TestSSMModelDynamicsDispatch:
             n_manifest=2,
             dynamics_spec=DynamicsSpec(
                 n_latent=2,
-                components=(*(decay_term(target=i) for i in range(2)),),
+                components=(decay_term(target=0, decay=0.3), decay_term(target=1, decay=0.5)),
             ),
             diffusion_block=DiffusionBlockSpec(
                 n_latent=2,
@@ -158,14 +157,14 @@ class TestSSMModelDynamicsDispatch:
             ),
             static_state_sd_block=default_static_state_sd_block(),
         )
-        model = SSMModel(spec, priors={"vf_0_p0": dist.Delta(0.3), "vf_1_p0": dist.Delta(0.5)})
+        model = SSMModel(spec)
         tr = handlers.trace(handlers.seed(model.model, rng_seed=0)).get_trace(
             observations=jnp.zeros((4, 2)),
             times=jnp.arange(4, dtype=jnp.float32),
             likelihood_backend=DynamicsAwareBackend(),
         )
 
-        assert "vf_0_p0" in tr
+        assert "vf_0_p0" not in tr
         assert int(tr["backend_n_vf_components"]["value"]) == 2
         np.testing.assert_allclose(
             tr["backend_drift"]["value"],

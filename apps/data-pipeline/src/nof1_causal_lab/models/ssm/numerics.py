@@ -25,7 +25,6 @@ from nof1_causal_lab.models.ssm.structure import (
 )
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.execution import AnchorCertificate
     from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId
     from nof1_causal_lab.artifacts.indicator import IndicatorSpec
     from nof1_causal_lab.artifacts.likelihood import LinkFunction
@@ -162,7 +161,7 @@ def _quantity_values(model: ModelSpec, kind: SiteKind, template, support, *, dia
         ):
             continue
         position = quantity_position(model, parameter)
-        value = coefficient_value(model, parameter.value)
+        value = coefficient_value(parameter.value)
         if (
             kind in {SiteKind.DIFFUSION_DIAG, SiteKind.DIFFUSION_LOWER}
             and any(time_invariant_mask(model)[index] for index in position)
@@ -426,11 +425,10 @@ def iter_sample_sites(model: ModelSpec):
         yield from block.iter_sites()
 
 
-def validate_execution(model: ModelSpec) -> tuple[AnchorCertificate, ...]:
-    """Check numerical execution requirements and return the model's anchor certificates."""
+def validate_execution(model: ModelSpec) -> None:
+    """Check numerical execution requirements."""
     model.require_execution_structure()
     from nof1_causal_lab.distributions import DistributionFamily
-    from nof1_causal_lab.models.ssm.compile.structural import compile_anchor_certificates
     from nof1_causal_lab.models.ssm.compile.support import (
         NumericalSupportError,
         _build_manifest_intercept_support,
@@ -442,8 +440,6 @@ def validate_execution(model: ModelSpec) -> tuple[AnchorCertificate, ...]:
     def require_hyperparameter(coefficient, label):
         if not isinstance(coefficient, str):
             raise IncompleteModelError(f"{label} requires a prior parameter")
-        if model.parameter(coefficient).value is not None:
-            raise ValueError("Native distribution hyperparameters require prior laws")
 
     _, intercept_errors = _build_manifest_intercept_support(
         model, observation_names(model), observation_standardized(model)
@@ -487,4 +483,3 @@ def validate_execution(model: ModelSpec) -> tuple[AnchorCertificate, ...]:
     observation_level_counts(model)
     parameter_blocks(model)
     dynamics_components(model)
-    return tuple(compile_anchor_certificates(model))

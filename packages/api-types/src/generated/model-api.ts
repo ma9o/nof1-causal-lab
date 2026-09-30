@@ -554,7 +554,7 @@ export interface components {
             role: components["schemas"]["CoefficientRole"];
             /**
              * Value
-             * @description Finite literal or persistent parameter ID; null leaves the operand unassigned.
+             * @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.
              */
             value?: number | components["schemas"]["ParameterId"] | null;
             /**
@@ -672,7 +672,7 @@ export interface components {
          * DataPreparationSpec
          * @description A versioned data definition supplied directly to prepare_data.
          */
-        "DataPreparationSpec-Input": {
+        DataPreparationSpec: {
             /** Default Window */
             default_window: string;
             /** Variables */
@@ -684,11 +684,6 @@ export interface components {
              */
             context?: string;
         };
-        /**
-         * DataPreparationSpec
-         * @description A versioned data definition supplied directly to prepare_data.
-         */
-        "DataPreparationSpec-Output": Domain.DataPreparationSpec;
         /**
          * DataProfileArtifact
          * @description Model-independent empirical measurements and data-quality findings.
@@ -870,7 +865,7 @@ export interface components {
          */
         FilePreparationSpec: {
             source: components["schemas"]["FileSourceRef"];
-            definition: components["schemas"]["DataPreparationSpec-Input"];
+            definition: components["schemas"]["DataPreparationSpec"];
         };
         /**
          * FileSourceRef
@@ -1375,9 +1370,19 @@ export interface components {
         PPCWarning: Domain.PPCWarning;
         /**
          * ParameterChange
-         * @description A parameter change compares one parameter's fixed value or law across model revisions.
+         * @description A parameter change compares one parameter's law across model revisions.
          */
         ParameterChange: Domain.ParameterChange;
+        /**
+         * ParameterConvergenceFailure
+         * @description A failed criterion on one retained scalar parameter element.
+         */
+        ParameterConvergenceFailure: Domain.ParameterConvergenceFailure;
+        /**
+         * ParameterConvergenceReport
+         * @description Recorded-chain checks cover parameters, not latent-path mixing.
+         */
+        ParameterConvergenceReport: Domain.ParameterConvergenceReport;
         /** ParameterDrawColumn */
         ParameterDrawColumn: Domain.ParameterDrawColumn;
         /**
@@ -1394,7 +1399,7 @@ export interface components {
         ParameterRef: Domain.ParameterRef;
         /**
          * ParameterSpec
-         * @description A named quantity's current uncertainty; component slots define its meaning.
+         * @description A named uncertain quantity; fixed coefficients are literals in component slots.
          */
         ParameterSpec: {
             id: components["schemas"]["ParameterId"];
@@ -1410,17 +1415,12 @@ export interface components {
             description: string;
             /**
              * Distribution Transform
-             * @description Mapping from the authored law to the model quantity: identity leaves its scale unchanged; dt_persistence_to_ct_decay maps persistence p to -log(p) / interval; dt_effect_to_ct_rate divides an interval effect by its duration in days; initial_state_correlation applies the correlation support [-1, 1]. Fixed values and joint laws require identity.
+             * @description Mapping from the authored law to the model quantity: identity leaves its scale unchanged; dt_persistence_to_ct_decay maps persistence p to -log(p) / interval; dt_effect_to_ct_rate divides an interval effect by its duration in days; initial_state_correlation applies the correlation support [-1, 1]. Joint laws require identity.
              * @default identity
              * @enum {string}
              */
             distribution_transform?: "identity" | "dt_persistence_to_ct_decay" | "dt_effect_to_ct_rate" | "initial_state_correlation";
-            /**
-             * Value
-             * @description Known constant on the model quantity scale, exclusive with a distribution.
-             */
-            value?: number | null;
-            /** @description Membership in a native law in ModelSpec.distributions; may be joint. */
+            /** @description Membership in a native law in ModelSpec.distributions; may be joint. None means the law has not been assigned yet. */
             distribution?: components["schemas"]["DistributionId"] | null;
             /**
              * Reference Interval Days

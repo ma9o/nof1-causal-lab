@@ -133,7 +133,6 @@ def check_model_predictive(
                 "reason": "MODEL_INCOMPLETE"
                 if execution.status == "not_evaluated"
                 else "MODEL_NOT_EXECUTABLE",
-                "detail": execution.message,
             }
         ), False
     if not compatible:

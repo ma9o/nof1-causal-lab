@@ -193,6 +193,7 @@ class EpisodeWorkflow:
             await self._journal(seq, action, operation_id, status="rejected", reason=reason)
             return self._outcome(seq, status="rejected", reason=reason)
 
+        operation = plan.operation if plan is not None else None
         try:
             if isinstance(action, EditModelRequest):
                 effects = await workflow.execute_activity(
@@ -204,7 +205,7 @@ class EpisodeWorkflow:
                     start_to_close_timeout=_WRITE_TIMEOUT,
                     retry_policy=_ACTIVITY_RETRY,
                 )
-            elif plan is not None and plan.operation.operation_id == "measurements":
+            elif operation is not None and operation.operation_id == "measurements":
                 raw_effects = await workflow.execute_child_workflow(
                     "SingleLLMTransitionWorkflow",
                     SingleLLMTransitionWorkflowInput(
@@ -212,7 +213,7 @@ class EpisodeWorkflow:
                         seq=seq,
                         transition_id="raw_data",
                         state=self._state,
-                        source=plan.operation.preparation.source,
+                        source=operation.preparation.source,
                     ),
                     id=f"raw-data-{self._workspace_id}-{seq:06d}",
                     result_type=TransitionEffects,
@@ -230,7 +231,7 @@ class EpisodeWorkflow:
                         workspace_id=self._workspace_id,
                         seq=seq,
                         state=apply_transition(self._state, raw_effects.produced),
-                        preparation=plan.operation.preparation,
+                        preparation=operation.preparation,
                     ),
                     id=f"measurements-{self._workspace_id}-{seq:06d}",
                     result_type=TransitionEffects,
@@ -250,11 +251,12 @@ class EpisodeWorkflow:
                 )
             else:
                 assert plan is not None
+                assert operation is not None
                 effects = await workflow.execute_activity(
                     "run_transition_activity",
                     OperationInput(
                         workspace_id=self._workspace_id,
-                        operation=plan.operation,
+                        operation=operation,
                         state=self._state,
                         input_revisions=plan.input_revisions,
                     ),

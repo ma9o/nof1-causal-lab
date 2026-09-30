@@ -52,8 +52,6 @@ def _expression_latex(model: ModelSpec, expression: Expression) -> str:
         if isinstance(value, (int, float)):
             return f"{value:g}"
         parameter = parameters[value]
-        if parameter.value is not None:
-            return f"{parameter.value:g}"
         symbol = r"\theta_{" + _text(parameter.name) + "}"
         match parameter.distribution_transform:
             case PriorAuthoringTransform.DT_PERSISTENCE_TO_CT_DECAY:
@@ -69,8 +67,7 @@ def _expression_latex(model: ModelSpec, expression: Expression) -> str:
             return LatexValue(r"\underbrace{?}_{\text{" + operand.role.replace("_", " ") + "}}")
         if isinstance(reference, (int, float)):
             return literal_latex(reference)
-        value = parameters[reference].value
-        return literal_latex(value) if value is not None else LatexValue(coefficient(reference))
+        return LatexValue(coefficient(reference))
 
     return fold_expression(
         expression,

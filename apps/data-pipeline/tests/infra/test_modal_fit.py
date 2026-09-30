@@ -52,7 +52,7 @@ def test_local_fit_transfers_pins_and_retains_outputs_only_after_valid_response(
     bindings, _ = parameter_bindings(model)
     layout = JointLawLayout.from_bindings(
         bindings,
-        parameters=[p.id for p in model.parameters if p.value is None],
+        parameters=[p.id for p in model.parameters],
         constructs=model.state_order,
         time_points=(0, 1),
     )
@@ -86,8 +86,6 @@ def test_local_fit_transfers_pins_and_retains_outputs_only_after_valid_response(
                         "reference_interval_days": None,
                     }
                 )
-                if p.value is None
-                else p
                 for p in model.parameters
             ),
             edges=replace_constructs(

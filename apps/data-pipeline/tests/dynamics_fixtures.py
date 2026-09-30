@@ -32,12 +32,12 @@ def _term(expression, target, source=None, *, kind="drift", max_index=None):
     )
 
 
-def decay_term(target):
+def decay_term(target, decay=None):
     return _term(
         restoring_force(
             _state(target).construct_id,
             center=_ZERO,
-            stiffness=_coefficient(None, "decay"),
+            stiffness=_coefficient(decay, "decay"),
             quartic=_ZERO,
         ),
         target,

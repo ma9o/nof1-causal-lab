@@ -191,13 +191,6 @@
     ],
     [
       "CUSTOM005",
-      "src/nof1_causal_lab/utils/harness/mcp_server.py",
-      "<module>",
-      "unchecked-json-usage",
-      "UncheckedJsonObject[1]"
-    ],
-    [
-      "CUSTOM005",
       "src/nof1_causal_lab/utils/harness/pi.py",
       "<module>",
       "unchecked-json-usage",

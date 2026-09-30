@@ -294,7 +294,6 @@ def _build_manifest_intercept_support(
         owner.id
         for parameter in model.execution_parameters
         if model.parameter_context(parameter.id).quantity == SiteKind.MANIFEST_MEANS
-        and parameter.value is None
         for owner in model.parameter_context(parameter.id).owners
         if owner.kind == "indicator"
     }
@@ -340,7 +339,7 @@ def _build_static_factor_structure(
             construct = model.get_construct(source)
             initial_mean = construct.coefficient("initial_mean")
             assert initial_mean is not None
-            if coefficient_value(model, initial_mean) != 0.0:
+            if coefficient_value(initial_mean) != 0.0:
                 raise ValueError("Marginalized baseline factors require a fixed zero initial mean")
             if (
                 construct.indicators
@@ -360,7 +359,7 @@ def _build_static_factor_structure(
                             "A marginalized factor loading requires one fixed linear coefficient"
                         )
                     coefficient = coefficient_value(
-                        model, linear_coefficient(edge.mechanisms[0].expression, source)
+                        linear_coefficient(edge.mechanisms[0].expression, source)
                     )
                     if coefficient is None:
                         raise ValueError(

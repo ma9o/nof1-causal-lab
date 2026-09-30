@@ -10,7 +10,7 @@ import jax.numpy as jnp
 from blackjax.adaptation.step_size import DualAveragingAdaptationState
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.inference.problem import ParticleContext
+    from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleContext
 
 
 class TrajectoryMCMCState(NamedTuple):

@@ -1,4 +1,4 @@
-"""nof1 model fitting through the library-owned particle runtime."""
+"""nof1 model fitting with exact targets from Dynestyx's public distributions."""
 
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.fit import (
     fit_marginal_particle_gibbs,

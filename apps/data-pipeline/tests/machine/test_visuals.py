@@ -194,8 +194,6 @@ def test_every_parameter_coordinate_and_joint_draw_survives_the_read(monkeypatch
                     "reference_interval_days": None,
                 }
             )
-            if p.value is None
-            else p
             for p in model.parameters
         ),
         edges=replace_constructs(

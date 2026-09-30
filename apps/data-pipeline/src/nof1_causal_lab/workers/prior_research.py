@@ -50,12 +50,12 @@ async def search_parameter_literature(
 
         await acquire_limiter("exa")
 
-        result = await exa.search_and_contents(
+        result = await exa.search(
             exa_query,
             num_results=5,
             type="auto",
-            highlights=True,
-            category="research paper",
+            contents={"highlights": True, "text": {"max_characters": 10000}},
+            category="publication",
         )
 
         sources = []

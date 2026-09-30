@@ -27,12 +27,11 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.diagno
 )
 
 if TYPE_CHECKING:
-    from dynestyx.inference.particle_runtime import ParticleRuntime
-
     from nof1_causal_lab.models.ssm.inference.conditioning import ExactStateConstraints
     from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.kernel import (
         MarginalParticleGibbsKernel,
     )
+    from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleTarget
 
 
 class ParticleChainResult(TypedDict):
@@ -64,7 +63,7 @@ def _initialize_chain_state(
     *,
     observations: jnp.ndarray,
     times: jnp.ndarray,
-    target: ParticleRuntime,
+    target: ParticleTarget,
     initial_latent_delta: jnp.ndarray,
     param_step_size: float,
     param_min_scale: float,
@@ -118,7 +117,7 @@ def _run_batched_step(
 
 
 def run_marginal_particle_gibbs(
-    target: ParticleRuntime,
+    target: ParticleTarget,
     *,
     kernel: MarginalParticleGibbsKernel,
     num_warmup: int,

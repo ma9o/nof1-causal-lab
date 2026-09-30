@@ -70,7 +70,7 @@ _LOGM_RELATIVE_DEVIATION_WARNING_THRESHOLD = 0.2
 
 _DEGENERATE_PRIOR_PREAMBLE = (
     "model-spec priors must have strictly positive variance. Represent a fixed value "
-    "with a fixed component coefficient or ParameterSpec.value."
+    "with a literal coefficient in its component slot."
 )
 
 
@@ -515,11 +515,7 @@ def compile_priors(
 ) -> tuple[dict[str, dist.Distribution], SemanticBindingRegistry, list[CompileDiagnostic]]:
     """Bind the model's native distributions to their declared execution coordinates."""
     model.require_execution_structure()
-    parameters = {
-        parameter.id: parameter
-        for parameter in model.execution_parameters
-        if parameter.value is None
-    }
+    parameters = {parameter.id: parameter for parameter in model.execution_parameters}
     missing = [parameter.id for parameter in parameters.values() if parameter.distribution is None]
     if missing:
         raise ValueError(f"ModelSpec parameters require explicit prior distributions: {missing}")
@@ -617,14 +613,12 @@ def compile_priors(
 
     prior_registry = prior_entries
 
-    diagnostics: list[CompileDiagnostic] = []
-    if model is not None:
-        diagnostics = collect_compile_diagnostics(
-            model,
-            prior_registry=prior_registry,
-            offdiag_interval_days=offdiag_interval_days,
-        )
-        _log_compile_diagnostics(diagnostics)
+    diagnostics = collect_compile_diagnostics(
+        model,
+        prior_registry=prior_registry,
+        offdiag_interval_days=offdiag_interval_days,
+    )
+    _log_compile_diagnostics(diagnostics)
 
     return prior_registry, bindings, diagnostics
 

@@ -36,7 +36,7 @@ def empirical_points(values: np.ndarray) -> tuple[EmpiricalPoint, ...]:
     unique, counts = np.unique(values[np.isfinite(values)], return_counts=True)
     cumulative = np.cumsum(counts) / counts.sum() if counts.size else []
     return tuple(
-        EmpiricalPoint(value=value, probability=probability, count=int(count))
+        EmpiricalPoint(value=value, probability=float(probability), count=int(count))
         for value, probability, count in zip(unique, cumulative, counts, strict=True)
     )
 

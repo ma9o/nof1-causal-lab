@@ -29,7 +29,6 @@ _ARGUMENT_ALIASES = {
     "high": "upper",
     "concentration1": "alpha",
     "concentration0": "beta",
-    "v": "value",
 }
 
 
@@ -43,8 +42,6 @@ def prior_argument_constraints(
             "low": constraints.real,
             "high": constraints.real,
         }
-    if family == PriorDistributionFamily.DELTA:
-        return {"v": dist.Delta.arg_constraints["v"]}
     return dict(getattr(dist, family.value).arg_constraints)
 
 

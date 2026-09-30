@@ -34,6 +34,7 @@ from nof1_causal_lab.models.ssm.structure import (
     SparseVectorBlockSpec,
     T0CholBlockSpec,
 )
+from tests.dynamics_fixtures import decay_term
 from tests.helpers import (
     complete_test_model,
     make_prior_model,
@@ -823,7 +824,7 @@ class TestCompiledArtifactIntegration:
             n_latent=1,
             n_manifest=1,
             latent_names=["burden"],
-            dynamics_spec=DynamicsSpec(n_latent=1, components=()),
+            dynamics_spec=DynamicsSpec(n_latent=1, components=(decay_term(0),)),
             manifest_names=["scale"],
             manifest_dists=[DistributionFamily.ORDERED_LOGISTIC],
             manifest_links=[LinkFunction.CUMULATIVE_LOGIT],
@@ -846,7 +847,7 @@ class TestCompiledArtifactIntegration:
             n_latent=1,
             n_manifest=2,
             latent_names=["burden"],
-            dynamics_spec=DynamicsSpec(n_latent=1, components=()),
+            dynamics_spec=DynamicsSpec(n_latent=1, components=(decay_term(0),)),
             manifest_names=["short_scale", "long_scale"],
             manifest_dists=[
                 DistributionFamily.ORDERED_LOGISTIC,
@@ -910,18 +911,13 @@ class TestCompiledArtifactIntegration:
         np.testing.assert_allclose(gap_scales[1], 0.5)
 
     @pytest.mark.contract
-    def test_execution_checks_return_anchoring_evidence(self, scientific_model_and_priors):
-        """Execution checks derive evidence without creating a persisted artifact."""
+    def test_execution_checks_accept_complete_model(self, scientific_model_and_priors):
+        """A model with authored priors satisfies execution requirements."""
         from nof1_causal_lab.models.model_checks import check_execution
 
         scientific_model, priors = scientific_model_and_priors
-        artifact = check_execution(
+        check_execution(
             make_prior_model(scientific_model, priors),
-        )
-        assert artifact
-        assert all(
-            anchor.construct_id in {c.id for c in scientific_model.constructs}
-            for anchor in artifact
         )
 
     @pytest.mark.inference(concern="sampling")

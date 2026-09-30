@@ -66,9 +66,8 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.smooth
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from dynestyx.inference.particle_runtime import ParticleRuntime
-
     from nof1_causal_lab.models.ssm.inference.conditioning import ExactStateConstraints
+    from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleTarget
 
 
 class SignFlipSpec(NamedTuple):
@@ -141,7 +140,7 @@ class MarginalParticleGibbsKernel(NamedTuple):
 
 
 def build_marginal_particle_gibbs_kernel(
-    target: ParticleRuntime,
+    target: ParticleTarget,
     *,
     num_particles: int,
     num_parameter_particles: int,

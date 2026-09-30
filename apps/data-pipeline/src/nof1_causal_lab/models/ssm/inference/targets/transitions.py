@@ -6,7 +6,7 @@ import dynestyx as dsx
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from dynestyx.inference.configs.discretizer import LocalLinearizationConfig
+from dynestyx.inference.configs.discretizer import ExactAffineConfig
 
 from nof1_causal_lab.models.ssm.dynamics.linearisation import infer_linearisation
 from nof1_causal_lab.models.ssm.shapes import Array, Float
@@ -55,14 +55,15 @@ def build_discrete_transitions(
     )
 
     def at_interval(state, dt):
-        params = dsx.linearized_transition_parameters(
-            normalized,
-            LocalLinearizationConfig(covariance_jitter=0.0),
-            linearization_state=state,
-            previous_control=None,
-            previous_time=0.0,
-            time=dt,
+        affine_drift = dsx.linearize_drift(normalized.total_drift, x=state, u=None, t=0.0)
+        affine_model = dsx.StochasticContinuousTimeStateEvolution(
+            drift=affine_drift, diffusion=normalized.diffusion
         )
+        evolution = cast(
+            "dsx.LinearGaussianStateEvolution",
+            dsx.discretize_state_evolution(affine_model, ExactAffineConfig(covariance_jitter=0.0)),
+        )
+        params = evolution.params_at(0.0, dt)
         return params._replace(cov=(params.cov * scale) * scale)
 
     return jax.vmap(at_interval)(states, time_intervals)

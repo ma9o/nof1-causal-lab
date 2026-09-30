@@ -152,7 +152,10 @@ class CoefficientExpression(ExpressionValue):
     role: CoefficientRole
     value: FiniteFloat | ParameterId | None = Field(
         default=None,
-        description="Finite literal or persistent parameter ID; null leaves the operand unassigned.",
+        description=(
+            "Fixed coefficients are finite literals; uncertain coefficients reference a "
+            "persistent parameter ID. Null leaves the operand unassigned."
+        ),
     )
     construct_ids: tuple[ConstructId, ...] = Field(
         default=(), description="Additional constructs participating in this coefficient use."

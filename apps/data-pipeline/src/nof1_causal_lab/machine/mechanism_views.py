@@ -32,14 +32,11 @@ def mechanism_parameters(model: ModelSpec, identities: set[ParameterId]):
     from nof1_causal_lab.numpyro_json import empirical_atoms, materialize_distribution
 
     parameters = [model.parameter(identity) for identity in sorted(identities)]
-    random_parameters = [p for p in parameters if p.value is None]
-    if any(p.distribution is None for p in random_parameters):
-        raise ValueError(
-            "Assign probability laws or fixed values to this mechanism's parameters first"
-        )
-    if not random_parameters:
-        return {p.id: np.array([p.value]) for p in parameters}, "fixed", 1
-    laws = {p.distribution for p in random_parameters if p.distribution is not None}
+    if any(p.distribution is None for p in parameters):
+        raise ValueError("Assign probability laws to this mechanism's parameters first")
+    if not parameters:
+        return {}, "fixed", 1
+    laws = {p.distribution for p in parameters if p.distribution is not None}
     native = {
         identity: materialize_distribution(model.distributions[identity]) for identity in laws
     }
@@ -53,10 +50,10 @@ def mechanism_parameters(model: ModelSpec, identities: set[ParameterId]):
         )
     )
     total = len(empirical_atoms(only)) if retained else 128
-    values = {p.id: np.full(total, p.value) for p in parameters if p.value is not None}
+    values = {}
     for index, identity in enumerate(sorted(laws)):
         law = native[identity]
-        members = [p for p in random_parameters if p.distribution == identity]
+        members = [p for p in parameters if p.distribution == identity]
         key = jax.random.fold_in(jax.random.PRNGKey(0), index)
         if not law.batch_shape and not law.event_shape:
             for member_index, parameter in enumerate(members):

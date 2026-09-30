@@ -51,7 +51,6 @@ Constraint notes:
 | `Gamma` | `Gamma(concentration, rate)` | `positive` | Positive-only parameters when right-skewed uncertainty is plausible. |
 | `LogNormal` | `LogNormal(mu, sigma)` | `positive` | Positive-only parameters when uncertainty is multiplicative on the log scale. |
 | `Exponential` | `Exponential(rate)` | `positive` | Positive-only parameters with mass near zero and a single decay rate. |
-| `Delta` | `Delta(value)` | `positive` | Fixed positive value inserted by compiler-owned deterministic repairs. |
 
 The `Family` values are the exact canonical strings accepted by model-spec prior schemas; aliases are not supported.
 The `Use When` column is the authoritative short guidance reused by the model-spec prompts.

@@ -82,14 +82,18 @@ def test_runtime_diagnostic_subjects_match_posterior_marginals():
 
 
 @pytest.mark.contract
+@pytest.mark.parametrize("failed", [False, True])
 def test_inference_log_keeps_findings_across_authoring_log_updates_and_tracks_changed_data(
-    monkeypatch, tmp_path
+    monkeypatch, tmp_path, failed
 ):
     from nof1_causal_lab.utils import data as data_module
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path))
     store, journal = ArtifactStore("BINDINGS"), StudyRepository("BINDINGS")
     log = json.loads((FIXTURE.parent / "inference.json").read_text())
+    rows = log["report"]["inference_diagnostics"]["mcmc"]["per_parameter"]
+    if failed:
+        rows[0].update(r_hat=1.1, ess_bulk=None, ess_tail=1)
     log["report"]["inference_diagnostics"]["experimental_kernel"] = {"new_metric": [None, 0.5]}
     artifacts: tuple[tuple[int, ArtifactId, dict[ArtifactId, GitOid]], ...] = (
         (1, "model", {}),
@@ -141,6 +145,28 @@ def test_inference_log_keeps_findings_across_authoring_log_updates_and_tracks_ch
     historical = ModelReader("BINDINGS", at=commit_id("BINDINGS", 5)).fit()
     assert historical is not None
     assert historical.value.report.posterior_marginals
+    convergence = historical.value.convergence
+    assert convergence.checked == len(rows)
+    assert convergence.passed is not failed
+    assert len(convergence.failures) == (3 if failed else 0)
+    if failed:
+        assert {failure.subject.element_id for failure in convergence.failures} == {
+            rows[0]["subject"]["element_id"]
+        }
+        assert [failure.criterion for failure in convergence.failures] == [
+            "R-hat < 1.01",
+            "bulk ESS ≥ 400",
+            "tail ESS ≥ 400",
+        ]
+    from nof1_causal_lab.models.ssm.inference.convergence import convergence_failures
+
+    raw = json.loads(json.dumps(log["report"]["inference_diagnostics"]))
+    for row in raw["mcmc"]["per_parameter"]:
+        del row["subject"]
+    assert convergence_failures(raw) == [
+        f"{failure.criterion} fails for 1 of {len(rows)} parameters, including {rows[0]['parameter']}"
+        for failure in convergence.failures
+    ]
     assert historical.source.ref.model_dump() == {
         "workspace_id": "BINDINGS",
         "revision": commit_id("BINDINGS", 5),
@@ -161,6 +187,7 @@ def test_inference_log_keeps_findings_across_authoring_log_updates_and_tracks_ch
     republished = ModelReader("BINDINGS").fit()
     assert republished is not None
     assert republished.value.report == historical.value.report
+    assert republished.value.convergence == convergence
     panel = store.write_artifact(
         "panel",
         derived_from={},
@@ -181,14 +208,11 @@ def test_inference_log_keeps_findings_across_authoring_log_updates_and_tracks_ch
     current = current_reader.fit()
     assert current is not None
     assert current.source.validity == "stale"
-    assert current_reader.artifact_view("inference_report") is current.value.report
+    assert current_reader.artifact_view("inference_report").summary() == current.value.report
     # Findings remain tied to their fit's pinned panel; freshness marks the
     # changed panel without erasing the historical parameter/edge evidence.
     assert current.value.report.posterior_marginals == historical.value.report.posterior_marginals
     assert current.value.edge_estimates == historical.value.edge_estimates
-    assert (
-        current.value.report.inference_diagnostics == historical.value.report.inference_diagnostics
-    )
     assert (
         current.value.report.inference_diagnostics == historical.value.report.inference_diagnostics
     )

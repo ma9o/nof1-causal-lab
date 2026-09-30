@@ -260,12 +260,13 @@ def build_synthetic_nonlinear_spec(*, diffusion_scale: float = 1.0) -> ModelSpec
     definitions = {}
 
     def quantity(kind, owners, value=None):
+        if value is not None:
+            return value
         identity = scientific_id("parameter", [kind.value, sorted(owner.id for owner in owners)])
         definitions[identity] = ParameterSpec(
             id=identity,
             name=identity,
             description="Synthetic fixture quantity",
-            value=value,
         )
         return identity
 
@@ -500,8 +501,7 @@ def build_synthetic_nonlinear_spec(*, diffusion_scale: float = 1.0) -> ModelSpec
         {
             parameter.id: overrides[model.parameter_context(parameter.id).quantity]
             for parameter in model.parameters
-            if parameter.value is None
-            and model.parameter_context(parameter.id).quantity in overrides
+            if model.parameter_context(parameter.id).quantity in overrides
         },
     )
 

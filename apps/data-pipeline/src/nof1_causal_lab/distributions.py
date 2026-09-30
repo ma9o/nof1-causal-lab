@@ -80,7 +80,6 @@ class PriorDistributionFamily(StrEnum):
     GAMMA = "Gamma"
     LOG_NORMAL = "LogNormal"
     EXPONENTIAL = "Exponential"
-    DELTA = "Delta"
 
 
 @dataclass(frozen=True)
@@ -248,11 +247,6 @@ PRIOR_FAMILY_SPECS: Final[tuple[PriorFamilySpec, ...]] = (
         summary="Positive-only parameters with mass near zero and a single decay rate.",
         support="positive",
     ),
-    PriorFamilySpec(
-        family=PriorDistributionFamily.DELTA,
-        summary="Fixed positive value inserted by compiler-owned deterministic repairs.",
-        support="positive",
-    ),
 )
 
 
@@ -383,35 +377,16 @@ PRIOR_PARAMETER_GUIDANCE_ROWS: Final[tuple[PriorParameterGuidanceRow, ...]] = (
 )
 
 
-# Pure-JAX real-support runtime family indices used by parameterization.py.
-def _prompt_prior_family_specs(
-    *,
-    include_delta: bool,
-) -> tuple[PriorFamilySpec, ...]:
-    if include_delta:
-        return PRIOR_FAMILY_SPECS
-    return tuple(
-        spec for spec in PRIOR_FAMILY_SPECS if spec.family != PriorDistributionFamily.DELTA
-    )
-
-
 def format_prior_distribution_choice_list(
     separator: str = "|",
-    *,
-    include_delta: bool = False,
 ) -> str:
     """Render the enum values in catalog order for machine-readable prompts."""
-    return separator.join(
-        spec.family.value for spec in _prompt_prior_family_specs(include_delta=include_delta)
-    )
+    return separator.join(spec.family.value for spec in PRIOR_FAMILY_SPECS)
 
 
-def render_prior_distribution_guidance_bullets(*, include_delta: bool = False) -> str:
+def render_prior_distribution_guidance_bullets() -> str:
     """Render the authoritative prompt bullet list for prior family guidance."""
-    return "\n".join(
-        f"- **{spec.signature}**: {spec.summary}"
-        for spec in _prompt_prior_family_specs(include_delta=include_delta)
-    )
+    return "\n".join(f"- **{spec.signature}**: {spec.summary}" for spec in PRIOR_FAMILY_SPECS)
 
 
 def render_prior_parameter_guidance_markdown_table() -> str:

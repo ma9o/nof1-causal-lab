@@ -202,9 +202,10 @@ def test_scientific_roundtrip_preserves_distinct_native_coordinate_laws():
     from nof1_causal_lab.artifacts.parameter import SiteKind
     from nof1_causal_lab.models.ssm.compile.prior_compilation import compile_priors
     from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
+    from tests.dynamics_fixtures import decay_term
     from tests.model_fixtures import model_fixture
 
-    model = model_fixture(n_latent=2, dynamics_spec=DynamicsSpec(2, ()))
+    model = model_fixture(n_latent=2, dynamics_spec=DynamicsSpec(2, (decay_term(0), decay_term(1))))
     means = [
         p for p in model.parameters if model.parameter_context(p.id).quantity == SiteKind.T0_MEANS
     ]
@@ -271,7 +272,6 @@ def test_compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law():
             {"mu": 0.2, "sigma": 0.4, "lower": -1.0, "upper": 2.0},
             0.3,
         ),
-        (PriorDistributionFamily.DELTA, {"value": 0.3}, 0.3),
     ],
 )
 def test_approved_family_json_roundtrip_keeps_its_native_density(

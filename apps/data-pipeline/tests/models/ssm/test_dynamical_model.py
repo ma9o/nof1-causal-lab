@@ -9,12 +9,12 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from dynestyx.inference.particle_runtime import Parameterization
 
 from nof1_causal_lab.artifacts.likelihood import LinkFunction
 from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.ssm.dynamics.intervention import Intervention
 from nof1_causal_lab.models.ssm.inference import problem as problem_module
+from nof1_causal_lab.models.ssm.inference.parameter_transform import ParameterTransform
 from nof1_causal_lab.models.ssm.inference.targets.laplace.shared import _prepare_linearized_path
 from tests.dynamics_fixtures import potential_term
 
@@ -51,6 +51,7 @@ def runtime(monkeypatch):
         ),
         manifest_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.POISSON],
         manifest_links=[LinkFunction.IDENTITY, LinkFunction.LOG],
+        manifest_standardized=[True, False],
         diffusion_block=DiffusionBlockSpec(
             1, np.zeros((1, 1), dtype=bool), jnp.sqrt(jnp.array([[0.3]]))
         ),
@@ -81,7 +82,7 @@ def runtime(monkeypatch):
         matrices, _ = assemble_model_matrices(spec, samples)
         return {**samples, **matrices}
 
-    parameters = Parameterization(
+    parameters = ParameterTransform(
         initial_position=jnp.array([0.2]),
         unravel=lambda z: {"vf_0_p0": z[0]},
         constrain=constrain,

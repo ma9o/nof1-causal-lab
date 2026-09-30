@@ -108,11 +108,11 @@ The graph users see stays a DAG with explicit latent confounders. Internally, th
 
 ## Parameter anchors
 
-Every retained construct has exactly one location anchor and one scale anchor. Any shift or rescaling of a latent state that the anchors leave free must be absorbed by exactly one free parameter group. Two such groups would create an exact likelihood ridge, and none would over-constrain the model. `edit_model` reports a model that breaks this invariant as not executable.
+Every retained construct has exactly one location anchor and one scale anchor. Any shift or rescaling of a latent state that the anchors leave free must be absorbed by exactly one free parameter group. Two such groups would create an exact likelihood ridge, and none would over-constrain the model. A model whose complete constructs break this invariant cannot be constructed.
 
 - **Location** is anchored by the first of these that applies:
   1. A standardized channel: a mean-centered Gaussian or Student-t identity-link indicator whose intercept is fixed at zero.
-  2. A direct exact state observation, `Delta(v=state(x))`, with additive-location support.
+  2. A direct exact state observation, `Delta(v=state(x))`.
   3. For a time-invariant construct, a fixed initial mean.
   4. For an evolving construct, a complete restoring expression with a fixed center.
 

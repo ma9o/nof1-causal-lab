@@ -330,6 +330,7 @@
       "x-concern": "api_tools"
     },
     "ArtifactFileSpec": {
+      "description": "An artifact file specification declares its JSON payloads, tables, and executable binaries.",
       "properties": {
         "json": {
           "additionalProperties": {
@@ -351,7 +352,6 @@
       "x-python-module": "nof1_causal_lab.machine.artifact_files",
       "x-layer": "machine",
       "x-concern": "execution_history",
-      "description": "An artifact file specification declares its JSON payloads, tables, and executable binaries.",
       "required": [
         "json",
         "parquet"
@@ -850,7 +850,7 @@
             }
           ],
           "default": null,
-          "description": "Finite literal or persistent parameter ID; null leaves the operand unassigned.",
+          "description": "Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.",
           "title": "Value"
         },
         "construct_ids": {
@@ -2712,6 +2712,9 @@
         "report": {
           "$ref": "#/$defs/InferenceReport"
         },
+        "convergence": {
+          "$ref": "#/$defs/ParameterConvergenceReport"
+        },
         "edge_estimates": {
           "additionalProperties": {
             "$ref": "#/$defs/PosteriorEstimate"
@@ -2748,6 +2751,7 @@
         }
       },
       "required": [
+        "convergence",
         "decay_estimates",
         "edge_estimates",
         "prior_densities",
@@ -5884,7 +5888,7 @@
     },
     "ParameterChange": {
       "additionalProperties": false,
-      "description": "A parameter change compares one parameter's fixed value or law across model revisions.",
+      "description": "A parameter change compares one parameter's law across model revisions.",
       "properties": {
         "parameter_id": {
           "$ref": "#/$defs/ParameterId"
@@ -5925,6 +5929,62 @@
       "x-python-module": "nof1_causal_lab.actions.revisions",
       "x-layer": "transport",
       "x-concern": "api_tools"
+    },
+    "ParameterConvergenceFailure": {
+      "description": "A failed criterion on one retained scalar parameter element.",
+      "properties": {
+        "parameter": {
+          "title": "Parameter",
+          "type": "string"
+        },
+        "subject": {
+          "$ref": "#/$defs/ParameterRef"
+        },
+        "criterion": {
+          "title": "Criterion",
+          "type": "string"
+        }
+      },
+      "required": [
+        "criterion",
+        "parameter",
+        "subject"
+      ],
+      "title": "ParameterConvergenceFailure",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.posterior_diagnostics",
+      "x-layer": "findings",
+      "x-concern": "scientific_model"
+    },
+    "ParameterConvergenceReport": {
+      "description": "Recorded-chain checks cover parameters, not latent-path mixing.",
+      "properties": {
+        "checked": {
+          "title": "Checked",
+          "type": "integer"
+        },
+        "passed": {
+          "title": "Passed",
+          "type": "boolean"
+        },
+        "failures": {
+          "items": {
+            "$ref": "#/$defs/ParameterConvergenceFailure"
+          },
+          "title": "Failures",
+          "type": "array"
+        }
+      },
+      "required": [
+        "checked",
+        "failures",
+        "passed"
+      ],
+      "title": "ParameterConvergenceReport",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.posterior_diagnostics",
+      "x-layer": "findings",
+      "x-concern": "scientific_model"
     },
     "ParameterDrawColumn": {
       "additionalProperties": false,
@@ -6037,7 +6097,7 @@
     },
     "ParameterSpec": {
       "additionalProperties": false,
-      "description": "A named quantity's current uncertainty; component slots define its meaning.",
+      "description": "A named uncertain quantity; fixed coefficients are literals in component slots.",
       "properties": {
         "id": {
           "$ref": "#/$defs/ParameterId"
@@ -6054,7 +6114,7 @@
         },
         "distribution_transform": {
           "default": "identity",
-          "description": "Mapping from the authored law to the model quantity: identity leaves its scale unchanged; dt_persistence_to_ct_decay maps persistence p to -log(p) / interval; dt_effect_to_ct_rate divides an interval effect by its duration in days; initial_state_correlation applies the correlation support [-1, 1]. Fixed values and joint laws require identity.",
+          "description": "Mapping from the authored law to the model quantity: identity leaves its scale unchanged; dt_persistence_to_ct_decay maps persistence p to -log(p) / interval; dt_effect_to_ct_rate divides an interval effect by its duration in days; initial_state_correlation applies the correlation support [-1, 1]. Joint laws require identity.",
           "enum": [
             "identity",
             "dt_persistence_to_ct_decay",
@@ -6063,19 +6123,6 @@
           ],
           "title": "Distribution Transform",
           "type": "string"
-        },
-        "value": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Known constant on the model quantity scale, exclusive with a distribution.",
-          "title": "Value"
         },
         "distribution": {
           "anyOf": [
@@ -6087,7 +6134,7 @@
             }
           ],
           "default": null,
-          "description": "Membership in a native law in ModelSpec.distributions; may be joint."
+          "description": "Membership in a native law in ModelSpec.distributions; may be joint. None means the law has not been assigned yet."
         },
         "reference_interval_days": {
           "anyOf": [

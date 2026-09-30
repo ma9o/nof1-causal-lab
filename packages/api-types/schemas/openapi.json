@@ -2568,7 +2568,8 @@
           }
         },
         "type": "object",
-        "title": "ArtifactFileSpec"
+        "title": "ArtifactFileSpec",
+        "description": "An artifact file specification declares its JSON payloads and tables."
       },
       "ArtifactFreshness": {
         "properties": {
@@ -2786,7 +2787,7 @@
         "properties": {
           "file": {
             "type": "string",
-            "format": "binary",
+            "contentMediaType": "application/octet-stream",
             "title": "File"
           },
           "workspaceId": {
@@ -3141,7 +3142,7 @@
               }
             ],
             "title": "Value",
-            "description": "Finite literal or persistent parameter ID; null leaves the operand unassigned."
+            "description": "Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned."
           },
           "construct_ids": {
             "items": {
@@ -3744,37 +3745,7 @@
         "title": "DataPreparationResult",
         "description": "Prepared observations and their committed revision, with data-quality findings."
       },
-      "DataPreparationSpec-Input": {
-        "properties": {
-          "default_window": {
-            "type": "string",
-            "title": "Default Window"
-          },
-          "variables": {
-            "items": {
-              "$ref": "#/components/schemas/DataVariableSpec"
-            },
-            "type": "array",
-            "minItems": 1,
-            "title": "Variables"
-          },
-          "context": {
-            "type": "string",
-            "title": "Context",
-            "description": "Optional context for interpreting the source data.",
-            "default": ""
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "default_window",
-          "variables"
-        ],
-        "title": "DataPreparationSpec",
-        "description": "A versioned data definition supplied directly to prepare_data."
-      },
-      "DataPreparationSpec-Output": {
+      "DataPreparationSpec": {
         "properties": {
           "default_window": {
             "type": "string",
@@ -4988,7 +4959,7 @@
             "$ref": "#/components/schemas/FileSourceRef"
           },
           "definition": {
-            "$ref": "#/components/schemas/DataPreparationSpec-Input"
+            "$ref": "#/components/schemas/DataPreparationSpec"
           }
         },
         "additionalProperties": false,
@@ -5154,6 +5125,9 @@
           "report": {
             "$ref": "#/components/schemas/InferenceReport"
           },
+          "convergence": {
+            "$ref": "#/components/schemas/ParameterConvergenceReport"
+          },
           "edge_estimates": {
             "additionalProperties": {
               "$ref": "#/components/schemas/PosteriorEstimate"
@@ -5192,7 +5166,8 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "report"
+          "report",
+          "convergence"
         ],
         "title": "FitSummary",
         "description": "A fit read contains the inference report summary and server-composed display findings.\n\nPer-draw diagnostics load separately from the inference report endpoint.",
@@ -8387,7 +8362,57 @@
           "change"
         ],
         "title": "ParameterChange",
-        "description": "A parameter change compares one parameter's fixed value or law across model revisions."
+        "description": "A parameter change compares one parameter's law across model revisions."
+      },
+      "ParameterConvergenceFailure": {
+        "properties": {
+          "parameter": {
+            "type": "string",
+            "title": "Parameter"
+          },
+          "subject": {
+            "$ref": "#/components/schemas/ParameterRef"
+          },
+          "criterion": {
+            "type": "string",
+            "title": "Criterion"
+          }
+        },
+        "type": "object",
+        "required": [
+          "parameter",
+          "subject",
+          "criterion"
+        ],
+        "title": "ParameterConvergenceFailure",
+        "description": "A failed criterion on one retained scalar parameter element."
+      },
+      "ParameterConvergenceReport": {
+        "properties": {
+          "checked": {
+            "type": "integer",
+            "title": "Checked"
+          },
+          "passed": {
+            "type": "boolean",
+            "title": "Passed"
+          },
+          "failures": {
+            "items": {
+              "$ref": "#/components/schemas/ParameterConvergenceFailure"
+            },
+            "type": "array",
+            "title": "Failures"
+          }
+        },
+        "type": "object",
+        "required": [
+          "checked",
+          "passed",
+          "failures"
+        ],
+        "title": "ParameterConvergenceReport",
+        "description": "Recorded-chain checks cover parameters, not latent-path mixing."
       },
       "ParameterDrawColumn": {
         "properties": {
@@ -8504,20 +8529,8 @@
               "initial_state_correlation"
             ],
             "title": "Distribution Transform",
-            "description": "Mapping from the authored law to the model quantity: identity leaves its scale unchanged; dt_persistence_to_ct_decay maps persistence p to -log(p) / interval; dt_effect_to_ct_rate divides an interval effect by its duration in days; initial_state_correlation applies the correlation support [-1, 1]. Fixed values and joint laws require identity.",
+            "description": "Mapping from the authored law to the model quantity: identity leaves its scale unchanged; dt_persistence_to_ct_decay maps persistence p to -log(p) / interval; dt_effect_to_ct_rate divides an interval effect by its duration in days; initial_state_correlation applies the correlation support [-1, 1]. Joint laws require identity.",
             "default": "identity"
-          },
-          "value": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Value",
-            "description": "Known constant on the model quantity scale, exclusive with a distribution."
           },
           "distribution": {
             "anyOf": [
@@ -8528,7 +8541,7 @@
                 "type": "null"
               }
             ],
-            "description": "Membership in a native law in ModelSpec.distributions; may be joint."
+            "description": "Membership in a native law in ModelSpec.distributions; may be joint. None means the law has not been assigned yet."
           },
           "reference_interval_days": {
             "anyOf": [
@@ -8552,7 +8565,7 @@
           "description"
         ],
         "title": "ParameterSpec",
-        "description": "A named quantity's current uncertainty; component slots define its meaning."
+        "description": "A named uncertain quantity; fixed coefficients are literals in component slots."
       },
       "PathSeries": {
         "properties": {
@@ -9040,7 +9053,7 @@
           "preparation": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/DataPreparationSpec-Output"
+                "$ref": "#/components/schemas/DataPreparationSpec"
               },
               {
                 "type": "null"

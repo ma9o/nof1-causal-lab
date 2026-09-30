@@ -5,7 +5,6 @@ from unittest.mock import Mock
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from dynestyx.inference.particle_runtime import ParticleRuntime
 from pydantic import ValidationError
 
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs import (
@@ -15,6 +14,7 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.kernel
     MarginalParticleGibbsKernel,
     build_marginal_particle_gibbs_kernel,
 )
+from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleTarget
 from nof1_causal_lab.sampler_config import validate_sampler_config
 from nof1_causal_lab.utils.config import InferenceConfig
 
@@ -81,7 +81,7 @@ def test_runner_rejects_invalid_initial_chains_before_any_step(monkeypatch, inva
         paths[1, 1, 0] = np.nan
 
     target = Mock(
-        spec=ParticleRuntime,
+        spec=ParticleTarget,
         observations=jnp.zeros((3, 1)),
         times=jnp.arange(3.0),
         initial_position=jnp.zeros(1),

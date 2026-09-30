@@ -103,9 +103,7 @@ def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
     assert len(model.distributions) == len(model.parameters)
     assert len(conditioned.distributions) == 1
     assert all(
-        p.distribution == next(iter(conditioned.distributions))
-        for p in conditioned.parameters
-        if p.value is None
+        p.distribution == next(iter(conditioned.distributions)) for p in conditioned.parameters
     )
     payload = conditioned.model_dump(mode="json")
     assert not {"posterior", "prior", "provenance", "diagnostics", "result"} & payload.keys()
@@ -335,7 +333,6 @@ def test_nonlinear_fixture_declares_the_same_drift_and_measurements():
 def test_fixed_quantities_and_interactions_remain_effective_in_edge_off_checks(monkeypatch):
     from nof1_causal_lab.artifacts.expressions import LiteralExpression, linear_coefficient
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.artifacts.parameter import SiteKind
     from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
     from nof1_causal_lab.models.ssm.predictive import registry_runtime
     from nof1_causal_lab.models.ssm.predictive.types import PredictiveDraws, PredictiveTrajectory
@@ -353,27 +350,9 @@ def test_fixed_quantities_and_interactions_remain_effective_in_edge_off_checks(m
             3,
             (
                 *(decay_term(target=i) for i in range(3)),
-                linear_term(0, 2),
+                linear_term(0, 2, 0.7),
                 interaction_term(0, 1, 2, 0.8),
             ),
-        ),
-    )
-    source = source.revised(
-        distributions={
-            k: v
-            for k, v in source.distributions.items()
-            if k
-            not in {
-                p.distribution
-                for p in source.parameters
-                if source.parameter_context(p.id).quantity == SiteKind.DYNAMICS_WEIGHT
-            }
-        },
-        parameters=tuple(
-            p.model_copy(update={"value": 0.7, "distribution": None})
-            if source.parameter_context(p.id).quantity == SiteKind.DYNAMICS_WEIGHT
-            else p
-            for p in source.parameters
         ),
     )
     source = ModelSpec.model_validate_json(source.model_dump_json())

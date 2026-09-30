@@ -81,10 +81,6 @@ def validate_site_prior(site: SiteDescriptor, prior: dist.Distribution) -> None:
         for component in prior.component_distributions:
             validate_site_prior(site, component)
         return
-    if isinstance(prior, dist.Delta):
-        if not np.all(np.asarray(site_constraint(site)(prior.v))):
-            raise ValueError(f"Fixed prior values violate {site.name!r} support")
-        return
     lower, upper = distribution_support_bounds(prior)
     if site.support == SupportClass.POSITIVE and np.any(np.asarray(lower) < 0.0):
         raise ValueError(f"Prior for positive site {site.name!r} has non-positive support")

@@ -117,8 +117,12 @@ def test_migration_moves_scoring_to_data_and_preserves_original_workspace(tmp_pa
     format4 = migrate_workspace(source, intermediate, files=("diary.csv",))
     format5_path = tmp_path / "format5" / "study"
     format5 = migrate_format5(intermediate, format5_path)
-    format6 = migrate_format6(format5_path, destination)
-    mapping = {old: format6[format5[new]] for old, new in format4.items()}
+    from scripts.migrations.migrate_fixed_values import migrate_workspace as migrate_format7
+
+    format6_path = tmp_path / "format6" / "study"
+    format6 = migrate_format6(format5_path, format6_path)
+    format7 = migrate_format7(format6_path, destination)
+    mapping = {old: format7[format6[format5[new]]] for old, new in format4.items()}
     assert repo.config.get_int("nof1.format") == 3
     assert {name: str(repo.references[name].target) for name in repo.references} == original_refs
     assert (

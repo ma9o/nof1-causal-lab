@@ -480,13 +480,13 @@ def model_fixture(
     def quantity(kind, refs, *, value=None, name=None):
         refs = tuple({ref.id: ref for ref in refs}.values())
         identity = fixture_parameter_id(kind, refs)
-        parameters[identity] = ParameterSpec(
-            id=identity,
-            name=name or identity,
-            description="Fixture quantity",
-            value=value,
-        )
-        reference = identity
+        if value is None:
+            parameters[identity] = ParameterSpec(
+                id=identity,
+                name=name or identity,
+                description="Fixture quantity",
+            )
+        reference = identity if value is None else value
         coefficient_recipes.append((kind, refs, reference))
         return reference
 

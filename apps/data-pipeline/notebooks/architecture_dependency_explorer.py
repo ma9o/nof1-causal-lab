@@ -41,7 +41,6 @@ def imports():
     import importlib.util
     import math
     from collections import defaultdict, deque
-    from dataclasses import dataclass
     from pathlib import Path
 
     import networkx as nx
@@ -51,7 +50,6 @@ def imports():
     return (
         Path,
         ast,
-        dataclass,
         defaultdict,
         deque,
         go,
@@ -69,7 +67,9 @@ def source_location(Path):
 
 
 @app.cell
-def dependency_model(ast, dataclass, importlib):
+def dependency_model(ast, importlib):
+    from dataclasses import dataclass
+
     @dataclass(frozen=True, slots=True)
     class ModuleInfo:
         name: str
@@ -314,6 +314,8 @@ def cluster_model():
 
 @app.cell
 def graph_analysis(defaultdict, deque, math, nx):
+    from typing import cast
+
     def build_module_graph(module_infos, import_refs):
         graph = nx.DiGraph()
         graph.add_nodes_from(row.name for row in module_infos)
@@ -382,7 +384,7 @@ def graph_analysis(defaultdict, deque, math, nx):
             rows,
             key=lambda row: (
                 row["status"] != "forbidden",
-                -row["references"],
+                -cast("int", row["references"]),
                 row["importer"],
                 row["imported"],
             ),

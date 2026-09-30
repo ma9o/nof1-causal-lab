@@ -32,8 +32,7 @@ def _build_image() -> modal.Image:
         modal.Image.debian_slim(python_version="3.12", force_build=FORCE_BUILD)
         .apt_install("git")
         .pip_install("uv")
-        .uv_sync(uv_project_dir=str(root), groups=["dev", "cloud"], frozen=True)
-        .uv_pip_install("jax[cuda12]==0.9.0.1")
+        .uv_sync(uv_project_dir=str(root), groups=["dev", "cloud", "gpu"], frozen=True)
         .env({"PYTHONPATH": ("/root/apps/data-pipeline/src:/root/apps/data-pipeline")})
         .add_local_file(root / "config.yaml", remote_path="/root/config.yaml")
         .add_local_file(

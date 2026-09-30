@@ -182,7 +182,7 @@
                                       }
                                     ],
                                     "default": null,
-                                    "description": "Finite literal or persistent parameter ID; null leaves the operand unassigned.",
+                                    "description": "Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.",
                                     "title": "Value"
                                   },
                                   "construct_ids": {
@@ -584,7 +584,7 @@
                                                             }
                                                           ],
                                                           "default": null,
-                                                          "description": "Finite literal or persistent parameter ID; null leaves the operand unassigned.",
+                                                          "description": "Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.",
                                                           "title": "Value"
                                                         },
                                                         "construct_ids": {
@@ -906,7 +906,7 @@
                                               }
                                             ],
                                             "default": null,
-                                            "description": "Finite literal or persistent parameter ID; null leaves the operand unassigned.",
+                                            "description": "Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.",
                                             "title": "Value"
                                           },
                                           "construct_ids": {
@@ -1068,7 +1068,7 @@
                                       }
                                     ],
                                     "default": null,
-                                    "description": "Finite literal or persistent parameter ID; null leaves the operand unassigned.",
+                                    "description": "Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.",
                                     "title": "Value"
                                   },
                                   "construct_ids": {
@@ -1467,7 +1467,7 @@
                                                             }
                                                           ],
                                                           "default": null,
-                                                          "description": "Finite literal or persistent parameter ID; null leaves the operand unassigned.",
+                                                          "description": "Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.",
                                                           "title": "Value"
                                                         },
                                                         "construct_ids": {
@@ -1789,7 +1789,7 @@
                                               }
                                             ],
                                             "default": null,
-                                            "description": "Finite literal or persistent parameter ID; null leaves the operand unassigned.",
+                                            "description": "Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.",
                                             "title": "Value"
                                           },
                                           "construct_ids": {
@@ -1951,7 +1951,7 @@
                                       }
                                     ],
                                     "default": null,
-                                    "description": "Finite literal or persistent parameter ID; null leaves the operand unassigned.",
+                                    "description": "Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.",
                                     "title": "Value"
                                   },
                                   "construct_ids": {
@@ -2114,7 +2114,7 @@
                 "default": [],
                 "items": {
                   "additionalProperties": false,
-                  "description": "A named quantity's current uncertainty; component slots define its meaning.",
+                  "description": "A named uncertain quantity; fixed coefficients are literals in component slots.",
                   "properties": {
                     "id": {
                       "pattern": "^parameter:[0-9a-f]{64}$",
@@ -2133,7 +2133,7 @@
                     },
                     "distribution_transform": {
                       "default": "identity",
-                      "description": "Mapping from the authored law to the model quantity: identity leaves its scale unchanged; dt_persistence_to_ct_decay maps persistence p to -log(p) / interval; dt_effect_to_ct_rate divides an interval effect by its duration in days; initial_state_correlation applies the correlation support [-1, 1]. Fixed values and joint laws require identity.",
+                      "description": "Mapping from the authored law to the model quantity: identity leaves its scale unchanged; dt_persistence_to_ct_decay maps persistence p to -log(p) / interval; dt_effect_to_ct_rate divides an interval effect by its duration in days; initial_state_correlation applies the correlation support [-1, 1]. Joint laws require identity.",
                       "enum": [
                         "identity",
                         "dt_persistence_to_ct_decay",
@@ -2142,19 +2142,6 @@
                       ],
                       "title": "Distribution Transform",
                       "type": "string"
-                    },
-                    "value": {
-                      "anyOf": [
-                        {
-                          "type": "number"
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "default": null,
-                      "description": "Known constant on the model quantity scale, exclusive with a distribution.",
-                      "title": "Value"
                     },
                     "distribution": {
                       "anyOf": [
@@ -2169,7 +2156,7 @@
                         }
                       ],
                       "default": null,
-                      "description": "Membership in a native law in ModelSpec.distributions; may be joint."
+                      "description": "Membership in a native law in ModelSpec.distributions; may be joint. None means the law has not been assigned yet."
                     },
                     "reference_interval_days": {
                       "anyOf": [
@@ -2489,7 +2476,7 @@
                   }
                 ],
                 "default": null,
-                "description": "Finite literal or persistent parameter ID; null leaves the operand unassigned.",
+                "description": "Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.",
                 "title": "Value"
               },
               "construct_ids": {
@@ -3161,7 +3148,7 @@
           },
           "ParameterSpec": {
             "additionalProperties": false,
-            "description": "A named quantity's current uncertainty; component slots define its meaning.",
+            "description": "A named uncertain quantity; fixed coefficients are literals in component slots.",
             "properties": {
               "id": {
                 "$ref": "#/$defs/ParameterId"
@@ -3178,7 +3165,7 @@
               },
               "distribution_transform": {
                 "default": "identity",
-                "description": "Mapping from the authored law to the model quantity: identity leaves its scale unchanged; dt_persistence_to_ct_decay maps persistence p to -log(p) / interval; dt_effect_to_ct_rate divides an interval effect by its duration in days; initial_state_correlation applies the correlation support [-1, 1]. Fixed values and joint laws require identity.",
+                "description": "Mapping from the authored law to the model quantity: identity leaves its scale unchanged; dt_persistence_to_ct_decay maps persistence p to -log(p) / interval; dt_effect_to_ct_rate divides an interval effect by its duration in days; initial_state_correlation applies the correlation support [-1, 1]. Joint laws require identity.",
                 "enum": [
                   "identity",
                   "dt_persistence_to_ct_decay",
@@ -3187,19 +3174,6 @@
                 ],
                 "title": "Distribution Transform",
                 "type": "string"
-              },
-              "value": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "description": "Known constant on the model quantity scale, exclusive with a distribution.",
-                "title": "Value"
               },
               "distribution": {
                 "anyOf": [
@@ -3211,7 +3185,7 @@
                   }
                 ],
                 "default": null,
-                "description": "Membership in a native law in ModelSpec.distributions; may be joint."
+                "description": "Membership in a native law in ModelSpec.distributions; may be joint. None means the law has not been assigned yet."
               },
               "reference_interval_days": {
                 "anyOf": [
@@ -4055,7 +4029,7 @@
                                                   }
                                                 ],
                                                 "default": null,
-                                                "description": "Finite literal or persistent parameter ID; null leaves the operand unassigned.",
+                                                "description": "Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.",
                                                 "title": "Value"
                                               },
                                               "construct_ids": {
@@ -4457,7 +4431,7 @@
                                                                         }
                                                                       ],
                                                                       "default": null,
-                                                                      "description": "Finite literal or persistent parameter ID; null leaves the operand unassigned.",
+                                                                      "description": "Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.",
                                                                       "title": "Value"
                                                                     },
                                                                     "construct_ids": {
@@ -4779,7 +4753,7 @@
                                                           }
                                                         ],
                                                         "default": null,
-                                                        "description": "Finite literal or persistent parameter ID; null leaves the operand unassigned.",
+                                                        "description": "Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.",
                                                         "title": "Value"
                                                       },
                                                       "construct_ids": {
@@ -4941,7 +4915,7 @@
                                                   }
                                                 ],
                                                 "default": null,
-                                                "description": "Finite literal or persistent parameter ID; null leaves the operand unassigned.",
+                                                "description": "Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.",
                                                 "title": "Value"
                                               },
                                               "construct_ids": {
@@ -5340,7 +5314,7 @@
                                                                         }
                                                                       ],
                                                                       "default": null,
-                                                                      "description": "Finite literal or persistent parameter ID; null leaves the operand unassigned.",
+                                                                      "description": "Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.",
                                                                       "title": "Value"
                                                                     },
                                                                     "construct_ids": {
@@ -5662,7 +5636,7 @@
                                                           }
                                                         ],
                                                         "default": null,
-                                                        "description": "Finite literal or persistent parameter ID; null leaves the operand unassigned.",
+                                                        "description": "Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.",
                                                         "title": "Value"
                                                       },
                                                       "construct_ids": {
@@ -5824,7 +5798,7 @@
                                                   }
                                                 ],
                                                 "default": null,
-                                                "description": "Finite literal or persistent parameter ID; null leaves the operand unassigned.",
+                                                "description": "Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.",
                                                 "title": "Value"
                                               },
                                               "construct_ids": {
@@ -5987,7 +5961,7 @@
                             "default": [],
                             "items": {
                               "additionalProperties": false,
-                              "description": "A named quantity's current uncertainty; component slots define its meaning.",
+                              "description": "A named uncertain quantity; fixed coefficients are literals in component slots.",
                               "properties": {
                                 "id": {
                                   "pattern": "^parameter:[0-9a-f]{64}$",
@@ -6006,7 +5980,7 @@
                                 },
                                 "distribution_transform": {
                                   "default": "identity",
-                                  "description": "Mapping from the authored law to the model quantity: identity leaves its scale unchanged; dt_persistence_to_ct_decay maps persistence p to -log(p) / interval; dt_effect_to_ct_rate divides an interval effect by its duration in days; initial_state_correlation applies the correlation support [-1, 1]. Fixed values and joint laws require identity.",
+                                  "description": "Mapping from the authored law to the model quantity: identity leaves its scale unchanged; dt_persistence_to_ct_decay maps persistence p to -log(p) / interval; dt_effect_to_ct_rate divides an interval effect by its duration in days; initial_state_correlation applies the correlation support [-1, 1]. Joint laws require identity.",
                                   "enum": [
                                     "identity",
                                     "dt_persistence_to_ct_decay",
@@ -6015,19 +5989,6 @@
                                   ],
                                   "title": "Distribution Transform",
                                   "type": "string"
-                                },
-                                "value": {
-                                  "anyOf": [
-                                    {
-                                      "type": "number"
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ],
-                                  "default": null,
-                                  "description": "Known constant on the model quantity scale, exclusive with a distribution.",
-                                  "title": "Value"
                                 },
                                 "distribution": {
                                   "anyOf": [
@@ -6042,7 +6003,7 @@
                                     }
                                   ],
                                   "default": null,
-                                  "description": "Membership in a native law in ModelSpec.distributions; may be joint."
+                                  "description": "Membership in a native law in ModelSpec.distributions; may be joint. None means the law has not been assigned yet."
                                 },
                                 "reference_interval_days": {
                                   "anyOf": [
@@ -8589,7 +8550,7 @@
                                                   }
                                                 ],
                                                 "default": null,
-                                                "description": "Finite literal or persistent parameter ID; null leaves the operand unassigned.",
+                                                "description": "Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.",
                                                 "title": "Value"
                                               },
                                               "construct_ids": {
@@ -8991,7 +8952,7 @@
                                                                         }
                                                                       ],
                                                                       "default": null,
-                                                                      "description": "Finite literal or persistent parameter ID; null leaves the operand unassigned.",
+                                                                      "description": "Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.",
                                                                       "title": "Value"
                                                                     },
                                                                     "construct_ids": {
@@ -9313,7 +9274,7 @@
                                                           }
                                                         ],
                                                         "default": null,
-                                                        "description": "Finite literal or persistent parameter ID; null leaves the operand unassigned.",
+                                                        "description": "Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.",
                                                         "title": "Value"
                                                       },
                                                       "construct_ids": {
@@ -9475,7 +9436,7 @@
                                                   }
                                                 ],
                                                 "default": null,
-                                                "description": "Finite literal or persistent parameter ID; null leaves the operand unassigned.",
+                                                "description": "Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.",
                                                 "title": "Value"
                                               },
                                               "construct_ids": {
@@ -9874,7 +9835,7 @@
                                                                         }
                                                                       ],
                                                                       "default": null,
-                                                                      "description": "Finite literal or persistent parameter ID; null leaves the operand unassigned.",
+                                                                      "description": "Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.",
                                                                       "title": "Value"
                                                                     },
                                                                     "construct_ids": {
@@ -10196,7 +10157,7 @@
                                                           }
                                                         ],
                                                         "default": null,
-                                                        "description": "Finite literal or persistent parameter ID; null leaves the operand unassigned.",
+                                                        "description": "Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.",
                                                         "title": "Value"
                                                       },
                                                       "construct_ids": {
@@ -10358,7 +10319,7 @@
                                                   }
                                                 ],
                                                 "default": null,
-                                                "description": "Finite literal or persistent parameter ID; null leaves the operand unassigned.",
+                                                "description": "Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.",
                                                 "title": "Value"
                                               },
                                               "construct_ids": {
@@ -10521,7 +10482,7 @@
                             "default": [],
                             "items": {
                               "additionalProperties": false,
-                              "description": "A named quantity's current uncertainty; component slots define its meaning.",
+                              "description": "A named uncertain quantity; fixed coefficients are literals in component slots.",
                               "properties": {
                                 "id": {
                                   "pattern": "^parameter:[0-9a-f]{64}$",
@@ -10540,7 +10501,7 @@
                                 },
                                 "distribution_transform": {
                                   "default": "identity",
-                                  "description": "Mapping from the authored law to the model quantity: identity leaves its scale unchanged; dt_persistence_to_ct_decay maps persistence p to -log(p) / interval; dt_effect_to_ct_rate divides an interval effect by its duration in days; initial_state_correlation applies the correlation support [-1, 1]. Fixed values and joint laws require identity.",
+                                  "description": "Mapping from the authored law to the model quantity: identity leaves its scale unchanged; dt_persistence_to_ct_decay maps persistence p to -log(p) / interval; dt_effect_to_ct_rate divides an interval effect by its duration in days; initial_state_correlation applies the correlation support [-1, 1]. Joint laws require identity.",
                                   "enum": [
                                     "identity",
                                     "dt_persistence_to_ct_decay",
@@ -10549,19 +10510,6 @@
                                   ],
                                   "title": "Distribution Transform",
                                   "type": "string"
-                                },
-                                "value": {
-                                  "anyOf": [
-                                    {
-                                      "type": "number"
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ],
-                                  "default": null,
-                                  "description": "Known constant on the model quantity scale, exclusive with a distribution.",
-                                  "title": "Value"
                                 },
                                 "distribution": {
                                   "anyOf": [
@@ -10576,7 +10524,7 @@
                                     }
                                   ],
                                   "default": null,
-                                  "description": "Membership in a native law in ModelSpec.distributions; may be joint."
+                                  "description": "Membership in a native law in ModelSpec.distributions; may be joint. None means the law has not been assigned yet."
                                 },
                                 "reference_interval_days": {
                                   "anyOf": [
@@ -13005,7 +12953,7 @@
                   }
                 ],
                 "default": null,
-                "description": "Finite literal or persistent parameter ID; null leaves the operand unassigned.",
+                "description": "Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.",
                 "title": "Value"
               },
               "construct_ids": {
@@ -15422,7 +15370,7 @@
           },
           "ParameterSpec": {
             "additionalProperties": false,
-            "description": "A named quantity's current uncertainty; component slots define its meaning.",
+            "description": "A named uncertain quantity; fixed coefficients are literals in component slots.",
             "properties": {
               "id": {
                 "$ref": "#/$defs/ParameterId"
@@ -15439,7 +15387,7 @@
               },
               "distribution_transform": {
                 "default": "identity",
-                "description": "Mapping from the authored law to the model quantity: identity leaves its scale unchanged; dt_persistence_to_ct_decay maps persistence p to -log(p) / interval; dt_effect_to_ct_rate divides an interval effect by its duration in days; initial_state_correlation applies the correlation support [-1, 1]. Fixed values and joint laws require identity.",
+                "description": "Mapping from the authored law to the model quantity: identity leaves its scale unchanged; dt_persistence_to_ct_decay maps persistence p to -log(p) / interval; dt_effect_to_ct_rate divides an interval effect by its duration in days; initial_state_correlation applies the correlation support [-1, 1]. Joint laws require identity.",
                 "enum": [
                   "identity",
                   "dt_persistence_to_ct_decay",
@@ -15448,19 +15396,6 @@
                 ],
                 "title": "Distribution Transform",
                 "type": "string"
-              },
-              "value": {
-                "anyOf": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "description": "Known constant on the model quantity scale, exclusive with a distribution.",
-                "title": "Value"
               },
               "distribution": {
                 "anyOf": [
@@ -15472,7 +15407,7 @@
                   }
                 ],
                 "default": null,
-                "description": "Membership in a native law in ModelSpec.distributions; may be joint."
+                "description": "Membership in a native law in ModelSpec.distributions; may be joint. None means the law has not been assigned yet."
               },
               "reference_interval_days": {
                 "anyOf": [

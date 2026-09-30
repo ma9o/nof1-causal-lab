@@ -39,6 +39,7 @@ def nonlinear_model():
         ),
         manifest_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.POISSON],
         manifest_links=[LinkFunction.IDENTITY, LinkFunction.LOG],
+        manifest_standardized=[True, False],
     )
     return SSMModel(spec)
 
@@ -55,6 +56,10 @@ def test_nonlinear_mixed_missing_irregular_particle_fit_and_exact_diagnostics(mo
     observations = jnp.array(
         [[0.2, 1.0], [jnp.nan, 2.0], [0.3, jnp.nan], [jnp.nan, jnp.nan], [-0.2, 0.0]]
     )
+    gaussian = observations[:, 0]
+    observations = observations.at[:, 0].set(
+        (gaussian - jnp.nanmean(gaussian)) / jnp.nanstd(gaussian)
+    )
     problem = build_particle_problem(
         model,
         observations,
@@ -70,12 +75,12 @@ def test_nonlinear_mixed_missing_irregular_particle_fit_and_exact_diagnostics(mo
     variance = context[0].observation_model.measurement.manifest_cov[0, 0]
     expected = jnp.array(
         [
-            dist.Normal(path[0, 0], jnp.sqrt(variance)).log_prob(0.2)
+            dist.Normal(path[0, 0], jnp.sqrt(variance)).log_prob(observations[0, 0])
             + dist.Poisson(jnp.exp(path[0, 0])).log_prob(1.0),
             dist.Poisson(jnp.exp(path[1, 0])).log_prob(2.0),
-            dist.Normal(path[2, 0], jnp.sqrt(variance)).log_prob(0.3),
+            dist.Normal(path[2, 0], jnp.sqrt(variance)).log_prob(observations[2, 0]),
             0.0,
-            dist.Normal(path[4, 0], jnp.sqrt(variance)).log_prob(-0.2)
+            dist.Normal(path[4, 0], jnp.sqrt(variance)).log_prob(observations[4, 0])
             + dist.Poisson(jnp.exp(path[4, 0])).log_prob(0.0),
         ]
     )

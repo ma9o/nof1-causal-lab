@@ -29,7 +29,7 @@ _LAPLACE_BACKEND_SYMBOLS = (
     "LaplaceLikelihood",
     "LocalLinearizationConfig",
     "ExactAffineConfig",
-    "linearized_transition_parameters",
+    "linearize_drift",
 )
 
 # The ONLY modules permitted to reference the Laplace backend: its own

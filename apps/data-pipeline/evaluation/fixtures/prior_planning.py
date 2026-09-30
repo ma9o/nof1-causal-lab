@@ -56,7 +56,7 @@ def complete_parameter_priors(model: ModelSpec) -> ModelSpec:
                 parameter, model, sites[bindings[parameter.id].site_name]
             )
             for parameter in model.parameters
-            if parameter.distribution is None and parameter.value is None
+            if parameter.distribution is None
         },
     )
 

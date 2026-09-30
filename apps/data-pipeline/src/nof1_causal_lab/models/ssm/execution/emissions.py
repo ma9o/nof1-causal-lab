@@ -214,11 +214,6 @@ def emission_log_prob_gaussian(y_t, eta, R, obs_mask_t) -> FloatScalar:
         law,
         y=jnp.where(mask, y_t, eta),
         obs_mask=mask,
-        row_has_any_observed=jnp.any(mask),
-        observation_dim=y_t.shape[0],
-        has_partial_missing=True,
-        expected_mode="multivariate_normal",
-        expected_event_shape=law.event_shape,
     )
 
 

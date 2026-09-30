@@ -87,8 +87,7 @@ def test_exact_binding_roundtrips_without_authored_measurement_parameters(exact_
     np.testing.assert_array_equal(numeric.observation_noise_block(model).template[0], [0, 0])
     assert owner.id in model.state_order
     assert "usage" not in type(owner).model_fields
-    anchor = next(item for item in model.check_execution() if item.construct_id == owner.id)
-    assert anchor.location_anchor == "exact_state_observation"
+    model.check_execution()
     assert r"\operatorname{Delta}" in observation_equations(model)[indicator.id]
 
 
@@ -100,7 +99,7 @@ def test_delta_constructor_requires_only_its_exact_value():
         {"v": state(ConstructId("construct:x")), "scale": 0},
     ):
         with pytest.raises(ValidationError):
-            ObservationLawSpec(distribution="Delta", arguments=arguments)
+            ObservationLawSpec.model_validate({"distribution": "Delta", "arguments": arguments})
 
 
 @pytest.mark.contract

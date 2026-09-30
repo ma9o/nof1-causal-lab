@@ -22,7 +22,10 @@ from nof1_causal_lab.artifacts.identity import (  # noqa: TC001
 from nof1_causal_lab.artifacts.model_checks import ModelPredictiveReport  # noqa: TC001
 from nof1_causal_lab.artifacts.model_spec import ModelSpec  # noqa: TC001
 from nof1_causal_lab.artifacts.posterior import InferenceReport  # noqa: TC001
-from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorEstimate  # noqa: TC001
+from nof1_causal_lab.artifacts.posterior_diagnostics import (  # noqa: TC001
+    ParameterConvergenceReport,
+    PosteriorEstimate,
+)
 from nof1_causal_lab.artifacts.prior_predictive import PriorPredictiveResult  # noqa: TC001
 from nof1_causal_lab.artifacts.simulation import SimulationReport  # noqa: TC001
 from nof1_causal_lab.artifacts.validation_report import (  # noqa: TC001
@@ -74,6 +77,7 @@ class FitSummary(SnapshotValue):
     """
 
     report: InferenceReport
+    convergence: ParameterConvergenceReport
     edge_estimates: dict[EdgeId, PosteriorEstimate] = Field(default_factory=dict)
     decay_estimates: dict[ConstructId, PosteriorEstimate] = Field(default_factory=dict)
     prior_densities: dict[ParameterId, tuple[DensityPoint, ...]] = Field(

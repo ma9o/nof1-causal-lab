@@ -189,9 +189,13 @@ def test_format5_migration_preserves_actual_fit_origin_and_paired_draws(tmp_path
     mapping = migrate_workspace(source, destination)
     assert history.head() == head
     assert history.repo.config.get_int("nof1.format") == 4
+    from scripts.migrations.migrate_fixed_values import migrate_workspace as migrate_format7
+
     current = tmp_path / "current" / "study"
-    timing_mapping = migrate_timing(destination, current)
-    mapping = {old: timing_mapping[new] for old, new in mapping.items()}
+    format6 = tmp_path / "format6" / "study"
+    timing_mapping = migrate_timing(destination, format6)
+    literal_mapping = migrate_format7(format6, current)
+    mapping = {old: literal_mapping[timing_mapping[new]] for old, new in mapping.items()}
     destination = current
     monkeypatch.setattr(data, "_DATA_URI", str(destination.parent))
     updated, updated_store = StudyRepository("study"), ArtifactStore("study")

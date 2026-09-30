@@ -3,7 +3,7 @@
 Every retained construct must have exactly one location anchor and one scale
 anchor (docs/assumptions.md#parameter-anchors). These tests
 enumerate the family/policy combinations so that any future eligibility change
-that reopens an exact likelihood ridge fails loudly at compile time.
+that reopens an exact likelihood ridge fails at construction.
 """
 
 from typing import Any
@@ -13,8 +13,14 @@ import numpy as np
 import pytest
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.expressions import coefficient, state
 from nof1_causal_lab.artifacts.identity import ConstructRef, IndicatorId, IndicatorRef
-from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LikelihoodSpec, LinkFunction
+from nof1_causal_lab.artifacts.likelihood import (
+    DistributionFamily,
+    LikelihoodSpec,
+    LinkFunction,
+    ObservationLawSpec,
+)
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.artifacts.parameter_spec import (
@@ -22,10 +28,10 @@ from nof1_causal_lab.artifacts.parameter_spec import (
 )
 from nof1_causal_lab.models.likelihoods import observation_law
 from nof1_causal_lab.models.ssm import numerics as numeric
-from nof1_causal_lab.models.ssm.compile.structural import StructuralClosureError
 from nof1_causal_lab.models.ssm.compile.support import NumericalSupportError
 from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
 from nof1_causal_lab.models.ssm.likelihood_extra_params import assemble_sampled_extra_params
+from tests.dynamics_fixtures import decay_term
 from tests.helpers import declare_test_dynamics, fixture_entity_id, make_model
 from tests.model_fixtures import model_fixture
 from tests.slot_fixtures import fixture_parameter_id, with_likelihood_coefficients
@@ -217,7 +223,7 @@ class TestOrderedThresholds:
         spec = model_fixture(
             n_latent=1,
             n_manifest=1,
-            dynamics_spec=DynamicsSpec(n_latent=1, components=()),
+            dynamics_spec=DynamicsSpec(n_latent=1, components=(decay_term(0),)),
             manifest_dists=[DistributionFamily.ORDERED_LOGISTIC],
             manifest_level_counts=[3],
         )
@@ -294,14 +300,13 @@ class TestLocationAnchors:
 
     def test_free_center_without_standardized_channel_fails(self):
         model = _structure(["mood"], [_indicator("mood_flag", "mood", "binary")])
-        spec = _with_likelihoods(
-            [_likelihood("mood_flag", "binary")],
-            [_center(model)],
-            centered_states=(model.state_order[0],),
-            plan=model,
-        )
-        with pytest.raises(StructuralClosureError, match="no location anchor"):
-            numeric.validate_execution(spec)
+        with pytest.raises(ValueError, match="Construct 'mood' has no location anchor"):
+            _with_likelihoods(
+                [_likelihood("mood_flag", "binary")],
+                [_center(model)],
+                centered_states=(model.state_order[0],),
+                plan=model,
+            )
 
     def test_free_center_with_standardized_channel_compiles(self):
         model = _structure(
@@ -322,6 +327,42 @@ class TestLocationAnchors:
         )
         assert numeric.observation_standardized(spec) is not None
         assert numeric.observation_standardized(spec)[0]
+
+    @pytest.mark.parametrize("aggregation", ["last", "sum", "count"])
+    @pytest.mark.parametrize("affine", [False, True])
+    def test_exact_state_anchors_location_for_every_summary(self, aggregation, affine):
+        from notebooks.parameter_planning import complete_component_slots
+
+        model = _structure(["mood"], [_indicator("mood_rating", "mood", "continuous")])
+        owner = model.constructs[0]
+        offset = _manifest_mean("mood_rating", plan=model)
+        value = state(owner.id)
+        if affine:
+            value = (
+                coefficient(offset.id, "observation_intercept") + coefficient(1, "loading") * value
+            )
+        indicator = owner.indicators[0].model_copy(
+            update={
+                "aggregation": aggregation,
+                "measurement_dtype": "count" if aggregation == "count" else "continuous",
+                "likelihood": LikelihoodSpec(
+                    law=ObservationLawSpec(distribution="Delta", arguments={"v": value}),
+                    reasoning="Exact observation with an optional unknown calibration offset",
+                ),
+            }
+        )
+        model = model.revised(
+            edges=replace_constructs(
+                model.edges, (owner.model_copy(update={"indicators": (indicator,)}),)
+            ),
+            parameters=(offset,) if affine else (),
+        )
+        model = declare_test_dynamics(model, centered_states=(owner.id,))
+        if affine:
+            with pytest.raises(ValueError, match="Construct 'mood' has no location anchor"):
+                complete_component_slots(model)
+        else:
+            complete_component_slots(model)
 
     def test_static_t0_mean_gated_without_standardized_channel(self):
         model = _structure(
@@ -473,7 +514,7 @@ class TestAnchorSurfaces:
                 plan.edges, (owner.model_copy(update={"indicators": (indicator,)}),)
             )
         )
-        completed = complete_component_slots(model)
+        completed = complete_component_slots(declare_test_dynamics(model))
         likelihood = completed.indicators[0].likelihood
         assert likelihood is not None
         assert isinstance(likelihood.terms.intercept.value, str)

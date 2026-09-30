@@ -129,7 +129,7 @@ New studies initialize their local bare repository on first use. On a fresh chec
 
 ```bash
 git clone --mirror data/DEMO/episode/history.bundle data/DEMO/episode/history.git
-git --git-dir=data/DEMO/episode/history.git config nof1.format 6
+git --git-dir=data/DEMO/episode/history.git config nof1.format 7
 ```
 
 #### Migrating a local study
@@ -186,7 +186,7 @@ uv run --directory apps/data-pipeline python -m scripts.migrations.migrate_simul
 
 It records panel and historical fit origins, backfills simulation summaries from saved draws, and rewrites all changed Git references. It preserves historical numerical coordinates under the [time semantics](../assumptions.md#time). Imported panels without a files recipe are rejected before copying; their preparation requires a reviewed scientific decision. No model calls, fitting or simulation run during migration. Review the new copy and start a fresh workflow as above.
 
-The current runtime requires format 6. Convert a stopped format-5 study with the [edge-timing converter](../../apps/data-pipeline/scripts/migrations/migrate_edge_timing.py):
+Convert a stopped format-5 study to format 6 with the [edge-timing converter](../../apps/data-pipeline/scripts/migrations/migrate_edge_timing.py):
 
 ```bash
 uv run --directory apps/data-pipeline python -m scripts.migrations.migrate_edge_timing \
@@ -195,7 +195,16 @@ uv run --directory apps/data-pipeline python -m scripts.migrations.migrate_edge_
 
 It removes `lagged`, recomputes identification from the constructs’ temporal status, and rewrites references in a new copy. Equations and numerical arrays are preserved. Review the copy and restart the workflow as above. The [temporal assumptions](../assumptions.md#model-class) describe the revised interpretation.
 
-For this checkout's switch-over, move the existing local DEMO `episode/history.git` outside `data/` and re-clone its tracked bundle using the [restore commands](#local-study-history). Move STEPWISE and the other older-format local studies (`V2BUILD01`, `ws`, `ws-test`) outside `data/` as archived workspaces, keeping each whole directory and its numerical store. STEPWISE's imported panels have no files recipe and are archived, not converted or rebuilt. A later files-path rebuild requires a separate budgeted end-to-end run.
+The current runtime requires format 7. Convert a stopped format-6 study with the [fixed-values converter](../../apps/data-pipeline/scripts/migrations/migrate_fixed_values.py):
+
+```bash
+uv run --directory apps/data-pipeline python -m scripts.migrations.migrate_fixed_values \
+  ../../data/STUDY /tmp/fixed-values/STUDY
+```
+
+It inlines fixed parameters as literal coefficients, removes those parameters and the remaining parameter `value` fields, and rewrites references in a new copy. It stops on a fixed parameter shared by several slots. Observation values and numerical files are preserved.
+
+STEPWISE's imported panels have no files recipe and remain archived, not converted or rebuilt. A later files-path rebuild requires a separate budgeted end-to-end run.
 
 #### Squashing a local study's action history
 

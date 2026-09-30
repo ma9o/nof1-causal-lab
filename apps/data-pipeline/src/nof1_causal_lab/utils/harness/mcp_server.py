@@ -28,16 +28,18 @@ import traceback
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
+import jsonschema
 import mcp.types as mcp_types
 import uvicorn
 from mcp.server.lowlevel import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 
-from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.utils.harness.networking import find_free_port, run_uvicorn_server
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
+
+    from mcp.server.context import ServerRequestContext
 
     from nof1_causal_lab.utils.openrouter_client import Tool
 
@@ -52,46 +54,62 @@ def build_mcp_server(tools: list[Tool], *, name: str = "pipeline-tools") -> Serv
     as ``inputSchema``. ``Tool.execute`` is called directly; its return
     value is wrapped in a :class:`mcp_types.TextContent`.
     """
-    server: Server = Server(name)
     tool_map = {t.name: t for t in tools}
 
-    @server.list_tools()
-    async def _list_tools() -> list[mcp_types.Tool]:
-        return [
-            mcp_types.Tool(
-                name=t.name,
-                description=t.description,
-                inputSchema=t.parameters,
-            )
-            for t in tools
-        ]
+    async def _list_tools(
+        _context: ServerRequestContext, _params: mcp_types.PaginatedRequestParams | None
+    ) -> mcp_types.ListToolsResult:
+        return mcp_types.ListToolsResult(
+            tools=[
+                mcp_types.Tool(
+                    name=t.name,
+                    description=t.description,
+                    input_schema=t.parameters,
+                )
+                for t in tools
+            ]
+        )
 
-    @server.call_tool()
     async def _call_tool(
-        name: str,
-        arguments: UncheckedJsonObject | None,
-    ) -> list[mcp_types.TextContent]:
+        _context: ServerRequestContext, params: mcp_types.CallToolRequestParams
+    ) -> mcp_types.CallToolResult:
+        name, arguments = params.name, params.arguments
         logger.info("MCP call_tool name=%s args_keys=%s", name, list((arguments or {}).keys()))
         tool = tool_map.get(name)
         if tool is None:
             logger.warning("MCP call_tool unknown tool name=%s", name)
-            return [mcp_types.TextContent(type="text", text=f"Unknown tool: {name}")]
+            return mcp_types.CallToolResult(
+                content=[mcp_types.TextContent(type="text", text=f"Unknown tool: {name}")]
+            )
+        try:
+            jsonschema.validate(arguments or {}, tool.parameters)
+        except jsonschema.ValidationError as exc:
+            return mcp_types.CallToolResult(
+                content=[
+                    mcp_types.TextContent(
+                        type="text", text=f"Input validation error: {exc.message}"
+                    )
+                ],
+                is_error=True,
+            )
         try:
             result = await tool.execute(**(arguments or {}))
         except Exception as exc:  # noqa: BLE001 — surface to harness as tool error
             tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
             logger.warning("MCP call_tool %s raised %s: %s", name, type(exc).__name__, exc)
-            return [
-                mcp_types.TextContent(
-                    type="text",
-                    text=f"Tool execution failed: {type(exc).__name__}: {exc}\n{tb}",
-                )
-            ]
+            return mcp_types.CallToolResult(
+                content=[
+                    mcp_types.TextContent(
+                        type="text",
+                        text=f"Tool execution failed: {type(exc).__name__}: {exc}\n{tb}",
+                    )
+                ]
+            )
         text = str(result)
         logger.info("MCP call_tool %s -> %d chars", name, len(text))
-        return [mcp_types.TextContent(type="text", text=text)]
+        return mcp_types.CallToolResult(content=[mcp_types.TextContent(type="text", text=text)])
 
-    return server
+    return Server(name, on_list_tools=_list_tools, on_call_tool=_call_tool)
 
 
 @asynccontextmanager

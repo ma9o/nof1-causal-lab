@@ -182,10 +182,9 @@ def referenced_parameter_ids(*components: CoefficientOwner) -> frozenset[Paramet
     )
 
 
-def coefficient_value(model: ModelSpec, coefficient: float | ParameterId) -> float | None:
-    if isinstance(coefficient, str):
-        return model.parameter(coefficient).value
-    return coefficient
+def coefficient_value(coefficient: float | ParameterId) -> float | None:
+    """Resolve a literal; named parameters always represent uncertain quantities."""
+    return None if isinstance(coefficient, str) else coefficient
 
 
 def baseline_factor_groups(model: ModelSpec):

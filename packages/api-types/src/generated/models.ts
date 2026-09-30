@@ -604,7 +604,7 @@ export interface CoefficientExpression {
   kind: "coefficient";
   role: CoefficientRole;
   /**
-   * Finite literal or persistent parameter ID; null leaves the operand unassigned.
+   * Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.
    */
   value?: number | ParameterId | null;
   /**
@@ -774,7 +774,7 @@ export interface ConstructRef {
   id: ConstructId;
 }
 /**
- * A named quantity's current uncertainty; component slots define its meaning.
+ * A named uncertain quantity; fixed coefficients are literals in component slots.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "ParameterSpec".
@@ -790,7 +790,7 @@ export interface ParameterSpec {
    */
   description: string;
   /**
-   * Mapping from the authored law to the model quantity: identity leaves its scale unchanged; dt_persistence_to_ct_decay maps persistence p to -log(p) / interval; dt_effect_to_ct_rate divides an interval effect by its duration in days; initial_state_correlation applies the correlation support [-1, 1]. Fixed values and joint laws require identity.
+   * Mapping from the authored law to the model quantity: identity leaves its scale unchanged; dt_persistence_to_ct_decay maps persistence p to -log(p) / interval; dt_effect_to_ct_rate divides an interval effect by its duration in days; initial_state_correlation applies the correlation support [-1, 1]. Joint laws require identity.
    */
   distribution_transform:
     | "identity"
@@ -798,11 +798,7 @@ export interface ParameterSpec {
     | "dt_effect_to_ct_rate"
     | "initial_state_correlation";
   /**
-   * Known constant on the model quantity scale, exclusive with a distribution.
-   */
-  value?: number | null;
-  /**
-   * Membership in a native law in ModelSpec.distributions; may be joint.
+   * Membership in a native law in ModelSpec.distributions; may be joint. None means the law has not been assigned yet.
    */
   distribution?: DistributionId | null;
   /**
@@ -2148,6 +2144,7 @@ export interface FactSource {
  */
 export interface FitSummary {
   report: InferenceReport;
+  convergence: ParameterConvergenceReport;
   edge_estimates: {
     [k: string]: PosteriorEstimate;
   };
@@ -2160,6 +2157,28 @@ export interface FitSummary {
   prior_densities: {
     [k: string]: DensityPoint[];
   };
+}
+/**
+ * Recorded-chain checks cover parameters, not latent-path mixing.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ParameterConvergenceReport".
+ */
+export interface ParameterConvergenceReport {
+  checked: number;
+  passed: boolean;
+  failures: ParameterConvergenceFailure[];
+}
+/**
+ * A failed criterion on one retained scalar parameter element.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ParameterConvergenceFailure".
+ */
+export interface ParameterConvergenceFailure {
+  parameter: string;
+  subject: ParameterRef;
+  criterion: string;
 }
 /**
  * A posterior estimate reports a mean and a credible interval with explicit semantics.
@@ -2404,7 +2423,7 @@ export interface ModelDiffReport {
   after_simulation: SimulationReport | null;
 }
 /**
- * A parameter change compares one parameter's fixed value or law across model revisions.
+ * A parameter change compares one parameter's law across model revisions.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "ParameterChange".

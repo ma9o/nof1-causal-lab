@@ -76,10 +76,7 @@ def _build_image() -> modal.Image:
         modal.Image.debian_slim(python_version="3.12", force_build=FORCE_BUILD)
         .apt_install("git")
         .pip_install("uv")
-        .uv_sync(uv_project_dir=str(root), groups=["dev", "cloud"], frozen=True)
-        # CUDA 12 wheels (GPU-agnostic, one image for any card), pinned to uv.lock so the
-        # resolve cannot drift JAX off 0.9.0.1 between benchmark runs.
-        .uv_pip_install("jax[cuda12]==0.9.0.1")
+        .uv_sync(uv_project_dir=str(root), groups=["dev", "cloud", "gpu"], frozen=True)
         .env({"PYTHONPATH": "/root/src:/root"})
         .add_local_file(root / "config.yaml", remote_path="/root/config.yaml")
         .add_local_file(root / "pyproject.toml", remote_path="/root/pyproject.toml")
@@ -360,7 +357,7 @@ def _result_ms(
 
 def _scaling(results: list[BenchmarkRecord], method: MethodSpec) -> None:
     lines = []
-    if len(N_GRID) > 1:
+    if len(N_GRID) > 1:  # ty: ignore[redundant-condition-strict] - Benchmark grids are edited between runs.
         n_low = min(N_GRID)
         n_high = max(N_GRID)
         t_ref = max(T_GRID)
@@ -371,7 +368,7 @@ def _scaling(results: list[BenchmarkRecord], method: MethodSpec) -> None:
                 f"    N {n_low}->{n_high} @T{t_ref}:  x{high_ms / low_ms:.1f}"
                 "   (~quadratic => N^2-bound, ~1 => launch-bound)"
             )
-    if len(T_GRID) > 1:
+    if len(T_GRID) > 1:  # ty: ignore[redundant-condition-strict] - Benchmark grids are edited between runs.
         t_low = min(T_GRID)
         t_high = max(T_GRID)
         n_ref = max(N_GRID)

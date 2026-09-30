@@ -1,4 +1,4 @@
-"""Interpret nof1's scientific model through Dynestyx's particle runtime."""
+"""Interpret nof1's scientific model through Dynestyx's public distributions."""
 
 from __future__ import annotations
 
@@ -7,12 +7,7 @@ from typing import TYPE_CHECKING
 
 import dynestyx as dsx
 import equinox as eqx
-import jax
 from dynestyx.inference.configs.discretizer import EulerMaruyamaConfig
-from dynestyx.inference.particle_runtime import (
-    ParticleRuntime,
-    ParticleSchedule,
-)
 
 from nof1_causal_lab.models.ssm.covariance_utils import CHOL_JITTER
 from nof1_causal_lab.models.ssm.execution.dynamical_model import build_dynamical_model
@@ -20,6 +15,7 @@ from nof1_causal_lab.models.ssm.inference.conditioning import (
     ExactStateConstraints,
     compile_exact_state_constraints,
 )
+from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleTarget
 from nof1_causal_lab.models.ssm.inference.utils import (
     prepare_model_parameters,
 )
@@ -27,21 +23,15 @@ from nof1_causal_lab.models.ssm.preflight import validate_observation_support_fo
 from nof1_causal_lab.models.ssm.spec_metadata import has_student_t_diffusion
 from nof1_causal_lab.models.ssm.transition_kinds import LATENT_TRANSITION_EULER_MARUYAMA
 
-# A Dynestyx model's array leaves plus its observation grid. Static callables
-# and model metadata stay in the runtime closure; the sampler carries no second
-# representation of drift, diffusion, initial state, or observation parameters.
-type ParticleContext = tuple[dsx.DynamicalModel, jax.Array]
-
-
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.inference.utils import SiteInfo
 
 
 @dataclass(frozen=True)
 class ParticleProblem:
-    """Library target together with application parameter and reporting metadata."""
+    """Exact model target together with parameter and reporting metadata."""
 
-    runtime: ParticleRuntime
+    runtime: ParticleTarget
     site_info: SiteInfo
     public_sites: set[str]
     latent_transition_kind: str
@@ -49,7 +39,7 @@ class ParticleProblem:
 
 
 def build_particle_problem(model, observations, times, *, scheme, trace_key, reparam):
-    """Prepare the application model; Dynestyx owns posterior composition."""
+    """Prepare the parameter transform and the exact discrete model for sampling."""
     if scheme != LATENT_TRANSITION_EULER_MARUYAMA:
         raise ValueError(f"Particle inference requires 'euler_maruyama'; got {scheme!r}.")
     exact_constraints = compile_exact_state_constraints(model.spec, observations)
@@ -82,17 +72,12 @@ def build_particle_problem(model, observations, times, *, scheme, trace_key, rep
             EulerMaruyamaConfig(covariance_jitter=CHOL_JITTER),
         )
 
-    def schedule(context):
-        return ParticleSchedule(context[1], None, None)
-
-    runtime = ParticleRuntime(
+    runtime = ParticleTarget(
         parameters,
         context_fn,
         discrete_model,
-        schedule,
         observations,
         times,
-        marginalize_missing=False,
     )
     return ParticleProblem(
         runtime, site_info, public_sites, LATENT_TRANSITION_EULER_MARUYAMA, exact_constraints

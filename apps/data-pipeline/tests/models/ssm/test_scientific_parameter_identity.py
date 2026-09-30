@@ -61,14 +61,14 @@ def _model(*, rename=False, reverse=False, ordinal=False, edges=()):
 
 def _compile(model):
     completed = complete_test_model(model)
-    plan = completed
-    return check_execution(completed), completed, plan
+    check_execution(completed)
+    return completed
 
 
 @pytest.mark.contract
 def test_rename_preserves_parameter_and_element_identity():
-    _before, old_model, _ = _compile(_model())
-    _after, new_model, _ = _compile(_model(rename=True))
+    old_model = _compile(_model())
+    new_model = _compile(_model(rename=True))
     assert {b.parameter_id: set(b.elements) for b in parameter_bindings(old_model)[0]} == {
         b.parameter_id: set(b.elements) for b in parameter_bindings(new_model)[0]
     }
@@ -78,8 +78,8 @@ def test_rename_preserves_parameter_and_element_identity():
 @pytest.mark.contract
 def test_scalar_identity_survives_reordered_execution_axes():
     feedback = [("A", "B"), ("B", "A")]
-    _before, model, _ = _compile(_model(edges=feedback))
-    _after, reordered, _ = _compile(_model(edges=feedback, reverse=True))
+    model = _compile(_model(edges=feedback))
+    reordered = _compile(_model(edges=feedback, reverse=True))
     assert model.state_order == tuple(reversed(reordered.state_order))
     decay = next(
         p
@@ -94,7 +94,7 @@ def test_scalar_identity_survives_reordered_execution_axes():
 
 @pytest.mark.contract
 def test_model_rejects_forged_owner_before_compilation():
-    _, model, _ = _compile(_model())
+    model = _compile(_model())
     payload = model.model_dump(mode="json")
     payload["parameters"][0]["owners"] = [{"kind": "construct", "id": "construct:forged"}]
     with pytest.raises(ValueError, match=r"Extra inputs|owner"):
@@ -103,7 +103,7 @@ def test_model_rejects_forged_owner_before_compilation():
 
 @pytest.mark.contract
 def test_posterior_writer_uses_declared_subject_and_rejects_unknown_coordinate():
-    _compiled, model, _ = _compile(_model())
+    model = _compile(_model())
     binding = parameter_bindings(model)[0][0]
     element, coordinate = next(iter(binding.coordinates.items()))
     row = {
@@ -128,7 +128,7 @@ def test_posterior_writer_uses_declared_subject_and_rejects_unknown_coordinate()
 
 @pytest.mark.contract
 def test_ordinal_components_have_label_identity_and_padding_is_explicit():
-    _compiled, model, _ = _compile(_model(ordinal=True))
+    model = _compile(_model(ordinal=True))
     gaps = {
         p.id
         for p in model.parameters
@@ -142,7 +142,7 @@ def test_ordinal_components_have_label_identity_and_padding_is_explicit():
 
 @pytest.mark.contract
 def test_shared_likelihood_parameter_owns_only_active_channels():
-    _, model, _ = _compile(_model())
+    model = _compile(_model())
     first, second = model.constructs
     student = LikelihoodSpec(
         law=observation_law(first.id, DistributionFamily.STUDENT_T, LinkFunction.IDENTITY),
@@ -201,7 +201,7 @@ def test_shared_likelihood_parameter_owns_only_active_channels():
 def test_student_innovation_tail_is_explicit_and_shared_through_completion():
     from nof1_causal_lab.models.model_parameters import referenced_parameter_ids
 
-    _, model, _ = _compile(_model())
+    model = _compile(_model())
     model = complete_model(
         model.revised(
             edges=replace_constructs(
@@ -245,7 +245,7 @@ def test_student_innovation_tail_is_explicit_and_shared_through_completion():
 @pytest.mark.contract
 @pytest.mark.parametrize("retained_role", [None, "initial_mean", "initial_scale"])
 def test_initial_state_defaults_are_authored_before_compilation(retained_role):
-    _, model, _ = _compile(_model())
+    model = _compile(_model())
     from notebooks.parameter_planning import complete_component_slots
 
     free = model.revised(
@@ -288,14 +288,13 @@ def test_initial_state_defaults_are_authored_before_compilation(retained_role):
 
 @pytest.mark.inference(concern="sampling")
 def test_parameter_labels_do_not_change_mechanisms_bindings_or_prior_laws():
-    before, model, _plan = _compile(_model())
+    model = _compile(_model())
     renamed = model.revised(
         parameters=tuple(
             p.model_copy(update={"name": f"display {n}"}) for n, p in enumerate(model.parameters)
         )
     )
-    after = check_execution(renamed)
-    assert before == after
+    check_execution(renamed)
     _assert_same_prior_laws(model, renamed)
     assert {b.parameter_id: b.coordinates for b in parameter_bindings(model)[0]} == {
         b.parameter_id: b.coordinates for b in parameter_bindings(renamed)[0]
@@ -304,7 +303,7 @@ def test_parameter_labels_do_not_change_mechanisms_bindings_or_prior_laws():
 
 @pytest.mark.inference(concern="sampling")
 def test_additive_hill_and_linear_terms_survive_parameter_renaming():
-    _, model, _plan = _compile(_model(edges=(("A", "B"),)))
+    model = _compile(_model(edges=(("A", "B"),)))
     edge = model.edges[0]
     owners = (
         EdgeRef(id=edge.id),
@@ -333,14 +332,13 @@ def test_additive_hill_and_linear_terms_survive_parameter_renaming():
     from nof1_causal_lab.models.model_distributions import with_parameter_distributions
 
     additive = with_parameter_distributions(additive, {peak.id: dist.HalfNormal(1.0)})
-    before = check_execution(additive)
+    check_execution(additive)
     renamed = additive.revised(
         parameters=tuple(
             p.model_copy(update={"name": f"opaque {n}"}) for n, p in enumerate(additive.parameters)
         )
     )
-    after = check_execution(renamed)
-    assert before == after
+    check_execution(renamed)
     _assert_same_prior_laws(additive, renamed)
     components = numeric.dynamics_components(additive).components
     original_components = numeric.dynamics_components(model).components

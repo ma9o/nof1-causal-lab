@@ -121,7 +121,7 @@ def run_pathfinder(target: Target, config: PathfinderConfig | None = None) -> Pa
         path_positions=path_positions,
         path_elbo=path_elbo,
         best_iter=best_iter,
-        draws=draws,
+        draws=jnp.asarray(draws),
         summary=summary,
     )
 
@@ -297,7 +297,7 @@ def run_multipath_pathfinder(
         best_elbos.append(float(path_elbo[b]))
         states.append(state)
         draws_k, _logq = pathfinder.sample(draw_keys[k], state, num_samples=cfg.draws_per_path)
-        draws_list.append(draws_k)
+        draws_list.append(jnp.asarray(draws_k))
 
     # Recover (mu_k, Sigma_k) for each selected Gaussian.
     gaussians = [_state_gaussian(s) for s in states]

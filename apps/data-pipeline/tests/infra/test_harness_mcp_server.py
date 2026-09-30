@@ -7,10 +7,11 @@ expected shape and (b) tool calls dispatch to the underlying
 """
 
 from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock
 
 import pytest
 from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 
 from nof1_causal_lab.utils.harness.mcp_server import serve_tools_http
 from nof1_causal_lab.utils.harness.networking import find_free_port
@@ -23,7 +24,7 @@ pytestmark = pytest.mark.contract
 @asynccontextmanager
 async def _client(url):
     async with (
-        streamablehttp_client(url) as (read, write, _sid),
+        streamable_http_client(url) as (read, write),
         ClientSession(read, write) as session,
     ):
         await session.initialize()
@@ -104,7 +105,7 @@ class TestMCPServer:
 
         listing = _run(scenario())
         assert [t.name for t in listing.tools] == ["echo"]
-        schema = listing.tools[0].inputSchema
+        schema = listing.tools[0].input_schema
         assert schema["properties"]["message"]["type"] == "string"
         assert schema["required"] == ["message"]
 
@@ -114,7 +115,7 @@ class TestMCPServer:
                 return await session.call_tool("echo", arguments={"message": "hi"})
 
         result = _run(scenario())
-        assert result.isError is False
+        assert result.is_error is False
         text_parts = [c.text for c in result.content if getattr(c, "type", None) == "text"]
         assert text_parts == ["echo: hi"]
 
@@ -126,6 +127,21 @@ class TestMCPServer:
         result = _run(scenario())
         text_parts = [c.text for c in result.content if getattr(c, "type", None) == "text"]
         assert any("Unknown tool" in t for t in text_parts)
+
+    @pytest.mark.parametrize("arguments", [{}, {"message": 42}, {"message": "hi", "extra": True}])
+    def test_invalid_arguments_are_rejected_before_execution(self, arguments):
+        tool = _make_echo_tool()
+        execute = AsyncMock(return_value="unexpected execution")
+        tool.execute = execute
+
+        async def scenario():
+            async with serve_tools_http([tool]) as url, _client(url) as session:
+                return await session.call_tool("echo", arguments=arguments)
+
+        result = _run(scenario())
+        assert result.is_error is True
+        assert any("Input validation error" in c.text for c in result.content if c.type == "text")
+        execute.assert_not_awaited()
 
     def test_tool_exception_is_reported(self):
         async def scenario():

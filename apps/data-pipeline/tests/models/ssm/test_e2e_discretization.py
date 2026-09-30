@@ -361,11 +361,10 @@ class TestE2ESpecToDiscretization:
         from tests.helpers import make_prior_model
 
         typed_scientific_model = ModelSpec.model_validate(two_construct_model)
-        compiled = check_execution(
+        check_execution(
             make_prior_model(typed_scientific_model, weekly_study_priors),
         )
 
-        assert len(compiled) == 2
         assert numeric.state_names(
             make_prior_model(typed_scientific_model, weekly_study_priors)
         ) == ["stress", "mood"]

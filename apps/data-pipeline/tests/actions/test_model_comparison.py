@@ -10,6 +10,7 @@ from nof1_causal_lab.actions.revisions import (
     compare_parameters,
 )
 from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.expressions import linear_effect
 from nof1_causal_lab.models.model_parameters import referenced_parameter_ids
 from nof1_causal_lab.models.model_structure import model_graph_entities
 from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
@@ -43,24 +44,27 @@ def test_parameter_decisions_and_law_changes_leave_topology_unchanged():
     edge = model.edges[0]
     parameter = model.parameter(next(iter(referenced_parameter_ids(edge))))
     pinned = model.revised(
-        parameters=tuple(
+        edges=tuple(
             item.model_copy(
                 update={
-                    "value": 0,
-                    "distribution": None,
-                    "distribution_transform": "identity",
-                    "reference_interval_days": None,
+                    "mechanisms": tuple(
+                        mechanism.model_copy(
+                            update={"expression": linear_effect(edge.cause.id, 0.0)}
+                        )
+                        for mechanism in item.mechanisms
+                    )
                 }
             )
-            if item.id == parameter.id
+            if item.id == edge.id
             else item
-            for item in model.parameters
+            for item in model.edges
         ),
+        parameters=tuple(item for item in model.parameters if item.id != parameter.id),
         distributions={
             key: law for key, law in model.distributions.items() if key != parameter.distribution
         },
     )
-    for before, after, decision in ((model, pinned, "pinned"), (pinned, model, "released")):
+    for before, after, decision in ((model, pinned, "removed"), (pinned, model, "added")):
         changes = compare_parameters(before, after)
         assert [(item.parameter_id, item.change) for item in changes] == [(parameter.id, decision)]
         graph = compare_model_graph(before, after)

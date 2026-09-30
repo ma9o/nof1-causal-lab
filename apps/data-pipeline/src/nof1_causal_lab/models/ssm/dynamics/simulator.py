@@ -75,7 +75,9 @@ class _IndexedBrownianPath(dfx.AbstractBrownianPath[Array | dfx.BrownianIncremen
     shape: tuple[int, ...] = eqx.field(static=True)
     key: Array
     step_size: Array
-    levy_area: type[dfx.BrownianIncrement] = eqx.field(static=True, default=dfx.BrownianIncrement)
+    levy_area: type[dfx.BrownianIncrement] = eqx.field(
+        static=True, default=dfx.BrownianIncrement, kw_only=True
+    )
 
     @eqx.filter_jit  # noqa: V105 - required by the Diffrax AbstractBrownianPath protocol
     @override
@@ -146,7 +148,7 @@ def simulate_model_path(
 
     Both inference and prediction supply the same nonlinear state evolution.
     ODE paths use Dynestyx's solver. SDE paths use Diffrax directly because the
-    pinned library cannot accept the indexed Brownian path used by paired runs.
+    Dynestyx solver does not accept the indexed Brownian path used by paired runs.
     """
     cfg = config or SimulationConfig()
     evolution = model.state_evolution

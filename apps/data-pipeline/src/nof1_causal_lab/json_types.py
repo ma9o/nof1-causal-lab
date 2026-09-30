@@ -6,7 +6,7 @@ from typing import Annotated, Any
 
 from pydantic import Field
 
-type JsonScalar = None | bool | int | float | str
+type JsonScalar = bool | int | float | str | None
 type JsonValue = JsonScalar | JsonArray | JsonObject
 type JsonArray = list[JsonValue]
 type JsonObject = dict[str, JsonValue]

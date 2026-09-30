@@ -21,6 +21,7 @@ from nof1_causal_lab.actions.revisions import (
     compare_model_graph,
     compare_parameters,
 )
+from nof1_causal_lab.artifacts.expressions import linear_effect
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.machine.execution import is_stale
 from nof1_causal_lab.machine.git_objects import object_tree
@@ -29,6 +30,7 @@ from nof1_causal_lab.machine.inference import inference_is_current
 from nof1_causal_lab.machine.snapshots import ModelReader
 from nof1_causal_lab.machine.store import ArtifactStore, trace_log_path
 from nof1_causal_lab.models.model_inputs import input_fingerprints
+from nof1_causal_lab.models.model_parameters import referenced_parameter_ids
 from nof1_causal_lab.utils import data as data_module
 
 if TYPE_CHECKING:
@@ -136,16 +138,24 @@ def workbench_comparisons(snapshot, history):
         for item in free.parameters
         if item.name == "beta_perceived_stress_burden_internalizing_symptom_burden"
     )
-    fixed = parameter.model_copy(
-        update={
-            "value": 0,
-            "distribution": None,
-            "distribution_transform": "identity",
-            "reference_interval_days": None,
-        }
-    )
+    edge = next(edge for edge in free.edges if parameter.id in referenced_parameter_ids(edge))
     pinned = free.revised(
-        parameters=tuple(fixed if item.id == parameter.id else item for item in free.parameters),
+        edges=tuple(
+            item.model_copy(
+                update={
+                    "mechanisms": tuple(
+                        mechanism.model_copy(
+                            update={"expression": linear_effect(edge.cause.id, 0.0)}
+                        )
+                        for mechanism in item.mechanisms
+                    )
+                }
+            )
+            if item.id == edge.id
+            else item
+            for item in free.edges
+        ),
+        parameters=tuple(item for item in free.parameters if item.id != parameter.id),
         distributions={
             key: law for key, law in free.distributions.items() if key != parameter.distribution
         },
@@ -197,7 +207,7 @@ def build_outputs():
             capture_output=True,
         )
         subprocess.run(
-            ["git", "--git-dir", str(history), "config", "nof1.format", "6"],
+            ["git", "--git-dir", str(history), "config", "nof1.format", "7"],
             check=True,
             capture_output=True,
         )

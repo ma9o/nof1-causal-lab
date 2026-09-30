@@ -33,7 +33,7 @@ def check_specification(model: ModelSpec) -> SpecificationReport:
             SpecificationFinding(
                 check="model_execution",
                 status="passed",
-                message="Model definitions, references, measurements, and anchors support execution.",
+                message="Model definitions, references, and measurements support execution.",
             )
         )
         try:

@@ -51,7 +51,7 @@
 
 - Budget GPU benchmarks carefully: a B200 on Modal costs $6/hour.
 
-- Never run evals (`inspect eval`) unless explicitly asked. From `apps/data-pipeline`, use `uv run pytest <affected paths> -m "<selector>"` for focused testing. An explicit `-m` is necessary to include inference or workflow tests because the default selection excludes them. The Bun `test` wrapper always includes all of `tests/`; use it for a whole concern suite, not a file-scoped run.
+- Never run evals unless explicitly asked. From `apps/data-pipeline`, use `uv run pytest <affected paths> -m "<selector>"` for focused testing. An explicit `-m` is necessary to include inference or workflow tests because the default selection excludes them. The Bun `test` wrapper always includes all of `tests/`; use it for a whole concern suite, not a file-scoped run.
 
 - Before committing, run `bun run --cwd apps/data-pipeline lint`.
 

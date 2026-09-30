@@ -362,6 +362,8 @@ class ModelReader:
         )
 
     def fit(self) -> Sourced[FitSummary] | None:
+        from nof1_causal_lab.models.ssm.inference.convergence import parameter_convergence
+
         read = self.inference_report
         if read is None:
             return None
@@ -391,6 +393,7 @@ class ModelReader:
         return Sourced(
             value=FitSummary(
                 report=posterior.summary(),
+                convergence=parameter_convergence(posterior.inference_diagnostics),
                 edge_estimates=edge_estimates,
                 decay_estimates=decay_estimates,
                 prior_densities=self.fit_prior_densities(marginals.keys()),

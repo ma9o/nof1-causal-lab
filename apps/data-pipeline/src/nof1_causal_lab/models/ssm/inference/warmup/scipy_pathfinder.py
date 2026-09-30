@@ -45,9 +45,8 @@ from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from dynestyx.inference.particle_runtime import ParticleRuntime
-
     from nof1_causal_lab.json_types import JsonObject
+    from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleTarget
     from nof1_causal_lab.models.ssm.model import SSMModel
 
 logger = logging.getLogger(__name__)
@@ -876,7 +875,7 @@ def sample_scipy_pathfinder_init_positions(
     num_chains: int,
     dtype,
     pathfinder_init_scale: float | None = None,
-    init_bundle: ParticleRuntime | None = None,
+    init_bundle: ParticleTarget | None = None,
     prior_released_sites: tuple[str, ...] = (),
     prior_release_scale: float = 0.05,
     release_jitter_key: jnp.ndarray | None = None,

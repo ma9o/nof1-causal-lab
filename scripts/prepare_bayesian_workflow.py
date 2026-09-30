@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.12,<3.13"
-# dependencies = ["pypdf==6.18.1", "markdown-it-py==4.2.0", "python-dotenv==1.1.1", "docling-core[chunking]==2.96.0"]
+# dependencies = ["pypdf>=6.19.0", "markdown-it-py>=4.2.0", "python-dotenv>=1.2.3", "docling-core[chunking]>=2.99.0"]
 # ///
 """Download Bayesian Workflow and rebuild its local wiki indexes and section files."""
 

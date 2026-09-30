@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Literal, NamedTuple
 
 import jax.numpy as jnp
 
-from nof1_causal_lab.models.ssm.inference.problem import ParticleContext
+from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleContext
 
 if TYPE_CHECKING:
     from jax.typing import DTypeLike

@@ -25,3 +25,6 @@
 2606.05692v1 epicf
 
 2507.12547 open-world-cognition
+
+# Model Discovery Agent: LLM-assisted Bayesian experiment design for data-efficient discovery of mechanistic world models — Kevin Murphy
+2608.09696	model-discovery-agent

@@ -181,21 +181,25 @@ def test_all_summary_types_and_paired_intervals_are_persisted_before_reads(tmp_p
 
 def test_authored_law_advances_from_zero_before_a_later_requested_start():
     model = complete_test_model(make_model(["X", "Y"], [("X", "Y")]))
-    parameters = tuple(
-        p.model_copy(
-            update={
-                "value": 0.5
-                if p.name.startswith("rho")
-                else 0.0
-                if p.name.startswith("beta")
-                else 1e-8,
-                "distribution": None,
-                "distribution_transform": "identity",
-                "reference_interval_days": None,
-            }
-        )
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+
+    fixed = {
+        p.id: 0.5 if p.name.startswith("rho") else 0.0 if p.name.startswith("beta") else 1e-8
         for p in model.parameters
-    )
+    }
+
+    def literal_coefficients(value):
+        if isinstance(value, list):
+            return [literal_coefficients(item) for item in value]
+        if isinstance(value, dict):
+            if value.get("kind") == "coefficient" and value.get("value") in fixed:
+                return {**value, "value": fixed[value["value"]]}
+            return {key: literal_coefficients(item) for key, item in value.items()}
+        return value
+
+    payload = literal_coefficients(model.model_dump(mode="json"))
+    payload.update(parameters=[], distributions={})
+    model = ModelSpec.model_validate(payload)
     constructs = tuple(
         c.model_copy(
             update={
@@ -211,9 +215,7 @@ def test_authored_law_advances_from_zero_before_a_later_requested_start():
         )
         for c in model.constructs
     )
-    model = model.revised(
-        edges=replace_constructs(model.edges, constructs), parameters=parameters, distributions={}
-    )
+    model = model.revised(edges=replace_constructs(model.edges, constructs))
     batch = generate_simulation_batch(
         model, SimulationSpec(start=2, end=3), draws=2, time_origin=None
     )

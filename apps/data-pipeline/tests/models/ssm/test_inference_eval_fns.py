@@ -10,7 +10,6 @@ import jax.numpy as jnp
 import jax.random as random
 import numpy as np
 import pytest
-from dynestyx.inference.particle_runtime import Parameterization
 from numpyro import handlers
 
 import nof1_causal_lab.models.ssm.inference.utils as inference_utils
@@ -20,6 +19,7 @@ from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.ssm import SSMModel
 from nof1_causal_lab.models.ssm.autoreparam import AutoReparam
 from nof1_causal_lab.models.ssm.constants import MIN_DT
+from nof1_causal_lab.models.ssm.inference.parameter_transform import ParameterTransform
 from nof1_causal_lab.models.ssm.inference.utils import _build_eval_fns, prepare_model_parameters
 from nof1_causal_lab.models.ssm.structure import SparseVectorBlockSpec
 from tests.model_fixtures import dense_matrix_dynamics_spec, diagonal_diffusion_block, model_fixture
@@ -67,7 +67,7 @@ def _build_test_evaluators(monkeypatch, *, runtime: bool, backend: _RecordingBac
         return "dynamics", "measurement", "initial", {"obs_df": 5.0}
 
     monkeypatch.setattr(inference_utils, "assemble_likelihood_inputs", assemble)
-    parameters = Parameterization(
+    parameters = ParameterTransform(
         initial_position=jnp.asarray(0.0),
         unravel=lambda z: {"theta": z},
         constrain=lambda z: {"theta": 11.0 + 2.0 * z},

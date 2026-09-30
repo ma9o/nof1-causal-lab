@@ -6,10 +6,10 @@ from unittest.mock import Mock
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from dynestyx.inference.particle_runtime import Parameterization
 from scipy.optimize import LbfgsInvHessProduct
 
 from nof1_causal_lab.models.ssm import SSMModel
+from nof1_causal_lab.models.ssm.inference.parameter_transform import ParameterTransform
 from nof1_causal_lab.models.ssm.inference.types import WarmupProposal
 from nof1_causal_lab.models.ssm.inference.warmup import map as map_warmup
 
@@ -132,7 +132,7 @@ def test_covariance_routes_and_public_draw_extraction(monkeypatch, strategy):
             "inner": _INNER_DIAGNOSTICS,
         },
     )
-    parameters = Parameterization(
+    parameters = ParameterTransform(
         initial_position=mode,
         unravel=lambda z: {"theta": z},
         constrain=lambda z: {"theta": 7.0 + 2.0 * z, "theta_decentered": z},

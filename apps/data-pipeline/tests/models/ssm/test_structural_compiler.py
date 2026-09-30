@@ -45,7 +45,7 @@ def test_model_rejects_duplicate_endpoint_pairs():
 
 
 @pytest.mark.contract
-def test_projected_fixed_coefficients_compile_identically_as_literals_and_references():
+def test_projected_coefficients_require_literals():
     import numpy as np
 
     from nof1_causal_lab.artifacts.expressions import coefficient, linear_effect
@@ -70,7 +70,6 @@ def test_projected_fixed_coefficients_compile_identically_as_literals_and_refere
         id=scientific_id("parameter", "fixed-loading"),
         name="loading",
         description="Known loading",
-        value=0.5,
     )
 
     def _with_loading(weight, parameters):
@@ -92,15 +91,9 @@ def test_projected_fixed_coefficients_compile_identically_as_literals_and_refere
         return model.revised(edges=edges, parameters=parameters)
 
     literal = _with_loading(0.5, ())
-    referenced = _with_loading(parameter.id, (parameter,))
-    assert np.array_equal(
-        numeric.static_factor_loadings(literal), numeric.static_factor_loadings(referenced)
-    )
-    assert np.any(np.asarray(numeric.static_factor_loadings(referenced)) == 0.5)
-    assert tuple(iter_mechanism_components(literal, literal.state_order)) == tuple(
-        iter_mechanism_components(referenced, referenced.state_order)
-    )
-    unresolved = _with_loading(parameter.id, (parameter.model_copy(update={"value": None}),))
+    assert np.any(np.asarray(numeric.static_factor_loadings(literal)) == 0.5)
+    tuple(iter_mechanism_components(literal, literal.state_order))
+    unresolved = _with_loading(parameter.id, (parameter,))
     with pytest.raises(ValueError, match="fixed linear"):
         numeric.static_factor_loadings(unresolved)
     with pytest.raises(ValueError, match="fixed linear"):
@@ -174,13 +167,11 @@ def test_source_ids_are_stable_across_authoring_reordering():
 @pytest.mark.contract
 def test_execution_checks_preserve_the_scientific_model():
     model = complete_test_model(make_model(["X", "Y"], [("X", "Y")]))
-    plan = model
     before = model.model_dump(mode="json")
-    artifact = check_execution(model)
+    check_execution(model)
     from nof1_causal_lab.models.ssm import numerics as numeric
 
     assert numeric.observation_names(model) == ["X_obs", "Y_obs"]
-    assert [c.construct_id for c in artifact] == list(plan.state_order)
     assert {b.parameter_id for b in parameter_bindings(model)[0]} == {
         p.id for p in model.parameters
     }
@@ -255,13 +246,10 @@ def test_severed_components_do_not_require_priors_or_bind_numerical_parameters()
     assert set(numeric.state_names(selected)) == {"X", "Y"}
     assert len(selected.manifest_indicator_order) == 2
     assert island_parameter.id not in {item.id for item in selected.execution_parameters}
-    assert {item.construct_id for item in selected.check_execution()} == {
-        nodes["X"].id,
-        nodes["Y"].id,
-    }
+    selected.check_execution()
     _, bindings, _, _ = compile_ssm_inputs_from_model(selected)
     assert {item.parameter_id for item in bindings} == {
-        item.id for item in selected.execution_parameters if item.value is None
+        item.id for item in selected.execution_parameters
     }
     assert selected.model_dump(mode="json") == before
 

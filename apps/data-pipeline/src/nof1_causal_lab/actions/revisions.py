@@ -36,7 +36,7 @@ class RevisionCatalog(BaseModel):
 
 
 class ParameterChange(BaseModel):
-    """A parameter change compares one parameter's fixed value or law across model revisions."""
+    """A parameter change compares one parameter's law across model revisions."""
 
     model_config = ConfigDict(extra="forbid")
     parameter_id: ParameterId
@@ -131,17 +131,7 @@ def compare_parameters(left: ModelSpec, right: ModelSpec) -> list[ParameterChang
             == json.dumps(new_laws[a.distribution], sort_keys=True)
         ):
             continue
-        change = (
-            "added"
-            if a is None
-            else "removed"
-            if b is None
-            else "released"
-            if a.value is not None and b.value is None
-            else "pinned"
-            if a.value is None and b.value is not None
-            else "revised"
-        )
+        change = "added" if a is None else "removed" if b is None else "revised"
         changes.append(ParameterChange(parameter_id=identity, before=a, after=b, change=change))
     return changes
 

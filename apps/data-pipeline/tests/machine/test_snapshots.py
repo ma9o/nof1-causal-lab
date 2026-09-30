@@ -140,7 +140,7 @@ def test_fitted_snapshot_keeps_joint_arrays_lazy_and_workspace_bound(workspace, 
     bindings, _ = parameter_bindings(model)
     layout = JointLawLayout.from_bindings(
         bindings,
-        parameters=[p.id for p in model.parameters if p.value is None],
+        parameters=[p.id for p in model.parameters],
         constructs=model.state_order,
         time_points=(0, 1),
     )
@@ -156,8 +156,6 @@ def test_fitted_snapshot_keeps_joint_arrays_lazy_and_workspace_bound(workspace, 
                     "reference_interval_days": None,
                 }
             )
-            if p.value is None
-            else p
             for p in model.parameters
         ),
         edges=replace_constructs(

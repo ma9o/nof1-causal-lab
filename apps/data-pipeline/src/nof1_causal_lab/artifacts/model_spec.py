@@ -29,7 +29,7 @@ from .construct import (
     endpoint_validation_scope,
 )
 from .duration import parse_duration_to_hours
-from .expressions import expression_coefficients, expression_states
+from .expressions import expression_states
 from .identity import (  # noqa: TC001
     ConstructId,
     DistributionId,
@@ -46,7 +46,7 @@ if TYPE_CHECKING:
 
     from nof1_causal_lab.models.model_structure import DependencyKey
 
-    from .execution import AnchorCertificate, StructuralItemDisposition
+    from .execution import StructuralItemDisposition
     from .likelihood import LikelihoodSpec
     from .mechanism import DynamicsMechanismSpec
 
@@ -352,12 +352,6 @@ class ModelSpec(BaseModel):
                     )
             elif dependencies - {owner.id}:
                 raise ValueError("Intrinsic dynamics may reference only their owning construct")
-            for operand in expression_coefficients(mechanism.expression):
-                reference = operand.value
-                if isinstance(reference, str) and reference in self._parameters:
-                    value = self.parameter(reference).value
-                    if value is not None:
-                        operand.validate_value(value)
         for indicator, likelihood in self.iter_likelihoods():
             owners = set(likelihood.terms.loadings)
             unknown = owners - self._constructs.keys()
@@ -393,6 +387,9 @@ class ModelSpec(BaseModel):
             from nof1_causal_lab.models.model_distributions import validate_distribution_memberships
 
             validate_distribution_memberships(self)
+        from nof1_causal_lab.models.model_checks import validate_parameter_anchors
+
+        validate_parameter_anchors(self)
         return self
 
     def require_measurements(self) -> None:
@@ -403,12 +400,12 @@ class ModelSpec(BaseModel):
         missing = [
             parameter.id
             for parameter in self.execution_parameters
-            if parameter.distribution is None and parameter.value is None
+            if parameter.distribution is None
         ]
         if missing:
             raise IncompleteModelError(f"Compilation requires declared prior laws for {missing}")
 
-    def check_execution(self) -> tuple[AnchorCertificate, ...]:
+    def check_execution(self) -> None:
         from nof1_causal_lab.models.model_checks import check_execution
 
-        return check_execution(self)
+        check_execution(self)

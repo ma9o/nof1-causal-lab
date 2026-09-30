@@ -13,11 +13,14 @@ from typing import TypedDict
 import jax
 import jax.numpy as jnp
 import numpyro.distributions as dist
-from dynestyx.inference.particle_runtime import Parameterization, prepare_parameterization
 from numpyro import handlers
 
 from nof1_causal_lab.models.ssm.constants import INTERNAL_DIAGNOSTIC_SITES, MIN_DT
 from nof1_causal_lab.models.ssm.execution.dynamical_model import assemble_likelihood_inputs
+from nof1_causal_lab.models.ssm.inference.parameter_transform import (
+    ParameterTransform,
+    prepare_parameter_transform,
+)
 from nof1_causal_lab.models.ssm.inference.shared import _filter_public_samples, _trace_public_sites
 from nof1_causal_lab.models.ssm.parameterization import (
     build_site_registry,
@@ -99,7 +102,7 @@ def prepare_model_parameters(model, observations, times, trace_key, reparam):
     )
     if reparam is not None:
         prior_model = handlers.reparam(prior_model, config=reparam)
-    parameters = prepare_parameterization(
+    parameters = prepare_parameter_transform(
         prior_model,
         trace_key,
         model_args=(observations, times),
@@ -110,7 +113,7 @@ def prepare_model_parameters(model, observations, times, trace_key, reparam):
 
 def extract_constrained_samples(
     particles: jnp.ndarray,
-    parameters: Parameterization,
+    parameters: ParameterTransform,
     public_sites: set[str],
 ) -> dict[str, jnp.ndarray]:
     """Replay the prior program and retain its authored parameter/deterministic sites."""
@@ -126,7 +129,7 @@ def _build_eval_fns(
     model,
     observations,
     times,
-    parameters: Parameterization,
+    parameters: ParameterTransform,
     likelihood_backend,
     *,
     include_likelihood_aux: bool = False,
@@ -136,7 +139,7 @@ def _build_eval_fns(
 
     Args:
         likelihood_backend: Likelihood backend instance to use for evaluation.
-        parameters: The same library-owned prior replay used by particle inference.
+        parameters: The same NumPyro prior replay used by particle inference.
 
     Returns:
         When ``runtime_observations_times=False``:

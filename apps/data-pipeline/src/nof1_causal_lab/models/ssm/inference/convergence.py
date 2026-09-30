@@ -6,6 +6,12 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict
 
+from nof1_causal_lab.artifacts.identity import ParameterRef
+from nof1_causal_lab.artifacts.posterior_diagnostics import (
+    ParameterConvergenceFailure,
+    ParameterConvergenceReport,
+)
+
 if TYPE_CHECKING:
     from nof1_causal_lab.json_types import JsonObject
 
@@ -23,6 +29,7 @@ class _ParameterMetrics(BaseModel):
     r_hat: float | None
     ess_bulk: float | None
     ess_tail: float | None
+    subject: ParameterRef | None = None
 
 
 class _ChainMetrics(BaseModel):
@@ -32,13 +39,8 @@ class _ChainMetrics(BaseModel):
     per_parameter: list[_ParameterMetrics]
 
 
-def convergence_failures(inference_diagnostics: JsonObject) -> list[str]:
-    """Describe each failed check; an empty list means every parameter passed.
-
-    Latent paths have no convergence diagnostic, so only parameters are checked.
-    A non-finite metric fails its check.
-    """
-    chains = _ChainMetrics.model_validate(inference_diagnostics["mcmc"])
+def _failed_criteria(chains: _ChainMetrics):
+    """Share criteria between raw engine warnings and the scientific projection."""
     minimum_ess = ESS_PER_CHAIN * chains.num_chains
     checks = (
         (f"R-hat < {R_HAT_LIMIT}", lambda p: p.r_hat is not None and p.r_hat < R_HAT_LIMIT),
@@ -51,12 +53,35 @@ def convergence_failures(inference_diagnostics: JsonObject) -> list[str]:
             lambda p: p.ess_tail is not None and p.ess_tail >= minimum_ess,
         ),
     )
-    failures = []
     for requirement, passes in checks:
-        failing = [p.parameter for p in chains.per_parameter if not passes(p)]
-        if failing:
-            failures.append(
-                f"{requirement} fails for {len(failing)} of {len(chains.per_parameter)} "
-                f"parameters, including {failing[0]}"
-            )
-    return failures
+        if failing := [p for p in chains.per_parameter if not passes(p)]:
+            yield requirement, failing
+
+
+def parameter_convergence(inference_diagnostics: JsonObject) -> ParameterConvergenceReport:
+    """Project failures with required scientific identities; latent paths are not checked."""
+    chains = _ChainMetrics.model_validate(inference_diagnostics["mcmc"])
+    failures = [
+        ParameterConvergenceFailure(
+            parameter=p.parameter,
+            subject=ParameterRef.model_validate(p.subject),
+            criterion=requirement,
+        )
+        for requirement, failing in _failed_criteria(chains)
+        for p in failing
+    ]
+    return ParameterConvergenceReport(
+        checked=len(chains.per_parameter),
+        passed=bool(chains.per_parameter) and not failures,
+        failures=failures,
+    )
+
+
+def convergence_failures(inference_diagnostics: JsonObject) -> list[str]:
+    """Explain the same verdict for action warnings and causal certification."""
+    chains = _ChainMetrics.model_validate(inference_diagnostics["mcmc"])
+    return [
+        f"{criterion} fails for {len(failing)} of {len(chains.per_parameter)} "
+        f"parameters, including {failing[0].parameter}"
+        for criterion, failing in _failed_criteria(chains)
+    ]

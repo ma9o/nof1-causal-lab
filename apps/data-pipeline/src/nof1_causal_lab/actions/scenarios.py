@@ -73,6 +73,7 @@ def summarize_causal_simulation(
         - reference[:, :, report.state_ids.index(outcome)]
     )
     trajectory = paired_effect_trajectory(report.times, effects)
+    trajectory_peak = max(trajectory, key=lambda point: abs(point.effect))
     difference = store.read_array(report.observations) - store.read_array(
         report.reference_observations
     )
@@ -86,7 +87,7 @@ def summarize_causal_simulation(
         labels={construct.id: construct.name for construct in model.constructs},
         summary=summarize_draws(effects[:, -1]),
         effect_trajectory=trajectory,
-        trajectory_peak=max(trajectory, key=lambda point: abs(point.effect)),
+        trajectory_peak=trajectory_peak,
         manifest_effects=manifest,
         reference_mean=float(reference[:, -1, report.state_ids.index(outcome)].mean()),
         warnings=[]

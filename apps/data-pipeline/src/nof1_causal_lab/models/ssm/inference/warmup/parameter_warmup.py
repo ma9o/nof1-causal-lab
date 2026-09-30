@@ -31,8 +31,7 @@ from nof1_causal_lab.models.ssm.inference.warmup.scipy_pathfinder import (
 )
 
 if TYPE_CHECKING:
-    from dynestyx.inference.particle_runtime import ParticleRuntime
-
+    from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleTarget
     from nof1_causal_lab.models.ssm.inference.types import WarmupProposal
     from nof1_causal_lab.models.ssm.inference.warmup.scipy_pathfinder import PathfinderDiagnostics
     from nof1_causal_lab.models.ssm.model import SSMModel
@@ -135,7 +134,7 @@ def prepare_parameter_warmup(
     observations: jnp.ndarray,
     times: jnp.ndarray,
     *,
-    bundle: ParticleRuntime,
+    bundle: ParticleTarget,
     method_label: str,
     phase_label: str,
     trace_key: jnp.ndarray,

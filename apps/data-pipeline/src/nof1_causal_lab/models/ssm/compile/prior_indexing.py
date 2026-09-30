@@ -76,7 +76,7 @@ def build_semantic_prior_bindings(
     manifest_names = numeric.observation_names(model)
 
     for parameter in model.execution_parameters:
-        if parameter.id in bindings or parameter.value is not None:
+        if parameter.id in bindings:
             continue
         kind = model.parameter_context(parameter.id).quantity
         matches: list[tuple[SiteDescriptor, int]] = []

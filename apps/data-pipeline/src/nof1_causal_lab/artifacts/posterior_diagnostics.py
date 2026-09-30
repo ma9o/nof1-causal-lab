@@ -8,6 +8,22 @@ from .effects import HistogramBin
 from .identity import IndicatorId, ParameterRef
 
 
+class ParameterConvergenceFailure(BaseModel):
+    """A failed criterion on one retained scalar parameter element."""
+
+    parameter: str
+    subject: ParameterRef
+    criterion: str
+
+
+class ParameterConvergenceReport(BaseModel):
+    """Recorded-chain checks cover parameters, not latent-path mixing."""
+
+    checked: int
+    passed: bool
+    failures: list[ParameterConvergenceFailure]
+
+
 class LOODiagnostics(BaseModel):
     """Leave-one-out diagnostics assess predictive fit and the reliability of its cross-
     validation estimate.

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -58,21 +57,3 @@ class StructuralItemDisposition(BaseModel):
         if self.disposition not in allowed[self.target.kind]:
             raise ValueError("Structural disposition does not apply to its owner kind")
         return self
-
-
-class AnchorCertificate(BaseModel):
-    """Compiler proof that one retained latent has location and scale anchors."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    construct_id: str
-    construct_name: str
-    location_anchor: Literal[
-        "standardized_manifest",
-        "exact_state_observation",
-        "fixed_dynamics_center",
-        "fixed_initial_mean",
-    ]
-    location_source_id: str | None = None
-    scale_anchor: Literal["fixed_manifest_loading", "categorical_slope_pin"]
-    scale_source_id: str

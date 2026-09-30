@@ -13,10 +13,6 @@ if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 
-def get_state_ids(model: ModelSpec) -> list[ConstructId]:
-    return list(model.state_order)
-
-
 def get_state_names(model: ModelSpec) -> list[str]:
     return [model._constructs[source_id].name for source_id in model.state_order]
 
