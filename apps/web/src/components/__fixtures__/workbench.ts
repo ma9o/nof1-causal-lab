@@ -12,6 +12,7 @@ import type {
   StudyRevision,
 } from "@nof1-causal-lab/api-types";
 import { delay, HttpResponse, http } from "msw";
+import { modelConstructs } from "@/lib/model-accessors";
 import type { EpisodeProgressPayload } from "@/lib/api/analysis";
 import { demoModelSnapshot, demoSnapshotAt } from "./demo-artifacts";
 import { demoTraces } from "./demo-traces";
@@ -98,9 +99,22 @@ function metadata(
   };
 }
 function simulation(revision: string): SimulationReport {
+  const outcome = modelConstructs(freeModel).find(
+    (item) => item.name === "internalizing_symptom_burden",
+  )!;
+  const indicator = outcome.indicators.find((item) => item.name === "gad7_screening_score")!;
   return {
     ...structuredClone(visualFixture.report as unknown as SimulationReport),
     model: modelRef(revision),
+    findings: [outcome.name, indicator.id].map((target) => ({
+      check: "dispersion",
+      target,
+      construct_id: outcome.id,
+      value: "Unavailable",
+      band: "Requires repeated observations across the simulation window.",
+      passed: null,
+      note: "This illustrative record has no observed comparison for the saved simulation draws.",
+    })),
     ...(revision === modelId(7)
       ? {
           causal_result: null,
@@ -239,22 +253,25 @@ const journal: StudyRevision[] = [
     ),
     trace_ids: ["measurement_structure"],
   },
-  record(
-    5,
-    {
-      action: "prepare_data",
-      operation_id: "measurements",
-      inputs: {
-        input: {
-          source: { file: "demo-observations.parquet" },
-          variables: snapshots
-            .get(5)!
-            .data.metadata!.value.variables.map((variable) => ({ ...variable })),
+  {
+    ...record(
+      5,
+      {
+        action: "prepare_data",
+        operation_id: "measurements",
+        inputs: {
+          input: {
+            source: { file: "demo-observations.parquet" },
+            variables: snapshots
+              .get(5)!
+              .data.metadata!.value.variables.map((variable) => ({ ...variable })),
+          },
         },
       },
-    },
-    [snapshots.get(5)!.context.state.current.panel!],
-  ),
+      [snapshots.get(5)!.context.state.current.panel!],
+    ),
+    messages: [{ timestamp: stamp, level: "warn", label: "EXTRACTION_PARTIAL" }],
+  },
   {
     ...record(6, {
       action: "edit_model",
@@ -320,6 +337,29 @@ const journal: StudyRevision[] = [
 journal
   .find((entry) => entry.seq === 8)!
   .messages.push({ timestamp: stamp, level: "warn", label: "CONVERGENCE_CHECK_FAILED" });
+for (const seq of [8, 9]) {
+  const fit = snapshots.get(seq)!.findings.fit!.value;
+  const mcmc = fit.report.inference_diagnostics.mcmc as unknown as {
+    per_parameter: Array<{
+      parameter: string;
+      subject: import("@nof1-causal-lab/api-types").ParameterRef;
+      r_hat: number;
+    }>;
+  };
+  const row = mcmc.per_parameter[0];
+  row.r_hat = 1.08;
+  fit.convergence = {
+    ...fit.convergence,
+    passed: false,
+    failures: [
+      {
+        parameter: row.parameter,
+        subject: row.subject,
+        criterion: "R-hat < 1.01",
+      },
+    ],
+  };
+}
 // Explicit illustrative Git topology: alternative forks from version 7.
 for (const [seq, snapshot] of snapshots) {
   snapshot.context.commit_id = commitId(seq);

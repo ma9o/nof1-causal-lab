@@ -2983,8 +2983,7 @@
       "distribution_transform": "dt_effect_to_ct_rate",
       "id": "parameter:cabcaa1f20b4727a032e91419f21eb59950155a04fbe7397025855966d9cc647",
       "name": "beta_external_stressful_events_perceived_stress_burden",
-      "reference_interval_days": 1.0,
-      "value": null
+      "reference_interval_days": 1.0
     },
     {
       "description": "Effect of perceived_stress_burden on internalizing_symptom_burden (lagged)",
@@ -2992,8 +2991,7 @@
       "distribution_transform": "dt_effect_to_ct_rate",
       "id": "parameter:6644003d9f950a37d74b82563ce03df73bb93d24eca0f2a3bbcce99728418679",
       "name": "beta_perceived_stress_burden_internalizing_symptom_burden",
-      "reference_interval_days": 1.0,
-      "value": null
+      "reference_interval_days": 1.0
     },
     {
       "description": "Ordered-logistic threshold base for journal_stress_severity",
@@ -3001,8 +2999,7 @@
       "distribution_transform": "identity",
       "id": "parameter:0e9a1b1dfe541174568e14b1ff28869410c133c12d1e3a9af74267469c804720",
       "name": "obs_ordered_base_journal_stress_severity",
-      "reference_interval_days": null,
-      "value": null
+      "reference_interval_days": null
     },
     {
       "description": "Residual/innovation SD for internalizing_symptom_burden",
@@ -3010,8 +3007,7 @@
       "distribution_transform": "identity",
       "id": "parameter:10b6c3148f914ad631ff5205317ae8e4054f987ae4976b0ca02ff5dd6bd5dbeb",
       "name": "sigma_internalizing_symptom_burden",
-      "reference_interval_days": null,
-      "value": null
+      "reference_interval_days": null
     },
     {
       "description": "Measurement-error SD for state_of_mind_valence",
@@ -3019,8 +3015,7 @@
       "distribution_transform": "identity",
       "id": "parameter:145cae7b491088b812e4c26ad611489cf0f1c53e028abbd083dbcf800675aaef",
       "name": "obs_sd_state_of_mind_valence",
-      "reference_interval_days": null,
-      "value": null
+      "reference_interval_days": null
     },
     {
       "description": "Residual/innovation SD for physical_activity",
@@ -3028,8 +3023,7 @@
       "distribution_transform": "identity",
       "id": "parameter:19d63341a2cedf238201371098567432f756f81a31323d6428e69e87e94b1a19",
       "name": "sigma_physical_activity",
-      "reference_interval_days": null,
-      "value": null
+      "reference_interval_days": null
     },
     {
       "description": "Ordered-logistic threshold gaps for phq9_screening_score",
@@ -3037,8 +3031,7 @@
       "distribution_transform": "identity",
       "id": "parameter:2098505b8d1d7997f62805340a3ff337efeeae3695f6f6e97a5d36b530ab9961",
       "name": "obs_ordered_gaps_phq9_screening_score",
-      "reference_interval_days": null,
-      "value": null
+      "reference_interval_days": null
     },
     {
       "description": "Ordered-logistic threshold base for journal_internalizing_symptom_severity",
@@ -3046,8 +3039,7 @@
       "distribution_transform": "identity",
       "id": "parameter:2e77fa252226c51341ede18b3f1d464dbeb890f4a60a438d704f0fefbc38188e",
       "name": "obs_ordered_base_journal_internalizing_symptom_severity",
-      "reference_interval_days": null,
-      "value": null
+      "reference_interval_days": null
     },
     {
       "description": "Baseline daily persistence absent incoming feedback for internalizing_symptom_burden",
@@ -3055,8 +3047,7 @@
       "distribution_transform": "dt_persistence_to_ct_decay",
       "id": "parameter:0ad9908a17641c4c8cf0f5a359b0c7d4ecc8dfd394cdf28ac69da1f8f0af9eb2",
       "name": "rho_internalizing_symptom_burden",
-      "reference_interval_days": 1.0,
-      "value": null
+      "reference_interval_days": 1.0
     },
     {
       "description": "Effect of internalizing_symptom_burden on physical_activity (lagged)",
@@ -3064,8 +3055,7 @@
       "distribution_transform": "dt_effect_to_ct_rate",
       "id": "parameter:d20ec2885a6fc8305245a06e43d6887d2ae868345c8bf8c7b391ed03fd96b19d",
       "name": "beta_internalizing_symptom_burden_physical_activity",
-      "reference_interval_days": 1.0,
-      "value": null
+      "reference_interval_days": 1.0
     },
     {
       "description": "Baseline daily persistence absent incoming feedback for physical_activity",
@@ -3073,8 +3063,7 @@
       "distribution_transform": "dt_persistence_to_ct_decay",
       "id": "parameter:5e0f4616e4d76bd70855ce8c6bc4e088d231ffb6d74ba81555fa80703beae1c2",
       "name": "rho_physical_activity",
-      "reference_interval_days": 1.0,
-      "value": null
+      "reference_interval_days": 1.0
     },
     {
       "description": "Observation intercept for daily_step_count",
@@ -3082,8 +3071,7 @@
       "distribution_transform": "identity",
       "id": "parameter:4c69c0ffa919eabbb08eed0878b3bf24a3fb06c1cd111d5a091f8fcddd8537e6",
       "name": "manifest_mean_daily_step_count",
-      "reference_interval_days": null,
-      "value": null
+      "reference_interval_days": null
     },
     {
       "description": "Ordered-logistic threshold base for taper_speed_instruction_intensity",
@@ -3091,8 +3079,7 @@
       "distribution_transform": "identity",
       "id": "parameter:4d037b0571237ffe38d08e6503b98580c2a7370156a7757848ffaa5fd1728fdd",
       "name": "obs_ordered_base_taper_speed_instruction_intensity",
-      "reference_interval_days": null,
-      "value": null
+      "reference_interval_days": null
     },
     {
       "description": "Factor loading for phq9_screening_score on internalizing_symptom_burden",
@@ -3100,8 +3087,7 @@
       "distribution_transform": "identity",
       "id": "parameter:501e52abe92a871a95f3b4b56fad364ae360efc3c575c1e877d754d470292cdc",
       "name": "lambda_phq9_screening_score_internalizing_symptom_burden",
-      "reference_interval_days": null,
-      "value": null
+      "reference_interval_days": null
     },
     {
       "description": "Effect of other_psychotropic_or_somatic_treatments on internalizing_symptom_burden (lagged)",
@@ -3109,8 +3095,7 @@
       "distribution_transform": "dt_effect_to_ct_rate",
       "id": "parameter:0366100fe006daacd286930ef8bd629af70d9e495e4c1cc45d0ee79028812884",
       "name": "beta_other_psychotropic_or_somatic_treatments_internalizing_symptom_burden",
-      "reference_interval_days": 1.0,
-      "value": null
+      "reference_interval_days": 1.0
     },
     {
       "description": "Baseline daily persistence absent incoming feedback for perceived_stress_burden",
@@ -3118,8 +3103,7 @@
       "distribution_transform": "dt_persistence_to_ct_decay",
       "id": "parameter:9e966cbdb24cdb20e154c855c22d0dd7392a879ab49b9ca1d18c3c3b68c7901f",
       "name": "rho_perceived_stress_burden",
-      "reference_interval_days": 1.0,
-      "value": null
+      "reference_interval_days": 1.0
     },
     {
       "description": "Residual/innovation SD for perceived_stress_burden",
@@ -3127,8 +3111,7 @@
       "distribution_transform": "identity",
       "id": "parameter:595facfc46354b6582dae818836589a0643813eae29b42665949b9383de56f29",
       "name": "sigma_perceived_stress_burden",
-      "reference_interval_days": null,
-      "value": null
+      "reference_interval_days": null
     },
     {
       "description": "Ordered-logistic threshold gaps for taper_speed_instruction_intensity",
@@ -3136,8 +3119,7 @@
       "distribution_transform": "identity",
       "id": "parameter:60c1e5624e5768a3cb12b77bca44cd14f93f40096f1954d34b8ef00457b560cd",
       "name": "obs_ordered_gaps_taper_speed_instruction_intensity",
-      "reference_interval_days": null,
-      "value": null
+      "reference_interval_days": null
     },
     {
       "description": "Effect of physical_activity on sleep_circadian_disruption (lagged)",
@@ -3145,8 +3127,7 @@
       "distribution_transform": "dt_effect_to_ct_rate",
       "id": "parameter:8f16c468bd931a509f0b080732c82a6ad95b9250c6d5419dbc7c962e27be5e4d",
       "name": "beta_physical_activity_sleep_circadian_disruption",
-      "reference_interval_days": 1.0,
-      "value": null
+      "reference_interval_days": 1.0
     },
     {
       "description": "Residual/innovation SD for escitalopram_dose_taken",
@@ -3154,8 +3135,7 @@
       "distribution_transform": "identity",
       "id": "parameter:6657e5ab0107fe6a181dfe91715b2003fb0f4bb5e65f903639c56bb7afb97500",
       "name": "sigma_escitalopram_dose_taken",
-      "reference_interval_days": null,
-      "value": null
+      "reference_interval_days": null
     },
     {
       "description": "Effect of perceived_stress_burden on sleep_circadian_disruption (lagged)",
@@ -3163,8 +3143,7 @@
       "distribution_transform": "dt_effect_to_ct_rate",
       "id": "parameter:7ae993e70d7e440b5e653e0e7728fcb07f04c36479498a1e18c0bca4d5a4cd3e",
       "name": "beta_perceived_stress_burden_sleep_circadian_disruption",
-      "reference_interval_days": 1.0,
-      "value": null
+      "reference_interval_days": 1.0
     },
     {
       "description": "Negative-binomial observation dispersion",
@@ -3172,8 +3151,7 @@
       "distribution_transform": "identity",
       "id": "parameter:682bd44790ce8d881c45c2aa166884c83146b6f6a175a779c90033b22ba9403f",
       "name": "obs_r",
-      "reference_interval_days": null,
-      "value": null
+      "reference_interval_days": null
     },
     {
       "description": "Residual/innovation SD for taper_speed_dose_reduction",
@@ -3181,8 +3159,7 @@
       "distribution_transform": "identity",
       "id": "parameter:6914c1f9f6cf7cc676006f1b1149cdf41592f7ff0e549e7c1efa85d888925eba",
       "name": "sigma_taper_speed_dose_reduction",
-      "reference_interval_days": null,
-      "value": null
+      "reference_interval_days": null
     },
     {
       "description": "Ordered-logistic threshold gaps for journal_internalizing_symptom_severity",
@@ -3190,8 +3167,7 @@
       "distribution_transform": "identity",
       "id": "parameter:6d06d0c355dba2e8343ac2e243a6754ed91712effdd567e08a2c88d6fac3fa86",
       "name": "obs_ordered_gaps_journal_internalizing_symptom_severity",
-      "reference_interval_days": null,
-      "value": null
+      "reference_interval_days": null
     },
     {
       "description": "Ordered-logistic threshold base for gad7_screening_score",
@@ -3199,8 +3175,7 @@
       "distribution_transform": "identity",
       "id": "parameter:6e11cf59457acf739c486d4638043ab03622923871577e92928fdb95b23d4022",
       "name": "obs_ordered_base_gad7_screening_score",
-      "reference_interval_days": null,
-      "value": null
+      "reference_interval_days": null
     },
     {
       "description": "Ordered-logistic threshold base for medication_adherence_documented",
@@ -3208,8 +3183,7 @@
       "distribution_transform": "identity",
       "id": "parameter:773a0c8da725a4e3f6240c7807ad981e4948eead8c502f9fe316d4ababbc2e6d",
       "name": "obs_ordered_base_medication_adherence_documented",
-      "reference_interval_days": null,
-      "value": null
+      "reference_interval_days": null
     },
     {
       "description": "Baseline daily persistence absent incoming feedback for taper_speed_dose_reduction",
@@ -3217,8 +3191,7 @@
       "distribution_transform": "dt_persistence_to_ct_decay",
       "id": "parameter:56338f70c5882bb1009fde7ce5d2bc81e92a49cbf50b3deb72c02583c0e057b8",
       "name": "rho_taper_speed_dose_reduction",
-      "reference_interval_days": 1.0,
-      "value": null
+      "reference_interval_days": 1.0
     },
     {
       "description": "Factor loading for gad7_screening_score on internalizing_symptom_burden",
@@ -3226,8 +3199,7 @@
       "distribution_transform": "identity",
       "id": "parameter:7965e9dce8c03b2a8ec99330856f28b3a430e74768c60d5068ea3111ba94566f",
       "name": "lambda_gad7_screening_score_internalizing_symptom_burden",
-      "reference_interval_days": null,
-      "value": null
+      "reference_interval_days": null
     },
     {
       "description": "Effect of internalizing_symptom_burden on adherence_to_regimen (lagged)",
@@ -3235,8 +3207,7 @@
       "distribution_transform": "dt_effect_to_ct_rate",
       "id": "parameter:2132145147e99eb5ddd6a4c0f34e9972340540566816ea3034e424b7039c1a57",
       "name": "beta_internalizing_symptom_burden_adherence_to_regimen",
-      "reference_interval_days": 1.0,
-      "value": null
+      "reference_interval_days": 1.0
     },
     {
       "description": "Effect of physical_activity on internalizing_symptom_burden (lagged)",
@@ -3244,8 +3215,7 @@
       "distribution_transform": "dt_effect_to_ct_rate",
       "id": "parameter:4529be181165946bd05ca47eede4f26cefb5304f6312fd51ac7f67653ebec2fd",
       "name": "beta_physical_activity_internalizing_symptom_burden",
-      "reference_interval_days": 1.0,
-      "value": null
+      "reference_interval_days": 1.0
     },
     {
       "description": "Baseline daily persistence absent incoming feedback for escitalopram_dose_taken",
@@ -3253,8 +3223,7 @@
       "distribution_transform": "dt_persistence_to_ct_decay",
       "id": "parameter:1b3d4aad4fb2e60a554306e6b6409fb3c55e37aa2a4e9c619c4036863875a32a",
       "name": "rho_escitalopram_dose_taken",
-      "reference_interval_days": 1.0,
-      "value": null
+      "reference_interval_days": 1.0
     },
     {
       "description": "Ordered-logistic threshold gaps for gad7_screening_score",
@@ -3262,8 +3231,7 @@
       "distribution_transform": "identity",
       "id": "parameter:975f2d0c21bddf6371a2c1d8dcea40ddfc63416258239751962298592d74b9f8",
       "name": "obs_ordered_gaps_gad7_screening_score",
-      "reference_interval_days": null,
-      "value": null
+      "reference_interval_days": null
     },
     {
       "description": "Residual/innovation SD for sleep_circadian_disruption",
@@ -3271,8 +3239,7 @@
       "distribution_transform": "identity",
       "id": "parameter:9cf821d64c956fb794f034de7b9143541795b485e3177647c1e24ea922bc177f",
       "name": "sigma_sleep_circadian_disruption",
-      "reference_interval_days": null,
-      "value": null
+      "reference_interval_days": null
     },
     {
       "description": "Ordered-logistic threshold base for phq9_screening_score",
@@ -3280,8 +3247,7 @@
       "distribution_transform": "identity",
       "id": "parameter:9ec837565ea8266acf16f4e878ab3ec49c793f747dd1620cb8872a15b6d48170",
       "name": "obs_ordered_base_phq9_screening_score",
-      "reference_interval_days": null,
-      "value": null
+      "reference_interval_days": null
     },
     {
       "description": "Baseline daily persistence absent incoming feedback for adherence_to_regimen",
@@ -3289,8 +3255,7 @@
       "distribution_transform": "dt_persistence_to_ct_decay",
       "id": "parameter:69c28f479e2b862713dec406262d00777047e9b2a4d4f158eab27fc9c0a7644d",
       "name": "rho_adherence_to_regimen",
-      "reference_interval_days": 1.0,
-      "value": null
+      "reference_interval_days": 1.0
     },
     {
       "description": "Effect of internalizing_symptom_burden on sleep_circadian_disruption (lagged)",
@@ -3298,8 +3263,7 @@
       "distribution_transform": "dt_effect_to_ct_rate",
       "id": "parameter:586e79e66975d39c87963bba7fc30ee3e1569df19b00431aabd125ec7fa2d683",
       "name": "beta_internalizing_symptom_burden_sleep_circadian_disruption",
-      "reference_interval_days": 1.0,
-      "value": null
+      "reference_interval_days": 1.0
     },
     {
       "description": "Residual/innovation SD for adherence_to_regimen",
@@ -3307,8 +3271,7 @@
       "distribution_transform": "identity",
       "id": "parameter:a522641efd5adb152c5c47a37e5cb0881ff86a0ddfdb11151dda3735a0646a09",
       "name": "sigma_adherence_to_regimen",
-      "reference_interval_days": null,
-      "value": null
+      "reference_interval_days": null
     },
     {
       "description": "Effect of adherence_to_regimen on escitalopram_dose_taken (lagged)",
@@ -3316,8 +3279,7 @@
       "distribution_transform": "dt_effect_to_ct_rate",
       "id": "parameter:8140ddf85ce1d8034b0a3be7b25158ca5ca9c18347125ab73c3fa72de151b080",
       "name": "beta_adherence_to_regimen_escitalopram_dose_taken",
-      "reference_interval_days": 1.0,
-      "value": null
+      "reference_interval_days": 1.0
     },
     {
       "description": "Effect of escitalopram_dose_taken on internalizing_symptom_burden (lagged)",
@@ -3325,8 +3287,7 @@
       "distribution_transform": "dt_effect_to_ct_rate",
       "id": "parameter:93e17976a307088a35da3743f512e7344391cc91defd96d1037b47c81e5f9210",
       "name": "beta_escitalopram_dose_taken_internalizing_symptom_burden",
-      "reference_interval_days": 1.0,
-      "value": null
+      "reference_interval_days": 1.0
     },
     {
       "description": "Baseline daily persistence absent incoming feedback for sleep_circadian_disruption",
@@ -3334,8 +3295,7 @@
       "distribution_transform": "dt_persistence_to_ct_decay",
       "id": "parameter:a715e88716e8dcfb5aba9aeaf1fa536baa8f78ba1450262e33012a44950d47a1",
       "name": "rho_sleep_circadian_disruption",
-      "reference_interval_days": 1.0,
-      "value": null
+      "reference_interval_days": 1.0
     },
     {
       "description": "Effect of taper_speed_dose_reduction on escitalopram_dose_taken (lagged)",
@@ -3343,8 +3303,7 @@
       "distribution_transform": "dt_effect_to_ct_rate",
       "id": "parameter:5404e8f376308cdef6da71e4de19f9b0eabc289b812d00c6fd1b0573f89e6dff",
       "name": "beta_taper_speed_dose_reduction_escitalopram_dose_taken",
-      "reference_interval_days": 1.0,
-      "value": null
+      "reference_interval_days": 1.0
     },
     {
       "description": "Ordered-logistic threshold gaps for medication_adherence_documented",
@@ -3352,8 +3311,7 @@
       "distribution_transform": "identity",
       "id": "parameter:ce1ebad1f8bd081a26421cfcf318798e7c0081cfa7e691a0938d3039982206ec",
       "name": "obs_ordered_gaps_medication_adherence_documented",
-      "reference_interval_days": null,
-      "value": null
+      "reference_interval_days": null
     },
     {
       "description": "Ordered-logistic threshold gaps for journal_stress_severity",
@@ -3361,8 +3319,7 @@
       "distribution_transform": "identity",
       "id": "parameter:d04f9da05c382797cd6ece7e35dc6fe984ba19224c035803da1b904139904cef",
       "name": "obs_ordered_gaps_journal_stress_severity",
-      "reference_interval_days": null,
-      "value": null
+      "reference_interval_days": null
     },
     {
       "description": "Factor loading for journal_internalizing_symptom_severity on internalizing_symptom_burden",
@@ -3370,8 +3327,7 @@
       "distribution_transform": "identity",
       "id": "parameter:dff8a815d1f023dc237fcc95c1b14df7b8aeb51f7f1fa5c35830c3ac3893e0bc",
       "name": "lambda_journal_internalizing_symptom_severity_internalizing_symptom_burden",
-      "reference_interval_days": null,
-      "value": null
+      "reference_interval_days": null
     },
     {
       "description": "Effect of sleep_circadian_disruption on internalizing_symptom_burden (lagged)",
@@ -3379,8 +3335,7 @@
       "distribution_transform": "dt_effect_to_ct_rate",
       "id": "parameter:e12fda642336ce481bd4a41010c8391d35da276abc819f7cebc574b61648628a",
       "name": "beta_sleep_circadian_disruption_internalizing_symptom_burden",
-      "reference_interval_days": 1.0,
-      "value": null
+      "reference_interval_days": 1.0
     }
   ],
   "question": "I've been on escitalopram for about two and a half years. I'm thinking about tapering. Has the medication actually been moving the needle, or did I just get better on my own — and what would my likely trajectory look like over the next two months if I taper off now versus stay on it?",
