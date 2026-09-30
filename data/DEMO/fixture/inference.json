@@ -1,7 +1,7 @@
 {
   "input_pins": {
-    "model": "4610c64b1ba0362f2035899fe9c774ab3a38ef6a",
-    "panel": "102c1d118ae5da8057444d8392291e139028047f"
+    "model": "02bf23a80b18171ab7f2242deb006796f005db0c",
+    "panel": "0e7ca89c9e015321b2fcec3756a6b84063138cd8"
   },
   "report": {
     "inference_diagnostics": {
@@ -18124,7 +18124,8 @@
           -0.08835
         ]
       }
-    ]
+    ],
+    "time_origin": "2017-06-14T00:00:00+00:00"
   },
   "retained_draw_axes": {
     "latent_shape": [
@@ -18240,10 +18241,10 @@
     "compiled_ssm_version": 1,
     "model": {
       "path": "model.json",
-      "revision": "4610c64b1ba0362f2035899fe9c774ab3a38ef6a",
+      "revision": "02bf23a80b18171ab7f2242deb006796f005db0c",
       "workspace_id": "DEMO"
     },
-    "panel_revision": "102c1d118ae5da8057444d8392291e139028047f"
+    "panel_revision": "0e7ca89c9e015321b2fcec3756a6b84063138cd8"
   },
   "retention": "report_only"
 }

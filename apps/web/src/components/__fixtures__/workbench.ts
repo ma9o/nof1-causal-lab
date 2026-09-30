@@ -4,7 +4,10 @@ import type {
   ModelSnapshot,
   ModelSpec,
   SimulationReport,
-  SimulationTrajectories,
+  SimulationPaths,
+  PathSeries,
+  ObservationHistory,
+  MechanismCurves,
   SpecificationReport,
   StudyRevision,
 } from "@nof1-causal-lab/api-types";
@@ -13,7 +16,7 @@ import type { EpisodeProgressPayload } from "@/lib/api/analysis";
 import { demoModelSnapshot, demoSnapshotAt } from "./demo-artifacts";
 import { demoTraces } from "./demo-traces";
 import comparisonFixture from "./workbench-comparisons.json";
-import simulationFixture from "./workbench-simulation.json";
+import visualFixture from "./workbench-visuals.json";
 export const WORKBENCH_WORKSPACE = "STORYBOOK";
 const stamp = "2026-09-16T12:00:00Z";
 // Illustrative interface data. Branch metadata and parameter decisions are staged;
@@ -96,7 +99,7 @@ function metadata(
 }
 function simulation(revision: string): SimulationReport {
   return {
-    ...structuredClone(simulationFixture.report as unknown as SimulationReport),
+    ...structuredClone(visualFixture.report as unknown as SimulationReport),
     model: modelRef(revision),
     ...(revision === modelId(7)
       ? {
@@ -313,12 +316,7 @@ const journal: StudyRevision[] = [
     inputs: simulationInputs(simulations.get(7)!),
   }),
 ];
-// This single scenario includes a table import, a backend convergence warning,
-// paired trajectories with bands, and a later simulation without a certified effect.
-for (const snapshot of snapshots.values()) {
-  if (snapshot.data.metadata)
-    snapshot.data.metadata.value.source = { file: "demo-observations.parquet" };
-}
+// This scenario includes a convergence warning and paired saved summaries.
 journal
   .find((entry) => entry.seq === 8)!
   .messages.push({ timestamp: stamp, level: "warn", label: "CONVERGENCE_CHECK_FAILED" });
@@ -376,6 +374,107 @@ export function workbenchHandlers() {
     events: [],
   });
   return [
+    http.get(
+      `/api/episodes/${WORKBENCH_WORKSPACE}/model/visuals/observations/:indicator`,
+      ({ params, request }) => {
+        const snapshot = snapshotByCommit(
+          new URL(request.url).searchParams.get("at") ?? branches.alternative,
+        );
+        const histories = visualFixture.observations as unknown as Record<
+          string,
+          ObservationHistory
+        >;
+        return HttpResponse.json(
+          snapshot?.data.metadata ? (histories[String(params.indicator)] ?? null) : null,
+        );
+      },
+    ),
+    http.get(`/api/episodes/${WORKBENCH_WORKSPACE}/model/visuals/parameters`, () =>
+      HttpResponse.json(visualFixture.parameters),
+    ),
+    http.get(`/api/episodes/${WORKBENCH_WORKSPACE}/model/visuals/predictive/:indicator`, () =>
+      HttpResponse.json(null),
+    ),
+    http.get(`/api/episodes/${WORKBENCH_WORKSPACE}/model/visuals/simulation`, ({ request }) => {
+      const query = new URL(request.url).searchParams;
+      const snapshot = snapshotByCommit(query.get("at") ?? branches.alternative);
+      if (!snapshot?.findings.simulation) return HttpResponse.json(null);
+      const source = structuredClone(visualFixture.simulation as unknown as SimulationPaths);
+      const start = Number(query.get("start") ?? 0),
+        count = Number(query.get("count") ?? 24);
+      const page = (series: PathSeries) => ({
+        ...series,
+        action: series.action.slice(start, start + count),
+        reference: series.reference.slice(start, start + count),
+      });
+      return HttpResponse.json({
+        ...source,
+        start,
+        count: Math.min(count, source.total_draws - start),
+        states: Object.fromEntries(
+          Object.entries(source.states).map(([id, series]) => [id, page(series)]),
+        ),
+        indicators: Object.fromEntries(
+          Object.entries(source.indicators).map(([id, series]) => [id, page(series)]),
+        ),
+        effect:
+          source.effect && snapshot.findings.simulation.value.causal_result
+            ? page(source.effect)
+            : null,
+      });
+    }),
+    http.post(
+      `/api/episodes/${WORKBENCH_WORKSPACE}/model/visuals/mechanism`,
+      async ({ request }) => {
+        const input = (await request.json()) as {
+          owner_id: string;
+          lower: number;
+          upper: number;
+          start: number;
+          moderator?: string | null;
+          points: number;
+          count: number;
+          axis?: string | null;
+          held: Record<string, number>;
+        };
+        const curves = (visualFixture.mechanisms as unknown as Record<string, MechanismCurves>)[
+          input.owner_id
+        ];
+        return curves &&
+          input.lower === -3 &&
+          input.upper === 3 &&
+          input.start >= 0 &&
+          input.start < curves.count &&
+          !input.moderator &&
+          (!input.axis || input.axis === curves.axis) &&
+          Object.entries(input.held).every(([id, value]) => curves.held[id] === value) &&
+          input.points === 201
+          ? HttpResponse.json({
+              ...curves,
+              total_draws: curves.count,
+              start: input.start,
+              count: Math.min(input.count, curves.count - input.start),
+              curves: curves.curves.slice(input.start, input.start + input.count),
+            })
+          : HttpResponse.json(
+              {
+                detail:
+                  "This recorded story includes the default response viewport; use a live workspace to evaluate other conditions.",
+              },
+              { status: 422 },
+            );
+      },
+    ),
+    http.get(`/api/episodes/${WORKBENCH_WORKSPACE}/model/inference-report`, ({ request }) => {
+      const snapshot = snapshotByCommit(
+        new URL(request.url).searchParams.get("at") ?? branches.alternative,
+      );
+      return HttpResponse.json(
+        snapshot?.findings.fit
+          ? { source: snapshot.findings.fit.source, value: snapshot.findings.fit.value.report }
+          : null,
+      );
+    }),
     http.get(`/api/analysis/${WORKBENCH_WORKSPACE}/progress`, () => HttpResponse.json(progress())),
     http.get(`/api/episodes/${WORKBENCH_WORKSPACE}/model`, ({ request }) => {
       const snapshot = snapshotByCommit(
@@ -416,20 +515,5 @@ export function workbenchHandlers() {
             : null,
       } satisfies ModelDiffReport);
     }),
-    http.get(
-      `/api/episodes/${WORKBENCH_WORKSPACE}/model/simulation-trajectories`,
-      ({ request }) => {
-        const snapshot = snapshotByCommit(new URL(request.url).searchParams.get("at"));
-        const simulation = snapshot?.findings.simulation;
-        return HttpResponse.json(
-          simulation
-            ? {
-                value: simulationFixture.trajectories as unknown as SimulationTrajectories,
-                source: simulation.source,
-              }
-            : null,
-        );
-      },
-    ),
   ];
 }

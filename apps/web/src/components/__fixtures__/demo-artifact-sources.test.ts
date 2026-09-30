@@ -86,7 +86,7 @@ describe("promoted DEMO fixture", () => {
 
     expect(simulations).toHaveLength(5);
     for (const result of simulations) {
-      const trajectories = result.causal_result.trajectories;
+      const trajectories = result.predictive.states;
       const trajectory = result.causal_result.effect_trajectory!;
       expect(
         result.causal_result.warnings.some((warning) =>
@@ -101,9 +101,12 @@ describe("promoted DEMO fixture", () => {
       expect(Object.keys(trajectories).sort()).toEqual(stateIds);
       expect(trajectory).toHaveLength(61);
       for (const series of Object.values(trajectories)) {
-        expect(Object.keys(series).sort()).toEqual(["action_mean", "reference_mean"]);
-        expect(series.reference_mean).toHaveLength(result.causal_result.time_grid_days.length);
-        expect(series.action_mean).toHaveLength(result.causal_result.time_grid_days.length);
+        expect(series.reference?.kind).toBe("numeric");
+        expect(series.action.kind).toBe("numeric");
+        if (series.reference?.kind === "numeric" && series.action.kind === "numeric") {
+          expect(series.reference.mean).toHaveLength(result.times.length);
+          expect(series.action.mean).toHaveLength(result.times.length);
+        }
       }
     }
   });

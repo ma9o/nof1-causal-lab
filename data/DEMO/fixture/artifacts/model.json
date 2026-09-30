@@ -1048,7 +1048,6 @@
         "temporal_status": "time_varying"
       },
       "id": "edge:f01776f0929a8eccc2fc",
-      "lagged": true,
       "mechanisms": [],
       "sources": []
     },
@@ -1088,7 +1087,6 @@
         "temporal_status": "time_invariant"
       },
       "id": "edge:9f17859ba14225cbef18",
-      "lagged": false,
       "mechanisms": [],
       "sources": [
         {
@@ -1129,7 +1127,6 @@
         "temporal_status": "time_invariant"
       },
       "id": "edge:06d2e4026996e4b9379f",
-      "lagged": false,
       "mechanisms": [],
       "sources": []
     },
@@ -1169,7 +1166,6 @@
         "temporal_status": "time_varying"
       },
       "id": "edge:3d92787d7a5f9e0201a9",
-      "lagged": false,
       "mechanisms": [],
       "sources": []
     },
@@ -1184,7 +1180,6 @@
         "kind": "construct"
       },
       "id": "edge:93cda69e8ea3105f7cde",
-      "lagged": true,
       "mechanisms": [],
       "sources": []
     },
@@ -1367,7 +1362,6 @@
         "temporal_status": "time_varying"
       },
       "id": "edge:ffb1bdc7cf492b1d7f1d",
-      "lagged": true,
       "mechanisms": [],
       "sources": []
     },
@@ -1549,7 +1543,6 @@
         "temporal_status": "time_varying"
       },
       "id": "edge:027439d7acff15a9f7f3",
-      "lagged": true,
       "mechanisms": [],
       "sources": []
     },
@@ -1715,7 +1708,6 @@
         "temporal_status": "time_varying"
       },
       "id": "edge:66bd0e882b7fbd2118a1",
-      "lagged": true,
       "mechanisms": [
         {
           "expression": {
@@ -1749,7 +1741,6 @@
         "kind": "construct"
       },
       "id": "edge:14682ec416926f40197b",
-      "lagged": true,
       "mechanisms": [
         {
           "expression": {
@@ -1789,7 +1780,6 @@
         "kind": "construct"
       },
       "id": "edge:c8efa1de930a894c06ce",
-      "lagged": true,
       "mechanisms": [
         {
           "expression": {
@@ -1837,7 +1827,6 @@
         "kind": "construct"
       },
       "id": "edge:e41bd8d330491d104a1a",
-      "lagged": true,
       "mechanisms": [],
       "sources": [
         {
@@ -1858,7 +1847,6 @@
         "kind": "construct"
       },
       "id": "edge:326df5ec6c9291a64dea",
-      "lagged": true,
       "mechanisms": [],
       "sources": []
     },
@@ -1898,7 +1886,6 @@
         "temporal_status": "time_varying"
       },
       "id": "edge:8b0771916792e703d7e9",
-      "lagged": false,
       "mechanisms": [],
       "sources": [
         {
@@ -1927,7 +1914,6 @@
         "kind": "construct"
       },
       "id": "edge:73e5ab450d651575bcd5",
-      "lagged": false,
       "mechanisms": [],
       "sources": [
         {
@@ -1948,7 +1934,6 @@
         "kind": "construct"
       },
       "id": "edge:55e88b356c8e0a1a6eb2",
-      "lagged": true,
       "mechanisms": [],
       "sources": []
     },
@@ -1963,7 +1948,6 @@
         "kind": "construct"
       },
       "id": "edge:b3c79da49c3d691b8d84",
-      "lagged": true,
       "mechanisms": [],
       "sources": [
         {
@@ -2135,7 +2119,6 @@
         "temporal_status": "time_varying"
       },
       "id": "edge:41f8d691f9ffb9121691",
-      "lagged": true,
       "mechanisms": [],
       "sources": [
         {
@@ -2324,7 +2307,6 @@
         "temporal_status": "time_varying"
       },
       "id": "edge:94b56531da4578528cca",
-      "lagged": true,
       "mechanisms": [],
       "sources": []
     },
@@ -2339,7 +2321,6 @@
         "kind": "construct"
       },
       "id": "edge:0956802ffa3b8f7363c5",
-      "lagged": true,
       "mechanisms": [],
       "sources": [
         {
@@ -2360,7 +2341,6 @@
         "kind": "construct"
       },
       "id": "edge:e96deda9a6084d6d4ed9",
-      "lagged": true,
       "mechanisms": [
         {
           "expression": {
@@ -2427,7 +2407,6 @@
         "kind": "construct"
       },
       "id": "edge:6001378d624b64d8db27",
-      "lagged": false,
       "mechanisms": [
         {
           "expression": {
@@ -2467,7 +2446,6 @@
         "kind": "construct"
       },
       "id": "edge:466eed55d5293ecb5f6a",
-      "lagged": true,
       "mechanisms": [
         {
           "expression": {
@@ -2501,7 +2479,6 @@
         "kind": "construct"
       },
       "id": "edge:9df1507c29b9de944a33",
-      "lagged": true,
       "mechanisms": [
         {
           "expression": {
@@ -2692,7 +2669,6 @@
         "kind": "construct"
       },
       "id": "edge:00282e82c6e558b8219b",
-      "lagged": true,
       "mechanisms": [
         {
           "expression": {
@@ -2726,7 +2702,6 @@
         "kind": "construct"
       },
       "id": "edge:0ffc13808e1300eb0e24",
-      "lagged": true,
       "mechanisms": [
         {
           "expression": {
@@ -2766,7 +2741,6 @@
         "kind": "construct"
       },
       "id": "edge:347cf99a9951dfd01cf4",
-      "lagged": true,
       "mechanisms": [
         {
           "expression": {
@@ -2806,7 +2780,6 @@
         "kind": "construct"
       },
       "id": "edge:bc472e241b3651bc152a",
-      "lagged": true,
       "mechanisms": [
         {
           "expression": {
@@ -2840,7 +2813,6 @@
         "kind": "construct"
       },
       "id": "edge:cbe7ea3961c0a9149ae2",
-      "lagged": true,
       "mechanisms": [
         {
           "expression": {
@@ -2905,7 +2877,6 @@
         "temporal_status": "time_varying"
       },
       "id": "edge:1198da260c8bcf398021",
-      "lagged": true,
       "mechanisms": [],
       "sources": []
     },
@@ -2920,7 +2891,6 @@
         "kind": "construct"
       },
       "id": "edge:1d473931f0684c7749af",
-      "lagged": true,
       "mechanisms": [],
       "sources": []
     },
@@ -2968,7 +2938,6 @@
         "temporal_status": "time_varying"
       },
       "id": "edge:a3d943e0f5e7db74a977",
-      "lagged": true,
       "mechanisms": [],
       "sources": []
     },
@@ -2983,7 +2952,6 @@
         "kind": "construct"
       },
       "id": "edge:2c2a94ecd60e62fa9f59",
-      "lagged": true,
       "mechanisms": [
         {
           "expression": {
