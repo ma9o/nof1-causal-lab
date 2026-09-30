@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { SimulationPaths, SimulationReport } from "@nof1-causal-lab/api-types";
 import { demoSnapshotAt } from "@/components/__fixtures__/demo-artifacts";
 import { demoSimulationTrace } from "@/components/dag/__fixtures__/simulation-fixture";
+import { indexModel } from "@/lib/model-asset/entities";
 import { graphEntities } from "@/lib/dag/layered-model";
 import { buildSimulationScenarios } from "@/lib/dag/simulation-results";
 import type { DagGraphInput } from "@/lib/utils/dag-graph-layout";
@@ -27,7 +28,8 @@ vi.mock("@/lib/hooks/use-dag-layout", () => ({
 }));
 
 const model = structuredClone(demoSnapshotAt(8));
-const entities = graphEntities(model);
+const indexed = indexModel(model.model?.value);
+const entities = graphEntities(model, indexed);
 const dose = entities.constructs.find((item) => item.name === "escitalopram_dose_taken")!;
 const symptoms = entities.constructs.find((item) => item.name === "internalizing_symptom_burden")!;
 const edge = entities.edges.find(
@@ -71,10 +73,11 @@ function render(variant: LayeredCausalGraphVariant, simulation: SimulationReport
   return renderToStaticMarkup(
     createElement(LayeredCausalGraph, {
       model,
+      entities: indexed,
       simulation,
       simulationPaths: simulation ? paths : null,
-      selectedNode: null,
-      onSelectNode: () => {},
+      selection: null,
+      onSelect: () => {},
       variant,
     }),
   );

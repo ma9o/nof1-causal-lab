@@ -8,32 +8,27 @@ import {
   Hint,
   KeyValue,
   OwnerLink,
-  ParameterLinks,
   Prose,
   Section,
   StatusIcon,
 } from "../scope-primitives";
 import { LawSections, SimulatedHistory } from "./law-sections";
-import { parametersForOwner } from "./parameters";
+import { Katex } from "@/components/analysis-widgets/statistical-model-spec/ssm-equation-display";
 import { MechanismResponse } from "./mechanism-response";
+import { PredictiveFindings } from "../simulation-evidence";
 
 export function ConstructScope({ context, id }: { context: ScopeContext; id: ConstructId }) {
   const scope = constructPresentation(context, id);
   if (!scope) return null;
-  const {
-    model,
-    entities,
-    construct,
-    inEdges,
-    outEdges,
-    indicators,
-    disposition,
-    identified,
-    notIdentified,
-    admission,
-    namesFor,
-  } = scope;
-  const parameters = parametersForOwner(model.model?.value, id);
+  const { model, construct, indicators, disposition, identified, notIdentified, namesFor } = scope;
+  const equations = model.findings.diagnostics;
+  const predictive = model.findings.predictive;
+  const findings =
+    predictive?.value.findings.filter(
+      (finding) =>
+        finding.construct_id === id &&
+        !indicators.some((indicator) => indicator.id === finding.target),
+    ) ?? [];
   return (
     <>
       <Section title="Structure">
@@ -49,29 +44,6 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
             />
           </div>
         </details>
-        {inEdges.length + outEdges.length > 0 && (
-          <ul className="mt-2 flex list-none flex-col gap-2 p-0">
-            {[
-              ...inEdges.map((edge) => ({ edge, incoming: true })),
-              ...outEdges.map((edge) => ({ edge, incoming: false })),
-            ].map(({ edge, incoming }) => (
-              <li key={edge.id} className="flex items-start gap-2">
-                <span
-                  className="text-muted-foreground"
-                  title={incoming ? "Incoming relationship" : "Outgoing relationship"}
-                  aria-hidden="true"
-                >
-                  {incoming ? "←" : "→"}
-                </span>
-                <OwnerLink onClick={() => context.select({ kind: "edge", id: edge.id })}>
-                  {humanize(
-                    entities.constructById.get(incoming ? edge.cause.id : edge.effect.id)!.name,
-                  )}
-                </OwnerLink>
-              </li>
-            ))}
-          </ul>
-        )}
       </Section>
       {indicators.length > 0 && (
         <Section title="Indicators">
@@ -86,6 +58,13 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
           </ul>
         </Section>
       )}
+      {[...(equations?.state_equations ?? []), ...(equations?.confounder_equations ?? [])]
+        .filter((equation) => equation.construct_id === id)
+        .map((equation) => (
+          <Section key={equation.construct_id} title="Equation" wide>
+            <Katex latex={equation.latex} />
+          </Section>
+        ))}
       <LawSections context={context} uses={ownLawUses(construct)} />
       {construct.dynamics.length > 0 && <MechanismResponse context={context} owner={id} />}
       <SimulatedHistory context={context} id={id} kind="states" />
@@ -110,6 +89,7 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
                   Marginalized confounders: {namesFor(identified.marginalized_confounders)}.
                 </p>
               )}
+              <p className="mt-2 break-words font-mono">{identified.estimand}</p>
             </Callout>
           )}
           {notIdentified && (
@@ -125,27 +105,9 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
           )}
         </Section>
       )}
-      {parameters.length > 0 && (
-        <Section title="Parameters">
-          <ParameterLinks parameters={parameters} onSelect={context.select} />
-        </Section>
-      )}
-      {admission.length > 0 && (
-        <Section title="Prior checks" source={model.findings.prior_predictive?.source}>
-          <details open={admission.some((entry) => !entry.passed)}>
-            <summary className="cursor-pointer text-muted-foreground">Inspect checks</summary>
-            <ul className="mt-2 space-y-2">
-              {admission.map((entry) => (
-                <li key={`${entry.check}-${entry.mode}`} className="flex items-start gap-2">
-                  <StatusIcon status={entry.passed ? "passed" : "failed"} />
-                  <span>
-                    {humanize(entry.check)}
-                    <Hint>{entry.value}</Hint>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </details>
+      {findings.length > 0 && (
+        <Section title="Predictive checks" source={predictive?.source} wide>
+          <PredictiveFindings findings={findings} entities={context.entities} />
         </Section>
       )}
     </>

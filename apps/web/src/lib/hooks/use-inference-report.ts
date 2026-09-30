@@ -1,13 +1,15 @@
 "use client";
 
-import { createModelClient } from "@nof1-causal-lab/api-types";
+import { createModelClient, type ModelSnapshot } from "@nof1-causal-lab/api-types";
 import { useQuery } from "@tanstack/react-query";
 
 const modelClient = createModelClient();
 
 /** The full inference report at a pinned commit, including per-draw diagnostics. */
-export function useInferenceReport(workspaceId: string, commitId: string, branch: string) {
+export function useInferenceReport(model: ModelSnapshot) {
+  const { workspace_id: workspaceId, commit_id: commitId, branch } = model.context;
   return useQuery({
+    enabled: model.findings.fit != null,
     queryKey: ["inference-report", workspaceId, commitId, branch],
     queryFn: async ({ signal }) => {
       const { data, error, response } = await modelClient.GET(

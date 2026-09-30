@@ -44,7 +44,6 @@ export function formatPriorSummary(
   param: ParameterSpec,
   distributions: import("@nof1-causal-lab/api-types").ModelSpec["distributions"] | undefined,
 ): string {
-  if (param.value != null) return `Fixed: ${param.value}`;
   return param.distribution && distributions
     ? distributionText(distributions[param.distribution])
     : "Not authored";

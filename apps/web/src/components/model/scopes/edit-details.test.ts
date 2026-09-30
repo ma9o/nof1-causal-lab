@@ -14,12 +14,11 @@ vi.mock("@/lib/hooks/use-model-diff", () => ({ useModelDiff: hooks.diff }));
 const context: ScopeContext = {
   model: demoModelSnapshot,
   entities: indexModel(demoModelSnapshot.model?.value),
-  ticks: [],
   select: vi.fn(),
 };
 const tick: JournalTick = {
+  extractionPartial: false,
   seq: 5,
-  attemptId: null,
   commitId: "rewritten-edit",
   parentIds: ["preceding-commit"],
   branch: "main",
@@ -38,14 +37,9 @@ const tick: JournalTick = {
       created_at: "2026-09-30T00:00:00Z",
     },
   ],
-  revision: "edited-model",
-  derived: [],
-  retracted: [],
   error: null,
-  errorType: null,
   traceIds: [],
-  diagnostics: {},
-  messages: [],
+  checks: null,
 };
 
 describe("edit change summaries after history compaction", () => {

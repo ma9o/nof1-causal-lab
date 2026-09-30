@@ -2,9 +2,8 @@ import type { EdgeId } from "@nof1-causal-lab/api-types";
 import { dispositionLabel } from "@/lib/model-asset/inspector";
 import { ownLawUses } from "@/lib/model-asset/laws";
 import type { ScopeContext } from "@/lib/model-asset/scope";
-import { Hint, ParameterLinks, Prose, Section } from "../scope-primitives";
+import { Hint, Prose, Section } from "../scope-primitives";
 import { LawSections } from "./law-sections";
-import { parametersForOwner } from "./parameters";
 import { MechanismResponse } from "./mechanism-response";
 
 export function EdgeScope({ context, id }: { context: ScopeContext; id: EdgeId }) {
@@ -13,7 +12,6 @@ export function EdgeScope({ context, id }: { context: ScopeContext; id: EdgeId }
   const disposition = context.model.findings.dispositions?.value.find(
     (item) => item.target.id === id,
   );
-  const parameters = parametersForOwner(context.model.model?.value, id);
   return (
     <>
       <Section title="Relationship">
@@ -50,11 +48,6 @@ export function EdgeScope({ context, id }: { context: ScopeContext; id: EdgeId }
           source={context.model.findings.dispositions?.source}
         >
           <Hint issue>{disposition.reason}</Hint>
-        </Section>
-      )}
-      {parameters.length > 0 && (
-        <Section title="Parameters">
-          <ParameterLinks parameters={parameters} onSelect={context.select} />
         </Section>
       )}
     </>

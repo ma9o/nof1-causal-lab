@@ -8,7 +8,6 @@ import {
 import Link from "next/link";
 import { useEffect, useMemo, useRef } from "react";
 import { LayeredCausalGraph } from "@/components/dag/layered/layered-causal-graph";
-import { graphEntities } from "@/lib/dag/layered-model";
 import { Button } from "@/components/ui/button";
 import type { EpisodeProgressPayload } from "@/lib/api/analysis";
 import { useLLMTraceForAction } from "@/lib/hooks/use-llm-trace";
@@ -19,7 +18,7 @@ import {
   useWorkbenchSnapshots,
   type SnapshotReader,
 } from "@/lib/model-asset/use-workbench";
-import { ConversationPane, type ActionTraceState, type UseActionTrace } from "./conversation-pane";
+import { ActionRecord, type ActionTraceState, type UseActionTrace } from "./action-record";
 import { DetailsPane } from "./details-pane";
 import { VersionScrubber } from "./version-scrubber";
 
@@ -33,8 +32,14 @@ export interface CausalModelAssetViewProps {
   running: RunningAction | null;
 }
 
+/**
+ * The viewer answers two questions about the action selected on the timeline. The action record
+ * on the right says what that action did and what came of it. The graph, with the details pane
+ * below it, shows the state the action left: the graph one part at a glance, the details pane in
+ * depth. The agent harness makes every change, so no pane offers writes.
+ */
 export function CausalModelAssetView(props: CausalModelAssetViewProps) {
-  const { selected, current, viewAt } = useWorkbenchSnapshots(
+  const { selected, current, viewAt, focusSeq } = useWorkbenchSnapshots(
     props.transitions,
     props.branches,
     props.useSnapshot,
@@ -58,6 +63,7 @@ export function CausalModelAssetView(props: CausalModelAssetViewProps) {
       currentModel={current.data}
       loadingRevision={selected.isPlaceholderData === true || current.isPlaceholderData === true}
       viewAt={viewAt}
+      focusSeq={focusSeq}
     />
   );
 }
@@ -72,16 +78,17 @@ function ModelRevision({
   currentModel,
   loadingRevision,
   viewAt,
+  focusSeq,
   running,
 }: CausalModelAssetViewProps & {
   model: ModelSnapshot;
   currentModel: ModelSnapshot;
   loadingRevision: boolean;
   viewAt: (seq: number | null) => void;
+  focusSeq: number;
 }) {
   const {
     selection,
-    focusSeq,
     ticks,
     latest,
     playhead,
@@ -105,7 +112,6 @@ function ModelRevision({
     currentModel,
     viewAt,
   });
-  const graph = useMemo(() => graphEntities(model), [model]);
   const recordedPaths = useSimulationPaths(model);
   // Nodes chart what the viewed version's action produced.
   const step = ticks.find((tick) => tick.seq === playhead)?.action ?? null;
@@ -223,14 +229,15 @@ function ModelRevision({
                   {compared.error ? compared.error.message : "Reading differences…"}
                 </p>
               )}
-              {graph.constructs.length > 0 || activeComparison ? (
+              {model.findings.graph.construct_ids.length > 0 || activeComparison ? (
                 <LayeredCausalGraph
                   model={model}
+                  entities={context.entities}
                   simulation={step === "simulate" ? simulationResult : null}
                   simulationPaths={step === "simulate" ? recordedPaths.data : null}
                   step={step}
-                  selectedNode={selection?.kind === "construct" ? selection.id : null}
-                  onSelectNode={(id) => select(id ? { kind: "construct", id } : null)}
+                  selection={selection}
+                  onSelect={select}
                   comparison={activeComparison ? (compared.data ?? null) : null}
                   variant="asset"
                 />
@@ -254,21 +261,28 @@ function ModelRevision({
           )}
         </div>
         <aside
-          aria-label="Action log"
+          aria-label="Action record"
           className="relative flex h-[480px] min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border bg-card md:h-auto"
         >
-          <ConversationPane
-            tick={ticks.find((tick) => tick.seq === focusSeq)}
-            running={
-              // Work dispatched after a branch head has no node yet; it runs under that head.
-              running &&
-              focusSeq === playhead &&
-              model.context.commit_id === branches[running.branch]
-                ? running
-                : null
-            }
-            useActionTrace={useActionTrace}
-          />
+          {loadingRevision ? (
+            <p role="status" className="p-3 text-xs">
+              Loading action record…
+            </p>
+          ) : (
+            <ActionRecord
+              context={context}
+              tick={ticks.find((tick) => tick.seq === focusSeq)}
+              running={
+                // Work dispatched after a branch head has no node yet; it runs under that head.
+                running &&
+                focusSeq === playhead &&
+                model.context.commit_id === branches[running.branch]
+                  ? running
+                  : null
+              }
+              useActionTrace={useActionTrace}
+            />
+          )}
         </aside>
       </main>
     </div>

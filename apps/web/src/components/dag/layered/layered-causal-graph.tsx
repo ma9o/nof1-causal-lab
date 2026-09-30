@@ -1,7 +1,6 @@
 "use client";
 
 import type {
-  ConstructId,
   ConstructSpec,
   IndicatorEmpiricalProfile,
   IndicatorSpec,
@@ -31,6 +30,9 @@ import type { ConstructStatus } from "@/lib/dag/construct-statuses";
 import { boundsForBand, type CausalGraphLayerId } from "@/lib/dag/layered-model";
 import { BLOCKING, COMPARISON_COLORS, DAG_COLORS, MARGINALIZED } from "@/lib/dag/palette";
 import { type LayeredGraphOptions, useLayeredGraph } from "@/lib/dag/use-layered-graph";
+import { resolveEntity } from "@/lib/model-asset/entities";
+import { entityFailures } from "@/lib/model-asset/inspector";
+import type { EntitySelection } from "@/lib/model-asset/selection";
 import { type LawCurve, lawLabel } from "@/lib/model-asset/laws";
 import {
   formatModelDate,
@@ -58,7 +60,7 @@ export type LayeredCausalGraphVariant = "workbench" | "asset";
 
 export interface LayeredCausalGraphProps extends LayeredGraphOptions {
   simulationPaths?: SimulationPaths | null;
-  onSelectNode: (construct: ConstructId | null) => void;
+  onSelect: (selection: EntitySelection | null) => void;
   /** The action whose version is viewed; a data preparation shows each node's prepared data. */
   step?: ScientificActionId | null;
   /**
@@ -81,18 +83,6 @@ function activateOnKeyboard(event: KeyboardEvent<SVGGElement>, action: () => voi
     event.preventDefault();
     action();
   }
-}
-
-function wrapDescription(value: string, lineLength = 40): [string, string] {
-  const words = value.trim().split(/\s+/);
-  let first = "";
-  let index = 0;
-  for (; index < words.length; index += 1) {
-    const candidate = first ? `${first} ${words[index]}` : words[index];
-    if (candidate.length > lineLength && first) break;
-    first = candidate;
-  }
-  return [truncate(first, lineLength + 1), truncate(words.slice(index).join(" "), lineLength + 1)];
 }
 
 function statusAccent(status: ConstructStatus | undefined): string | undefined {
@@ -137,8 +127,8 @@ function assignmentLabel(event: InterventionSpec, timeOrigin: string | null): st
   return `${when}: set to ${event.value}`;
 }
 
-/** The card's chart strip, below its title and description. */
-const STRIP = { x: 14, top: 56, width: LAYERED_NODE_WIDTH - 28, height: 64 } as const;
+/** The card's chart strip, below its title. */
+const STRIP = { x: 14, top: 36, width: LAYERED_NODE_WIDTH - 28, height: 64 } as const;
 /** One row per law or indicator: label, value, then its chart. */
 const STRIP_ROW = { height: 21, value: 108, plot: 114 } as const;
 const STRIP_ROWS = 3;
@@ -441,8 +431,7 @@ function NodeTrajectory({
 function ConstructCard({
   construct,
   isOutcome,
-  indicators,
-  warningVariables,
+  failures,
   status,
   laws,
   trajectory,
@@ -455,8 +444,7 @@ function ConstructCard({
 }: {
   construct: ConstructSpec;
   isOutcome: boolean;
-  indicators: IndicatorSpec[];
-  warningVariables: ReadonlySet<string>;
+  failures: string[];
   status?: ConstructStatus;
   laws: LawCurve[];
   /** A simulated history replaces the law strip on the card. */
@@ -469,11 +457,9 @@ function ConstructCard({
   dimmed: boolean;
   onSelect: () => void;
 }) {
-  const [descriptionLine1, descriptionLine2] = wrapDescription(construct.description);
   const label = statusLabel(status);
   const hasAssignments = assignments.length > 0;
   const accent = hasAssignments ? DAG_COLORS.intervention : statusAccent(status);
-  const hasMeasurementWarning = indicators.some((indicator) => warningVariables.has(indicator.id));
   const badge = hasAssignments
     ? `${assignments.length} assignment${assignments.length === 1 ? "" : "s"}`
     : label;
@@ -516,12 +502,6 @@ function ConstructCard({
             }
           />
         ) : null}
-        <text x={14} y={39} fontSize={8.2} fill="var(--muted-foreground)">
-          {descriptionLine1}
-        </text>
-        <text x={14} y={49} fontSize={8.2} fill="var(--muted-foreground)">
-          {descriptionLine2}
-        </text>
         {trajectory ? (
           <NodeTrajectory {...trajectory} assignments={assignments} timeOrigin={timeOrigin} />
         ) : data ? (
@@ -529,16 +509,16 @@ function ConstructCard({
         ) : laws.length > 0 ? (
           <LawStrip laws={laws} />
         ) : null}
-        {hasMeasurementWarning ? (
-          <g role="img" aria-label="Measurement warnings">
-            <title>Measurement warnings — inspect the indicators.</title>
+        {failures.length > 0 ? (
+          <g role="img" aria-label={failures.join("; ")}>
+            <title>{failures.join("\n")}</title>
             <path
-              d="M224 45 L230 34 L236 45 Z"
+              d="M235 37 L241 26 L247 37 Z"
               fill="none"
               stroke="var(--warning-foreground)"
               strokeWidth={1.2}
             />
-            <text x={230} y={43} textAnchor="middle" fontSize={8} fill="var(--warning-foreground)">
+            <text x={241} y={35} textAnchor="middle" fontSize={8} fill="var(--warning-foreground)">
               !
             </text>
           </g>
@@ -726,13 +706,19 @@ function LayerControls({
   );
 }
 
+/**
+ * The state the selected action left, one part at a glance. Each construct and edge shows its
+ * current laws or posteriors, its prepared data or its simulated draws, and a single mark when a
+ * check on it failed. The details pane holds the depth.
+ */
 export function LayeredCausalGraph({
   model,
+  entities,
   simulation = null,
   simulationPaths = null,
   comparison = null,
-  selectedNode,
-  onSelectNode,
+  selection,
+  onSelect,
   step = null,
   variant = "workbench",
 }: LayeredCausalGraphProps) {
@@ -756,7 +742,6 @@ export function LayeredCausalGraph({
     simulationVisible,
     nodeStatuses,
     indicatorsByConstruct,
-    warningVariables,
     constructLaws,
     simulationResult,
     days,
@@ -769,7 +754,8 @@ export function LayeredCausalGraph({
     graphBands,
     toggleLayer,
     edgeVisual,
-  } = useLayeredGraph({ model, simulation, comparison, selectedNode });
+  } = useLayeredGraph({ model, entities, simulation, comparison, selection });
+  const selectedNode = selection?.kind === "construct" ? selection.id : null;
 
   const canvas = (
     <DagCanvasFrame fill={variant === "asset"}>
@@ -852,14 +838,35 @@ export function LayeredCausalGraph({
                 const edge = topology.edgeMeta.get(meta.edgeId);
                 if (!edge) return null;
                 const visual = edgeVisual(edge);
+                const owner = entities.edges.find((item) => item.id === edge.id);
+                const target: EntitySelection = owner
+                  ? { kind: "edge", id: owner.id }
+                  : { kind: "construct", id: edge.cause };
+                const select = () => onSelect(selection?.id === target.id ? null : target);
+                const failures = owner ? entityFailures(model, owner) : [];
                 return (
                   <g
                     key={node.id}
                     data-node-id={node.id}
                     transform={`translate(${node.x},${node.y})`}
+                    role="button"
+                    aria-label={
+                      edge.isSelf
+                        ? `${humanize(entities.constructById.get(edge.cause)!.name)} intrinsic dynamics`
+                        : resolveEntity(entities, target)!.label
+                    }
+                    tabIndex={0}
+                    style={{ cursor: "pointer" }}
+                    onClick={select}
+                    onKeyDown={(event) => activateOnKeyboard(event, select)}
                     onPointerEnter={() => setHoveredEdge(edge.id)}
                     onPointerLeave={() => setHoveredEdge(null)}
                   >
+                    <rect
+                      width={LAYERED_EDGE_SLOT_WIDTH}
+                      height={LAYERED_EDGE_SLOT_HEIGHT}
+                      fill="transparent"
+                    />
                     <EdgeSlot
                       meta={edge}
                       disposition={visual.disposition}
@@ -868,6 +875,25 @@ export function LayeredCausalGraph({
                       color={visual.color}
                       dimmed={visual.dimmed}
                     />
+                    {failures.length > 0 && (
+                      <g role="img" aria-label={failures.join("; ")}>
+                        <title>{failures.join("\n")}</title>
+                        <path
+                          d="M79 13 L85 2 L91 13 Z"
+                          fill="var(--card)"
+                          stroke="var(--warning-foreground)"
+                        />
+                        <text
+                          x={85}
+                          y={11}
+                          textAnchor="middle"
+                          fontSize={8}
+                          fill="var(--warning-foreground)"
+                        >
+                          !
+                        </text>
+                      </g>
+                    )}
                   </g>
                 );
               }
@@ -877,7 +903,9 @@ export function LayeredCausalGraph({
                 selectedNeighborhood != null && !selectedNeighborhood.has(construct.id);
               const selected = selectedNode === construct.id;
               const select = () =>
-                onSelectNode(selectedNode === construct.id ? null : construct.id);
+                onSelect(
+                  selectedNode === construct.id ? null : { kind: "construct", id: construct.id },
+                );
               if (meta.kind === "history") {
                 return (
                   <g
@@ -922,8 +950,7 @@ export function LayeredCausalGraph({
                       construct.id ===
                       (simulation?.causal_result?.outcome ?? model.model?.value.default_outcome)
                     }
-                    indicators={nodeIndicators}
-                    warningVariables={warningVariables}
+                    failures={entityFailures(model, construct)}
                     status={nodeStatuses.get(construct.id) ?? undefined}
                     laws={constructLaws.get(construct.id) ?? []}
                     trajectory={

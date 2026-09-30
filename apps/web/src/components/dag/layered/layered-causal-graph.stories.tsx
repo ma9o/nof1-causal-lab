@@ -1,19 +1,26 @@
 import { demoModelSnapshot, demoSnapshotAt } from "@/components/__fixtures__/demo-artifacts";
 import { demoSimulationTrace } from "../__fixtures__/simulation-fixture";
 import { buildSimulationScenarios } from "@/lib/dag/simulation-results";
-import type { ConstructId } from "@nof1-causal-lab/api-types";
+import type { EntitySelection } from "@/lib/model-asset/selection";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { useState } from "react";
+import { indexModel } from "@/lib/model-asset/entities";
+import { useMemo, useState } from "react";
 import { LayeredCausalGraph, type LayeredCausalGraphProps } from "./layered-causal-graph";
 
 /** Stories own the selection the way the asset view does. */
 function SelectableLayeredCausalGraph(
-  props: Omit<LayeredCausalGraphProps, "selectedNode" | "onSelectNode">,
+  props: Omit<LayeredCausalGraphProps, "selection" | "onSelect" | "entities">,
 ) {
-  const [selectedNode, setSelectedNode] = useState<ConstructId | null>(null);
+  const [selection, setSelection] = useState<EntitySelection | null>(null);
+  const entities = useMemo(() => indexModel(props.model.model?.value), [props.model]);
   return (
-    <LayeredCausalGraph {...props} selectedNode={selectedNode} onSelectNode={setSelectedNode} />
+    <LayeredCausalGraph
+      entities={entities}
+      {...props}
+      selection={selection}
+      onSelect={setSelection}
+    />
   );
 }
 

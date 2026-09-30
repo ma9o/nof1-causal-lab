@@ -83,14 +83,12 @@ export function ObsPriorList({
           // biome-ignore lint/security/noDangerouslySetInnerHtml: KaTeX renders sanitized math
           dangerouslySetInnerHTML={{
             __html: inlineKatex(
-              term.value != null
-                ? `${observationParameterSymbol({ parameterName: term.name })} = ${term.value}`
-                : term.distribution
-                  ? observationPriorLatex({
-                      prior: distributions[term.distribution],
-                      parameterName: term.name,
-                    })
-                  : `${observationParameterSymbol({ parameterName: term.name })}:\\ \\text{Not authored}`,
+              term.distribution
+                ? observationPriorLatex({
+                    prior: distributions[term.distribution],
+                    parameterName: term.name,
+                  })
+                : `${observationParameterSymbol({ parameterName: term.name })}:\\ \\text{Not authored}`,
             ),
           }}
         />

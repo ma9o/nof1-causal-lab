@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { demoModel } from "@/components/__fixtures__/demo-artifacts";
 import { modelConstructs } from "@/lib/model-accessors";
-import { entityOptions, indexModel, resolveEntity } from "./entities";
+import { indexModel, resolveEntity } from "./entities";
 import type { EntitySelection } from "./selection";
 
 /** Put shared definitions at the other end of the same serialized graph. */
@@ -39,13 +39,5 @@ describe("scoped model inspection", () => {
         resolveEntity(indexModel(demoModel), selection),
       );
     }
-  });
-
-  it("reports absent entities consistently when switching to an empty revision", () => {
-    const empty = { edges: [], parameters: [], distributions: {}, time_points: [] };
-    for (const { selection } of entityOptions(indexModel(demoModel))) {
-      expect(resolveEntity(indexModel(empty), selection)).toBeUndefined();
-    }
-    expect(entityOptions(indexModel(empty))).toEqual([]);
   });
 });

@@ -137,11 +137,9 @@ const priorColumns = (
     }),
     col.accessor(
       (parameter) =>
-        parameter.value != null
-          ? "Fixed"
-          : parameter.distribution != null
-            ? distributions[parameter.distribution].distribution
-            : "Unspecified",
+        parameter.distribution != null
+          ? distributions[parameter.distribution].distribution
+          : "Unspecified",
       {
         id: "distribution",
         header: "Distribution",
@@ -152,8 +150,6 @@ const priorColumns = (
       id: "params",
       header: "Params",
       cell: ({ row }) => {
-        if (row.original.value != null)
-          return <span className="font-mono text-xs">{row.original.value}</span>;
         const params =
           row.original.distribution != null ? distributions[row.original.distribution].params : {};
         return (

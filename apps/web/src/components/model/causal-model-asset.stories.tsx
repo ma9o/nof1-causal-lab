@@ -14,7 +14,7 @@ import { getEpisodeProgress } from "@/lib/api/analysis";
 import { useModelSnapshot } from "@/lib/hooks/use-model-snapshot";
 import { getEpisodeProgressQueryKey } from "@/lib/hooks/use-run-events";
 import { CausalModelAssetView } from "./causal-model-asset";
-import type { ActionTraceState } from "./conversation-pane";
+import type { ActionTraceState } from "./action-record";
 
 const worker = setupWorker();
 
@@ -76,7 +76,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "A harness-driven model viewer: exact API action names and short commit hashes above the graph, selected-action details below, and the selected action's log on the right. Failed actions keep their cross marker and attempt commit hash. The story walks from a question through structure, measurement and laws, a table import, a convergence warning, individual paired outcome paths with optional summaries, an edited-model simulation whose causal effect is unavailable, and a fit still running after it. Expand lineage to see both branches and inspect any action. All data is illustrative; statistics and differences are read from backend-shaped fixtures, and the viewer offers no write controls.",
+          "A harness-driven model viewer: exact API action names and short commit hashes above the graph, selected-entity details below, and the selected action’s outcome and findings on the right. Failed actions keep their cross marker and attempt commit hash. The story walks from a question through structure, measurement and laws, a table import, a convergence warning, individual paired outcome paths with optional summaries, an edited-model simulation whose causal effect is unavailable, and a fit still running after it. Expand lineage to see both branches and inspect any action. All data is illustrative; statistics and differences are read from backend-shaped fixtures, and the viewer offers no write controls.",
       },
     },
   },
@@ -111,25 +111,28 @@ export const Complete: Story = {
       ["edit_model · c000002", "Model changes"],
       ["prepare_data · c000005", "Prepared data"],
       ["edit_model · c000006 · failed", "Edit model failed"],
-      ["fit · c000008", "Parameter diagnostics"],
+      ["fit · c000008", "Parameter convergence"],
       ["simulate · c000009", "Simulation design"],
     ]) {
       await userEvent.click(canvas.getByRole("button", { name: label }));
       await expect(
-        await canvas.findByRole("option", { name: label.replace(" · failed", ""), selected: true }),
-      ).toBeInTheDocument();
-      await expect(
-        within(canvas.getByRole("complementary", { name: "Action log" })).getByText(
+        await within(canvas.getByRole("complementary", { name: "Action record" })).findByText(
           label.replace(" · failed", ""),
         ),
       ).toBeVisible();
       await expect(await canvas.findByRole("region", { name: section })).toBeVisible();
       if (section === "Prepared data") {
-        await expect(
-          (await canvas.findAllByRole("img", { name: /prepared observations/ }))[0],
-        ).toBeInTheDocument();
+        await expect(canvas.getByRole("region", { name: "Extraction incomplete" })).toBeVisible();
+        await expect(canvas.queryByText("EXTRACTION_PARTIAL")).not.toBeInTheDocument();
       }
       if (section === "Simulation design") {
+        const checks = canvas.getByRole("region", { name: "Simulation checks" });
+        await expect(within(checks).getByText("internalizing symptom burden")).toBeInTheDocument();
+        await expect(within(checks).getByText("gad7 screening score")).toBeInTheDocument();
+        await expect(checks.scrollWidth).toBeLessThanOrEqual(checks.clientWidth);
+        await userEvent.click(
+          await canvas.findByRole("button", { name: "internalizing symptom burden" }),
+        );
         await expect(
           (await canvas.findAllByRole("img", { name: /recorded draws/ }))[0],
         ).toBeInTheDocument();
@@ -140,6 +143,7 @@ export const Complete: Story = {
         await expect(await canvas.findByText(/25–48 of 100/)).toBeInTheDocument();
       }
     }
+    await expect(canvas.queryByRole("combobox", { name: "Details scope" })).not.toBeInTheDocument();
     await expect(canvas.queryByRole("log", { name: "fit · running" })).not.toBeInTheDocument();
     await userEvent.click(canvas.getByRole("button", { name: "simulate · c00000c · latest" }));
     await expect(
@@ -148,6 +152,11 @@ export const Complete: Story = {
       ),
     ).toBeVisible();
     await expect(canvas.getByRole("log", { name: "fit · running" })).toBeVisible();
+    await expect(
+      within(canvas.getByRole("region", { name: "Model details" })).getByRole("heading", {
+        name: "internalizing symptom burden",
+      }),
+    ).toBeVisible();
     await userEvent.click(canvas.getByRole("button", { name: "Collapse lineage" }));
   },
 };

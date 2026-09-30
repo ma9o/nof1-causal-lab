@@ -1,12 +1,7 @@
 import { modelConstructs } from "@/lib/model-accessors";
-import type {
-  CausalEdgeSpec,
-  ConstructSpec,
-  IndicatorSpec,
-  ModelSpec,
-  ParameterSpec,
-} from "@nof1-causal-lab/api-types";
-import { humanize, type EntitySelection, type ModelSelection } from "./selection";
+import type { ConstructSpec, ModelSpec, ParameterId } from "@nof1-causal-lab/api-types";
+import { humanize, type EntitySelection } from "./selection";
+import { ownLawUses } from "./laws";
 
 /** Index the authored graph; these maps are derived, never a second model definition. */
 export function indexModel(model: ModelSpec | undefined) {
@@ -39,42 +34,28 @@ export interface EntityLink {
 }
 
 export interface EntityPresentation extends EntityLink {
-  definition:
-    | ConstructSpec
-    | IndicatorSpec
-    | ParameterSpec
-    | Omit<CausalEdgeSpec, "cause" | "effect">;
   relationships: EntityLink[];
 }
 
 /** Resolve ownership, labels and fields regardless of where endpoints serialize. */
 export function resolveEntity(
   entities: ModelEntities,
-  selection: ModelSelection,
+  selection: EntitySelection,
 ): EntityPresentation | undefined {
   const constructLink = (construct: ConstructSpec): EntityLink => ({
     selection: { kind: "construct", id: construct.id },
     label: humanize(construct.name),
   });
   switch (selection.kind) {
-    case "revision":
-      return undefined;
     case "edge": {
       const edge = entities.edgeById.get(selection.id);
       if (!edge) return undefined;
       const relationships = [edge.cause, edge.effect].map((endpoint) =>
         constructLink(entities.constructById.get(endpoint.id)!),
       );
-      const definition = {
-        id: edge.id,
-        description: edge.description,
-        mechanisms: edge.mechanisms,
-        sources: edge.sources,
-      };
       return {
         selection,
         label: relationships.map((link) => link.label).join(" → "),
-        definition,
         relationships,
       };
     }
@@ -84,33 +65,23 @@ export function resolveEntity(
         ? {
             selection,
             label: humanize(indicator.name),
-            definition: indicator,
             relationships: [constructLink(entities.indicatorOwnerById.get(selection.id)!)],
           }
         : undefined;
     }
-    case "construct":
-    case "parameter": {
-      const entity =
-        selection.kind === "construct"
-          ? entities.constructById.get(selection.id)
-          : entities.parameterById.get(selection.id);
-      return entity
-        ? { selection, label: humanize(entity.name), definition: entity, relationships: [] }
-        : undefined;
+    case "construct": {
+      const entity = entities.constructById.get(selection.id);
+      return entity ? { selection, label: humanize(entity.name), relationships: [] } : undefined;
     }
   }
 }
 
-export function entityOptions(entities: ModelEntities): EntityLink[] {
-  const selections: EntitySelection[] = [
-    ...entities.constructs.map(({ id }) => ({ kind: "construct" as const, id })),
-    ...entities.indicators.map(({ id }) => ({ kind: "indicator" as const, id })),
-    ...entities.edges.map(({ id }) => ({ kind: "edge" as const, id })),
-    ...entities.parameters.map(({ id }) => ({ kind: "parameter" as const, id })),
-  ];
-  return selections.map((selection) => ({
-    selection,
-    label: `${selection.kind[0].toUpperCase()}${selection.kind.slice(1)} · ${resolveEntity(entities, selection)!.label}`,
-  }));
+/** A parameter link opens the entity whose own law section displays it. */
+export function parameterOwner(entities: ModelEntities, id: ParameterId) {
+  for (const kind of ["edge", "indicator", "construct"] as const) {
+    const entity = entities[`${kind}s`].find((entity) =>
+      ownLawUses(entity).some((use) => use.parameterId === id),
+    );
+    if (entity) return resolveEntity(entities, { kind, id: entity.id } as EntitySelection);
+  }
 }

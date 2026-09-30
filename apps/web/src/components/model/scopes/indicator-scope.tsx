@@ -7,10 +7,11 @@ import { ownLawUses } from "@/lib/model-asset/laws";
 import { formatFillNull, humanize } from "@/lib/model-asset/selection";
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import { formatSignificant } from "@/lib/utils/format";
-import { Hint, KeyValue, ParameterLinks, Section, StatusIcon } from "../scope-primitives";
+import { Hint, KeyValue, Section, StatusIcon } from "../scope-primitives";
 import { LawSections, SimulatedHistory } from "./law-sections";
-import { parametersForOwner } from "./parameters";
+import { Katex } from "@/components/analysis-widgets/statistical-model-spec/ssm-equation-display";
 import { ObservationPlots, PredictiveHistoryPlot } from "./recorded-history";
+import { PredictiveFindings } from "../simulation-evidence";
 
 const CHECK_STATUS = {
   ok: "passed",
@@ -26,13 +27,14 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
   const preparation = context.model.data.metadata?.value.preparation?.variables.find(
     (variable) => variable.id === id,
   );
-  const parameters = parametersForOwner(context.model.model?.value, id);
+  const equation = context.model.findings.diagnostics?.observation_equations[id];
   const empirical = context.model.data.profile?.value.indicators[id]?.profile;
   const priorPredictive = context.model.findings.diagnostics?.likelihood_diagnostics[id];
   const comparison =
     predictive?.source.validity === "fresh" ? predictive.value.predictive_checks : null;
   const overlay = comparison?.overlays.find((item) => item.indicator_id === id);
   const statistics = comparison?.test_stats.filter((item) => item.indicator_id === id) ?? [];
+  const findings = predictive?.value.findings.filter((finding) => finding.target === id) ?? [];
   return (
     <>
       <Section title="Measurement">
@@ -60,6 +62,11 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
           </div>
         </details>
       </Section>
+      {equation && (
+        <Section title="Observation equation" wide>
+          <Katex latex={equation} />
+        </Section>
+      )}
       <LawSections context={context} uses={ownLawUses(indicator)} />
       {likelihood && priorPredictive && priorPredictive.histogram.length > 0 && (
         <Section
@@ -80,7 +87,6 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
           <Hint>{preparation.how_to_measure}</Hint>
           <KeyValue
             rows={[
-              ["Null filling", formatFillNull(preparation)],
               ["Extraction", preparation.extraction_mode],
               ["Source columns", preparation.source_columns.join(", ")],
             ]}
@@ -131,13 +137,15 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
           </details>
         </Section>
       )}
-      {(checks.length > 0 || overlay) && (
+      {(checks.length > 0 || findings.length > 0 || overlay) && (
         <Section title="Predictive checks" source={predictive?.source} wide>
+          <PredictiveFindings findings={findings} entities={context.entities} />
           {checks.map((check) => (
             <div key={check.check_type} className="flex items-center gap-2">
               <StatusIcon status={check.passed ? "passed" : "failed"} />
               <span>
                 {humanize(check.check_type)}: {check.value.toFixed(2)}
+                <Hint issue={!check.passed}>{check.message}</Hint>
               </span>
             </div>
           ))}
@@ -161,11 +169,6 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
         </Section>
       )}
       <SimulatedHistory context={context} id={id} kind="indicators" />
-      {parameters.length > 0 && (
-        <Section title="Parameters">
-          <ParameterLinks parameters={parameters} onSelect={context.select} />
-        </Section>
-      )}
     </>
   );
 }

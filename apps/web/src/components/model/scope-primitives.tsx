@@ -1,17 +1,8 @@
-import type { FactSource, ParameterSpec } from "@nof1-causal-lab/api-types";
+import type { FactSource } from "@nof1-causal-lab/api-types";
 import { Check, CircleDashed, ClockAlert, TriangleAlert, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { signColor } from "@/lib/dag/palette";
-import type { PosteriorRow } from "@/lib/model-asset/inspector";
-import {
-  formatPlain,
-  formatSigned,
-  humanize,
-  type ModelSelection,
-} from "@/lib/model-asset/selection";
 import { cn } from "@/lib/utils";
-import { formatPosteriorIntervalLabel } from "@/lib/utils/format";
 
 const STATUS_PRESENTATION = {
   passed: { icon: Check, className: "text-success", label: "Passed" },
@@ -64,16 +55,14 @@ export function Section({
   return (
     <section
       aria-label={title}
-      className={cn(
-        "flex max-h-full w-[280px] min-w-0 flex-none flex-col gap-2 border-t border-border pt-2",
-        wide && "w-[400px]",
-      )}
+      data-wide={wide || undefined}
+      className="flex min-w-0 flex-none flex-col gap-2 border-t border-border pt-2"
     >
       <div className="flex flex-none items-center justify-between gap-2">
         <span className="text-xs font-semibold">{title}</span>
         {source?.validity === "stale" && <StatusIcon status="stale" />}
       </div>
-      <div className="flex min-h-0 flex-col gap-2 overflow-auto text-[11.5px]">{children}</div>
+      <div className="flex min-h-0 flex-col gap-2 text-[11.5px]">{children}</div>
     </section>
   );
 }
@@ -133,63 +122,5 @@ export function OwnerLink({ onClick, children }: { onClick: () => void; children
     >
       {children}
     </button>
-  );
-}
-
-export function ParameterLinks({
-  parameters,
-  onSelect,
-}: {
-  parameters: ParameterSpec[];
-  onSelect: (selection: ModelSelection) => void;
-}) {
-  return (
-    <ul className="m-0 flex list-none flex-col gap-2 p-0">
-      {parameters.map((parameter) => (
-        <li key={parameter.id} title={humanize(parameter.description)}>
-          <OwnerLink onClick={() => onSelect({ kind: "parameter", id: parameter.id })}>
-            {humanize(parameter.name)}
-          </OwnerLink>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-export function PosteriorTable({ rows }: { rows: PosteriorRow[] }) {
-  if (rows.length === 0) return null;
-  const intervalLabel = formatPosteriorIntervalLabel(rows[0]);
-  const sharedInterval = rows.every((row) => formatPosteriorIntervalLabel(row) === intervalLabel);
-  const multiple = rows.length > 1;
-  return (
-    <table className="w-full border-collapse text-[11px]">
-      <thead>
-        <tr className="text-left text-muted-foreground">
-          {multiple && <th className="border-b pb-1 pr-2 font-medium">Element</th>}
-          <th className="border-b pb-1 pr-2 font-medium">Mean</th>
-          <th className="border-b pb-1 font-medium">
-            {sharedInterval ? intervalLabel : "Interval"}
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => (
-          <tr key={row.parameter}>
-            {multiple && (
-              <td className="border-b py-1 pr-2" title={row.parameter}>
-                {humanize(row.parameter)}
-              </td>
-            )}
-            <td className="border-b py-1 pr-2 font-mono" style={{ color: signColor(row.mean) }}>
-              {formatSigned(row.mean)}
-            </td>
-            <td className="border-b py-1 font-mono">
-              [{formatPlain(row.lower)}, {formatPlain(row.upper)}]
-              {!sharedInterval && ` · ${formatPosteriorIntervalLabel(row)}`}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
   );
 }

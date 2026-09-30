@@ -10,6 +10,7 @@ import type {
 } from "@nof1-causal-lab/api-types";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { ModelEntities } from "@/lib/model-asset/entities";
 import { useDagLayout } from "@/lib/hooks/use-dag-layout";
 import { type LawCurve, lawCurves, ownLawUses } from "@/lib/model-asset/laws";
 import type { DagLayoutNode } from "@/lib/utils/dag-graph-layout";
@@ -27,19 +28,22 @@ import { useGraphControls, usePlayback } from "./use-graph-controls";
 
 export interface LayeredGraphOptions {
   model: ModelSnapshot;
+  entities: ModelEntities;
   /** A simulation of the viewed model revision; its node histories replace the law charts. */
   simulation?: SimulationReport | null;
   comparison?: ModelDiffReport | null;
-  selectedNode: ConstructId | null;
+  selection: import("@/lib/model-asset/selection").EntitySelection | null;
 }
 
 /** Derive graph display state from recorded model findings and user interaction. */
 export function useLayeredGraph({
   model,
+  entities: indexed,
   simulation = null,
   comparison = null,
-  selectedNode,
+  selection,
 }: LayeredGraphOptions) {
+  const selectedNode = selection?.kind === "construct" ? selection.id : null;
   const available = useMemo(() => availableGraphLayers(model, simulation), [model, simulation]);
   const [hiddenLayers, setHiddenLayers] = useState<Set<CausalGraphLayerId>>(() => new Set());
   const { zoom, setZoom, hoveredEdge, setHoveredEdge } = useGraphControls(1, 0.08, 1.8);
@@ -50,7 +54,7 @@ export function useLayeredGraph({
     [available, hiddenLayers],
   );
 
-  const entities = useMemo(() => graphEntities(model), [model]);
+  const entities = useMemo(() => graphEntities(model, indexed), [model, indexed]);
   const topology = useMemo(
     () =>
       buildLayeredCausalGraph(entities.constructs, entities.edges, entities.dynamicConstructIds),
@@ -100,13 +104,6 @@ export function useLayeredGraph({
       ? entities.indicators.flatMap((indicator) =>
           indicator.likelihood ? [[indicator.id, indicator.likelihood] as const] : [],
         )
-      : [],
-  );
-  const warningVariables = new Set(
-    model.findings.predictive?.source.validity === "fresh"
-      ? (model.findings.predictive?.value.predictive_checks?.per_variable_warnings ?? [])
-          .filter((check) => !check.passed)
-          .map((check) => check.indicator_id)
       : [],
   );
   const lawsVisible = specificationVisible || fitVisible;
@@ -216,7 +213,12 @@ export function useLayeredGraph({
       disposition,
       posterior,
       laws: meta.isSelf || !lawsVisible ? [] : (edgeLaws.get(meta.id as EdgeId) ?? []),
-      color: change ? COMPARISON_COLORS[change] : color,
+      color:
+        selection?.kind === "edge" && selection.id === meta.id
+          ? "var(--primary)"
+          : change
+            ? COMPARISON_COLORS[change]
+            : color,
       width: change ? Math.max(width, 3 / zoom) : width,
       opacity: change ? 1 : opacity,
       dimmed: change ? false : dimmed,
@@ -246,7 +248,6 @@ export function useLayeredGraph({
     nodeStatuses,
     indicatorsByConstruct,
     likelihoodByVariable,
-    warningVariables,
     constructLaws: lawsVisible ? constructLaws : new Map<ConstructId, LawCurve[]>(),
     simulationResult,
     days,

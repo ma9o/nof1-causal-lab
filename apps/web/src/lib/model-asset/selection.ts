@@ -4,19 +4,14 @@ import {
   type ConstructId,
   type EdgeId,
   type IndicatorId,
-  type ParameterId,
   type ObservationSpec,
 } from "@nof1-causal-lab/api-types";
 
-/** The model entity or recorded version shown in the details pane. */
-export type ModelSelection =
-  | { kind: "revision"; seq: number }
+/** The graph entity shown in the details pane. */
+export type EntitySelection =
   | { kind: "construct"; id: ConstructId }
   | { kind: "edge"; id: EdgeId }
-  | { kind: "indicator"; id: IndicatorId }
-  | { kind: "parameter"; id: ParameterId };
-
-export type EntitySelection = Exclude<ModelSelection, { kind: "revision" }>;
+  | { kind: "indicator"; id: IndicatorId };
 
 /** Short action labels for every artifact the machine can install. */
 export const ARTIFACT_LABEL: Record<ArtifactId, string> = {

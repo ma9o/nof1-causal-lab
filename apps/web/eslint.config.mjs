@@ -9,6 +9,21 @@ const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
   {
+    files: ["**/*.{ts,tsx}"],
+    languageOptions: {
+      parserOptions: {
+        projectService: {
+          allowDefaultProject: [".storybook/*.ts", ".storybook/svg-materializer/*.ts", ".storybook/svg-materializer/*.tsx"],
+        },
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
+      "@typescript-eslint/no-unnecessary-condition": "error",
+      "@typescript-eslint/switch-exhaustiveness-check": "error",
+    },
+  },
+  {
     files: ["src/lib/{dag,model-asset,admission,tables}/**/*.{ts,tsx}"],
     ignores: ["**/*.test.ts"],
     rules: {

@@ -7,7 +7,7 @@ import { useModelDiff } from "@/lib/hooks/use-model-diff";
 import { indexModel } from "./entities";
 import { journalTicks, latestSeq } from "./journal";
 import type { ScopeContext } from "./scope";
-import type { ModelSelection } from "./selection";
+import type { EntitySelection } from "./selection";
 
 export type SnapshotReader = (
   commitId: string,
@@ -36,7 +36,7 @@ export function useWorkbenchSnapshots(
     : branches[branch];
   const selected = useSnapshot(commitId, record?.branch ?? branch);
   const current = useSnapshot(branches[branch], branch);
-  return { selected, current, viewAt };
+  return { selected, current, viewAt, focusSeq: playhead };
 }
 
 interface WorkbenchOptions {
@@ -57,10 +57,7 @@ export function useWorkbench({
   currentModel,
   viewAt,
 }: WorkbenchOptions) {
-  const [selectionOverride, setSelection] = useState<ModelSelection | null>({
-    kind: "revision",
-    seq: model.context.seq,
-  });
+  const [selection, select] = useState<EntitySelection | null>(null);
   const [comparison, setComparison] = useState<{
     before: number;
     after: number;
@@ -77,14 +74,7 @@ export function useWorkbench({
   const ticks = useMemo(() => journalTicks(transitions), [transitions]);
   const latest = currentModel.context.seq;
   const playhead = model.context.seq;
-  // Version details follow the viewed snapshot, including new harness work at the live head.
-  const selection: ModelSelection | null =
-    selectionOverride?.kind === "revision" &&
-    ticks.some((tick) => tick.seq === selectionOverride.seq && tick.status === "applied")
-      ? { kind: "revision", seq: playhead }
-      : selectionOverride;
   const modelRevision = model.context.state.current.model?.revision;
-  const focusSeq = selection?.kind === "revision" ? selection.seq : playhead;
   const activeComparison = comparison?.before === playhead ? comparison : null;
   const compared = useModelDiff(
     workspaceId,
@@ -115,7 +105,6 @@ export function useWorkbench({
   };
   const selectVersion = (seq: number | null) => {
     dismissComparison();
-    setSelection({ kind: "revision", seq: seq ?? latest });
     viewAt(seq === latest ? null : seq);
   };
   const question = model.model?.value.question ?? initialQuestion;
@@ -125,14 +114,9 @@ export function useWorkbench({
     simulation?.source.validity === "fresh" && simulation.value.model.revision === modelRevision
       ? simulation.value
       : null;
-  const select = (next: ModelSelection | null) => {
-    if (next?.kind === "revision") selectVersion(next.seq);
-    else setSelection(next);
-  };
   const context: ScopeContext = {
     model,
     entities,
-    ticks,
     select,
   };
 
@@ -142,7 +126,6 @@ export function useWorkbench({
 
   return {
     selection,
-    focusSeq,
     ticks,
     latest,
     playhead,

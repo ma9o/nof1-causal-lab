@@ -5,9 +5,18 @@ import { LoaderCircle, X } from "lucide-react";
 import { useMemo } from "react";
 import { ChatMessages } from "@/components/ui/custom/chat-messages";
 import type { JournalTick } from "@/lib/model-asset/journal";
+import type { ScopeContext } from "@/lib/model-asset/scope";
+import { humanize } from "@/lib/model-asset/selection";
 import { timelineTickLabel } from "@/lib/model-asset/timeline-presentation";
 import { cn } from "@/lib/utils";
 import { traceToUIMessages } from "@/lib/utils/trace-to-ui-messages";
+import { ActionFindings } from "./action-findings";
+import { Hint, Section } from "./scope-primitives";
+import { DataDetails } from "./scopes/data-details";
+import { EditDetails } from "./scopes/edit-details";
+import { FitCalibration } from "./scopes/fit-calibration";
+import { FitDetails } from "./scopes/fit-details";
+import { SimulationEvidence } from "./simulation-evidence";
 
 export type ActionTraceState =
   | { status: "loading" }
@@ -68,14 +77,25 @@ function ActionTrace({
 }
 
 /**
- * The selected action's own log: its messages and recorded model calls. An action the episode
- * workflow is executing has no timeline node yet, so it streams in under the head it started from.
+ * What the selected action did and what came of it, stated rather than shown: its verdicts, its
+ * warnings with their reasons, and the results that matter. The state the action left belongs to
+ * the graph and the details pane.
+ * - edit_model: what changed, in model terms, and what its checks concluded (identification kept
+ *   or lost, which predictive checks failed and why).
+ * - prepare_data: which data arrived (source, window, variables, volume) and the problems found.
+ * - fit: how it ran, in one line, and its verdict, such as parameter convergence failing for 7 of
+ *   7 parameters with a worst R-hat of 2.3.
+ * - simulate: the simulator's log and nothing more; everything the simulation produced is state.
+ * An action the episode workflow is still executing has no timeline node yet, so it streams in
+ * under the head it started from.
  */
-export function ConversationPane({
+export function ActionRecord({
+  context,
   tick,
   running,
   useActionTrace,
 }: {
+  context: ScopeContext;
   tick: JournalTick | undefined;
   running: RunningAction | null;
   useActionTrace: UseActionTrace;
@@ -83,7 +103,7 @@ export function ConversationPane({
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="flex flex-none items-center gap-2 border-b px-3 py-2.5">
-        <h2 className="text-xs font-semibold">Action log</h2>
+        <h2 className="text-xs font-semibold">Action record</h2>
         {tick && (
           <span className="ml-auto flex min-w-0 items-center gap-1 font-mono text-[10px] text-muted-foreground">
             {tick.status !== "applied" && (
@@ -94,17 +114,37 @@ export function ConversationPane({
           </span>
         )}
       </div>
-      <div key={tick?.seq} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto py-2">
+      <div key={tick?.seq} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 py-2">
         {tick ? (
           <>
-            {tick.messages.length > 0 ? (
-              <ActionLabels messages={tick.messages} />
+            {tick.status !== "applied" ? (
+              <Section
+                title={`${humanize(tick.action).replace(/^./, (letter) => letter.toUpperCase())} failed`}
+              >
+                <Hint issue>{tick.error}</Hint>
+              </Section>
             ) : (
-              tick.traceIds.length === 0 && (
-                <p className="px-4 text-xs text-muted-foreground">No log was recorded.</p>
-              )
+              <>
+                {tick.action === "edit_model" && <EditDetails context={context} tick={tick} />}
+                {tick.action === "prepare_data" && <DataDetails context={context} tick={tick} />}
+                {tick.action === "fit" && (
+                  <>
+                    <FitDetails context={context} />
+                    <FitCalibration context={context} />
+                  </>
+                )}
+                {tick.action === "simulate" && <SimulationEvidence context={context} />}
+                <ActionFindings context={context} tick={tick} />
+              </>
             )}
-            <ActionTrace tick={tick} useActionTrace={useActionTrace} />
+            {tick.traceIds.length > 0 && (
+              <details className="px-3 text-xs">
+                <summary className="cursor-pointer text-muted-foreground">
+                  Agent conversation
+                </summary>
+                <ActionTrace tick={tick} useActionTrace={useActionTrace} />
+              </details>
+            )}
           </>
         ) : (
           !running && <p className="px-4 text-xs text-muted-foreground">No actions yet.</p>

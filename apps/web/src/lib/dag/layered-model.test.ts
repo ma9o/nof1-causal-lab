@@ -1,3 +1,4 @@
+import { indexModel } from "@/lib/model-asset/entities";
 import { describe, expect, it } from "vitest";
 import { demoSnapshotAt } from "@/components/__fixtures__/demo-artifacts";
 import { availableGraphLayers, graphEntities } from "@/lib/dag/layered-model";
@@ -22,8 +23,10 @@ describe("semantic graph layers", () => {
   it("renders the backend selection while preserving the full structural model for inspection", () => {
     const structural = demoSnapshotAt(3);
     const measured = structuredClone(demoSnapshotAt(4));
-    expect(graphEntities(structural).constructs).toHaveLength(17);
-    const graph = graphEntities(measured);
+    expect(graphEntities(structural, indexModel(structural.model?.value)).constructs).toHaveLength(
+      17,
+    );
+    const graph = graphEntities(measured, indexModel(measured.model?.value));
     expect(graph.constructs).toHaveLength(13);
     expect(graph.constructs.map((item) => item.name)).not.toContain(
       "neuroadaptation_dependence_state",
@@ -35,8 +38,10 @@ describe("semantic graph layers", () => {
     expect(graph.edges.map((item) => item.id)).toEqual(measured.findings.graph.edge_ids);
     // Identification status does not override the backend's retained-state selection.
     measured.findings.graph.status[graph.constructs[0].id] = "blocking";
-    expect(graphEntities(measured)).toEqual(graph);
+    expect(graphEntities(measured, indexModel(measured.model?.value))).toEqual(graph);
     expect(measured.model!.value.edges).toHaveLength(32);
-    expect(graphEntities(demoSnapshotAt(2)).constructs).toEqual([]);
+    expect(
+      graphEntities(demoSnapshotAt(2), indexModel(demoSnapshotAt(2).model?.value)).constructs,
+    ).toEqual([]);
   });
 });

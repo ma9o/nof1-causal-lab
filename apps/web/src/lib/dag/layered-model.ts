@@ -1,6 +1,6 @@
 import type { ModelSnapshot, SimulationReport } from "@nof1-causal-lab/api-types";
 import { modelConstructs } from "@/lib/model-accessors";
-import { indexModel } from "@/lib/model-asset/entities";
+import type { ModelEntities } from "@/lib/model-asset/entities";
 
 export const CAUSAL_GRAPH_LAYER_ORDER = [
   "structure",
@@ -13,8 +13,7 @@ export const CAUSAL_GRAPH_LAYER_ORDER = [
 export type CausalGraphLayerId = (typeof CAUSAL_GRAPH_LAYER_ORDER)[number];
 
 /** Resolve the backend's graph selection without changing the scientific definition. */
-export function graphEntities(model: ModelSnapshot) {
-  const indexed = indexModel(model.model?.value);
+export function graphEntities(model: ModelSnapshot, indexed: ModelEntities) {
   const constructs = model.findings.graph.construct_ids.map((id) => indexed.constructById.get(id)!);
   return {
     constructs,

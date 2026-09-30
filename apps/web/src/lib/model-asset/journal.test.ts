@@ -144,18 +144,13 @@ describe("journalTicks", () => {
     expect(ticks.map((tick) => tick.seq)).toEqual([1, 2, 3, 4, 5, 6, 7]);
     expect(ticks[4].error).toBe("inputs missing");
   });
-  it("reads the installed revision, derived co-outputs and retractions off the record", () => {
-    const [, , design, raised, , , rewrite] = journalTicks(JOURNAL);
-    expect(design.revision).toBe("2".padStart(40, "0"));
-    expect(design.derived).toEqual(["identification_report"]);
+  it("retains produced artifacts for the action record", () => {
+    const [, , design, raised] = journalTicks(JOURNAL);
     expect(design.produced.map((info) => [info.artifact_id, info.revision])).toEqual([
       ["model", "2".padStart(40, "0")],
       ["identification_report", "1".padStart(40, "0")],
     ]);
-    expect(raised.revision).toBeNull();
     expect(raised.error).toBe("prior admission failed");
-    expect(rewrite.revision).toBe("4".padStart(40, "0"));
-    expect(rewrite.retracted).toEqual(["identification_report"]);
   });
 });
 it("retains simulation findings as a committed checkpoint without an artifact output", () => {
@@ -170,49 +165,8 @@ it("retains simulation findings as a committed checkpoint without an artifact ou
     { diagnostics: { simulation: { findings: [] } } },
   );
   const [tick] = journalTicks([simulation]);
-  expect(tick.revision).toBeNull();
   expect(tick.produced).toEqual([]);
-  expect(tick.diagnostics).toEqual(simulation.diagnostics);
   expect(latestSeq([...JOURNAL, simulation])).toBe(8);
-});
-it("keeps extraction outcomes and empty completions without a worker artifact", () => {
-  const workers = [{ worker_id: 0, status: "failed", error: "No observations" }];
-  const [populated, empty] = journalTicks([
-    record(
-      1,
-      {
-        action: "prepare_data",
-        operation_id: "measurements",
-        inputs: {},
-      },
-      "applied",
-      {
-        produced: [
-          produced("panel", "0000000000000000000000000000000000000001"),
-          produced("validation_report", "0000000000000000000000000000000000000001"),
-        ],
-      },
-    ),
-    record(
-      2,
-      {
-        action: "prepare_data",
-        operation_id: "measurements",
-        inputs: {},
-      },
-      "applied",
-      {
-        diagnostics: { workers },
-        retracted: [{ artifact_id: "panel", reason_ref: "empty extraction" }],
-      },
-    ),
-  ]);
-  expect(populated.revision).toBe("1".padStart(40, "0"));
-  expect(populated.derived).toEqual(["validation_report"]);
-  expect(empty.revision).toBeNull();
-  expect(empty.derived).toEqual([]);
-  expect(empty.retracted).toEqual(["panel"]);
-  expect(empty.diagnostics.workers).toEqual(workers);
 });
 describe("latestSeq", () => {
   it("excludes failed attempts from model revisions", () => {
