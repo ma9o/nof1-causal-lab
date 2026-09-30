@@ -482,8 +482,6 @@ def fit_marginal_particle_gibbs(
         _mpg_phase_elapsed(phase_t0),
         _mpg_phase_elapsed(overall_t0),
     )
-    if bundle.latent_transition_kind != LATENT_TRANSITION_EULER_MARUYAMA:
-        raise RuntimeError("Particle posterior used a non-production latent transition target")
     latent_paths = run_result["latent_paths"]
     return ParticleMCMCPosterior(
         draws=JointPosteriorDraws(

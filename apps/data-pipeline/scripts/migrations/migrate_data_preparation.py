@@ -28,6 +28,7 @@ from nof1_causal_lab.machine.git_objects import write_tree
 from nof1_causal_lab.models.model_inputs import input_fingerprints
 from nof1_causal_lab.utils.arrays import read_array, write_array
 from scripts.migrations.migrate_fill_null import update_observation_definitions
+from scripts.migrations.study_rewrite import remove_edge_timing
 
 EXTRACTION_FIELDS = {
     "how_to_measure",
@@ -116,7 +117,7 @@ def migrate_workspace(
 
     def model_value(oid):
         return ModelSpec.model_validate(
-            strip_instructions(payload(oid, "model.json")),
+            remove_edge_timing(strip_instructions(payload(oid, "model.json"))),
             context={"distribution_array_loader": lambda ref: read_array(array_root, ref)},
         )
 
@@ -219,6 +220,7 @@ def migrate_workspace(
             if meta["produced_by"] == "run:simulated_measurements":
                 generating = model_value(model_revision)
                 metadata = PreparedDataMetadata(
+                    time_origin=None,
                     source=SimulationReplicateRef.model_validate(simulation_sources[oid]),
                     variables=tuple(
                         ObservationSpec.model_validate(
@@ -238,9 +240,12 @@ def migrate_workspace(
                     else preparation(model_revision)
                 )
                 metadata = PreparedDataMetadata(
-                    source=file_source, variables=recipe.observation_schema(), preparation=recipe
+                    time_origin=None,
+                    source=file_source,
+                    variables=recipe.observation_schema(),
+                    preparation=recipe,
                 )
-            content["metadata.json"] = metadata.model_dump_json().encode()
+            content["metadata.json"] = metadata.model_dump_json(exclude={"time_origin"}).encode()
             meta["derived_from"].pop("model")
             meta["consumed_model_inputs"] = {}
         if identity not in {"model", "panel"} and "model" in meta["derived_from"]:
@@ -305,7 +310,9 @@ def migrate_workspace(
                 )
                 report = profile_data(
                     pl.read_parquet(table),
-                    metadata=PreparedDataMetadata.model_validate_json(content["metadata.json"]),
+                    metadata=PreparedDataMetadata.model_validate(
+                        {**json.loads(content["metadata.json"]), "time_origin": None}
+                    ),
                 )
                 profile_meta = {
                     "artifact_id": "data_profile",

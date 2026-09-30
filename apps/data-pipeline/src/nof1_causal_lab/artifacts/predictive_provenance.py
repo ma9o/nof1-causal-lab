@@ -16,6 +16,7 @@ class PredictiveLawProvenance(BaseModel):
 
     kind: Literal["authored", "fitted", "mixed", "unknown"]
     fitted_panel_revision: GitOid | None = None
+    fitted_model_revision: GitOid | None = None
     interpretation: Literal[
         "prior_predictive",
         "in_sample_posterior_predictive",

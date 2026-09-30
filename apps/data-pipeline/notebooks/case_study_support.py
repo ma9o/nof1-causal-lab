@@ -60,7 +60,7 @@ class Indicator(NamedTuple):
 class CaseStudy:
     """Everything a blind case study authors from its brief.
 
-    Every edge is lagged. Roots are exogenous; constructs without an indicator are
+    Every edge contributes to state dynamics. Roots are exogenous; constructs without an indicator are
     unobserved, and the structural compiler marginalizes them.
     """
 
@@ -116,7 +116,6 @@ def scientific_model(case: CaseStudy) -> ModelSpec:
                     "cause": constructs[cause],
                     "effect": constructs[effect],
                     "description": f"{cause} -> {effect}",
-                    "lagged": True,
                 }
                 for cause, effect in case.edges
             ],

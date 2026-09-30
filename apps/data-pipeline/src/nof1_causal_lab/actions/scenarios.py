@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from nof1_causal_lab.actions.simulation_summaries import paired_effect_trajectory
 from nof1_causal_lab.artifacts.scenarios import CausalEffectResult
 from nof1_causal_lab.models.causal_proofs import (
     CertifiedCausalAnalysis,
@@ -71,11 +72,7 @@ def summarize_causal_simulation(
         action[:, :, report.state_ids.index(outcome)]
         - reference[:, :, report.state_ids.index(outcome)]
     )
-    days = np.asarray(report.times) - report.times[0]
-    trajectory = [
-        {"day": float(t), "effect": float(value)}
-        for t, value in zip(days[1:], effects.mean(axis=0)[1:], strict=True)
-    ]
+    trajectory = paired_effect_trajectory(report.times, effects)
     difference = store.read_array(report.observations) - store.read_array(
         report.reference_observations
     )
@@ -86,18 +83,10 @@ def summarize_causal_simulation(
     }
     result = CausalEffectResult(
         outcome=outcome,
-        time_grid_days=days.tolist(),
         labels={construct.id: construct.name for construct in model.constructs},
         summary=summarize_draws(effects[:, -1]),
         effect_trajectory=trajectory,
-        trajectory_peak=max(trajectory, key=lambda point: abs(point["effect"])),
-        trajectories={
-            identity: {
-                "reference_mean": reference[:, :, i].mean(axis=0).tolist(),
-                "action_mean": action[:, :, i].mean(axis=0).tolist(),
-            }
-            for i, identity in enumerate(report.state_ids)
-        },
+        trajectory_peak=max(trajectory, key=lambda point: abs(point.effect)),
         manifest_effects=manifest,
         reference_mean=float(reference[:, -1, report.state_ids.index(outcome)].mean()),
         warnings=[]

@@ -67,38 +67,45 @@ class ExtractionChunkWorkflow:
     async def run(self, input: ExtractionChunkWorkflowInput) -> ExtractionChunkResult:
         attempt = workflow.info().attempt
         subroutine_id = f"measurement-chunk-{input.worker_id:06d}-attempt-{attempt:03d}"
-        subroutine = await workflow.execute_child_workflow(
-            "LLMSubroutineWorkflow",
-            LLMSubroutineInput(
-                workspace_id=input.workspace_id,
-                run_id=input.run_id,
-                subroutine_id=subroutine_id,
-                context_kind="measurement_extraction",
-                context_ref=input.spec_ref,
-                llm=input.llm,
-                max_tool_turns=input.max_tool_turns,
-            ),
-            id=(
-                f"llm-measurement-{input.workspace_id}-{input.run_id}-"
-                f"chunk-{input.worker_id:06d}-attempt-{attempt:03d}"
-            ),
-            task_queue=workflow.info().task_queue,
-            result_type=LLMSubroutineResult,
-            static_summary=f"LLM extraction subroutine chunk {input.worker_id}",
-            static_details=(
-                f"workspace={input.workspace_id}; run={input.run_id}; "
-                f"chunk={input.worker_id}; attempt={attempt}; "
-                "context=measurement_extraction"
-            ),
-            memo={
-                "workspace_id": input.workspace_id,
-                "run_id": input.run_id,
-                "worker_id": input.worker_id,
-                "attempt": attempt,
-                "context_kind": "measurement_extraction",
-                "subroutine_id": subroutine_id,
-            },
-        )
+        result_ref = input.cached_result_ref
+        conversation_ref = ""
+        n_llm_calls = 0
+        if result_ref is None:
+            subroutine = await workflow.execute_child_workflow(
+                "LLMSubroutineWorkflow",
+                LLMSubroutineInput(
+                    workspace_id=input.workspace_id,
+                    run_id=input.run_id,
+                    subroutine_id=subroutine_id,
+                    context_kind="measurement_extraction",
+                    context_ref=input.spec_ref,
+                    llm=input.llm,
+                    max_tool_turns=input.max_tool_turns,
+                ),
+                id=(
+                    f"llm-measurement-{input.workspace_id}-{input.run_id}-"
+                    f"chunk-{input.worker_id:06d}-attempt-{attempt:03d}"
+                ),
+                task_queue=workflow.info().task_queue,
+                result_type=LLMSubroutineResult,
+                static_summary=f"LLM extraction subroutine chunk {input.worker_id}",
+                static_details=(
+                    f"workspace={input.workspace_id}; run={input.run_id}; "
+                    f"chunk={input.worker_id}; attempt={attempt}; "
+                    "context=measurement_extraction"
+                ),
+                memo={
+                    "workspace_id": input.workspace_id,
+                    "run_id": input.run_id,
+                    "worker_id": input.worker_id,
+                    "attempt": attempt,
+                    "context_kind": "measurement_extraction",
+                    "subroutine_id": subroutine_id,
+                },
+            )
+            result_ref = subroutine.result_ref
+            conversation_ref = subroutine.conversation_ref
+            n_llm_calls = subroutine.n_llm_calls
         return await workflow.execute_activity(
             "finalize_extraction_chunk_activity",
             ExtractionChunkFinalizeInput(
@@ -107,9 +114,11 @@ class ExtractionChunkWorkflow:
                 worker_id=input.worker_id,
                 attempt=attempt,
                 n_windows=input.n_windows,
-                result_ref=subroutine.result_ref,
-                conversation_ref=subroutine.conversation_ref,
-                n_llm_calls=subroutine.n_llm_calls,
+                result_ref=result_ref,
+                conversation_ref=conversation_ref,
+                n_llm_calls=n_llm_calls,
+                spec_ref=input.spec_ref,
+                reused=input.cached_result_ref is not None,
             ),
             result_type=ExtractionChunkResult,
             start_to_close_timeout=_FINALIZE_CHUNK_TIMEOUT,
@@ -198,6 +207,7 @@ class MeasurementsWorkflow:
                                 worker_id=chunk.worker_id,
                                 n_windows=chunk.n_windows,
                                 spec_ref=chunk.spec_ref,
+                                cached_result_ref=chunk.cached_result_ref,
                                 attempt=1,
                                 llm=plan.llm,
                                 max_tool_turns=plan.max_tool_turns,

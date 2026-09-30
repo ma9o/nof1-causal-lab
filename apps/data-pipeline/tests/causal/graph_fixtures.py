@@ -17,7 +17,7 @@ def make_graph(
             name=item["name"],
             description=item["name"],
             role=item.get("role", "endogenous"),
-            temporal_status=item.get("temporal_status", "time_varying"),
+            temporal_status=item.get("temporal_status", "time_invariant"),
         )
         for item in constructs
     }
@@ -27,7 +27,6 @@ def make_graph(
             cause=by_name[edge["cause"]],
             effect=by_name[edge["effect"]],
             description=f"{edge['cause']} causes {edge['effect']}",
-            lagged=edge.get("lagged", False),
         )
         for index, edge in enumerate(edges)
     )

@@ -176,7 +176,9 @@ def _write_validation(
         )
     from nof1_causal_lab.actions.checks import check_model_data
 
-    preflight = check_model_data(model, panel)
+    preflight = check_model_data(
+        model, panel, time_origin=read_data_metadata(store, pins["panel"]).time_origin
+    )
     payload = ValidationReportArtifact.model_validate(
         {
             "indicators": audit_result["indicators"],

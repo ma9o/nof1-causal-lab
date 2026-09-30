@@ -40,7 +40,7 @@
       "src/nof1_causal_lab/flows/transitions/extraction/planning.py",
       "<module>",
       "unchecked-json-usage",
-      "UncheckedJsonObject[8]"
+      "UncheckedJsonObject[5]"
     ],
     [
       "CUSTOM005",
@@ -236,7 +236,7 @@
       "src/nof1_causal_lab/utils/model_structure.py",
       "<module>",
       "unchecked-json-usage",
-      "UncheckedJsonObject[5]"
+      "UncheckedJsonObject[4]"
     ],
     [
       "CUSTOM005",

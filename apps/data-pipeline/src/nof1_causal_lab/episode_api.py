@@ -12,7 +12,7 @@ import re
 from typing import TYPE_CHECKING, Annotated, Any
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, Query, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from nof1_causal_lab.actions.contracts import ScientificActionRequest  # noqa: TC001
@@ -24,6 +24,7 @@ from nof1_causal_lab.artifacts.identity import (
     SCIENTIFIC_ACTION_IDS,
     ArtifactId,
     GitOid,
+    IndicatorId,
     OperationId,
 )
 from nof1_causal_lab.artifacts.indicator import IndicatorSpec
@@ -59,7 +60,15 @@ from nof1_causal_lab.machine.store import (
     read_current_state,
     read_episode_trace,
 )
-from nof1_causal_lab.machine.view_models import ArtifactViewResponse, SimulationTrajectories
+from nof1_causal_lab.machine.view_models import ArtifactViewResponse
+from nof1_causal_lab.machine.visual_models import (
+    MechanismCurves,
+    MechanismViewRequest,
+    ObservationHistory,
+    ParameterDraws,
+    PredictiveHistory,
+    SimulationPaths,
+)
 from nof1_causal_lab.utils.data import cache_dir
 from nof1_causal_lab.utils.llm import LLMTrace
 
@@ -102,7 +111,11 @@ _MODEL_JSON = TypeAdapter(ModelSpec)
 _MODEL_DIFF_JSON = TypeAdapter(ModelDiffReport)
 _ACTION_POLL_JSON = TypeAdapter(ActionPoll)
 _INFERENCE_REPORT_JSON = TypeAdapter(Sourced[InferenceReport] | None)
-_TRAJECTORIES_JSON = TypeAdapter(Sourced[SimulationTrajectories] | None)
+_OBSERVATION_HISTORY_JSON = TypeAdapter(ObservationHistory | None)
+_PREDICTIVE_HISTORY_JSON = TypeAdapter(PredictiveHistory | None)
+_SIMULATION_PATHS_JSON = TypeAdapter(SimulationPaths | None)
+_PARAMETER_DRAWS_JSON = TypeAdapter(ParameterDraws)
+_MECHANISM_CURVES_JSON = TypeAdapter(MechanismCurves)
 
 router = APIRouter(prefix="/api/episodes")
 
@@ -495,6 +508,14 @@ async def poll_scientific_action(workspace_id: str, attempt_id: UUID) -> ActionP
     return progress
 
 
+async def read_action_poll(workspace_id: str, attempt_id: UUID) -> ActionPoll:
+    """Read the typed action result for in-process callers, including cached completions."""
+    result = await poll_scientific_action(workspace_id, attempt_id)
+    if isinstance(result, Response):
+        return _ACTION_POLL_JSON.validate_json(bytes(result.body))
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Reads: transition-log-backed (no Temporal dependency)
 # ---------------------------------------------------------------------------
@@ -599,7 +620,8 @@ def get_model_diff(
     """Compare two model artifact revisions or Git checkpoints containing a model.
 
     Returns identity-aligned definition changes, parameter decisions and graph
-    differences. Checkpoint selections also include their recorded fit/simulation
+    topology differences. Graph highlights exclude laws and other entity attributes.
+    Checkpoint selections also include their recorded fit/simulation
     evidence; selecting a model tree alone does not infer an associated run.
     """
     from nof1_causal_lab.actions.revisions import model_diff
@@ -623,7 +645,7 @@ def post_data_diff(workspace_id: str, request: DataDiffRequest) -> DataDiffRepor
     Each side accepts a data reference or a nonempty array of references. Panel
     references select artifact revisions; simulation references select applied
     simulation commits and optionally one replicate (otherwise every draw).
-    A simulation's optional time_origin maps model day zero to a calendar instant.
+    Simulation calendar coordinates come from the saved report's origin.
     Exact anchors and measurement windows determine which predictive comparisons
     are available. Results preserve each history and report incompatible inputs.
     """
@@ -673,45 +695,90 @@ def get_model_inference_report(reader: Annotated[ModelReader, Depends(model_read
 
 
 @router.get(
-    "/{workspace_id}/model/simulation-trajectories",
-    response_model=Sourced[SimulationTrajectories] | None,
+    "/{workspace_id}/model/visuals/observations/{indicator_id}",
+    response_model=ObservationHistory | None,
 )
-def get_simulation_trajectories(reader: Annotated[ModelReader, Depends(model_reader)]) -> Response:
-    """Pointwise means and 95% equal-tail bands from saved outcome histories.
-
-    Pin `at` to a commit to read its latest recorded simulation. Both paired
-    histories use the simulation's own model, ordered variables and observation
-    mask. Empty measurement anchors stay null. No fit or simulation is run.
-    """
-    from nof1_causal_lab.machine.simulation_views import (
-        simulation_time_origin,
-        simulation_trajectories,
-    )
-    from nof1_causal_lab.machine.store import read_model
-
-    def render() -> Sourced[SimulationTrajectories] | None:
-        simulation = reader.simulation()
-        if simulation is None:
-            return None
-        try:
-            value = simulation_trajectories(
-                read_model(reader.store, simulation.value.model.revision),
-                simulation.value,
-                read_array=reader.store.read_array,
-                time_origin=simulation_time_origin(reader.store, simulation.value),
-            )
-        except FileNotFoundError as exc:
-            raise HTTPException(404, "Saved simulation arrays were not found") from exc
-        except ValueError as exc:
-            raise HTTPException(422, str(exc)) from exc
-        return Sourced(value=value, source=simulation.source)
+def get_observation_history(
+    indicator_id: IndicatorId, reader: Annotated[ModelReader, Depends(model_reader)]
+) -> Response:
+    """All prepared observations on their recorded temporal support."""
+    from nof1_causal_lab.machine.visuals import observation_history
 
     return _cached_read(
         reader.workspace_id,
-        ("simulation-trajectories", reader.commit_id, reader.branch),
-        _TRAJECTORIES_JSON,
-        render,
+        ("observation-history", reader.commit_id, indicator_id),
+        _OBSERVATION_HISTORY_JSON,
+        lambda: observation_history(reader, indicator_id),
     )
+
+
+@router.get(
+    "/{workspace_id}/model/visuals/predictive/{indicator_id}",
+    response_model=PredictiveHistory | None,
+)
+def get_predictive_history(
+    indicator_id: IndicatorId, reader: Annotated[ModelReader, Depends(model_reader)]
+) -> Response:
+    """Saved predictive paths on the exact schedule of their pinned inputs."""
+    from nof1_causal_lab.machine.visuals import predictive_history
+
+    return _cached_read(
+        reader.workspace_id,
+        ("predictive-history", reader.commit_id, indicator_id),
+        _PREDICTIVE_HISTORY_JSON,
+        lambda: predictive_history(reader, indicator_id),
+    )
+
+
+@router.get("/{workspace_id}/model/visuals/simulation", response_model=SimulationPaths | None)
+def get_simulation_paths(
+    reader: Annotated[ModelReader, Depends(model_reader)],
+    start: Annotated[int, Query(ge=0)] = 0,
+    count: Annotated[int, Query(ge=1, le=128)] = 24,
+) -> Response:
+    """A contiguous page of original simulation draws, without time thinning."""
+    from nof1_causal_lab.machine.visuals import simulation_paths
+
+    try:
+        return _cached_read(
+            reader.workspace_id,
+            ("simulation-paths", reader.commit_id, str(start), str(count)),
+            _SIMULATION_PATHS_JSON,
+            lambda: simulation_paths(reader, start=start, count=count),
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/{workspace_id}/model/visuals/parameters", response_model=ParameterDraws)
+def get_parameter_draws(reader: Annotated[ModelReader, Depends(model_reader)]) -> Response:
+    """All coordinates and all draws of the retained joint posterior."""
+    from nof1_causal_lab.machine.visuals import parameter_draws
+
+    return _cached_read(
+        reader.workspace_id,
+        ("parameter-draws", reader.commit_id),
+        _PARAMETER_DRAWS_JSON,
+        lambda: parameter_draws(reader),
+    )
+
+
+@router.post("/{workspace_id}/model/visuals/mechanism", response_model=MechanismCurves)
+def get_mechanism_curves(
+    request: MechanismViewRequest, reader: Annotated[ModelReader, Depends(model_reader)]
+) -> Response:
+    """Read conditional drift curves using the exact model equations; creates no scientific action."""
+    from nof1_causal_lab.machine.mechanism_views import mechanism_curves
+
+    try:
+        return _cached_read(
+            reader.workspace_id,
+            ("mechanism-curves", reader.commit_id, request.model_dump_json()),
+            _MECHANISM_CURVES_JSON,
+            lambda: mechanism_curves(reader, request),
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @router.get("/{workspace_id}/model/constructs", response_model=tuple[ConstructSpec, ...])

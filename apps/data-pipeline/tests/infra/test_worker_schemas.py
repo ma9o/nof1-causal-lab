@@ -28,6 +28,9 @@ def _measurement_structure(*indicators):
                 "measurement_dtype": dtype,
                 "aggregation": default_aggregations.get(dtype, "last"),
                 **({"ordinal_levels": ["low", "medium", "high"]} if dtype == "ordinal" else {}),
+                **(
+                    {"categorical_levels": ["walking", "running"]} if dtype == "categorical" else {}
+                ),
             }
             for name, dtype in indicators
         ],
@@ -43,8 +46,7 @@ def _measurement_structure(*indicators):
             [None, True, False, 0, 1, "0", "1", "true", "false", "True", "False"],
             ["maybe", 2],
         ),
-        # The count dtype checks representation, not integer value range.
-        ("count", [None, 5, 0, 3.0, -1], [3.5]),
+        ("count", [None, 5, 0, 3.0], [-1, 3.5]),
         ("ordinal", [None, 3, 2.0], ["moderate", True, 1.5]),
         ("categorical", [None, "category_a"], [42]),
     ],
@@ -83,8 +85,11 @@ def test_mixed_output_preserves_identity_windows_missingness_and_normalized_valu
         ("smoking", "2024-01-01", True),
         ("smoking", "2024-01-02", False),
         ("steps", "2024-01-01", 3),
+        ("steps", "2024-01-02", None),
         ("severity", "2024-01-01", 2.0),
-        ("activity", "2024-01-01", "walking"),
+        ("severity", "2024-01-02", None),
+        ("activity", "2024-01-01", " Walking "),
+        ("activity", "2024-01-02", "RUNNING"),
     ]
     payload = {
         "extractions": [
@@ -102,7 +107,18 @@ def test_mixed_output_preserves_identity_windows_missingness_and_normalized_valu
         pl.DataFrame(
             {
                 "indicator_id": [f"indicator:{name}" for name, _, _ in rows],
-                "value": ["7.5", None, "True", "False", "3", "2", "walking"],
+                "value": [
+                    "7.5",
+                    None,
+                    "True",
+                    "False",
+                    "3",
+                    None,
+                    "2",
+                    None,
+                    " Walking ",
+                    "RUNNING",
+                ],
                 "timestamp": [window for _, window, _ in rows],
             }
         ),
@@ -174,7 +190,7 @@ class TestValidateWorkerOutput:
         assert output is None
         assert len(errors) >= 2
 
-    def test_structural_errors_collected_before_semantic_lookup(self):
+    def test_structural_errors_include_missing_expected_pairs(self):
         output, errors = validate_worker_output(
             {
                 "extractions": [
@@ -186,9 +202,13 @@ class TestValidateWorkerOutput:
             expected_window_starts=["2024-01-01"],
         )
         assert output is None
-        assert len(errors) == 2
+        assert len(errors) == 3
         assert "extractions[0]" in errors[0]
         assert "extractions[1]" in errors[1]
+        assert errors[2] == (
+            "Missing extractions (use null for unavailable values): "
+            "[('2024-01-01', 'indicator:mood')]"
+        )
 
     def test_duplicate_window_start_indicator_rejected(self):
         spec = _measurement_structure(("mood", "continuous"))

@@ -8,7 +8,11 @@ from typing import TYPE_CHECKING
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 
 if TYPE_CHECKING:
+    from datetime import date
+
     import polars as pl
+
+    from nof1_causal_lab.workers.schemas import WorkerOutput
 
 logger = logging.getLogger(__name__)
 
@@ -46,19 +50,6 @@ def project_to_source_columns(
     return df.select(keep)
 
 
-def group_indicators_by_window(
-    indicators: list[UncheckedJsonObject],
-    model_clock: str,
-) -> list[tuple[str, list[UncheckedJsonObject]]]:
-    from nof1_causal_lab.utils.causal_design import get_effective_observation_window
-
-    grouped: dict[str, list[UncheckedJsonObject]] = {}
-    for indicator in indicators:
-        window = get_effective_observation_window(indicator, model_clock) or model_clock
-        grouped.setdefault(window, []).append(indicator)
-    return sorted(grouped.items(), key=lambda item: item[0])
-
-
 def prepare_semantic_chunks(
     *,
     raw_df: pl.DataFrame,
@@ -66,24 +57,27 @@ def prepare_semantic_chunks(
     measurement_structure: UncheckedJsonObject,
     model_clock: str,
     time_col: str,
-    windows_per_chunk: int,
     max_events_per_window: int,
-    max_windows: int | None,
-) -> tuple[list[str], list[list[str]], list[UncheckedJsonObject]]:
-    """Prepare semantic extraction chunks without executing them."""
+    start: date | None = None,
+    end: date | None = None,
+) -> tuple[list[str], list[list[str]], list[UncheckedJsonObject], WorkerOutput]:
+    """Plan requests with source values; empty windows yield deterministic null rows."""
     from nof1_causal_lab.utils.causal_design import make_measurement_extraction_context
     from nof1_causal_lab.utils.data import bucket_by_clock
-    from nof1_causal_lab.workers.windows import chunk_windows, format_window_chunk
+    from nof1_causal_lab.workers.schemas import WindowExtraction, WorkerOutput
+    from nof1_causal_lab.workers.windows import format_window_chunk
 
     chunk_texts: list[str] = []
     chunk_window_starts: list[list[str]] = []
     chunk_contexts: list[UncheckedJsonObject] = []
+    empty_output = WorkerOutput()
 
-    for observation_window, semantic_group in group_indicators_by_window(
-        semantic_inds, model_clock
-    ):
+    for indicator in semantic_inds:
+        observation_window = indicator.get("observation_window") or model_clock
+        semantic_group = [indicator]
         semantic_spec = {
             **measurement_structure,
+            "model_clock": observation_window,
             "indicators": semantic_group,
         }
         extraction_ctx = make_measurement_extraction_context(semantic_spec)
@@ -92,7 +86,7 @@ def prepare_semantic_chunks(
         if time_col not in projected.columns:
             projected = projected.with_columns(raw_df[time_col])
 
-        windows = bucket_by_clock(projected, observation_window, time_col)
+        windows = bucket_by_clock(projected, observation_window, time_col, start=start, end=end)
         logger.info(
             "extraction: bucketed %d rows into %d support windows (window=%s, indicators=%d)",
             len(projected),
@@ -101,25 +95,25 @@ def prepare_semantic_chunks(
             len(semantic_group),
         )
 
-        if max_windows is not None and len(windows) > max_windows:
-            logger.warning(
-                "extraction: free-tier window cap active for window=%s — truncating %d windows to most recent %d",
-                observation_window,
-                len(windows),
-                max_windows,
-            )
-            windows = windows[-max_windows:]
-
         if not windows:
             continue
 
         display_cols = [column for column in projected.columns if column != time_col]
-        chunks = chunk_windows(windows, windows_per_chunk)
-        for chunk in chunks:
+        value_cols = indicator.get("source_columns") or display_cols
+        for window in windows:
+            window_start, events = window
+            if not any(events[column].count() for column in value_cols if column in events.columns):
+                empty_output.extractions.append(
+                    WindowExtraction(
+                        indicator_id=indicator["id"], window_start=window_start, value=None
+                    )
+                )
+                continue
+            chunk = [window]
             chunk_texts.append(
                 format_window_chunk(chunk, time_col, display_cols, max_events_per_window)
             )
             chunk_window_starts.append([window_start for window_start, _ in chunk])
             chunk_contexts.append(extraction_ctx)
 
-    return chunk_texts, chunk_window_starts, chunk_contexts
+    return chunk_texts, chunk_window_starts, chunk_contexts, empty_output

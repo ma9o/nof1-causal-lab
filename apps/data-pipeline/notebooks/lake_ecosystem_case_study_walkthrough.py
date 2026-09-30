@@ -81,7 +81,7 @@ def model_md(mo):
     mo.md(r"""
     ## 2. The posited model
 
-    Nine constructs and thirteen lagged edges, as the brief draws them. `CatchmentLoading` is
+    Nine constructs and thirteen causal edges, as the brief draws them. `CatchmentLoading` is
     the unmeasured storm-driven confounder of nitrate, turbidity, and dissolved color; the
     structural compiler marginalizes it. The two edges the brief expects to saturate — the
     light-limitation ceiling Turbidity → Phytoplankton and the grazer satiation ceiling

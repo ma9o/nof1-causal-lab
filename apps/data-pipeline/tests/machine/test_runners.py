@@ -3,13 +3,12 @@
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from nof1_causal_lab.artifacts.data_preparation import ObservationTableSpec, SimulationReplicateRef
+from nof1_causal_lab.artifacts.data_preparation import SimulationReplicateRef
 from nof1_causal_lab.artifacts.simulation import SimulationSpec
 from nof1_causal_lab.machine.artifacts import EpisodeState
 from nof1_causal_lab.machine.execution import (
     FitOperation,
     LocalOperation,
-    PrepareObservationTableOperation,
     PrepareSimulationOperation,
     SimulateOperation,
 )
@@ -28,7 +27,6 @@ pytestmark = pytest.mark.contract
         {"operation_id": "measurements"},
         {"operation_id": "simulate"},
         {"operation_id": "simulated_measurements"},
-        {"operation_id": "imported_measurements"},
         {"operation_id": "posterior", "design": {"end": 1}},
         {"operation_id": "simulate", "design": {"end": 1}, "settings": {}},
     ],
@@ -44,22 +42,6 @@ def test_local_operation_boundary_rejects_incomplete_or_mismatched_jobs(payload)
         FitOperation(),
         SimulateOperation(design=SimulationSpec(start=0, end=1)),
         PrepareSimulationOperation(source=SimulationReplicateRef(revision=git_oid(1), replicate=0)),
-        PrepareObservationTableOperation(
-            preparation=ObservationTableSpec.model_validate(
-                {
-                    "source": {"file": "panel.parquet", "start": "2022-01-01", "end": "2026-06-01"},
-                    "variables": [
-                        {
-                            "id": "indicator:steps",
-                            "name": "steps",
-                            "measurement_dtype": "count",
-                            "aggregation": "sum",
-                            "observation_window": "1d",
-                        }
-                    ],
-                }
-            )
-        ),
     ],
 )
 def test_local_operations_keep_their_payload_through_temporal(operation):

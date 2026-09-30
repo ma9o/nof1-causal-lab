@@ -55,7 +55,7 @@ def _dataset(values, *, number=1, times=None, variable=None):
         },
         schema_overrides={"value": pl.Float64},
     )
-    return Dataset(DataRef(kind="panel", revision=git_oid(number)), (variable,), frame)
+    return Dataset(DataRef(kind="panel", revision=git_oid(number)), (variable,), frame, origin)
 
 
 @pytest.mark.contract
@@ -152,6 +152,14 @@ def test_measurement_mismatches_and_uncovered_times_do_not_produce_predictive_ch
         ),
     )
     assert data_diff(first, first).variables[0].changes == ()
+    floating = [replace(_dataset([1, 2, 3], number=n), time_origin=None) for n in (2, 3)]
+    mismatch = data_diff(observed, floating).variables[0]
+    assert mismatch.predictive_checks is None
+    assert mismatch.right[0].time_origin is None
+    assert (
+        mismatch.predictive_unavailable_reason
+        == "Calendar-free histories cannot be aligned to calendar-bound histories"
+    )
 
 
 @pytest.mark.inference(concern="predictive")
@@ -208,6 +216,23 @@ def test_read_only_api_compares_saved_draws_without_generation_or_model_access(
     report = SimulationReport(
         model=GitRef(workspace_id="DIFF", revision=git_oid(99), path="model.json"),
         design=SimulationSpec(end=2),
+        time_origin=datetime(2026, 1, 1, tzinfo=UTC),
+        predictive={
+            "states": {},
+            "indicators": {
+                "indicator:y": {
+                    "label": "Y",
+                    "action": {
+                        "kind": "numeric",
+                        "mean": [1, 2, 3],
+                        "lower": [0.05, 1.05, 2.05],
+                        "upper": [1.95, 2.95, 3.95],
+                        "n_draws": [3, 3, 3],
+                    },
+                }
+            },
+            "fit_reliability": "not_fitted",
+        },
         times=(0, 1, 2),
         draws=3,
         seed=0,
@@ -248,12 +273,13 @@ def test_read_only_api_compares_saved_draws_without_generation_or_model_access(
             "metadata.json": PreparedDataMetadata(
                 source=SimulationReplicateRef(revision=commit, replicate=1),
                 variables=observed.variables,
+                time_origin=origin,
             ).model_dump(mode="json")
         },
         parquet_files={"panel.parquet": shifted},
     )
     request = DataDiffRequest(
-        left=DataRef(kind="simulation", revision=commit, time_origin=origin),
+        left=DataRef(kind="simulation", revision=commit),
         right=DataRef(kind="panel", revision=panel.revision),
     )
     refs_before = sorted(store.repo.references)
@@ -262,6 +288,7 @@ def test_read_only_api_compares_saved_draws_without_generation_or_model_access(
     assert response.status_code == 200, response.text
     result = response.json()
     assert len(result["left"]) == 3
+    assert result["variables"][0]["left"][0]["time_origin"] == "2026-01-01T00:00:00Z"
     assert result["variables"][0]["predictive_checks"]["n_subsample"] == 3
     assert history.head() == commit
     assert sorted(store.repo.references) == refs_before
@@ -281,3 +308,58 @@ def test_read_only_api_compares_saved_draws_without_generation_or_model_access(
         client.post("/api/episodes/DIFF/data-diff", json=bad.model_dump(mode="json")).status_code
         == 404
     )
+
+    # Saved histories keep absolute model days. Materialization alone resets the
+    # origin of a calendar-free replicate; calendar-bound histories keep dates.
+    from nof1_causal_lab.actions.prepare_data import prepare_simulation_panel
+
+    for index, origin in enumerate((None, datetime(2026, 1, 1, tzinfo=UTC))):
+        commits = []
+        for start in (5, 6):
+            times = np.arange(start, start + 3.0)
+            saved = report.model_copy(
+                update={
+                    "time_origin": origin,
+                    "design": SimulationSpec(start=start, end=start + 2),
+                    "times": tuple(times),
+                    "observation_layout": report.observation_layout.model_copy(
+                        update={
+                            "support_start_times": store.write_array(times[:, None]),
+                            "support_end_times": store.write_array(times[:, None]),
+                        }
+                    ),
+                }
+            )
+            commits.append(
+                history.append(
+                    TransitionRecord(
+                        seq=2 + index * 2 + start - 5,
+                        ts="2026-09-28T00:00:00Z",
+                        action="simulate",
+                        operation_id="simulate",
+                        status="applied",
+                        trace_ids=[],
+                        resume=None,
+                        diagnostics={"report": saved.model_dump(mode="json")},
+                    )
+                )
+            )
+        aligned = read_data_diff(
+            "DIFF",
+            DataDiffRequest(
+                left=DataRef(kind="simulation", revision=commits[0], replicate=1),
+                right=DataRef(kind="simulation", revision=commits[1], replicate=1),
+            ),
+        ).variables[0]
+        epoch = origin or datetime(1970, 1, 1, tzinfo=UTC)
+        assert [(change.anchor_time, change.change) for change in aligned.changes] == [
+            (epoch + timedelta(days=5), "removed"),
+            (epoch + timedelta(days=6), "revised"),
+            (epoch + timedelta(days=7), "revised"),
+            (epoch + timedelta(days=8), "added"),
+        ]
+        assert aligned.left[0].time_origin == aligned.right[0].time_origin == origin
+        materialized = prepare_simulation_panel(saved, 1, read_array=store.read_array)
+        assert materialized["anchor_time"][0] == (
+            origin + timedelta(days=6) if origin is not None else epoch
+        ).replace(tzinfo=None)

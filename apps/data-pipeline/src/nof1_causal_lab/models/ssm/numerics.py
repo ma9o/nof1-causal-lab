@@ -25,6 +25,7 @@ from nof1_causal_lab.models.ssm.structure import (
 )
 
 if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.execution import AnchorCertificate
     from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId
     from nof1_causal_lab.artifacts.indicator import IndicatorSpec
     from nof1_causal_lab.artifacts.likelihood import LinkFunction
@@ -108,10 +109,6 @@ def _structural_support(model: ModelSpec):
 
 def categorical_anchors(model: ModelSpec) -> list[bool]:
     return _structural_support(model)[3].tolist()
-
-
-def edge_lag_days(model: ModelSpec) -> dict[tuple[int, int], float]:
-    return _structural_support(model)[4]
 
 
 def quantity_position(model: ModelSpec, parameter) -> tuple[int, ...]:
@@ -212,7 +209,7 @@ def _quantity_values(model: ModelSpec, kind: SiteKind, template, support, *, dia
 
 
 def loading_block(model: ModelSpec) -> SparseMatrixBlockSpec:
-    _, template, support, _, _ = _structural_support(model)
+    _, template, support, _ = _structural_support(model)
     template, support = _quantity_values(model, SiteKind.LOADING, template, np.zeros_like(support))
     return SparseMatrixBlockSpec(
         n_rows=n_observations(model),
@@ -429,8 +426,8 @@ def iter_sample_sites(model: ModelSpec):
         yield from block.iter_sites()
 
 
-def validate_execution(model: ModelSpec) -> None:
-    """Check that the scientific value supplies everything numerical execution needs."""
+def validate_execution(model: ModelSpec) -> tuple[AnchorCertificate, ...]:
+    """Check numerical execution requirements and return the model's anchor certificates."""
     model.require_execution_structure()
     from nof1_causal_lab.distributions import DistributionFamily
     from nof1_causal_lab.models.ssm.compile.structural import compile_anchor_certificates
@@ -490,4 +487,4 @@ def validate_execution(model: ModelSpec) -> None:
     observation_level_counts(model)
     parameter_blocks(model)
     dynamics_components(model)
-    compile_anchor_certificates(model)
+    return tuple(compile_anchor_certificates(model))

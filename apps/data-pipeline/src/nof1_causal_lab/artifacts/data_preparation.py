@@ -9,6 +9,7 @@ from typing import Annotated, Literal, Self, override
 
 from pydantic import (
     AfterValidator,
+    AwareDatetime,
     BaseModel,
     ConfigDict,
     Field,
@@ -228,6 +229,8 @@ class FileSourceRef(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     files: tuple[str, ...] = Field(min_length=1)
+    start: date | None = Field(default=None, description="Inclusive UTC source-coverage date.")
+    end: date | None = Field(default=None, description="Exclusive UTC source-coverage date.")
 
     @field_validator("files")
     @classmethod
@@ -236,29 +239,10 @@ class FileSourceRef(BaseModel):
             raise ValueError("Source filenames must be unique")
         return tuple(_validate_uploaded_filename(value) for value in values)
 
-
-class ObservationTableRef(BaseModel):
-    """An uploaded Parquet observation table and its selected UTC calendar interval."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    file: str = Field(description="Uploaded Parquet filename, without directory components.")
-    start: date | None = Field(
-        default=None, description="Inclusive UTC anchor date (ISO YYYY-MM-DD)."
-    )
-    end: date | None = Field(
-        default=None, description="Exclusive UTC anchor date (ISO YYYY-MM-DD)."
-    )
-
-    @field_validator("file")
-    @classmethod
-    def validate_filename(cls, value: str) -> str:
-        return _validate_uploaded_filename(value)
-
     @model_validator(mode="after")
     def ordered_bounds(self) -> Self:
         if self.start is not None and self.end is not None and self.start >= self.end:
-            raise ValueError("Observation table start must precede end")
+            raise ValueError("Source coverage start must precede end")
         return self
 
 
@@ -272,10 +256,8 @@ class SimulationReplicateRef(BaseModel):
 
 
 type DataSourceRef = Annotated[
-    FileSourceRef | SimulationReplicateRef | ObservationTableRef,
-    Field(
-        description="Uploaded sources, one simulation replicate, or a bounded observation table."
-    ),
+    FileSourceRef | SimulationReplicateRef,
+    Field(description="Uploaded sources or one recorded simulation replicate."),
 ]
 
 
@@ -327,7 +309,6 @@ class FilePreparationSpec(BaseModel):
 
     source: FileSourceRef
     definition: DataPreparationSpec
-    max_windows: int | None = Field(default=None, ge=1)
 
 
 class PreparedDataMetadata(BaseModel):
@@ -338,6 +319,9 @@ class PreparedDataMetadata(BaseModel):
     source: DataSourceRef
     variables: tuple[ObservationSpec, ...] = Field(min_length=1)
     preparation: DataPreparationSpec | None = None
+    time_origin: AwareDatetime | None = Field(
+        description="Calendar instant of model day zero; null denotes a calendar-free history."
+    )
 
     @model_validator(mode="after")
     def resolved_variables(self) -> Self:
@@ -347,23 +331,9 @@ class PreparedDataMetadata(BaseModel):
             raise ValueError("Prepared variables must record their resolved observation windows")
         if isinstance(self.source, FileSourceRef) != (self.preparation is not None):
             raise ValueError(
-                "File sources require preparation instructions; simulation and observation table "
+                "File sources require preparation instructions; simulation "
                 "sources retain their declared schema without extraction"
             )
         if self.preparation is not None and self.variables != self.preparation.observation_schema():
             raise ValueError("Prepared schema must match its preparation instructions")
-        return self
-
-
-class ObservationTableSpec(BaseModel):
-    """Select already extracted observations by their declared variable schema."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    source: ObservationTableRef
-    variables: tuple[ObservationSpec, ...] = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def resolved_variables(self) -> Self:
-        PreparedDataMetadata(source=self.source, variables=self.variables)
         return self

@@ -1,5 +1,5 @@
 import logging
-from typing import TYPE_CHECKING
+from datetime import date, datetime
 
 import polars as pl
 
@@ -14,9 +14,6 @@ from nof1_causal_lab.utils.observation_semantics import (
 from nof1_causal_lab.utils.storage import get_base_uri, join
 
 logger = logging.getLogger(__name__)
-
-if TYPE_CHECKING:
-    from datetime import datetime
 
 SECONDS_PER_DAY = 86400.0
 
@@ -108,40 +105,60 @@ def scratch_run_dir(workspace_id: str, run_id: str) -> str:
 
 
 def ensure_datetime_column(df: pl.DataFrame, time_col: str) -> pl.DataFrame:
-    """Parse a timestamp column to Polars datetime when it arrives as text."""
-    if df.schema[time_col] == pl.Utf8:
-        return df.with_columns(
-            pl.col(time_col).str.to_datetime(strict=False, time_zone="UTC").alias(time_col)
-        )
-    return df
+    """Normalize the raw temporal axis to UTC-naive datetimes."""
+    dtype = df.schema[time_col]
+    value = pl.col(time_col)
+    if dtype == pl.String:
+        value = value.str.to_datetime(time_zone="UTC").dt.replace_time_zone(None)
+    elif dtype == pl.Date:
+        value = value.cast(pl.Datetime)
+    elif isinstance(dtype, pl.Datetime) and dtype.time_zone is not None:
+        value = value.dt.convert_time_zone("UTC").dt.replace_time_zone(None)
+    return df.with_columns(value.alias(time_col))
 
 
 def support_window_tick_frame(
     df: pl.DataFrame,
     model_clock: str,
     time_col: str,
+    *,
+    start: date | None = None,
+    end: date | None = None,
 ) -> pl.DataFrame:
-    """Materialize every support-window tick spanning the observed raw data."""
+    """Select whole calendar support windows, including empty windows inside the span."""
     if df.is_empty():
         return pl.DataFrame(schema={"__tick__": pl.Datetime})
 
     df = ensure_datetime_column(df, time_col)
     observed_ticks = df.select(pl.col(time_col).dt.truncate(model_clock).alias("__tick__"))
-    start, end = observed_ticks.select(
+    first, last = observed_ticks.select(
         pl.col("__tick__").min().alias("start"),
         pl.col("__tick__").max().alias("end"),
     ).row(0)
-    if start is None or end is None:
+    if first is None or last is None:
         return pl.DataFrame(schema={"__tick__": observed_ticks.schema["__tick__"]})
-
-    ticks = pl.datetime_range(start, end, interval=model_clock, eager=True).alias("__tick__")
-    return pl.DataFrame({"__tick__": ticks})
+    lower = datetime.combine(start, datetime.min.time()) if start is not None else first
+    upper = datetime.combine(end, datetime.min.time()) if end is not None else last
+    bounds = pl.Series([lower, upper]).dt.truncate(model_clock)
+    if bounds[0] > bounds[1]:
+        return pl.DataFrame(schema={"__tick__": observed_ticks.schema["__tick__"]})
+    ticks = pl.DataFrame(
+        {"__tick__": pl.datetime_range(bounds[0], bounds[1], interval=model_clock, eager=True)}
+    )
+    if start is not None:
+        ticks = ticks.filter(pl.col("__tick__") >= lower)
+    if end is not None:
+        ticks = ticks.filter(pl.col("__tick__").dt.offset_by(model_clock) <= upper)
+    return ticks
 
 
 def bucket_by_clock(
     df: pl.DataFrame,
     model_clock: str,
     time_col: str,
+    *,
+    start: date | None = None,
+    end: date | None = None,
 ) -> list[tuple[str, pl.DataFrame]]:
     """Group DataFrame rows by model_clock ticks.
 
@@ -161,7 +178,7 @@ def bucket_by_clock(
     bucketed = df.with_columns(pl.col(time_col).dt.truncate(model_clock).alias("__tick__")).sort(
         time_col
     )
-    tick_frame = support_window_tick_frame(df, model_clock, time_col)
+    tick_frame = support_window_tick_frame(df, model_clock, time_col, start=start, end=end)
 
     groups = {
         tick_val[0]: group_df.drop("__tick__")
@@ -309,7 +326,7 @@ def annotate_observation_rows(
     return df
 
 
-def pivot_to_wide(df: pl.DataFrame) -> pl.DataFrame:
+def pivot_to_wide(df: pl.DataFrame, *, time_origin: datetime | None) -> pl.DataFrame:
     """Pivot long-format observation data to wide-format Polars DataFrame.
 
     Handles time column detection, Float64 casting, datetime-to-fractional-days
@@ -331,10 +348,7 @@ def pivot_to_wide(df: pl.DataFrame) -> pl.DataFrame:
 
     # Parse string timestamps to datetime before pivoting so the
     # datetime→fractional-days conversion below always triggers.
-    if df.schema.get(time_col) == pl.Utf8:
-        df = df.with_columns(
-            pl.col(time_col).str.to_datetime(strict=False, time_zone="UTC").alias(time_col)
-        )
+    df = ensure_datetime_column(df, time_col)
 
     wide_data = (
         df.with_columns(pl.col("value").cast(pl.Float64, strict=False))
@@ -343,7 +357,9 @@ def pivot_to_wide(df: pl.DataFrame) -> pl.DataFrame:
     )
 
     if wide_data.schema[time_col] in (pl.Datetime, pl.Date):
-        t0 = wide_data[time_col].min()
+        from nof1_causal_lab.utils.time_coordinates import serialization_origin
+
+        t0 = serialization_origin(time_origin)
         wide_data = wide_data.with_columns(
             ((pl.col(time_col) - t0).dt.total_seconds() / SECONDS_PER_DAY).alias(time_col)
         )

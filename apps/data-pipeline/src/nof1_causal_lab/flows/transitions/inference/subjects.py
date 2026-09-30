@@ -28,7 +28,7 @@ def reference_posterior_findings(
     """Translate the compiler's exact mapping once; unknown coordinates are errors."""
     from nof1_causal_lab.models.ssm.compile.inputs import compile_ssm_inputs_from_model
 
-    _, compiled_bindings, _, _, auxiliary_coordinates = compile_ssm_inputs_from_model(model_spec)
+    _, compiled_bindings, _, auxiliary_coordinates = compile_ssm_inputs_from_model(model_spec)
     bindings = {binding.parameter_id: binding for binding in compiled_bindings}
     subjects = {
         coordinate: ParameterRef(parameter_id=binding.parameter_id, element_id=element_id)

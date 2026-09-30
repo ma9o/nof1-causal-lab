@@ -4,13 +4,12 @@ import json
 from typing import TYPE_CHECKING
 
 import polars as pl
+import pygit2
 import pytest
 from scripts.migrations.migrate_fill_null import migrate_workspace
 
-from nof1_causal_lab.actions.data_checks import read_data_metadata
-from nof1_causal_lab.artifacts.identity import GitOid
 from nof1_causal_lab.machine.artifacts import ArtifactRecord
-from nof1_causal_lab.machine.git_objects import write_tree
+from nof1_causal_lab.machine.git_objects import read_file, write_tree
 from nof1_causal_lab.machine.history import StudyRepository
 from nof1_causal_lab.machine.store import ArtifactStore, TransitionRecord
 from nof1_causal_lab.models.model_inputs import input_fingerprints
@@ -102,36 +101,44 @@ def test_migrate_fill_null_preserves_history_and_observations(tmp_path, monkeypa
         )
     )
     refs = {name: str(history.repo.references[name].target) for name in history.repo.references}
+    history.repo.config["nof1.format"] = 4
     migrated = migrate_workspace(source, destination)
     assert {
         name: str(history.repo.references[name].target) for name in history.repo.references
     } == refs
     assert json.loads(history.read_file(artifact.revision, "metadata.json")) == metadata
-    monkeypatch.setattr(data, "_DATA_URI", str(destination.parent))
-    updated = StudyRepository(destination.name)
-    updated_store = ArtifactStore(destination.name)
-    assert updated.branches() == {"main": migrated[first], "retained": migrated[first]}
-    attempt = updated.read_attempt(2)
-    assert attempt is not None
-    assert attempt.commit_id == migrated[last]
-    assert attempt.parent_ids == [migrated[first]]
-    assert attempt.inputs["panel_revision"] == migrated[artifact.revision]
-    assert attempt.inputs["model_inputs"] == current_inputs
+    # This historical migration emits format 4. Inspect that archive directly;
+    # current readers intentionally accept only the latest format.
+    updated = pygit2.Repository(str(destination / "episode/history.git"))
+    assert updated.config.get_int("nof1.format") == 4
+    assert {name: str(updated.branches[name].target) for name in updated.branches} == {
+        "main": migrated[first],
+        "retained": migrated[first],
+    }
+    attempt = updated[updated.references["refs/attempts/2"].target].peel(pygit2.Commit)
+    assert str(attempt.id) == migrated[last]
+    assert [str(parent) for parent in attempt.parent_ids] == [migrated[first]]
+    attempt_log = json.loads(read_file(updated, migrated[last], "logs/transition.json"))
+    assert attempt_log["inputs"]["panel_revision"] == migrated[artifact.revision]
+    assert attempt_log["inputs"]["model_inputs"] == current_inputs
     assert (
-        updated_store.read_meta("model", migrated[model_artifact.revision]).model_inputs
+        json.loads(read_file(updated, migrated[model_artifact.revision], "meta.json"))[
+            "model_inputs"
+        ]
         == current_inputs
     )
-    revised = read_data_metadata(updated_store, GitOid(migrated[artifact.revision]))
-    assert [item.model_dump()["fill_null"] for item in revised.variables] == [
+    revised = json.loads(read_file(updated, migrated[artifact.revision], "metadata.json"))
+    assert [item["fill_null"] for item in revised["variables"]] == [
         None,
         "forward",
         0.0,
     ]
-    assert revised.variables[1].fill_null_limit == (2 if legacy_form == "nested" else None)
-    assert updated_store.read_parquet_file(
-        "panel", migrated[artifact.revision], "panel.parquet"
-    ).equals(panel)
-    inputs = json.loads(updated.read_file(migrated[first], "logs/transition.json"))["inputs"]
+    assert revised["variables"][1].get("fill_null_limit") == (
+        2 if legacy_form == "nested" else None
+    )
+    external = json.loads(read_file(updated, migrated[artifact.revision], "external.json"))
+    assert pl.read_parquet(destination / "store/blobs" / external["panel.parquet"]).equals(panel)
+    inputs = json.loads(read_file(updated, migrated[first], "logs/transition.json"))["inputs"]
     assert inputs["input"]["variables"][1]["fill_null"] == "forward"
     for original in (source / "store").rglob("*"):
         if original.is_file():

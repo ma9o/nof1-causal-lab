@@ -1,9 +1,6 @@
 """History and accessors read one canonical scientific definition with exact sources."""
 
-from datetime import datetime
-
 import numpy as np
-import polars as pl
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
@@ -14,7 +11,6 @@ from nof1_causal_lab.artifacts.identification import IdentificationReport
 from nof1_causal_lab.artifacts.identity import ConstructId, GitRef, IndicatorId
 from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.artifacts.predictive_provenance import PredictiveLawProvenance
 from nof1_causal_lab.artifacts.simulation import SimulationReport, SimulationSpec
 from nof1_causal_lab.machine.artifact_files import json_filename
 from nof1_causal_lab.machine.history import StudyRepository
@@ -75,7 +71,6 @@ def _model():
                     "cause": constructs["x"],
                     "effect": constructs["y"],
                     "description": "effect",
-                    "lagged": True,
                 }
             ],
         }
@@ -201,159 +196,6 @@ def test_fitted_snapshot_keeps_joint_arrays_lazy_and_workspace_bound(workspace, 
     assert len(reads) == 2  # the draws and their weights, each read once
 
 
-@pytest.mark.parametrize("paired", [False, True])
-def test_simulation_bands_read_saved_draws_at_selected_version(workspace, monkeypatch, paired):
-    model = _model().revised(default_outcome=ConstructId("construct:y"))
-    info = _commit(workspace, "model", model.model_dump(mode="json"))
-    store = ArtifactStore(workspace)
-    values = np.array([[[90, 1], [91, 2]], [[92, 5], [93, 10]]], dtype=float)
-    observations = values + 100
-    mask = np.ones_like(values, dtype=bool)
-    mask[:, 0, 1] = False
-    observations[:, 0, 1] = np.nan
-    report = SimulationReport(
-        model=GitRef(workspace_id=workspace, revision=info.revision, path="model.json"),
-        design=SimulationSpec(
-            start=0,
-            end=1,
-            interventions=[{"target": "construct:x", "time": 0, "value": 0}] if paired else [],
-        ),
-        times=(0, 1),
-        draws=2,
-        seed=1,
-        state_ids=tuple(construct.id for construct in model.constructs),
-        observation_layout={
-            "variables": [
-                {
-                    "id": indicator.id,
-                    "name": indicator.name,
-                    "measurement_dtype": "continuous",
-                    "aggregation": "mean",
-                    "observation_window": "1d",
-                }
-                for indicator in model.indicators
-            ],
-            "support_start_times": "unused",
-            "support_end_times": "unused",
-            "mask": store.write_array(mask),
-        },
-        parameter_draws={},
-        latent_paths=store.write_array(values),
-        observations=store.write_array(observations),
-        reference_latent_paths=store.write_array(values - 1) if paired else None,
-        reference_observations=store.write_array(observations - 1) if paired else None,
-    )
-    if paired:
-        panel = store.write_artifact(
-            "panel",
-            derived_from={},
-            produced_by="run:imported_measurements",
-            json_files={
-                "metadata.json": {
-                    "source": {"file": "observations.parquet"},
-                    "variables": [
-                        v.model_dump(mode="json") for v in report.observation_layout.variables
-                    ],
-                }
-            },
-            parquet_files={
-                "panel.parquet": pl.DataFrame(
-                    {
-                        "indicator_id": ["indicator:x", "indicator:y", "indicator:unused"],
-                        "anchor_time": [
-                            datetime(2023, 11, 1),
-                            datetime(2023, 11, 2),
-                            datetime(2000, 1, 1),
-                        ],
-                    }
-                )
-            },
-        )
-        fitted = store.write_artifact(
-            "model",
-            derived_from={"model": info.revision, "panel": panel.revision},
-            produced_by="run:posterior",
-            json_files={"model.json": model.model_dump(mode="json")},
-        )
-        report = report.model_copy(
-            update={
-                "model": report.model.model_copy(update={"revision": fitted.revision}),
-                "law": PredictiveLawProvenance(
-                    kind="fitted",
-                    fitted_panel_revision=panel.revision,
-                    interpretation="posterior_predictive",
-                ),
-            }
-        )
-    repository = StudyRepository(workspace)
-    repository.append(
-        TransitionRecord(
-            seq=2,
-            ts="2026-09-12T12:00:00Z",
-            action="simulate",
-            operation_id="simulate",
-            status="applied",
-            diagnostics={"report": report.model_dump(mode="json")},
-            trace_ids=[],
-            resume=None,
-        )
-    )
-    saved = repository.head()
-    # A later edit changes the selected outcome; the projection must still use
-    # the simulation's pinned model and preserve its freshness provenance.
-    _commit(
-        workspace,
-        "model",
-        model.revised(default_outcome=ConstructId("construct:x")).model_dump(mode="json"),
-    )
-    head = repository.head()
-    monkeypatch.setenv("EPISODE_FACADE_READ_ONLY", "1")
-
-    def no_write(*args, **kwargs):
-        pytest.fail("A trajectory read must not write arrays or artifacts")
-
-    monkeypatch.setattr(ArtifactStore, "write_array", no_write)
-    monkeypatch.setattr(ArtifactStore, "write_artifact", no_write)
-    client = TestClient(create_read_facade_app())
-    url = f"/api/episodes/{workspace}/model/simulation-trajectories"
-    assert client.get(url, params={"at": commit_id(workspace, 1)}).json() is None
-    response = client.get(url, params={"at": saved})
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["source"]["ref"]["revision"] == saved
-    # The paired report pins a fitted value outside the selected fixture's model
-    # head; its evidence and calendar origin are still readable with stale provenance.
-    assert payload["source"]["validity"] == ("stale" if paired else "fresh")
-    view = payload["value"]
-    assert view["outcome"] == "construct:y"
-    assert view["interval_mass"] == 0.95
-    assert view["times"] == [0, 1]
-    assert view["time_origin"] == ("2023-11-01T00:00:00Z" if paired else None)
-    assert view["outcome_state"]["action"] == {
-        "mean": [3, 6],
-        "lower": [1.1, 2.2],
-        "upper": [4.9, 9.8],
-        "n_draws": [2, 2],
-    }
-    assert list(view["indicators"]) == ["indicator:y"]
-    assert view["indicators"]["indicator:y"]["action"] == {
-        "mean": [None, 106],
-        "lower": [None, 102.2],
-        "upper": [None, 109.8],
-        "n_draws": [0, 2],
-    }
-    if paired:
-        assert view["outcome_state"]["reference"]["mean"] == [2, 5]
-        assert view["indicators"]["indicator:y"]["reference"]["mean"] == [None, 105]
-    else:
-        assert view["outcome_state"]["reference"] is None
-    current = client.get(url).json()
-    assert current["source"]["validity"] == "stale"
-    assert current["value"] == view
-    assert repository.head() == head
-    assert repository.latest_seq() == 3
-
-
 def test_checkpoint_comparison_uses_evidence_from_each_selected_journal_prefix(workspace):
     _measured(workspace)
     for seq in (2, 3):
@@ -364,6 +206,23 @@ def test_checkpoint_comparison_uses_evidence_from_each_selected_journal_prefix(w
                 path="model.json",
             ),
             design=SimulationSpec(end=1),
+            time_origin=None,
+            predictive={
+                "states": {},
+                "indicators": {
+                    "indicator:y": {
+                        "label": "y",
+                        "action": {
+                            "kind": "numeric",
+                            "mean": [0, 0],
+                            "lower": [0, 0],
+                            "upper": [0, 0],
+                            "n_draws": [1, 1],
+                        },
+                    }
+                },
+                "fit_reliability": "not_fitted",
+            },
             times=(0, 1),
             draws=1,
             seed=seq,
@@ -511,16 +370,25 @@ def test_rename_preserves_identity_and_historical_content(workspace):
     }
 
 
-def test_planning_preserves_ids_across_name_and_lag_edits():
+def test_planning_preserves_ids_across_name_and_role_edits(workspace):
     original = _model()
     payload = _model().model_dump(mode="json")
     graph_constructs(payload)[0]["name"] = "Renamed"
     graph_constructs(payload)[0]["role"] = "exogenous"
-    payload["edges"][0]["lagged"] = False
     revised = ModelSpec.model_validate(payload)
     assert set(original.state_order) == set(revised.state_order)
     assert original.edges[0].id == revised.edges[0].id == "edge:xy"
     assert "semantics" not in original.model_dump()
+    _commit(workspace, "model", revised.model_dump(mode="json"))
+    graph = ModelReader(workspace).snapshot().findings.graph
+    assert set(graph.dynamic_construct_ids) == set(revised.state_order)
+    from nof1_causal_lab.utils.identifiability import unroll_temporal_dag
+
+    dag = unroll_temporal_dag(revised.constructs, revised.edges, {"Renamed", "Y"})
+    for construct_id in graph.dynamic_construct_ids:
+        name = revised.get_construct(construct_id).name
+        assert dag.has_edge(f"{name}_{{t-1}}", f"{name}_t")
+    assert dag.has_edge("Renamed_{t-1}", "Y_t")
 
 
 def test_snapshot_derives_dispositions_from_its_model_revision(workspace):

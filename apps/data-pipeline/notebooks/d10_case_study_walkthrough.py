@@ -76,7 +76,7 @@ def model_md(mo):
     mo.md(r"""
     ## 2. The posited model
 
-    The brief's DAG, taken as given: ten constructs in causal order and fifteen lagged edges.
+    The brief's DAG, taken as given: ten constructs in causal order and fifteen causal edges.
     Each observed construct has one indicator whose emission law follows from its response
     scale — the 0–100 sliders as Beta/logit on the fraction, the daily counts as Poisson/log,
     everything else Gaussian/identity. `AutonomicArousal` has no indicator: it is the

@@ -133,7 +133,6 @@ type OperationId = Literal[
     "measurement_structure",
     "measurements",
     "simulated_measurements",
-    "imported_measurements",
     "statistical_model_spec",
     "posterior",
     "simulate",

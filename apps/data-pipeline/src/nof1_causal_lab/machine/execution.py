@@ -8,7 +8,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from nof1_causal_lab.artifacts.data_preparation import (  # noqa: TC001
     FilePreparationSpec,
-    ObservationTableSpec,
     SimulationReplicateRef,
 )
 from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS, ArtifactId, GitOid
@@ -79,28 +78,12 @@ class PrepareSimulationOperation(BaseModel):
     source: SimulationReplicateRef
 
 
-class PrepareObservationTableOperation(BaseModel):
-    """Validate an uploaded observation table without ingestion or extraction."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    operation_id: Literal["imported_measurements"] = "imported_measurements"
-    preparation: ObservationTableSpec
-
-
 type LocalOperation = Annotated[
-    FitOperation
-    | SimulateOperation
-    | PrepareSimulationOperation
-    | PrepareObservationTableOperation,
+    FitOperation | SimulateOperation | PrepareSimulationOperation,
     Field(discriminator="operation_id"),
 ]
 type ExecutionOperation = Annotated[
-    FitOperation
-    | SimulateOperation
-    | PrepareSimulationOperation
-    | PrepareObservationTableOperation
-    | PrepareFilesOperation,
+    FitOperation | SimulateOperation | PrepareSimulationOperation | PrepareFilesOperation,
     Field(discriminator="operation_id"),
 ]
 

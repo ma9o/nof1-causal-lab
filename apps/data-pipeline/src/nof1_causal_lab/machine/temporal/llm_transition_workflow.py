@@ -52,41 +52,44 @@ async def _run_single_llm_transition(
             summary="Plan raw-data ingestion",
         )
 
-        subroutine = await workflow.execute_child_workflow(
-            LLMSubroutineWorkflow.run,
-            LLMSubroutineInput(
-                workspace_id=input.workspace_id,
-                run_id=plan.run_id,
-                subroutine_id=subroutine_id,
-                context_kind=context_kind,
-                context_ref=plan.context_ref,
-                llm=plan.llm,
-                max_tool_turns=plan.max_tool_turns,
-            ),
-            id=(
-                f"llm-{input.transition_id.replace('_', '-')}-{input.workspace_id}-{input.seq:06d}"
-            ),
-            task_queue=workflow.info().task_queue,
-            static_summary=f"LLM {summary} subroutine",
-            static_details=(
-                f"workspace={input.workspace_id}; transition={input.transition_id}; "
-                f"subroutine={subroutine_id}; context={context_kind}"
-            ),
-            memo={
-                "workspace_id": input.workspace_id,
-                "transition_id": input.transition_id,
-                "subroutine_id": subroutine_id,
-                "context_kind": context_kind,
-                "run_id": plan.run_id,
-            },
-        )
+        result_ref = plan.cached_result_ref
+        if result_ref is None:
+            subroutine = await workflow.execute_child_workflow(
+                LLMSubroutineWorkflow.run,
+                LLMSubroutineInput(
+                    workspace_id=input.workspace_id,
+                    run_id=plan.run_id,
+                    subroutine_id=subroutine_id,
+                    context_kind=context_kind,
+                    context_ref=plan.context_ref,
+                    llm=plan.llm,
+                    max_tool_turns=plan.max_tool_turns,
+                ),
+                id=(
+                    f"llm-{input.transition_id.replace('_', '-')}-{input.workspace_id}-{input.seq:06d}"
+                ),
+                task_queue=workflow.info().task_queue,
+                static_summary=f"LLM {summary} subroutine",
+                static_details=(
+                    f"workspace={input.workspace_id}; transition={input.transition_id}; "
+                    f"subroutine={subroutine_id}; context={context_kind}"
+                ),
+                memo={
+                    "workspace_id": input.workspace_id,
+                    "transition_id": input.transition_id,
+                    "subroutine_id": subroutine_id,
+                    "context_kind": context_kind,
+                    "run_id": plan.run_id,
+                },
+            )
+            result_ref = subroutine.result_ref
         finalize_input = SingleLLMTransitionFinalizeInput(
             workspace_id=input.workspace_id,
             transition_id=input.transition_id,
             state=input.state,
             pins=plan.pins,
             context_ref=plan.context_ref,
-            result_ref=subroutine.result_ref,
+            result_ref=result_ref,
         )
         effects = await workflow.execute_activity(
             finalize_raw_data_activity,

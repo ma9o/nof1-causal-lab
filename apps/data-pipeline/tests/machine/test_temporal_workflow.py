@@ -224,9 +224,7 @@ def test_episode_workflow_journey(machine_env, monkeypatch):
                     outcome = await handle.get_update_handle(
                         str(receipt.attempt_id), result_type=ActionOutcome
                     ).result()
-                    polled = await episode_api.poll_scientific_action(
-                        workspace_id, receipt.attempt_id
-                    )
+                    polled = await episode_api.read_action_poll(workspace_id, receipt.attempt_id)
                     assert polled.done
                     assert (polled.body is not None) == (outcome.status == "applied")
                     assert polled.messages[0].label == f"{request.action.upper()}_STARTED"

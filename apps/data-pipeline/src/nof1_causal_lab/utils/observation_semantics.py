@@ -1,6 +1,6 @@
 """Shared indicator observation semantics.
 
-This module is the single source of truth for how an indicator's aggregation
+This module owns level-label matching and how an indicator's aggregation
 maps to downstream measurement semantics.
 """
 
@@ -52,6 +52,11 @@ class IndicatorObservationSemantics:
     support_kind: SupportKind
     summary_operator: SummaryOperator
     anchor_policy: AnchorPolicy
+
+
+def normalize_level_label(label: str) -> str:
+    """Match declared level labels independently of case and surrounding whitespace."""
+    return label.strip().lower()
 
 
 def supported_summary_operators_text() -> str:

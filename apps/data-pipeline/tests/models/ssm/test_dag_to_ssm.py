@@ -4,7 +4,7 @@ Parameter traces use the prior-only backend; likelihood numerics are exercised
 by the inference tests.
 """
 
-from typing import Any, cast
+from typing import Any
 
 import jax.numpy as jnp
 import jax.random as random
@@ -128,7 +128,6 @@ def _model_payload() -> dict[str, Any]:
                 },
                 "id": "edge:39ba80b774e02c409662",
                 "description": "X causes Y",
-                "lagged": True,
             },
             {
                 "cause": {"kind": "construct", "id": "construct:d90c52e59b79004188dc"},
@@ -150,7 +149,6 @@ def _model_payload() -> dict[str, Any]:
                 },
                 "id": "edge:57072ee1d1b7b3e7c0de",
                 "description": "Y causes Z",
-                "lagged": True,
             },
         ],
         "measurement_clock": "1d",
@@ -491,7 +489,6 @@ class TestRuntimeStructuralSupport:
             lambda_mat,
             lambda_support,
             _cat,
-            _edge_lag_days,
         ) = build_structural_support_from_model(
             latent_names,
             manifest_cols,
@@ -539,23 +536,6 @@ class TestRuntimeStructuralSupport:
 
         model = build_ssm_model(X, model_spec=_make_3latent_spec())
         assert numeric.n_states(model.spec) == 3
-
-    def test_model_build_has_no_autodetect_path(self):
-        """Runtime construction requires an already compiled ModelSpec."""
-        from nof1_causal_lab.models.ssm.runtime import build_ssm_model
-
-        X = pl.DataFrame(
-            {
-                "time": list(range(5)),
-                "x1": [1.0] * 5,
-                "x2": [2.0] * 5,
-                "y1": [3.0] * 5,
-                "z1": [4.0] * 5,
-            }
-        )
-
-        with pytest.raises(TypeError, match="model_spec"):
-            cast("Any", build_ssm_model)(X)
 
     @pytest.mark.parametrize("source_count", [1, 2])
     def test_translate_spec_compiles_static_baseline_factor_from_induced_dependency(
@@ -641,7 +621,7 @@ class TestRuntimeStructuralSupport:
             assert second.coefficient("initial_scale") == source.coefficient("initial_scale")
         model.check_execution()
         (model).require_execution_structure()
-        spec, _ = (model, numeric.edge_lag_days(model))
+        spec = model
         np.testing.assert_array_equal(numeric.static_scale_block(spec).free_support, [True])
         np.testing.assert_allclose(numeric.static_scale_block(spec).template, np.zeros(1))
         np.testing.assert_allclose(numeric.static_factor_loadings(spec), [[1.0], [1.0]])
@@ -658,14 +638,14 @@ class TestRuntimeStructuralSupport:
 
         plan = _make_model()
         model = complete_test_model(plan)
-        spec, _ = (model, numeric.edge_lag_days(model))
+        spec = model
         assert numeric.observation_standardized(spec) == [True, True, True, True]
 
     def test_translate_spec_fixes_manifest_noise_for_single_indicator_constructs(self):
 
         plan = _make_model()
         model = complete_test_model(plan)
-        spec, _ = (model, numeric.edge_lag_days(model))
+        spec = model
         assert isinstance(numeric.observation_noise_block(spec).template, jnp.ndarray)
         np.testing.assert_array_equal(
             numeric.observation_noise_block(spec).diag_support, [True, True, False, False]
@@ -892,7 +872,7 @@ class TestGradualBuildComponents:
         science = complete_test_model(
             plan, self_limiting=(plan.state_order[1],), hill_edges=(plan.edges[0].id,)
         )
-        spec, _ = (science, numeric.edge_lag_days(science))
+        spec = science
         model = SSMModel(spec)
         trace = handlers.trace(handlers.seed(model.model, random.PRNGKey(0))).get_trace(
             observations=jnp.zeros((2, 4)),

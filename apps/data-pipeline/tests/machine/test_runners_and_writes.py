@@ -124,7 +124,10 @@ def test_extraction_requires_some_observations(workspace, tmp_path, nonempty):
         json.dumps(
             {
                 "measurement_structure": observation_input(model),
-                "metadata": metadata_for_model(model).model_dump(mode="json"),
+                "preparation": {
+                    "source": {"files": ["observations.csv"]},
+                    "definition": metadata_for_model(model).preparation.model_dump(mode="json"),
+                },
                 "computed_dicts": [
                     {
                         "indicator_id": model.indicators[0].id,
@@ -134,6 +137,7 @@ def test_extraction_requires_some_observations(workspace, tmp_path, nonempty):
                 ]
                 if nonempty
                 else [],
+                "empty_output": {"extractions": []},
                 "chunks": [{"worker_id": 7}],
             }
         )
@@ -174,6 +178,7 @@ def test_extraction_requires_some_observations(workspace, tmp_path, nonempty):
             "n_windows": 1,
             "error": "No usable extraction",
             "n_llm_calls": 0,
+            "reused": False,
         }
     ]
     assert effects.diagnostics["n_observations"] == int(nonempty)

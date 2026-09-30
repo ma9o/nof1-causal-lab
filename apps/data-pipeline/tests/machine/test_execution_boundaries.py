@@ -264,6 +264,7 @@ def test_refit_after_question_edit_uses_selected_model_and_preserves_current_que
         return {
             "_model": kwargs["model_spec"].revised(time_points=(0.0, 1.0)),
             "engine_evidence": {},
+            "time_origin": kwargs["time_origin"],
             "inference_metadata": {"method": "mock", "n_samples": 1, "duration_seconds": 0.0},
         }
 

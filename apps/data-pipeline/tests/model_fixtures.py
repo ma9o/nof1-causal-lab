@@ -452,7 +452,7 @@ def model_fixture(
     node_terms = {identity: [] for identity in ids}
     edge_terms = {}
 
-    def edge(cause, effect, *, lagged=True):
+    def edge(cause, effect):
         pair = (cause, effect)
         if pair not in edges:
             identity = fixture_entity_id("edge", f"{cause}:{effect}")
@@ -460,7 +460,6 @@ def model_fixture(
                 id=identity,
                 cause=next(item for item in constructs if item.id == cause),
                 effect=next(item for item in constructs if item.id == effect),
-                lagged=lagged,
                 description="Fixture causal assumption",
             )
             edge_terms[identity] = []
@@ -549,7 +548,7 @@ def model_fixture(
             )
         )
         for index, child in enumerate(children):
-            owner = edge(identity, child, lagged=False)
+            owner = edge(identity, child)
             if weights is not None:
                 edge_terms[owner.id].append(
                     DynamicsMechanismSpec(

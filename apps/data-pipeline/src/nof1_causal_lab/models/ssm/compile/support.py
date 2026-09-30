@@ -50,9 +50,8 @@ def build_structural_support_from_model(
     np.ndarray,
     np.ndarray,
     np.ndarray,
-    dict[tuple[int, int], float],
 ]:
-    """Build block/component support arrays and edge lag metadata from causal structure."""
+    """Build block/component support arrays from causal structure."""
 
     try:
         edges = model.execution_edges
@@ -76,8 +75,6 @@ def build_structural_support_from_model(
         construct = latent_construct_lookup[latent_name]
         if construct.temporal_status != "time_invariant":
             state_dynamics_support[latent_idx_value, latent_idx_value] = True
-    edge_lag_days: dict[tuple[int, int], float] = {}
-    model_dt_days = get_construct_dt_days(model)
 
     for edge in edges:
         cause = edge.cause.name
@@ -95,10 +92,6 @@ def build_structural_support_from_model(
             continue
         cause_idx = latent_idx[cause]
         state_dynamics_support[effect_idx, cause_idx] = True
-
-        lag_hours = model_dt_days * 24.0 if edge.lagged else 0.0
-        if lag_hours > 0:
-            edge_lag_days[(effect_idx, cause_idx)] = lag_hours / 24.0
 
     manifest_idx = {name: idx for idx, name in enumerate(manifest_cols)}
     lambda_mat_np = np.zeros((n_manifest, n_latent), dtype=np.float64)
@@ -178,7 +171,6 @@ def build_structural_support_from_model(
         lambda_mat,
         lambda_support,
         manifest_cat_anchor,
-        edge_lag_days,
     )
 
 

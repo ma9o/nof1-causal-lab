@@ -1,6 +1,6 @@
 """Tests for utils/data.py dataframe utility functions."""
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import polars as pl
 import pytest
@@ -125,7 +125,7 @@ class TestPivotToWide:
         )
         from nof1_causal_lab.utils.data import pivot_to_wide
 
-        wide = pivot_to_wide(df)
+        wide = pivot_to_wide(df, time_origin=datetime(2024, 1, 1, tzinfo=UTC))
         assert "time" in wide.columns
         assert "indicator:1f4c67cecb9238ee1a80" in wide.columns
         assert "indicator:3316cd345d83d02fe3fc" in wide.columns
@@ -136,7 +136,7 @@ class TestPivotToWide:
         from nof1_causal_lab.utils.data import pivot_to_wide
 
         df = pl.DataFrame({"anchor_time": [], "indicator_id": [], "value": []})
-        result = pivot_to_wide(df)
+        result = pivot_to_wide(df, time_origin=datetime(2024, 1, 1, tzinfo=UTC))
         assert result.is_empty()
 
     def test_datetime_to_fractional_days(self):
@@ -157,7 +157,7 @@ class TestPivotToWide:
                 "value": [1.0, 2.0, 3.0],
             }
         )
-        wide = pivot_to_wide(df)
+        wide = pivot_to_wide(df, time_origin=datetime(2024, 1, 1, tzinfo=UTC))
         assert "time" in wide.columns
         times = wide["time"].to_list()
         assert abs(times[0]) < 0.001  # t0 should be 0
@@ -179,7 +179,7 @@ class TestPivotToWide:
                 "value": [30.0, 10.0, 20.0],
             }
         )
-        wide = pivot_to_wide(df)
+        wide = pivot_to_wide(df, time_origin=datetime(2024, 1, 1, tzinfo=UTC))
         times = wide["time"].to_list()
         assert times == sorted(times)
 
@@ -198,7 +198,7 @@ class TestPivotToWide:
                 "value": [10.0, 20.0, 30.0],
             }
         )
-        wide = pivot_to_wide(df)
+        wide = pivot_to_wide(df, time_origin=datetime(2024, 1, 1, tzinfo=UTC))
         # y has no value at t=1, so it should be null
         y_at_t1 = wide.filter(pl.col("time") == 1.0)["indicator:3316cd345d83d02fe3fc"].to_list()
         assert y_at_t1[0] is None
@@ -217,7 +217,7 @@ class TestPivotToWide:
                 "value": [1.0, 2.0],
             }
         )
-        wide = pivot_to_wide(df)
+        wide = pivot_to_wide(df, time_origin=datetime(2024, 1, 1, tzinfo=UTC))
         assert "time" in wide.columns
         times = wide["time"].to_list()
         assert abs(times[0]) < 0.001
@@ -237,7 +237,7 @@ class TestPivotToWide:
                 "value": ["10.5", "20.3"],
             }
         )
-        wide = pivot_to_wide(df)
+        wide = pivot_to_wide(df, time_origin=datetime(2024, 1, 1, tzinfo=UTC))
         assert wide["indicator:1f4c67cecb9238ee1a80"].dtype == pl.Float64
         assert abs(wide["indicator:1f4c67cecb9238ee1a80"][0] - 10.5) < 0.001
 
@@ -256,7 +256,7 @@ class TestPivotToWide:
                 "value": [10.0, 20.0, 30.0],
             }
         )
-        wide = pivot_to_wide(df)
+        wide = pivot_to_wide(df, time_origin=datetime(2024, 1, 1, tzinfo=UTC))
         assert wide.height == 2
         # At t=1, mean of 10 and 20 is 15
         x_at_t1 = wide.filter(pl.col("time") == 1.0)["indicator:1f4c67cecb9238ee1a80"][0]
@@ -273,7 +273,7 @@ class TestPivotToWide:
                 "value": [42.0],
             }
         )
-        wide = pivot_to_wide(df)
+        wide = pivot_to_wide(df, time_origin=datetime(2024, 1, 1, tzinfo=UTC))
         assert wide.height == 1
         assert "indicator:1f4c67cecb9238ee1a80" in wide.columns
         assert wide["indicator:1f4c67cecb9238ee1a80"][0] == 42.0
@@ -308,7 +308,7 @@ class TestPivotToWideSparsity:
         logger = logging.getLogger("nof1_causal_lab.utils.data")
         logger.propagate = True
         with caplog.at_level(logging.WARNING, logger="nof1_causal_lab.utils.data"):
-            wide = pivot_to_wide(raw)
+            wide = pivot_to_wide(raw, time_origin=None)
 
         assert wide.height == 24
         assert any("Sparse observation matrix" in msg for msg in caplog.messages)
@@ -338,7 +338,7 @@ class TestPivotToWideSparsity:
 
         raw = pl.DataFrame(rows)
         with caplog.at_level(logging.WARNING, logger="nof1_causal_lab.utils.data"):
-            pivot_to_wide(raw)
+            pivot_to_wide(raw, time_origin=None)
 
         assert not any("Sparse" in msg for msg in caplog.messages)
 
@@ -358,7 +358,7 @@ class TestPivotToWideTimezoneStrings:
                 "value": [1.0, 2.0],
             }
         )
-        wide = pivot_to_wide(df)
+        wide = pivot_to_wide(df, time_origin=datetime(2024, 1, 1, tzinfo=UTC))
 
         assert wide.schema["time"] == pl.Float64
         times = wide["time"].to_list()

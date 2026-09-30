@@ -169,7 +169,7 @@ def workbench_comparisons(snapshot, history):
                     item.model_dump(mode="json") for item in compare_model_definitions(left, right)
                 ],
                 "parameters": [item.model_dump(mode="json") for item in parameters],
-                "graph": compare_model_graph(left, right, parameters).model_dump(mode="json"),
+                "graph": compare_model_graph(left, right).model_dump(mode="json"),
                 "changed_inputs": [
                     key for key, value in input_fingerprints(right).items() if before[key] != value
                 ],
@@ -197,7 +197,7 @@ def build_outputs():
             capture_output=True,
         )
         subprocess.run(
-            ["git", "--git-dir", str(history), "config", "nof1.format", "4"],
+            ["git", "--git-dir", str(history), "config", "nof1.format", "6"],
             check=True,
             capture_output=True,
         )
@@ -224,6 +224,11 @@ def build_outputs():
         outputs[WORKBENCH_OUTPUT] = workbench_comparisons(
             outputs[DEMO_ROOT / "fixture/model_snapshot.json"],
             outputs[DEMO_ROOT / "fixture/model_history.json"],
+        )
+        from scripts.fixtures.visuals import workbench_visuals
+
+        outputs[WORKBENCH_OUTPUT.with_name("workbench-visuals.json")] = workbench_visuals(
+            reader, json.loads(WORKBENCH_OUTPUT.with_name("workbench-simulation.json").read_text())
         )
         return outputs
 

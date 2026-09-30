@@ -19,7 +19,6 @@ from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filena
 from nof1_causal_lab.machine.execution import (
     FitOperation,
     LocalOperation,
-    PrepareObservationTableOperation,
     PrepareSimulationOperation,
     SimulateOperation,
     TransitionEffects,
@@ -32,12 +31,11 @@ if TYPE_CHECKING:
     import polars as pl
 
     from nof1_causal_lab.artifacts.data_preparation import (
-        ObservationTableSpec,
         SimulationReplicateRef,
     )
     from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid
     from nof1_causal_lab.artifacts.posterior import FitSettingsSpec
-    from nof1_causal_lab.artifacts.simulation import SimulationSpec
+    from nof1_causal_lab.artifacts.simulation import FitReliability, SimulationSpec
     from nof1_causal_lab.machine.artifacts import EpisodeState
 
 
@@ -66,7 +64,7 @@ async def _run_posterior(
 
     model_spec = read_model(store, pins["model"])
     model_spec.check_execution()
-    from nof1_causal_lab.actions.data_checks import require_data_binding
+    from nof1_causal_lab.actions.data_checks import read_data_metadata, require_data_binding
 
     require_data_binding(store, model_spec, pins["panel"])
     sampler_config = build_sampler_config()
@@ -83,6 +81,7 @@ async def _run_posterior(
         compute_fit,
         model_spec=model_spec,
         data_for_model=panel,
+        time_origin=read_data_metadata(store, pins["panel"]).time_origin,
         sampler_config=sampler_config,
         array_writer=store.write_array,
         array_loader=cache(store.read_array),
@@ -123,7 +122,25 @@ async def _run_simulate(
     from nof1_causal_lab.machine.store import read_model
 
     model = read_model(store, pins["model"])
-    from nof1_causal_lab.actions.predictive_checks import law_provenance
+    from nof1_causal_lab.actions.data_checks import read_data_metadata
+    from nof1_causal_lab.actions.predictive_checks import fitted_law_report, law_provenance
+    from nof1_causal_lab.models.ssm.inference.convergence import convergence_failures
+
+    records = StudyRepository(workspace_id).attempts()
+    law = law_provenance(store, store.read_meta("model", pins["model"]), model, None)
+    time_origin = None
+    origin_panel_revision = pins.get("panel")
+    if origin_panel_revision is not None:
+        time_origin = read_data_metadata(store, origin_panel_revision).time_origin
+
+    reliability: FitReliability = "unknown" if law.kind == "unknown" else "not_fitted"
+    if law.fitted_model_revision is not None:
+        fit_report = fitted_law_report(records, law.fitted_model_revision)
+        time_origin = fit_report.time_origin
+        origin_panel_revision = law.fitted_panel_revision
+        reliability = (
+            "unconverged" if convergence_failures(fit_report.inference_diagnostics) else "converged"
+        )
 
     report = await asyncio.to_thread(
         simulate,
@@ -131,22 +148,15 @@ async def _run_simulate(
         design,
         revision=GitRef(workspace_id=workspace_id, revision=pins["model"], path="model.json"),
         write_array=store.write_array,
+        time_origin=time_origin,
+        fit_reliability=reliability,
     )
-    report = report.model_copy(
-        update={
-            "law": law_provenance(
-                store,
-                store.read_meta("model", pins["model"]),
-                model,
-                None,
-            )
-        }
-    )
+    report = report.model_copy(update={"law": law, "origin_panel_revision": origin_panel_revision})
     report = summarize_causal_simulation(
         model,
         report,
         store=store,
-        inference=inference_record(StudyRepository(workspace_id).attempts(), pins["model"]),
+        inference=inference_record(records, pins["model"]),
     )
     return TransitionEffects(
         diagnostics={
@@ -162,6 +172,8 @@ async def _run_simulated_measurements(
     pins: dict[ArtifactId, GitOid],
     source: SimulationReplicateRef,
 ) -> TransitionEffects:
+    from datetime import timedelta
+
     from nof1_causal_lab.actions.prepare_data import prepare_simulation_panel
     from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
     from nof1_causal_lab.artifacts.simulation import SimulationReport
@@ -189,6 +201,9 @@ async def _run_simulated_measurements(
             json_filename("panel", "metadata"): PreparedDataMetadata(
                 source=source,
                 variables=report.observation_layout.variables,
+                time_origin=report.time_origin + timedelta(days=report.times[0])
+                if report.time_origin is not None
+                else None,
             ).model_dump(mode="json")
         },
         parquet_files={parquet_filename("panel", "panel"): panel},
@@ -198,39 +213,6 @@ async def _run_simulated_measurements(
         diagnostics={
             "input_pins": used_pins,
             "simulation_source": source.model_dump(mode="json"),
-            "n_observations": panel["value"].count(),
-        },
-    )
-
-
-async def _run_imported_measurements(
-    workspace_id: str,
-    store: ArtifactStore,
-    preparation: ObservationTableSpec,
-) -> TransitionEffects:
-    from nof1_causal_lab.actions.prepare_data import prepare_observation_panel
-    from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
-    from nof1_causal_lab.utils import storage
-    from nof1_causal_lab.utils.data import input_dir
-
-    source = preparation.source
-    data = await asyncio.to_thread(
-        storage.read_parquet, storage.join(input_dir(workspace_id), source.file)
-    )
-    panel = await asyncio.to_thread(prepare_observation_panel, data, preparation)
-    metadata = PreparedDataMetadata(source=source, variables=preparation.variables)
-    info = store.write_artifact(
-        "panel",
-        derived_from={},
-        produced_by="run:imported_measurements",
-        json_files={json_filename("panel", "metadata"): metadata.model_dump(mode="json")},
-        parquet_files={parquet_filename("panel", "panel"): panel},
-    )
-    return TransitionEffects(
-        produced=[info],
-        diagnostics={
-            "input_pins": {},
-            "observation_source": source.model_dump(mode="json"),
             "n_observations": panel["value"].count(),
         },
     )
@@ -255,8 +237,6 @@ async def execute_transition_locally(
             run = await _run_simulate(workspace_id, store, pins, operation.design)
         elif isinstance(operation, PrepareSimulationOperation):
             run = await _run_simulated_measurements(workspace_id, store, pins, operation.source)
-        elif isinstance(operation, PrepareObservationTableOperation):
-            run = await _run_imported_measurements(workspace_id, store, operation.preparation)
         else:
             assert_never(operation)
         effects = run.model_copy(

@@ -37,22 +37,6 @@ export const TRANSITIONS: TransitionMeta[] = [
     interactive: true,
   },
   {
-    id: "latent_structure",
-    label: "Latent Structure",
-    loadingHint: "LLM is proposing a causal DAG...",
-    description:
-      "Proposes a latent causal structure based on domain knowledge alone, specifying theoretical constructs and their causal relationships.",
-    interactive: true,
-  },
-  {
-    id: "measurement_structure",
-    label: "Measurement Structure & Identification",
-    loadingHint: "Mapping indicators and checking identifiability...",
-    description:
-      "Maps latent constructs to observable indicators and verifies nonparametric identifiability via do-calculus.",
-    interactive: true,
-  },
-  {
     id: "measurements",
     label: "Data Extraction",
     loadingHint: "Extracting indicator values from your data...",
@@ -68,14 +52,6 @@ export const TRANSITIONS: TransitionMeta[] = [
     description:
       "Validates extraction quality, checking for missing data, outliers, and consistency across indicators.",
     interactive: false,
-  },
-  {
-    id: "statistical_model_spec",
-    label: "Statistical specification",
-    loadingHint: "LLM is specifying the statistical model and priors...",
-    description:
-      "Specifies observation likelihoods, SSM parameters, and prior distributions using domain knowledge and empirical data.",
-    interactive: true,
   },
   {
     id: "posterior",

@@ -194,18 +194,6 @@ def validate_execution_structure(model: ModelSpec) -> None:
             "Required constructs outside the retained states cannot be projected: "
             f"{sorted(unsupported)}. Supply measurements or supported marginalization semantics."
         )
-    manifests = model.manifest_indicator_order
-    uncovered = states - {model.indicator_owner(identity).id for identity in manifests}
-    if uncovered:
-        errors.append(f"Retained states have no manifest indicators: {sorted(uncovered)}")
-    if len(manifests) < len(states):
-        errors.append(
-            "Loading matrix is rank-deficient at structural compilation: "
-            f"n_manifest ({len(manifests)}) < n_latent ({len(states)})."
-        )
-    identities = [item.id for item in (*model.constructs, *model.edges, *model.indicators)]
-    if len(identities) != len(set(identities)):
-        errors.append("Construct, edge, and indicator identities must be distinct")
     if errors:
         raise StructuralCompilationError(errors)
 

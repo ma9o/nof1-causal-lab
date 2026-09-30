@@ -46,47 +46,46 @@ class ParameterChange(BaseModel):
 
 
 class ConstructComparison(BaseModel):
-    """A construct's definitions and changed owned parameters in two model revisions."""
+    """A construct's presence and time-slice topology in two model revisions."""
 
     model_config = ConfigDict(extra="forbid")
     construct_id: ConstructId
     before: ConstructSpec | None
     after: ConstructSpec | None
     change: Literal["added", "removed", "revised", "unchanged"]
-    parameter_ids: list[ParameterId]
     before_disposition: StructuralItemDisposition | None
     after_disposition: StructuralItemDisposition | None
 
 
 class ComparisonConnection(BaseModel):
-    """Endpoint references and temporal relation for one side of a causal edge comparison."""
+    """Endpoint references and description for one side of a causal edge comparison."""
 
     model_config = ConfigDict(extra="forbid")
     cause: ConstructRef
     effect: ConstructRef
-    lagged: bool
     description: str
 
 
 class EdgeComparison(BaseModel):
-    """An explicit causal edge's definitions and changed mechanism parameters."""
+    """An explicit causal edge's presence and endpoints in two model revisions."""
 
     model_config = ConfigDict(extra="forbid")
     edge_id: EdgeId
     before: ComparisonConnection | None
     after: ComparisonConnection | None
     change: Literal["added", "removed", "revised", "unchanged"]
-    parameter_ids: list[ParameterId]
     before_disposition: StructuralItemDisposition | None
     after_disposition: StructuralItemDisposition | None
 
 
 class ModelGraphComparison(BaseModel):
-    """Aligned scientific entities for rendering a graph difference without browser inference."""
+    """Identity-aligned topology changes, excluding laws and other entity attributes."""
 
     model_config = ConfigDict(extra="forbid")
     constructs: list[ConstructComparison]
     edges: list[EdgeComparison]
+    before_dynamic_construct_ids: list[ConstructId]
+    after_dynamic_construct_ids: list[ConstructId]
 
 
 class ModelDefinitionChange(BaseModel):
@@ -192,15 +191,10 @@ def compare_model_definitions(left: ModelSpec, right: ModelSpec) -> list[ModelDe
     return changes
 
 
-def compare_model_graph(
-    left: ModelSpec, right: ModelSpec, parameters: list[ParameterChange]
-) -> ModelGraphComparison:
-    """Localize definition changes using canonical containment, including shared coefficients."""
-    from nof1_causal_lab.models.model_parameters import referenced_parameter_ids
+def compare_model_graph(left: ModelSpec, right: ModelSpec) -> ModelGraphComparison:
+    """Compare displayed nodes and connections, including their time-slice topology."""
     from nof1_causal_lab.models.model_structure import model_graph_entities
 
-    changed_parameters = {item.parameter_id for item in parameters}
-    laws = [model.model_dump(mode="json")["distributions"] for model in (left, right)]
     graphs = [model_graph_entities(model) for model in (left, right)]
     dispositions = [
         {item.target.id: item for item in model.structural_dispositions}
@@ -209,37 +203,23 @@ def compare_model_graph(
         for model in (left, right)
     ]
 
-    def definition(entity: ConstructSpec | CausalEdgeSpec | None, side: int):
-        if entity is None:
-            return None
+    def topology(entity: ConstructSpec | CausalEdgeSpec):
         if isinstance(entity, CausalEdgeSpec):
-            return {
-                **entity.model_dump(mode="json", exclude={"cause", "effect"}),
-                "cause": entity.cause.id,
-                "effect": entity.effect.id,
-            }
-        model = (left, right)[side]
-        return {
-            **entity.model_dump(mode="json"),
-            "law": laws[side].get(entity.distribution),
-            "time_points": model.time_points if entity.distribution is not None else (),
-            "default_outcome": model.default_outcome == entity.id,
-        }
+            return entity.cause.id, entity.cause.is_dynamic, entity.effect.id
+        return entity.is_dynamic
 
     def entities(before, after, comparison_type, identity_field):
         old, new = {item.id: item for item in before}, {item.id: item for item in after}
         result = []
         for identity in sorted(old.keys() | new.keys()):
             a, b = old.get(identity), new.get(identity)
-            owned = referenced_parameter_ids(*(item for item in (a, b) if item is not None))
-            parameter_ids = sorted(owned & changed_parameters)
             change = (
                 "added"
                 if a is None
                 else "removed"
                 if b is None
                 else "revised"
-                if definition(a, 0) != definition(b, 1) or parameter_ids
+                if topology(a) != topology(b)
                 else "unchanged"
             )
             result.append(
@@ -249,7 +229,6 @@ def compare_model_graph(
                         "before": read(a),
                         "after": read(b),
                         "change": change,
-                        "parameter_ids": parameter_ids,
                         "before_disposition": dispositions[0].get(identity),
                         "after_disposition": dispositions[1].get(identity),
                     }
@@ -262,12 +241,13 @@ def compare_model_graph(
             return ComparisonConnection(
                 cause=ConstructRef(id=entity.cause.id),
                 effect=ConstructRef(id=entity.effect.id),
-                lagged=entity.lagged,
                 description=entity.description,
             )
         return entity
 
     return ModelGraphComparison(
+        before_dynamic_construct_ids=[item.id for item in graphs[0][0] if item.is_dynamic],
+        after_dynamic_construct_ids=[item.id for item in graphs[1][0] if item.is_dynamic],
         constructs=entities(graphs[0][0], graphs[1][0], ConstructComparison, "construct_id"),
         edges=entities(graphs[0][1], graphs[1][1], EdgeComparison, "edge_id"),
     )
@@ -328,11 +308,11 @@ def model_diff(workspace_id: str, before_id: GitOid, after_id: GitOid) -> ModelD
         after=after,
         definition_changes=compare_model_definitions(left, right),
         parameters=changes,
-        graph=compare_model_graph(left, right, changes),
+        graph=compare_model_graph(left, right),
         before_checks=check_specification(left),
         after_checks=check_specification(right),
-        before_fit=before_fit,
-        after_fit=after_fit,
+        before_fit=before_fit.summary() if before_fit else None,
+        after_fit=after_fit.summary() if after_fit else None,
         before_simulation=before_simulation,
         after_simulation=after_simulation,
         changed_inputs=[

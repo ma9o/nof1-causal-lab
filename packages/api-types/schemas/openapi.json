@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "nof1-causal-lab episode API",
-    "description": "The scientific interface has four actions: `edit_model`, `prepare_data`, `fit`,\nand `simulate`. Requests commit through the serialized episode machine; reads\ncome from its versioned artifacts and append-only transition log.\n\n## Scientific loop\n\n1. Read `GET /api/machine` for action responsibilities, then\n   `GET /api/episodes/{workspace_id}/model` for current model/data versions and findings.\n2. Submit to `POST /api/episodes/{workspace_id}/actions`:\n   - `edit_model`: `{\"action\":\"edit_model\",\"expected_revision\":null,\"model\":{\"question\":\"Does workload affect sleep?\"}}`.\n     Model structure, measurements, mechanisms, constants, and laws can be edited together.\n     Valid incomplete models are saved with applicable specification findings.\n   - `prepare_data`: supply `input={\"source\":{\"files\":[\"diary.csv\"]},\"definition\":{...}}`\n     with `default_window`, `variables`, and optional interpretation `context` in the definition.\n     Each variable has a stable ID, dtype, summary, scoring rubric, extraction mode,\n     source columns, window and codebook as appropriate. The action ingests and extracts\n     in one call, retaining the semantic worker fan-out and deterministic scoring paths.\n     Alternatively, `input={\"revision\":\"<simulation commit OID>\",\"replicate\":0}`\n     selects one recorded simulation draw. Its observations, schema and support layout\n     are already defined, so extraction is skipped. To reuse pre-extracted observations,\n     use `input={\"source\":{\"file\":\"observations.parquet\",\"start\":\"2022-01-01\",\"end\":\"2026-06-01\"},\"variables\":[...]}`.\n     The uploaded Parquet uses the canonical long observation columns: `indicator_id`, `value`,\n     `anchor_time`, `support_kind`, `summary_operator`, `anchor_policy`, `observation_window`,\n     `support_start`, `support_end`. Variables use the shared ObservationSpec definition with\n     resolved windows and codebooks. Optional `fill_null` is a Polars strategy name\n     (forward, backward, min, max, mean, zero, one) or a numeric constant,\n     with an optional `fill_null_limit` for forward/backward. For example, `aggregation=\"last\"`\n     with `fill_null=\"forward\"` carries the latest dose until the next value;\n     leading nulls remain unknown. Filling runs after aggregation on the sorted time grid,\n     replacing all nulls, including explicit unknowns. Omitted means no filling. The same\n     setting is available for computed file extraction and is retained in the preparation\n     metadata. Only declared IDs are selected; UTC dates select\n     `start <= anchor_time < end` and remain in the saved source. Missing declared variables,\n     incompatible support or invalid numeric codes fail without saving a panel. This branch\n     runs no ingestion or extraction workers. All three branches run numerical data checks\n     without loading a model. Latent paths and parameter truths stay in simulation sources.\n   - `fit`: `{\"action\":\"fit\",\"model_revision\":\"<model tree OID>\",\"panel_revision\":\"<panel tree OID>\"}` conditions the selected\n     model on observations. Returns joint uncertainty and fit diagnostics; predictive\n     simulation is a separate request. Current fitting supports independent scalar laws.\n   - `simulate`: `{\"action\":\"simulate\",\"model_revision\":\"<model tree OID>\",\"end\":30,\"interventions\":[]}`\n     generates forward from the model's current laws. `start` optionally selects an earlier\n     model time; otherwise generation starts at its latest retained state, or zero when it\n     has only an initial-state law. Times use absolute model days. Interventions are optional:\n     `{\"target\":\"<construct ID>\",\"time\":5,\"value\":1}` assigns a state at that time,\n     then its natural dynamics resume. The framework derives the grid and always includes\n     process and observation uncertainty.\n     Compare the saved observations separately with `data_diff`; simulation does not\n     accept comparison data or change its generation rules for predictive checks.\n3. Dispatch returns HTTP 202 with only `{\"attempt_id\":\"<UUID>\"}` after durable acceptance.\n   Poll `GET /api/episodes/{workspace_id}/actions/{attempt_id}` for `{done, body, messages}`.\n   While running, `done` is false and `body` is null. At completion, `body` contains the\n   scientific result, or is null on failure. Messages accumulate as\n   `{timestamp, level, label}` with UTC timestamps, `debug|info|warn|error` levels,\n   and stable `SCREAMING_SNAKE_CASE` labels. Warnings can accompany a saved result;\n   failed actions leave the scientific branch unchanged. Do not redispatch while polling.\n   `GET /api/episodes/{workspace_id}/timeline` retains `applied`, `rejected`, or `raised`\n   attempts and their messages. Numerical arrays have immutable store references.\n   `GET /api/episodes/{workspace_id}/model` includes separately sourced specification,\n   identification, data-compatibility, fitting, and simulation findings.\n\nThe same requests are available as tools through `GET /api/tools/scientific` and\n`POST /api/tools/scientific/{action}`; these tools return the receipt in `result`.\nUse `poll_action` with `{attempt_id}` to read the same poll response in `result`.\nHTTP and tool calls share execution contracts. V2 is a read-only inspector.\n\n## Revisions and execution\n\nRequests name stored input revisions. Fits check the selected model/data pair; model edits reject base revision conflicts. Read `/revisions` to select history. `GET /model-diff?before=...&after=...` compares model trees or Git checkpoints; `POST /data-diff` compares saved data selections in `left` and `right`. Both are read-only inspection operations and create no action attempt.\nAn edit does not require prior simulation or an authoring admission. Causal numerical\nclaims still require matching identification and production inference evidence.\nModel edits automatically run affected checks, including one exact whole-model\npredictive batch when a compatible panel is available. Data preparation runs only\ndata checks. Unchanged checks reuse\ntheir recorded results. Scientific failures save as findings; missing prerequisites carry\nnot_evaluated reasons. Read predictive details and law provenance in the action body.\nSimulation reports retain their own generating model revision; a later edit makes that\nreport historical rather than evidence for the edited model.\n\nOnly the four scientific actions submit scientific work. Execution jobs and\nLLM subroutines are private implementation details; callers do not select them.\nSimulation always uses the same nonlinear generator. Paired intervention histories share\njoint parameter/state draws and random streams. Causal effects on the model's default\noutcome are reported only when identification and committed production-fit evidence support\nthat interpretation; otherwise the report keeps its histories with an explicit reason.\nThe `analysis` context is read-only model introspection.\n\n## Data in, results out\n\nUpload files at `POST /api/upload` (`multipart/form-data` with `workspaceId` and\n`file`) before `prepare_data` with its file preparation or observation-table input. Read artifact payloads at\n`GET /api/episodes/{workspace_id}/artifacts/{artifact_id}`; binary files are served\nfrom `.../files/{filename}`. Long jobs may outlive an HTTP client timeout; inspect\nthe timeline before submitting another request.\n\n## Read-only deployments\n\n`GET /api/capabilities` reports `actions_enabled`. Read-only deployments reject scientific action submissions with 403.\n",
+    "description": "The scientific interface has four actions: `edit_model`, `prepare_data`, `fit`,\nand `simulate`. Requests commit through the serialized episode machine; reads\ncome from its versioned artifacts and append-only transition log.\n\n## Scientific loop\n\n1. Read `GET /api/machine` for action responsibilities, then\n   `GET /api/episodes/{workspace_id}/model` for current model/data versions and findings.\n2. Submit to `POST /api/episodes/{workspace_id}/actions`:\n   - `edit_model`: `{\"action\":\"edit_model\",\"expected_revision\":null,\"model\":{\"question\":\"Does workload affect sleep?\"}}`.\n     Model structure, measurements, mechanisms, constants, and laws can be edited together.\n     Valid incomplete models are saved with applicable specification findings.\n   - `prepare_data`: supply `input={\"source\":{\"files\":[\"diary.csv\"]},\"definition\":{...}}`\n     with `default_window`, `variables`, and optional interpretation `context` in the definition.\n     Each variable has a stable ID, dtype, summary, scoring rubric, extraction mode,\n     source columns, window and codebook as appropriate. The action ingests and extracts\n     in one call, retaining the semantic worker fan-out and deterministic scoring paths.\n     Alternatively, `input={\"revision\":\"<simulation commit OID>\",\"replicate\":0}`\n     selects one recorded simulation draw. Its observations, schema and support layout\n     are already defined, so extraction, re-encoding and filling are skipped.\n     Files may declare optional source coverage `start` and `end` dates; only complete\n     support windows inside that span are prepared. Computed variables may use Polars\n     `fill_null` strategies or a numeric constant, with `fill_null_limit` for forward/backward.\n     Ingestion and one-variable, one-window extraction requests reuse retained validated\n     results by content across studies; reuse is reported in action messages. The committed\n     panel and recipe remain the scientific record. Both sources run numerical data checks without loading a model.\n     Latent paths and parameter truths stay in simulation sources.\n     See the [prepare_data chart](../../../docs/assets/action-flows/prepare-data.svg) for branches\n     and [time semantics](../../../docs/assumptions.md#time) for the panel origin.\n   - `fit`: `{\"action\":\"fit\",\"model_revision\":\"<model tree OID>\",\"panel_revision\":\"<panel tree OID>\"}` conditions the selected\n     model on observations. Returns joint uncertainty and fit diagnostics; predictive\n     simulation is a separate request. Current fitting supports independent scalar laws.\n   - `simulate`: `{\"action\":\"simulate\",\"model_revision\":\"<model tree OID>\",\"end\":30,\"interventions\":[]}`\n     generates forward from the model's current laws. `start` optionally selects an earlier\n     model time; otherwise generation starts at its latest retained state, or zero when it\n     has only an initial-state law. Times use absolute model days. Interventions are optional:\n     `{\"target\":\"<construct ID>\",\"time\":5,\"value\":1}` assigns a state at that time,\n     then its natural dynamics resume. The framework derives the grid and always includes\n     process and observation uncertainty. The saved report includes all state and indicator\n     summaries, law provenance and fit reliability, with causal intervals only when certified.\n     See [time semantics](../../../docs/assumptions.md#time) for initial laws and calendar binding.\n     Compare the saved observations separately with `data_diff`; simulation does not\n     accept comparison data or change its generation rules for predictive checks.\n3. Dispatch returns HTTP 202 with only `{\"attempt_id\":\"<UUID>\"}` after durable acceptance.\n   Poll `GET /api/episodes/{workspace_id}/actions/{attempt_id}` for `{done, body, messages}`.\n   While running, `done` is false and `body` is null. At completion, `body` contains the\n   scientific result, or is null on failure. Messages accumulate as\n   `{timestamp, level, label}` with UTC timestamps, `debug|info|warn|error` levels,\n   and stable `SCREAMING_SNAKE_CASE` labels. Warnings can accompany a saved result;\n   failed actions leave the scientific branch unchanged. Do not redispatch while polling.\n   `GET /api/episodes/{workspace_id}/timeline` retains `applied`, `rejected`, or `raised`\n   attempts and their messages. Numerical arrays have immutable store references.\n   `GET /api/episodes/{workspace_id}/model` includes separately sourced specification,\n   identification, data-compatibility, fitting, and simulation findings.\n\nThe same requests are available as tools through `GET /api/tools/scientific` and\n`POST /api/tools/scientific/{action}`; these tools return the receipt in `result`.\nUse `poll_action` with `{attempt_id}` to read the same poll response in `result`.\nHTTP and tool calls share execution contracts. V2 is a read-only inspector.\n\n## Revisions and execution\n\nRequests name stored input revisions. Fits check the selected model/data pair; model edits reject base revision conflicts. Read `/revisions` to select history. `GET /model-diff?before=...&after=...` compares model trees or Git checkpoints; `POST /data-diff` compares saved data selections in `left` and `right`. Both are read-only inspection operations and create no action attempt.\nAn edit does not require prior simulation or an authoring admission. Causal numerical\nclaims still require matching identification and production inference evidence.\nModel edits automatically run affected checks, including one exact whole-model\npredictive batch when a compatible panel is available. Data preparation runs only\ndata checks. Unchanged checks reuse\ntheir recorded results. Scientific failures save as findings; missing prerequisites carry\nnot_evaluated reasons. Read predictive details and law provenance in the action body.\nSimulation reports retain their own generating model revision; a later edit makes that\nreport historical rather than evidence for the edited model.\n\nOnly the four scientific actions submit scientific work. Execution jobs and\nLLM subroutines are private implementation details; callers do not select them.\nSimulation always uses the same nonlinear generator. Paired intervention histories share\njoint parameter/state draws and random streams. Causal effects on the model's default\noutcome are reported only when identification and committed production-fit evidence support\nthat interpretation; otherwise the report keeps its histories with an explicit reason.\nThe `analysis` context is read-only model introspection.\n\n## Data in, results out\n\nUpload files at `POST /api/upload` (`multipart/form-data` with `workspaceId` and\n`file`) before `prepare_data` with its file preparation input. Read artifact payloads at\n`GET /api/episodes/{workspace_id}/artifacts/{artifact_id}`; binary files are served\nfrom `.../files/{filename}`. Long jobs may outlive an HTTP client timeout; inspect\nthe timeline before submitting another request.\n\n## Read-only deployments\n\n`GET /api/capabilities` reports `actions_enabled`. Read-only deployments reject scientific action submissions with 403.\n",
     "version": "0.1.0"
   },
   "paths": {
@@ -364,7 +364,7 @@
     "/api/episodes/{workspace_id}/model-diff": {
       "get": {
         "summary": "Get Model Diff",
-        "description": "Compare two model artifact revisions or Git checkpoints containing a model.\n\nReturns identity-aligned definition changes, parameter decisions and graph\ndifferences. Checkpoint selections also include their recorded fit/simulation\nevidence; selecting a model tree alone does not infer an associated run.",
+        "description": "Compare two model artifact revisions or Git checkpoints containing a model.\n\nReturns identity-aligned definition changes, parameter decisions and graph\ntopology differences. Graph highlights exclude laws and other entity attributes.\nCheckpoint selections also include their recorded fit/simulation\nevidence; selecting a model tree alone does not infer an associated run.",
         "operationId": "model_diff",
         "parameters": [
           {
@@ -420,7 +420,7 @@
     "/api/episodes/{workspace_id}/data-diff": {
       "post": {
         "summary": "Post Data Diff",
-        "description": "Compare existing datasets without creating an action, fitting or simulating.\n\nEach side accepts a data reference or a nonempty array of references. Panel\nreferences select artifact revisions; simulation references select applied\nsimulation commits and optionally one replicate (otherwise every draw).\nA simulation's optional time_origin maps model day zero to a calendar instant.\nExact anchors and measurement windows determine which predictive comparisons\nare available. Results preserve each history and report incompatible inputs.",
+        "description": "Compare existing datasets without creating an action, fitting or simulating.\n\nEach side accepts a data reference or a nonempty array of references. Panel\nreferences select artifact revisions; simulation references select applied\nsimulation commits and optionally one replicate (otherwise every draw).\nSimulation calendar coordinates come from the saved report's origin.\nExact anchors and measurement windows determine which predictive comparisons\nare available. Results preserve each history and report incompatible inputs.",
         "operationId": "data_diff",
         "parameters": [
           {
@@ -667,12 +667,20 @@
         }
       }
     },
-    "/api/episodes/{workspace_id}/model/simulation-trajectories": {
+    "/api/episodes/{workspace_id}/model/visuals/observations/{indicator_id}": {
       "get": {
-        "summary": "Get Simulation Trajectories",
-        "description": "Pointwise means and 95% equal-tail bands from saved outcome histories.\n\nPin `at` to a commit to read its latest recorded simulation. Both paired\nhistories use the simulation's own model, ordered variables and observation\nmask. Empty measurement anchors stay null. No fit or simulation is run.",
-        "operationId": "get_simulation_trajectories_api_episodes__workspace_id__model_simulation_trajectories_get",
+        "summary": "Get Observation History",
+        "description": "All prepared observations on their recorded temporal support.",
+        "operationId": "get_observation_history_api_episodes__workspace_id__model_visuals_observations__indicator_id__get",
         "parameters": [
+          {
+            "name": "indicator_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/IndicatorId"
+            }
+          },
           {
             "name": "workspace_id",
             "in": "path",
@@ -719,13 +727,342 @@
                 "schema": {
                   "anyOf": [
                     {
-                      "$ref": "#/components/schemas/Sourced_SimulationTrajectories_"
+                      "$ref": "#/components/schemas/ObservationHistory"
                     },
                     {
                       "type": "null"
                     }
                   ],
-                  "title": "Response Get Simulation Trajectories Api Episodes  Workspace Id  Model Simulation Trajectories Get"
+                  "title": "Response Get Observation History Api Episodes  Workspace Id  Model Visuals Observations  Indicator Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/episodes/{workspace_id}/model/visuals/predictive/{indicator_id}": {
+      "get": {
+        "summary": "Get Predictive History",
+        "description": "Saved predictive paths on the exact schedule of their pinned inputs.",
+        "operationId": "get_predictive_history_api_episodes__workspace_id__model_visuals_predictive__indicator_id__get",
+        "parameters": [
+          {
+            "name": "indicator_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/IndicatorId"
+            }
+          },
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "title": "Workspace Id"
+            }
+          },
+          {
+            "name": "branch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "main",
+              "title": "Branch"
+            }
+          },
+          {
+            "name": "at",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/GitOid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "At"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/PredictiveHistory"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Predictive History Api Episodes  Workspace Id  Model Visuals Predictive  Indicator Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/episodes/{workspace_id}/model/visuals/simulation": {
+      "get": {
+        "summary": "Get Simulation Paths",
+        "description": "A contiguous page of original simulation draws, without time thinning.",
+        "operationId": "get_simulation_paths_api_episodes__workspace_id__model_visuals_simulation_get",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "title": "Workspace Id"
+            }
+          },
+          {
+            "name": "start",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Start"
+            }
+          },
+          {
+            "name": "count",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 128,
+              "minimum": 1,
+              "default": 24,
+              "title": "Count"
+            }
+          },
+          {
+            "name": "branch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "main",
+              "title": "Branch"
+            }
+          },
+          {
+            "name": "at",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/GitOid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "At"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SimulationPaths"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Simulation Paths Api Episodes  Workspace Id  Model Visuals Simulation Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/episodes/{workspace_id}/model/visuals/parameters": {
+      "get": {
+        "summary": "Get Parameter Draws",
+        "description": "All coordinates and all draws of the retained joint posterior.",
+        "operationId": "get_parameter_draws_api_episodes__workspace_id__model_visuals_parameters_get",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "title": "Workspace Id"
+            }
+          },
+          {
+            "name": "branch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "main",
+              "title": "Branch"
+            }
+          },
+          {
+            "name": "at",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/GitOid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "At"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParameterDraws"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/episodes/{workspace_id}/model/visuals/mechanism": {
+      "post": {
+        "summary": "Get Mechanism Curves",
+        "description": "Read conditional drift curves using the exact model equations; creates no scientific action.",
+        "operationId": "get_mechanism_curves_api_episodes__workspace_id__model_visuals_mechanism_post",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "title": "Workspace Id"
+            }
+          },
+          {
+            "name": "branch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "main",
+              "title": "Branch"
+            }
+          },
+          {
+            "name": "at",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/GitOid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "At"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MechanismViewRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MechanismCurves"
                 }
               }
             }
@@ -1548,7 +1885,6 @@
                 "measurement_structure",
                 "measurements",
                 "simulated_measurements",
-                "imported_measurements",
                 "statistical_model_spec",
                 "posterior",
                 "simulate"
@@ -2536,6 +2872,48 @@
         "title": "CapabilitiesResponse",
         "description": "This response tells clients whether the episode facade supports scientific actions."
       },
+      "CategoryProbabilitySummary": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "categorical",
+            "title": "Kind",
+            "default": "categorical"
+          },
+          "probabilities": {
+            "additionalProperties": {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            "type": "object",
+            "title": "Probabilities"
+          },
+          "n_draws": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "N Draws"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "probabilities",
+          "n_draws"
+        ],
+        "title": "CategoryProbabilitySummary",
+        "description": "Predictive probabilities for each declared level; unobserved anchors are null."
+      },
       "CausalEdgeSpec-Input": {
         "properties": {
           "id": {
@@ -2576,12 +2954,6 @@
             "type": "string",
             "title": "Description",
             "description": "Theoretical justification for this causal link"
-          },
-          "lagged": {
-            "type": "boolean",
-            "title": "Lagged",
-            "description": "If True, effect at t is caused by cause at t-1 (one model_clock tick delay). If False (contemporaneous), effect at t is caused by cause at t.",
-            "default": true
           },
           "sources": {
             "items": {
@@ -2644,12 +3016,6 @@
             "title": "Description",
             "description": "Theoretical justification for this causal link"
           },
-          "lagged": {
-            "type": "boolean",
-            "title": "Lagged",
-            "description": "If True, effect at t is caused by cause at t-1 (one model_clock tick delay). If False (contemporaneous), effect at t is caused by cause at t.",
-            "default": true
-          },
           "sources": {
             "items": {
               "$ref": "#/components/schemas/LiteratureSource"
@@ -2672,15 +3038,6 @@
       },
       "CausalEffectResult": {
         "properties": {
-          "time_grid_days": {
-            "items": {
-              "type": "number"
-            },
-            "type": "array",
-            "minItems": 2,
-            "title": "Time Grid Days",
-            "description": "Shared elapsed-day coordinates for all trajectories, including day zero."
-          },
           "outcome": {
             "$ref": "#/components/schemas/ConstructId"
           },
@@ -2698,17 +3055,10 @@
             "$ref": "#/components/schemas/EffectSummary"
           },
           "effect_trajectory": {
-            "anyOf": [
-              {
-                "items": {
-                  "$ref": "#/components/schemas/EffectTrajectoryPoint"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "items": {
+              "$ref": "#/components/schemas/EffectTrajectoryPoint"
+            },
+            "type": "array",
             "title": "Effect Trajectory"
           },
           "trajectory_peak": {
@@ -2720,17 +3070,6 @@
                 "type": "null"
               }
             ]
-          },
-          "trajectories": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/SimulationTrajectory"
-            },
-            "propertyNames": {
-              "$ref": "#/components/schemas/ConstructId"
-            },
-            "type": "object",
-            "title": "Trajectories",
-            "description": "Reference and action means for each simulated construct on time_grid_days."
           },
           "manifest_effects": {
             "anyOf": [
@@ -2761,11 +3100,10 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "time_grid_days",
           "outcome",
           "labels",
           "summary",
-          "trajectories",
+          "effect_trajectory",
           "reference_mean"
         ],
         "title": "CausalEffectResult",
@@ -2861,10 +3199,6 @@
           "effect": {
             "$ref": "#/components/schemas/ConstructRef"
           },
-          "lagged": {
-            "type": "boolean",
-            "title": "Lagged"
-          },
           "description": {
             "type": "string",
             "title": "Description"
@@ -2875,11 +3209,10 @@
         "required": [
           "cause",
           "effect",
-          "lagged",
           "description"
         ],
         "title": "ComparisonConnection",
-        "description": "Endpoint references and temporal relation for one side of a causal edge comparison."
+        "description": "Endpoint references and description for one side of a causal edge comparison."
       },
       "ConstructComparison": {
         "properties": {
@@ -2916,13 +3249,6 @@
             ],
             "title": "Change"
           },
-          "parameter_ids": {
-            "items": {
-              "$ref": "#/components/schemas/ParameterId"
-            },
-            "type": "array",
-            "title": "Parameter Ids"
-          },
           "before_disposition": {
             "anyOf": [
               {
@@ -2951,12 +3277,11 @@
           "before",
           "after",
           "change",
-          "parameter_ids",
           "before_disposition",
           "after_disposition"
         ],
         "title": "ConstructComparison",
-        "description": "A construct's definitions and changed owned parameters in two model revisions."
+        "description": "A construct's presence and time-slice topology in two model revisions."
       },
       "ConstructId": {
         "type": "string",
@@ -3333,7 +3658,7 @@
           "value"
         ],
         "title": "DataPoint",
-        "description": "An observed value at an exact calendar anchor and measurement support."
+        "description": "An observed anchor and support; dates are synthetic for a calendar-free series."
       },
       "DataPointChange": {
         "properties": {
@@ -3539,19 +3864,6 @@
               }
             ],
             "title": "Replicate"
-          },
-          "time_origin": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date-time"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Time Origin",
-            "description": "Calendar instant for simulation day zero; omitted uses 1970-01-01 UTC."
           }
         },
         "additionalProperties": false,
@@ -3590,6 +3902,19 @@
               }
             ]
           },
+          "time_origin": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Origin",
+            "description": "Recorded calendar binding; null means the point dates are serialization coordinates, not real dates."
+          },
           "points": {
             "items": {
               "$ref": "#/components/schemas/DataPoint"
@@ -3602,6 +3927,7 @@
         "type": "object",
         "required": [
           "variable",
+          "time_origin",
           "points"
         ],
         "title": "DataSeries",
@@ -3614,12 +3940,9 @@
           },
           {
             "$ref": "#/components/schemas/SimulationReplicateRef"
-          },
-          {
-            "$ref": "#/components/schemas/ObservationTableRef"
           }
         ],
-        "description": "Uploaded sources, one simulation replicate, or a bounded observation table."
+        "description": "Uploaded sources or one recorded simulation replicate."
       },
       "DataStatisticComparison": {
         "properties": {
@@ -4082,13 +4405,6 @@
             ],
             "title": "Change"
           },
-          "parameter_ids": {
-            "items": {
-              "$ref": "#/components/schemas/ParameterId"
-            },
-            "type": "array",
-            "title": "Parameter Ids"
-          },
           "before_disposition": {
             "anyOf": [
               {
@@ -4117,12 +4433,11 @@
           "before",
           "after",
           "change",
-          "parameter_ids",
           "before_disposition",
           "after_disposition"
         ],
         "title": "EdgeComparison",
-        "description": "An explicit causal edge's definitions and changed mechanism parameters."
+        "description": "An explicit causal edge's presence and endpoints in two model revisions."
       },
       "EdgeId": {
         "type": "string",
@@ -4221,22 +4536,55 @@
         "properties": {
           "day": {
             "type": "number",
-            "minimum": 0.0,
             "title": "Day"
           },
           "effect": {
             "type": "number",
             "title": "Effect"
+          },
+          "lower_95": {
+            "type": "number",
+            "title": "Lower 95"
+          },
+          "upper_95": {
+            "type": "number",
+            "title": "Upper 95"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "day",
-          "effect"
+          "effect",
+          "lower_95",
+          "upper_95"
         ],
         "title": "EffectTrajectoryPoint",
-        "description": "An effect trajectory point records a causal delta at one elapsed rollout time."
+        "description": "A certified paired contrast and 95% interval at one absolute model time."
+      },
+      "EmpiricalPoint": {
+        "properties": {
+          "value": {
+            "type": "number",
+            "title": "Value"
+          },
+          "probability": {
+            "type": "number",
+            "title": "Probability"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "value",
+          "probability",
+          "count"
+        ],
+        "title": "EmpiricalPoint"
       },
       "EpisodeState": {
         "properties": {
@@ -4641,18 +4989,6 @@
           },
           "definition": {
             "$ref": "#/components/schemas/DataPreparationSpec-Input"
-          },
-          "max_windows": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 1.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Max Windows"
           }
         },
         "additionalProperties": false,
@@ -4673,6 +5009,32 @@
             "type": "array",
             "minItems": 1,
             "title": "Files"
+          },
+          "start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start",
+            "description": "Inclusive UTC source-coverage date."
+          },
+          "end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End",
+            "description": "Exclusive UTC source-coverage date."
           }
         },
         "additionalProperties": false,
@@ -4682,6 +5044,15 @@
         ],
         "title": "FileSourceRef",
         "description": "Explicit uploaded filenames, relative to this study's input directory."
+      },
+      "FitReliability": {
+        "type": "string",
+        "enum": [
+          "not_fitted",
+          "converged",
+          "unconverged",
+          "unknown"
+        ]
       },
       "FitRequest": {
         "properties": {
@@ -4802,6 +5173,20 @@
             },
             "type": "object",
             "title": "Decay Estimates"
+          },
+          "prior_densities": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/components/schemas/DensityPoint"
+              },
+              "type": "array"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/ParameterId"
+            },
+            "type": "object",
+            "title": "Prior Densities",
+            "description": "Conditioned input laws of the fitted parameters, on their posterior marginals' quantity scale; absent where the current compiler cannot place the input model."
           }
         },
         "additionalProperties": false,
@@ -4810,7 +5195,7 @@
           "report"
         ],
         "title": "FitSummary",
-        "description": "A fit read contains the inference log report and server-composed display findings.",
+        "description": "A fit read contains the inference report summary and server-composed display findings.\n\nPer-draw diagnostics load separately from the inference report endpoint.",
         "x-python-module": "nof1_causal_lab.machine.snapshot_models"
       },
       "GitOid": {
@@ -5564,6 +5949,19 @@
       },
       "InferenceReport": {
         "properties": {
+          "time_origin": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Origin",
+            "description": "Known calendar instant of model day zero."
+          },
           "inference_metadata": {
             "$ref": "#/components/schemas/InferenceMetadata"
           },
@@ -5613,6 +6011,7 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
+          "time_origin",
           "inference_metadata"
         ],
         "title": "InferenceReport",
@@ -6188,10 +6587,201 @@
         "title": "MeasurementsData",
         "description": "Counts and representative observations read directly from one panel revision."
       },
+      "MechanismCurves": {
+        "properties": {
+          "axis": {
+            "$ref": "#/components/schemas/ConstructId"
+          },
+          "axis_label": {
+            "type": "string",
+            "title": "Axis Label"
+          },
+          "target_label": {
+            "type": "string",
+            "title": "Target Label"
+          },
+          "states": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/ConstructId"
+            },
+            "type": "object",
+            "title": "States"
+          },
+          "held": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/ConstructId"
+            },
+            "type": "object",
+            "title": "Held"
+          },
+          "moderator": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConstructId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "x": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "X"
+          },
+          "curves": {
+            "items": {
+              "$ref": "#/components/schemas/ResponseCurve"
+            },
+            "type": "array",
+            "title": "Curves"
+          },
+          "law": {
+            "type": "string",
+            "enum": [
+              "retained",
+              "sampled",
+              "fixed"
+            ],
+            "title": "Law"
+          },
+          "total_draws": {
+            "type": "integer",
+            "title": "Total Draws"
+          },
+          "start": {
+            "type": "integer",
+            "title": "Start"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "nonfinite": {
+            "type": "integer",
+            "title": "Nonfinite"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "axis",
+          "axis_label",
+          "target_label",
+          "states",
+          "held",
+          "moderator",
+          "x",
+          "curves",
+          "law",
+          "total_draws",
+          "start",
+          "count",
+          "nonfinite"
+        ],
+        "title": "MechanismCurves",
+        "description": "Exact conditional drift contributions, not marginal or total causal effects."
+      },
       "MechanismId": {
         "type": "string",
         "pattern": "^mechanism:[A-Za-z0-9_.-]+$",
         "tsType": "`mechanism:${string}`"
+      },
+      "MechanismViewRequest": {
+        "properties": {
+          "owner_id": {
+            "type": "string",
+            "title": "Owner Id"
+          },
+          "axis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConstructId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lower": {
+            "type": "number",
+            "title": "Lower",
+            "default": -3
+          },
+          "upper": {
+            "type": "number",
+            "title": "Upper",
+            "default": 3
+          },
+          "held": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/ConstructId"
+            },
+            "type": "object",
+            "title": "Held"
+          },
+          "moderator": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConstructId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "levels": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "maxItems": 5,
+            "minItems": 1,
+            "title": "Levels",
+            "default": [
+              -1,
+              0,
+              1
+            ]
+          },
+          "start": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Start",
+            "default": 0
+          },
+          "count": {
+            "type": "integer",
+            "maximum": 128.0,
+            "minimum": 1.0,
+            "title": "Count",
+            "default": 24
+          },
+          "points": {
+            "type": "integer",
+            "maximum": 1001.0,
+            "minimum": 21.0,
+            "title": "Points",
+            "default": 201
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "owner_id"
+        ],
+        "title": "MechanismViewRequest"
       },
       "ModelCheckReport": {
         "properties": {
@@ -6686,16 +7276,32 @@
             },
             "type": "array",
             "title": "Edges"
+          },
+          "before_dynamic_construct_ids": {
+            "items": {
+              "$ref": "#/components/schemas/ConstructId"
+            },
+            "type": "array",
+            "title": "Before Dynamic Construct Ids"
+          },
+          "after_dynamic_construct_ids": {
+            "items": {
+              "$ref": "#/components/schemas/ConstructId"
+            },
+            "type": "array",
+            "title": "After Dynamic Construct Ids"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "constructs",
-          "edges"
+          "edges",
+          "before_dynamic_construct_ids",
+          "after_dynamic_construct_ids"
         ],
         "title": "ModelGraphComparison",
-        "description": "Aligned scientific entities for rendering a graph difference without browser inference."
+        "description": "Identity-aligned topology changes, excluding laws and other entity attributes."
       },
       "ModelGraphView": {
         "properties": {
@@ -6713,6 +7319,14 @@
             },
             "type": "array",
             "title": "Edge Ids",
+            "default": []
+          },
+          "dynamic_construct_ids": {
+            "items": {
+              "$ref": "#/components/schemas/ConstructId"
+            },
+            "type": "array",
+            "title": "Dynamic Construct Ids",
             "default": []
           },
           "status": {
@@ -7159,6 +7773,114 @@
           "params"
         ]
       },
+      "ObservationHistory": {
+        "properties": {
+          "indicator_id": {
+            "$ref": "#/components/schemas/IndicatorId"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "times": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Times"
+          },
+          "values": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Values"
+          },
+          "support_start": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Support Start"
+          },
+          "support_end": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Support End"
+          },
+          "time_origin": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Origin"
+          },
+          "levels": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Levels"
+          },
+          "empirical": {
+            "items": {
+              "$ref": "#/components/schemas/EmpiricalPoint"
+            },
+            "type": "array",
+            "title": "Empirical"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "indicator_id",
+          "label",
+          "times",
+          "values",
+          "support_start",
+          "support_end",
+          "time_origin",
+          "levels",
+          "empirical"
+        ],
+        "title": "ObservationHistory",
+        "description": "All prepared observations, their true anchors and their measurement support."
+      },
       "ObservationLawSpec-Input": {
         "properties": {
           "distribution": {
@@ -7458,71 +8180,6 @@
         "title": "ObservationSpec",
         "description": "A stable observed variable, reusable across scientific model definitions."
       },
-      "ObservationTableRef": {
-        "properties": {
-          "file": {
-            "type": "string",
-            "title": "File",
-            "description": "Uploaded Parquet filename, without directory components."
-          },
-          "start": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Start",
-            "description": "Inclusive UTC anchor date (ISO YYYY-MM-DD)."
-          },
-          "end": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "End",
-            "description": "Exclusive UTC anchor date (ISO YYYY-MM-DD)."
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "file"
-        ],
-        "title": "ObservationTableRef",
-        "description": "An uploaded Parquet observation table and its selected UTC calendar interval."
-      },
-      "ObservationTableSpec": {
-        "properties": {
-          "source": {
-            "$ref": "#/components/schemas/ObservationTableRef"
-          },
-          "variables": {
-            "items": {
-              "$ref": "#/components/schemas/ObservationSpec"
-            },
-            "type": "array",
-            "minItems": 1,
-            "title": "Variables"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "source",
-          "variables"
-        ],
-        "title": "ObservationTableSpec",
-        "description": "Select already extracted observations by their declared variable schema."
-      },
       "OperationId": {
         "type": "string",
         "enum": [
@@ -7531,7 +8188,6 @@
           "measurement_structure",
           "measurements",
           "simulated_measurements",
-          "imported_measurements",
           "statistical_model_spec",
           "posterior",
           "simulate"
@@ -7556,34 +8212,6 @@
             "type": "array",
             "title": "Observed"
           },
-          "q025": {
-            "items": {
-              "anyOf": [
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "type": "array",
-            "title": "Q025"
-          },
-          "q25": {
-            "items": {
-              "anyOf": [
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "type": "array",
-            "title": "Q25"
-          },
           "median": {
             "items": {
               "anyOf": [
@@ -7597,34 +8225,6 @@
             },
             "type": "array",
             "title": "Median"
-          },
-          "q75": {
-            "items": {
-              "anyOf": [
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "type": "array",
-            "title": "Q75"
-          },
-          "q975": {
-            "items": {
-              "anyOf": [
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "type": "array",
-            "title": "Q975"
           },
           "spaghetti_draws": {
             "items": {
@@ -7648,14 +8248,10 @@
         "required": [
           "indicator_id",
           "observed",
-          "q025",
-          "q25",
-          "median",
-          "q75",
-          "q975"
+          "median"
         ],
         "title": "PPCOverlay",
-        "description": "A predictive overlay compares observed values with posterior predictive bands for one\nindicator.\n\nProvides the data for Gabry's ppc_dens_overlay / ppc_ribbon plots:\nobserved time series vs posterior predictive quantile bands.\nOptionally includes individual y_rep draw lines for spaghetti plots."
+        "description": "A predictive overlay sets one indicator's observed values against simulated ones.\n\nIt carries the predictive median and a few individual replicated series, the\nspaghetti plot of a visual predictive check."
       },
       "PPCTestStat": {
         "properties": {
@@ -7793,6 +8389,69 @@
         "title": "ParameterChange",
         "description": "A parameter change compares one parameter's fixed value or law across model revisions."
       },
+      "ParameterDrawColumn": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "subject": {
+            "$ref": "#/components/schemas/ParameterRef"
+          },
+          "values": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Values"
+          },
+          "empirical": {
+            "items": {
+              "$ref": "#/components/schemas/EmpiricalPoint"
+            },
+            "type": "array",
+            "title": "Empirical"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "label",
+          "subject",
+          "values",
+          "empirical"
+        ],
+        "title": "ParameterDrawColumn"
+      },
+      "ParameterDraws": {
+        "properties": {
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/ParameterDrawColumn"
+            },
+            "type": "array",
+            "title": "Columns"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "columns"
+        ],
+        "title": "ParameterDraws",
+        "description": "Every retained parameter coordinate, without thinning or pair selection."
+      },
       "ParameterElementId": {
         "type": "string",
         "pattern": "^element:[0-9a-f]{64}$",
@@ -7882,7 +8541,7 @@
               }
             ],
             "title": "Reference Interval Days",
-            "description": "Positive duration in days over which an authored persistence or interval-effect law is defined, before conversion to continuous-time decay or rate. When omitted, persistence uses the model measurement clock; interval effects use the edge lag, falling back to that clock."
+            "description": "Positive duration in days over which an authored persistence or interval-effect law is defined, before conversion to continuous-time decay or rate. When omitted, persistence and interval effects use the model measurement clock."
           }
         },
         "additionalProperties": false,
@@ -7894,6 +8553,50 @@
         ],
         "title": "ParameterSpec",
         "description": "A named quantity's current uncertainty; component slots define its meaning."
+      },
+      "PathSeries": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "action": {
+            "items": {
+              "$ref": "#/components/schemas/RecordedPath"
+            },
+            "type": "array",
+            "title": "Action"
+          },
+          "reference": {
+            "items": {
+              "$ref": "#/components/schemas/RecordedPath"
+            },
+            "type": "array",
+            "title": "Reference",
+            "default": []
+          },
+          "levels": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Levels"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "label",
+          "action"
+        ],
+        "title": "PathSeries"
       },
       "PosteriorEstimate": {
         "properties": {
@@ -8183,6 +8886,46 @@
           "SIMULATION_UNSUPPORTED"
         ]
       },
+      "PredictiveHistory": {
+        "properties": {
+          "times": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Times"
+          },
+          "time_origin": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Origin"
+          },
+          "standardized": {
+            "type": "boolean",
+            "title": "Standardized"
+          },
+          "overlay": {
+            "$ref": "#/components/schemas/PPCOverlay"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "times",
+          "time_origin",
+          "standardized",
+          "overlay"
+        ],
+        "title": "PredictiveHistory",
+        "description": "A saved check on the exact schedule and scale used to evaluate it."
+      },
       "PredictiveLawProvenance": {
         "properties": {
           "kind": {
@@ -8196,6 +8939,16 @@
             "title": "Kind"
           },
           "fitted_panel_revision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GitOid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fitted_model_revision": {
             "anyOf": [
               {
                 "$ref": "#/components/schemas/GitOid"
@@ -8226,6 +8979,23 @@
         "title": "PredictiveLawProvenance",
         "description": "Known conditioning history, independently of a probability law's family."
       },
+      "PredictiveSummary": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/TrajectorySummary"
+          },
+          {
+            "$ref": "#/components/schemas/CategoryProbabilitySummary"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind",
+          "mapping": {
+            "categorical": "#/components/schemas/CategoryProbabilitySummary",
+            "numeric": "#/components/schemas/TrajectorySummary"
+          }
+        }
+      },
       "PrepareDataRequest": {
         "properties": {
           "action": {
@@ -8241,9 +9011,6 @@
               },
               {
                 "$ref": "#/components/schemas/SimulationReplicateRef"
-              },
-              {
-                "$ref": "#/components/schemas/ObservationTableSpec"
               }
             ],
             "title": "Input"
@@ -8255,7 +9022,7 @@
           "input"
         ],
         "title": "PrepareDataRequest",
-        "description": "Prepare uploaded sources, a simulation replicate, or extracted observations without a model."
+        "description": "Prepare uploaded sources or a simulation replicate without a model."
       },
       "PreparedDataMetadata": {
         "properties": {
@@ -8279,13 +9046,27 @@
                 "type": "null"
               }
             ]
+          },
+          "time_origin": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Origin",
+            "description": "Calendar instant of model day zero; null denotes a calendar-free history."
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "source",
-          "variables"
+          "variables",
+          "time_origin"
         ],
         "title": "PreparedDataMetadata",
         "description": "Self-contained semantics and provenance of one prepared observation table."
@@ -8482,6 +9263,75 @@
         ],
         "title": "RawDataDateRange",
         "description": "Observed date bounds of the uploaded table, when it contains a date column."
+      },
+      "RecordedPath": {
+        "properties": {
+          "draw": {
+            "type": "integer",
+            "title": "Draw"
+          },
+          "values": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Values"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "draw",
+          "values"
+        ],
+        "title": "RecordedPath"
+      },
+      "ResponseCurve": {
+        "properties": {
+          "draw": {
+            "type": "integer",
+            "title": "Draw"
+          },
+          "values": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Values"
+          },
+          "level": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Level"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "draw",
+          "values"
+        ],
+        "title": "ResponseCurve"
       },
       "ResumeRef": {
         "properties": {
@@ -8766,6 +9616,120 @@
         "title": "SimulationObservationLayout",
         "description": "Saved observation semantics and coordinates; generation truths remain separate."
       },
+      "SimulationPaths": {
+        "properties": {
+          "times": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Times"
+          },
+          "time_origin": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Origin"
+          },
+          "total_draws": {
+            "type": "integer",
+            "title": "Total Draws"
+          },
+          "start": {
+            "type": "integer",
+            "title": "Start"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "states": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PathSeries"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/ConstructId"
+            },
+            "type": "object",
+            "title": "States"
+          },
+          "indicators": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PathSeries"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/IndicatorId"
+            },
+            "type": "object",
+            "title": "Indicators"
+          },
+          "effect": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PathSeries"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "times",
+          "time_origin",
+          "total_draws",
+          "start",
+          "count",
+          "states",
+          "indicators"
+        ],
+        "title": "SimulationPaths",
+        "description": "Contiguous pages of original draws, with every recorded time point intact."
+      },
+      "SimulationPredictiveReport": {
+        "properties": {
+          "states": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/SimulationSeriesSummary"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/ConstructId"
+            },
+            "type": "object",
+            "title": "States"
+          },
+          "indicators": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/SimulationSeriesSummary"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/IndicatorId"
+            },
+            "type": "object",
+            "title": "Indicators"
+          },
+          "fit_reliability": {
+            "$ref": "#/components/schemas/FitReliability"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "states",
+          "indicators",
+          "fit_reliability"
+        ],
+        "title": "SimulationPredictiveReport",
+        "description": "Model implications, independently of whether a causal contrast is certified."
+      },
       "SimulationReplicateRef": {
         "properties": {
           "revision": {
@@ -8811,6 +9775,30 @@
             "type": "integer",
             "minimum": 0.0,
             "title": "Seed"
+          },
+          "time_origin": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Origin",
+            "description": "Known calendar instant of model day zero."
+          },
+          "origin_panel_revision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GitOid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Panel that supplied the time origin: the fit's panel for fitted laws, otherwise the current panel when present."
           },
           "state_ids": {
             "items": {
@@ -8877,6 +9865,9 @@
             "title": "Findings",
             "default": []
           },
+          "predictive": {
+            "$ref": "#/components/schemas/SimulationPredictiveReport"
+          },
           "causal_result": {
             "anyOf": [
               {
@@ -8907,14 +9898,45 @@
           "times",
           "draws",
           "seed",
+          "time_origin",
           "state_ids",
           "parameter_draws",
           "latent_paths",
           "observations",
-          "observation_layout"
+          "observation_layout",
+          "predictive"
         ],
         "title": "SimulationReport",
         "description": "Generated histories and derived findings with their resolved execution coordinates."
+      },
+      "SimulationSeriesSummary": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "action": {
+            "$ref": "#/components/schemas/PredictiveSummary"
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PredictiveSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "label",
+          "action"
+        ],
+        "title": "SimulationSeriesSummary",
+        "description": "One state's or indicator's generated distribution in each simulated arm."
       },
       "SimulationSpec": {
         "properties": {
@@ -8952,136 +9974,6 @@
         "title": "SimulationSpec",
         "description": "Generate through end, optionally starting earlier and applying dated interventions."
       },
-      "SimulationTrajectories": {
-        "properties": {
-          "times": {
-            "items": {
-              "type": "number"
-            },
-            "type": "array",
-            "title": "Times"
-          },
-          "time_origin": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date-time"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Time Origin",
-            "description": "UTC calendar instant of model day zero, from the fitted law's pinned observation panel when it has calendar provenance."
-          },
-          "interval_mass": {
-            "type": "number",
-            "maximum": 0.95,
-            "minimum": 0.95,
-            "title": "Interval Mass",
-            "default": 0.95
-          },
-          "outcome": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ConstructId"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "outcome_state": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/SimulationTrajectoryBands"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "indicators": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/SimulationTrajectoryBands"
-            },
-            "propertyNames": {
-              "$ref": "#/components/schemas/IndicatorId"
-            },
-            "type": "object",
-            "title": "Indicators"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "times",
-          "outcome",
-          "outcome_state",
-          "indicators"
-        ],
-        "title": "SimulationTrajectories",
-        "description": "Read-only pointwise summaries of the saved outcome state and its indicators."
-      },
-      "SimulationTrajectory": {
-        "properties": {
-          "reference_mean": {
-            "items": {
-              "type": "number"
-            },
-            "type": "array",
-            "minItems": 2,
-            "title": "Reference Mean",
-            "description": "Mean natural latent path on the result's time_grid_days, including day zero."
-          },
-          "action_mean": {
-            "items": {
-              "type": "number"
-            },
-            "type": "array",
-            "minItems": 2,
-            "title": "Action Mean",
-            "description": "Mean latent path under the dated interventions on the same full time grid."
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "reference_mean",
-          "action_mean"
-        ],
-        "title": "SimulationTrajectory",
-        "description": "One construct's mean reference and intervention paths across simulated draws."
-      },
-      "SimulationTrajectoryBands": {
-        "properties": {
-          "label": {
-            "type": "string",
-            "title": "Label"
-          },
-          "action": {
-            "$ref": "#/components/schemas/TrajectorySummary"
-          },
-          "reference": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/TrajectorySummary"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "label",
-          "action"
-        ],
-        "title": "SimulationTrajectoryBands",
-        "description": "One named state's or indicator's simulated history, with its paired reference if present."
-      },
       "SnapshotContext": {
         "properties": {
           "workspace_id": {
@@ -9108,7 +10000,7 @@
             "default": false
           },
           "state": {
-            "$ref": "#/components/schemas/EpisodeState"
+            "$ref": "#/components/schemas/SnapshotState"
           },
           "artifacts": {
             "items": {
@@ -9128,6 +10020,25 @@
         ],
         "title": "SnapshotContext",
         "description": "A snapshot context identifies the selected Git commit and its artifact versions.",
+        "x-python-module": "nof1_causal_lab.machine.snapshot_models"
+      },
+      "SnapshotState": {
+        "properties": {
+          "current": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ArtifactRecord"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/ArtifactId"
+            },
+            "type": "object",
+            "title": "Current"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SnapshotState",
+        "description": "A snapshot state lists the artifact revisions current at the selected commit.\n\nRecorded checks appear once, as the specification and predictive findings.",
         "x-python-module": "nof1_causal_lab.machine.snapshot_models"
       },
       "SourceValidity": {
@@ -9335,24 +10246,6 @@
           "source"
         ],
         "title": "Sourced[SimulationReport]",
-        "x-python-module": "nof1_causal_lab.machine.snapshot_models"
-      },
-      "Sourced_SimulationTrajectories_": {
-        "properties": {
-          "value": {
-            "$ref": "#/components/schemas/SimulationTrajectories"
-          },
-          "source": {
-            "$ref": "#/components/schemas/FactSource"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "value",
-          "source"
-        ],
-        "title": "Sourced[SimulationTrajectories]",
         "x-python-module": "nof1_causal_lab.machine.snapshot_models"
       },
       "Sourced_SpecificationReport_": {
@@ -9903,6 +10796,12 @@
       },
       "TrajectorySummary": {
         "properties": {
+          "kind": {
+            "type": "string",
+            "const": "numeric",
+            "title": "Kind",
+            "default": "numeric"
+          },
           "mean": {
             "items": {
               "anyOf": [
@@ -9962,7 +10861,7 @@
           "n_draws"
         ],
         "title": "TrajectorySummary",
-        "description": "Pointwise mean and equal-tail interval across saved draws; empty anchors are null."
+        "description": "Pointwise means and fixed 95% quantiles across generated numeric draws."
       },
       "TransitionRuntimeEvent": {
         "properties": {

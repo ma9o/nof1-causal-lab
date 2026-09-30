@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, FiniteFloat, RootModel
+from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 from nof1_causal_lab.artifacts.effects import HistogramBin  # noqa: TC001
 from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId, ParameterId  # noqa: TC001
@@ -86,37 +86,6 @@ class ModelDiagnostics(ViewValue):
     observation_equations: dict[IndicatorId, str] = Field(default_factory=dict)
     likelihood_diagnostics: dict[IndicatorId, LikelihoodDiagnostics] = Field(default_factory=dict)
     prior_densities: dict[ParameterId, tuple[DensityPoint, ...]] = Field(default_factory=dict)
-
-
-class TrajectorySummary(ViewValue):
-    """Pointwise mean and equal-tail interval across saved draws; empty anchors are null."""
-
-    mean: tuple[FiniteFloat | None, ...]
-    lower: tuple[FiniteFloat | None, ...]
-    upper: tuple[FiniteFloat | None, ...]
-    n_draws: tuple[int, ...]
-
-
-class SimulationTrajectoryBands(ViewValue):
-    """One named state's or indicator's simulated history, with its paired reference if present."""
-
-    label: str
-    action: TrajectorySummary
-    reference: TrajectorySummary | None = None
-
-
-class SimulationTrajectories(ViewValue):
-    """Read-only pointwise summaries of the saved outcome state and its indicators."""
-
-    times: tuple[FiniteFloat, ...]
-    time_origin: AwareDatetime | None = Field(
-        default=None,
-        description="UTC calendar instant of model day zero, from the fitted law's pinned observation panel when it has calendar provenance.",
-    )
-    interval_mass: FiniteFloat = Field(default=0.95, ge=0.95, le=0.95)
-    outcome: ConstructId | None
-    outcome_state: SimulationTrajectoryBands | None
-    indicators: dict[IndicatorId, SimulationTrajectoryBands]
 
 
 class ArtifactViewResponse(

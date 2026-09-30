@@ -16,6 +16,7 @@ from nof1_causal_lab.utils.arrays import decode_array, encode_array
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from datetime import datetime
 
     import numpy as np
     import polars as pl
@@ -30,6 +31,7 @@ class FitComputeInput:
 
     model_json: str
     panel_parquet: bytes
+    time_origin: datetime | None
     arrays: dict[str, bytes]
     sampler_config: SamplerConfig
     compute_loo_diagnostics: bool
@@ -77,6 +79,7 @@ def execute_fit_compute(payload: FitComputeInput) -> FitComputeResult:
     result = fit(
         model_spec=model,
         data_for_model=pl.read_parquet(io.BytesIO(payload.panel_parquet)),
+        time_origin=payload.time_origin,
         sampler_config=validate_sampler_config(payload.sampler_config),
         array_writer=write_array,
         array_loader=arrays.__getitem__,
@@ -142,6 +145,7 @@ def fit_on_modal(
     *,
     model_spec: ModelSpec,
     data_for_model: pl.DataFrame,
+    time_origin: datetime | None,
     sampler_config: SamplerConfig,
     array_writer: Callable[[np.ndarray], str],
     array_loader: ArrayLoader,
@@ -162,6 +166,7 @@ def fit_on_modal(
         FitComputeInput(
             model_json=model_spec.model_dump_json(),
             panel_parquet=panel.getvalue(),
+            time_origin=time_origin,
             arrays=inputs,
             sampler_config=sampler_config,
             compute_loo_diagnostics=compute_loo_diagnostics,

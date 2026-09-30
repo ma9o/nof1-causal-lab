@@ -33,9 +33,7 @@ def validate_simulation_laws(model: ModelSpec) -> None:
         assert parameter.distribution is not None
         law = model.distributions[parameter.distribution]
         if not any(distribution_shape(law)):
-            compile_parameter_law(
-                model, parameter, semantics[parameter.id], numeric.edge_lag_days(model)
-            )
+            compile_parameter_law(model, parameter, semantics[parameter.id])
         elif parameter.distribution_transform != PriorAuthoringTransform.IDENTITY:
             raise ValueError("Joint probability laws must use native scientific coordinates")
     retained = {c.id for c in model.constructs if c.distribution is not None}
@@ -77,9 +75,7 @@ def sample_model_laws(model: ModelSpec, *, draws: int, key: jax.Array) -> JointP
         if not law.batch_shape and not law.event_shape:
             parameter = members[0]
             coordinates = sorted(bindings[parameter.id].coordinates)
-            native_law, _ = compile_parameter_law(
-                model, parameter, semantics[parameter.id], numeric.edge_lag_days(model)
-            )
+            native_law, _ = compile_parameter_law(model, parameter, semantics[parameter.id])
             sampled = native_law.sample(law_key, sample_shape=(draws, len(coordinates)))
             values.update((coordinate, sampled[:, i]) for i, coordinate in enumerate(coordinates))
             continue

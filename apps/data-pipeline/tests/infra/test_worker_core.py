@@ -57,6 +57,7 @@ class TestFormatIndicators:
             "model_clock": "1d",
             "indicators": [
                 {
+                    "id": "indicator:x",
                     "name": "x",
                     "measurement_dtype": "continuous",
                     "aggregation": "mean",
@@ -64,13 +65,14 @@ class TestFormatIndicators:
             ],
         }
         result = _format_indicators(spec)
-        assert "x" in result
+        assert "indicator:x" in result
 
     def test_indicator_specific_window_overrides_model_clock(self):
         spec = {
             "model_clock": "1d",
             "indicators": [
                 {
+                    "id": "indicator:monthly_pss_score",
                     "name": "monthly_pss_score",
                     "measurement_dtype": "continuous",
                     "how_to_measure": "Average perceived stress over the last month",

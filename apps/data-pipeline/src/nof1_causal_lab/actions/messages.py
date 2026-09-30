@@ -107,6 +107,11 @@ def completion_messages(
         for worker in TypeAdapter(list[JsonObject]).validate_python(diagnostics.get("workers", []))
     ):
         labels["EXTRACTION_PARTIAL"] = "warn"
+    if action == "prepare_data":
+        if diagnostics.get("ingestion_reused"):
+            labels["INGESTION_REUSED"] = "info"
+        if diagnostics.get("extraction_reused"):
+            labels["EXTRACTION_REUSED"] = "info"
     if action == "simulate":
         simulation = TypeAdapter(SimulationReport).validate_python(diagnostics["report"])
         if any(finding.passed is False for finding in simulation.findings):

@@ -166,281 +166,241 @@
       "id": "edge:2dbde6b9ce99226b79b7",
       "cause_id": "construct:ec7f6678cc272ceaec8f",
       "effect_id": "construct:a23cb2efbb32d9606cad",
-      "description": "Experienced developers have better mental models and debugging heuristics built from years of pattern recognition",
-      "lagged": true
+      "description": "Experienced developers have better mental models and debugging heuristics built from years of pattern recognition"
     },
     {
       "id": "edge:d4c00851d5e05565ebe2",
       "cause_id": "construct:ec7f6678cc272ceaec8f",
       "effect_id": "construct:7610d8ea0a271136707c",
-      "description": "Experience builds stable self-efficacy in debugging abilities",
-      "lagged": true
+      "description": "Experience builds stable self-efficacy in debugging abilities"
     },
     {
       "id": "edge:d8e556414de2d3e63adc",
       "cause_id": "construct:ec7f6678cc272ceaec8f",
       "effect_id": "construct:ed7923340cf8abd1e2fa",
-      "description": "Experienced developers have internalized systematic debugging methodologies",
-      "lagged": true
+      "description": "Experienced developers have internalized systematic debugging methodologies"
     },
     {
       "id": "edge:fcda5c32b82a4eff6991",
       "cause_id": "construct:87232c059fdf1ba762ba",
       "effect_id": "construct:b0c7a7cc9b0ad7a7f93c",
-      "description": "Complex, tightly-coupled systems produce harder-to-diagnose emergent errors",
-      "lagged": true
+      "description": "Complex, tightly-coupled systems produce harder-to-diagnose emergent errors"
     },
     {
       "id": "edge:61978928d6dd886cd121",
       "cause_id": "construct:87232c059fdf1ba762ba",
       "effect_id": "construct:a23cb2efbb32d9606cad",
-      "description": "Complex codebases make errors harder to trace through layers of abstraction",
-      "lagged": true
+      "description": "Complex codebases make errors harder to trace through layers of abstraction"
     },
     {
       "id": "edge:325bc0c190f60d96d0de",
       "cause_id": "construct:9123e080622c4dc50119",
       "effect_id": "construct:94af502ceb11fa6eae24",
-      "description": "Larger teams provide more potential sources of domain knowledge and debugging assistance",
-      "lagged": true
+      "description": "Larger teams provide more potential sources of domain knowledge and debugging assistance"
     },
     {
       "id": "edge:ac2525918bb6d8cd61a6",
       "cause_id": "construct:021cc02e542c82390a33",
       "effect_id": "construct:a23cb2efbb32d9606cad",
-      "description": "Good documentation helps understand expected behavior, system design, and known issues",
-      "lagged": true
+      "description": "Good documentation helps understand expected behavior, system design, and known issues"
     },
     {
       "id": "edge:afbd94366f0fafbcb561",
       "cause_id": "construct:021cc02e542c82390a33",
       "effect_id": "construct:0239ec67d42bef2d51ca",
-      "description": "Quality documentation accelerates learning about unfamiliar code areas",
-      "lagged": true
+      "description": "Quality documentation accelerates learning about unfamiliar code areas"
     },
     {
       "id": "edge:ecb5bc1415d57f8603d9",
       "cause_id": "construct:8d8ecfad44d9787c5309",
       "effect_id": "construct:a23cb2efbb32d9606cad",
-      "description": "Better debuggers, IDE features, and profilers speed up error identification and root cause analysis",
-      "lagged": true
+      "description": "Better debuggers, IDE features, and profilers speed up error identification and root cause analysis"
     },
     {
       "id": "edge:91f52ab25eb4ffbb0223",
       "cause_id": "construct:8d8ecfad44d9787c5309",
       "effect_id": "construct:ed7923340cf8abd1e2fa",
-      "description": "Good tools enable and encourage systematic debugging approaches like stepping through code",
-      "lagged": true
+      "description": "Good tools enable and encourage systematic debugging approaches like stepping through code"
     },
     {
       "id": "edge:c61a1bd0a5410875b991",
       "cause_id": "construct:8c93e77f1238cb398912",
       "effect_id": "construct:a23cb2efbb32d9606cad",
-      "description": "Clear error messages and detailed stack traces dramatically reduce diagnosis time",
-      "lagged": true
+      "description": "Clear error messages and detailed stack traces dramatically reduce diagnosis time"
     },
     {
       "id": "edge:392314660921e2afbf45",
       "cause_id": "construct:76c3dd8db792e4c03cac",
       "effect_id": "construct:a23cb2efbb32d9606cad",
-      "description": "Ability to quickly write tests, reproduce errors, and verify fixes speeds the debug-fix-verify cycle",
-      "lagged": true
+      "description": "Ability to quickly write tests, reproduce errors, and verify fixes speeds the debug-fix-verify cycle"
     },
     {
       "id": "edge:b96c429036a0a785f278",
       "cause_id": "construct:75b93a4a0d2097b6f9a8",
       "effect_id": "construct:f9b95f853bc1a8f5d91b",
-      "description": "Poor sleep leads to higher baseline fatigue affecting next-day cognitive resources",
-      "lagged": true
+      "description": "Poor sleep leads to higher baseline fatigue affecting next-day cognitive resources"
     },
     {
       "id": "edge:368c252dc44bc5f30b15",
       "cause_id": "construct:75b93a4a0d2097b6f9a8",
       "effect_id": "construct:4c417c2189d810e16e71",
-      "description": "Sleep deprivation directly impairs attention, working memory, and concentration",
-      "lagged": true
+      "description": "Sleep deprivation directly impairs attention, working memory, and concentration"
     },
     {
       "id": "edge:9122bc09bc8a71a3fb48",
       "cause_id": "construct:7a2b764850b06010c027",
       "effect_id": "construct:f9b95f853bc1a8f5d91b",
-      "description": "Heavy workloads deplete cognitive resources faster through the day",
-      "lagged": false
+      "description": "Heavy workloads deplete cognitive resources faster through the day"
     },
     {
       "id": "edge:c7b4de2ef56d7ef1e0f4",
       "cause_id": "construct:7a2b764850b06010c027",
       "effect_id": "construct:af8f14156f45dabd9a99",
-      "description": "High workload creates pressure and increases perceived stress",
-      "lagged": false
+      "description": "High workload creates pressure and increases perceived stress"
     },
     {
       "id": "edge:5a67895dd41367a3766c",
       "cause_id": "construct:7a2b764850b06010c027",
       "effect_id": "construct:a23cb2efbb32d9606cad",
-      "description": "High workload forces time-boxing on debugging, reducing thoroughness",
-      "lagged": false
+      "description": "High workload forces time-boxing on debugging, reducing thoroughness"
     },
     {
       "id": "edge:fbc84d3563a25dad57ef",
       "cause_id": "construct:ca6366f41919c33c6a59",
       "effect_id": "construct:4c417c2189d810e16e71",
-      "description": "Frequent interruptions break flow state and require costly context switching back to debugging",
-      "lagged": false
+      "description": "Frequent interruptions break flow state and require costly context switching back to debugging"
     },
     {
       "id": "edge:f20cf7aa74b9bd486e51",
       "cause_id": "construct:ca6366f41919c33c6a59",
       "effect_id": "construct:f9b95f853bc1a8f5d91b",
-      "description": "Context switching from interruptions is cognitively exhausting",
-      "lagged": false
+      "description": "Context switching from interruptions is cognitively exhausting"
     },
     {
       "id": "edge:3239cc194f4abd44843a",
       "cause_id": "construct:fe7d5738d0ec3d280313",
       "effect_id": "construct:af8f14156f45dabd9a99",
-      "description": "Approaching deadlines amplify psychological pressure and anxiety",
-      "lagged": false
+      "description": "Approaching deadlines amplify psychological pressure and anxiety"
     },
     {
       "id": "edge:96f22ee0a1cb8a2843ca",
       "cause_id": "construct:fe7d5738d0ec3d280313",
       "effect_id": "construct:ed7923340cf8abd1e2fa",
-      "description": "High pressure can cause abandonment of systematic approaches for desperate trial-and-error",
-      "lagged": false
+      "description": "High pressure can cause abandonment of systematic approaches for desperate trial-and-error"
     },
     {
       "id": "edge:eb152f80eef47a37c12e",
       "cause_id": "construct:b0c7a7cc9b0ad7a7f93c",
       "effect_id": "construct:a23cb2efbb32d9606cad",
-      "description": "Complex errors like race conditions or subtle memory issues require more time to diagnose and fix",
-      "lagged": false
+      "description": "Complex errors like race conditions or subtle memory issues require more time to diagnose and fix"
     },
     {
       "id": "edge:2615d06b37e014e90cd1",
       "cause_id": "construct:b0c7a7cc9b0ad7a7f93c",
       "effect_id": "construct:af8f14156f45dabd9a99",
-      "description": "Difficult errors increase frustration and pressure, especially under time constraints",
-      "lagged": false
+      "description": "Difficult errors increase frustration and pressure, especially under time constraints"
     },
     {
       "id": "edge:63e1871024d9bfb7126f",
       "cause_id": "construct:f9b95f853bc1a8f5d91b",
       "effect_id": "construct:4c417c2189d810e16e71",
-      "description": "Mental fatigue makes it progressively harder to maintain concentration",
-      "lagged": false
+      "description": "Mental fatigue makes it progressively harder to maintain concentration"
     },
     {
       "id": "edge:ac0534fb8f191aad0baa",
       "cause_id": "construct:f9b95f853bc1a8f5d91b",
       "effect_id": "construct:a23cb2efbb32d9606cad",
-      "description": "Fatigue impairs analytical reasoning and pattern recognition critical for debugging",
-      "lagged": false
+      "description": "Fatigue impairs analytical reasoning and pattern recognition critical for debugging"
     },
     {
       "id": "edge:907bf9971c30b05c5c2f",
       "cause_id": "construct:f9b95f853bc1a8f5d91b",
       "effect_id": "construct:af8f14156f45dabd9a99",
-      "description": "Mental exhaustion reduces emotional regulation capacity increasing stress reactivity",
-      "lagged": false
+      "description": "Mental exhaustion reduces emotional regulation capacity increasing stress reactivity"
     },
     {
       "id": "edge:dab0df0b285e2b67d6e2",
       "cause_id": "construct:af8f14156f45dabd9a99",
       "effect_id": "construct:4c417c2189d810e16e71",
-      "description": "High stress impairs working memory and sustained attention through rumination",
-      "lagged": false
+      "description": "High stress impairs working memory and sustained attention through rumination"
     },
     {
       "id": "edge:30407b0a1d1227d1d5c4",
       "cause_id": "construct:af8f14156f45dabd9a99",
       "effect_id": "construct:ed7923340cf8abd1e2fa",
-      "description": "Stress triggers reactive rather than deliberate debugging approaches",
-      "lagged": false
+      "description": "Stress triggers reactive rather than deliberate debugging approaches"
     },
     {
       "id": "edge:b92f08610fdf50ab5277",
       "cause_id": "construct:4c417c2189d810e16e71",
       "effect_id": "construct:a23cb2efbb32d9606cad",
-      "description": "Sustained deep attention is critical for systematic debugging and holding complex state in working memory",
-      "lagged": false
+      "description": "Sustained deep attention is critical for systematic debugging and holding complex state in working memory"
     },
     {
       "id": "edge:ff7c0e8fbd3fbc7829e9",
       "cause_id": "construct:4c417c2189d810e16e71",
       "effect_id": "construct:ed7923340cf8abd1e2fa",
-      "description": "Good focus enables methodical step-by-step debugging rather than scattered attempts",
-      "lagged": false
+      "description": "Good focus enables methodical step-by-step debugging rather than scattered attempts"
     },
     {
       "id": "edge:319c64f778829d17c910",
       "cause_id": "construct:0239ec67d42bef2d51ca",
       "effect_id": "construct:a23cb2efbb32d9606cad",
-      "description": "Knowing the code helps quickly locate and understand the source of errors",
-      "lagged": true
+      "description": "Knowing the code helps quickly locate and understand the source of errors"
     },
     {
       "id": "edge:932359152772aa2344be",
       "cause_id": "construct:0239ec67d42bef2d51ca",
       "effect_id": "construct:7610d8ea0a271136707c",
-      "description": "Familiarity with code increases confidence in ability to navigate and fix issues",
-      "lagged": true
+      "description": "Familiarity with code increases confidence in ability to navigate and fix issues"
     },
     {
       "id": "edge:90ef10aa3dba09315e69",
       "cause_id": "construct:94af502ceb11fa6eae24",
       "effect_id": "construct:a23cb2efbb32d9606cad",
-      "description": "Available teammates provide domain knowledge, pair debugging, and fresh perspectives",
-      "lagged": false
+      "description": "Available teammates provide domain knowledge, pair debugging, and fresh perspectives"
     },
     {
       "id": "edge:a1feaf94881a1964bd15",
       "cause_id": "construct:94af502ceb11fa6eae24",
       "effect_id": "construct:af8f14156f45dabd9a99",
-      "description": "Knowing help is available reduces isolation and anxiety when stuck on hard bugs",
-      "lagged": false
+      "description": "Knowing help is available reduces isolation and anxiety when stuck on hard bugs"
     },
     {
       "id": "edge:06215e58fc12960f753a",
       "cause_id": "construct:7610d8ea0a271136707c",
       "effect_id": "construct:a23cb2efbb32d9606cad",
-      "description": "Confidence enables persistent, systematic approaches rather than giving up or escalating prematurely",
-      "lagged": false
+      "description": "Confidence enables persistent, systematic approaches rather than giving up or escalating prematurely"
     },
     {
       "id": "edge:0839f12bd08b004f6b17",
       "cause_id": "construct:7610d8ea0a271136707c",
       "effect_id": "construct:ed7923340cf8abd1e2fa",
-      "description": "Confident developers trust systematic methods rather than flailing",
-      "lagged": false
+      "description": "Confident developers trust systematic methods rather than flailing"
     },
     {
       "id": "edge:ea206b9b675ee3464fc2",
       "cause_id": "construct:ed7923340cf8abd1e2fa",
       "effect_id": "construct:a23cb2efbb32d9606cad",
-      "description": "Methodical approaches like binary search and hypothesis testing resolve errors faster than random attempts",
-      "lagged": false
+      "description": "Methodical approaches like binary search and hypothesis testing resolve errors faster than random attempts"
     },
     {
       "id": "edge:a44b4a2101502a780222",
       "cause_id": "construct:a23cb2efbb32d9606cad",
       "effect_id": "construct:7610d8ea0a271136707c",
-      "description": "Successfully resolving errors builds confidence and positive momentum for future debugging",
-      "lagged": true
+      "description": "Successfully resolving errors builds confidence and positive momentum for future debugging"
     },
     {
       "id": "edge:78909a2c0efca1b18d06",
       "cause_id": "construct:a23cb2efbb32d9606cad",
       "effect_id": "construct:af8f14156f45dabd9a99",
-      "description": "Faster resolution reduces backlog pressure and frees mental bandwidth",
-      "lagged": true
+      "description": "Faster resolution reduces backlog pressure and frees mental bandwidth"
     },
     {
       "id": "edge:858d529a029fc8f4f45d",
       "cause_id": "construct:a23cb2efbb32d9606cad",
       "effect_id": "construct:0239ec67d42bef2d51ca",
-      "description": "Debugging teaches deep understanding of code behavior and edge cases",
-      "lagged": true
+      "description": "Debugging teaches deep understanding of code behavior and edge cases"
     }
   ],
   "default_outcome": {

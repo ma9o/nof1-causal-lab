@@ -53,13 +53,11 @@ structure_proposal:
 # extraction fans out across thousands of workers; harness cold-start per worker
 # is untenable, so `harness` is locked to `none` (enforced by config validator).
 extraction_workers:
-  windows_per_chunk: 1
   max_concurrent_workers: 200
   max_events_per_window: 300
   max_rpm: 450               # OpenRouter sliding-window RPM (embedded-only)
   worker_timeout: 120        # per-LLM-call timeout in seconds
   max_tool_turns: 40
-  max_free_windows: 100
   llm:
     harness: none
     model: openrouter/deepseek/deepseek-v4-flash

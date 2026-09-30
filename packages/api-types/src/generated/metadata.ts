@@ -32,8 +32,7 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
     "measurements",
     "posterior",
     "simulate",
-    "simulated_measurements",
-    "imported_measurements"
+    "simulated_measurements"
   ],
   "contexts": [
     {
@@ -199,7 +198,7 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
     },
     {
       "action_id": "prepare_data",
-      "description": "Prepare uploaded files with scoring instructions and semantic workers, materialize one recorded simulation replicate, or select a pre-extracted Parquet observation table with declared variables and optional date bounds; return model-independent observations, metadata and numerical data checks.",
+      "description": "Prepare uploaded files and a recipe within optional source coverage bounds, or materialize one recorded simulation replicate; return model-independent observations, metadata and numerical data checks.",
       "consumes": [],
       "optional_consumes": [
         "raw_data",
@@ -292,15 +291,6 @@ export const MACHINE_DESCRIPTION: MachineDescription = {
     },
     {
       "transition_id": "simulated_measurements",
-      "consumes": [],
-      "produces": [
-        "panel"
-      ],
-      "produces_optional": [],
-      "creation_class": "deterministic"
-    },
-    {
-      "transition_id": "imported_measurements",
       "consumes": [],
       "produces": [
         "panel"

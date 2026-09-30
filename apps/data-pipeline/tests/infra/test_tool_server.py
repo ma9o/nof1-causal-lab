@@ -193,11 +193,14 @@ def test_build_analysis_context_rehydrates_runtime_from_persisted_spec(monkeypat
     captured: dict[str, Any] = {}
     loads = 0
 
-    def fake_prepare_model_runtime(*, data_for_model, model, model_spec, sampler_config=None):
+    def fake_prepare_model_runtime(
+        *, data_for_model, model, model_spec, time_origin, sampler_config=None
+    ):
         nonlocal loads
         loads += 1
         del sampler_config
         assert model_spec == conditioned
+        assert time_origin.isoformat() == report["time_origin"].replace("Z", "+00:00")
         captured["data_for_model"] = data_for_model
         captured["model"] = model
         return rebuilt_runtime

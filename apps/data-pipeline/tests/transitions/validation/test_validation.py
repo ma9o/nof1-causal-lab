@@ -32,7 +32,6 @@ def simple_causal_design():
                     cause=stress.constructs[0],
                     effect=sleep.constructs[0],
                     description="Stress affects sleep",
-                    lagged=True,
                 ),
             ),
             (stress.constructs[0], sleep.constructs[0]),

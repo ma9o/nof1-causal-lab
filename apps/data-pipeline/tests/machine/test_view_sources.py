@@ -61,6 +61,7 @@ def test_runtime_diagnostic_subjects_match_posterior_marginals():
     )
     report = InferenceReport.model_validate(
         {
+            "time_origin": "2024-01-01T00:00:00Z",
             "inference_metadata": {"method": "test", "n_samples": 10, "duration_seconds": 1},
             "inference_diagnostics": {"mcmc": {"per_parameter": rows}},
             "posterior_marginals": marginals,

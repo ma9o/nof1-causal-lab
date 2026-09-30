@@ -25,14 +25,6 @@ def test_model_is_authored_directly_and_conditioned_by_fitting():
     assert "baseline_report" not in ARTIFACT_IDS
 
 
-def test_topological_order_respects_operation_prerequisites():
-    positions = {key: i for i, key in enumerate(topological_transition_order())}
-    for operation in ARTIFACT_GRAPH:
-        assert all(
-            positions[parent] < positions[operation.operation_id] for parent in operation.after
-        )
-
-
 def test_derived_outputs_depend_on_the_canonical_definition():
     parents = {d.produces: d.from_ for d in DERIVATIONS}
     assert parents == {
@@ -45,7 +37,6 @@ def test_derived_outputs_depend_on_the_canonical_definition():
 
 def test_scientific_gates_are_declared():
     assert set(transition_spec("posterior").consumes) == {"model", "panel"}
-    assert "panel" in transition_spec("posterior").consumes
     assert transition_spec("measurements").produces_optional == ("panel",)
 
 

@@ -12,8 +12,6 @@ from nof1_causal_lab.models.ssm.parameterization import build_site_registry
 from nof1_causal_lab.models.ssm.structure.sites import SemanticBinding
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
     from nof1_causal_lab.artifacts.identity import ParameterId
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor, SitePosition
@@ -30,12 +28,6 @@ class SemanticBindingRegistry:
     """Parameter-ID keyed bindings; runtime aliases are display metadata only."""
 
     by_parameter: dict[ParameterId, SemanticBinding] = field(default_factory=dict)
-
-
-def _axis(ids: Sequence[str], size: int, label: str) -> dict[str, int]:
-    if len(ids) != size or len(set(ids)) != size:
-        raise ValueError(f"Scientific prior binding requires {size} explicit unique {label} IDs")
-    return {key: index for index, key in enumerate(ids)}
 
 
 def _native_dynamics_bindings(model: ModelSpec) -> dict[ParameterId, SemanticBinding]:
@@ -76,8 +68,8 @@ def build_semantic_prior_bindings(
     from nof1_causal_lab.models.ssm.compile.parameter_identity import SHARED_OBSERVATION_FAMILIES
 
     bindings = _native_dynamics_bindings(model)
-    latent = _axis(numeric.state_ids(model), numeric.n_states(model), "latent")
-    manifest = _axis(numeric.observation_ids(model), numeric.n_observations(model), "manifest")
+    latent = {identity: index for index, identity in enumerate(numeric.state_ids(model))}
+    manifest = {identity: index for index, identity in enumerate(numeric.observation_ids(model))}
     sites = build_site_registry(model)
     errors: list[str] = []
     latent_names = numeric.state_names(model)

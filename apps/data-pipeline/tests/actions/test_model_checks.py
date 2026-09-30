@@ -1,6 +1,6 @@
 """Checks follow scientific input changes and never become authoring gates."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import jax.numpy as jnp
 import numpy as np
@@ -292,10 +292,33 @@ def test_joint_laws_can_be_checked_when_refitting_is_unsupported(study, monkeypa
     data_effects = evaluate_data_checks(
         store.workspace_id, state, TransitionEffects(produced=[panel])
     )
+    from nof1_causal_lab.artifacts.posterior import InferenceReport
+    from tests.inference_fixtures import inference_log
+
+    fitted_log = inference_log(conditioned)
+    # Historical fits used the first selected anchor, one day after this panel's
+    # new support-boundary origin. Predictive checks must keep those coordinates.
+    historical_report = InferenceReport.model_validate(fitted_log.diagnostics["report"]).model_copy(
+        update={"time_origin": datetime(2024, 1, 2, tzinfo=UTC)}
+    )
+    study[1].append(
+        fitted_log.model_copy(
+            update={
+                "seq": 2,
+                "produced": [*data_effects.produced, fitted],
+                "diagnostics": {
+                    **fitted_log.diagnostics,
+                    "report": historical_report.model_dump(mode="json"),
+                },
+            }
+        )
+    )
     state = apply_transition(state, [*data_effects.produced, fitted], [])
     calls = []
 
     def sample(model, design, **kwargs):
+        assert kwargs["time_origin"] == datetime(2024, 1, 2, tzinfo=UTC)
+        np.testing.assert_array_equal(kwargs["times"], [-1.0, 0.0, 1.0, 2.0, 3.0])
         draws = sample_model_laws(
             model, draws=kwargs["draws"], key=jax.random.PRNGKey(kwargs["seed"])
         )
@@ -348,3 +371,46 @@ def test_joint_laws_can_be_checked_when_refitting_is_unsupported(study, monkeypa
     )
     assert checked.checks.predictive.law.fitted_panel_revision == panel.revision
     assert checked.checks.predictive.law.interpretation == "posterior_predictive"
+
+    import polars as pl
+
+    # Neither a calendar mismatch nor observations before the retained fit state
+    # may turn an otherwise valid model edit into a failed action.
+    for calendar_free, detail in (
+        (False, "before the fit's first retained state"),
+        (True, "Calendar-free laws and calendar-bound observations"),
+    ):
+        metadata = panel_metadata()
+        frame = panel_frame(n_days=4)
+        if calendar_free:
+            metadata = metadata.model_copy(update={"time_origin": None})
+        else:
+            frame = frame.with_columns(
+                pl.col("anchor_time", "support_start", "support_end").str.to_datetime()
+                - timedelta(days=1)
+            )
+            metadata = metadata.model_copy(
+                update={"time_origin": datetime(2023, 12, 31, tzinfo=UTC)}
+            )
+        incompatible = store.write_artifact(
+            "panel",
+            produced_by="run:measurements",
+            derived_from={},
+            json_files={"metadata.json": metadata.model_dump(mode="json")},
+            parquet_files={"panel.parquet": frame},
+        )
+        state = state.with_artifacts([incompatible])
+        edited = edit_and_check(
+            store.workspace_id,
+            EditModelRequest(expected_revision=state.current["model"].revision, model=conditioned),
+            state,
+        )
+        assert edited.checks.predictive.status == "not_evaluated"
+        assert edited.checks.predictive.reason == "NO_COMPATIBLE_PANEL"
+        assert detail in edited.checks.predictive.detail
+        assert len(calls) == 2  # Only the two earlier, compatible checks generated a batch.
+        state, messages = _publish(
+            study, edited.model_copy(update={"produced": [incompatible, *edited.produced]})
+        )
+        assert study[1].state(study[1].head()).checks.predictive == edited.checks.predictive
+        assert any(message.label == "SIMULATION_CHECK_NOT_EVALUATED" for message in messages)

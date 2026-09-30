@@ -90,8 +90,6 @@ def test_unobserved_static_confounder_survives_measurement_authoring():
     graph_constructs(payload)[2].update(
         role="exogenous", temporal_status="time_invariant", indicators=[]
     )
-    for edge in payload["edges"][1:]:
-        edge["lagged"] = False
     output, feedback = measurement_structure_grounding(payload)
     assert feedback == "VALID"
     scientific_model = ModelSpec.model_validate(output)

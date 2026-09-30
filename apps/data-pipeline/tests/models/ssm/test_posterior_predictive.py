@@ -349,34 +349,14 @@ def test_overlays_preserve_quantiles_observations_and_selected_trajectories():
 
     assert [overlay.indicator_id for overlay in result] == ids
     assert [overlay.observed for overlay in result] == [[2.0, None, 9.0], [25.0, -1.0, 27.0]]
-    expected_bands = [
-        [
-            [0.3, 10.15, 0.3],
-            [3.0, 11.5, 3.0],
-            [6.0, 13.0, 6.0],
-            [9.0, 14.5, 9.0],
-            [11.7, 15.85, 11.7],
-        ],
-        [
-            [10.75, 0.3, 20.3],
-            [17.5, 3.0, 23.0],
-            [25.0, 6.0, 26.0],
-            [32.5, 9.0, 29.0],
-            [39.25, 11.7, 31.7],
-        ],
-    ]
+    expected_medians = [[6.0, 13.0, 6.0], [25.0, 6.0, 26.0]]
     for column, overlay in enumerate(result):
-        np.testing.assert_allclose(
-            [overlay.q025, overlay.q25, overlay.median, overlay.q75, overlay.q975],
-            expected_bands[column],
-            rtol=1e-6,
-            atol=1e-6,
-        )
+        np.testing.assert_allclose(overlay.median, expected_medians[column], rtol=1e-6, atol=1e-6)
         np.testing.assert_array_equal(overlay.spaghetti_draws, draws[jnp.array([0, 3]), :, column])
 
 
 @pytest.mark.inference(concern="predictive")
-def test_single_draw_has_exact_bands_and_caps_requested_trajectories():
+def test_single_draw_has_exact_median_and_caps_requested_trajectories():
     draws = jnp.array([[[2.0, -1.0], [4.0, 8.0]]])
     result = _compute_overlays(
         draws, jnp.zeros((2, 2)), ["indicator:x", "indicator:y"], n_spaghetti=100
@@ -384,8 +364,7 @@ def test_single_draw_has_exact_bands_and_caps_requested_trajectories():
 
     assert len(result) == 2
     for column, overlay in enumerate(result):
-        for band in [overlay.q025, overlay.q25, overlay.median, overlay.q75, overlay.q975]:
-            np.testing.assert_array_equal(band, draws[0, :, column])
+        np.testing.assert_array_equal(overlay.median, draws[0, :, column])
         np.testing.assert_array_equal(overlay.spaghetti_draws, draws[:, :, column])
 
 

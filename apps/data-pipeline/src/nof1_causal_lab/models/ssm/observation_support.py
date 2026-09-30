@@ -10,8 +10,11 @@ import numpy as np
 import polars as pl
 
 from nof1_causal_lab.models.ssm import numerics as numeric
+from nof1_causal_lab.utils.time_coordinates import serialization_origin
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from jax import Array
 
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
@@ -59,9 +62,12 @@ class ObservationSupportRuntime:
 def _datetime_expr(df: pl.DataFrame, column: str) -> pl.Expr:
     """Parse a datetime-like column to a consistent expression."""
     if column not in df.columns:
-        return pl.lit(None, dtype=pl.Datetime(time_zone="UTC"))
+        return pl.lit(None, dtype=pl.Datetime)
     if df.schema.get(column) == pl.Utf8:
-        return pl.col(column).str.to_datetime(strict=False, time_zone="UTC")
+        return pl.col(column).str.to_datetime(time_zone="UTC").dt.replace_time_zone(None)
+    dtype = df.schema.get(column)
+    if isinstance(dtype, pl.Datetime) and dtype.time_zone is not None:
+        return pl.col(column).dt.convert_time_zone("UTC").dt.replace_time_zone(None)
     return pl.col(column).cast(pl.Datetime, strict=False)
 
 
@@ -226,6 +232,8 @@ def compile_observation_support_runtime(
     observation_data: pl.DataFrame | None,
     wide_data: pl.DataFrame,
     manifest_names: list[str],
+    *,
+    time_origin: datetime | None,
 ) -> ObservationSupportRuntime | None:
     """Compile long-format observation support metadata into wide aligned arrays."""
     if (
@@ -259,7 +267,7 @@ def compile_observation_support_runtime(
     if df.is_empty():
         return None
 
-    t0 = df.select(pl.col("__anchor_dt").min()).item()
+    t0 = serialization_origin(time_origin)
     df = df.with_columns(
         ((pl.col("__anchor_dt") - pl.lit(t0)).dt.total_seconds() / SECONDS_PER_DAY)
         .cast(pl.Float64)
@@ -343,6 +351,8 @@ def augment_wide_data_with_support_boundaries(
     observation_data: pl.DataFrame | None,
     wide_data: pl.DataFrame,
     manifest_names: list[str],
+    *,
+    time_origin: datetime | None,
 ) -> pl.DataFrame:
     """Add missing support-boundary rows to the wide matrix.
 
@@ -350,6 +360,20 @@ def augment_wide_data_with_support_boundaries(
     observation time. The support-aware likelihood needs those boundary times
     on the latent path, even when all manifests are missing there.
     """
+    if (
+        "time" in wide_data.columns
+        and not wide_data.is_empty()
+        and wide_data.select((pl.col("time") > 0).all()).item()
+    ):
+        initial = wide_data.head(1).select(
+            pl.lit(0.0).alias("time"),
+            *(
+                pl.lit(None, dtype=wide_data.schema[name]).alias(name)
+                for name in wide_data.columns
+                if name != "time"
+            ),
+        )
+        wide_data = pl.concat([initial, wide_data], how="vertical_relaxed")
     if (
         observation_data is None
         or observation_data.is_empty()
@@ -375,7 +399,7 @@ def augment_wide_data_with_support_boundaries(
     if interval_df.is_empty():
         return wide_data
 
-    t0 = df.select(pl.col("__anchor_dt").min()).item()
+    t0 = serialization_origin(time_origin)
     boundary_times = (
         pl.concat(
             [
@@ -522,26 +546,37 @@ def prepare_simulation_observations(
     times: np.ndarray,
     *,
     comparison_data: pl.DataFrame | None = None,
+    time_origin: datetime | None,
 ) -> tuple[Array | None, ObservationSupportRuntime | None]:
     """Resolve the same observation schedule for generation and replicate materialization."""
     if comparison_data is None:
         return None, simulation_observation_support(model, times)
 
-    observations, observed_times, support = prepare_comparison_observations(model, comparison_data)
+    observations, observed_times, support = prepare_comparison_observations(
+        model, comparison_data, time_origin=time_origin
+    )
     if observed_times.shape != times.shape or not np.allclose(observed_times, times):
         raise ValueError("Comparison data and simulation design must have the same time grid")
     return observations, support
 
 
 def prepare_comparison_observations(
-    model: ModelSpec, comparison_data: pl.DataFrame
+    model: ModelSpec, comparison_data: pl.DataFrame, *, time_origin: datetime | None
 ) -> tuple[Array, Array, ObservationSupportRuntime | None]:
     """Use actual observation anchors and support boundaries for predictive comparisons."""
     from nof1_causal_lab.models.ssm.runtime import prepare_fit_inputs, project_observation_data
 
-    wide, rows = project_observation_data(comparison_data, model_spec=model)
-    wide = augment_wide_data_with_support_boundaries(rows, wide, numeric.observation_names(model))
+    wide, rows = project_observation_data(
+        comparison_data, model_spec=model, time_origin=time_origin
+    )
+    wide = augment_wide_data_with_support_boundaries(
+        rows, wide, numeric.observation_names(model), time_origin=time_origin
+    )
     validate_discrete_manifest_metadata(model, wide)
     validate_observation_support(model, wide)
     observations, times, names, wide = prepare_fit_inputs(model, wide)
-    return observations, times, compile_observation_support_runtime(rows, wide, names)
+    return (
+        observations,
+        times,
+        compile_observation_support_runtime(rows, wide, names, time_origin=time_origin),
+    )

@@ -17,8 +17,24 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+def remove_edge_timing(value):
+    """Translate archived definitions and nested authoring payloads."""
+    if isinstance(value, dict):
+        return {key: remove_edge_timing(item) for key, item in value.items() if key != "lagged"}
+    if isinstance(value, list):
+        return [remove_edge_timing(item) for item in value]
+    return value
+
+
 def rewrite_study(
-    source: Path, destination: Path, update: Callable[[Any], Any], *, mapping_name: str
+    source: Path,
+    destination: Path,
+    update: Callable[[Any], Any],
+    *,
+    mapping_name: str,
+    source_format: int = 4,
+    target_format: int = 4,
+    update_file: Callable[[str, str, Any], Any] | None = None,
 ) -> dict[str, str]:
     """Copy a stopped study and rewrite its Git graph and stored revision references.
 
@@ -28,8 +44,8 @@ def rewrite_study(
     if destination.exists() or destination.resolve().is_relative_to(source.resolve()):
         raise ValueError("Choose a new destination outside the source workspace")
     original = pygit2.Repository(str(source / "episode/history.git"))
-    if original.config.get_int("nof1.format") != 4:
-        raise ValueError("Expected a format-4 study")
+    if original.config.get_int("nof1.format") != source_format:
+        raise ValueError(f"Expected a format-{source_format} study")
     shutil.copytree(source, destination, ignore=shutil.ignore_patterns("cache", "scratch"))
     repo = pygit2.Repository(str(destination / "episode/history.git"))
     refs = {name: str(repo.references[name].target) for name in repo.references}
@@ -52,7 +68,7 @@ def rewrite_study(
         tree = repo[pygit2.Oid(hex=oid)].peel(pygit2.Tree)
         metadata = json.loads(tree["meta.json"].peel(pygit2.Blob).data)
         model = ModelSpec.model_validate(
-            update(json.loads(tree["model.json"].peel(pygit2.Blob).data)),
+            remove_edge_timing(update(json.loads(tree["model.json"].peel(pygit2.Blob).data))),
             context={
                 "distribution_array_loader": lambda ref: read_array(
                     str(destination / "store/arrays"), ref
@@ -99,7 +115,13 @@ def rewrite_study(
                     replacement = pygit2.Oid(hex=migrate(str(entry.id)))
                 elif entry.name.endswith(".json"):
                     payload = json.loads(child.peel(pygit2.Blob).data)
-                    updated = rewrite(update(payload))
+                    updated = rewrite(
+                        update(
+                            update_file(oid, entry.name, payload)
+                            if update_file is not None
+                            else payload
+                        )
+                    )
                     replacement = (
                         entry.id
                         if updated == payload
@@ -120,4 +142,5 @@ def rewrite_study(
             repo.references.delete(name)
         repo.references.create(target, pygit2.Oid(hex=oid), force=True)
     (destination / mapping_name).write_text(json.dumps(mapping, indent=2) + "\n")
+    repo.config["nof1.format"] = target_format
     return mapping

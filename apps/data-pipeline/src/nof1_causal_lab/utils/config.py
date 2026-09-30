@@ -127,14 +127,12 @@ class ExtractionWorkersConfig:
     """
 
     llm: EmbeddedLLMSpec
-    windows_per_chunk: int = 1
     max_concurrent_workers: int = 4
     max_events_per_window: int = 300
     max_rpm: int = 450
     worker_timeout: int = 120
     chunk_size: int = 50
     max_tool_turns: int = 40
-    max_free_windows: int = 100
 
 
 @with_config(ConfigDict(extra="forbid"))

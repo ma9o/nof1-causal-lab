@@ -1,10 +1,11 @@
 """Model structure and discrete-time to continuous-time prior compilation.
 
 Checks reference intervals, construct-specific priors, structural support,
-parameter identity, and causal edge-lag metadata.
+and parameter identity.
 """
 
 import math
+from datetime import UTC, datetime
 from typing import Any
 
 import numpy as np
@@ -15,7 +16,6 @@ from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.expressions import expression_coefficients
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
-from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
 from nof1_causal_lab.models.ssm.compile.inputs import (
@@ -41,15 +41,12 @@ def _compile_structure(payload: dict[str, Any]) -> ModelSpec:
 def _compile_priors_for_test(
     priors: dict[str, dict[str, Any]],
     scientific_model: ModelSpec,
-    *,
-    edge_lag_days: dict[tuple[int, int], float] | None = None,
 ):
     prior_registry, index_maps, _diagnostics = compile_ssm_priors(
         model_with_prior_payloads(
             ModelSpec.model_validate(scientific_model),
             named_prior_payloads(ModelSpec.model_validate(scientific_model), priors),
         ),
-        edge_lag_days=edge_lag_days,
     )
     return prior_registry, index_maps
 
@@ -165,7 +162,6 @@ def two_construct_structure() -> ModelSpec:
                     },
                     "id": "edge:923689028b6b177617c2",
                     "description": "Stress impairs mood",
-                    "lagged": True,
                 }
             ],
             "measurement_clock": "1d",
@@ -310,7 +306,7 @@ class TestE2ESpecToDiscretization:
                 ),
             )
         )
-        spec, _ = (renamed, numeric.edge_lag_days(renamed))
+        spec = renamed
         assert numeric.state_names(spec) == ["stress", "renamed"]
         assert numeric.state_ids(spec) == [c.id for c in model.constructs]
         assert [p.id for p in renamed.parameters] == [p.id for p in model.parameters]
@@ -330,7 +326,7 @@ class TestE2ESpecToDiscretization:
             )
         )
         model = complete_test_model(model)
-        spec, _ = (model, numeric.edge_lag_days(model))
+        spec = model
         assert not model.constructs[0].dynamics
         static_index = numeric.state_names(spec).index("baseline")
         dynamic_index = numeric.state_names(spec).index("mood")
@@ -428,7 +424,7 @@ class TestE2ESpecToDiscretization:
             pl.col("indicator").replace_strict(indicator_ids).alias("indicator_id")
         ).drop("indicator")
         model = build_ssm_model(
-            pivot_to_wide(data_for_model).rename(
+            pivot_to_wide(data_for_model, time_origin=datetime(2024, 1, 1, tzinfo=UTC)).rename(
                 {i.id: i.name for i in typed_scientific_model.indicators}
             ),
             model_spec=make_prior_model(typed_scientific_model, weekly_study_priors),
@@ -549,7 +545,7 @@ class TestE2ESpecToDiscretization:
             },
         }
 
-        source_model, _ = (scientific_model, numeric.edge_lag_days(scientific_model))
+        source_model = scientific_model
 
         ssm_priors_w, _idx = _compile_priors_for_test(
             priors_weekly,
@@ -577,12 +573,12 @@ class TestE2ESpecToDiscretization:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Prior factorization and edge-lag metadata
+# Prior factorization and reference intervals
 # ═══════════════════════════════════════════════════════════════════════
 
 
 class TestPriorCompilationMetadata:
-    """Compiler-owned prior factorization and edge-lag contracts."""
+    """Compiler-owned prior factorization and reference intervals."""
 
     def test_compile_keeps_elementwise_priors_when_intervals_match(self, two_construct_structure):
         """Compilation keeps factorized DT→CT priors even when dt values match."""
@@ -607,7 +603,7 @@ class TestPriorCompilationMetadata:
             },
         }
 
-        source_model, _ = (scientific_model, numeric.edge_lag_days(scientific_model))
+        source_model = scientific_model
 
         ssm_priors, _idx = _compile_priors_for_test(
             priors,
@@ -620,65 +616,3 @@ class TestPriorCompilationMetadata:
         assert abs(dynamics_decay[1] - (-math.log(0.6) / 7.0)) < 0.01
         assert abs(dynamics_decay[0] - (-math.log(0.5) / 7.0)) < 0.01
         assert abs(linear_edge_weight - (0.3 / 7.0)) < 0.01
-
-    def test_edge_lag_days_populated(self, two_construct_structure):
-        """Compilation stores edge lag metadata from causal design during support building."""
-        from nof1_causal_lab.models.ssm.compile.inputs import (
-            build_structural_support_from_model,
-        )
-
-        _dm, _lm, _lmask, _cat, edge_lag_days = build_structural_support_from_model(
-            ["mood", "stress"],
-            ["mood_rating", "stress_self_report"],
-            2,
-            2,
-            manifest_dists=[DistributionFamily.GAUSSIAN] * 2,
-            model=two_construct_structure,
-        )
-
-        # stress -> mood edge, both daily, lagged=True: lag = 24h = 1.0 day
-        assert len(edge_lag_days) == 1
-        # effect_idx=0 (mood), cause_idx=1 (stress)
-        assert (0, 1) in edge_lag_days
-        assert abs(edge_lag_days[(0, 1)] - 1.0) < 0.01
-
-    def test_dynamics_lag_consistency_warns(self, two_construct_structure, caplog):
-        """Compilation warns when CT dynamics implies timescale far from edge lag."""
-        import logging
-
-        scientific_model = complete_test_model(two_construct_structure)
-        # Very large beta → CT rate implies very fast coupling (short timescale)
-        # but edge lag is 1 day → should warn about mismatch
-        priors = {
-            "rho_mood": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
-            "rho_stress": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
-            "beta_stress_mood": {
-                "distribution": "Normal",
-                "params": {"mu": 6.0, "sigma": 1.0},
-            },
-        }
-
-        from nof1_causal_lab.models.ssm.compile.inputs import (
-            build_structural_support_from_model,
-        )
-
-        _dm, _lm, _lmask, _cat, edge_lag_days = build_structural_support_from_model(
-            ["mood", "stress"],
-            ["mood_rating", "stress_self_report"],
-            2,
-            2,
-            manifest_dists=[DistributionFamily.GAUSSIAN] * 2,
-            model=two_construct_structure,
-        )
-        with caplog.at_level(logging.WARNING, logger="nof1_causal_lab.models.ssm.compile.inputs"):
-            _compile_priors_for_test(
-                priors,
-                scientific_model,
-                edge_lag_days=edge_lag_days,
-            )
-
-        # Large beta_CT → implied timescale << 1 day, edge lag = 1 day → warning
-        lag_warnings = [r for r in caplog.records if "mismatch" in r.message.lower()]
-        assert len(lag_warnings) >= 1, (
-            f"Expected lag mismatch warning, got: {[r.message for r in caplog.records]}"
-        )

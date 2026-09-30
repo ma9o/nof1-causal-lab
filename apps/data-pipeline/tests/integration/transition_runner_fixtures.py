@@ -1,6 +1,6 @@
 """Small canonical artifacts for fixture-backed runner contract tests."""
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import polars as pl
 
@@ -107,6 +107,7 @@ def panel_metadata():
         ),
     )
     return PreparedDataMetadata(
+        time_origin=datetime(2024, 1, 1, tzinfo=UTC),
         source=FileSourceRef(files=("observations.csv",)),
         variables=preparation.observation_schema(),
         preparation=preparation,

@@ -51,8 +51,6 @@ def lower_mechanisms(model: ModelSpec) -> tuple[ExpressionComponentSpec, ...]:
         if _is_projected_loading(model, owner, mechanism, states):
             continue
         if isinstance(owner, CausalEdgeSpec):
-            if owner.id not in retained_edges:
-                raise ValueError(f"Mechanism references unknown retained edge {owner.id!r}")
             dependencies = expression_states(mechanism.expression)
             modeled_edges.update(
                 edge.id
@@ -60,10 +58,6 @@ def lower_mechanisms(model: ModelSpec) -> tuple[ExpressionComponentSpec, ...]:
                 if edge.effect.id == owner.effect.id and edge.cause.id in dependencies
             )
         else:
-            if owner.id not in states:
-                raise ValueError(f"Mechanism references unknown retained state {owner.id!r}")
-            if owner.temporal_status == "time_invariant":
-                raise ValueError("Time-invariant states cannot have drift mechanisms")
             modeled_nodes.add(owner.id)
     expected_nodes = {
         key for key in states if model.get_construct(key).temporal_status != "time_invariant"

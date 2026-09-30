@@ -113,6 +113,7 @@ async def plan_measurements_activity(input: MeasurementsWorkflowInput) -> Measur
     from nof1_causal_lab.flows.transitions.extraction.planning import prepare_semantic_chunks
     from nof1_causal_lab.utils.aggregations import compute_indicators
     from nof1_causal_lab.utils.config import get_config
+    from nof1_causal_lab.workers.schemas import WorkerOutput
 
     store = ArtifactStore(input.workspace_id)
     spec = transition_spec("measurements")
@@ -144,20 +145,41 @@ async def plan_measurements_activity(input: MeasurementsWorkflowInput) -> Measur
 
     computed_dicts: list[UncheckedJsonObject] = []
     if computed_inds:
-        computed_df = compute_indicators(raw_df, computed_inds, model_clock, time_col)
+        computed_df = compute_indicators(
+            raw_df,
+            computed_inds,
+            model_clock,
+            time_col,
+            start=input.preparation.source.start,
+            end=input.preparation.source.end,
+        )
         computed_dicts = computed_df.to_dicts()
 
+    extraction_llm = extraction_workers.llm
+    embedded_defaults = config.llm.embedded
+    llm = EmbeddedLLMSpec(
+        harness="none",
+        model=extraction_llm.model,
+        max_tokens=first_config_value(extraction_llm.max_tokens, embedded_defaults.max_tokens),
+        timeout=extraction_workers.worker_timeout,
+        reasoning_effort=first_config_value(
+            extraction_llm.reasoning_effort,
+            embedded_defaults.reasoning_effort,
+        ),
+    )
+
     chunks: list[MeasurementChunkRef] = []
+    empty_output = WorkerOutput()
     if semantic_inds:
-        chunk_texts, chunk_window_starts, chunk_contexts = prepare_semantic_chunks(
+        chunk_texts, chunk_window_starts, chunk_contexts, empty_output = prepare_semantic_chunks(
             raw_df=raw_df,
             semantic_inds=semantic_inds,
             measurement_structure=measurement_structure,
             model_clock=model_clock,
             time_col=time_col,
-            windows_per_chunk=extraction_workers.windows_per_chunk,
             max_events_per_window=extraction_workers.max_events_per_window,
-            max_windows=input.preparation.max_windows,
+            start=input.preparation.source.start,
+            end=input.preparation.source.end,
         )
         for worker_id, (chunk_text, window_starts, chunk_context) in enumerate(
             zip(chunk_texts, chunk_window_starts, chunk_contexts, strict=True)
@@ -173,26 +195,32 @@ async def plan_measurements_activity(input: MeasurementsWorkflowInput) -> Measur
                     "measurement_structure": chunk_context,
                 },
             )
+            from nof1_causal_lab.machine.temporal.preparation_cache import preparation_cache_path
+            from nof1_causal_lab.utils.content_cache import read
+
+            chunk_spec = _read_json(spec_ref)
+            cache_ref = preparation_cache_path(
+                "measurement_extraction",
+                spec_ref,
+                llm,
+                extraction_workers.max_tool_turns,
+                {key: value for key, value in chunk_spec.items() if key != "worker_id"},
+            )
+            chunk_spec["cache_ref"] = cache_ref
+            _write_json(spec_ref, chunk_spec)
+            cached_result_ref = None
+            cached = read(cache_ref)
+            if cached is not None:
+                cached_result_ref = storage.join(root, "reused", f"worker-{worker_id:06d}.json")
+                storage.write_text(cached_result_ref, cached.decode())
             chunks.append(
                 MeasurementChunkRef(
                     worker_id=worker_id,
                     n_windows=len(window_starts),
                     spec_ref=spec_ref,
+                    cached_result_ref=cached_result_ref,
                 )
             )
-
-    extraction_llm = extraction_workers.llm
-    embedded_defaults = config.llm.embedded
-    llm = EmbeddedLLMSpec(
-        harness="none",
-        model=extraction_llm.model,
-        max_tokens=first_config_value(extraction_llm.max_tokens, embedded_defaults.max_tokens),
-        timeout=extraction_workers.worker_timeout,
-        reasoning_effort=first_config_value(
-            extraction_llm.reasoning_effort,
-            embedded_defaults.reasoning_effort,
-        ),
-    )
 
     plan_ref = storage.join(root, "plan.json")
     _write_json(
@@ -203,12 +231,9 @@ async def plan_measurements_activity(input: MeasurementsWorkflowInput) -> Measur
             "pins": pins,
             "question": question,
             "measurement_structure": measurement_structure,
-            "metadata": PreparedDataMetadata(
-                source=input.preparation.source,
-                variables=preparation.observation_schema(),
-                preparation=preparation,
-            ).model_dump(mode="json"),
+            "preparation": input.preparation.model_dump(mode="json"),
             "computed_dicts": computed_dicts,
+            "empty_output": empty_output.model_dump(mode="json"),
             "chunks": [chunk.model_dump(mode="json") for chunk in chunks],
         },
     )
@@ -293,10 +318,19 @@ async def call_openrouter_activity(input: OpenRouterCallInput) -> OpenRouterCall
 async def finalize_extraction_chunk_activity(
     input: ExtractionChunkFinalizeInput,
 ) -> ExtractionChunkResult:
-    from nof1_causal_lab.workers.schemas import WorkerOutput
+    from nof1_causal_lab.utils.content_cache import publish
+    from nof1_causal_lab.workers.schemas import WorkerOutput, validate_worker_output
 
     data = _read_json(input.result_ref)
-    output = WorkerOutput.model_validate(data)
+    spec = _read_json(input.spec_ref)
+    output, errors = validate_worker_output(
+        data, spec["measurement_structure"], spec["window_starts"]
+    )
+    if output is None:
+        raise ValueError("; ".join(errors))
+    output = WorkerOutput.model_validate_json(
+        publish(spec["cache_ref"], output.model_dump_json().encode())
+    )
     dataframe = output.to_dataframe()
 
     result_ref = storage.join(
@@ -319,6 +353,7 @@ async def finalize_extraction_chunk_activity(
         n_windows=input.n_windows,
         n_llm_calls=input.n_llm_calls,
         result_ref=result_ref,
+        reused=input.reused,
     )
 
 
@@ -326,10 +361,16 @@ async def finalize_extraction_chunk_activity(
 async def finalize_measurements_activity(input: MeasurementsFinalizeInput) -> TransitionEffects:
     import polars as pl
 
+    from nof1_causal_lab.artifacts.data_preparation import FilePreparationSpec
     from nof1_causal_lab.flows.transitions.extraction.materialization import (
         materialize_panel,
     )
     from nof1_causal_lab.utils.data import annotate_observation_rows
+    from nof1_causal_lab.utils.observation_rows import (
+        prepared_time_origin,
+        validate_observation_rows,
+    )
+    from nof1_causal_lab.workers.schemas import WorkerOutput
 
     try:
         plan = _read_json(input.plan_ref)
@@ -338,7 +379,9 @@ async def finalize_measurements_activity(input: MeasurementsFinalizeInput) -> Tr
         chunk_specs = list(plan.get("chunks") or [])
         results_by_worker = {result.worker_id: result for result in input.chunk_results}
 
-        semantic_dicts: list[UncheckedJsonObject] = []
+        semantic_dicts: list[UncheckedJsonObject] = (
+            WorkerOutput.model_validate(plan["empty_output"]).to_dataframe().to_dicts()
+        )
 
         for chunk_spec in chunk_specs:
             worker_id = int(chunk_spec["worker_id"])
@@ -357,6 +400,15 @@ async def finalize_measurements_activity(input: MeasurementsFinalizeInput) -> Tr
         panel = materialize_panel(observation_rows, measurement_structure)
         if len(panel) == 0:
             raise ValueError("Extraction produced no observations")
+        preparation = FilePreparationSpec.model_validate(plan["preparation"])
+        variables = preparation.definition.observation_schema()
+        panel = validate_observation_rows(panel, variables)
+        metadata = PreparedDataMetadata(
+            source=preparation.source,
+            variables=variables,
+            preparation=preparation.definition,
+            time_origin=prepared_time_origin(panel, preparation.source.start),
+        )
         store = ArtifactStore(input.workspace_id)
         return TransitionEffects(
             produced=[
@@ -365,7 +417,9 @@ async def finalize_measurements_activity(input: MeasurementsFinalizeInput) -> Tr
                     derived_from=input.pins,
                     produced_by="run:measurements",
                     parquet_files={parquet_filename("panel", "panel"): panel},
-                    json_files={json_filename("panel", "metadata"): plan["metadata"]},
+                    json_files={
+                        json_filename("panel", "metadata"): metadata.model_dump(mode="json")
+                    },
                 )
             ],
             diagnostics={
@@ -379,6 +433,7 @@ async def finalize_measurements_activity(input: MeasurementsFinalizeInput) -> Tr
                 ],
                 "input_pins": dict(input.pins),
                 "n_observations": len(panel),
+                "extraction_reused": sum(result.reused for result in input.chunk_results),
             },
         )
     except Exception as exc:

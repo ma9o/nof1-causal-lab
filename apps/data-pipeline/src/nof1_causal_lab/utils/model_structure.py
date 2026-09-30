@@ -56,55 +56,26 @@ def get_reference_indicator_polarities(model: ModelSpec) -> dict[str, str]:
     }
 
 
-def get_induced_dependencies(model: ModelSpec) -> list[UncheckedJsonObject]:
-    return [
-        {
-            "source_id": dependency_id(key, sources),
-            "between_ids": list(key[:2]),
-            "between": [model.get_construct(identity).name for identity in key[:2]],
-            "kind": key[2],
-            "source_confounder_ids": list(sources),
-            "source_confounders": [model.get_construct(identity).name for identity in sources],
-        }
-        for key, sources in model.induced_dependencies.items()
-    ]
-
-
 def get_marginalized_scales(  # noqa: V103 - scientific scale projection consumed by offline model templates
     model: ModelSpec,
 ) -> list[UncheckedJsonObject]:
     """Return identifiable marginalized-confounder scale equivalence classes."""
-    dependencies = get_induced_dependencies(model)
-    footprint_by_confounder: dict[str, set[str]] = defaultdict(set)
-    source_name_by_id: dict[str, str] = {}
-    kind_by_confounder: dict[str, str] = {}
-    directions_by_confounder: dict[str, list[tuple[str, str]]] = defaultdict(list)
-    dependency_ids_by_confounder: dict[str, list[str]] = defaultdict(list)
+    footprint_by_confounder: dict[ConstructId, set[str]] = defaultdict(set)
+    kind_by_confounder: dict[ConstructId, str] = {}
+    directions_by_confounder: dict[ConstructId, list[tuple[str, str]]] = defaultdict(list)
+    dependency_ids_by_confounder: dict[ConstructId, list[str]] = defaultdict(list)
 
-    for dependency in dependencies:
-        kind = str(dependency["kind"])
-        between = tuple(str(name) for name in dependency["between"])
-        if len(between) != 2:
-            raise ValueError(
-                f"Malformed induced dependency {dependency['source_id']!r}: {between!r}"
-            )
-        for source_id, source_name in zip(
-            dependency["source_confounder_ids"],
-            dependency["source_confounders"],
-            strict=True,
-        ):
-            source_id = str(source_id)
-            source_name_by_id[source_id] = str(source_name)
+    for key, sources in model.induced_dependencies.items():
+        first, second, kind = key
+        between = model.get_construct(first).name, model.get_construct(second).name
+        identity = dependency_id(key, sources)
+        for source_id in sources:
             footprint_by_confounder[source_id].update(between)
             directions_by_confounder[source_id].append(between)
-            dependency_ids_by_confounder[source_id].append(str(dependency["source_id"]))
-            prior_kind = kind_by_confounder.setdefault(source_id, kind)
-            if prior_kind != kind:
-                raise ValueError(
-                    f"Confounder source {source_id!r} has inconsistent dependency kinds"
-                )
+            dependency_ids_by_confounder[source_id].append(identity)
+            kind_by_confounder[source_id] = kind
 
-    members_by_footprint: dict[tuple[str, frozenset[str]], list[str]] = defaultdict(list)
+    members_by_footprint: dict[tuple[str, frozenset[str]], list[ConstructId]] = defaultdict(list)
     for source_id, footprint in footprint_by_confounder.items():
         members_by_footprint[(kind_by_confounder[source_id], frozenset(footprint))].append(
             source_id
@@ -120,7 +91,7 @@ def get_marginalized_scales(  # noqa: V103 - scientific scale projection consume
         ),
     ):
         source_ids = sorted(source_ids)
-        source_names = sorted(source_name_by_id[source_id] for source_id in source_ids)
+        source_names = sorted(model.get_construct(source_id).name for source_id in source_ids)
         directions: set[tuple[str, str]] = set()
         dependency_ids: set[str] = set()
         for source_id in source_ids:

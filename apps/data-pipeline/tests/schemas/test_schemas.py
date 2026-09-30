@@ -62,7 +62,6 @@ class TestModel:
             cause=construct_factory("stress", Role.EXOGENOUS),
             effect=construct_factory("mood"),
             description="Stress affects mood",
-            lagged=False,
         )
         model = ModelSpec(edges=(edge,))
         assert [construct.name for construct in model.constructs] == ["stress", "mood"]
@@ -477,9 +476,20 @@ class TestModelContainment:
         with pytest.raises(ValidationError):
             ModelSpec.model_validate(data)
 
-    def test_lagged_edge_uses_the_canonical_model_clock(self):
+    def test_dynamic_feedback_is_valid_but_static_cycles_are_rejected(self):
+        model = make_model(["X", "Y"], [("X", "Y"), ("Y", "X")])
+        payload = model.model_dump(mode="json")
+        for construct in graph_constructs(payload):
+            construct["temporal_status"] = "time_invariant"
+        with pytest.raises(ValidationError, match="Time-invariant edges form cycle"):
+            ModelSpec.model_validate(payload)
+
+    def test_edge_rejects_removed_lagged_field(self):
         model = make_model(["sleep", "mood"], [("sleep", "mood")]).revised(measurement_clock="6h")
-        assert model.edges[0].lagged
+        payload = model.model_dump(mode="json")
+        payload["edges"][0]["lagged"] = True
+        with pytest.raises(ValidationError, match="lagged"):
+            ModelSpec.model_validate(payload)
         assert model.model_clock_days == 0.25
 
 

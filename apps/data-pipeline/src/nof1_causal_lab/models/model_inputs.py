@@ -23,7 +23,7 @@ def graph_input(model: ModelSpec) -> ScientificInput:
         ],
         "edges": [
             {
-                **item.model_dump(mode="json", include={"id", "description", "lagged", "sources"}),
+                **item.model_dump(mode="json", include={"id", "description", "sources"}),
                 "cause_id": item.cause.id,
                 "effect_id": item.effect.id,
             }

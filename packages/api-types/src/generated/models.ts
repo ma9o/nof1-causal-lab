@@ -11,12 +11,12 @@
  */
 
 /**
- * Uploaded sources, one simulation replicate, or a bounded observation table.
+ * Uploaded sources or one recorded simulation replicate.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "DataSourceRef".
  */
-export type DataSourceRef = FileSourceRef | SimulationReplicateRef | ObservationTableRef;
+export type DataSourceRef = FileSourceRef | SimulationReplicateRef;
 /**
  * A native Git object identity for an immutable tree or commit.
  *
@@ -240,6 +240,16 @@ export type PredictiveCheckReason =
  */
 export type ParameterElementId = `element:${string}`;
 /**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "PredictiveSummary".
+ */
+export type PredictiveSummary = TrajectorySummary | CategoryProbabilitySummary;
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "FitReliability".
+ */
+export type FitReliability = "not_fitted" | "converged" | "unconverged" | "unknown";
+/**
  * A scientific action identity selects model editing, data preparation, fitting, or simulation.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
@@ -342,7 +352,6 @@ export type OperationId =
   | "measurement_structure"
   | "measurements"
   | "simulated_measurements"
-  | "imported_measurements"
   | "statistical_model_spec"
   | "posterior"
   | "simulate";
@@ -370,6 +379,10 @@ export interface PreparedDataMetadata {
    */
   variables: [ObservationSpec, ...ObservationSpec[]];
   preparation?: DataPreparationSpec | null;
+  /**
+   * Calendar instant of model day zero; null denotes a calendar-free history.
+   */
+  time_origin: string | null;
 }
 /**
  * Explicit uploaded filenames, relative to this study's input directory.
@@ -382,6 +395,14 @@ export interface FileSourceRef {
    * @minItems 1
    */
   files: [string, ...string[]];
+  /**
+   * Inclusive UTC source-coverage date.
+   */
+  start?: string | null;
+  /**
+   * Exclusive UTC source-coverage date.
+   */
+  end?: string | null;
 }
 /**
  * One replicate from a recorded, applied simulation in this study.
@@ -392,26 +413,6 @@ export interface FileSourceRef {
 export interface SimulationReplicateRef {
   revision: GitOid;
   replicate: number;
-}
-/**
- * An uploaded Parquet observation table and its selected UTC calendar interval.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ObservationTableRef".
- */
-export interface ObservationTableRef {
-  /**
-   * Uploaded Parquet filename, without directory components.
-   */
-  file: string;
-  /**
-   * Inclusive UTC anchor date (ISO YYYY-MM-DD).
-   */
-  start?: string | null;
-  /**
-   * Exclusive UTC anchor date (ISO YYYY-MM-DD).
-   */
-  end?: string | null;
 }
 /**
  * A stable observed variable, reusable across scientific model definitions.
@@ -557,10 +558,6 @@ export interface CausalEdgeSpec {
    * Theoretical justification for this causal link
    */
   description: string;
-  /**
-   * If True, effect at t is caused by cause at t-1 (one model_clock tick delay). If False (contemporaneous), effect at t is caused by cause at t.
-   */
-  lagged: boolean;
   /**
    * Literature sources supporting this causal link
    */
@@ -809,7 +806,7 @@ export interface ParameterSpec {
    */
   distribution?: DistributionId | null;
   /**
-   * Positive duration in days over which an authored persistence or interval-effect law is defined, before conversion to continuous-time decay or rate. When omitted, persistence uses the model measurement clock; interval effects use the edge lag, falling back to that clock.
+   * Positive duration in days over which an authored persistence or interval-effect law is defined, before conversion to continuous-time decay or rate. When omitted, persistence and interval effects use the model measurement clock.
    */
   reference_interval_days?: number | null;
 }
@@ -1080,6 +1077,7 @@ export interface InterventionSpec {
 export interface PredictiveLawProvenance {
   kind: "authored" | "fitted" | "mixed" | "unknown";
   fitted_panel_revision?: GitOid | null;
+  fitted_model_revision?: GitOid | null;
   interpretation: "prior_predictive" | "in_sample_posterior_predictive" | "posterior_predictive" | "mixed" | "unknown";
 }
 /**
@@ -1126,12 +1124,10 @@ export interface PPCWarning {
   passed: boolean;
 }
 /**
- * A predictive overlay compares observed values with posterior predictive bands for one
- * indicator.
+ * A predictive overlay sets one indicator's observed values against simulated ones.
  *
- * Provides the data for Gabry's ppc_dens_overlay / ppc_ribbon plots:
- * observed time series vs posterior predictive quantile bands.
- * Optionally includes individual y_rep draw lines for spaghetti plots.
+ * It carries the predictive median and a few individual replicated series, the
+ * spaghetti plot of a visual predictive check.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "PPCOverlay".
@@ -1139,11 +1135,7 @@ export interface PPCWarning {
 export interface PPCOverlay {
   indicator_id: IndicatorId;
   observed: (number | null)[];
-  q025: (number | null)[];
-  q25: (number | null)[];
   median: (number | null)[];
-  q75: (number | null)[];
-  q975: (number | null)[];
   spaghetti_draws: (number | null)[][];
 }
 /**
@@ -1253,6 +1245,10 @@ export interface ModelFitResult {
  * via the `definition` "InferenceReport".
  */
 export interface InferenceReport {
+  /**
+   * Known calendar instant of model day zero.
+   */
+  time_origin: string | null;
   inference_metadata: InferenceMetadata;
   inference_diagnostics: JsonObject;
   loo_diagnostics?: LOODiagnostics | null;
@@ -1366,6 +1362,14 @@ export interface SimulationReport {
   times: [number, number, ...number[]];
   draws: number;
   seed: number;
+  /**
+   * Known calendar instant of model day zero.
+   */
+  time_origin: string | null;
+  /**
+   * Panel that supplied the time origin: the fit's panel for fitted laws, otherwise the current panel when present.
+   */
+  origin_panel_revision?: GitOid | null;
   state_ids: ConstructId[];
   parameter_draws: {
     [k: string]: string;
@@ -1377,6 +1381,7 @@ export interface SimulationReport {
   reference_latent_paths?: string | null;
   reference_observations?: string | null;
   findings: PredictiveCheckFinding[];
+  predictive: SimulationPredictiveReport;
   causal_result?: CausalEffectResult | null;
   causal_unavailable_reason?: string | null;
 }
@@ -1393,31 +1398,71 @@ export interface SimulationObservationLayout {
   mask: string;
 }
 /**
+ * Model implications, independently of whether a causal contrast is certified.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "SimulationPredictiveReport".
+ */
+export interface SimulationPredictiveReport {
+  states: {
+    [k: string]: SimulationSeriesSummary;
+  };
+  indicators: {
+    [k: string]: SimulationSeriesSummary;
+  };
+  fit_reliability: FitReliability;
+}
+/**
+ * One state's or indicator's generated distribution in each simulated arm.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "SimulationSeriesSummary".
+ */
+export interface SimulationSeriesSummary {
+  label: string;
+  action: PredictiveSummary;
+  reference?: PredictiveSummary | null;
+}
+/**
+ * Pointwise means and fixed 95% quantiles across generated numeric draws.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "TrajectorySummary".
+ */
+export interface TrajectorySummary {
+  kind: "numeric";
+  mean: (number | null)[];
+  lower: (number | null)[];
+  upper: (number | null)[];
+  n_draws: number[];
+}
+/**
+ * Predictive probabilities for each declared level; unobserved anchors are null.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "CategoryProbabilitySummary".
+ */
+export interface CategoryProbabilitySummary {
+  kind: "categorical";
+  probabilities: {
+    [k: string]: (number | null)[];
+  };
+  n_draws: number[];
+}
+/**
  * Causal effects and realized trajectories under the enclosing report's design.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "CausalEffectResult".
  */
 export interface CausalEffectResult {
-  /**
-   * Shared elapsed-day coordinates for all trajectories, including day zero.
-   *
-   * @minItems 2
-   */
-  time_grid_days: [number, number, ...number[]];
   outcome: ConstructId;
   labels: {
     [k: string]: string;
   };
   summary: EffectSummary;
-  effect_trajectory?: EffectTrajectoryPoint[] | null;
+  effect_trajectory: EffectTrajectoryPoint[];
   trajectory_peak?: EffectTrajectoryPoint | null;
-  /**
-   * Reference and action means for each simulated construct on time_grid_days.
-   */
-  trajectories: {
-    [k: string]: SimulationTrajectory;
-  };
   manifest_effects?: {
     [k: string]: number;
   } | null;
@@ -1446,26 +1491,8 @@ export interface EffectSummary {
 export interface EffectTrajectoryPoint {
   day: number;
   effect: number;
-}
-/**
- * One construct's mean reference and intervention paths across simulated draws.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "SimulationTrajectory".
- */
-export interface SimulationTrajectory {
-  /**
-   * Mean natural latent path on the result's time_grid_days, including day zero.
-   *
-   * @minItems 2
-   */
-  reference_mean: [number, number, ...number[]];
-  /**
-   * Mean latent path under the dated interventions on the same full time grid.
-   *
-   * @minItems 2
-   */
-  action_mean: [number, number, ...number[]];
+  lower_95: number;
+  upper_95: number;
 }
 /**
  * One label emitted by an action; scientific measurements belong in its body.
@@ -1735,7 +1762,7 @@ export interface CapabilitiesResponse {
   actions_enabled: boolean;
 }
 /**
- * Endpoint references and temporal relation for one side of a causal edge comparison.
+ * Endpoint references and description for one side of a causal edge comparison.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "ComparisonConnection".
@@ -1743,11 +1770,10 @@ export interface CapabilitiesResponse {
 export interface ComparisonConnection {
   cause: ConstructRef;
   effect: ConstructRef;
-  lagged: boolean;
   description: string;
 }
 /**
- * A construct's definitions and changed owned parameters in two model revisions.
+ * A construct's presence and time-slice topology in two model revisions.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "ConstructComparison".
@@ -1757,7 +1783,6 @@ export interface ConstructComparison {
   before: ConstructSpec | null;
   after: ConstructSpec | null;
   change: "added" | "removed" | "revised" | "unchanged";
-  parameter_ids: ParameterId[];
   before_disposition: StructuralItemDisposition | null;
   after_disposition: StructuralItemDisposition | null;
 }
@@ -1831,10 +1856,6 @@ export interface DataRef {
   kind: "panel" | "simulation";
   revision: GitOid;
   replicate?: number | null;
-  /**
-   * Calendar instant for simulation day zero; omitted uses 1970-01-01 UTC.
-   */
-  time_origin?: string | null;
 }
 /**
  * Definitions, histories and comparisons for one persistent observation identity.
@@ -1861,10 +1882,14 @@ export interface DataVariableDiff {
  */
 export interface DataSeries {
   variable: ObservationSpec | null;
+  /**
+   * Recorded calendar binding; null means the point dates are serialization coordinates, not real dates.
+   */
+  time_origin: string | null;
   points: DataPoint[];
 }
 /**
- * An observed value at an exact calendar anchor and measurement support.
+ * An observed anchor and support; dates are synthetic for a calendar-free series.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "DataPoint".
@@ -1923,7 +1948,7 @@ export interface Derivation {
   optional: boolean;
 }
 /**
- * An explicit causal edge's definitions and changed mechanism parameters.
+ * An explicit causal edge's presence and endpoints in two model revisions.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "EdgeComparison".
@@ -1933,9 +1958,17 @@ export interface EdgeComparison {
   before: ComparisonConnection | null;
   after: ComparisonConnection | null;
   change: "added" | "removed" | "revised" | "unchanged";
-  parameter_ids: ParameterId[];
   before_disposition: StructuralItemDisposition | null;
   after_disposition: StructuralItemDisposition | null;
+}
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "EmpiricalPoint".
+ */
+export interface EmpiricalPoint {
+  value: number;
+  probability: number;
+  count: number;
 }
 /**
  * Episode state projects the artifact trees selected by one Git commit.
@@ -2106,7 +2139,9 @@ export interface FactSource {
   validity: SourceValidity;
 }
 /**
- * A fit read contains the inference log report and server-composed display findings.
+ * A fit read contains the inference report summary and server-composed display findings.
+ *
+ * Per-draw diagnostics load separately from the inference report endpoint.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "FitSummary".
@@ -2118,6 +2153,12 @@ export interface FitSummary {
   };
   decay_estimates: {
     [k: string]: PosteriorEstimate;
+  };
+  /**
+   * Conditioned input laws of the fitted parameters, on their posterior marginals' quantity scale; absent where the current compiler cannot place the input model.
+   */
+  prior_densities: {
+    [k: string]: DensityPoint[];
   };
 }
 /**
@@ -2218,6 +2259,67 @@ export interface MachineTransition {
   creation_class: "deterministic" | "batch_llm" | "judgment";
 }
 /**
+ * Exact conditional drift contributions, not marginal or total causal effects.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "MechanismCurves".
+ */
+export interface MechanismCurves {
+  axis: ConstructId;
+  axis_label: string;
+  target_label: string;
+  states: {
+    [k: string]: string;
+  };
+  held: {
+    [k: string]: number;
+  };
+  moderator: ConstructId | null;
+  x: number[];
+  curves: ResponseCurve[];
+  law: "retained" | "sampled" | "fixed";
+  total_draws: number;
+  start: number;
+  count: number;
+  nonfinite: number;
+}
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ResponseCurve".
+ */
+export interface ResponseCurve {
+  draw: number;
+  values: (number | null)[];
+  level?: number | null;
+}
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "MechanismViewRequest".
+ */
+export interface MechanismViewRequest {
+  owner_id: string;
+  axis?: ConstructId | null;
+  lower: number;
+  upper: number;
+  held: {
+    [k: string]: number;
+  };
+  moderator?: ConstructId | null;
+  /**
+   * @minItems 1
+   * @maxItems 5
+   */
+  levels:
+    | [number]
+    | [number, number]
+    | [number, number, number]
+    | [number, number, number, number]
+    | [number, number, number, number, number];
+  start: number;
+  count: number;
+  points: number;
+}
+/**
  * Observed evidence paired with its source versions.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
@@ -2314,7 +2416,7 @@ export interface ParameterChange {
   change: string;
 }
 /**
- * Aligned scientific entities for rendering a graph difference without browser inference.
+ * Identity-aligned topology changes, excluding laws and other entity attributes.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "ModelGraphComparison".
@@ -2322,6 +2424,8 @@ export interface ParameterChange {
 export interface ModelGraphComparison {
   constructs: ConstructComparison[];
   edges: EdgeComparison[];
+  before_dynamic_construct_ids: ConstructId[];
+  after_dynamic_construct_ids: ConstructId[];
 }
 /**
  * ModelSpec findings collect identification, validation, and fitted results with their input references.
@@ -2370,6 +2474,7 @@ export interface SourcedTupleStructuralItemDisposition {
 export interface ModelGraphView {
   construct_ids: ConstructId[];
   edge_ids: EdgeId[];
+  dynamic_construct_ids: ConstructId[];
   status: {
     [k: string]: "observed" | "marginalized" | "blocking";
   };
@@ -2468,8 +2573,88 @@ export interface SnapshotContext {
   commit_id: GitOid;
   branch: string;
   can_simulate: boolean;
-  state: EpisodeState;
+  state: SnapshotState;
   artifacts: ArtifactFreshness[];
+}
+/**
+ * A snapshot state lists the artifact revisions current at the selected commit.
+ *
+ * Recorded checks appear once, as the specification and predictive findings.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "SnapshotState".
+ */
+export interface SnapshotState {
+  current: {
+    [k: string]: ArtifactRecord;
+  };
+}
+/**
+ * All prepared observations, their true anchors and their measurement support.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ObservationHistory".
+ */
+export interface ObservationHistory {
+  indicator_id: IndicatorId;
+  label: string;
+  times: number[];
+  values: (number | null)[];
+  support_start: (number | null)[];
+  support_end: (number | null)[];
+  time_origin: string | null;
+  levels: string[] | null;
+  empirical: EmpiricalPoint[];
+}
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ParameterDrawColumn".
+ */
+export interface ParameterDrawColumn {
+  label: string;
+  subject: ParameterRef;
+  values: number[];
+  empirical: EmpiricalPoint[];
+}
+/**
+ * Every retained parameter coordinate, without thinning or pair selection.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ParameterDraws".
+ */
+export interface ParameterDraws {
+  columns: ParameterDrawColumn[];
+  unavailable_reason?: string | null;
+}
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "PathSeries".
+ */
+export interface PathSeries {
+  label: string;
+  action: RecordedPath[];
+  reference: RecordedPath[];
+  levels?: string[] | null;
+}
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "RecordedPath".
+ */
+export interface RecordedPath {
+  draw: number;
+  values: (number | null)[];
+}
+/**
+ * A saved check on the exact schedule and scale used to evaluate it.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "PredictiveHistory".
+ */
+export interface PredictiveHistory {
+  times: number[];
+  time_origin: string | null;
+  standardized: boolean;
+  overlay: PPCOverlay;
 }
 /**
  * Recorded checkpoint reference in historical authoring attempts.
@@ -2504,54 +2689,24 @@ export interface RevisionCatalog {
   panels: ArtifactRecord[];
 }
 /**
- * Read-only pointwise summaries of the saved outcome state and its indicators.
+ * Contiguous pages of original draws, with every recorded time point intact.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "SimulationTrajectories".
+ * via the `definition` "SimulationPaths".
  */
-export interface SimulationTrajectories {
+export interface SimulationPaths {
   times: number[];
-  /**
-   * UTC calendar instant of model day zero, from the fitted law's pinned observation panel when it has calendar provenance.
-   */
-  time_origin?: string | null;
-  interval_mass: number;
-  outcome: ConstructId | null;
-  outcome_state: SimulationTrajectoryBands | null;
-  indicators: {
-    [k: string]: SimulationTrajectoryBands;
+  time_origin: string | null;
+  total_draws: number;
+  start: number;
+  count: number;
+  states: {
+    [k: string]: PathSeries;
   };
-}
-/**
- * One named state's or indicator's simulated history, with its paired reference if present.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "SimulationTrajectoryBands".
- */
-export interface SimulationTrajectoryBands {
-  label: string;
-  action: TrajectorySummary;
-  reference?: TrajectorySummary | null;
-}
-/**
- * Pointwise mean and equal-tail interval across saved draws; empty anchors are null.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "TrajectorySummary".
- */
-export interface TrajectorySummary {
-  mean: (number | null)[];
-  lower: (number | null)[];
-  upper: (number | null)[];
-  n_draws: number[];
-}
-/**
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "Sourced[SimulationTrajectories]".
- */
-export interface SourcedSimulationTrajectories {
-  value: SimulationTrajectories;
-  source: FactSource;
+  indicators: {
+    [k: string]: PathSeries;
+  };
+  effect?: PathSeries | null;
 }
 /**
  * One Git commit's parent links and its action log.

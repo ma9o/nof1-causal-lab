@@ -1,6 +1,8 @@
 """Persisted posterior results and sampling metadata."""
 
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Self
+
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from nof1_causal_lab.json_types import JsonObject
 
@@ -47,10 +49,27 @@ class PosteriorDrawsInfo(BaseModel):
     )
 
 
+# Per-draw and per-time-point arrays among the engine-defined diagnostics.
+_DETAIL_DIAGNOSTICS = frozenset(
+    {"trace_data", "rank_histograms", "initial_latent_delta", "final_latent_delta"}
+)
+
+
+def _without_detail(value: JsonObject) -> JsonObject:
+    return {
+        key: _without_detail(item) if isinstance(item, dict) else item
+        for key, item in value.items()
+        if key not in _DETAIL_DIAGNOSTICS
+    }
+
+
 class InferenceReport(BaseModel):
     """Display findings recorded by an inference transition, separate from ModelSpec."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
+    time_origin: AwareDatetime | None = Field(
+        description="Known calendar instant of model day zero."
+    )
     inference_metadata: InferenceMetadata
     inference_diagnostics: JsonObject = Field(
         default_factory=dict,
@@ -59,3 +78,15 @@ class InferenceReport(BaseModel):
     loo_diagnostics: LOODiagnostics | None = None
     posterior_marginals: list[PosteriorMarginal] | None = None
     posterior_pairs: list[PosteriorPair] | None = None
+
+    def summary(self) -> Self:
+        """The report without per-draw diagnostic arrays or pair samples.
+
+        Snapshots and diffs carry this; the inference report endpoint serves the rest.
+        """
+        return self.model_copy(
+            update={
+                "inference_diagnostics": _without_detail(self.inference_diagnostics),
+                "posterior_pairs": None,
+            }
+        )

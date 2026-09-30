@@ -49,8 +49,7 @@ class ParameterSpec(BaseModel):
         description=(
             "Positive duration in days over which an authored persistence or interval-effect "
             "law is defined, before conversion to continuous-time decay or rate. "
-            "When omitted, persistence uses the model measurement clock; interval effects "
-            "use the edge lag, falling back to that clock."
+            "When omitted, persistence and interval effects use the model measurement clock."
         ),
     )
 

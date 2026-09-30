@@ -58,7 +58,6 @@ ARTIFACT_GRAPH: tuple[Transition, ...] = (
     Transition("simulate", ("model",), (), "deterministic", optional_consumes=("panel",)),
     # The recorded simulation owns the complete observation schema and support.
     Transition("simulated_measurements", (), ("panel",), "deterministic"),
-    Transition("imported_measurements", (), ("panel",), "deterministic"),
 )
 DERIVATIONS: tuple[Derivation, ...] = (
     Derivation("identification_report", ("model",)),

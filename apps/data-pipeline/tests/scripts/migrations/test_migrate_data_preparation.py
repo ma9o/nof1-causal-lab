@@ -7,6 +7,8 @@ import polars as pl
 import pygit2
 import pytest
 from scripts.migrations.migrate_data_preparation import migrate_workspace
+from scripts.migrations.migrate_edge_timing import migrate_workspace as migrate_format6
+from scripts.migrations.migrate_simulation_preparation import migrate_workspace as migrate_format5
 
 from nof1_causal_lab.artifacts.data_preparation import FileSourceRef
 from nof1_causal_lab.machine.git_objects import read_file, write_tree
@@ -28,6 +30,7 @@ def test_migration_moves_scoring_to_data_and_preserves_original_workspace(tmp_pa
     signature = pygit2.Signature("test", "study@local", 1, 0)
     model = make_model(["stress"])
     payload = model.model_dump(mode="json")
+    payload["edges"][0]["lagged"] = True
 
     def add_scoring(value):
         if isinstance(value, dict):
@@ -110,7 +113,12 @@ def test_migration_moves_scoring_to_data_and_preserves_original_workspace(tmp_pa
     )
     repo.references.create("refs/attempts/1", head)
     original_refs = {name: str(repo.references[name].target) for name in repo.references}
-    mapping = migrate_workspace(source, destination, files=("diary.csv",))
+    intermediate = tmp_path / "format4" / "study"
+    format4 = migrate_workspace(source, intermediate, files=("diary.csv",))
+    format5_path = tmp_path / "format5" / "study"
+    format5 = migrate_format5(intermediate, format5_path)
+    format6 = migrate_format6(format5_path, destination)
+    mapping = {old: format6[format5[new]] for old, new in format4.items()}
     assert repo.config.get_int("nof1.format") == 3
     assert {name: str(repo.references[name].target) for name in repo.references} == original_refs
     assert (

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from functools import cache
 from typing import TYPE_CHECKING, Annotated, Literal, Self
 
@@ -20,6 +19,7 @@ from nof1_causal_lab.utils.histograms import histogram_draws
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from datetime import datetime
 
 
 class DataRef(BaseModel):
@@ -29,14 +29,10 @@ class DataRef(BaseModel):
     kind: Literal["panel", "simulation"]
     revision: GitOid
     replicate: int | None = Field(default=None, ge=0)
-    time_origin: AwareDatetime | None = Field(
-        default=None,
-        description="Calendar instant for simulation day zero; omitted uses 1970-01-01 UTC.",
-    )
 
     @model_validator(mode="after")
     def source_coordinates(self) -> Self:
-        if self.kind == "panel" and (self.replicate is not None or self.time_origin is not None):
+        if self.kind == "panel" and self.replicate is not None:
             raise ValueError("Panels already define their history and calendar timestamps")
         return self
 
@@ -56,7 +52,7 @@ class DataDiffRequest(BaseModel):
 
 
 class DataPoint(BaseModel):
-    """An observed value at an exact calendar anchor and measurement support."""
+    """An observed anchor and support; dates are synthetic for a calendar-free series."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
     anchor_time: AwareDatetime
@@ -70,6 +66,9 @@ class DataSeries(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
     variable: ObservationSpec | None
+    time_origin: AwareDatetime | None = Field(
+        description="Recorded calendar binding; null means the point dates are serialization coordinates, not real dates."
+    )
     points: tuple[DataPoint, ...]
 
 
@@ -126,12 +125,13 @@ class Dataset:
     source: DataRef
     variables: tuple[ObservationSpec, ...]
     observations: pl.DataFrame
+    time_origin: datetime | None
 
 
 def read_data_diff(workspace_id: str, request: DataDiffRequest) -> DataDiffReport:
     """Load existing data only; never read a model for generation, fit, or write artifacts."""
     from nof1_causal_lab.actions.data_checks import read_data_metadata
-    from nof1_causal_lab.actions.prepare_data import prepare_simulation_panel
+    from nof1_causal_lab.actions.prepare_data import read_simulation_observations
     from nof1_causal_lab.artifacts.simulation import SimulationReport
     from nof1_causal_lab.machine.history import StudyRepository
     from nof1_causal_lab.machine.store import ArtifactStore
@@ -152,6 +152,7 @@ def read_data_diff(workspace_id: str, request: DataDiffRequest) -> DataDiffRepor
                         source.revision,
                         "panel.parquet",
                     ),
+                    metadata.time_origin,
                 ),
             )
         record = StudyRepository(workspace_id).record(source.revision)
@@ -163,22 +164,13 @@ def read_data_diff(workspace_id: str, request: DataDiffRequest) -> DataDiffRepor
         indices = range(report.draws) if source.replicate is None else (source.replicate,)
         result = []
         for replicate in indices:
-            panel = prepare_simulation_panel(report, replicate, read_array=read_array)
-            if source.time_origin is not None:
-                offset = source.time_origin.astimezone(UTC) - datetime(1970, 1, 1, tzinfo=UTC)
-                panel = panel.with_columns(
-                    pl.col(name) + offset
-                    for name in (
-                        "anchor_time",
-                        "support_start",
-                        "support_end",
-                    )
-                )
+            panel = read_simulation_observations(report, replicate, read_array=read_array)
             result.append(
                 Dataset(
                     source.model_copy(update={"replicate": replicate}),
                     report.observation_layout.variables,
                     panel,
+                    report.time_origin,
                 )
             )
         return tuple(result)
@@ -191,67 +183,24 @@ def read_data_diff(workspace_id: str, request: DataDiffRequest) -> DataDiffRepor
 
 
 def _series(dataset: Dataset) -> dict[IndicatorId, DataSeries]:
-    variables = {item.id: item for item in dataset.variables}
-    if len(variables) != len(dataset.variables):
-        raise ValueError("Dataset variables must have unique identities")
-    frame = dataset.observations
-    unknown = set(frame["indicator_id"]) - variables.keys()
-    if unknown:
-        raise ValueError(f"Observations have no variable definition: {sorted(unknown)}")
-    for name in ("anchor_time", "support_start", "support_end"):
-        expression = pl.col(name)
-        if frame.schema[name] == pl.String:
-            expression = expression.str.to_datetime(time_zone="UTC")
-        else:
-            expression = expression.cast(pl.Datetime("us", time_zone="UTC"))
-        frame = frame.with_columns(expression)
-    frame = frame.with_columns(pl.col("value").cast(pl.Float64).fill_nan(None))
-    result = {}
-    for identity, variable in variables.items():
-        selected = frame.filter(pl.col("indicator_id") == identity).sort("anchor_time")
-        for field, expected in (
-            ("support_kind", variable.support_kind.value),
-            ("summary_operator", variable.summary_operator.value),
-            ("anchor_policy", variable.anchor_policy.value),
-        ):
-            if any(value != expected for value in selected[field]):
-                raise ValueError(f"Observation {identity} has inconsistent {field}")
-        points = tuple(
-            DataPoint.model_validate(row)
-            for row in selected.select(
-                "anchor_time",
-                "support_start",
-                "support_end",
-                "value",
-            ).iter_rows(named=True)
+    from nof1_causal_lab.utils.observation_rows import validate_observation_rows
+
+    frame = validate_observation_rows(dataset.observations, dataset.variables).with_columns(
+        pl.col("anchor_time", "support_start", "support_end").dt.replace_time_zone("UTC")
+    )
+    return {
+        variable.id: DataSeries(
+            variable=variable,
+            time_origin=dataset.time_origin,
+            points=tuple(
+                DataPoint.model_validate(row)
+                for row in frame.filter(pl.col("indicator_id") == variable.id)
+                .select("anchor_time", "support_start", "support_end", "value")
+                .iter_rows(named=True)
+            ),
         )
-        if len({point.anchor_time for point in points}) != len(points):
-            raise ValueError(f"Observation {identity} has duplicate anchors within a history")
-        if any(
-            point.value is not None
-            and (
-                point.support_start is None
-                or point.support_end is None
-                or point.support_start > point.support_end
-                or (
-                    point.support_start
-                    if variable.anchor_policy == "support_start"
-                    else point.support_end
-                )
-                != point.anchor_time
-            )
-            for point in points
-        ):
-            raise ValueError(f"Observation {identity} has invalid measurement support")
-        levels = variable.categorical_levels or variable.ordinal_levels
-        if levels is not None and any(
-            point.value is not None
-            and (not point.value.is_integer() or not 0 <= point.value < len(levels))
-            for point in points
-        ):
-            raise ValueError(f"Observation {identity} has values outside its codebook")
-        result[identity] = DataSeries(variable=variable, points=points)
-    return result
+        for variable in dataset.variables
+    }
 
 
 def _semantics(variable: ObservationSpec):
@@ -327,6 +276,8 @@ def _predictive_comparison(
         ("left", left[0], right) if len(left) == 1 else ("right", right[0], left)
     )
     variable = reference.variable
+    if any((item.time_origin is None) != (reference.time_origin is None) for item in replicas):
+        return side, None, "Calendar-free histories cannot be aligned to calendar-bound histories"
     if variable is None or any(item.variable is None for item in replicas):
         return side, None, "Variable is absent from one or more histories"
     if any(
@@ -391,7 +342,7 @@ def data_diff(
     left_series, right_series = (tuple(map(_series, side)) for side in sides)
     variables = sorted(set().union(*(item.keys() for item in (*left_series, *right_series))))
     comparisons = []
-    absent = DataSeries(variable=None, points=())
+    absent = DataSeries(variable=None, time_origin=None, points=())
     for identity in variables:
         a, b = (
             tuple(item.get(identity, absent) for item in side)
@@ -400,6 +351,11 @@ def data_diff(
         issues = []
         series = (*a, *b)
         definitions = [item.variable for item in series if item.variable is not None]
+        mixed_calendars = (
+            len({item.time_origin is None for item in series if item.variable is not None}) > 1
+        )
+        if mixed_calendars:
+            issues.append("Calendar-free histories cannot be aligned to calendar-bound histories")
         if len(definitions) != len(series):
             issues.append("Variable is absent from one or more histories")
         if len({_semantics(item) for item in definitions}) > 1:
@@ -413,7 +369,7 @@ def data_diff(
         if len(schedules) > 1:
             issues.append("Observation schedules or measurement windows differ")
         changes = []
-        if len(a) == len(b) == 1:
+        if len(a) == len(b) == 1 and not mixed_calendars:
             old, new = (
                 {point.anchor_time: point for point in item.points} for item in (a[0], b[0])
             )

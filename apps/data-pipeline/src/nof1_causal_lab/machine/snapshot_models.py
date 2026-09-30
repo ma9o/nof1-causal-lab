@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -12,10 +12,12 @@ from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata  # n
 from nof1_causal_lab.artifacts.execution import StructuralItemDisposition  # noqa: TC001
 from nof1_causal_lab.artifacts.identification import IdentificationReport  # noqa: TC001
 from nof1_causal_lab.artifacts.identity import (  # noqa: TC001
+    ArtifactId,
     ConstructId,
     EdgeId,
     GitOid,
     GitRef,
+    ParameterId,
 )
 from nof1_causal_lab.artifacts.model_checks import ModelPredictiveReport  # noqa: TC001
 from nof1_causal_lab.artifacts.model_spec import ModelSpec  # noqa: TC001
@@ -27,9 +29,10 @@ from nof1_causal_lab.artifacts.validation_report import (  # noqa: TC001
     DataProfileArtifact,
     ValidationReportArtifact,
 )
-from nof1_causal_lab.machine.artifacts import EpisodeState  # noqa: TC001
+from nof1_causal_lab.machine.artifacts import ArtifactRecord, EpisodeState
 from nof1_causal_lab.machine.execution import ArtifactFreshness, is_stale
 from nof1_causal_lab.machine.view_models import (  # noqa: TC001
+    DensityPoint,
     MeasurementsData,
     ModelDiagnostics,
     RawDataData,
@@ -65,11 +68,30 @@ class Sourced[T](SnapshotValue):
 
 
 class FitSummary(SnapshotValue):
-    """A fit read contains the inference log report and server-composed display findings."""
+    """A fit read contains the inference report summary and server-composed display findings.
+
+    Per-draw diagnostics load separately from the inference report endpoint.
+    """
 
     report: InferenceReport
     edge_estimates: dict[EdgeId, PosteriorEstimate] = Field(default_factory=dict)
     decay_estimates: dict[ConstructId, PosteriorEstimate] = Field(default_factory=dict)
+    prior_densities: dict[ParameterId, tuple[DensityPoint, ...]] = Field(
+        default_factory=dict,
+        description=(
+            "Conditioned input laws of the fitted parameters, on their posterior marginals' "
+            "quantity scale; absent where the current compiler cannot place the input model."
+        ),
+    )
+
+
+class SnapshotState(SnapshotValue):
+    """A snapshot state lists the artifact revisions current at the selected commit.
+
+    Recorded checks appear once, as the specification and predictive findings.
+    """
+
+    current: dict[ArtifactId, ArtifactRecord] = Field(default_factory=dict)
 
 
 class SnapshotContext(SnapshotValue):
@@ -80,7 +102,7 @@ class SnapshotContext(SnapshotValue):
     commit_id: GitOid
     branch: str = "main"
     can_simulate: bool = False
-    state: EpisodeState
+    state: SnapshotState
     artifacts: list[ArtifactFreshness] = Field(default_factory=list)
 
 
@@ -98,6 +120,7 @@ class ModelGraphView(SnapshotValue):
 
     construct_ids: tuple[ConstructId, ...] = ()
     edge_ids: tuple[EdgeId, ...] = ()
+    dynamic_construct_ids: tuple[ConstructId, ...] = ()
     status: dict[ConstructId, Literal["observed", "marginalized", "blocking"]] = Field(
         default_factory=dict
     )
@@ -144,7 +167,7 @@ class ModelSnapshot(SnapshotValue):
             (self.findings.predictive, "predictive"),
         ):
             if read is not None:
-                self._validate_source(read.source, artifact_id)
+                self._validate_source(read, artifact_id)
         model = self.model.value if self.model else None
         constructs = {item.id for item in model.constructs} if model else set()
         edges = {item.id for item in model.edges} if model else set()
@@ -152,7 +175,8 @@ class ModelSnapshot(SnapshotValue):
         parameters = {item.id for item in model.parameters} if model else set()
         findings = self.findings
         if (
-            not set(findings.graph.construct_ids) <= constructs
+            not set(findings.graph.dynamic_construct_ids) <= set(findings.graph.construct_ids)
+            or not set(findings.graph.construct_ids) <= constructs
             or not set(findings.graph.edge_ids) <= edges
         ):
             raise ValueError("Graph view references an entity outside the snapshot")
@@ -196,11 +220,14 @@ class ModelSnapshot(SnapshotValue):
                 for subject in (pair.subject_x, pair.subject_y)
             ):
                 raise ValueError("Posterior pair has no scientific parameter definition")
+            if not fit.prior_densities.keys() <= parameters:
+                raise ValueError("Prior curve has no scientific parameter definition")
         return self
 
-    def _validate_source(self, source: FactSource, artifact_id: str) -> None:
+    def _validate_source(self, read: Sourced[Any], artifact_id: str) -> None:
         from nof1_causal_lab.machine.artifact_files import artifact_file_spec
 
+        source = read.source
         ref = source.ref
         if ref.workspace_id != self.context.workspace_id:
             raise ValueError("Fact source belongs to another study")
@@ -208,17 +235,14 @@ class ModelSnapshot(SnapshotValue):
             if (
                 artifact_id not in {"specification", "predictive"}
                 or ref.revision != self.context.commit_id
-                or self.context.state.checks is None
                 or source.pointer != f"/{artifact_id}"
             ):
                 raise ValueError("Check source must identify this snapshot's recorded findings")
-            predictive = self.context.state.checks.predictive
-            panel = self.context.state.get("panel")
+            panel = self.context.state.current.get("panel")
             expected = (
                 "stale"
                 if artifact_id == "predictive"
-                and predictive is not None
-                and (predictive.panel_revision != (panel.revision if panel else None))
+                and read.value.panel_revision != (panel.revision if panel else None)
                 else "fresh"
             )
             if source.validity != expected:
@@ -240,6 +264,7 @@ class ModelSnapshot(SnapshotValue):
             }.values()
         ):
             raise ValueError("Fact source does not identify a declared artifact payload")
-        expected = "stale" if is_stale(self.context.state, current.artifact_id) else "fresh"
+        state = EpisodeState(current=self.context.state.current)
+        expected = "stale" if is_stale(state, current.artifact_id) else "fresh"
         if source.validity != expected:
             raise ValueError("Fact validity differs from its snapshot input references")

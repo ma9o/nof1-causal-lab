@@ -368,7 +368,7 @@ def build_synthetic_nonlinear_spec(*, diffusion_scale: float = 1.0) -> ModelSpec
     edges = {}
     terms = {}
 
-    def edge(cause, effect, lagged=True):
+    def edge(cause, effect):
         pair = (cause, effect)
         if pair not in edges:
             identity = f"edge:{cause}-{effect}"
@@ -376,7 +376,6 @@ def build_synthetic_nonlinear_spec(*, diffusion_scale: float = 1.0) -> ModelSpec
                 id=identity,
                 cause=next(construct for construct in constructs if construct.name == cause),
                 effect=next(construct for construct in constructs if construct.name == effect),
-                lagged=lagged,
                 description="Synthetic causal relationship",
             )
             terms[identity] = []
@@ -462,7 +461,7 @@ def build_synthetic_nonlinear_spec(*, diffusion_scale: float = 1.0) -> ModelSpec
             )
         )
     for row, column in TRUE_INPUT_EFFECT_POSITIONS:
-        owner = edge(INPUT_NAMES[column], LATENT_NAMES[row], False)
+        owner = edge(INPUT_NAMES[column], LATENT_NAMES[row])
         mechanism_id = f"mechanism:input-{row}-{column}"
         terms[owner.id].append(
             DynamicsMechanismSpec(

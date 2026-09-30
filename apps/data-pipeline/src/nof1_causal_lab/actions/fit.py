@@ -11,6 +11,7 @@ from nof1_causal_lab.models.ssm.inference.persistence import condition_model
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from datetime import datetime
 
     import numpy as np
     import polars as pl
@@ -34,6 +35,7 @@ def fit(
     *,
     model_spec: ModelSpec,
     data_for_model: pl.DataFrame,
+    time_origin: datetime | None,
     sampler_config: SamplerConfig,
     array_writer: Callable[[np.ndarray], str],
     array_loader: ArrayLoader,
@@ -46,6 +48,7 @@ def fit(
     fitted_result = fit_model(
         model_spec,
         data_for_model,
+        time_origin=time_origin,
         sampler_config=sampler_config,
         workspace_id=workspace_id,
         wait_for_compile_cache=True,
@@ -81,6 +84,7 @@ def fit(
     )
 
     return {
+        "time_origin": time_origin.isoformat() if time_origin is not None else None,
         "_model": conditioned,
         "engine_evidence": asdict(result.evidence),
         "inference_metadata": inference_metadata,

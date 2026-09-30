@@ -621,6 +621,52 @@
       "x-layer": "transport",
       "x-concern": "api_tools"
     },
+    "CategoryProbabilitySummary": {
+      "additionalProperties": false,
+      "description": "Predictive probabilities for each declared level; unobserved anchors are null.",
+      "properties": {
+        "kind": {
+          "const": "categorical",
+          "default": "categorical",
+          "title": "Kind",
+          "type": "string"
+        },
+        "probabilities": {
+          "additionalProperties": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array"
+          },
+          "title": "Probabilities",
+          "type": "object"
+        },
+        "n_draws": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "N Draws",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "n_draws",
+        "probabilities"
+      ],
+      "title": "CategoryProbabilitySummary",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.simulation",
+      "x-layer": "findings",
+      "x-concern": "scientific_model"
+    },
     "CausalEdgeSpec": {
       "additionalProperties": false,
       "description": "A specification of a directed causal relationship between two constructs.",
@@ -664,12 +710,6 @@
           "title": "Description",
           "type": "string"
         },
-        "lagged": {
-          "default": true,
-          "description": "If True, effect at t is caused by cause at t-1 (one model_clock tick delay). If False (contemporaneous), effect at t is caused by cause at t.",
-          "title": "Lagged",
-          "type": "boolean"
-        },
         "sources": {
           "description": "Literature sources supporting this causal link",
           "items": {
@@ -684,7 +724,6 @@
         "description",
         "effect",
         "id",
-        "lagged",
         "mechanisms",
         "sources"
       ],
@@ -698,15 +737,6 @@
       "additionalProperties": false,
       "description": "Causal effects and realized trajectories under the enclosing report's design.",
       "properties": {
-        "time_grid_days": {
-          "description": "Shared elapsed-day coordinates for all trajectories, including day zero.",
-          "items": {
-            "type": "number"
-          },
-          "minItems": 2,
-          "title": "Time Grid Days",
-          "type": "array"
-        },
         "outcome": {
           "$ref": "#/$defs/ConstructId"
         },
@@ -724,19 +754,11 @@
           "$ref": "#/$defs/EffectSummary"
         },
         "effect_trajectory": {
-          "anyOf": [
-            {
-              "items": {
-                "$ref": "#/$defs/EffectTrajectoryPoint"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Effect Trajectory"
+          "items": {
+            "$ref": "#/$defs/EffectTrajectoryPoint"
+          },
+          "title": "Effect Trajectory",
+          "type": "array"
         },
         "trajectory_peak": {
           "anyOf": [
@@ -748,17 +770,6 @@
             }
           ],
           "default": null
-        },
-        "trajectories": {
-          "additionalProperties": {
-            "$ref": "#/$defs/SimulationTrajectory"
-          },
-          "description": "Reference and action means for each simulated construct on time_grid_days.",
-          "propertyNames": {
-            "$ref": "#/$defs/ConstructId"
-          },
-          "title": "Trajectories",
-          "type": "object"
         },
         "manifest_effects": {
           "anyOf": [
@@ -788,12 +799,11 @@
         }
       },
       "required": [
+        "effect_trajectory",
         "labels",
         "outcome",
         "reference_mean",
         "summary",
-        "time_grid_days",
-        "trajectories",
         "warnings"
       ],
       "title": "CausalEffectResult",
@@ -900,17 +910,13 @@
     },
     "ComparisonConnection": {
       "additionalProperties": false,
-      "description": "Endpoint references and temporal relation for one side of a causal edge comparison.",
+      "description": "Endpoint references and description for one side of a causal edge comparison.",
       "properties": {
         "cause": {
           "$ref": "#/$defs/ConstructRef"
         },
         "effect": {
           "$ref": "#/$defs/ConstructRef"
-        },
-        "lagged": {
-          "title": "Lagged",
-          "type": "boolean"
         },
         "description": {
           "title": "Description",
@@ -920,8 +926,7 @@
       "required": [
         "cause",
         "description",
-        "effect",
-        "lagged"
+        "effect"
       ],
       "title": "ComparisonConnection",
       "type": "object",
@@ -931,7 +936,7 @@
     },
     "ConstructComparison": {
       "additionalProperties": false,
-      "description": "A construct's definitions and changed owned parameters in two model revisions.",
+      "description": "A construct's presence and time-slice topology in two model revisions.",
       "properties": {
         "construct_id": {
           "$ref": "#/$defs/ConstructId"
@@ -966,13 +971,6 @@
           "title": "Change",
           "type": "string"
         },
-        "parameter_ids": {
-          "items": {
-            "$ref": "#/$defs/ParameterId"
-          },
-          "title": "Parameter Ids",
-          "type": "array"
-        },
         "before_disposition": {
           "anyOf": [
             {
@@ -1000,8 +998,7 @@
         "before",
         "before_disposition",
         "change",
-        "construct_id",
-        "parameter_ids"
+        "construct_id"
       ],
       "title": "ConstructComparison",
       "type": "object",
@@ -1264,7 +1261,7 @@
     },
     "DataPoint": {
       "additionalProperties": false,
-      "description": "An observed value at an exact calendar anchor and measurement support.",
+      "description": "An observed anchor and support; dates are synthetic for a calendar-free series.",
       "properties": {
         "anchor_time": {
           "format": "date-time",
@@ -1510,20 +1507,6 @@
           ],
           "default": null,
           "title": "Replicate"
-        },
-        "time_origin": {
-          "anyOf": [
-            {
-              "format": "date-time",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Calendar instant for simulation day zero; omitted uses 1970-01-01 UTC.",
-          "title": "Time Origin"
         }
       },
       "required": [
@@ -1568,6 +1551,19 @@
             }
           ]
         },
+        "time_origin": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Recorded calendar binding; null means the point dates are serialization coordinates, not real dates.",
+          "title": "Time Origin"
+        },
         "points": {
           "items": {
             "$ref": "#/$defs/DataPoint"
@@ -1578,6 +1574,7 @@
       },
       "required": [
         "points",
+        "time_origin",
         "variable"
       ],
       "title": "DataSeries",
@@ -1593,12 +1590,9 @@
         },
         {
           "$ref": "#/$defs/SimulationReplicateRef"
-        },
-        {
-          "$ref": "#/$defs/ObservationTableRef"
         }
       ],
-      "description": "Uploaded sources, one simulation replicate, or a bounded observation table.",
+      "description": "Uploaded sources or one recorded simulation replicate.",
       "x-python-module": "nof1_causal_lab.artifacts.data_preparation",
       "x-layer": "authored",
       "x-concern": "scientific_model"
@@ -2037,7 +2031,7 @@
     },
     "EdgeComparison": {
       "additionalProperties": false,
-      "description": "An explicit causal edge's definitions and changed mechanism parameters.",
+      "description": "An explicit causal edge's presence and endpoints in two model revisions.",
       "properties": {
         "edge_id": {
           "$ref": "#/$defs/EdgeId"
@@ -2072,13 +2066,6 @@
           "title": "Change",
           "type": "string"
         },
-        "parameter_ids": {
-          "items": {
-            "$ref": "#/$defs/ParameterId"
-          },
-          "title": "Parameter Ids",
-          "type": "array"
-        },
         "before_disposition": {
           "anyOf": [
             {
@@ -2106,8 +2093,7 @@
         "before",
         "before_disposition",
         "change",
-        "edge_id",
-        "parameter_ids"
+        "edge_id"
       ],
       "title": "EdgeComparison",
       "type": "object",
@@ -2193,24 +2179,60 @@
       "description": "An effect trajectory point records a causal delta at one rollout time.",
       "properties": {
         "day": {
-          "minimum": 0,
           "title": "Day",
           "type": "number"
         },
         "effect": {
           "title": "Effect",
           "type": "number"
+        },
+        "lower_95": {
+          "title": "Lower 95",
+          "type": "number"
+        },
+        "upper_95": {
+          "title": "Upper 95",
+          "type": "number"
         }
       },
       "required": [
         "day",
-        "effect"
+        "effect",
+        "lower_95",
+        "upper_95"
       ],
       "title": "EffectTrajectoryPoint",
       "type": "object",
       "x-python-module": "nof1_causal_lab.artifacts.effects",
       "x-layer": "findings",
       "x-concern": "scientific_model"
+    },
+    "EmpiricalPoint": {
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "title": "Value",
+          "type": "number"
+        },
+        "probability": {
+          "title": "Probability",
+          "type": "number"
+        },
+        "count": {
+          "title": "Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "count",
+        "probability",
+        "value"
+      ],
+      "title": "EmpiricalPoint",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.machine.visual_models",
+      "x-layer": "machine",
+      "x-concern": "read_models"
     },
     "EpisodeState": {
       "additionalProperties": false,
@@ -2632,6 +2654,34 @@
           "minItems": 1,
           "title": "Files",
           "type": "array"
+        },
+        "start": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Inclusive UTC source-coverage date.",
+          "title": "Start"
+        },
+        "end": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Exclusive UTC source-coverage date.",
+          "title": "End"
         }
       },
       "required": [
@@ -2643,9 +2693,21 @@
       "x-layer": "authored",
       "x-concern": "scientific_model"
     },
+    "FitReliability": {
+      "enum": [
+        "not_fitted",
+        "converged",
+        "unconverged",
+        "unknown"
+      ],
+      "type": "string",
+      "x-python-module": "nof1_causal_lab.artifacts.simulation",
+      "x-layer": "findings",
+      "x-concern": "scientific_model"
+    },
     "FitSummary": {
       "additionalProperties": false,
-      "description": "A fit read contains the inference log report and server-composed display findings.",
+      "description": "A fit read contains the inference report summary and server-composed display findings.\n\nPer-draw diagnostics load separately from the inference report endpoint.",
       "properties": {
         "report": {
           "$ref": "#/$defs/InferenceReport"
@@ -2669,11 +2731,26 @@
           },
           "title": "Decay Estimates",
           "type": "object"
+        },
+        "prior_densities": {
+          "additionalProperties": {
+            "items": {
+              "$ref": "#/$defs/DensityPoint"
+            },
+            "type": "array"
+          },
+          "description": "Conditioned input laws of the fitted parameters, on their posterior marginals' quantity scale; absent where the current compiler cannot place the input model.",
+          "propertyNames": {
+            "$ref": "#/$defs/ParameterId"
+          },
+          "title": "Prior Densities",
+          "type": "object"
         }
       },
       "required": [
         "decay_estimates",
         "edge_estimates",
+        "prior_densities",
         "report"
       ],
       "title": "FitSummary",
@@ -3363,6 +3440,19 @@
       "additionalProperties": false,
       "description": "Display findings recorded by an inference transition, separate from ModelSpec.",
       "properties": {
+        "time_origin": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Known calendar instant of model day zero.",
+          "title": "Time Origin"
+        },
         "inference_metadata": {
           "$ref": "#/$defs/InferenceMetadata"
         },
@@ -3414,7 +3504,8 @@
       },
       "required": [
         "inference_diagnostics",
-        "inference_metadata"
+        "inference_metadata",
+        "time_origin"
       ],
       "title": "InferenceReport",
       "type": "object",
@@ -4005,6 +4096,112 @@
       "x-layer": "read_models",
       "x-concern": "read_models"
     },
+    "MechanismCurves": {
+      "additionalProperties": false,
+      "description": "Exact conditional drift contributions, not marginal or total causal effects.",
+      "properties": {
+        "axis": {
+          "$ref": "#/$defs/ConstructId"
+        },
+        "axis_label": {
+          "title": "Axis Label",
+          "type": "string"
+        },
+        "target_label": {
+          "title": "Target Label",
+          "type": "string"
+        },
+        "states": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/ConstructId"
+          },
+          "title": "States",
+          "type": "object"
+        },
+        "held": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/ConstructId"
+          },
+          "title": "Held",
+          "type": "object"
+        },
+        "moderator": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConstructId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "x": {
+          "items": {
+            "type": "number"
+          },
+          "title": "X",
+          "type": "array"
+        },
+        "curves": {
+          "items": {
+            "$ref": "#/$defs/ResponseCurve"
+          },
+          "title": "Curves",
+          "type": "array"
+        },
+        "law": {
+          "enum": [
+            "retained",
+            "sampled",
+            "fixed"
+          ],
+          "title": "Law",
+          "type": "string"
+        },
+        "total_draws": {
+          "title": "Total Draws",
+          "type": "integer"
+        },
+        "start": {
+          "title": "Start",
+          "type": "integer"
+        },
+        "count": {
+          "title": "Count",
+          "type": "integer"
+        },
+        "nonfinite": {
+          "title": "Nonfinite",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "axis",
+        "axis_label",
+        "count",
+        "curves",
+        "held",
+        "law",
+        "moderator",
+        "nonfinite",
+        "start",
+        "states",
+        "target_label",
+        "total_draws",
+        "x"
+      ],
+      "title": "MechanismCurves",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.machine.visual_models",
+      "x-layer": "machine",
+      "x-concern": "read_models"
+    },
     "MechanismId": {
       "pattern": "^mechanism:[A-Za-z0-9_.-]+$",
       "tsType": "`mechanism:${string}`",
@@ -4013,6 +4210,106 @@
       "x-layer": "identity",
       "x-concern": "identity",
       "description": "A persistent mechanism identity distinguishes additive terms through reordering and revision."
+    },
+    "MechanismViewRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "owner_id": {
+          "title": "Owner Id",
+          "type": "string"
+        },
+        "axis": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConstructId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "lower": {
+          "default": -3,
+          "title": "Lower",
+          "type": "number"
+        },
+        "upper": {
+          "default": 3,
+          "title": "Upper",
+          "type": "number"
+        },
+        "held": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/ConstructId"
+          },
+          "title": "Held",
+          "type": "object"
+        },
+        "moderator": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConstructId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "levels": {
+          "default": [
+            -1,
+            0,
+            1
+          ],
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 5,
+          "minItems": 1,
+          "title": "Levels",
+          "type": "array"
+        },
+        "start": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Start",
+          "type": "integer"
+        },
+        "count": {
+          "default": 24,
+          "maximum": 128,
+          "minimum": 1,
+          "title": "Count",
+          "type": "integer"
+        },
+        "points": {
+          "default": 201,
+          "maximum": 1001,
+          "minimum": 21,
+          "title": "Points",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "count",
+        "held",
+        "levels",
+        "lower",
+        "owner_id",
+        "points",
+        "start",
+        "upper"
+      ],
+      "title": "MechanismViewRequest",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.machine.visual_models",
+      "x-layer": "machine",
+      "x-concern": "read_models"
     },
     "ModelCheckReport": {
       "additionalProperties": false,
@@ -4544,7 +4841,7 @@
     },
     "ModelGraphComparison": {
       "additionalProperties": false,
-      "description": "Aligned scientific entities for rendering a graph difference without browser inference.",
+      "description": "Identity-aligned topology changes, excluding laws and other entity attributes.",
       "properties": {
         "constructs": {
           "items": {
@@ -4559,9 +4856,25 @@
           },
           "title": "Edges",
           "type": "array"
+        },
+        "before_dynamic_construct_ids": {
+          "items": {
+            "$ref": "#/$defs/ConstructId"
+          },
+          "title": "Before Dynamic Construct Ids",
+          "type": "array"
+        },
+        "after_dynamic_construct_ids": {
+          "items": {
+            "$ref": "#/$defs/ConstructId"
+          },
+          "title": "After Dynamic Construct Ids",
+          "type": "array"
         }
       },
       "required": [
+        "after_dynamic_construct_ids",
+        "before_dynamic_construct_ids",
         "constructs",
         "edges"
       ],
@@ -4591,6 +4904,14 @@
           "title": "Edge Ids",
           "type": "array"
         },
+        "dynamic_construct_ids": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ConstructId"
+          },
+          "title": "Dynamic Construct Ids",
+          "type": "array"
+        },
         "status": {
           "additionalProperties": {
             "enum": [
@@ -4614,6 +4935,7 @@
       "x-concern": "read_models",
       "required": [
         "construct_ids",
+        "dynamic_construct_ids",
         "edge_ids",
         "status"
       ]
@@ -4988,6 +5310,117 @@
       "x-concern": "scientific_model",
       "description": "A native NumPyro probability distribution serialized by its constructor tree."
     },
+    "ObservationHistory": {
+      "additionalProperties": false,
+      "description": "All prepared observations, their true anchors and their measurement support.",
+      "properties": {
+        "indicator_id": {
+          "$ref": "#/$defs/IndicatorId"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "times": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Times",
+          "type": "array"
+        },
+        "values": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Values",
+          "type": "array"
+        },
+        "support_start": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Support Start",
+          "type": "array"
+        },
+        "support_end": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Support End",
+          "type": "array"
+        },
+        "time_origin": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Time Origin"
+        },
+        "levels": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Levels"
+        },
+        "empirical": {
+          "items": {
+            "$ref": "#/$defs/EmpiricalPoint"
+          },
+          "title": "Empirical",
+          "type": "array"
+        }
+      },
+      "required": [
+        "empirical",
+        "indicator_id",
+        "label",
+        "levels",
+        "support_end",
+        "support_start",
+        "time_origin",
+        "times",
+        "values"
+      ],
+      "title": "ObservationHistory",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.machine.visual_models",
+      "x-layer": "machine",
+      "x-concern": "read_models"
+    },
     "ObservationLawSpec": {
       "additionalProperties": false,
       "description": "A symbolic specification of an indicator's conditional observation distribution.",
@@ -5266,53 +5699,6 @@
       "x-layer": "authored",
       "x-concern": "scientific_model"
     },
-    "ObservationTableRef": {
-      "additionalProperties": false,
-      "description": "An uploaded Parquet observation table and its selected UTC calendar interval.",
-      "properties": {
-        "file": {
-          "description": "Uploaded Parquet filename, without directory components.",
-          "title": "File",
-          "type": "string"
-        },
-        "start": {
-          "anyOf": [
-            {
-              "format": "date",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Inclusive UTC anchor date (ISO YYYY-MM-DD).",
-          "title": "Start"
-        },
-        "end": {
-          "anyOf": [
-            {
-              "format": "date",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Exclusive UTC anchor date (ISO YYYY-MM-DD).",
-          "title": "End"
-        }
-      },
-      "required": [
-        "file"
-      ],
-      "title": "ObservationTableRef",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.artifacts.data_preparation",
-      "x-layer": "authored",
-      "x-concern": "scientific_model"
-    },
     "OperationId": {
       "enum": [
         "raw_data",
@@ -5320,7 +5706,6 @@
         "measurement_structure",
         "measurements",
         "simulated_measurements",
-        "imported_measurements",
         "statistical_model_spec",
         "posterior",
         "simulate"
@@ -5332,7 +5717,7 @@
       "description": "An operation identity selects an action independently of its output artifacts."
     },
     "PPCOverlay": {
-      "description": "A predictive overlay compares observed values with posterior predictive bands for one\nindicator.\n\nProvides the data for Gabry's ppc_dens_overlay / ppc_ribbon plots:\nobserved time series vs posterior predictive quantile bands.\nOptionally includes individual y_rep draw lines for spaghetti plots.",
+      "description": "A predictive overlay sets one indicator's observed values against simulated ones.\n\nIt carries the predictive median and a few individual replicated series, the\nspaghetti plot of a visual predictive check.",
       "properties": {
         "indicator_id": {
           "$ref": "#/$defs/IndicatorId"
@@ -5351,34 +5736,6 @@
           "title": "Observed",
           "type": "array"
         },
-        "q025": {
-          "items": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "title": "Q025",
-          "type": "array"
-        },
-        "q25": {
-          "items": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "title": "Q25",
-          "type": "array"
-        },
         "median": {
           "items": {
             "anyOf": [
@@ -5391,34 +5748,6 @@
             ]
           },
           "title": "Median",
-          "type": "array"
-        },
-        "q75": {
-          "items": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "title": "Q75",
-          "type": "array"
-        },
-        "q975": {
-          "items": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "title": "Q975",
           "type": "array"
         },
         "spaghetti_draws": {
@@ -5443,10 +5772,6 @@
         "indicator_id",
         "median",
         "observed",
-        "q025",
-        "q25",
-        "q75",
-        "q975",
         "spaghetti_draws"
       ],
       "title": "PPCOverlay",
@@ -5601,6 +5926,76 @@
       "x-layer": "transport",
       "x-concern": "api_tools"
     },
+    "ParameterDrawColumn": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "subject": {
+          "$ref": "#/$defs/ParameterRef"
+        },
+        "values": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Values",
+          "type": "array"
+        },
+        "empirical": {
+          "items": {
+            "$ref": "#/$defs/EmpiricalPoint"
+          },
+          "title": "Empirical",
+          "type": "array"
+        }
+      },
+      "required": [
+        "empirical",
+        "label",
+        "subject",
+        "values"
+      ],
+      "title": "ParameterDrawColumn",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.machine.visual_models",
+      "x-layer": "machine",
+      "x-concern": "read_models"
+    },
+    "ParameterDraws": {
+      "additionalProperties": false,
+      "description": "Every retained parameter coordinate, without thinning or pair selection.",
+      "properties": {
+        "columns": {
+          "items": {
+            "$ref": "#/$defs/ParameterDrawColumn"
+          },
+          "title": "Columns",
+          "type": "array"
+        },
+        "unavailable_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unavailable Reason"
+        }
+      },
+      "required": [
+        "columns"
+      ],
+      "title": "ParameterDraws",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.machine.visual_models",
+      "x-layer": "machine",
+      "x-concern": "read_models"
+    },
     "ParameterElementId": {
       "pattern": "^element:[0-9a-f]{64}$",
       "tsType": "`element:${string}`",
@@ -5705,7 +6100,7 @@
             }
           ],
           "default": null,
-          "description": "Positive duration in days over which an authored persistence or interval-effect law is defined, before conversion to continuous-time decay or rate. When omitted, persistence uses the model measurement clock; interval effects use the edge lag, falling back to that clock.",
+          "description": "Positive duration in days over which an authored persistence or interval-effect law is defined, before conversion to continuous-time decay or rate. When omitted, persistence and interval effects use the model measurement clock.",
           "title": "Reference Interval Days"
         }
       },
@@ -5720,6 +6115,55 @@
       "x-python-module": "nof1_causal_lab.artifacts.parameter_spec",
       "x-layer": "authored",
       "x-concern": "scientific_model"
+    },
+    "PathSeries": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "action": {
+          "items": {
+            "$ref": "#/$defs/RecordedPath"
+          },
+          "title": "Action",
+          "type": "array"
+        },
+        "reference": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/RecordedPath"
+          },
+          "title": "Reference",
+          "type": "array"
+        },
+        "levels": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Levels"
+        }
+      },
+      "required": [
+        "action",
+        "label",
+        "reference"
+      ],
+      "title": "PathSeries",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.machine.visual_models",
+      "x-layer": "machine",
+      "x-concern": "read_models"
     },
     "PosteriorEstimate": {
       "additionalProperties": false,
@@ -6038,6 +6482,49 @@
       "x-concern": "scientific_model",
       "description": "A predictive check reason explains why a battery could not be evaluated for the selected model and observations."
     },
+    "PredictiveHistory": {
+      "additionalProperties": false,
+      "description": "A saved check on the exact schedule and scale used to evaluate it.",
+      "properties": {
+        "times": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Times",
+          "type": "array"
+        },
+        "time_origin": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Time Origin"
+        },
+        "standardized": {
+          "title": "Standardized",
+          "type": "boolean"
+        },
+        "overlay": {
+          "$ref": "#/$defs/PPCOverlay"
+        }
+      },
+      "required": [
+        "overlay",
+        "standardized",
+        "time_origin",
+        "times"
+      ],
+      "title": "PredictiveHistory",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.machine.visual_models",
+      "x-layer": "machine",
+      "x-concern": "read_models"
+    },
     "PredictiveLawProvenance": {
       "additionalProperties": false,
       "description": "Known conditioning history, independently of a probability law's family.",
@@ -6053,6 +6540,17 @@
           "type": "string"
         },
         "fitted_panel_revision": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GitOid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "fitted_model_revision": {
           "anyOf": [
             {
               "$ref": "#/$defs/GitOid"
@@ -6085,6 +6583,26 @@
       "x-layer": "authored",
       "x-concern": "scientific_model"
     },
+    "PredictiveSummary": {
+      "discriminator": {
+        "mapping": {
+          "categorical": "#/$defs/CategoryProbabilitySummary",
+          "numeric": "#/$defs/TrajectorySummary"
+        },
+        "propertyName": "kind"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/TrajectorySummary"
+        },
+        {
+          "$ref": "#/$defs/CategoryProbabilitySummary"
+        }
+      ],
+      "x-python-module": "nof1_causal_lab.artifacts.simulation",
+      "x-layer": "findings",
+      "x-concern": "scientific_model"
+    },
     "PreparedDataMetadata": {
       "additionalProperties": false,
       "description": "Self-contained semantics and provenance of one prepared observation table.",
@@ -6110,10 +6628,24 @@
             }
           ],
           "default": null
+        },
+        "time_origin": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Calendar instant of model day zero; null denotes a calendar-free history.",
+          "title": "Time Origin"
         }
       },
       "required": [
         "source",
+        "time_origin",
         "variables"
       ],
       "title": "PreparedDataMetadata",
@@ -6331,6 +6863,82 @@
       "type": "object",
       "x-python-module": "nof1_causal_lab.machine.view_models",
       "x-layer": "read_models",
+      "x-concern": "read_models"
+    },
+    "RecordedPath": {
+      "additionalProperties": false,
+      "properties": {
+        "draw": {
+          "title": "Draw",
+          "type": "integer"
+        },
+        "values": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Values",
+          "type": "array"
+        }
+      },
+      "required": [
+        "draw",
+        "values"
+      ],
+      "title": "RecordedPath",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.machine.visual_models",
+      "x-layer": "machine",
+      "x-concern": "read_models"
+    },
+    "ResponseCurve": {
+      "additionalProperties": false,
+      "properties": {
+        "draw": {
+          "title": "Draw",
+          "type": "integer"
+        },
+        "values": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Values",
+          "type": "array"
+        },
+        "level": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Level"
+        }
+      },
+      "required": [
+        "draw",
+        "values"
+      ],
+      "title": "ResponseCurve",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.machine.visual_models",
+      "x-layer": "machine",
       "x-concern": "read_models"
     },
     "ResumeRef": {
@@ -6603,6 +7211,127 @@
       "x-layer": "findings",
       "x-concern": "scientific_model"
     },
+    "SimulationPaths": {
+      "additionalProperties": false,
+      "description": "Contiguous pages of original draws, with every recorded time point intact.",
+      "properties": {
+        "times": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Times",
+          "type": "array"
+        },
+        "time_origin": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Time Origin"
+        },
+        "total_draws": {
+          "title": "Total Draws",
+          "type": "integer"
+        },
+        "start": {
+          "title": "Start",
+          "type": "integer"
+        },
+        "count": {
+          "title": "Count",
+          "type": "integer"
+        },
+        "states": {
+          "additionalProperties": {
+            "$ref": "#/$defs/PathSeries"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/ConstructId"
+          },
+          "title": "States",
+          "type": "object"
+        },
+        "indicators": {
+          "additionalProperties": {
+            "$ref": "#/$defs/PathSeries"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/IndicatorId"
+          },
+          "title": "Indicators",
+          "type": "object"
+        },
+        "effect": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PathSeries"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "count",
+        "indicators",
+        "start",
+        "states",
+        "time_origin",
+        "times",
+        "total_draws"
+      ],
+      "title": "SimulationPaths",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.machine.visual_models",
+      "x-layer": "machine",
+      "x-concern": "read_models"
+    },
+    "SimulationPredictiveReport": {
+      "additionalProperties": false,
+      "description": "Model implications, independently of whether a causal contrast is certified.",
+      "properties": {
+        "states": {
+          "additionalProperties": {
+            "$ref": "#/$defs/SimulationSeriesSummary"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/ConstructId"
+          },
+          "title": "States",
+          "type": "object"
+        },
+        "indicators": {
+          "additionalProperties": {
+            "$ref": "#/$defs/SimulationSeriesSummary"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/IndicatorId"
+          },
+          "title": "Indicators",
+          "type": "object"
+        },
+        "fit_reliability": {
+          "$ref": "#/$defs/FitReliability"
+        }
+      },
+      "required": [
+        "fit_reliability",
+        "indicators",
+        "states"
+      ],
+      "title": "SimulationPredictiveReport",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.simulation",
+      "x-layer": "findings",
+      "x-concern": "scientific_model"
+    },
     "SimulationReplicateRef": {
       "additionalProperties": false,
       "description": "One replicate from a recorded, applied simulation in this study.",
@@ -6653,6 +7382,31 @@
           "minimum": 0,
           "title": "Seed",
           "type": "integer"
+        },
+        "time_origin": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Known calendar instant of model day zero.",
+          "title": "Time Origin"
+        },
+        "origin_panel_revision": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GitOid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Panel that supplied the time origin: the fit's panel for fitted laws, otherwise the current panel when present."
         },
         "state_ids": {
           "items": {
@@ -6722,6 +7476,9 @@
           "title": "Findings",
           "type": "array"
         },
+        "predictive": {
+          "$ref": "#/$defs/SimulationPredictiveReport"
+        },
         "causal_result": {
           "anyOf": [
             {
@@ -6755,11 +7512,46 @@
         "observation_layout",
         "observations",
         "parameter_draws",
+        "predictive",
         "seed",
         "state_ids",
+        "time_origin",
         "times"
       ],
       "title": "SimulationReport",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.simulation",
+      "x-layer": "findings",
+      "x-concern": "scientific_model"
+    },
+    "SimulationSeriesSummary": {
+      "additionalProperties": false,
+      "description": "One state's or indicator's generated distribution in each simulated arm.",
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "action": {
+          "$ref": "#/$defs/PredictiveSummary"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PredictiveSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "action",
+        "label"
+      ],
+      "title": "SimulationSeriesSummary",
       "type": "object",
       "x-python-module": "nof1_causal_lab.artifacts.simulation",
       "x-layer": "findings",
@@ -6806,148 +7598,6 @@
       "x-layer": "authored",
       "x-concern": "scientific_model"
     },
-    "SimulationTrajectories": {
-      "additionalProperties": false,
-      "description": "Read-only pointwise summaries of the saved outcome state and its indicators.",
-      "properties": {
-        "times": {
-          "items": {
-            "type": "number"
-          },
-          "title": "Times",
-          "type": "array"
-        },
-        "time_origin": {
-          "anyOf": [
-            {
-              "format": "date-time",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "UTC calendar instant of model day zero, from the fitted law's pinned observation panel when it has calendar provenance.",
-          "title": "Time Origin"
-        },
-        "interval_mass": {
-          "default": 0.95,
-          "maximum": 0.95,
-          "minimum": 0.95,
-          "title": "Interval Mass",
-          "type": "number"
-        },
-        "outcome": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ConstructId"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "outcome_state": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/SimulationTrajectoryBands"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "indicators": {
-          "additionalProperties": {
-            "$ref": "#/$defs/SimulationTrajectoryBands"
-          },
-          "propertyNames": {
-            "$ref": "#/$defs/IndicatorId"
-          },
-          "title": "Indicators",
-          "type": "object"
-        }
-      },
-      "required": [
-        "indicators",
-        "interval_mass",
-        "outcome",
-        "outcome_state",
-        "times"
-      ],
-      "title": "SimulationTrajectories",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.view_models",
-      "x-layer": "read_models",
-      "x-concern": "read_models"
-    },
-    "SimulationTrajectory": {
-      "additionalProperties": false,
-      "description": "One construct's mean reference and intervention paths across simulated draws.",
-      "properties": {
-        "reference_mean": {
-          "description": "Mean natural latent path on the result's time_grid_days, including day zero.",
-          "items": {
-            "type": "number"
-          },
-          "minItems": 2,
-          "title": "Reference Mean",
-          "type": "array"
-        },
-        "action_mean": {
-          "description": "Mean latent path under the dated interventions on the same full time grid.",
-          "items": {
-            "type": "number"
-          },
-          "minItems": 2,
-          "title": "Action Mean",
-          "type": "array"
-        }
-      },
-      "required": [
-        "action_mean",
-        "reference_mean"
-      ],
-      "title": "SimulationTrajectory",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.artifacts.scenarios",
-      "x-layer": "findings",
-      "x-concern": "scientific_model"
-    },
-    "SimulationTrajectoryBands": {
-      "additionalProperties": false,
-      "description": "One named state's or indicator's simulated history, with its paired reference if present.",
-      "properties": {
-        "label": {
-          "title": "Label",
-          "type": "string"
-        },
-        "action": {
-          "$ref": "#/$defs/TrajectorySummary"
-        },
-        "reference": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/TrajectorySummary"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        }
-      },
-      "required": [
-        "action",
-        "label"
-      ],
-      "title": "SimulationTrajectoryBands",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.view_models",
-      "x-layer": "read_models",
-      "x-concern": "read_models"
-    },
     "SnapshotContext": {
       "additionalProperties": false,
       "description": "A snapshot context identifies the selected Git commit and its artifact versions.",
@@ -6976,7 +7626,7 @@
           "type": "boolean"
         },
         "state": {
-          "$ref": "#/$defs/EpisodeState"
+          "$ref": "#/$defs/SnapshotState"
         },
         "artifacts": {
           "items": {
@@ -7001,6 +7651,30 @@
       "x-layer": "read_models",
       "x-concern": "read_models"
     },
+    "SnapshotState": {
+      "additionalProperties": false,
+      "description": "A snapshot state lists the artifact revisions current at the selected commit.\n\nRecorded checks appear once, as the specification and predictive findings.",
+      "properties": {
+        "current": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ArtifactRecord"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/ArtifactId"
+          },
+          "title": "Current",
+          "type": "object"
+        }
+      },
+      "title": "SnapshotState",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.machine.snapshot_models",
+      "x-layer": "read_models",
+      "x-concern": "read_models",
+      "required": [
+        "current"
+      ]
+    },
     "SourceValidity": {
       "description": "Source validity records whether a fact still matches its pinned inputs.",
       "enum": [
@@ -7009,26 +7683,6 @@
       ],
       "title": "SourceValidity",
       "type": "string",
-      "x-python-module": "nof1_causal_lab.machine.snapshot_models",
-      "x-layer": "read_models",
-      "x-concern": "read_models"
-    },
-    "Sourced[SimulationTrajectories]": {
-      "additionalProperties": false,
-      "properties": {
-        "value": {
-          "$ref": "#/$defs/SimulationTrajectories"
-        },
-        "source": {
-          "$ref": "#/$defs/FactSource"
-        }
-      },
-      "required": [
-        "source",
-        "value"
-      ],
-      "title": "Sourced[SimulationTrajectories]",
-      "type": "object",
       "x-python-module": "nof1_causal_lab.machine.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
@@ -7825,8 +8479,14 @@
     },
     "TrajectorySummary": {
       "additionalProperties": false,
-      "description": "Pointwise mean and equal-tail interval across saved draws; empty anchors are null.",
+      "description": "Pointwise means and fixed 95% quantiles across generated numeric draws.",
       "properties": {
+        "kind": {
+          "const": "numeric",
+          "default": "numeric",
+          "title": "Kind",
+          "type": "string"
+        },
         "mean": {
           "items": {
             "anyOf": [
@@ -7878,6 +8538,7 @@
         }
       },
       "required": [
+        "kind",
         "lower",
         "mean",
         "n_draws",
@@ -7885,9 +8546,9 @@
       ],
       "title": "TrajectorySummary",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.view_models",
-      "x-layer": "read_models",
-      "x-concern": "read_models"
+      "x-python-module": "nof1_causal_lab.artifacts.simulation",
+      "x-layer": "findings",
+      "x-concern": "scientific_model"
     },
     "TransitionRuntimeEvent": {
       "additionalProperties": false,

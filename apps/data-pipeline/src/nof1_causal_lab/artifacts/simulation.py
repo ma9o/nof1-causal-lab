@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from itertools import pairwise
-from typing import Self
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, FiniteFloat, model_validator
 
 from .checks import PredictiveCheckFinding  # noqa: TC001
-from .identity import ConstructId, GitRef, IndicatorId  # noqa: TC001
+from .identity import ConstructId, GitOid, GitRef, IndicatorId  # noqa: TC001
 from .observations import ObservationSpec  # noqa: TC001
 from .predictive_provenance import PredictiveLawProvenance  # noqa: TC001
 from .scenarios import CausalEffectResult, InterventionSpec  # noqa: TC001
@@ -64,6 +64,56 @@ class SimulationObservationLayout(BaseModel):
         return self
 
 
+class TrajectorySummary(BaseModel):
+    """Pointwise means and fixed 95% quantiles across generated numeric draws."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["numeric"] = "numeric"
+    mean: tuple[FiniteFloat | None, ...]
+    lower: tuple[FiniteFloat | None, ...]
+    upper: tuple[FiniteFloat | None, ...]
+    n_draws: tuple[int, ...]
+
+
+class CategoryProbabilitySummary(BaseModel):
+    """Predictive probabilities for each declared level; unobserved anchors are null."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["categorical"] = "categorical"
+    probabilities: dict[str, tuple[FiniteFloat | None, ...]]
+    n_draws: tuple[int, ...]
+
+
+type PredictiveSummary = Annotated[
+    TrajectorySummary | CategoryProbabilitySummary, Field(discriminator="kind")
+]
+
+
+class SimulationSeriesSummary(BaseModel):
+    """One state's or indicator's generated distribution in each simulated arm."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    label: str
+    action: PredictiveSummary
+    reference: PredictiveSummary | None = None
+
+
+type FitReliability = Literal["not_fitted", "converged", "unconverged", "unknown"]
+
+
+class SimulationPredictiveReport(BaseModel):
+    """Model implications, independently of whether a causal contrast is certified."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    states: dict[ConstructId, SimulationSeriesSummary]
+    indicators: dict[IndicatorId, SimulationSeriesSummary]
+    fit_reliability: FitReliability
+
+
 class SimulationReport(BaseModel):
     """Generated histories and derived findings with their resolved execution coordinates."""
 
@@ -74,6 +124,13 @@ class SimulationReport(BaseModel):
     times: tuple[FiniteFloat, ...] = Field(min_length=2)
     draws: int = Field(ge=1)
     seed: int = Field(ge=0)
+    time_origin: AwareDatetime | None = Field(
+        description="Known calendar instant of model day zero."
+    )
+    origin_panel_revision: GitOid | None = Field(
+        default=None,
+        description="Panel that supplied the time origin: the fit's panel for fitted laws, otherwise the current panel when present.",
+    )
     state_ids: tuple[ConstructId, ...]
     parameter_draws: dict[str, str]
     latent_paths: str
@@ -83,6 +140,7 @@ class SimulationReport(BaseModel):
     reference_latent_paths: str | None = None
     reference_observations: str | None = None
     findings: tuple[PredictiveCheckFinding, ...] = ()
+    predictive: SimulationPredictiveReport
     causal_result: CausalEffectResult | None = None
     causal_unavailable_reason: str | None = None
 
@@ -106,8 +164,25 @@ class SimulationReport(BaseModel):
                 self.causal_result.outcome,
                 *(event.target for event in self.design.interventions),
             }
-            if not targets <= self.causal_result.trajectories.keys():
+            if not targets <= self.predictive.states.keys():
                 raise ValueError("Causal trajectories must include the outcome and interventions")
-            if len(self.causal_result.time_grid_days) != len(self.times):
+            if tuple(point.day for point in self.causal_result.effect_trajectory) != self.times:
                 raise ValueError("Causal trajectories must align with the generated histories")
+        if set(self.predictive.states) != set(self.state_ids) or set(
+            self.predictive.indicators
+        ) != set(self.observation_layout.indicator_ids):
+            raise ValueError("Predictive summaries must cover the recorded simulation layout")
+        for series in (*self.predictive.states.values(), *self.predictive.indicators.values()):
+            if (series.reference is not None) != paired:
+                raise ValueError("Predictive summaries must retain each simulated arm")
+            for summary in (series.action, series.reference):
+                if summary is None:
+                    continue
+                columns = (
+                    (summary.mean, summary.lower, summary.upper)
+                    if isinstance(summary, TrajectorySummary)
+                    else tuple(summary.probabilities.values())
+                )
+                if any(len(column) != len(self.times) for column in (*columns, summary.n_draws)):
+                    raise ValueError("Predictive summaries must align with simulation times")
         return self

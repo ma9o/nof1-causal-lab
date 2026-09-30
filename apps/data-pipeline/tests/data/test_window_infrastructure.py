@@ -1,7 +1,7 @@
 """Tests for support-window extraction infrastructure.
 
 Covers: bucket_by_clock (data.py),
-chunk_windows, format_window_chunk (workers/windows.py).
+format_window_chunk (workers/windows.py).
 """
 
 from datetime import datetime
@@ -10,7 +10,7 @@ import polars as pl
 import pytest
 
 from nof1_causal_lab.utils.data import bucket_by_clock
-from nof1_causal_lab.workers.windows import chunk_windows, format_window_chunk
+from nof1_causal_lab.workers.windows import format_window_chunk
 
 pytestmark = pytest.mark.contract
 
@@ -83,8 +83,8 @@ class TestBucketByClock:
         ticks = bucket_by_clock(df, "1d", "timestamp")
 
         assert [tick_id for tick_id, _ in ticks] == [
-            "2025-03-03T00:00:00+00:00",
-            "2025-03-04T00:00:00+00:00",
+            "2025-03-03T00:00:00",
+            "2025-03-04T00:00:00",
         ]
 
     def test_materializes_empty_windows_between_observed_ticks(self):
@@ -127,45 +127,6 @@ class TestBucketByClock:
         df = _make_events_df(["2024-01-01T10:00:00", "2024-01-01T15:00:00"])
         ticks = bucket_by_clock(df, "1d", "timestamp")
         assert "__tick__" not in ticks[0][1].columns
-
-
-# =============================================================================
-# chunk_windows
-# =============================================================================
-
-
-def _make_windows(n: int) -> list[tuple[str, pl.DataFrame]]:
-    """Create N dummy support windows."""
-    return [(f"2024-01-{i + 1:02d}", pl.DataFrame({"value": [i]})) for i in range(n)]
-
-
-class TestChunkWindows:
-    @pytest.mark.parametrize(
-        ("n_windows", "windows_per_chunk", "chunk_sizes"),
-        [
-            (6, 3, [3, 3]),
-            (7, 3, [3, 3, 1]),
-            (1, 7, [1]),
-        ],
-    )
-    def test_chunk_sizes(self, n_windows, windows_per_chunk, chunk_sizes):
-        windows = _make_windows(n_windows)
-        chunks = chunk_windows(windows, windows_per_chunk)
-        assert [len(chunk) for chunk in chunks] == chunk_sizes
-
-    def test_empty_input(self):
-        assert chunk_windows([], 7) == []
-
-    def test_preserves_order(self):
-        windows = _make_windows(5)
-        chunks = chunk_windows(windows, 2)
-        flat = [window_start for chunk in chunks for window_start, _ in chunk]
-        assert flat == [window[0] for window in windows]
-
-
-# =============================================================================
-# format_window_chunk
-# =============================================================================
 
 
 class TestFormatWindowChunk:

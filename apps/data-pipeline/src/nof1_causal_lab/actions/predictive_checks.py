@@ -14,17 +14,31 @@ from nof1_causal_lab.machine.execution import is_stale
 from nof1_causal_lab.models.ssm import numerics as numeric
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from nof1_causal_lab.artifacts.checks import SpecificationReport
     from nof1_causal_lab.artifacts.identity import GitOid
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.posterior import InferenceReport
     from nof1_causal_lab.machine.artifacts import ArtifactRecord, EpisodeState
-    from nof1_causal_lab.machine.store import ArtifactStore
+    from nof1_causal_lab.machine.store import ArtifactStore, TransitionRecord
 
 # Includes the exact generation engine, all reducer policies, and the fixed budget.
 # Changing any of them invalidates reuse of a previous snapshot's measurements.
-PREDICTIVE_POLICY_VERSION = "exact-model-checks-v3"
+PREDICTIVE_POLICY_VERSION = "exact-model-checks-v5"
 PREDICTIVE_DRAWS = 200
 PREDICTIVE_SEED = 0
+
+
+def fitted_law_report(records: Iterable[TransitionRecord], revision: GitOid) -> InferenceReport:
+    """Read the committed fit that owns inherited laws and their model coordinates."""
+    from nof1_causal_lab.artifacts.posterior import InferenceReport
+    from nof1_causal_lab.machine.inference import inference_record
+
+    fitted = inference_record(records, revision)
+    if fitted is None:
+        raise ValueError("Fitted model laws require their committed inference report")
+    return InferenceReport.model_validate(fitted.diagnostics["report"])
 
 
 def law_provenance(
@@ -43,6 +57,7 @@ def law_provenance(
                 return PredictiveLawProvenance(
                     kind="mixed" if mixed else "fitted",
                     fitted_panel_revision=fitted_panel,
+                    fitted_model_revision=current.revision,
                     interpretation="mixed"
                     if mixed
                     else (
@@ -156,15 +171,29 @@ def check_model_predictive(
     assert panel_revision is not None
     data = store.read_parquet_file("panel", panel_revision, "panel.parquet")
     try:
-        wide, rows = project_observation_data(data, model_spec=model)
+        time_origin = read_data_metadata(store, panel_revision).time_origin
+        if law.fitted_model_revision is not None:
+            from nof1_causal_lab.machine.history import StudyRepository
+
+            fit_origin = fitted_law_report(
+                StudyRepository(store.workspace_id).attempts(), law.fitted_model_revision
+            ).time_origin
+            if (time_origin is None) != (fit_origin is None):
+                raise ValueError(
+                    "Calendar-free laws and calendar-bound observations cannot be aligned"
+                )
+            time_origin = fit_origin
+        wide, rows = project_observation_data(data, model_spec=model, time_origin=time_origin)
         names = numeric.observation_names(model)
         missing = set(names) - set(wide.columns)
         if missing:
             raise ValueError(f"No observations for model indicators: {sorted(missing)}")
-        wide = augment_wide_data_with_support_boundaries(rows, wide, names)
+        wide = augment_wide_data_with_support_boundaries(rows, wide, names, time_origin=time_origin)
         validate_discrete_manifest_metadata(model, wide)
         validate_observation_support(model, wide)
         _, times, _, _ = prepare_fit_inputs(model, wide)
+        if len(times) and law.fitted_model_revision is not None and times[0] < model.time_points[0]:
+            raise ValueError("The current panel begins before the fit's first retained state")
     except ValueError as exc:
         return report.model_copy(
             update={
@@ -188,6 +217,7 @@ def check_model_predictive(
             model,
             design,
             comparison_data=data,
+            time_origin=time_origin,
             times=times,
             draws=PREDICTIVE_DRAWS,
             seed=PREDICTIVE_SEED,

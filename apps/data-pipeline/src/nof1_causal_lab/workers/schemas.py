@@ -1,5 +1,6 @@
 """Schemas for worker LLM outputs."""
 
+import math
 from typing import assert_never
 
 import polars as pl
@@ -11,6 +12,7 @@ from nof1_causal_lab.measurement_types import MeasurementDtype
 from nof1_causal_lab.utils.causal_design import (
     get_measurement_indicator_info as _get_measurement_indicator_info,
 )
+from nof1_causal_lab.utils.observation_semantics import normalize_level_label
 
 
 class WindowExtraction(BaseModel):
@@ -64,6 +66,8 @@ class WorkerOutput(BaseModel):
 
 def _check_dtype_match(value: object, expected_dtype: MeasurementDtype) -> bool:
     """Check if a value matches the expected measurement_dtype."""
+    if isinstance(value, (int, float)) and not math.isfinite(value):
+        return False
     if value is None:
         return True  # None is always acceptable
 
@@ -82,9 +86,7 @@ def _check_dtype_match(value: object, expected_dtype: MeasurementDtype) -> bool:
                 "False",
             )
         case "count":
-            return isinstance(value, int) or (
-                isinstance(value, float) and value == int(value) and value >= 0
-            )
+            return isinstance(value, (int, float)) and value >= 0 and value == int(value)
         case "ordinal":
             return not isinstance(value, bool) and (
                 isinstance(value, int) or (isinstance(value, float) and value == int(value))
@@ -187,6 +189,16 @@ def validate_worker_output(
             )
             continue
 
+        if expected_dtype == "categorical" and isinstance(value, str):
+            levels = indicator_info[ind_name].get("categorical_levels") or []
+            if normalize_level_label(value) not in {
+                normalize_level_label(label) for label in levels
+            }:
+                errors.append(
+                    f"extractions[{i}]: categorical value {value!r} is outside the codebook"
+                )
+                continue
+
         if expected_dtype == "ordinal" and value is not None:
             ordinal_levels = indicator_info[ind_name].get("ordinal_levels") or []
             ordinal_code = int(value)
@@ -205,6 +217,17 @@ def validate_worker_output(
 
         ext.value = value
         valid_extractions.append(ext)
+
+    if expected_window_start_set is not None:
+        expected_pairs = {
+            (window, indicator)
+            for window in expected_window_start_set
+            for indicator in indicator_info
+        }
+        if missing := expected_pairs - seen_pairs:
+            errors.append(
+                f"Missing extractions (use null for unavailable values): {sorted(missing)}"
+            )
 
     # If no errors, build and return the output
     if not errors:

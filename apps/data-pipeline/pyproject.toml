@@ -54,6 +54,7 @@ dynestyx = { git = "https://github.com/ma9o/dynestyx.git", rev = "ec7731c08eb5c1
 
 [dependency-groups]
 cloud = [
+    "botocore>=1.40.61",
     "modal>=1.3.2",
     "s3fs>=2024.2.0",
 ]

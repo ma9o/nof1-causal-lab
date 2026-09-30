@@ -129,7 +129,7 @@ New studies initialize their local bare repository on first use. On a fresh chec
 
 ```bash
 git clone --mirror data/DEMO/episode/history.bundle data/DEMO/episode/history.git
-git --git-dir=data/DEMO/episode/history.git config nof1.format 4
+git --git-dir=data/DEMO/episode/history.git config nof1.format 6
 ```
 
 #### Migrating a local study
@@ -167,6 +167,52 @@ uv run --directory apps/data-pipeline python -m scripts.migrations.migrate_empir
 ```
 
 It stores each retained posterior as one batched point mass over its saved draws and moves the equal weights into the array store, rewriting model-input fingerprints and revision references in a new copy. Draws, tables and results are reused unchanged.
+
+For a format-4 study whose stored predictive overlays still carry quantile bands, use the [predictive-overlay converter](../../apps/data-pipeline/scripts/migrations/migrate_predictive_overlays.py) the same way:
+
+```bash
+uv run --directory apps/data-pipeline python -m scripts.migrations.migrate_predictive_overlays \
+  ../../data/STUDY /tmp/migrated/STUDY
+```
+
+It drops the band arrays and keeps evenly spaced sample series, as many as new checks record. Observed values, medians and all other check results are preserved. Run this converter before the format-5 conversion below.
+
+After any necessary format-4 conversions above, create format 5 with the [simulation/preparation converter](../../apps/data-pipeline/scripts/migrations/migrate_simulation_preparation.py) into another new copy:
+
+```bash
+uv run --directory apps/data-pipeline python -m scripts.migrations.migrate_simulation_preparation \
+  ../../data/STUDY /tmp/format5/STUDY
+```
+
+It records panel and historical fit origins, backfills simulation summaries from saved draws, and rewrites all changed Git references. It preserves historical numerical coordinates under the [time semantics](../assumptions.md#time). Imported panels without a files recipe are rejected before copying; their preparation requires a reviewed scientific decision. No model calls, fitting or simulation run during migration. Review the new copy and start a fresh workflow as above.
+
+The current runtime requires format 6. Convert a stopped format-5 study with the [edge-timing converter](../../apps/data-pipeline/scripts/migrations/migrate_edge_timing.py):
+
+```bash
+uv run --directory apps/data-pipeline python -m scripts.migrations.migrate_edge_timing \
+  ../../data/STUDY /tmp/edge-timing/STUDY
+```
+
+It removes `lagged`, recomputes identification from the constructs’ temporal status, and rewrites references in a new copy. Equations and numerical arrays are preserved. Review the copy and restart the workflow as above. The [temporal assumptions](../assumptions.md#model-class) describe the revised interpretation.
+
+For this checkout's switch-over, move the existing local DEMO `episode/history.git` outside `data/` and re-clone its tracked bundle using the [restore commands](#local-study-history). Move STEPWISE and the other older-format local studies (`V2BUILD01`, `ws`, `ws-test`) outside `data/` as archived workspaces, keeping each whole directory and its numerical store. STEPWISE's imported panels have no files recipe and are archived, not converted or rebuilt. A later files-path rebuild requires a separate budgeted end-to-end run.
+
+#### Squashing a local study's action history
+
+Stop work on the study and close its episode workflow, as in the [migration procedure](#migrating-a-local-study). The [history squash script](../../apps/data-pipeline/scripts/migrations/squash_study_history.py) compacts saved effects through an applied commit `R` into a new directory outside the source. Keep the directory's basename, which is the logical workspace ID:
+
+```bash
+uv run --directory apps/data-pipeline python -m scripts.migrations.squash_study_history \
+  ../../data/STUDY /tmp/squashed/STUDY --at R --dry-run
+uv run --directory apps/data-pipeline python -m scripts.migrations.squash_study_history \
+  ../../data/STUDY /tmp/squashed/STUDY --at R
+```
+
+Replace `R` with the applied commit OID. The dry run lists retained and dropped attempts without copying. The script keeps the root, `R`, the entire suffix, and the dependency closure of the prefix's last artifact/check writers (including retractions) and latest fresh simulation. It preserves saved artifact, check and log objects, all artifact refs, numerical files and authorship links; `squash-mapping.json` maps original commits to new commits or `null` for dropped actions. Sequence numbers and attempt IDs retain their gaps.
+
+At `R` and later commits, artifacts (including absence), checks and fresh reader findings are preserved. Stale findings can disappear, and earlier snapshots can change. This is the smallest closure of the mandatory writers, not a globally minimal history: reused reports and redundant retractions can retain extra actions. There is no optimizer, numerical execution or post-squash equality gate.
+
+Only current-format, single-branch histories are supported. The script refuses legacy `statistical_model_spec`/`report_only` records, simulation-replicate panels anywhere in the preserved catalog, other branches (including successful attempts off the branch), and retained scientific inputs without a recorded producer. Review the new copy, select it offline, then start a fresh workflow and regenerate any fixture bundle using the migration procedure above. The source is unchanged.
 
 ### Local stack
 

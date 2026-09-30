@@ -14,11 +14,10 @@ from tests.helpers import make_model
 pytestmark = pytest.mark.contract
 
 
-def test_one_observation_definition_is_shared_by_preparation_import_and_model():
+def test_one_observation_definition_is_shared_by_preparation_and_model():
     from nof1_causal_lab.artifacts.data_preparation import (
         DataPreparationSpec,
         DataVariableSpec,
-        ObservationTableSpec,
     )
     from nof1_causal_lab.artifacts.indicator import IndicatorSpec
     from nof1_causal_lab.artifacts.observations import ObservationSpec
@@ -45,8 +44,6 @@ def test_one_observation_definition_is_shared_by_preparation_import_and_model():
         ),
     )
     assert recipe.observation_schema() == (observation,)
-    imported = ObservationTableSpec(source={"file": "panel.parquet"}, variables=(observation,))
-    assert imported.variables == recipe.observation_schema()
     indicator = IndicatorSpec(**fields, construct_polarity="positive")
     assert indicator.model_dump(include=set(ObservationSpec.model_fields)) == fields
 

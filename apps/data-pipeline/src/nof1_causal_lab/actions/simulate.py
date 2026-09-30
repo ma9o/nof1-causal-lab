@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from nof1_causal_lab.actions.simulation_summaries import summarize_simulation
 from nof1_causal_lab.artifacts.observations import ObservationSpec
 from nof1_causal_lab.artifacts.simulation import SimulationObservationLayout, SimulationReport
 from nof1_causal_lab.models.ssm import numerics as numeric
@@ -16,10 +17,11 @@ from nof1_causal_lab.models.ssm.predictive.simulation import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from datetime import datetime
 
     from nof1_causal_lab.artifacts.identity import GitRef
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.artifacts.simulation import SimulationSpec
+    from nof1_causal_lab.artifacts.simulation import FitReliability, SimulationSpec
 
 
 def simulate(
@@ -28,9 +30,11 @@ def simulate(
     *,
     revision: GitRef,
     write_array: Callable[[np.ndarray], str],
+    time_origin: datetime | None,
+    fit_reliability: FitReliability = "not_fitted",
 ) -> SimulationReport:
     """Generate current model histories; data_diff compares the saved observations separately."""
-    batch = generate_simulation_batch(model, design)
+    batch = generate_simulation_batch(model, design, time_origin=time_origin)
     findings, _ = measure_simulation_batch(model, batch)
     support = batch.measurement_design.observation_support
     if support is None:
@@ -38,12 +42,37 @@ def simulate(
     prediction = batch.prediction
     state_ids = tuple(numeric.state_ids(model))
     indicator_ids = tuple(numeric.observation_ids(model))
+    variables = tuple(
+        ObservationSpec.model_validate(
+            {
+                **model.indicator(identity).model_dump(include=set(ObservationSpec.model_fields)),
+                "observation_window": support.observation_windows[index],
+            }
+        )
+        for index, identity in enumerate(indicator_ids)
+    )
     return SimulationReport(
         model=revision,
         design=design,
         times=batch.times,
         draws=prediction.n_draws,
         seed=batch.measurement_design.seed,
+        time_origin=time_origin,
+        predictive=summarize_simulation(
+            model,
+            state_ids=state_ids,
+            variables=variables,
+            latent_paths=np.asarray(prediction.trajectory.latents),
+            observations=np.asarray(prediction.trajectory.observations),
+            mask=np.asarray(prediction.trajectory.observations_mask),
+            reference_latent_paths=np.asarray(prediction.reference.latents)
+            if prediction.reference is not None
+            else None,
+            reference_observations=np.asarray(prediction.reference.observations)
+            if prediction.reference is not None
+            else None,
+            fit_reliability=fit_reliability,
+        ),
         state_ids=state_ids,
         parameter_draws={
             name: write_array(np.asarray(value)) for name, value in prediction.parameters.items()
@@ -51,17 +80,7 @@ def simulate(
         latent_paths=write_array(np.asarray(prediction.trajectory.latents)),
         observations=write_array(np.asarray(prediction.trajectory.observations)),
         observation_layout=SimulationObservationLayout(
-            variables=tuple(
-                ObservationSpec.model_validate(
-                    {
-                        **model.indicator(identity).model_dump(
-                            include=set(ObservationSpec.model_fields)
-                        ),
-                        "observation_window": support.observation_windows[index],
-                    }
-                )
-                for index, identity in enumerate(indicator_ids)
-            ),
+            variables=variables,
             support_start_times=write_array(np.asarray(support.support_start_times)),
             support_end_times=write_array(np.asarray(support.support_end_times)),
             mask=write_array(np.asarray(prediction.trajectory.observations_mask)),

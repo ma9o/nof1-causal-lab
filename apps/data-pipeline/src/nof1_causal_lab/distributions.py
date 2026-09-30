@@ -125,7 +125,7 @@ def render_dynamic_prior_scale_guidance() -> str:
         "Uniform, or TruncatedNormal with valid bounds. Unbounded Normal priors "
         "are invalid here. NumPyro transforms the complete law exactly via "
         "decay = -ln(rho)/dt, including its density Jacobian. "
-        "`beta_*` priors should be authored on the interval they mean. For lagged "
+        "`beta_*` priors should be authored on the interval they mean. For interval-effect "
         "`beta_*`, set `reference_interval_days` when the evidence is on a different "
         "interval; otherwise the model interval is assumed. The compiler handles "
         "interval normalization, CT conversion, and the realised diagonal damping "

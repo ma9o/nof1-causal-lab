@@ -263,7 +263,7 @@ class TestGetMarginalizedScales:
             for source in dep["source_confounders"]
             for child in dep["between"]
         }
-        model = model.revised(
+        return model.revised(
             edges=replace_constructs(
                 model.edges
                 + tuple(
@@ -272,28 +272,11 @@ class TestGetMarginalizedScales:
                         cause=next(item for item in confounders if item.name == source),
                         effect=model.get_construct(fixture_entity_id("construct", child)),
                         description="Explicit confounding",
-                        lagged=False,
                     )
                     for source, child in sorted(pairs)
                 ),
                 tuple(c for c in model.constructs if c.indicators) + confounders,
             )
-        )
-        # Seed the derived dependency cache to exercise grouping independently,
-        # including inconsistent kinds that a valid model would never derive.
-        return model.model_copy(
-            update={
-                "induced_dependencies": {
-                    (
-                        fixture_entity_id("construct", dep["between"][0]),
-                        fixture_entity_id("construct", dep["between"][1]),
-                        dep["kind"],
-                    ): tuple(
-                        fixture_entity_id("construct", name) for name in dep["source_confounders"]
-                    )
-                    for dep in induced_dependencies
-                }
-            }
         )
 
     def test_golden_like_three_plus_one_confounders_yield_two_scales(self):
@@ -357,24 +340,6 @@ class TestGetMarginalizedScales:
             ("x", "z"),
             ("y", "z"),
         ]
-
-    def test_confounder_with_inconsistent_kind_raises(self):
-        spec = self._spec(
-            [
-                {
-                    "between": ["x", "y"],
-                    "kind": "initial_state_correlation",
-                    "source_confounders": ["c"],
-                },
-                {
-                    "between": ["y", "z"],
-                    "kind": "innovation_correlation",
-                    "source_confounders": ["c"],
-                },
-            ]
-        )
-        with pytest.raises(ValueError, match="inconsistent dependency kinds"):
-            get_marginalized_scales(spec)
 
     def test_empty_dependencies_yield_empty_scales(self):
         assert get_marginalized_scales(self._spec([])) == []

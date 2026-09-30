@@ -245,6 +245,7 @@ class EpisodeWorkflow:
                 effects = effects.model_copy(
                     update={
                         "produced": [*raw_effects.produced, *effects.produced],
+                        "diagnostics": {**raw_effects.diagnostics, **effects.diagnostics},
                     }
                 )
             else:

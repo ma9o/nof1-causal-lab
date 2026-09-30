@@ -26,23 +26,16 @@ come from its versioned artifacts and append-only transition log.
      in one call, retaining the semantic worker fan-out and deterministic scoring paths.
      Alternatively, `input={"revision":"<simulation commit OID>","replicate":0}`
      selects one recorded simulation draw. Its observations, schema and support layout
-     are already defined, so extraction is skipped. To reuse pre-extracted observations,
-     use `input={"source":{"file":"observations.parquet","start":"2022-01-01","end":"2026-06-01"},"variables":[...]}`.
-     The uploaded Parquet uses the canonical long observation columns: `indicator_id`, `value`,
-     `anchor_time`, `support_kind`, `summary_operator`, `anchor_policy`, `observation_window`,
-     `support_start`, `support_end`. Variables use the shared ObservationSpec definition with
-     resolved windows and codebooks. Optional `fill_null` is a Polars strategy name
-     (forward, backward, min, max, mean, zero, one) or a numeric constant,
-     with an optional `fill_null_limit` for forward/backward. For example, `aggregation="last"`
-     with `fill_null="forward"` carries the latest dose until the next value;
-     leading nulls remain unknown. Filling runs after aggregation on the sorted time grid,
-     replacing all nulls, including explicit unknowns. Omitted means no filling. The same
-     setting is available for computed file extraction and is retained in the preparation
-     metadata. Only declared IDs are selected; UTC dates select
-     `start <= anchor_time < end` and remain in the saved source. Missing declared variables,
-     incompatible support or invalid numeric codes fail without saving a panel. This branch
-     runs no ingestion or extraction workers. All three branches run numerical data checks
-     without loading a model. Latent paths and parameter truths stay in simulation sources.
+     are already defined, so extraction, re-encoding and filling are skipped.
+     Files may declare optional source coverage `start` and `end` dates; only complete
+     support windows inside that span are prepared. Computed variables may use Polars
+     `fill_null` strategies or a numeric constant, with `fill_null_limit` for forward/backward.
+     Ingestion and one-variable, one-window extraction requests reuse retained validated
+     results by content across studies; reuse is reported in action messages. The committed
+     panel and recipe remain the scientific record. Both sources run numerical data checks without loading a model.
+     Latent paths and parameter truths stay in simulation sources.
+     See the [prepare_data chart](../../../docs/assets/action-flows/prepare-data.svg) for branches
+     and [time semantics](../../../docs/assumptions.md#time) for the panel origin.
    - `fit`: `{"action":"fit","model_revision":"<model tree OID>","panel_revision":"<panel tree OID>"}` conditions the selected
      model on observations. Returns joint uncertainty and fit diagnostics; predictive
      simulation is a separate request. Current fitting supports independent scalar laws.
@@ -52,7 +45,9 @@ come from its versioned artifacts and append-only transition log.
      has only an initial-state law. Times use absolute model days. Interventions are optional:
      `{"target":"<construct ID>","time":5,"value":1}` assigns a state at that time,
      then its natural dynamics resume. The framework derives the grid and always includes
-     process and observation uncertainty.
+     process and observation uncertainty. The saved report includes all state and indicator
+     summaries, law provenance and fit reliability, with causal intervals only when certified.
+     See [time semantics](../../../docs/assumptions.md#time) for initial laws and calendar binding.
      Compare the saved observations separately with `data_diff`; simulation does not
      accept comparison data or change its generation rules for predictive checks.
 3. Dispatch returns HTTP 202 with only `{"attempt_id":"<UUID>"}` after durable acceptance.
@@ -96,7 +91,7 @@ The `analysis` context is read-only model introspection.
 ## Data in, results out
 
 Upload files at `POST /api/upload` (`multipart/form-data` with `workspaceId` and
-`file`) before `prepare_data` with its file preparation or observation-table input. Read artifact payloads at
+`file`) before `prepare_data` with its file preparation input. Read artifact payloads at
 `GET /api/episodes/{workspace_id}/artifacts/{artifact_id}`; binary files are served
 from `.../files/{filename}`. Long jobs may outlive an HTTP client timeout; inspect
 the timeline before submitting another request.
@@ -256,7 +251,7 @@ Compare existing datasets without creating an action, fitting or simulating.
 Each side accepts a data reference or a nonempty array of references. Panel
 references select artifact revisions; simulation references select applied
 simulation commits and optionally one replicate (otherwise every draw).
-A simulation's optional time_origin maps model day zero to a calendar instant.
+Simulation calendar coordinates come from the saved report's origin.
 Exact anchors and measurement windows determine which predictive comparisons
 are available. Results preserve each history and report incompatible inputs.
 
@@ -324,7 +319,8 @@ curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/mod
 Compare two model artifact revisions or Git checkpoints containing a model.
 
 Returns identity-aligned definition changes, parameter decisions and graph
-differences. Checkpoint selections also include their recorded fit/simulation
+topology differences. Graph highlights exclude laws and other entity attributes.
+Checkpoint selections also include their recorded fit/simulation
 evidence; selecting a model tree alone does not infer an associated run.
 
 **Parameters**
@@ -421,24 +417,6 @@ Scientific parameter definitions from the selected model, without inference exec
 curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/model/parameters"
 ```
 
-### GET `/api/episodes/{workspace_id}/model/simulation-trajectories`
-
-Pointwise means and 95% equal-tail bands from saved outcome histories.
-
-Pin `at` to a commit to read its latest recorded simulation. Both paired
-histories use the simulation's own model, ordered variables and observation
-mask. Empty measurement anchors stay null. No fit or simulation is run.
-
-**Parameters**
-
-- `workspace_id` (path, required)
-- `branch` (query, optional)
-- `at` (query, optional)
-
-```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/model/simulation-trajectories"
-```
-
 ### GET `/api/episodes/{workspace_id}/model/views/{artifact_id}`
 
 One display projection from the selected committed model revision.
@@ -452,6 +430,83 @@ One display projection from the selected committed model revision.
 
 ```bash
 curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/model/views/ARTIFACT_ID"
+```
+
+### POST `/api/episodes/{workspace_id}/model/visuals/mechanism`
+
+Read conditional drift curves using the exact model equations; creates no scientific action.
+
+**Parameters**
+
+- `workspace_id` (path, required)
+- `branch` (query, optional)
+- `at` (query, optional)
+
+```bash
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/model/visuals/mechanism" \
+  -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"owner_id": "string"}'
+```
+
+### GET `/api/episodes/{workspace_id}/model/visuals/observations/{indicator_id}`
+
+All prepared observations on their recorded temporal support.
+
+**Parameters**
+
+- `indicator_id` (path, required)
+- `workspace_id` (path, required)
+- `branch` (query, optional)
+- `at` (query, optional)
+
+```bash
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/model/visuals/observations/INDICATOR_ID"
+```
+
+### GET `/api/episodes/{workspace_id}/model/visuals/parameters`
+
+All coordinates and all draws of the retained joint posterior.
+
+**Parameters**
+
+- `workspace_id` (path, required)
+- `branch` (query, optional)
+- `at` (query, optional)
+
+```bash
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/model/visuals/parameters"
+```
+
+### GET `/api/episodes/{workspace_id}/model/visuals/predictive/{indicator_id}`
+
+Saved predictive paths on the exact schedule of their pinned inputs.
+
+**Parameters**
+
+- `indicator_id` (path, required)
+- `workspace_id` (path, required)
+- `branch` (query, optional)
+- `at` (query, optional)
+
+```bash
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/model/visuals/predictive/INDICATOR_ID"
+```
+
+### GET `/api/episodes/{workspace_id}/model/visuals/simulation`
+
+A contiguous page of original simulation draws, without time thinning.
+
+**Parameters**
+
+- `workspace_id` (path, required)
+- `start` (query, optional)
+- `count` (query, optional)
+- `branch` (query, optional)
+- `at` (query, optional)
+
+```bash
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/episodes/WORKSPACE_ID/model/visuals/simulation"
 ```
 
 ### GET `/api/episodes/{workspace_id}/operations/{operation_id}/traces`

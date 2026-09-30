@@ -77,6 +77,11 @@ class ConstructSpec(BaseModel):
         description="'time_varying' (changes over time) or 'time_invariant' (fixed)"
     )
 
+    @property
+    def is_dynamic(self) -> bool:
+        """Whether this state advances across time slices, regardless of causal role."""
+        return self.temporal_status == TemporalStatus.TIME_VARYING
+
     def coefficient(
         self, role: CoefficientRole, *, construct_ids: tuple[ConstructId, ...] = ()
     ) -> float | ParameterId | None:
@@ -186,13 +191,6 @@ class CausalEdgeSpec(BaseModel):
         description="Effect construct; shared endpoints have one identity."
     )
     description: str = Field(description="Theoretical justification for this causal link")
-    lagged: bool = Field(
-        default=True,
-        description=(
-            "If True, effect at t is caused by cause at t-1 (one model_clock tick delay). "
-            "If False (contemporaneous), effect at t is caused by cause at t."
-        ),
-    )
     sources: tuple[LiteratureSource, ...] = Field(
         default_factory=tuple,
         description="Literature sources supporting this causal link",
@@ -280,22 +278,6 @@ def _check_edge_constraint(edge: CausalEdgeSpec) -> str | None:
             "are fixed within person and cannot have time-varying parents."
         )
 
-    both_time_varying = (
-        cause_construct.temporal_status == TemporalStatus.TIME_VARYING
-        and effect_construct.temporal_status == TemporalStatus.TIME_VARYING
-    )
-    both_endogenous = (
-        cause_construct.role == Role.ENDOGENOUS and effect_construct.role == Role.ENDOGENOUS
-    )
-    if not edge.lagged and both_time_varying and both_endogenous:
-        return (
-            f"Directed contemporaneous edge '{cause_construct.name}' -> '{effect_construct.name}' "
-            "between endogenous time-varying latent constructs is excluded by the "
-            "scientific model contract. Represent directed effects between evolving "
-            "latent states with lagged=True; reserve same-time dependence for "
-            "explicit confounding or diffusion covariance."
-        )
-
     return None
 
 
@@ -311,14 +293,18 @@ def _check_global_constraints(
     if edges and not nx.is_connected(graph):
         errors.append("The scientific model must be one connected causal graph")
 
-    contemporaneous_edges = [(edge.cause.id, edge.effect.id) for edge in edges if not edge.lagged]
-    if contemporaneous_edges:
-        graph = nx.DiGraph(contemporaneous_edges)
+    static_edges = [
+        (edge.cause.id, edge.effect.id)
+        for edge in edges
+        if not edge.cause.is_dynamic and not edge.effect.is_dynamic
+    ]
+    if static_edges:
+        graph = nx.DiGraph(static_edges)
         if not nx.is_directed_acyclic_graph(graph):
             cycles = list(nx.simple_cycles(graph))
             errors.append(
-                f"Contemporaneous edges form cycle(s) within time slice: {cycles}. "
-                "Use lagged=true for feedback loops across time."
+                f"Time-invariant edges form cycle(s): {cycles}. "
+                "Feedback requires time-varying states."
             )
 
     return errors

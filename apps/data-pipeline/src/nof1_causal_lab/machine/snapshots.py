@@ -21,6 +21,7 @@ from nof1_causal_lab.machine.snapshot_models import (
     ModelFindings,
     ModelSnapshot,
     SnapshotContext,
+    SnapshotState,
     Sourced,
     SourceValidity,
 )
@@ -33,13 +34,15 @@ from nof1_causal_lab.machine.views import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     import polars as pl
 
     from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
     from nof1_causal_lab.artifacts.execution import (
         StructuralItemDisposition,
     )
-    from nof1_causal_lab.artifacts.identity import ArtifactId, ConstructId, EntityRef
+    from nof1_causal_lab.artifacts.identity import ArtifactId, ConstructId, EntityRef, ParameterId
     from nof1_causal_lab.artifacts.indicator import IndicatorSpec
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
@@ -387,12 +390,30 @@ class ModelReader:
                     decay_estimates[owner.id] = estimate
         return Sourced(
             value=FitSummary(
-                report=posterior,
+                report=posterior.summary(),
                 edge_estimates=edge_estimates,
                 decay_estimates=decay_estimates,
+                prior_densities=self.fit_prior_densities(marginals.keys()),
             ),
             source=read.source,
         )
+
+    def fit_prior_densities(self, fitted: Iterable[ParameterId]):
+        """Curves of the input laws the fit conditioned, where it reports posteriors."""
+        from nof1_causal_lab.compilation_errors import IncompleteModelError
+        from nof1_causal_lab.machine.inference import inference_report_record
+        from nof1_causal_lab.machine.prior_views import quantity_prior_densities
+        from nof1_causal_lab.machine.store import read_model
+
+        record = inference_report_record(self.records, self.state)
+        assert record is not None
+        try:
+            curves = quantity_prior_densities(
+                read_model(self.store, record.diagnostics["input_pins"]["model"])
+            )
+        except IncompleteModelError:
+            return {}  # The current compiler places no laws of an input it cannot execute.
+        return {identity: curves[identity] for identity in fitted if curves.get(identity)}
 
     def simulation(self):
         """Return the most recent explicit simulation with its own input revisions."""
@@ -484,7 +505,7 @@ class ModelReader:
                 commit_id=self.commit_id,
                 branch=self.branch,
                 can_simulate=can_simulate,
-                state=self.state,
+                state=SnapshotState(current=self.state.current),
                 artifacts=[
                     item.model_copy(update={"retracted": item.artifact_id in self.retracted})
                     for item in freshness_report(self.state)
@@ -502,6 +523,9 @@ class ModelReader:
                 graph=ModelGraphView(
                     construct_ids=tuple(item.id for item in graph_constructs),
                     edge_ids=tuple(item.id for item in graph_edges),
+                    dynamic_construct_ids=tuple(
+                        item.id for item in graph_constructs if item.is_dynamic
+                    ),
                     status=graph_status,
                 ),
                 validation_report=self.validation_report,

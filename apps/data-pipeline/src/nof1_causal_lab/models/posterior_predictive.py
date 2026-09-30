@@ -27,6 +27,8 @@ import jax.numpy as jnp
 # PPC models
 # ---------------------------------------------------------------------------
 
+# Individual replicated series each overlay keeps for display.
+PREDICTIVE_SAMPLE_SERIES = 5
 
 # ---------------------------------------------------------------------------
 # Diagnostic checks
@@ -238,9 +240,9 @@ def _compute_overlays(
     y_sim: jnp.ndarray,
     observations: jnp.ndarray,
     indicator_ids: Sequence[str],
-    n_spaghetti: int = 20,
+    n_spaghetti: int = PREDICTIVE_SAMPLE_SERIES,
 ) -> list[PPCOverlay]:
-    """Compute per-variable quantile bands and spaghetti draws for PPC plots.
+    """Compute per-variable medians and spaghetti draws for PPC plots.
 
     Args:
         y_sim: (n_subsample, T, n_manifest)
@@ -252,11 +254,7 @@ def _compute_overlays(
     n_manifest = observations.shape[1]
     n_draws = y_sim.shape[0]
 
-    q025 = jnp.percentile(y_sim, 2.5, axis=0)  # (T, m)
-    q25 = jnp.percentile(y_sim, 25.0, axis=0)
-    q50 = jnp.percentile(y_sim, 50.0, axis=0)
-    q75 = jnp.percentile(y_sim, 75.0, axis=0)
-    q975 = jnp.percentile(y_sim, 97.5, axis=0)
+    q50 = jnp.percentile(y_sim, 50.0, axis=0)  # (T, m)
 
     # Select evenly-spaced spaghetti draws
     n_spag = min(n_spaghetti, n_draws)
@@ -273,11 +271,7 @@ def _compute_overlays(
             PPCOverlay(
                 indicator_id=name,
                 observed=observed,
-                q025=[_predictive_value(v) for v in q025[:, j]],
-                q25=[_predictive_value(v) for v in q25[:, j]],
                 median=[_predictive_value(v) for v in q50[:, j]],
-                q75=[_predictive_value(v) for v in q75[:, j]],
-                q975=[_predictive_value(v) for v in q975[:, j]],
                 spaghetti_draws=spaghetti,
             )
         )

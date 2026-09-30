@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -76,13 +77,45 @@ async def plan_raw_data_activity(
 
     config = get_config()
     max_tool_turns = config.ingestion.max_tool_turns
+    llm = llm_backend_config(config.ingestion.llm, config.llm, max_tool_turns)
+    from nof1_causal_lab.machine.temporal.preparation_cache import preparation_cache_path
+    from nof1_causal_lab.utils.content_cache import read
+
+    manifest = [
+        {
+            "path": str(path.relative_to(extract_dir)),
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+        for path in sorted(Path(extract_dir).rglob("*"))
+        if path.is_file()
+    ]
+    cache_ref = preparation_cache_path(
+        "raw_data_ingestion",
+        context_ref,
+        llm,
+        max_tool_turns,
+        {"files": input.source.files, "staged": manifest},
+    )
+    context = _read_raw_data_json(context_ref)
+    context["cache_ref"] = cache_ref
+    cached = read(cache_ref)
+    context["reused"] = cached is not None
+    cached_result_ref = None
+    if cached is not None:
+        table_ref = storage.join(root, "reused.arrow")
+        with storage.open_file(table_ref, "wb") as output:
+            output.write(cached)
+        cached_result_ref = storage.join(root, "reused.json")
+        _write_raw_data_json(cached_result_ref, {"table_ref": table_ref})
+    _write_raw_data_json(context_ref, context)
     return SingleLLMTransitionPlan(
         workspace_id=input.workspace_id,
         run_id=run_id,
         context_ref=context_ref,
         pins=pins,
-        llm=llm_backend_config(config.ingestion.llm, config.llm, max_tool_turns),
+        llm=llm,
         max_tool_turns=max_tool_turns,
+        cached_result_ref=cached_result_ref,
     )
 
 
@@ -90,10 +123,16 @@ async def plan_raw_data_activity(
 async def finalize_raw_data_activity(input: SingleLLMTransitionFinalizeInput) -> TransitionEffects:
     import pyarrow as pa
 
+    from nof1_causal_lab.utils.content_cache import publish
+
     try:
         result = _read_raw_data_json(input.result_ref)
+        context = _read_raw_data_json(input.context_ref)
         with storage.open_file(result["table_ref"], "rb") as file:
-            table = pa.ipc.open_file(file).read_all()
+            payload = file.read()
+        # Terminal submit_table validated this Arrow payload, including field metadata.
+        payload = publish(context["cache_ref"], payload)
+        table = pa.ipc.open_file(pa.BufferReader(payload)).read_all()
 
         store = ArtifactStore(input.workspace_id)
         produced = [
@@ -104,7 +143,9 @@ async def finalize_raw_data_activity(input: SingleLLMTransitionFinalizeInput) ->
                 parquet_files={parquet_filename("raw_data", "raw"): table},
             )
         ]
-        return TransitionEffects(produced=produced)
+        return TransitionEffects(
+            produced=produced, diagnostics={"ingestion_reused": context["reused"]}
+        )
     except Exception as exc:
         raise as_non_retryable_application_error(exc) from exc
 

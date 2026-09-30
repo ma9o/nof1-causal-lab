@@ -25,10 +25,10 @@ from typing import TYPE_CHECKING
 
 import networkx as nx
 from y0.algorithm.identify import identify_outcomes
+from y0.algorithm.simplify_latent import simplify_latent_dag
 from y0.dsl import Variable
 from y0.graph import NxMixedGraph
 
-from nof1_causal_lab.artifacts.construct import TemporalStatus
 from nof1_causal_lab.utils.causal_design import (
     build_digraph,
     get_all_treatments,
@@ -124,7 +124,7 @@ def check_identifiability(
 
     for treatment in all_treatments:
         # Build timestamped variable names for y0 query
-        treatment_node = _get_treatment_query_node(constructs, edges, treatment, outcome)
+        treatment_node = _get_treatment_query_node(constructs, treatment)
 
         if outcome_is_time_varying:
             outcome_node = _node_name(outcome, "t")
@@ -206,7 +206,7 @@ def _is_time_varying(constructs: Sequence[ConstructSpec], construct_name: str) -
     """Check if a construct is time-varying (vs time-invariant)."""
     for construct in constructs:
         if construct.name == construct_name:
-            return construct.temporal_status == TemporalStatus.TIME_VARYING
+            return construct.is_dynamic
     raise ValueError(f"Construct '{construct_name}' not found in latent structure")
 
 
@@ -230,44 +230,12 @@ def _canonicalize_estimand_string(estimand: str) -> str:
     return re.sub(r"Sum\[([^\]]*)\]", sort_sum_variables, estimand)
 
 
-def _uses_lagged_first_step_to_outcome(
-    constructs: Sequence[ConstructSpec],
-    edges: Sequence[CausalEdgeSpec],
-    treatment: str,
-    outcome: str,
-) -> bool:
-    """Return whether treatment paths to outcome start with a lagged edge.
-
-    Query the prior timestep exactly when the first treatment edge on an
-    outcome-reaching path has ``lagged=True``.
-    """
-    graph = build_digraph(constructs, edges)
-    if treatment not in graph or outcome not in graph:
-        return False
-
-    for edge in edges:
-        if edge.cause.name != treatment:
-            continue
-        effect = edge.effect.name
-        if effect not in graph or not nx.has_path(graph, effect, outcome):
-            continue
-        if edge.lagged:
-            return True
-    return False
-
-
 def _get_treatment_query_node(
     constructs: Sequence[ConstructSpec],
-    edges: Sequence[CausalEdgeSpec],
     treatment: str,
-    outcome: str,
 ) -> str:
-    """Return the unrolled graph node used for the treatment intervention."""
-    if not _is_time_varying(constructs, treatment):
-        return treatment
-    if _uses_lagged_first_step_to_outcome(constructs, edges, treatment, outcome):
-        return _node_name(treatment, "{t-1}")
-    return _node_name(treatment, "t")
+    """Intervene on the preceding state, or on a static construct without a slice."""
+    return _node_name(treatment, "{t-1}") if _is_time_varying(constructs, treatment) else treatment
 
 
 def unroll_temporal_dag(
@@ -285,9 +253,8 @@ def unroll_temporal_dag(
     - Time-invariant constructs → C (single node, no timestep suffix)
 
     Edge creation:
-    - Contemporaneous edges (lagged=False): cause_t → effect_t
-    - Lagged edges (lagged=True): cause_{t-1} → effect_t
-    - AR(1) for endogenous time-varying: C_{t-1} → C_t
+    - Dynamic cause: cause_{t-1} → effect_t
+    - Carryover for every time-varying state: C_{t-1} → C_t
     - Time-invariant to time-varying: C → effect_t (for each timestep)
 
     Hidden labels:
@@ -296,7 +263,7 @@ def unroll_temporal_dag(
 
     Args:
         constructs: Canonical construct definitions
-        edges: Directed assumptions with a boolean zero-or-one-tick lag
+        edges: Declared direct causal assumptions; mechanisms use the current state
         observed_constructs: Set of construct names that have measurements
 
     Returns:
@@ -310,7 +277,7 @@ def unroll_temporal_dag(
 
     for construct in constructs:
         name = construct.name
-        if construct.temporal_status == TemporalStatus.TIME_INVARIANT:
+        if not construct.is_dynamic:
             time_invariant.append(name)
         else:
             time_varying.append(name)
@@ -328,17 +295,9 @@ def unroll_temporal_dag(
         is_hidden = name not in observed_constructs
         dag.add_node(name, hidden=is_hidden, construct=name, timestep=None)
 
-    # Add AR(1) edges for OBSERVED time-varying constructs only
-    # For identification purposes, AR(1) on hidden nodes doesn't add confounding
-    # information - it just models U's internal dynamics. What matters is the
-    # confounding edges from U to observed nodes.
-    #
-    # Including AR(1) for hidden nodes causes y0's projection to incorrectly
-    # include hidden nodes in the ADMG (because hidden U_{t-1} would have hidden
-    # U_t as a successor, and y0 adds edges between ALL pairs of successors).
+    # State transitions carry every evolving state, including exogenous and hidden states.
     for name in time_varying:
-        if name in observed_constructs:
-            dag.add_edge(_node_name(name, "{t-1}"), _node_name(name, "t"))
+        dag.add_edge(_node_name(name, "{t-1}"), _node_name(name, "t"))
 
     # Add the authored causal edges.
     for edge in edges:
@@ -362,14 +321,9 @@ def unroll_temporal_dag(
             # (This would violate the definition of time-invariant)
             # Skip this edge - should be caught by schema validation
             continue
-        elif edge.lagged:
-            # Lagged edge: cause_{t-1} → effect_t
-            dag.add_edge(_node_name(cause, "{t-1}"), _node_name(effect, "t"))
         else:
-            # Contemporaneous edge: cause_t → effect_t
-            dag.add_edge(_node_name(cause, "t"), _node_name(effect, "t"))
-            # Mirror the relationship in the earlier timestep to avoid clamping
-            dag.add_edge(_node_name(cause, "{t-1}"), _node_name(effect, "{t-1}"))
+            # A transition slice expresses evolution, not a physical delay in the equations.
+            dag.add_edge(_node_name(cause, "{t-1}"), _node_name(effect, "t"))
 
     return dag
 
@@ -381,8 +335,8 @@ def dag_to_admg(
 ) -> tuple[NxMixedGraph, set[str]]:
     """Convert a temporal DAG to ADMG via 2-timestep unrolling.
 
-    Projects the finite graph using y0's from_latent_variable_dag().
-    CausalEdgeSpec.lagged restricts every edge to zero or one model-clock tick.
+    Projects the finite graph using y0's latent simplification and ADMG conversion.
+    Temporal placement follows construct status, independently of solver step size.
     See docs/assumptions.md#causal-identification for the temporal limitation.
 
     Args:
@@ -419,8 +373,14 @@ def dag_to_admg(
         if len(observed_children) >= 2:
             unobserved_confounders.add(construct)
 
-    # Convert to ADMG using y0's built-in projection
-    admg = NxMixedGraph.from_latent_variable_dag(dag)
+    # y0's converter expects root latents with observed children. Simplify first
+    # so hidden carryover and hidden mediators never become observed ADMG nodes.
+    projection = nx.relabel_nodes(dag, {node: Variable(node) for node in dag})
+    simplified = simplify_latent_dag(projection).graph
+    admg = NxMixedGraph.from_latent_variable_dag(simplified)
+    for node, data in simplified.nodes(data=True):
+        if not data["hidden"]:
+            admg.add_node(node)
 
     return admg, unobserved_confounders
 

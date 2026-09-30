@@ -90,21 +90,15 @@ class PPCWarning(BaseModel):
 
 
 class PPCOverlay(BaseModel):
-    """A predictive overlay compares observed values with posterior predictive bands for one
-    indicator.
+    """A predictive overlay sets one indicator's observed values against simulated ones.
 
-    Provides the data for Gabry's ppc_dens_overlay / ppc_ribbon plots:
-    observed time series vs posterior predictive quantile bands.
-    Optionally includes individual y_rep draw lines for spaghetti plots.
+    It carries the predictive median and a few individual replicated series, the
+    spaghetti plot of a visual predictive check.
     """
 
     indicator_id: IndicatorId
     observed: list[float | None]
-    q025: list[float | None]
-    q25: list[float | None]
     median: list[float | None]
-    q75: list[float | None]
-    q975: list[float | None]
     spaghetti_draws: list[list[float | None]] = Field(default_factory=list)
 
 

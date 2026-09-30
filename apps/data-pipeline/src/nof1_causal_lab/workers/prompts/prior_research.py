@@ -68,7 +68,7 @@ Return a JSON object:
 ```
 
 Only include `reference_interval_days` when the evidence is expressed on a \
-different observation interval than the model interval. For lagged `beta_*` \
+different observation interval than the model interval. For interval-effect `beta_*` \
 priors, keep `params` on that authored interval scale and let the compiler \
 rescale them.
 

@@ -162,6 +162,7 @@ def test_durable_replication_preserves_current_laws_without_comparison(
     from nof1_causal_lab.machine.store import ArtifactStore, TransitionRecord
     from nof1_causal_lab.utils import data as data_module
     from tests.helpers import run_async
+    from tests.inference_fixtures import inference_log
     from tests.integration.transition_runner_fixtures import panel_frame, scientific_model
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path))
@@ -215,7 +216,14 @@ def test_durable_replication_preserves_current_laws_without_comparison(
             status="applied",
             trace_ids=[],
             resume=None,
-            action="edit_model",
+            action="fit" if fitted_laws else "edit_model",
+            operation_id="posterior" if fitted_laws else None,
+            diagnostics={
+                "report": inference_log(model).diagnostics["report"],
+                "input_pins": {"model": definition.revision, "panel": produced[1].revision},
+            }
+            if fitted_laws
+            else {},
             inputs={"expected_revision": None},
             produced=produced,
         )
@@ -223,7 +231,11 @@ def test_durable_replication_preserves_current_laws_without_comparison(
     effects = run_async(
         execute_transition_locally(
             "TEST",
-            SimulateOperation(design=SimulationSpec(start=-1.0, end=3.0)),
+            SimulateOperation(
+                design=SimulationSpec(
+                    start=-1.0 if fitted_laws else 0.0, end=3.0 if fitted_laws else 4.0
+                )
+            ),
             pins,
             state,
         )
@@ -297,7 +309,7 @@ def test_durable_replication_preserves_current_laws_without_comparison(
     panel = store.read_parquet_file("panel", panel_info.revision, "panel.parquet")
     from nof1_causal_lab.models.ssm.runtime import project_observation_data
 
-    wide, _ = project_observation_data(panel, model_spec=model)
+    wide, _ = project_observation_data(panel, model_spec=model, time_origin=report.time_origin)
     np.testing.assert_allclose(
         wide.select(["stress_score", "sleep_score"]).to_numpy(),
         store.read_array(report.observations)[1],
@@ -337,6 +349,7 @@ def test_retained_forecast_and_timed_intervention_preserve_joint_starts(
     report = simulate(
         model,
         design,
+        time_origin=None,
         revision=GitRef(workspace_id="TEST", revision=git_oid(2), path="model.json"),
         write_array=store.write_array,
     )
@@ -389,6 +402,7 @@ def test_causal_action_uses_common_generator_and_requires_matching_engine_eviden
     generated = simulate(
         model,
         design,
+        time_origin=None,
         revision=GitRef(workspace_id="TEST", revision=git_oid(2), path="model.json"),
         write_array=store.write_array,
     )
@@ -401,7 +415,9 @@ def test_causal_action_uses_common_generator_and_requires_matching_engine_eviden
 
     store = ArtifactStore("TEST")
     panel = prepare_simulation_panel(result, 0, read_array=store.read_array)
-    wide, _ = project_observation_data(panel, model_spec=model)
+    wide, _ = project_observation_data(
+        panel, model_spec=model, time_origin=panel_metadata().time_origin
+    )
     np.testing.assert_allclose(
         wide.select(numeric.observation_names(model)).to_numpy(),
         store.read_array(result.observations)[0],
@@ -530,6 +546,7 @@ def test_simulation_selects_checks_before_execution_and_persists_only_parameters
     report = action.simulate(
         model,
         SimulationSpec(end=2.0),
+        time_origin=None,
         revision=GitRef(workspace_id="TEST", revision=git_oid(1), path="model.json"),
         write_array=write,
     )

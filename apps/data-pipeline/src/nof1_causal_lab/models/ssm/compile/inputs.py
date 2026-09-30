@@ -55,22 +55,19 @@ def compile_ssm_inputs_from_model(
     dict[str, dist.Distribution],
     list[CompiledParameterBinding],
     list[PriorValidationResult],
-    dict[tuple[int, int], float],
     list[ParameterCoordinate],
 ]:
     """Compile executable SSM inputs from a validated semantic statistical model spec surface."""
 
     model.require_priors()
-    model.require_execution_structure()
     from nof1_causal_lab.models.ssm import numerics as numeric
 
     numeric.validate_execution(model)
-    edge_lag_days = numeric.edge_lag_days(model)
     index_maps = build_semantic_prior_bindings(model)
     bindings, auxiliary = bind_parameters(index_maps, model, model.execution_parameters)
-    prior_registry, _, diagnostics = compile_priors(model, edge_lag_days=edge_lag_days)
+    prior_registry, _, diagnostics = compile_priors(model)
     diagnostics = _attach_compile_binding_provenance(diagnostics, bindings)
-    return prior_registry, bindings, diagnostics, edge_lag_days, auxiliary
+    return prior_registry, bindings, diagnostics, auxiliary
 
 
 __all__ = [

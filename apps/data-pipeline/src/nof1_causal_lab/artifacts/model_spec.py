@@ -304,7 +304,6 @@ class ModelSpec(BaseModel):
         if any(item.distribution is not None for item in self.constructs) and not self.time_points:
             raise ValueError("Construct trajectory distributions require time points")
         for label, items in (
-            ("construct", self.constructs),
             ("edge", self.edges),
             ("indicator", self.indicators),
             ("parameter", self.parameters),
@@ -378,14 +377,6 @@ class ModelSpec(BaseModel):
                     f"Construct coefficients reference unknown constructs: {sorted(unknown)}"
                 )
         for use in iter_coefficient_uses(self):
-            for owner in use.owners:
-                if owner.id not in {
-                    *self._constructs,
-                    *self._edges,
-                    *self._indicators,
-                    *self._mechanisms,
-                }:
-                    raise ValueError(f"Coefficient {use.slot!r} references an unknown entity")
             if isinstance(use.value, str) and use.value not in self._parameters:
                 raise ValueError(f"Coefficient {use.slot!r} references an undeclared parameter")
         if unused := self._parameters.keys() - self._parameter_contexts.keys():

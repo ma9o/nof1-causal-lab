@@ -116,7 +116,8 @@ export interface paths {
          * @description Compare two model artifact revisions or Git checkpoints containing a model.
          *
          *     Returns identity-aligned definition changes, parameter decisions and graph
-         *     differences. Checkpoint selections also include their recorded fit/simulation
+         *     topology differences. Graph highlights exclude laws and other entity attributes.
+         *     Checkpoint selections also include their recorded fit/simulation
          *     evidence; selecting a model tree alone does not infer an associated run.
          */
         get: operations["model_diff"];
@@ -144,7 +145,7 @@ export interface paths {
          *     Each side accepts a data reference or a nonempty array of references. Panel
          *     references select artifact revisions; simulation references select applied
          *     simulation commits and optionally one replicate (otherwise every draw).
-         *     A simulation's optional time_origin maps model day zero to a calendar instant.
+         *     Simulation calendar coordinates come from the saved report's origin.
          *     Exact anchors and measurement windows determine which predictive comparisons
          *     are available. Results preserve each history and report incompatible inputs.
          */
@@ -215,7 +216,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/episodes/{workspace_id}/model/simulation-trajectories": {
+    "/api/episodes/{workspace_id}/model/visuals/observations/{indicator_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -223,16 +224,92 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Simulation Trajectories
-         * @description Pointwise means and 95% equal-tail bands from saved outcome histories.
-         *
-         *     Pin `at` to a commit to read its latest recorded simulation. Both paired
-         *     histories use the simulation's own model, ordered variables and observation
-         *     mask. Empty measurement anchors stay null. No fit or simulation is run.
+         * Get Observation History
+         * @description All prepared observations on their recorded temporal support.
          */
-        get: operations["get_simulation_trajectories_api_episodes__workspace_id__model_simulation_trajectories_get"];
+        get: operations["get_observation_history_api_episodes__workspace_id__model_visuals_observations__indicator_id__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/episodes/{workspace_id}/model/visuals/predictive/{indicator_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Predictive History
+         * @description Saved predictive paths on the exact schedule of their pinned inputs.
+         */
+        get: operations["get_predictive_history_api_episodes__workspace_id__model_visuals_predictive__indicator_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/episodes/{workspace_id}/model/visuals/simulation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Simulation Paths
+         * @description A contiguous page of original simulation draws, without time thinning.
+         */
+        get: operations["get_simulation_paths_api_episodes__workspace_id__model_visuals_simulation_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/episodes/{workspace_id}/model/visuals/parameters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Parameter Draws
+         * @description All coordinates and all draws of the retained joint posterior.
+         */
+        get: operations["get_parameter_draws_api_episodes__workspace_id__model_visuals_parameters_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/episodes/{workspace_id}/model/visuals/mechanism": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Get Mechanism Curves
+         * @description Read conditional drift curves using the exact model equations; creates no scientific action.
+         */
+        post: operations["get_mechanism_curves_api_episodes__workspace_id__model_visuals_mechanism_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -423,6 +500,11 @@ export interface components {
          */
         "CallExpression-Output": Domain.CallExpression;
         /**
+         * CategoryProbabilitySummary
+         * @description Predictive probabilities for each declared level; unobserved anchors are null.
+         */
+        CategoryProbabilitySummary: Domain.CategoryProbabilitySummary;
+        /**
          * CausalEdgeSpec
          * @description A specification of a directed causal relationship between two constructs.
          */
@@ -444,12 +526,6 @@ export interface components {
              */
             description: string;
             /**
-             * Lagged
-             * @description If True, effect at t is caused by cause at t-1 (one model_clock tick delay). If False (contemporaneous), effect at t is caused by cause at t.
-             * @default true
-             */
-            lagged?: boolean;
-            /**
              * Sources
              * @description Literature sources supporting this causal link
              */
@@ -465,8 +541,6 @@ export interface components {
          * @description Causal effects and realized trajectories under the enclosing report's design.
          */
         CausalEffectResult: Domain.CausalEffectResult;
-        /** @enum {string} */
-        CheckGroup: Domain.CheckGroup;
         /**
          * CoefficientExpression
          * @description A scientifically typed coefficient operand, literal or parameter reference.
@@ -494,12 +568,12 @@ export interface components {
         CoefficientRole: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
         /**
          * ComparisonConnection
-         * @description Endpoint references and temporal relation for one side of a causal edge comparison.
+         * @description Endpoint references and description for one side of a causal edge comparison.
          */
         ComparisonConnection: Domain.ComparisonConnection;
         /**
          * ConstructComparison
-         * @description A construct's definitions and changed owned parameters in two model revisions.
+         * @description A construct's presence and time-slice topology in two model revisions.
          */
         ConstructComparison: Domain.ConstructComparison;
         ConstructId: string;
@@ -581,7 +655,7 @@ export interface components {
         };
         /**
          * DataPoint
-         * @description An observed value at an exact calendar anchor and measurement support.
+         * @description An observed anchor and support; dates are synthetic for a calendar-free series.
          */
         DataPoint: Domain.DataPoint;
         /**
@@ -633,11 +707,6 @@ export interface components {
             revision: components["schemas"]["GitOid"];
             /** Replicate */
             replicate?: number | null;
-            /**
-             * Time Origin
-             * @description Calendar instant for simulation day zero; omitted uses 1970-01-01 UTC.
-             */
-            time_origin?: string | null;
         };
         /** @description A data selection identifies one or more saved observation histories. */
         DataSelection: components["schemas"]["DataRef"] | components["schemas"]["DataRef"][];
@@ -646,7 +715,7 @@ export interface components {
          * @description One variable's recorded measurements in one history; no pooling across replicas.
          */
         DataSeries: Domain.DataSeries;
-        /** @description Uploaded sources, one simulation replicate, or a bounded observation table. */
+        /** @description Uploaded sources or one recorded simulation replicate. */
         DataSourceRef: Domain.DataSourceRef;
         /**
          * DataStatisticComparison
@@ -751,7 +820,7 @@ export interface components {
         "DynamicsMechanismSpec-Output": Domain.DynamicsMechanismSpec;
         /**
          * EdgeComparison
-         * @description An explicit causal edge's definitions and changed mechanism parameters.
+         * @description An explicit causal edge's presence and endpoints in two model revisions.
          */
         EdgeComparison: Domain.EdgeComparison;
         EdgeId: string;
@@ -781,18 +850,11 @@ export interface components {
         EffectSummary: Domain.EffectSummary;
         /**
          * EffectTrajectoryPoint
-         * @description An effect trajectory point records a causal delta at one elapsed rollout time.
+         * @description A certified paired contrast and 95% interval at one absolute model time.
          */
         EffectTrajectoryPoint: Domain.EffectTrajectoryPoint;
-        /**
-         * EpisodeState
-         * @description Episode state projects the artifact trees selected by one Git commit.
-         *
-         *     ``current`` maps artifact id → the revision info that is *current* for the
-         *     episode. Absent key = the artifact does not exist (either never produced,
-         *     or produced-when-nonempty semantics withheld it).
-         */
-        EpisodeState: Domain.EpisodeState;
+        /** EmpiricalPoint */
+        EmpiricalPoint: Domain.EmpiricalPoint;
         "Expression-Input": components["schemas"]["LiteralExpression"] | components["schemas"]["StateExpression"] | components["schemas"]["CoefficientExpression"] | components["schemas"]["BinaryExpression-Input"] | components["schemas"]["CallExpression-Input"];
         "Expression-Output": Domain.Expression;
         /** @enum {string} */
@@ -809,8 +871,6 @@ export interface components {
         FilePreparationSpec: {
             source: components["schemas"]["FileSourceRef"];
             definition: components["schemas"]["DataPreparationSpec-Input"];
-            /** Max Windows */
-            max_windows?: number | null;
         };
         /**
          * FileSourceRef
@@ -819,7 +879,19 @@ export interface components {
         FileSourceRef: {
             /** Files */
             files: string[];
+            /**
+             * Start
+             * @description Inclusive UTC source-coverage date.
+             */
+            start?: string | null;
+            /**
+             * End
+             * @description Exclusive UTC source-coverage date.
+             */
+            end?: string | null;
         };
+        /** @enum {string} */
+        FitReliability: Domain.FitReliability;
         /**
          * FitRequest
          * @description Condition explicitly selected model and observation revisions.
@@ -852,7 +924,9 @@ export interface components {
         };
         /**
          * FitSummary
-         * @description A fit read contains the inference log report and server-composed display findings.
+         * @description A fit read contains the inference report summary and server-composed display findings.
+         *
+         *     Per-draw diagnostics load separately from the inference report endpoint.
          */
         FitSummary: Domain.FitSummary;
         GitOid: string;
@@ -1078,12 +1152,57 @@ export interface components {
          * @description Counts and representative observations read directly from one panel revision.
          */
         MeasurementsData: Domain.MeasurementsData;
-        MechanismId: string;
         /**
-         * ModelCheckReport
-         * @description Checks selected by their consumed inputs, retained with the study snapshot.
+         * MechanismCurves
+         * @description Exact conditional drift contributions, not marginal or total causal effects.
          */
-        ModelCheckReport: Domain.ModelCheckReport;
+        MechanismCurves: Domain.MechanismCurves;
+        MechanismId: string;
+        /** MechanismViewRequest */
+        MechanismViewRequest: {
+            /** Owner Id */
+            owner_id: string;
+            axis?: components["schemas"]["ConstructId"] | null;
+            /**
+             * Lower
+             * @default -3
+             */
+            lower?: number;
+            /**
+             * Upper
+             * @default 3
+             */
+            upper?: number;
+            /** Held */
+            held?: {
+                [key: string]: number;
+            };
+            moderator?: components["schemas"]["ConstructId"] | null;
+            /**
+             * Levels
+             * @default [
+             *       -1,
+             *       0,
+             *       1
+             *     ]
+             */
+            levels?: number[];
+            /**
+             * Start
+             * @default 0
+             */
+            start?: number;
+            /**
+             * Count
+             * @default 24
+             */
+            count?: number;
+            /**
+             * Points
+             * @default 201
+             */
+            points?: number;
+        };
         /**
          * ModelData
          * @description Observed evidence paired with its source versions.
@@ -1121,7 +1240,7 @@ export interface components {
         ModelFitResult: Domain.ModelFitResult;
         /**
          * ModelGraphComparison
-         * @description Aligned scientific entities for rendering a graph difference without browser inference.
+         * @description Identity-aligned topology changes, excluding laws and other entity attributes.
          */
         ModelGraphComparison: Domain.ModelGraphComparison;
         /**
@@ -1197,6 +1316,11 @@ export interface components {
         };
         "NumPyroDistribution-Output": Domain.NumPyroDistribution;
         /**
+         * ObservationHistory
+         * @description All prepared observations, their true anchors and their measurement support.
+         */
+        ObservationHistory: Domain.ObservationHistory;
+        /**
          * ObservationLawSpec
          * @description A symbolic specification of an indicator's conditional observation distribution.
          */
@@ -1225,82 +1349,13 @@ export interface components {
          * ObservationSpec
          * @description A stable observed variable, reusable across scientific model definitions.
          */
-        ObservationSpec: {
-            /** @description Persistent identity. Preserve when revising or renaming. */
-            id: components["schemas"]["IndicatorId"];
-            /**
-             * Name
-             * @description Indicator name (e.g., 'hrv', 'self_reported_stress')
-             */
-            name: string;
-            /** @description 'continuous', 'binary', 'count', 'ordinal', 'categorical' */
-            measurement_dtype: components["schemas"]["MeasurementDtype"];
-            /** @description Aggregation function applied when bucketing raw extractions within the indicator support window. Measurement-structure support is currently limited to: first, last, sum, count, mean, std. A computed_rule must produce this same summary. Available parser operators: count, cv, entropy, first, instability, iqr, kurtosis, last, max, mean, median, min, n_unique, p10, p25, p75, p90, p99, range, skew, std, sum, trend, var */
-            aggregation: components["schemas"]["AggregationFunction"];
-            /**
-             * Observation Window
-             * @description Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock.
-             */
-            observation_window?: string | null;
-            /**
-             * Fill Null
-             * @description Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.
-             */
-            fill_null?: ("forward" | "backward" | "min" | "max" | "mean" | "zero" | "one") | number | null;
-            /**
-             * Fill Null Limit
-             * @description Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.
-             */
-            fill_null_limit?: number | null;
-            /**
-             * Ordinal Levels
-             * @description Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.
-             */
-            ordinal_levels?: string[] | null;
-            /**
-             * Categorical Levels
-             * @description Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding.
-             */
-            categorical_levels?: string[] | null;
-        };
-        /**
-         * ObservationTableRef
-         * @description An uploaded Parquet observation table and its selected UTC calendar interval.
-         */
-        ObservationTableRef: {
-            /**
-             * File
-             * @description Uploaded Parquet filename, without directory components.
-             */
-            file: string;
-            /**
-             * Start
-             * @description Inclusive UTC anchor date (ISO YYYY-MM-DD).
-             */
-            start?: string | null;
-            /**
-             * End
-             * @description Exclusive UTC anchor date (ISO YYYY-MM-DD).
-             */
-            end?: string | null;
-        };
-        /**
-         * ObservationTableSpec
-         * @description Select already extracted observations by their declared variable schema.
-         */
-        ObservationTableSpec: {
-            source: components["schemas"]["ObservationTableRef"];
-            /** Variables */
-            variables: components["schemas"]["ObservationSpec"][];
-        };
+        ObservationSpec: Domain.ObservationSpec;
         /**
          * PPCOverlay
-         * @description A predictive overlay compares observed values with posterior predictive bands for one
-         *     indicator.
+         * @description A predictive overlay sets one indicator's observed values against simulated ones.
          *
-         *     Provides the data for Gabry's ppc_dens_overlay / ppc_ribbon plots:
-         *     observed time series vs posterior predictive quantile bands.
-         *     Optionally includes individual y_rep draw lines for spaghetti plots.
+         *     It carries the predictive median and a few individual replicated series, the
+         *     spaghetti plot of a visual predictive check.
          */
         PPCOverlay: Domain.PPCOverlay;
         /**
@@ -1323,6 +1378,13 @@ export interface components {
          * @description A parameter change compares one parameter's fixed value or law across model revisions.
          */
         ParameterChange: Domain.ParameterChange;
+        /** ParameterDrawColumn */
+        ParameterDrawColumn: Domain.ParameterDrawColumn;
+        /**
+         * ParameterDraws
+         * @description Every retained parameter coordinate, without thinning or pair selection.
+         */
+        ParameterDraws: Domain.ParameterDraws;
         ParameterElementId: Domain.ParameterElementId;
         ParameterId: string;
         /**
@@ -1362,10 +1424,12 @@ export interface components {
             distribution?: components["schemas"]["DistributionId"] | null;
             /**
              * Reference Interval Days
-             * @description Positive duration in days over which an authored persistence or interval-effect law is defined, before conversion to continuous-time decay or rate. When omitted, persistence uses the model measurement clock; interval effects use the edge lag, falling back to that clock.
+             * @description Positive duration in days over which an authored persistence or interval-effect law is defined, before conversion to continuous-time decay or rate. When omitted, persistence and interval effects use the model measurement clock.
              */
             reference_interval_days?: number | null;
         };
+        /** PathSeries */
+        PathSeries: Domain.PathSeries;
         /**
          * PosteriorEstimate
          * @description A posterior estimate reports a mean and a credible interval with explicit semantics.
@@ -1395,13 +1459,19 @@ export interface components {
         /** @enum {string} */
         PredictiveCheckReason: Domain.PredictiveCheckReason;
         /**
+         * PredictiveHistory
+         * @description A saved check on the exact schedule and scale used to evaluate it.
+         */
+        PredictiveHistory: Domain.PredictiveHistory;
+        /**
          * PredictiveLawProvenance
          * @description Known conditioning history, independently of a probability law's family.
          */
         PredictiveLawProvenance: Domain.PredictiveLawProvenance;
+        PredictiveSummary: Domain.PredictiveSummary;
         /**
          * PrepareDataRequest
-         * @description Prepare uploaded sources, a simulation replicate, or extracted observations without a model.
+         * @description Prepare uploaded sources or a simulation replicate without a model.
          */
         PrepareDataRequest: {
             /**
@@ -1410,7 +1480,7 @@ export interface components {
              */
             action: "prepare_data";
             /** Input */
-            input: components["schemas"]["FilePreparationSpec"] | components["schemas"]["SimulationReplicateRef"] | components["schemas"]["ObservationTableSpec"];
+            input: components["schemas"]["FilePreparationSpec"] | components["schemas"]["SimulationReplicateRef"];
         };
         /**
          * PreparedDataMetadata
@@ -1442,6 +1512,10 @@ export interface components {
          * @description Observed date bounds of the uploaded table, when it contains a date column.
          */
         RawDataDateRange: Domain.RawDataDateRange;
+        /** RecordedPath */
+        RecordedPath: Domain.RecordedPath;
+        /** ResponseCurve */
+        ResponseCurve: Domain.ResponseCurve;
         /**
          * RevisionCatalog
          * @description A revision catalog lists immutable model, source and observation inputs for selection.
@@ -1487,6 +1561,16 @@ export interface components {
          */
         SimulationObservationLayout: Domain.SimulationObservationLayout;
         /**
+         * SimulationPaths
+         * @description Contiguous pages of original draws, with every recorded time point intact.
+         */
+        SimulationPaths: Domain.SimulationPaths;
+        /**
+         * SimulationPredictiveReport
+         * @description Model implications, independently of whether a causal contrast is certified.
+         */
+        SimulationPredictiveReport: Domain.SimulationPredictiveReport;
+        /**
          * SimulationReplicateRef
          * @description One replicate from a recorded, applied simulation in this study.
          */
@@ -1501,30 +1585,27 @@ export interface components {
          */
         SimulationReport: Domain.SimulationReport;
         /**
+         * SimulationSeriesSummary
+         * @description One state's or indicator's generated distribution in each simulated arm.
+         */
+        SimulationSeriesSummary: Domain.SimulationSeriesSummary;
+        /**
          * SimulationSpec
          * @description Generate through end, optionally starting earlier and applying dated interventions.
          */
         SimulationSpec: Domain.SimulationSpec;
         /**
-         * SimulationTrajectories
-         * @description Read-only pointwise summaries of the saved outcome state and its indicators.
-         */
-        SimulationTrajectories: Domain.SimulationTrajectories;
-        /**
-         * SimulationTrajectory
-         * @description One construct's mean reference and intervention paths across simulated draws.
-         */
-        SimulationTrajectory: Domain.SimulationTrajectory;
-        /**
-         * SimulationTrajectoryBands
-         * @description One named state's or indicator's simulated history, with its paired reference if present.
-         */
-        SimulationTrajectoryBands: Domain.SimulationTrajectoryBands;
-        /**
          * SnapshotContext
          * @description A snapshot context identifies the selected Git commit and its artifact versions.
          */
         SnapshotContext: Domain.SnapshotContext;
+        /**
+         * SnapshotState
+         * @description A snapshot state lists the artifact revisions current at the selected commit.
+         *
+         *     Recorded checks appear once, as the specification and predictive findings.
+         */
+        SnapshotState: Domain.SnapshotState;
         /**
          * SourceValidity
          * @description Source validity records whether a fact still matches its pinned inputs.
@@ -1584,11 +1665,6 @@ export interface components {
         /** Sourced[SimulationReport] */
         Sourced_SimulationReport_: {
             value: components["schemas"]["SimulationReport"];
-            source: components["schemas"]["FactSource"];
-        };
-        /** Sourced[SimulationTrajectories] */
-        Sourced_SimulationTrajectories_: {
-            value: components["schemas"]["SimulationTrajectories"];
             source: components["schemas"]["FactSource"];
         };
         /** Sourced[SpecificationReport] */
@@ -1655,7 +1731,7 @@ export interface components {
         TemporalStatus: "time_varying" | "time_invariant";
         /**
          * TrajectorySummary
-         * @description Pointwise mean and equal-tail interval across saved draws; empty anchors are null.
+         * @description Pointwise means and fixed 95% quantiles across generated numeric draws.
          */
         TrajectorySummary: Domain.TrajectorySummary;
         /** ValidationError */
@@ -2029,7 +2105,113 @@ export interface operations {
             };
         };
     };
-    get_simulation_trajectories_api_episodes__workspace_id__model_simulation_trajectories_get: {
+    get_observation_history_api_episodes__workspace_id__model_visuals_observations__indicator_id__get: {
+        parameters: {
+            query?: {
+                branch?: string;
+                at?: components["schemas"]["GitOid"] | null;
+            };
+            header?: never;
+            path: {
+                indicator_id: components["schemas"]["IndicatorId"];
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObservationHistory"] | null;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_predictive_history_api_episodes__workspace_id__model_visuals_predictive__indicator_id__get: {
+        parameters: {
+            query?: {
+                branch?: string;
+                at?: components["schemas"]["GitOid"] | null;
+            };
+            header?: never;
+            path: {
+                indicator_id: components["schemas"]["IndicatorId"];
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PredictiveHistory"] | null;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_simulation_paths_api_episodes__workspace_id__model_visuals_simulation_get: {
+        parameters: {
+            query?: {
+                start?: number;
+                count?: number;
+                branch?: string;
+                at?: components["schemas"]["GitOid"] | null;
+            };
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SimulationPaths"] | null;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_parameter_draws_api_episodes__workspace_id__model_visuals_parameters_get: {
         parameters: {
             query?: {
                 branch?: string;
@@ -2049,7 +2231,45 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Sourced_SimulationTrajectories_"] | null;
+                    "application/json": components["schemas"]["ParameterDraws"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_mechanism_curves_api_episodes__workspace_id__model_visuals_mechanism_post: {
+        parameters: {
+            query?: {
+                branch?: string;
+                at?: components["schemas"]["GitOid"] | null;
+            };
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MechanismViewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MechanismCurves"];
                 };
             };
             /** @description Validation Error */

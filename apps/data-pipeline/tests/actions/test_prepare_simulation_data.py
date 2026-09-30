@@ -25,7 +25,7 @@ from nof1_causal_lab.machine.selection import resolve_input_pins
 from nof1_causal_lab.machine.store import ArtifactStore, TransitionRecord
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.runtime import project_observation_data
-from tests.data_fixtures import simulation_layout
+from tests.data_fixtures import predictive_summary, simulation_layout
 from tests.git_fixtures import git_oid
 from tests.helpers import complete_test_model, make_model, run_async
 
@@ -83,6 +83,8 @@ def test_recorded_replicate_becomes_a_compatible_panel(tmp_path, monkeypatch):
     report = SimulationReport(
         model=GitRef(workspace_id="TEST", revision=model_info.revision, path="model.json"),
         design=design,
+        time_origin=None,
+        predictive=predictive_summary(model, draws),
         times=tuple(time + 5 for time in times),
         draws=2,
         seed=0,
@@ -141,12 +143,12 @@ def test_recorded_replicate_becomes_a_compatible_panel(tmp_path, monkeypatch):
     assert effects.diagnostics["simulation_source"] == source.model_dump(mode="json")
     assert effects.diagnostics["n_observations"] == 6
     panel = store.read_parquet_file("panel", panel_info.revision, "panel.parquet")
-    wide, _ = project_observation_data(panel, model_spec=model)
+    wide, _ = project_observation_data(panel, model_spec=model, time_origin=None)
     np.testing.assert_allclose(wide["time"].to_numpy(), times)
     np.testing.assert_allclose(
         wide.select(numeric.observation_names(model)).to_numpy(), draws[1], equal_nan=True
     )
-    assert panel["anchor_time"].min() == datetime(1970, 1, 6)
+    assert panel["anchor_time"].min() == datetime(1970, 1, 1)
     assert set(panel["support_kind"]) == {"point"}
 
     # Fitting uses the usual panel selection; only observation rows enter it.
@@ -202,6 +204,8 @@ def test_materialization_preserves_measurement_support_and_numeric_codes(interva
     report = SimulationReport(
         model=GitRef(workspace_id="TEST", revision=git_oid(1), path="model.json"),
         design=SimulationSpec(end=2.5),
+        time_origin=None,
+        predictive=predictive_summary(model, values),
         times=(0, 1, 2.5),
         draws=1,
         seed=0,

@@ -235,12 +235,7 @@ class TestOrderedThresholds:
     def test_ordinal_only_construct_compiles(self):
         """Well-at-zero anchors location; the fixed logistic link anchors scale."""
         model = _structure(["mood"], [_indicator("mood_level", "mood", "ordinal")])
-        spec, _ = (
-            _with_likelihoods([_likelihood("mood_level", "ordinal")], plan=model),
-            numeric.edge_lag_days(
-                _with_likelihoods([_likelihood("mood_level", "ordinal")], plan=model)
-            ),
-        )
+        spec = _with_likelihoods([_likelihood("mood_level", "ordinal")], plan=model)
         assert numeric.categorical_anchors(spec) is not None
         assert not any(numeric.categorical_anchors(spec))
         assert float(numeric.loading_block(spec).template[0, 0]) == 1.0
@@ -279,19 +274,10 @@ class TestLocationAnchors:
         indicator = _indicator("fill_quantity", "dose", "continuous")
         indicator["aggregation"] = "sum"
         model = _structure(["dose"], [indicator])
-        spec, _ = (
-            _with_likelihoods(
-                [_likelihood("fill_quantity", "continuous")],
-                [_manifest_mean("fill_quantity", plan=model)],
-                plan=model,
-            ),
-            numeric.edge_lag_days(
-                _with_likelihoods(
-                    [_likelihood("fill_quantity", "continuous")],
-                    [_manifest_mean("fill_quantity", plan=model)],
-                    plan=model,
-                )
-            ),
+        spec = _with_likelihoods(
+            [_likelihood("fill_quantity", "continuous")],
+            [_manifest_mean("fill_quantity", plan=model)],
+            plan=model,
         )
 
         assert numeric.observation_standardized(spec) == [False]
@@ -299,19 +285,10 @@ class TestLocationAnchors:
 
     def test_manifest_intercept_remains_free_for_binary_channel(self):
         model = _structure(["mood"], [_indicator("mood_flag", "mood", "binary")])
-        spec, _ = (
-            _with_likelihoods(
-                [_likelihood("mood_flag", "binary")],
-                [_manifest_mean("mood_flag", plan=model)],
-                plan=model,
-            ),
-            numeric.edge_lag_days(
-                _with_likelihoods(
-                    [_likelihood("mood_flag", "binary")],
-                    [_manifest_mean("mood_flag", plan=model)],
-                    plan=model,
-                )
-            ),
+        spec = _with_likelihoods(
+            [_likelihood("mood_flag", "binary")],
+            [_manifest_mean("mood_flag", plan=model)],
+            plan=model,
         )
         assert numeric.observation_mean_block(spec).free_support.tolist() == [True]
 
@@ -334,27 +311,14 @@ class TestLocationAnchors:
                 _indicator("mood_flag", "mood", "binary"),
             ],
         )
-        spec, _ = (
-            _with_likelihoods(
-                [
-                    _likelihood("mood_rating", "continuous"),
-                    _likelihood("mood_flag", "binary"),
-                ],
-                [_center(model)],
-                centered_states=(model.state_order[0],),
-                plan=model,
-            ),
-            numeric.edge_lag_days(
-                _with_likelihoods(
-                    [
-                        _likelihood("mood_rating", "continuous"),
-                        _likelihood("mood_flag", "binary"),
-                    ],
-                    [_center(model)],
-                    centered_states=(model.state_order[0],),
-                    plan=model,
-                )
-            ),
+        spec = _with_likelihoods(
+            [
+                _likelihood("mood_rating", "continuous"),
+                _likelihood("mood_flag", "binary"),
+            ],
+            [_center(model)],
+            centered_states=(model.state_order[0],),
+            plan=model,
         )
         assert numeric.observation_standardized(spec) is not None
         assert numeric.observation_standardized(spec)[0]
@@ -368,23 +332,12 @@ class TestLocationAnchors:
             ],
             time_invariant={"trait"},
         )
-        spec, _ = (
-            _with_likelihoods(
-                [
-                    _likelihood("mood_rating", "continuous"),
-                    _likelihood("trait_flag", "binary"),
-                ],
-                plan=model,
-            ),
-            numeric.edge_lag_days(
-                _with_likelihoods(
-                    [
-                        _likelihood("mood_rating", "continuous"),
-                        _likelihood("trait_flag", "binary"),
-                    ],
-                    plan=model,
-                )
-            ),
+        spec = _with_likelihoods(
+            [
+                _likelihood("mood_rating", "continuous"),
+                _likelihood("trait_flag", "binary"),
+            ],
+            plan=model,
         )
         assert numeric.state_names(spec) is not None
         trait_index = numeric.state_names(spec).index("trait")
@@ -399,23 +352,12 @@ class TestLocationAnchors:
             ],
             time_invariant={"trait"},
         )
-        spec, _ = (
-            _with_likelihoods(
-                [
-                    _likelihood("mood_rating", "continuous"),
-                    _likelihood("trait_score", "continuous"),
-                ],
-                plan=model,
-            ),
-            numeric.edge_lag_days(
-                _with_likelihoods(
-                    [
-                        _likelihood("mood_rating", "continuous"),
-                        _likelihood("trait_score", "continuous"),
-                    ],
-                    plan=model,
-                )
-            ),
+        spec = _with_likelihoods(
+            [
+                _likelihood("mood_rating", "continuous"),
+                _likelihood("trait_score", "continuous"),
+            ],
+            plan=model,
         )
         assert numeric.state_names(spec) is not None
         trait_index = numeric.state_names(spec).index("trait")
@@ -441,23 +383,12 @@ class TestCategoricalAnchors:
                 _indicator("mood_kind", "mood", "categorical"),
             ],
         )
-        spec, _ = (
-            _with_likelihoods(
-                [
-                    _likelihood("mood_rating", "continuous"),
-                    _likelihood("mood_kind", "categorical"),
-                ],
-                plan=model,
-            ),
-            numeric.edge_lag_days(
-                _with_likelihoods(
-                    [
-                        _likelihood("mood_rating", "continuous"),
-                        _likelihood("mood_kind", "categorical"),
-                    ],
-                    plan=model,
-                )
-            ),
+        spec = _with_likelihoods(
+            [
+                _likelihood("mood_rating", "continuous"),
+                _likelihood("mood_kind", "categorical"),
+            ],
+            plan=model,
         )
         assert numeric.observation_names(spec) is not None
         assert numeric.categorical_anchors(spec) is not None
@@ -468,12 +399,7 @@ class TestCategoricalAnchors:
 
     def test_all_categorical_construct_gets_anchor_slope(self):
         model = _structure(["mood"], [_indicator("mood_kind", "mood", "categorical")])
-        spec, _ = (
-            _with_likelihoods([_likelihood("mood_kind", "categorical")], plan=model),
-            numeric.edge_lag_days(
-                _with_likelihoods([_likelihood("mood_kind", "categorical")], plan=model)
-            ),
-        )
+        spec = _with_likelihoods([_likelihood("mood_kind", "categorical")], plan=model)
         assert numeric.categorical_anchors(spec) == [True]
         assert numeric.observation_level_counts(spec) == [3]
 
@@ -512,23 +438,12 @@ class TestAnchorSurfaces:
                 _indicator("mood_rating", "mood", "continuous"),
             ],
         )
-        spec, _ = (
-            _with_likelihoods(
-                [
-                    _likelihood("mood_level", "ordinal"),
-                    _likelihood("mood_rating", "continuous"),
-                ],
-                plan=model,
-            ),
-            numeric.edge_lag_days(
-                _with_likelihoods(
-                    [
-                        _likelihood("mood_level", "ordinal"),
-                        _likelihood("mood_rating", "continuous"),
-                    ],
-                    plan=model,
-                )
-            ),
+        spec = _with_likelihoods(
+            [
+                _likelihood("mood_level", "ordinal"),
+                _likelihood("mood_rating", "continuous"),
+            ],
+            plan=model,
         )
         assert numeric.observation_names(spec) is not None
         continuous_row = numeric.observation_names(spec).index("mood_rating")

@@ -156,10 +156,7 @@ class SSMModel:
 
             priors = self.priors
             if priors is None:
-                priors, _, _ = compile_priors(
-                    self.spec,
-                    edge_lag_days=numeric.edge_lag_days(self.spec),
-                )
+                priors, _, _ = compile_priors(self.spec)
             self._prior_runtime_bundle = build_prior_runtime_bundle(self.spec, priors)
         return self._prior_runtime_bundle
 

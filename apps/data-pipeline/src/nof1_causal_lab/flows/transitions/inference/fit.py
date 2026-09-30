@@ -16,6 +16,8 @@ from nof1_causal_lab.models.ssm.runtime import (
 )
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     import polars as pl
 
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
@@ -112,6 +114,8 @@ def _support_summary(runtime: PreparedModelRuntime) -> str:
 def fit_model(
     model_spec: ModelSpec,
     data_for_model: pl.DataFrame,
+    *,
+    time_origin: datetime | None,
     sampler_config: SamplerConfigInput | None = None,
     model: SSMModel | None = None,
     workspace_id: str | None = None,
@@ -158,6 +162,7 @@ def fit_model(
         prep_t0 = time.monotonic()
         runtime = prepare_model_runtime(
             data_for_model=data_for_model,
+            time_origin=time_origin,
             model_spec=model_spec,
             sampler_config=sampler_config,
             model=model,

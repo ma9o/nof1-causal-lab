@@ -22,6 +22,7 @@ from nof1_causal_lab.utils.config import get_config
 from tests.helpers import run_async
 from tests.integration.transition_runner_fixtures import (
     panel_frame,
+    panel_metadata,
     seed_model,
     seed_panel,
     state_from,
@@ -104,6 +105,7 @@ def test_local_fit_transfers_pins_and_retains_outputs_only_after_valid_response(
         return {
             "_model": conditioned,
             "engine_evidence": {"initialization": "test", "exact": True},
+            "time_origin": "2024-01-01T00:00:00Z",
             "inference_metadata": {
                 "method": "marginal_particle_gibbs",
                 "n_samples": 2,
@@ -161,6 +163,7 @@ def test_local_fit_transfers_pins_and_retains_outputs_only_after_valid_response(
     assert len(writes) == 2  # the draws and their weights
     assert len(calls) == 1
     transferred = modal_fit.fit_on_modal(
+        time_origin=panel_metadata().time_origin,
         model_spec=restored,
         data_for_model=panel_frame(),
         sampler_config=calls[0].sampler_config,

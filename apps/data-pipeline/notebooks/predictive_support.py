@@ -69,6 +69,7 @@ def evaluate_case_study(
     batch = generate_simulation_batch(
         candidate,
         SimulationSpec(start=float(design.t_grid[0]), end=float(design.t_grid[-1])),
+        time_origin=None,
         times=design.t_grid,
         draws=design.n_draws,
         seed=design.seed,

@@ -1,5 +1,6 @@
-"""Graph comparisons localize scientific changes without frontend inference."""
+"""Graph comparisons isolate topology from other scientific definition changes."""
 
+import jax.numpy as jnp
 import numpyro.distributions as dist
 import pytest
 
@@ -11,6 +12,7 @@ from nof1_causal_lab.actions.revisions import (
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.models.model_parameters import referenced_parameter_ids
 from nof1_causal_lab.models.model_structure import model_graph_entities
+from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
 from tests.helpers import complete_test_model, make_model
 
 pytestmark = pytest.mark.contract
@@ -32,9 +34,11 @@ def test_complete_definition_diff_includes_laws_and_question_without_list_order_
         edges=tuple(reversed(model.edges)), parameters=tuple(reversed(model.parameters))
     )
     assert compare_model_definitions(model, reordered) == []
+    graph = compare_model_graph(model, reordered)
+    assert all(item.change == "unchanged" for item in (*graph.constructs, *graph.edges))
 
 
-def test_parameter_decisions_and_law_changes_highlight_only_owning_mechanisms():
+def test_parameter_decisions_and_law_changes_leave_topology_unchanged():
     model = complete_test_model(make_model(["X", "Y", "Z"], [("X", "Y"), ("X", "Z")]))
     edge = model.edges[0]
     parameter = model.parameter(next(iter(referenced_parameter_ids(edge))))
@@ -59,11 +63,8 @@ def test_parameter_decisions_and_law_changes_highlight_only_owning_mechanisms():
     for before, after, decision in ((model, pinned, "pinned"), (pinned, model, "released")):
         changes = compare_parameters(before, after)
         assert [(item.parameter_id, item.change) for item in changes] == [(parameter.id, decision)]
-        graph = compare_model_graph(before, after, changes)
-        assert [
-            (item.edge_id, item.parameter_ids) for item in graph.edges if item.change == "revised"
-        ] == [(edge.id, [parameter.id])]
-        assert all(item.change == "unchanged" for item in graph.constructs)
+        graph = compare_model_graph(before, after)
+        assert all(item.change == "unchanged" for item in (*graph.constructs, *graph.edges))
 
     # The parameter and law ID can stay the same while the native law changes.
     revised = model.revised(
@@ -71,28 +72,63 @@ def test_parameter_decisions_and_law_changes_highlight_only_owning_mechanisms():
     )
     changes = compare_parameters(model, revised)
     assert [(item.parameter_id, item.change) for item in changes] == [(parameter.id, "revised")]
-    graph = compare_model_graph(model, revised, changes)
-    assert [item.edge_id for item in graph.edges if item.change == "revised"] == [edge.id]
+    graph = compare_model_graph(model, revised)
+    assert all(item.change == "unchanged" for item in (*graph.constructs, *graph.edges))
 
 
-def test_graph_additions_removals_and_measurement_changes_preserve_entity_identity():
+def test_fitted_state_laws_and_time_points_leave_topology_unchanged():
+    model = complete_test_model(make_model(["X", "Y"], [("X", "Y")]))
+    layout = JointLawLayout.from_bindings(
+        (), parameters=(), constructs=model.state_order, time_points=(0.0, 1.0)
+    )
+    identity = layout.distribution_id
+    fitted = model.revised(
+        edges=replace_constructs(
+            model.edges,
+            tuple(item.model_copy(update={"distribution": identity}) for item in model.constructs),
+        ),
+        distributions={
+            **model.distributions,
+            identity: dist.Delta(jnp.zeros(layout.width), event_dim=1),
+        },
+        time_points=layout.time_points,
+    )
+    assert compare_model_definitions(model, fitted)
+    for before, after in ((model, fitted), (fitted, model)):
+        graph = compare_model_graph(before, after)
+        assert all(item.change == "unchanged" for item in (*graph.constructs, *graph.edges))
+
+
+def test_graph_additions_and_removals_ignore_entity_attribute_changes():
     before = make_model(["X", "Y"], [("X", "Y")])
     after = make_model(["X", "Y", "Z"], [("X", "Y"), ("Z", "Y")])
     x = after.constructs[0]
-    renamed = x.model_copy(update={"name": "Renamed X", "description": "Updated measurement"})
-    after = after.revised(edges=replace_constructs(after.edges, (renamed,)))
-    graph = compare_model_graph(before, after, [])
+    renamed = x.model_copy(
+        update={
+            "name": "Renamed X",
+            "description": "Updated measurement",
+            "indicators": (x.indicators[0].model_copy(update={"name": "Renamed observation"}),),
+        }
+    )
+    after = after.revised(
+        default_outcome=after.constructs[1].id,
+        edges=tuple(
+            edge.model_copy(update={"description": "Updated justification"})
+            for edge in replace_constructs(after.edges, (renamed,))
+        ),
+    )
+    graph = compare_model_graph(before, after)
     assert {
         item.after.name: (item.before.name if item.before else None, item.change)
         for item in graph.constructs
         if item.after
-    } == {"Renamed X": ("X", "revised"), "Y": ("Y", "unchanged"), "Z": (None, "added")}
+    } == {"Renamed X": ("X", "unchanged"), "Y": ("Y", "unchanged"), "Z": (None, "added")}
     assert (
         next(item for item in graph.edges if item.edge_id == before.edges[0].id).change
         == "unchanged"
     )
     assert next(item for item in graph.edges if item.edge_id == after.edges[1].id).change == "added"
-    reverse = compare_model_graph(after, before, [])
+    reverse = compare_model_graph(after, before)
     assert (
         next(item for item in reverse.edges if item.edge_id == after.edges[1].id).change
         == "removed"
@@ -101,8 +137,30 @@ def test_graph_additions_removals_and_measurement_changes_preserve_entity_identi
         next(item for item in reverse.constructs if item.before and item.before.name == "Z").after
         is None
     )
-    unchanged = compare_model_graph(after, after, [])
+    unchanged = compare_model_graph(after, after)
     assert all(item.change == "unchanged" for item in (*unchanged.constructs, *unchanged.edges))
+
+
+def test_endpoint_and_time_slice_changes_revise_graph_topology():
+    model = make_model(["X", "Y"], [("X", "Y")]).revised(measurement_clock=None)
+    edge = model.edges[0]
+    reversed_edge = model.revised(
+        edges=(edge.model_copy(update={"cause": edge.effect, "effect": edge.cause}),)
+    )
+    static_cause = model.revised(
+        edges=replace_constructs(
+            model.edges,
+            (edge.cause.model_copy(update={"temporal_status": "time_invariant"}),),
+        )
+    )
+    for revised in (reversed_edge, static_cause):
+        for before, after in ((model, revised), (revised, model)):
+            graph = compare_model_graph(before, after)
+            assert [(item.edge_id, item.change) for item in graph.edges] == [(edge.id, "revised")]
+            changed_constructs = [
+                item.construct_id for item in graph.constructs if item.change != "unchanged"
+            ]
+            assert changed_constructs == ([edge.cause.id] if revised is static_cause else [])
 
 
 def test_execution_exclusions_use_the_same_graph_comparison_in_both_directions():
@@ -127,7 +185,7 @@ def test_execution_exclusions_use_the_same_graph_comparison_in_both_directions()
     assert [(item.cause.name, item.effect.name) for item in edges] == [("X", "Y")]
     assert set(measured.state_order) == {constructs["X"].id, constructs["Y"].id}
     assert len(model_graph_entities(structural)[0]) == 6
-    forward = compare_model_graph(structural, measured, [])
+    forward = compare_model_graph(structural, measured)
     excluded = {
         item.before.name: item.after_disposition
         for item in forward.constructs
@@ -144,12 +202,12 @@ def test_execution_exclusions_use_the_same_graph_comparison_in_both_directions()
         assert disposition is not None
         assert disposition.disposition == "identification_only"
         assert "Disconnected from outcome 'Y'" in disposition.reason
-    reverse = compare_model_graph(measured, structural, [])
+    reverse = compare_model_graph(measured, structural)
     assert {
         item.after.name for item in reverse.constructs if item.after and item.change == "added"
     } == {"U", "V", "A", "B"}
     assert len([item for item in forward.edges if item.change == "removed"]) == 4
     assert len([item for item in reverse.edges if item.change == "added"]) == 4
-    same = compare_model_graph(measured, measured, [])
+    same = compare_model_graph(measured, measured)
     assert {item.after.name for item in same.constructs if item.after} == {"X", "Y"}
     assert all(item.change == "unchanged" for item in (*same.constructs, *same.edges))

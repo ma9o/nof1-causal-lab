@@ -152,68 +152,29 @@ def _binding_latent_index(binding: SemanticBinding, model_spec: ModelSpec) -> in
 
 def _resolve_model_clock_interval_days(
     model: ModelSpec,
-) -> float | None:
+) -> float:
     """Resolve the declared model clock interval without silently defaulting to 1 day."""
     try:
         interval_days = parse_duration_to_hours(get_model_clock(model)) / 24.0
     except ValueError as exc:
         raise ValueError(
             "model.measurement_clock must parse to a positive interval to "
-            "compile cross-lag priors without explicit reference_interval_days."
+            "compile interval-effect priors without explicit reference_interval_days."
         ) from exc
 
     if interval_days <= 0:
         raise ValueError(
             "model.measurement_clock must resolve to a positive interval to "
-            "compile cross-lag priors."
+            "compile interval-effect priors."
         )
     return interval_days
 
 
-def _resolve_cross_lag_interval_days(
-    *,
-    param_name: str,
-    parameter: ParameterSpec,
-    model_spec: ModelSpec,
-    edge_lag_days: dict[tuple[int, int], float] | None,
-    effect_idx: int,
-    cause_idx: int,
-) -> float:
-    """Resolve a positive authoring interval for cross-lag priors."""
-    ref_days = parameter.reference_interval_days
-    if ref_days is not None:
-        interval_days = float(ref_days)
-        if interval_days <= 0:
-            raise ValueError(
-                f"Cross-lag prior '{param_name}' must set reference_interval_days to a "
-                f"positive value, got {interval_days:.3g}."
-            )
-        return interval_days
-
-    lag_days = (edge_lag_days or {}).get((effect_idx, cause_idx))
-    if lag_days is not None:
-        interval_days = float(lag_days)
-        if interval_days <= 0:
-            raise ValueError(
-                f"Cross-lag prior '{param_name}' maps to non-positive edge lag {interval_days:.3g}."
-            )
-        return interval_days
-
-    if not numeric.state_names(model_spec):
-        raise ValueError(
-            f"Cross-lag prior '{param_name}' cannot resolve effect name: "
-            "ModelSpec.latent_names is empty."
-        )
-    effect_name = numeric.state_names(model_spec)[effect_idx]
-    interval_days = _resolve_model_clock_interval_days(model_spec)
-    if interval_days is not None:
-        return interval_days
-
-    raise ValueError(
-        f"Cross-lag prior '{param_name}' could not resolve an authoring interval. "
-        "Set reference_interval_days explicitly, or compile with edge_lag_days / "
-        f"model measurement_clock metadata for effect '{effect_name}'."
-    )
+def _resolve_effect_interval_days(parameter: ParameterSpec, model: ModelSpec) -> float:
+    """Resolve the authored interval independently of causal-edge placement."""
+    if parameter.reference_interval_days is not None:
+        return float(parameter.reference_interval_days)
+    return _resolve_model_clock_interval_days(model)
 
 
 def _format_interval_days(days: float) -> str:
@@ -252,7 +213,6 @@ def _compile_warning(
 def collect_compile_diagnostics(
     model_spec: ModelSpec,
     *,
-    edge_lag_days: dict[tuple[int, int], float] | None = None,
     prior_registry: dict[str, dist.Distribution] | None = None,
     offdiag_interval_days: dict[tuple[int, int], float] | None = None,
 ) -> list[CompileDiagnostic]:
@@ -264,7 +224,6 @@ def collect_compile_diagnostics(
             collect_first_order_approximation_warnings(
                 prior_registry,
                 model_spec=model_spec,
-                edge_lag_days=edge_lag_days,
                 offdiag_interval_days=offdiag_interval_days,
             )
         )
@@ -280,7 +239,6 @@ def collect_first_order_approximation_warnings(
     prior_registry: dict[str, dist.Distribution],
     *,
     model_spec: ModelSpec,
-    edge_lag_days: dict[tuple[int, int], float] | None = None,
     offdiag_interval_days: dict[tuple[int, int], float] | None = None,
 ) -> list[CompileDiagnostic]:
     """Return warnings when exact matrix-log DT->CT diagnostics diverge from beta/dt."""
@@ -324,7 +282,6 @@ def collect_first_order_approximation_warnings(
         interval_days = _resolve_offdiag_interval_days(
             effect_idx=effect_idx,
             cause_idx=cause_idx,
-            edge_lag_days=edge_lag_days,
             offdiag_interval_days=offdiag_interval_days,
         )
         if interval_days is None:
@@ -450,12 +407,9 @@ def _resolve_offdiag_interval_days(
     *,
     effect_idx: int,
     cause_idx: int,
-    edge_lag_days: dict[tuple[int, int], float] | None,
     offdiag_interval_days: dict[tuple[int, int], float] | None,
 ) -> float | None:
     interval = (offdiag_interval_days or {}).get((effect_idx, cause_idx))
-    if interval is None:
-        interval = (edge_lag_days or {}).get((effect_idx, cause_idx))
     if interval is None:
         return None
     interval = float(interval)
@@ -520,9 +474,19 @@ def compile_parameter_law(
     model: ModelSpec,
     parameter: ParameterSpec,
     binding: SemanticBinding,
-    edge_lag_days: dict[tuple[int, int], float] | None,
 ) -> tuple[dist.Distribution, float | None]:
     """Translate one scalar scientific law into its native numerical coordinates."""
+    if binding.transform == PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE and (
+        binding.effect_idx is None or binding.cause_idx is None
+    ):
+        raise ValueError(f"Dynamics effect prior {parameter.id!r} is missing effect/cause metadata")
+    return quantity_parameter_law(model, parameter, binding.transform)
+
+
+def quantity_parameter_law(
+    model: ModelSpec, parameter: ParameterSpec, transform: PriorAuthoringTransform
+) -> tuple[dist.Distribution, float | None]:
+    """Resolve a scalar quantity's scale without compiling unrelated model components."""
     prior = model.distribution_for(parameter.id)
     if prior is None:
         raise ValueError(f"Parameter {parameter.id!r} requires an explicit probability law")
@@ -534,40 +498,23 @@ def compile_parameter_law(
     prior.validate_args()
     if isinstance(prior, dist.Delta):
         raise ValueError(f"Prior {parameter.id!r}: {_DEGENERATE_PRIOR_PREAMBLE}")
-    if binding.transform == PriorAuthoringTransform.DT_PERSISTENCE_TO_CT_DECAY:
+    if transform == PriorAuthoringTransform.DT_PERSISTENCE_TO_CT_DECAY:
         interval = parameter.reference_interval_days
-        dt = (
-            float(interval)
-            if interval is not None
-            else get_construct_dt_days(model, binding.construct_names[0])
-        )
+        dt = float(interval) if interval is not None else get_construct_dt_days(model)
         return persistence_to_decay(prior, dt), None
-    if binding.transform == PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE:
-        if binding.effect_idx is None or binding.cause_idx is None:
-            raise ValueError(
-                f"Dynamics effect prior {parameter.id!r} is missing effect/cause metadata"
-            )
-        dt = _resolve_cross_lag_interval_days(
-            param_name=parameter.id,
-            parameter=parameter,
-            model_spec=model,
-            edge_lag_days=edge_lag_days,
-            effect_idx=binding.effect_idx,
-            cause_idx=binding.cause_idx,
-        )
+    if transform == PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE:
+        dt = _resolve_effect_interval_days(parameter, model)
         return interval_effect_to_rate(prior, dt), dt
-    if binding.transform == PriorAuthoringTransform.INITIAL_STATE_CORRELATION:
+    if transform == PriorAuthoringTransform.INITIAL_STATE_CORRELATION:
         prior = _correlation_prior(prior)
     return prior, None
 
 
 def compile_priors(
     model: ModelSpec,
-    edge_lag_days: dict[tuple[int, int], float] | None = None,
 ) -> tuple[dict[str, dist.Distribution], SemanticBindingRegistry, list[CompileDiagnostic]]:
     """Bind the model's native distributions to their declared execution coordinates."""
     model.require_execution_structure()
-    edge_lag_days = numeric.edge_lag_days(model) if edge_lag_days is None else edge_lag_days
     parameters = {
         parameter.id: parameter
         for parameter in model.execution_parameters
@@ -611,7 +558,7 @@ def compile_priors(
                 )
                 continue
 
-            prior, effect_interval = compile_parameter_law(model, parameter, binding, edge_lag_days)
+            prior, effect_interval = compile_parameter_law(model, parameter, binding)
             if effect_interval is not None:
                 assert binding.effect_idx is not None
                 assert binding.cause_idx is not None
@@ -674,7 +621,6 @@ def compile_priors(
     if model is not None:
         diagnostics = collect_compile_diagnostics(
             model,
-            edge_lag_days=edge_lag_days,
             prior_registry=prior_registry,
             offdiag_interval_days=offdiag_interval_days,
         )

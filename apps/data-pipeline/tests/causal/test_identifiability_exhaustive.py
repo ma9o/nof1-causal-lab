@@ -127,7 +127,7 @@ def _run_checks(
 #   id:          pytest test id
 #   constructs:  list of {name, [role], [temporal_status]}
 #   default_outcome: persistent reference to the selected outcome
-#   edges:       list of {cause, effect, [lagged]}
+#   edges:       list of {cause, effect}
 #   observed:    list of construct names with measurement indicators
 #   checks:      list of check tuples (see _run_checks for kinds)
 # =============================================================================
@@ -390,35 +390,35 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     # ---- 5. Temporal Dynamics (AR(1) under A3a) ---------------------------
     {
         "default_outcome": "construct:Y",
-        "id": "temporal_lagged_confounding_blocks_id",
+        "id": "temporal_static_confounding_blocks_id",
         "constructs": [
             {"name": "X", "temporal_status": "time_varying"},
             {"name": "Y", "temporal_status": "time_varying"},
-            {"name": "U", "temporal_status": "time_varying"},
+            {"name": "U", "temporal_status": "time_invariant"},
         ],
         "edges": [
-            {"cause": "X", "effect": "Y", "lagged": False},
-            {"cause": "U", "effect": "X", "lagged": True},
-            {"cause": "U", "effect": "Y", "lagged": True},
+            {"cause": "X", "effect": "Y"},
+            {"cause": "U", "effect": "X"},
+            {"cause": "U", "effect": "Y"},
         ],
         "observed": ["X", "Y"],
         "checks": [("not_identifiable", "X"), ("blocked_by", "X", "U")],
     },
     {
         "default_outcome": "construct:Y",
-        "id": "temporal_contemporaneous_confounding",
+        "id": "temporal_dynamic_common_cause",
         "constructs": [
             {"name": "X", "temporal_status": "time_varying"},
             {"name": "Y", "temporal_status": "time_varying"},
             {"name": "U", "temporal_status": "time_varying"},
         ],
         "edges": [
-            {"cause": "X", "effect": "Y", "lagged": False},
-            {"cause": "U", "effect": "X", "lagged": False},
-            {"cause": "U", "effect": "Y", "lagged": False},
+            {"cause": "X", "effect": "Y"},
+            {"cause": "U", "effect": "X"},
+            {"cause": "U", "effect": "Y"},
         ],
         "observed": ["X", "Y"],
-        "checks": [("not_identifiable", "X"), ("blocked_by", "X", "U")],
+        "checks": [("identifiable", "X")],
     },
     # AR(1) enables identification: conditioning on X_{t-1} blocks U_{t-1}->X_{t-1}->X_t.
     {
@@ -430,9 +430,9 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
             {"name": "U", "temporal_status": "time_varying"},
         ],
         "edges": [
-            {"cause": "X", "effect": "Y", "lagged": False},
-            {"cause": "U", "effect": "X", "lagged": False},
-            {"cause": "U", "effect": "Y", "lagged": True},
+            {"cause": "X", "effect": "Y"},
+            {"cause": "U", "effect": "X"},
+            {"cause": "U", "effect": "Y"},
         ],
         "observed": ["X", "Y"],
         "checks": [("identifiable", "X")],
@@ -447,9 +447,9 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
             {"name": "U", "temporal_status": "time_varying"},
         ],
         "edges": [
-            {"cause": "X", "effect": "Y", "lagged": False},
-            {"cause": "U", "effect": "X", "lagged": True},
-            {"cause": "U", "effect": "Y", "lagged": False},
+            {"cause": "X", "effect": "Y"},
+            {"cause": "U", "effect": "X"},
+            {"cause": "U", "effect": "Y"},
         ],
         "observed": ["X", "Y"],
         "checks": [("identifiable", "X")],
@@ -461,20 +461,19 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
             {"name": "X", "temporal_status": "time_varying"},
             {"name": "Y", "temporal_status": "time_varying"},
         ],
-        "edges": [{"cause": "X", "effect": "Y", "lagged": True}],
+        "edges": [{"cause": "X", "effect": "Y"}],
         "observed": ["X", "Y"],
         "checks": [("identifiable", "X")],
     },
     {
         "default_outcome": "construct:Y",
-        "id": "temporal_mixed_lagged_and_contemporaneous",
+        "id": "temporal_declared_direct_effect",
         "constructs": [
             {"name": "X", "temporal_status": "time_varying"},
             {"name": "Y", "temporal_status": "time_varying"},
         ],
         "edges": [
-            {"cause": "X", "effect": "Y", "lagged": False},
-            {"cause": "X", "effect": "Y", "lagged": True},
+            {"cause": "X", "effect": "Y"},
         ],
         "observed": ["X", "Y"],
         "checks": [("identifiable", "X")],
@@ -488,8 +487,8 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
             {"name": "Y", "temporal_status": "time_varying"},
         ],
         "edges": [
-            {"cause": "X", "effect": "Y", "lagged": False},
-            {"cause": "Y", "effect": "X", "lagged": True},
+            {"cause": "X", "effect": "Y"},
+            {"cause": "Y", "effect": "X"},
         ],
         "observed": ["X", "Y"],
         "checks": [("identifiable", "X")],
@@ -509,9 +508,9 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
             {"name": "Y", "temporal_status": "time_varying"},
         ],
         "edges": [
-            {"cause": "Trait", "effect": "X", "lagged": False},
-            {"cause": "Trait", "effect": "Y", "lagged": False},
-            {"cause": "X", "effect": "Y", "lagged": False},
+            {"cause": "Trait", "effect": "X"},
+            {"cause": "Trait", "effect": "Y"},
+            {"cause": "X", "effect": "Y"},
         ],
         "observed": ["Trait", "X", "Y"],
         "checks": [("identifiable", "X")],
@@ -530,9 +529,9 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
             {"name": "Y", "temporal_status": "time_varying"},
         ],
         "edges": [
-            {"cause": "Trait", "effect": "X", "lagged": False},
-            {"cause": "Trait", "effect": "Y", "lagged": False},
-            {"cause": "X", "effect": "Y", "lagged": False},
+            {"cause": "Trait", "effect": "X"},
+            {"cause": "Trait", "effect": "Y"},
+            {"cause": "X", "effect": "Y"},
         ],
         "observed": ["X", "Y"],
         "checks": [("not_identifiable", "X"), ("blocked_by", "X", "Trait")],
@@ -544,7 +543,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
             {"name": "Treatment", "temporal_status": "time_invariant"},
             {"name": "Y", "temporal_status": "time_varying"},
         ],
-        "edges": [{"cause": "Treatment", "effect": "Y", "lagged": False}],
+        "edges": [{"cause": "Treatment", "effect": "Y"}],
         "observed": ["Treatment", "Y"],
         "checks": [("identifiable", "Treatment")],
     },
@@ -562,8 +561,8 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
             {"name": "Y", "temporal_status": "time_varying"},
         ],
         "edges": [
-            {"cause": "Trait", "effect": "X", "lagged": False},
-            {"cause": "X", "effect": "Y", "lagged": False},
+            {"cause": "Trait", "effect": "X"},
+            {"cause": "X", "effect": "Y"},
         ],
         "observed": ["Trait", "X", "Y"],
         "checks": [("identifiable", "X"), ("identifiable", "Trait")],
@@ -1036,9 +1035,8 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
             {"name": "Y", "temporal_status": "time_varying"},
         ],
         "edges": [
-            {"cause": "X", "effect": "Y", "lagged": False},
-            {"cause": "X", "effect": "Y", "lagged": True},
-            {"cause": "Y", "effect": "X", "lagged": True},
+            {"cause": "X", "effect": "Y"},
+            {"cause": "Y", "effect": "X"},
         ],
         "observed": ["X", "Y"],
         "checks": [("identifiable", "X")],
@@ -1058,11 +1056,10 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
             {"name": "Y", "temporal_status": "time_varying"},
         ],
         "edges": [
-            {"cause": "Trait", "effect": "X", "lagged": False},
-            {"cause": "Trait", "effect": "Y", "lagged": False},
-            {"cause": "X", "effect": "Y", "lagged": False},
-            {"cause": "X", "effect": "Y", "lagged": True},
-            {"cause": "Y", "effect": "X", "lagged": True},
+            {"cause": "Trait", "effect": "X"},
+            {"cause": "Trait", "effect": "Y"},
+            {"cause": "X", "effect": "Y"},
+            {"cause": "Y", "effect": "X"},
         ],
         "observed": ["X", "Y"],
         "checks": [("not_identifiable", "X"), ("blocked_by", "X", "Trait")],
@@ -1078,28 +1075,27 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
             {"name": "U", "temporal_status": "time_varying"},
         ],
         "edges": [
-            {"cause": "X", "effect": "M", "lagged": False},
-            {"cause": "M", "effect": "Y", "lagged": False},
-            {"cause": "M", "effect": "Y", "lagged": True},
-            {"cause": "U", "effect": "X", "lagged": False},
-            {"cause": "U", "effect": "Y", "lagged": False},
+            {"cause": "X", "effect": "M"},
+            {"cause": "M", "effect": "Y"},
+            {"cause": "U", "effect": "X"},
+            {"cause": "U", "effect": "Y"},
         ],
         "observed": ["X", "M", "Y"],
         "checks": [("identifiable", "X")],
     },
     {
         "default_outcome": "construct:Y",
-        "id": "tcomplex_bidirectional_contemporaneous_confounded",
+        "id": "tcomplex_feedback_confounded",
         "constructs": [
             {"name": "X", "temporal_status": "time_varying"},
             {"name": "Y", "temporal_status": "time_varying"},
-            {"name": "U", "temporal_status": "time_varying"},
+            {"name": "U", "temporal_status": "time_invariant"},
         ],
         "edges": [
-            {"cause": "X", "effect": "Y", "lagged": False},
-            {"cause": "Y", "effect": "X", "lagged": True},
-            {"cause": "U", "effect": "X", "lagged": False},
-            {"cause": "U", "effect": "Y", "lagged": False},
+            {"cause": "X", "effect": "Y"},
+            {"cause": "Y", "effect": "X"},
+            {"cause": "U", "effect": "X"},
+            {"cause": "U", "effect": "Y"},
         ],
         "observed": ["X", "Y"],
         "checks": [("not_identifiable", "X")],
@@ -1111,13 +1107,13 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
             {"name": "Z", "temporal_status": "time_varying"},
             {"name": "X", "temporal_status": "time_varying"},
             {"name": "Y", "temporal_status": "time_varying"},
-            {"name": "U", "temporal_status": "time_varying"},
+            {"name": "U", "temporal_status": "time_invariant"},
         ],
         "edges": [
-            {"cause": "Z", "effect": "X", "lagged": True},
-            {"cause": "X", "effect": "Y", "lagged": False},
-            {"cause": "U", "effect": "X", "lagged": False},
-            {"cause": "U", "effect": "Y", "lagged": False},
+            {"cause": "Z", "effect": "X"},
+            {"cause": "X", "effect": "Y"},
+            {"cause": "U", "effect": "X"},
+            {"cause": "U", "effect": "Y"},
         ],
         "observed": ["Z", "X", "Y"],
         "checks": [("not_identifiable", "X")],
@@ -1353,7 +1349,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
     # Same Z->X->M1->M2->Y, U->X, U->Y latent structure with three coverage choices.
     {
         "default_outcome": "construct:Y",
-        "id": "coverage_minimal_xy_only_temporal",
+        "id": "coverage_minimal_xy_hidden_mediators",
         "constructs": [
             {"name": "Z", "role": "exogenous"},
             {"name": "X"},
@@ -1371,7 +1367,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
             {"cause": "U", "effect": "Y"},
         ],
         "observed": ["X", "Y"],
-        "checks": [("identifiable", "X")],
+        "checks": [("not_identifiable", "X")],
     },
     {
         "default_outcome": "construct:Y",
@@ -1393,7 +1389,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
             {"cause": "U", "effect": "Y"},
         ],
         "observed": ["Z", "X", "Y"],
-        "checks": [("identifiable", "X")],
+        "checks": [("not_identifiable", "X")],
     },
     {
         "default_outcome": "construct:Y",
@@ -1463,7 +1459,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
             {"name": "X", "temporal_status": "time_varying"},
             {"name": "Y", "temporal_status": "time_varying"},
         ],
-        "edges": [{"cause": "X", "effect": "Y", "lagged": True}],
+        "edges": [{"cause": "X", "effect": "Y"}],
         "observed": ["X", "Y"],
         "checks": [("identifiable", "X")],
     },
@@ -1488,15 +1484,15 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
                 "temporal_status": "time_invariant",
                 "role": "exogenous",
             },
-            {"name": "State", "temporal_status": "time_varying"},
+            {"name": "State", "temporal_status": "time_invariant"},
             {"name": "X", "temporal_status": "time_varying"},
             {"name": "Y", "temporal_status": "time_varying"},
         ],
         "edges": [
             {"cause": "Trait", "effect": "X"},
-            {"cause": "State", "effect": "X", "lagged": False},
-            {"cause": "State", "effect": "Y", "lagged": False},
-            {"cause": "X", "effect": "Y", "lagged": False},
+            {"cause": "State", "effect": "X"},
+            {"cause": "State", "effect": "Y"},
+            {"cause": "X", "effect": "Y"},
         ],
         "observed": ["Trait", "X", "Y"],
         "checks": [
@@ -1508,14 +1504,14 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "default_outcome": "construct:Y",
         "id": "tedge_mixed_no_instrument",
         "constructs": [
-            {"name": "State", "temporal_status": "time_varying"},
+            {"name": "State", "temporal_status": "time_invariant"},
             {"name": "X", "temporal_status": "time_varying"},
             {"name": "Y", "temporal_status": "time_varying"},
         ],
         "edges": [
-            {"cause": "State", "effect": "X", "lagged": False},
-            {"cause": "State", "effect": "Y", "lagged": False},
-            {"cause": "X", "effect": "Y", "lagged": False},
+            {"cause": "State", "effect": "X"},
+            {"cause": "State", "effect": "Y"},
+            {"cause": "X", "effect": "Y"},
         ],
         "observed": ["X", "Y"],
         "checks": [("not_identifiable", "X"), ("blocked_by", "X", "State")],
@@ -1529,9 +1525,9 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
             {"name": "U", "temporal_status": "time_varying"},
         ],
         "edges": [
-            {"cause": "X", "effect": "Y", "lagged": True},
-            {"cause": "U", "effect": "X", "lagged": True},
-            {"cause": "U", "effect": "Y", "lagged": True},
+            {"cause": "X", "effect": "Y"},
+            {"cause": "U", "effect": "X"},
+            {"cause": "U", "effect": "Y"},
         ],
         "observed": ["X", "Y"],
         "checks": [("identifiable", "X")],
@@ -1683,7 +1679,7 @@ def test_marginalization(case):
     children = {edge["effect"] for edge in case["edges"]}
     model = model.revised(
         edges=replace_constructs(
-            tuple(edge.model_copy(update={"lagged": False}) for edge in model.edges),
+            model.edges,
             tuple(
                 construct.model_copy(
                     update={
@@ -1739,10 +1735,10 @@ def test_marginalization(case):
 def _ar1_obs_xy() -> tuple[tuple[tuple[ConstructSpec, ...], tuple[CausalEdgeSpec, ...]], set[str]]:
     latent = make_graph(
         constructs=[
-            {"name": "X", "temporal_status": "time_varying"},
+            {"name": "X", "role": "exogenous", "temporal_status": "time_varying"},
             {"name": "Y", "temporal_status": "time_varying"},
         ],
-        edges=[{"cause": "X", "effect": "Y", "lagged": False}],
+        edges=[{"cause": "X", "effect": "Y"}],
     )
     return latent, {"X", "Y"}
 
@@ -1763,8 +1759,8 @@ def test_unroll_ar1_edges():
     assert ("Y_{t-1}", "Y_t") in edges
 
 
-def test_unroll_ar1_not_added_for_unobserved():
-    """AR(1) edges only on observed time-varying constructs (so projection is correct)."""
+def test_unroll_carryover_includes_hidden_states():
+    """Hidden states carry forward and stay hidden after latent projection."""
     latent = make_graph(
         constructs=[
             {"name": "X", "temporal_status": "time_varying"},
@@ -1772,35 +1768,38 @@ def test_unroll_ar1_not_added_for_unobserved():
             {"name": "Y", "temporal_status": "time_varying"},
         ],
         edges=[
-            {"cause": "X", "effect": "Y", "lagged": False},
-            {"cause": "U", "effect": "X", "lagged": False},
-            {"cause": "U", "effect": "Y", "lagged": False},
+            {"cause": "X", "effect": "Y"},
+            {"cause": "U", "effect": "X"},
+            {"cause": "U", "effect": "Y"},
         ],
     )
     dag = unroll_temporal_dag(*latent, {"X", "Y"})
     edges = list(dag.edges())
     assert ("X_{t-1}", "X_t") in edges
     assert ("Y_{t-1}", "Y_t") in edges
-    assert ("U_{t-1}", "U_t") not in edges
+    assert ("U_{t-1}", "U_t") in edges
+    admg, _ = dag_to_admg(*latent, {"X", "Y"})
+    assert {str(node) for node in admg.nodes()} == {"X_t", "X_{t-1}", "Y_t", "Y_{t-1}"}
     assert "U_t" in dag.nodes()
     assert "U_{t-1}" in dag.nodes()
 
 
-def test_unroll_mirrored_contemporaneous():
+def test_unroll_dynamic_causes_use_previous_slice():
     latent, observed = _ar1_obs_xy()
     dag = unroll_temporal_dag(*latent, observed)
     edges = list(dag.edges())
-    assert ("X_t", "Y_t") in edges
-    assert ("X_{t-1}", "Y_{t-1}") in edges
+    assert ("X_t", "Y_t") not in edges
+    assert ("X_{t-1}", "Y_{t-1}") not in edges
+    assert ("X_{t-1}", "Y_t") in edges
 
 
 def test_unroll_lagged_edges():
     latent = make_graph(
         constructs=[
-            {"name": "X", "temporal_status": "time_varying"},
+            {"name": "X", "role": "exogenous", "temporal_status": "time_varying"},
             {"name": "Y", "temporal_status": "time_varying"},
         ],
-        edges=[{"cause": "X", "effect": "Y", "lagged": True}],
+        edges=[{"cause": "X", "effect": "Y"}],
     )
     dag = unroll_temporal_dag(*latent, {"X", "Y"})
     assert ("X_{t-1}", "Y_t") in list(dag.edges())
@@ -1812,7 +1811,7 @@ def test_unroll_time_invariant_single_node():
             {"name": "Trait", "temporal_status": "time_invariant"},
             {"name": "Y", "temporal_status": "time_varying"},
         ],
-        edges=[{"cause": "Trait", "effect": "Y", "lagged": False}],
+        edges=[{"cause": "Trait", "effect": "Y"}],
     )
     dag = unroll_temporal_dag(*latent, {"Trait", "Y"})
     nodes = set(dag.nodes())
@@ -1827,7 +1826,7 @@ def test_unroll_time_invariant_affects_both_timesteps():
             {"name": "Trait", "temporal_status": "time_invariant"},
             {"name": "Y", "temporal_status": "time_varying"},
         ],
-        edges=[{"cause": "Trait", "effect": "Y", "lagged": False}],
+        edges=[{"cause": "Trait", "effect": "Y"}],
     )
     dag = unroll_temporal_dag(*latent, {"Trait", "Y"})
     edges = list(dag.edges())
@@ -1843,9 +1842,9 @@ def test_unroll_hidden_labels_correct():
             {"name": "Y", "temporal_status": "time_varying"},
         ],
         edges=[
-            {"cause": "X", "effect": "Y", "lagged": False},
-            {"cause": "U", "effect": "X", "lagged": False},
-            {"cause": "U", "effect": "Y", "lagged": False},
+            {"cause": "X", "effect": "Y"},
+            {"cause": "U", "effect": "X"},
+            {"cause": "U", "effect": "Y"},
         ],
     )
     dag = unroll_temporal_dag(*latent, {"X", "Y"})
@@ -1868,9 +1867,9 @@ def test_admg_bidirected_from_contemporaneous_confounder():
             {"name": "U", "temporal_status": "time_varying"},
         ],
         edges=[
-            {"cause": "X", "effect": "Y", "lagged": False},
-            {"cause": "U", "effect": "X", "lagged": False},
-            {"cause": "U", "effect": "Y", "lagged": False},
+            {"cause": "X", "effect": "Y"},
+            {"cause": "U", "effect": "X"},
+            {"cause": "U", "effect": "Y"},
         ],
     )
     admg, confounders = dag_to_admg(*latent, {"X", "Y"})
@@ -1887,9 +1886,9 @@ def test_admg_bidirected_from_lagged_confounder():
             {"name": "U", "temporal_status": "time_varying"},
         ],
         edges=[
-            {"cause": "X", "effect": "Y", "lagged": False},
-            {"cause": "U", "effect": "X", "lagged": True},
-            {"cause": "U", "effect": "Y", "lagged": True},
+            {"cause": "X", "effect": "Y"},
+            {"cause": "U", "effect": "X"},
+            {"cause": "U", "effect": "Y"},
         ],
     )
     admg, confounders = dag_to_admg(*latent, {"X", "Y"})
@@ -1906,8 +1905,8 @@ def test_admg_no_bidirected_single_child():
             {"name": "U", "temporal_status": "time_varying"},
         ],
         edges=[
-            {"cause": "X", "effect": "Y", "lagged": False},
-            {"cause": "U", "effect": "X", "lagged": False},
+            {"cause": "X", "effect": "Y"},
+            {"cause": "U", "effect": "X"},
         ],
     )
     _admg, confounders = dag_to_admg(*latent, {"X", "Y"})

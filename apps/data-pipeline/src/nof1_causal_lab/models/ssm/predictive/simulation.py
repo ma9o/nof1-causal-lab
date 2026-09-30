@@ -28,6 +28,8 @@ from nof1_causal_lab.models.ssm.simulation_checks import (
 )
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     import polars as pl
 
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
@@ -67,6 +69,7 @@ def generate_simulation_batch(
     times: np.ndarray | jnp.ndarray | None = None,
     draws: int = SIMULATION_DRAWS,
     seed: int = SIMULATION_SEED,
+    time_origin: datetime | None,
 ) -> SimulationBatch:
     """Sample current laws once and always generate nonlinear stochastic paths and emissions.
 
@@ -85,6 +88,19 @@ def generate_simulation_batch(
     if len(grid) < 2 or grid[0] != start or grid[-1] != design.end or np.any(np.diff(grid) <= 0):
         raise ValueError("The prepared simulation grid must increase from start through end")
     initial = None
+    if laws.latent_paths is None:
+        if start < 0:
+            raise ValueError("Simulation cannot start before the initial law at model day zero")
+        if start > 0:
+            history, _, _ = simulate_latent_histories(
+                model,
+                laws.parameters,
+                jnp.asarray([0.0, start]),
+                random.fold_in(predictive_keys(seed).latents, 1),
+                None,
+                (),
+            )
+            initial = history[:, -1, :]
     if laws.latent_paths is not None:
         index = int(np.searchsorted(model.time_points, start, side="right")) - 1
         if index < 0:
@@ -107,7 +123,7 @@ def generate_simulation_batch(
     from nof1_causal_lab.models.ssm.observation_support import prepare_simulation_observations
 
     observations, support = prepare_simulation_observations(
-        model, grid, comparison_data=comparison_data
+        model, grid, comparison_data=comparison_data, time_origin=time_origin
     )
     interventions = []
     for event in design.interventions:

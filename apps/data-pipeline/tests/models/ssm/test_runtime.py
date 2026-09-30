@@ -5,6 +5,7 @@ Covers: semantic prior binding and fit-input preparation.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
 
 import jax.numpy as jnp
@@ -23,6 +24,7 @@ from nof1_causal_lab.models.ssm.runtime import (
     build_ssm_model,
     prepare_fit_inputs,
     prepare_model_runtime,
+    project_observation_data,
 )
 from nof1_causal_lab.models.ssm.structure import (
     DiffusionBlockSpec,
@@ -93,7 +95,7 @@ def _make_spec(
 class TestBuilderPriorConversion:
     def test_ar_prior_rejects_negative_support(self):
         model = complete_test_model(make_model(["mood"]))
-        _spec, _ = (model, numeric.edge_lag_days(model))
+        _spec = model
         with pytest.raises(ValueError, match=r"support within \[0, 1\]"):
             compile_priors(
                 make_prior_model(
@@ -279,6 +281,36 @@ class TestPrepareFitInputs:
 
 class TestPrepareModelRuntime:
     @pytest.mark.contract
+    def test_selected_indicators_keep_the_panel_origin_and_initial_grid_point(self):
+        from nof1_causal_lab.models.ssm.observation_support import (
+            augment_wide_data_with_support_boundaries,
+        )
+        from nof1_causal_lab.utils.observation_rows import prepared_time_origin
+
+        early = make_model(["early"])
+        late = make_model(["late"])
+        rows = pl.DataFrame(
+            {
+                "indicator_id": [early.indicators[0].id, late.indicators[0].id],
+                "value": [1.0, 2.0],
+                "anchor_time": [datetime(2024, 1, 2), datetime(2024, 1, 12)],
+                "support_start": [datetime(2024, 1, 1), datetime(2024, 1, 11)],
+                "support_end": [datetime(2024, 1, 2), datetime(2024, 1, 12)],
+                "support_kind": ["point", "point"],
+            }
+        )
+        origin = prepared_time_origin(rows, None)
+        assert origin == datetime(2024, 1, 1, tzinfo=UTC)
+        for model, expected in ((early, 1.0), (late, 11.0)):
+            wide, selected = project_observation_data(rows, model_spec=model, time_origin=origin)
+            assert wide["time"].to_list() == [expected]
+            augmented = augment_wide_data_with_support_boundaries(
+                selected, wide, [model.indicators[0].name], time_origin=origin
+            )
+            assert augmented["time"].to_list() == [0.0, expected]
+            assert augmented[model.indicators[0].name][0] is None
+
+    @pytest.mark.contract
     def test_preserves_long_observation_metadata_and_augments_support_boundaries(self, caplog):
         data_for_model = pl.DataFrame(
             {
@@ -310,6 +342,7 @@ class TestPrepareModelRuntime:
         with caplog.at_level("INFO"):
             runtime = prepare_model_runtime(
                 data_for_model,
+                time_origin=datetime(2024, 1, 1, tzinfo=UTC),
                 model_spec=(cast("SSMModel", StubModel())).spec,
                 model=cast("SSMModel", StubModel()),
                 sampler_config=cast(
@@ -326,7 +359,7 @@ class TestPrepareModelRuntime:
         assert runtime.observation_data["observation_window"][0] == "1mo"
         assert runtime.observation_data["support_end"][0] == "2024-02-01T00:00:00"
         assert runtime.observation_data["anchor_time"][0] == "2024-02-01T00:00:00"
-        assert runtime.wide_data["time"].to_list() == [-31.0, 0.0]
+        assert runtime.wide_data["time"].to_list() == [0.0, 31.0]
         assert runtime.observation_support is not None
         assert runtime.observation_support.manifest_names == ["stress_score"]
         assert runtime.observation_support.support_kinds == ["interval"]
@@ -337,8 +370,8 @@ class TestPrepareModelRuntime:
         assert runtime.observation_support.interval_summary_manifest_names == ["stress_score"]
         assert runtime.observation_support.support_start_times.shape == (2, 1)
         assert runtime.observation_support.support_end_times.shape == (2, 1)
-        assert runtime.observation_support.support_start_times[1, 0] == pytest.approx(-31.0)
-        assert runtime.observation_support.support_end_times[1, 0] == pytest.approx(0.0)
+        assert runtime.observation_support.support_start_times[1, 0] == pytest.approx(0.0)
+        assert runtime.observation_support.support_end_times[1, 0] == pytest.approx(31.0)
         assert runtime.observation_support.interval_prev_coeffs.shape == (2, 1, 1)
         assert runtime.observation_support.interval_curr_coeffs.shape == (2, 1, 1)
         assert runtime.observation_support.interval_weights.shape == (2, 1, 1)
@@ -387,6 +420,7 @@ class TestPrepareModelRuntime:
 
         runtime = prepare_model_runtime(
             data_for_model,
+            time_origin=datetime(2024, 1, 1, tzinfo=UTC),
             model_spec=(cast("SSMModel", StubModel())).spec,
             model=cast("SSMModel", StubModel()),
             sampler_config=cast(
@@ -395,7 +429,7 @@ class TestPrepareModelRuntime:
             ),
         )
 
-        assert runtime.wide_data["time"].to_list() == [-2.0, -1.0, 0.0, 1.0]
+        assert runtime.wide_data["time"].to_list() == [0.0, 1.0, 2.0, 3.0]
         assert runtime.observation_support is not None
         assert runtime.observation_support.max_active_windows == 2
         assert runtime.inference_structure.structural_backend == "laplace"
@@ -437,6 +471,7 @@ class TestPrepareModelRuntime:
         )
         runtime = prepare_model_runtime(
             data_for_model,
+            time_origin=datetime(2024, 1, 1, tzinfo=UTC),
             model_spec=(model).spec,
             model=model,
             sampler_config=cast(
@@ -454,6 +489,7 @@ class TestPrepareModelRuntime:
             times=runtime.times,
             draws=3,
             comparison_data=data_for_model,
+            time_origin=datetime(2024, 1, 1, tzinfo=UTC),
         ).prediction
 
         assert samples.trajectory.observations.shape == (3, 2, 1)

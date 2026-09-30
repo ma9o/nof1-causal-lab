@@ -43,6 +43,7 @@ def inference_log(
             },
             "report": report
             or {
+                "time_origin": "2024-01-01T00:00:00Z",
                 "inference_metadata": {
                     "method": "marginal_particle_gibbs",
                     "n_samples": 3,

@@ -29,6 +29,8 @@ from nof1_causal_lab.models.ssm.preflight import ObservationPreflightError
 from nof1_causal_lab.utils.data import pivot_to_wide
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
     from nof1_causal_lab.sampler_config import (
@@ -109,7 +111,7 @@ def build_ssm_model(wide_data: pl.DataFrame, *, model_spec: ModelSpec) -> SSMMod
         raise ValueError("Cannot build SSM model from empty data")
     validate_discrete_manifest_metadata(model_spec, wide_data)
     validate_observation_support(model_spec, wide_data)
-    priors, _, _, _, _ = compile_ssm_inputs_from_model(model_spec)
+    priors, _, _, _ = compile_ssm_inputs_from_model(model_spec)
     return SSMModel(
         model_spec, priors, prior_runtime_bundle=build_prior_runtime_bundle(model_spec, priors)
     )
@@ -140,6 +142,7 @@ def prepare_wide_model_runtime(
     sampler_config: SamplerConfigInput | None = None,
     model: SSMModel | None = None,
     observation_data: pl.DataFrame | None = None,
+    time_origin: datetime | None,
 ) -> PreparedModelRuntime:
     """Build or reuse an ``SSMModel`` and extract fit-ready arrays."""
     resolved_sampler_config = sampler_config or get_default_sampler_config()
@@ -152,12 +155,14 @@ def prepare_wide_model_runtime(
         observation_data,
         wide_data,
         manifest_names,
+        time_origin=time_origin,
     )
     observations, times, manifest_names, wide_data = prepare_fit_inputs(spec, wide_data)
     observation_support = compile_observation_support_runtime(
         observation_data,
         wide_data,
         manifest_names,
+        time_origin=time_origin,
     )
     model.set_observation_support(observation_support)
     inference_structure = plan_inference_structure(
@@ -197,22 +202,26 @@ def prepare_model_runtime(
     data_for_model: pl.DataFrame,
     *,
     model_spec: ModelSpec,
+    time_origin: datetime | None,
     sampler_config: SamplerConfigInput | None = None,
     model: SSMModel | None = None,
 ) -> PreparedModelRuntime:
     """Canonical entry point for preparing stage data for model work."""
-    wide_data, runtime_rows = project_observation_data(data_for_model, model_spec=model_spec)
+    wide_data, runtime_rows = project_observation_data(
+        data_for_model, model_spec=model_spec, time_origin=time_origin
+    )
     return prepare_wide_model_runtime(
         wide_data,
         model_spec=model_spec,
         sampler_config=sampler_config,
         model=model,
         observation_data=runtime_rows,
+        time_origin=time_origin,
     )
 
 
 def project_observation_data(
-    data_for_model: pl.DataFrame, *, model_spec: ModelSpec
+    data_for_model: pl.DataFrame, *, model_spec: ModelSpec, time_origin: datetime | None
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Resolve indicator identities without compiling parameter laws or fitting."""
     labels = {indicator.id: indicator.name for indicator in model_spec.indicators}
@@ -225,7 +234,7 @@ def project_observation_data(
         raise ObservationPreflightError(
             "Prepared observations are missing model indicators: " + ", ".join(missing)
         )
-    wide_data = pivot_to_wide(selected)
+    wide_data = pivot_to_wide(selected, time_origin=time_origin)
     runtime_rows = selected.rename({"indicator_id": "indicator"})
     wide_data = wide_data.rename(
         {iid: name for iid, name in labels.items() if iid in wide_data.columns}

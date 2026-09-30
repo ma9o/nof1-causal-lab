@@ -19,7 +19,7 @@ def test_planner_rejects_retained_static_target_edge():
     x, baseline, y = model.constructs
     model = model.revised(
         edges=replace_constructs(
-            tuple(edge.model_copy(update={"lagged": False}) for edge in model.edges),
+            model.edges,
             (
                 x.model_copy(
                     update={
@@ -37,9 +37,9 @@ def test_planner_rejects_retained_static_target_edge():
 
 
 @pytest.mark.contract
-def test_model_rejects_multiple_lag_classes_for_one_edge():
+def test_model_rejects_duplicate_endpoint_pairs():
     model = make_model(["X", "Y"], [("X", "Y")])
-    duplicate = model.edges[0].model_copy(update={"id": "edge:another", "lagged": False})
+    duplicate = model.edges[0].model_copy(update={"id": "edge:another"})
     with pytest.raises(ValueError, match="one causal edge per endpoint pair"):
         model.revised(edges=(*model.edges, duplicate))
 
@@ -259,7 +259,7 @@ def test_severed_components_do_not_require_priors_or_bind_numerical_parameters()
         nodes["X"].id,
         nodes["Y"].id,
     }
-    _, bindings, _, _, _ = compile_ssm_inputs_from_model(selected)
+    _, bindings, _, _ = compile_ssm_inputs_from_model(selected)
     assert {item.parameter_id for item in bindings} == {
         item.id for item in selected.execution_parameters if item.value is None
     }

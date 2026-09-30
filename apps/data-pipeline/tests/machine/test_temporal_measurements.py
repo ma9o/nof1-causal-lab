@@ -390,6 +390,9 @@ def test_execute_llm_tool_calls_activity_persists_raw_data_submit_table(
     assert column_descriptions(table) == descriptions
     assert pl.DataFrame(table).equals(dataframe)
 
+    context = storage.read_json(context_ref)
+    context.update(cache_ref=str(tmp_path / "cache.arrow"), reused=False)
+    storage.write_text(context_ref, json.dumps(context))
     effects = run_async(
         finalize_raw_data_activity(
             SingleLLMTransitionFinalizeInput(
@@ -683,7 +686,8 @@ def test_execute_llm_tool_calls_activity_terminal_without_result_ref(tmp_path):
 
 
 @pytest.mark.workflow
-def test_extraction_chunk_workflow_runs_shared_llm_subroutine(monkeypatch, tmp_path):
+@pytest.mark.parametrize("reused", [False, True])
+def test_extraction_chunk_workflow_runs_shared_llm_subroutine(monkeypatch, tmp_path, reused):
     from temporalio.testing import WorkflowEnvironment
 
     import nof1_causal_lab.utils.openrouter_client as openrouter_client
@@ -705,6 +709,7 @@ def test_extraction_chunk_workflow_runs_shared_llm_subroutine(monkeypatch, tmp_p
     )
 
     async def fake_call_model(model_name, messages, tools=None, config=None, log_label=None):
+        assert not reused, "A retained cache hit must skip the LLM subroutine"
         del messages, tools, config, log_label
         return {
             "message": {
@@ -731,12 +736,16 @@ def test_extraction_chunk_workflow_runs_shared_llm_subroutine(monkeypatch, tmp_p
     monkeypatch.setattr(openrouter_client, "call_model", fake_call_model)
 
     workspace_id = f"ws-{uuid.uuid4().hex[:8]}"
+    cached_result_ref = str(tmp_path / "cached-result.json") if reused else None
+    if cached_result_ref is not None:
+        storage.write_text(cached_result_ref, output_json)
     spec_ref = str(tmp_path / "chunk.json")
     storage.write_text(
         spec_ref,
         json.dumps(
             {
                 "worker_id": 0,
+                "cache_ref": str(tmp_path / "extraction-cache.json"),
                 "question": "does exercise improve sleep?",
                 "window_text": "2026-01-01T00:00:00: steps were 1000",
                 "window_starts": ["2026-01-01T00:00:00"],
@@ -773,6 +782,7 @@ def test_extraction_chunk_workflow_runs_shared_llm_subroutine(monkeypatch, tmp_p
                         worker_id=0,
                         n_windows=1,
                         spec_ref=spec_ref,
+                        cached_result_ref=cached_result_ref,
                         attempt=1,
                         llm=EmbeddedLLMSpec(
                             harness="none",
@@ -792,7 +802,8 @@ def test_extraction_chunk_workflow_runs_shared_llm_subroutine(monkeypatch, tmp_p
 
     assert result.status == "completed"
     assert result.n_extractions == 1
-    assert result.n_llm_calls == 1
+    assert result.n_llm_calls == (0 if reused else 1)
+    assert result.reused is reused
     assert result.result_ref is not None
     assert storage.read_json(result.result_ref)["dataframe"][0]["value"] == "1000"
     from nof1_causal_lab.utils.llm import LLMTrace
@@ -803,9 +814,12 @@ def test_extraction_chunk_workflow_runs_shared_llm_subroutine(monkeypatch, tmp_p
         "measurement-chunk-000000-attempt-001",
         "trace.json",
     )
-    trace = LLMTrace.model_validate(storage.read_json(trace_path))
-    assert trace.model == "openrouter/mock-extraction"
-    assert trace.usage.input_tokens == 3
+    if reused:
+        assert not storage.exists(trace_path)
+    else:
+        trace = LLMTrace.model_validate(storage.read_json(trace_path))
+        assert trace.model == "openrouter/mock-extraction"
+        assert trace.usage.input_tokens == 3
 
 
 @pytest.mark.workflow

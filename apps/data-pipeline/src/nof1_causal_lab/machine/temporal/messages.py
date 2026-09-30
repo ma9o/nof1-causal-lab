@@ -330,6 +330,7 @@ class SingleLLMTransitionPlan(BaseModel):
     pins: dict[ArtifactId, GitOid]
     llm: LLMProfileSpec
     max_tool_turns: int
+    cached_result_ref: str | None = None
 
 
 class SingleLLMTransitionFinalizeInput(BaseModel):
@@ -349,6 +350,7 @@ class MeasurementChunkRef(BaseModel):
     worker_id: int
     n_windows: int
     spec_ref: str
+    cached_result_ref: str | None = None
 
 
 class MeasurementsPlan(BaseModel):
@@ -440,6 +442,7 @@ class ExtractionChunkWorkflowInput(BaseModel):
     attempt: int
     llm: EmbeddedLLMSpec
     max_tool_turns: int
+    cached_result_ref: str | None = None
 
 
 class OpenRouterCallInput(BaseModel):
@@ -486,6 +489,8 @@ class ExtractionChunkFinalizeInput(BaseModel):
     result_ref: str
     conversation_ref: str
     n_llm_calls: int
+    spec_ref: str
+    reused: bool = False
 
 
 class ExtractionChunkResult(BaseModel):
@@ -498,6 +503,7 @@ class ExtractionChunkResult(BaseModel):
     n_llm_calls: int = 0
     result_ref: str | None = None
     error: str | None = None
+    reused: bool = False
 
 
 class MeasurementsFinalizeInput(BaseModel):

@@ -9,9 +9,11 @@ import numpyro.distributions as dist
 import pytest
 from pydantic import TypeAdapter
 
-from nof1_causal_lab.machine.prior_views import prior_density
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.machine.prior_views import prior_density, quantity_prior_densities
 from nof1_causal_lab.numpyro_json import NumPyroDistribution
-from nof1_causal_lab.prior_distributions import interval_effect_to_rate
+from nof1_causal_lab.prior_distributions import interval_effect_to_rate, persistence_to_decay
+from tests.helpers import complete_test_model
 
 pytestmark = [
     pytest.mark.inference(concern="sampling"),
@@ -41,3 +43,57 @@ def test_prior_curves_preserve_native_gamma_and_transforms_without_mutating_the_
         dist.MultivariateNormal(jnp.zeros(2), jnp.eye(2)),
     ):
         assert prior_density(law) == ()
+
+
+def test_quantity_curves_put_authored_laws_on_the_posterior_scale():
+    state = {
+        key: {
+            "id": f"construct:{key}",
+            "name": key.upper(),
+            "description": key,
+            "role": "endogenous",
+            "temporal_status": "time_varying",
+            "indicators": [
+                {
+                    "id": f"indicator:{key}",
+                    "name": f"{key.upper()}_obs",
+                    "construct_polarity": "positive",
+                    "measurement_dtype": "continuous",
+                    "aggregation": "mean",
+                }
+            ],
+        }
+        for key in ("x", "y")
+    }
+    model = complete_test_model(
+        ModelSpec.model_validate(
+            {
+                "question": "Does X change Y?",
+                "measurement_clock": "1d",
+                "edges": [
+                    {"id": "edge:xy", "cause": state["x"], "effect": state["y"], "description": "X"}
+                ],
+            }
+        )
+    )
+    curves = quantity_prior_densities(model)
+    transforms = {parameter.distribution_transform for parameter in model.parameters}
+    assert "dt_persistence_to_ct_decay" in transforms
+    for parameter in model.parameters:
+        law = model.distribution_for(parameter.id)
+        match parameter.distribution_transform:
+            case "dt_persistence_to_ct_decay":
+                # Posteriors report decay rates, so persistence priors move to that axis.
+                native = persistence_to_decay(law, 1.0)
+            case "dt_effect_to_ct_rate":
+                native = interval_effect_to_rate(law, 1.0)
+            case "identity" if law is not None:
+                native = law
+            case _:
+                continue
+        np.testing.assert_allclose(
+            [(point.x, point.y) for point in curves[parameter.id]],
+            [(point.x, point.y) for point in prior_density(native)],
+            rtol=1e-6,
+            err_msg=parameter.name,
+        )

@@ -31,7 +31,7 @@ def _format_indicators(measurement_structure: UncheckedJsonObject) -> str:
             codebook = ", ".join(f"{index}={level}" for index, level in enumerate(levels))
             details.append(f"{dtype}_codes={codebook}")
 
-        lines.append(f"- {name} ({', '.join(details)}): {how_to_measure}")
+        lines.append(f"- {name} [{indicator['id']}] ({', '.join(details)}): {how_to_measure}")
     return "\n".join(lines)
 
 

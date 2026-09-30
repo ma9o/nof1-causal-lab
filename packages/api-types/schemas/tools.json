@@ -2058,12 +2058,6 @@
                       "title": "Description",
                       "type": "string"
                     },
-                    "lagged": {
-                      "default": true,
-                      "description": "If True, effect at t is caused by cause at t-1 (one model_clock tick delay). If False (contemporaneous), effect at t is caused by cause at t.",
-                      "title": "Lagged",
-                      "type": "boolean"
-                    },
                     "sources": {
                       "description": "Literature sources supporting this causal link",
                       "items": {
@@ -2188,7 +2182,7 @@
                         }
                       ],
                       "default": null,
-                      "description": "Positive duration in days over which an authored persistence or interval-effect law is defined, before conversion to continuous-time decay or rate. When omitted, persistence uses the model measurement clock; interval effects use the edge lag, falling back to that clock.",
+                      "description": "Positive duration in days over which an authored persistence or interval-effect law is defined, before conversion to continuous-time decay or rate. When omitted, persistence and interval effects use the model measurement clock.",
                       "title": "Reference Interval Days"
                     }
                   },
@@ -2450,12 +2444,6 @@
                 "description": "Theoretical justification for this causal link",
                 "title": "Description",
                 "type": "string"
-              },
-              "lagged": {
-                "default": true,
-                "description": "If True, effect at t is caused by cause at t-1 (one model_clock tick delay). If False (contemporaneous), effect at t is caused by cause at t.",
-                "title": "Lagged",
-                "type": "boolean"
               },
               "sources": {
                 "description": "Literature sources supporting this causal link",
@@ -3236,7 +3224,7 @@
                   }
                 ],
                 "default": null,
-                "description": "Positive duration in days over which an authored persistence or interval-effect law is defined, before conversion to continuous-time decay or rate. When omitted, persistence uses the model measurement clock; interval effects use the edge lag, falling back to that clock.",
+                "description": "Positive duration in days over which an authored persistence or interval-effect law is defined, before conversion to continuous-time decay or rate. When omitted, persistence and interval effects use the model measurement clock.",
                 "title": "Reference Interval Days"
               }
             },
@@ -3307,10 +3295,10 @@
     },
     {
       "name": "prepare_data",
-      "description": "Prepare uploaded files with scoring instructions and semantic workers, materialize one recorded simulation replicate, or select a pre-extracted Parquet observation table with declared variables and optional date bounds; return model-independent observations, metadata and numerical data checks. Dispatch returns only attempt_id. Use poll_action for messages and the final result.",
+      "description": "Prepare uploaded files and a recipe within optional source coverage bounds, or materialize one recorded simulation replicate; return model-independent observations, metadata and numerical data checks. Dispatch returns only attempt_id. Use poll_action for messages and the final result.",
       "parameters": {
         "additionalProperties": false,
-        "description": "Prepare uploaded sources, a simulation replicate, or extracted observations without a model.",
+        "description": "Prepare uploaded sources or a simulation replicate without a model.",
         "properties": {
           "action": {
             "const": "prepare_data",
@@ -3335,6 +3323,34 @@
                         "minItems": 1,
                         "title": "Files",
                         "type": "array"
+                      },
+                      "start": {
+                        "anyOf": [
+                          {
+                            "format": "date",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "description": "Inclusive UTC source-coverage date.",
+                        "title": "Start"
+                      },
+                      "end": {
+                        "anyOf": [
+                          {
+                            "format": "date",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "description": "Exclusive UTC source-coverage date.",
+                        "title": "End"
                       }
                     },
                     "required": [
@@ -3554,19 +3570,6 @@
                     ],
                     "title": "DataPreparationSpec",
                     "type": "object"
-                  },
-                  "max_windows": {
-                    "anyOf": [
-                      {
-                        "minimum": 1,
-                        "type": "integer"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ],
-                    "default": null,
-                    "title": "Max Windows"
                   }
                 },
                 "required": [
@@ -3595,214 +3598,6 @@
                   "replicate"
                 ],
                 "title": "SimulationReplicateRef",
-                "type": "object"
-              },
-              {
-                "additionalProperties": false,
-                "description": "Select already extracted observations by their declared variable schema.",
-                "properties": {
-                  "source": {
-                    "additionalProperties": false,
-                    "description": "An uploaded Parquet observation table and its selected UTC calendar interval.",
-                    "properties": {
-                      "file": {
-                        "description": "Uploaded Parquet filename, without directory components.",
-                        "title": "File",
-                        "type": "string"
-                      },
-                      "start": {
-                        "anyOf": [
-                          {
-                            "format": "date",
-                            "type": "string"
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ],
-                        "default": null,
-                        "description": "Inclusive UTC anchor date (ISO YYYY-MM-DD).",
-                        "title": "Start"
-                      },
-                      "end": {
-                        "anyOf": [
-                          {
-                            "format": "date",
-                            "type": "string"
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ],
-                        "default": null,
-                        "description": "Exclusive UTC anchor date (ISO YYYY-MM-DD).",
-                        "title": "End"
-                      }
-                    },
-                    "required": [
-                      "file"
-                    ],
-                    "title": "ObservationTableRef",
-                    "type": "object"
-                  },
-                  "variables": {
-                    "items": {
-                      "additionalProperties": false,
-                      "description": "A stable observed variable, reusable across scientific model definitions.",
-                      "properties": {
-                        "id": {
-                          "pattern": "^indicator:[A-Za-z0-9_.-]+$",
-                          "tsType": "`indicator:${string}`",
-                          "type": "string"
-                        },
-                        "name": {
-                          "description": "Indicator name (e.g., 'hrv', 'self_reported_stress')",
-                          "title": "Name",
-                          "type": "string"
-                        },
-                        "measurement_dtype": {
-                          "enum": [
-                            "continuous",
-                            "binary",
-                            "count",
-                            "ordinal",
-                            "categorical"
-                          ],
-                          "type": "string"
-                        },
-                        "aggregation": {
-                          "enum": [
-                            "mean",
-                            "sum",
-                            "min",
-                            "max",
-                            "std",
-                            "var",
-                            "last",
-                            "first",
-                            "count",
-                            "median",
-                            "p10",
-                            "p25",
-                            "p75",
-                            "p90",
-                            "p99",
-                            "skew",
-                            "kurtosis",
-                            "iqr",
-                            "range",
-                            "cv",
-                            "entropy",
-                            "instability",
-                            "trend",
-                            "n_unique"
-                          ],
-                          "type": "string"
-                        },
-                        "observation_window": {
-                          "anyOf": [
-                            {
-                              "type": "string"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ],
-                          "default": null,
-                          "description": "Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock.",
-                          "title": "Observation Window"
-                        },
-                        "fill_null": {
-                          "anyOf": [
-                            {
-                              "enum": [
-                                "forward",
-                                "backward",
-                                "min",
-                                "max",
-                                "mean",
-                                "zero",
-                                "one"
-                              ],
-                              "type": "string"
-                            },
-                            {
-                              "type": "number"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ],
-                          "default": null,
-                          "description": "Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.",
-                          "title": "Fill Null"
-                        },
-                        "fill_null_limit": {
-                          "anyOf": [
-                            {
-                              "minimum": 0,
-                              "type": "integer"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ],
-                          "default": null,
-                          "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.",
-                          "title": "Fill Null Limit"
-                        },
-                        "ordinal_levels": {
-                          "anyOf": [
-                            {
-                              "items": {
-                                "type": "string"
-                              },
-                              "type": "array"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ],
-                          "default": null,
-                          "description": "Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.",
-                          "title": "Ordinal Levels"
-                        },
-                        "categorical_levels": {
-                          "anyOf": [
-                            {
-                              "items": {
-                                "type": "string"
-                              },
-                              "type": "array"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ],
-                          "default": null,
-                          "description": "Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding.",
-                          "title": "Categorical Levels"
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "name",
-                        "measurement_dtype",
-                        "aggregation"
-                      ],
-                      "title": "ObservationSpec",
-                      "type": "object"
-                    },
-                    "minItems": 1,
-                    "title": "Variables",
-                    "type": "array"
-                  }
-                },
-                "required": [
-                  "source",
-                  "variables"
-                ],
-                "title": "ObservationTableSpec",
                 "type": "object"
               }
             ],
@@ -6136,12 +5931,6 @@
                                   "title": "Description",
                                   "type": "string"
                                 },
-                                "lagged": {
-                                  "default": true,
-                                  "description": "If True, effect at t is caused by cause at t-1 (one model_clock tick delay). If False (contemporaneous), effect at t is caused by cause at t.",
-                                  "title": "Lagged",
-                                  "type": "boolean"
-                                },
                                 "sources": {
                                   "description": "Literature sources supporting this causal link",
                                   "items": {
@@ -6266,7 +6055,7 @@
                                     }
                                   ],
                                   "default": null,
-                                  "description": "Positive duration in days over which an authored persistence or interval-effect law is defined, before conversion to continuous-time decay or rate. When omitted, persistence uses the model measurement clock; interval effects use the edge lag, falling back to that clock.",
+                                  "description": "Positive duration in days over which an authored persistence or interval-effect law is defined, before conversion to continuous-time decay or rate. When omitted, persistence and interval effects use the model measurement clock.",
                                   "title": "Reference Interval Days"
                                 }
                               },
@@ -6594,6 +6383,18 @@
                                 ],
                                 "default": null
                               },
+                              "fitted_model_revision": {
+                                "anyOf": [
+                                  {
+                                    "pattern": "^[0-9a-f]{40}$",
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "default": null
+                              },
                               "interpretation": {
                                 "enum": [
                                   "prior_predictive",
@@ -6751,7 +6552,7 @@
                                   },
                                   "overlays": {
                                     "items": {
-                                      "description": "A predictive overlay compares observed values with posterior predictive bands for one\nindicator.\n\nProvides the data for Gabry's ppc_dens_overlay / ppc_ribbon plots:\nobserved time series vs posterior predictive quantile bands.\nOptionally includes individual y_rep draw lines for spaghetti plots.",
+                                      "description": "A predictive overlay sets one indicator's observed values against simulated ones.\n\nIt carries the predictive median and a few individual replicated series, the\nspaghetti plot of a visual predictive check.",
                                       "properties": {
                                         "indicator_id": {
                                           "pattern": "^indicator:[A-Za-z0-9_.-]+$",
@@ -6772,34 +6573,6 @@
                                           "title": "Observed",
                                           "type": "array"
                                         },
-                                        "q025": {
-                                          "items": {
-                                            "anyOf": [
-                                              {
-                                                "type": "number"
-                                              },
-                                              {
-                                                "type": "null"
-                                              }
-                                            ]
-                                          },
-                                          "title": "Q025",
-                                          "type": "array"
-                                        },
-                                        "q25": {
-                                          "items": {
-                                            "anyOf": [
-                                              {
-                                                "type": "number"
-                                              },
-                                              {
-                                                "type": "null"
-                                              }
-                                            ]
-                                          },
-                                          "title": "Q25",
-                                          "type": "array"
-                                        },
                                         "median": {
                                           "items": {
                                             "anyOf": [
@@ -6812,34 +6585,6 @@
                                             ]
                                           },
                                           "title": "Median",
-                                          "type": "array"
-                                        },
-                                        "q75": {
-                                          "items": {
-                                            "anyOf": [
-                                              {
-                                                "type": "number"
-                                              },
-                                              {
-                                                "type": "null"
-                                              }
-                                            ]
-                                          },
-                                          "title": "Q75",
-                                          "type": "array"
-                                        },
-                                        "q975": {
-                                          "items": {
-                                            "anyOf": [
-                                              {
-                                                "type": "number"
-                                              },
-                                              {
-                                                "type": "null"
-                                              }
-                                            ]
-                                          },
-                                          "title": "Q975",
                                           "type": "array"
                                         },
                                         "spaghetti_draws": {
@@ -6863,11 +6608,7 @@
                                       "required": [
                                         "indicator_id",
                                         "observed",
-                                        "q025",
-                                        "q25",
-                                        "median",
-                                        "q75",
-                                        "q975"
+                                        "median"
                                       ],
                                       "title": "PPCOverlay",
                                       "type": "object"
@@ -7802,6 +7543,34 @@
                                     "minItems": 1,
                                     "title": "Files",
                                     "type": "array"
+                                  },
+                                  "start": {
+                                    "anyOf": [
+                                      {
+                                        "format": "date",
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ],
+                                    "default": null,
+                                    "description": "Inclusive UTC source-coverage date.",
+                                    "title": "Start"
+                                  },
+                                  "end": {
+                                    "anyOf": [
+                                      {
+                                        "format": "date",
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ],
+                                    "default": null,
+                                    "description": "Exclusive UTC source-coverage date.",
+                                    "title": "End"
                                   }
                                 },
                                 "required": [
@@ -7830,53 +7599,9 @@
                                 ],
                                 "title": "SimulationReplicateRef",
                                 "type": "object"
-                              },
-                              {
-                                "additionalProperties": false,
-                                "description": "An uploaded Parquet observation table and its selected UTC calendar interval.",
-                                "properties": {
-                                  "file": {
-                                    "description": "Uploaded Parquet filename, without directory components.",
-                                    "title": "File",
-                                    "type": "string"
-                                  },
-                                  "start": {
-                                    "anyOf": [
-                                      {
-                                        "format": "date",
-                                        "type": "string"
-                                      },
-                                      {
-                                        "type": "null"
-                                      }
-                                    ],
-                                    "default": null,
-                                    "description": "Inclusive UTC anchor date (ISO YYYY-MM-DD).",
-                                    "title": "Start"
-                                  },
-                                  "end": {
-                                    "anyOf": [
-                                      {
-                                        "format": "date",
-                                        "type": "string"
-                                      },
-                                      {
-                                        "type": "null"
-                                      }
-                                    ],
-                                    "default": null,
-                                    "description": "Exclusive UTC anchor date (ISO YYYY-MM-DD).",
-                                    "title": "End"
-                                  }
-                                },
-                                "required": [
-                                  "file"
-                                ],
-                                "title": "ObservationTableRef",
-                                "type": "object"
                               }
                             ],
-                            "description": "Uploaded sources, one simulation replicate, or a bounded observation table."
+                            "description": "Uploaded sources or one recorded simulation replicate."
                           },
                           "variables": {
                             "items": {
@@ -8249,11 +7974,25 @@
                               }
                             ],
                             "default": null
+                          },
+                          "time_origin": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Calendar instant of model day zero; null denotes a calendar-free history.",
+                            "title": "Time Origin"
                           }
                         },
                         "required": [
                           "source",
-                          "variables"
+                          "variables",
+                          "time_origin"
                         ],
                         "title": "PreparedDataMetadata",
                         "type": "object"
@@ -10726,12 +10465,6 @@
                                   "title": "Description",
                                   "type": "string"
                                 },
-                                "lagged": {
-                                  "default": true,
-                                  "description": "If True, effect at t is caused by cause at t-1 (one model_clock tick delay). If False (contemporaneous), effect at t is caused by cause at t.",
-                                  "title": "Lagged",
-                                  "type": "boolean"
-                                },
                                 "sources": {
                                   "description": "Literature sources supporting this causal link",
                                   "items": {
@@ -10856,7 +10589,7 @@
                                     }
                                   ],
                                   "default": null,
-                                  "description": "Positive duration in days over which an authored persistence or interval-effect law is defined, before conversion to continuous-time decay or rate. When omitted, persistence uses the model measurement clock; interval effects use the edge lag, falling back to that clock.",
+                                  "description": "Positive duration in days over which an authored persistence or interval-effect law is defined, before conversion to continuous-time decay or rate. When omitted, persistence and interval effects use the model measurement clock.",
                                   "title": "Reference Interval Days"
                                 }
                               },
@@ -10976,6 +10709,19 @@
                         "additionalProperties": false,
                         "description": "Display findings recorded by an inference transition, separate from ModelSpec.",
                         "properties": {
+                          "time_origin": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Known calendar instant of model day zero.",
+                            "title": "Time Origin"
+                          },
                           "inference_metadata": {
                             "additionalProperties": false,
                             "description": "Inference metadata records the sampling method, sample count, and run duration.",
@@ -11347,6 +11093,7 @@
                           }
                         },
                         "required": [
+                          "time_origin",
                           "inference_metadata"
                         ],
                         "title": "InferenceReport",
@@ -11664,6 +11411,32 @@
                             "title": "Seed",
                             "type": "integer"
                           },
+                          "time_origin": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Known calendar instant of model day zero.",
+                            "title": "Time Origin"
+                          },
+                          "origin_panel_revision": {
+                            "anyOf": [
+                              {
+                                "pattern": "^[0-9a-f]{40}$",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "default": null,
+                            "description": "Panel that supplied the time origin: the fit's panel for fitted laws, otherwise the current panel when present."
+                          },
                           "state_ids": {
                             "items": {
                               "pattern": "^construct:[A-Za-z0-9_.-]+$",
@@ -11893,6 +11666,18 @@
                                     ],
                                     "default": null
                                   },
+                                  "fitted_model_revision": {
+                                    "anyOf": [
+                                      {
+                                        "pattern": "^[0-9a-f]{40}$",
+                                        "type": "string"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ],
+                                    "default": null
+                                  },
                                   "interpretation": {
                                     "enum": [
                                       "prior_predictive",
@@ -12019,21 +11804,588 @@
                             "title": "Findings",
                             "type": "array"
                           },
+                          "predictive": {
+                            "additionalProperties": false,
+                            "description": "Model implications, independently of whether a causal contrast is certified.",
+                            "properties": {
+                              "states": {
+                                "additionalProperties": {
+                                  "additionalProperties": false,
+                                  "description": "One state's or indicator's generated distribution in each simulated arm.",
+                                  "properties": {
+                                    "label": {
+                                      "title": "Label",
+                                      "type": "string"
+                                    },
+                                    "action": {
+                                      "discriminator": {
+                                        "mapping": {
+                                          "categorical": "#/$defs/CategoryProbabilitySummary",
+                                          "numeric": "#/$defs/TrajectorySummary"
+                                        },
+                                        "propertyName": "kind"
+                                      },
+                                      "oneOf": [
+                                        {
+                                          "additionalProperties": false,
+                                          "description": "Pointwise means and fixed 95% quantiles across generated numeric draws.",
+                                          "properties": {
+                                            "kind": {
+                                              "const": "numeric",
+                                              "default": "numeric",
+                                              "title": "Kind",
+                                              "type": "string"
+                                            },
+                                            "mean": {
+                                              "items": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "number"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "title": "Mean",
+                                              "type": "array"
+                                            },
+                                            "lower": {
+                                              "items": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "number"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "title": "Lower",
+                                              "type": "array"
+                                            },
+                                            "upper": {
+                                              "items": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "number"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "title": "Upper",
+                                              "type": "array"
+                                            },
+                                            "n_draws": {
+                                              "items": {
+                                                "type": "integer"
+                                              },
+                                              "title": "N Draws",
+                                              "type": "array"
+                                            }
+                                          },
+                                          "required": [
+                                            "mean",
+                                            "lower",
+                                            "upper",
+                                            "n_draws"
+                                          ],
+                                          "title": "TrajectorySummary",
+                                          "type": "object"
+                                        },
+                                        {
+                                          "additionalProperties": false,
+                                          "description": "Predictive probabilities for each declared level; unobserved anchors are null.",
+                                          "properties": {
+                                            "kind": {
+                                              "const": "categorical",
+                                              "default": "categorical",
+                                              "title": "Kind",
+                                              "type": "string"
+                                            },
+                                            "probabilities": {
+                                              "additionalProperties": {
+                                                "items": {
+                                                  "anyOf": [
+                                                    {
+                                                      "type": "number"
+                                                    },
+                                                    {
+                                                      "type": "null"
+                                                    }
+                                                  ]
+                                                },
+                                                "type": "array"
+                                              },
+                                              "title": "Probabilities",
+                                              "type": "object"
+                                            },
+                                            "n_draws": {
+                                              "items": {
+                                                "type": "integer"
+                                              },
+                                              "title": "N Draws",
+                                              "type": "array"
+                                            }
+                                          },
+                                          "required": [
+                                            "probabilities",
+                                            "n_draws"
+                                          ],
+                                          "title": "CategoryProbabilitySummary",
+                                          "type": "object"
+                                        }
+                                      ]
+                                    },
+                                    "reference": {
+                                      "anyOf": [
+                                        {
+                                          "discriminator": {
+                                            "mapping": {
+                                              "categorical": "#/$defs/CategoryProbabilitySummary",
+                                              "numeric": "#/$defs/TrajectorySummary"
+                                            },
+                                            "propertyName": "kind"
+                                          },
+                                          "oneOf": [
+                                            {
+                                              "additionalProperties": false,
+                                              "description": "Pointwise means and fixed 95% quantiles across generated numeric draws.",
+                                              "properties": {
+                                                "kind": {
+                                                  "const": "numeric",
+                                                  "default": "numeric",
+                                                  "title": "Kind",
+                                                  "type": "string"
+                                                },
+                                                "mean": {
+                                                  "items": {
+                                                    "anyOf": [
+                                                      {
+                                                        "type": "number"
+                                                      },
+                                                      {
+                                                        "type": "null"
+                                                      }
+                                                    ]
+                                                  },
+                                                  "title": "Mean",
+                                                  "type": "array"
+                                                },
+                                                "lower": {
+                                                  "items": {
+                                                    "anyOf": [
+                                                      {
+                                                        "type": "number"
+                                                      },
+                                                      {
+                                                        "type": "null"
+                                                      }
+                                                    ]
+                                                  },
+                                                  "title": "Lower",
+                                                  "type": "array"
+                                                },
+                                                "upper": {
+                                                  "items": {
+                                                    "anyOf": [
+                                                      {
+                                                        "type": "number"
+                                                      },
+                                                      {
+                                                        "type": "null"
+                                                      }
+                                                    ]
+                                                  },
+                                                  "title": "Upper",
+                                                  "type": "array"
+                                                },
+                                                "n_draws": {
+                                                  "items": {
+                                                    "type": "integer"
+                                                  },
+                                                  "title": "N Draws",
+                                                  "type": "array"
+                                                }
+                                              },
+                                              "required": [
+                                                "mean",
+                                                "lower",
+                                                "upper",
+                                                "n_draws"
+                                              ],
+                                              "title": "TrajectorySummary",
+                                              "type": "object"
+                                            },
+                                            {
+                                              "additionalProperties": false,
+                                              "description": "Predictive probabilities for each declared level; unobserved anchors are null.",
+                                              "properties": {
+                                                "kind": {
+                                                  "const": "categorical",
+                                                  "default": "categorical",
+                                                  "title": "Kind",
+                                                  "type": "string"
+                                                },
+                                                "probabilities": {
+                                                  "additionalProperties": {
+                                                    "items": {
+                                                      "anyOf": [
+                                                        {
+                                                          "type": "number"
+                                                        },
+                                                        {
+                                                          "type": "null"
+                                                        }
+                                                      ]
+                                                    },
+                                                    "type": "array"
+                                                  },
+                                                  "title": "Probabilities",
+                                                  "type": "object"
+                                                },
+                                                "n_draws": {
+                                                  "items": {
+                                                    "type": "integer"
+                                                  },
+                                                  "title": "N Draws",
+                                                  "type": "array"
+                                                }
+                                              },
+                                              "required": [
+                                                "probabilities",
+                                                "n_draws"
+                                              ],
+                                              "title": "CategoryProbabilitySummary",
+                                              "type": "object"
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "default": null
+                                    }
+                                  },
+                                  "required": [
+                                    "label",
+                                    "action"
+                                  ],
+                                  "title": "SimulationSeriesSummary",
+                                  "type": "object"
+                                },
+                                "propertyNames": {
+                                  "pattern": "^construct:[A-Za-z0-9_.-]+$",
+                                  "tsType": "`construct:${string}`",
+                                  "type": "string"
+                                },
+                                "title": "States",
+                                "type": "object"
+                              },
+                              "indicators": {
+                                "additionalProperties": {
+                                  "additionalProperties": false,
+                                  "description": "One state's or indicator's generated distribution in each simulated arm.",
+                                  "properties": {
+                                    "label": {
+                                      "title": "Label",
+                                      "type": "string"
+                                    },
+                                    "action": {
+                                      "discriminator": {
+                                        "mapping": {
+                                          "categorical": "#/$defs/CategoryProbabilitySummary",
+                                          "numeric": "#/$defs/TrajectorySummary"
+                                        },
+                                        "propertyName": "kind"
+                                      },
+                                      "oneOf": [
+                                        {
+                                          "additionalProperties": false,
+                                          "description": "Pointwise means and fixed 95% quantiles across generated numeric draws.",
+                                          "properties": {
+                                            "kind": {
+                                              "const": "numeric",
+                                              "default": "numeric",
+                                              "title": "Kind",
+                                              "type": "string"
+                                            },
+                                            "mean": {
+                                              "items": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "number"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "title": "Mean",
+                                              "type": "array"
+                                            },
+                                            "lower": {
+                                              "items": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "number"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "title": "Lower",
+                                              "type": "array"
+                                            },
+                                            "upper": {
+                                              "items": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "number"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "title": "Upper",
+                                              "type": "array"
+                                            },
+                                            "n_draws": {
+                                              "items": {
+                                                "type": "integer"
+                                              },
+                                              "title": "N Draws",
+                                              "type": "array"
+                                            }
+                                          },
+                                          "required": [
+                                            "mean",
+                                            "lower",
+                                            "upper",
+                                            "n_draws"
+                                          ],
+                                          "title": "TrajectorySummary",
+                                          "type": "object"
+                                        },
+                                        {
+                                          "additionalProperties": false,
+                                          "description": "Predictive probabilities for each declared level; unobserved anchors are null.",
+                                          "properties": {
+                                            "kind": {
+                                              "const": "categorical",
+                                              "default": "categorical",
+                                              "title": "Kind",
+                                              "type": "string"
+                                            },
+                                            "probabilities": {
+                                              "additionalProperties": {
+                                                "items": {
+                                                  "anyOf": [
+                                                    {
+                                                      "type": "number"
+                                                    },
+                                                    {
+                                                      "type": "null"
+                                                    }
+                                                  ]
+                                                },
+                                                "type": "array"
+                                              },
+                                              "title": "Probabilities",
+                                              "type": "object"
+                                            },
+                                            "n_draws": {
+                                              "items": {
+                                                "type": "integer"
+                                              },
+                                              "title": "N Draws",
+                                              "type": "array"
+                                            }
+                                          },
+                                          "required": [
+                                            "probabilities",
+                                            "n_draws"
+                                          ],
+                                          "title": "CategoryProbabilitySummary",
+                                          "type": "object"
+                                        }
+                                      ]
+                                    },
+                                    "reference": {
+                                      "anyOf": [
+                                        {
+                                          "discriminator": {
+                                            "mapping": {
+                                              "categorical": "#/$defs/CategoryProbabilitySummary",
+                                              "numeric": "#/$defs/TrajectorySummary"
+                                            },
+                                            "propertyName": "kind"
+                                          },
+                                          "oneOf": [
+                                            {
+                                              "additionalProperties": false,
+                                              "description": "Pointwise means and fixed 95% quantiles across generated numeric draws.",
+                                              "properties": {
+                                                "kind": {
+                                                  "const": "numeric",
+                                                  "default": "numeric",
+                                                  "title": "Kind",
+                                                  "type": "string"
+                                                },
+                                                "mean": {
+                                                  "items": {
+                                                    "anyOf": [
+                                                      {
+                                                        "type": "number"
+                                                      },
+                                                      {
+                                                        "type": "null"
+                                                      }
+                                                    ]
+                                                  },
+                                                  "title": "Mean",
+                                                  "type": "array"
+                                                },
+                                                "lower": {
+                                                  "items": {
+                                                    "anyOf": [
+                                                      {
+                                                        "type": "number"
+                                                      },
+                                                      {
+                                                        "type": "null"
+                                                      }
+                                                    ]
+                                                  },
+                                                  "title": "Lower",
+                                                  "type": "array"
+                                                },
+                                                "upper": {
+                                                  "items": {
+                                                    "anyOf": [
+                                                      {
+                                                        "type": "number"
+                                                      },
+                                                      {
+                                                        "type": "null"
+                                                      }
+                                                    ]
+                                                  },
+                                                  "title": "Upper",
+                                                  "type": "array"
+                                                },
+                                                "n_draws": {
+                                                  "items": {
+                                                    "type": "integer"
+                                                  },
+                                                  "title": "N Draws",
+                                                  "type": "array"
+                                                }
+                                              },
+                                              "required": [
+                                                "mean",
+                                                "lower",
+                                                "upper",
+                                                "n_draws"
+                                              ],
+                                              "title": "TrajectorySummary",
+                                              "type": "object"
+                                            },
+                                            {
+                                              "additionalProperties": false,
+                                              "description": "Predictive probabilities for each declared level; unobserved anchors are null.",
+                                              "properties": {
+                                                "kind": {
+                                                  "const": "categorical",
+                                                  "default": "categorical",
+                                                  "title": "Kind",
+                                                  "type": "string"
+                                                },
+                                                "probabilities": {
+                                                  "additionalProperties": {
+                                                    "items": {
+                                                      "anyOf": [
+                                                        {
+                                                          "type": "number"
+                                                        },
+                                                        {
+                                                          "type": "null"
+                                                        }
+                                                      ]
+                                                    },
+                                                    "type": "array"
+                                                  },
+                                                  "title": "Probabilities",
+                                                  "type": "object"
+                                                },
+                                                "n_draws": {
+                                                  "items": {
+                                                    "type": "integer"
+                                                  },
+                                                  "title": "N Draws",
+                                                  "type": "array"
+                                                }
+                                              },
+                                              "required": [
+                                                "probabilities",
+                                                "n_draws"
+                                              ],
+                                              "title": "CategoryProbabilitySummary",
+                                              "type": "object"
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "default": null
+                                    }
+                                  },
+                                  "required": [
+                                    "label",
+                                    "action"
+                                  ],
+                                  "title": "SimulationSeriesSummary",
+                                  "type": "object"
+                                },
+                                "propertyNames": {
+                                  "pattern": "^indicator:[A-Za-z0-9_.-]+$",
+                                  "tsType": "`indicator:${string}`",
+                                  "type": "string"
+                                },
+                                "title": "Indicators",
+                                "type": "object"
+                              },
+                              "fit_reliability": {
+                                "enum": [
+                                  "not_fitted",
+                                  "converged",
+                                  "unconverged",
+                                  "unknown"
+                                ],
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "states",
+                              "indicators",
+                              "fit_reliability"
+                            ],
+                            "title": "SimulationPredictiveReport",
+                            "type": "object"
+                          },
                           "causal_result": {
                             "anyOf": [
                               {
                                 "additionalProperties": false,
                                 "description": "Causal effects and realized trajectories under the enclosing report's design.",
                                 "properties": {
-                                  "time_grid_days": {
-                                    "description": "Shared elapsed-day coordinates for all trajectories, including day zero.",
-                                    "items": {
-                                      "type": "number"
-                                    },
-                                    "minItems": 2,
-                                    "title": "Time Grid Days",
-                                    "type": "array"
-                                  },
                                   "outcome": {
                                     "pattern": "^construct:[A-Za-z0-9_.-]+$",
                                     "tsType": "`construct:${string}`",
@@ -12089,57 +12441,67 @@
                                     "type": "object"
                                   },
                                   "effect_trajectory": {
-                                    "anyOf": [
-                                      {
-                                        "items": {
-                                          "additionalProperties": false,
-                                          "description": "An effect trajectory point records a causal delta at one elapsed rollout time.",
-                                          "properties": {
-                                            "day": {
-                                              "minimum": 0,
-                                              "title": "Day",
-                                              "type": "number"
-                                            },
-                                            "effect": {
-                                              "title": "Effect",
-                                              "type": "number"
-                                            }
-                                          },
-                                          "required": [
-                                            "day",
-                                            "effect"
-                                          ],
-                                          "title": "EffectTrajectoryPoint",
-                                          "type": "object"
+                                    "items": {
+                                      "additionalProperties": false,
+                                      "description": "A certified paired contrast and 95% interval at one absolute model time.",
+                                      "properties": {
+                                        "day": {
+                                          "title": "Day",
+                                          "type": "number"
                                         },
-                                        "type": "array"
+                                        "effect": {
+                                          "title": "Effect",
+                                          "type": "number"
+                                        },
+                                        "lower_95": {
+                                          "title": "Lower 95",
+                                          "type": "number"
+                                        },
+                                        "upper_95": {
+                                          "title": "Upper 95",
+                                          "type": "number"
+                                        }
                                       },
-                                      {
-                                        "type": "null"
-                                      }
-                                    ],
-                                    "default": null,
-                                    "title": "Effect Trajectory"
+                                      "required": [
+                                        "day",
+                                        "effect",
+                                        "lower_95",
+                                        "upper_95"
+                                      ],
+                                      "title": "EffectTrajectoryPoint",
+                                      "type": "object"
+                                    },
+                                    "title": "Effect Trajectory",
+                                    "type": "array"
                                   },
                                   "trajectory_peak": {
                                     "anyOf": [
                                       {
                                         "additionalProperties": false,
-                                        "description": "An effect trajectory point records a causal delta at one elapsed rollout time.",
+                                        "description": "A certified paired contrast and 95% interval at one absolute model time.",
                                         "properties": {
                                           "day": {
-                                            "minimum": 0,
                                             "title": "Day",
                                             "type": "number"
                                           },
                                           "effect": {
                                             "title": "Effect",
                                             "type": "number"
+                                          },
+                                          "lower_95": {
+                                            "title": "Lower 95",
+                                            "type": "number"
+                                          },
+                                          "upper_95": {
+                                            "title": "Upper 95",
+                                            "type": "number"
                                           }
                                         },
                                         "required": [
                                           "day",
-                                          "effect"
+                                          "effect",
+                                          "lower_95",
+                                          "upper_95"
                                         ],
                                         "title": "EffectTrajectoryPoint",
                                         "type": "object"
@@ -12149,46 +12511,6 @@
                                       }
                                     ],
                                     "default": null
-                                  },
-                                  "trajectories": {
-                                    "additionalProperties": {
-                                      "additionalProperties": false,
-                                      "description": "One construct's mean reference and intervention paths across simulated draws.",
-                                      "properties": {
-                                        "reference_mean": {
-                                          "description": "Mean natural latent path on the result's time_grid_days, including day zero.",
-                                          "items": {
-                                            "type": "number"
-                                          },
-                                          "minItems": 2,
-                                          "title": "Reference Mean",
-                                          "type": "array"
-                                        },
-                                        "action_mean": {
-                                          "description": "Mean latent path under the dated interventions on the same full time grid.",
-                                          "items": {
-                                            "type": "number"
-                                          },
-                                          "minItems": 2,
-                                          "title": "Action Mean",
-                                          "type": "array"
-                                        }
-                                      },
-                                      "required": [
-                                        "reference_mean",
-                                        "action_mean"
-                                      ],
-                                      "title": "SimulationTrajectory",
-                                      "type": "object"
-                                    },
-                                    "description": "Reference and action means for each simulated construct on time_grid_days.",
-                                    "propertyNames": {
-                                      "pattern": "^construct:[A-Za-z0-9_.-]+$",
-                                      "tsType": "`construct:${string}`",
-                                      "type": "string"
-                                    },
-                                    "title": "Trajectories",
-                                    "type": "object"
                                   },
                                   "manifest_effects": {
                                     "anyOf": [
@@ -12218,11 +12540,10 @@
                                   }
                                 },
                                 "required": [
-                                  "time_grid_days",
                                   "outcome",
                                   "labels",
                                   "summary",
-                                  "trajectories",
+                                  "effect_trajectory",
                                   "reference_mean"
                                 ],
                                 "title": "CausalEffectResult",
@@ -12253,11 +12574,13 @@
                           "times",
                           "draws",
                           "seed",
+                          "time_origin",
                           "state_ids",
                           "parameter_draws",
                           "latent_paths",
                           "observations",
-                          "observation_layout"
+                          "observation_layout",
+                          "predictive"
                         ],
                         "title": "SimulationReport",
                         "type": "object"
@@ -12478,6 +12801,48 @@
             "title": "CallExpression",
             "type": "object"
           },
+          "CategoryProbabilitySummary": {
+            "additionalProperties": false,
+            "description": "Predictive probabilities for each declared level; unobserved anchors are null.",
+            "properties": {
+              "kind": {
+                "const": "categorical",
+                "default": "categorical",
+                "title": "Kind",
+                "type": "string"
+              },
+              "probabilities": {
+                "additionalProperties": {
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "type": "array"
+                },
+                "title": "Probabilities",
+                "type": "object"
+              },
+              "n_draws": {
+                "items": {
+                  "type": "integer"
+                },
+                "title": "N Draws",
+                "type": "array"
+              }
+            },
+            "required": [
+              "probabilities",
+              "n_draws"
+            ],
+            "title": "CategoryProbabilitySummary",
+            "type": "object"
+          },
           "CausalEdgeSpec": {
             "additionalProperties": false,
             "description": "A specification of a directed causal relationship between two constructs.",
@@ -12521,12 +12886,6 @@
                 "title": "Description",
                 "type": "string"
               },
-              "lagged": {
-                "default": true,
-                "description": "If True, effect at t is caused by cause at t-1 (one model_clock tick delay). If False (contemporaneous), effect at t is caused by cause at t.",
-                "title": "Lagged",
-                "type": "boolean"
-              },
               "sources": {
                 "description": "Literature sources supporting this causal link",
                 "items": {
@@ -12549,15 +12908,6 @@
             "additionalProperties": false,
             "description": "Causal effects and realized trajectories under the enclosing report's design.",
             "properties": {
-              "time_grid_days": {
-                "description": "Shared elapsed-day coordinates for all trajectories, including day zero.",
-                "items": {
-                  "type": "number"
-                },
-                "minItems": 2,
-                "title": "Time Grid Days",
-                "type": "array"
-              },
               "outcome": {
                 "$ref": "#/$defs/ConstructId"
               },
@@ -12575,19 +12925,11 @@
                 "$ref": "#/$defs/EffectSummary"
               },
               "effect_trajectory": {
-                "anyOf": [
-                  {
-                    "items": {
-                      "$ref": "#/$defs/EffectTrajectoryPoint"
-                    },
-                    "type": "array"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "title": "Effect Trajectory"
+                "items": {
+                  "$ref": "#/$defs/EffectTrajectoryPoint"
+                },
+                "title": "Effect Trajectory",
+                "type": "array"
               },
               "trajectory_peak": {
                 "anyOf": [
@@ -12599,17 +12941,6 @@
                   }
                 ],
                 "default": null
-              },
-              "trajectories": {
-                "additionalProperties": {
-                  "$ref": "#/$defs/SimulationTrajectory"
-                },
-                "description": "Reference and action means for each simulated construct on time_grid_days.",
-                "propertyNames": {
-                  "$ref": "#/$defs/ConstructId"
-                },
-                "title": "Trajectories",
-                "type": "object"
               },
               "manifest_effects": {
                 "anyOf": [
@@ -12639,11 +12970,10 @@
               }
             },
             "required": [
-              "time_grid_days",
               "outcome",
               "labels",
               "summary",
-              "trajectories",
+              "effect_trajectory",
               "reference_mean"
             ],
             "title": "CausalEffectResult",
@@ -12940,12 +13270,9 @@
               },
               {
                 "$ref": "#/$defs/SimulationReplicateRef"
-              },
-              {
-                "$ref": "#/$defs/ObservationTableRef"
               }
             ],
-            "description": "Uploaded sources, one simulation replicate, or a bounded observation table."
+            "description": "Uploaded sources or one recorded simulation replicate."
           },
           "DataVariableSpec": {
             "additionalProperties": false,
@@ -13176,21 +13503,30 @@
           },
           "EffectTrajectoryPoint": {
             "additionalProperties": false,
-            "description": "An effect trajectory point records a causal delta at one elapsed rollout time.",
+            "description": "A certified paired contrast and 95% interval at one absolute model time.",
             "properties": {
               "day": {
-                "minimum": 0,
                 "title": "Day",
                 "type": "number"
               },
               "effect": {
                 "title": "Effect",
                 "type": "number"
+              },
+              "lower_95": {
+                "title": "Lower 95",
+                "type": "number"
+              },
+              "upper_95": {
+                "title": "Upper 95",
+                "type": "number"
               }
             },
             "required": [
               "day",
-              "effect"
+              "effect",
+              "lower_95",
+              "upper_95"
             ],
             "title": "EffectTrajectoryPoint",
             "type": "object"
@@ -13245,6 +13581,34 @@
                 "minItems": 1,
                 "title": "Files",
                 "type": "array"
+              },
+              "start": {
+                "anyOf": [
+                  {
+                    "format": "date",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Inclusive UTC source-coverage date.",
+                "title": "Start"
+              },
+              "end": {
+                "anyOf": [
+                  {
+                    "format": "date",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Exclusive UTC source-coverage date.",
+                "title": "End"
               }
             },
             "required": [
@@ -13252,6 +13616,15 @@
             ],
             "title": "FileSourceRef",
             "type": "object"
+          },
+          "FitReliability": {
+            "enum": [
+              "not_fitted",
+              "converged",
+              "unconverged",
+              "unknown"
+            ],
+            "type": "string"
           },
           "GitOid": {
             "pattern": "^[0-9a-f]{40}$",
@@ -13871,6 +14244,19 @@
             "additionalProperties": false,
             "description": "Display findings recorded by an inference transition, separate from ModelSpec.",
             "properties": {
+              "time_origin": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Known calendar instant of model day zero.",
+                "title": "Time Origin"
+              },
               "inference_metadata": {
                 "$ref": "#/$defs/InferenceMetadata"
               },
@@ -13921,6 +14307,7 @@
               }
             },
             "required": [
+              "time_origin",
               "inference_metadata"
             ],
             "title": "InferenceReport",
@@ -14850,52 +15237,8 @@
             "title": "ObservationSpec",
             "type": "object"
           },
-          "ObservationTableRef": {
-            "additionalProperties": false,
-            "description": "An uploaded Parquet observation table and its selected UTC calendar interval.",
-            "properties": {
-              "file": {
-                "description": "Uploaded Parquet filename, without directory components.",
-                "title": "File",
-                "type": "string"
-              },
-              "start": {
-                "anyOf": [
-                  {
-                    "format": "date",
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "description": "Inclusive UTC anchor date (ISO YYYY-MM-DD).",
-                "title": "Start"
-              },
-              "end": {
-                "anyOf": [
-                  {
-                    "format": "date",
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "default": null,
-                "description": "Exclusive UTC anchor date (ISO YYYY-MM-DD).",
-                "title": "End"
-              }
-            },
-            "required": [
-              "file"
-            ],
-            "title": "ObservationTableRef",
-            "type": "object"
-          },
           "PPCOverlay": {
-            "description": "A predictive overlay compares observed values with posterior predictive bands for one\nindicator.\n\nProvides the data for Gabry's ppc_dens_overlay / ppc_ribbon plots:\nobserved time series vs posterior predictive quantile bands.\nOptionally includes individual y_rep draw lines for spaghetti plots.",
+            "description": "A predictive overlay sets one indicator's observed values against simulated ones.\n\nIt carries the predictive median and a few individual replicated series, the\nspaghetti plot of a visual predictive check.",
             "properties": {
               "indicator_id": {
                 "$ref": "#/$defs/IndicatorId"
@@ -14914,34 +15257,6 @@
                 "title": "Observed",
                 "type": "array"
               },
-              "q025": {
-                "items": {
-                  "anyOf": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                "title": "Q025",
-                "type": "array"
-              },
-              "q25": {
-                "items": {
-                  "anyOf": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                "title": "Q25",
-                "type": "array"
-              },
               "median": {
                 "items": {
                   "anyOf": [
@@ -14954,34 +15269,6 @@
                   ]
                 },
                 "title": "Median",
-                "type": "array"
-              },
-              "q75": {
-                "items": {
-                  "anyOf": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                "title": "Q75",
-                "type": "array"
-              },
-              "q975": {
-                "items": {
-                  "anyOf": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                "title": "Q975",
                 "type": "array"
               },
               "spaghetti_draws": {
@@ -15005,11 +15292,7 @@
             "required": [
               "indicator_id",
               "observed",
-              "q025",
-              "q25",
-              "median",
-              "q75",
-              "q975"
+              "median"
             ],
             "title": "PPCOverlay",
             "type": "object"
@@ -15202,7 +15485,7 @@
                   }
                 ],
                 "default": null,
-                "description": "Positive duration in days over which an authored persistence or interval-effect law is defined, before conversion to continuous-time decay or rate. When omitted, persistence uses the model measurement clock; interval effects use the edge lag, falling back to that clock.",
+                "description": "Positive duration in days over which an authored persistence or interval-effect law is defined, before conversion to continuous-time decay or rate. When omitted, persistence and interval effects use the model measurement clock.",
                 "title": "Reference Interval Days"
               }
             },
@@ -15488,6 +15771,17 @@
                 ],
                 "default": null
               },
+              "fitted_model_revision": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/GitOid"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
               "interpretation": {
                 "enum": [
                   "prior_predictive",
@@ -15506,6 +15800,23 @@
             ],
             "title": "PredictiveLawProvenance",
             "type": "object"
+          },
+          "PredictiveSummary": {
+            "discriminator": {
+              "mapping": {
+                "categorical": "#/$defs/CategoryProbabilitySummary",
+                "numeric": "#/$defs/TrajectorySummary"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/TrajectorySummary"
+              },
+              {
+                "$ref": "#/$defs/CategoryProbabilitySummary"
+              }
+            ]
           },
           "PreparedDataMetadata": {
             "additionalProperties": false,
@@ -15532,11 +15843,25 @@
                   }
                 ],
                 "default": null
+              },
+              "time_origin": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Calendar instant of model day zero; null denotes a calendar-free history.",
+                "title": "Time Origin"
               }
             },
             "required": [
               "source",
-              "variables"
+              "variables",
+              "time_origin"
             ],
             "title": "PreparedDataMetadata",
             "type": "object"
@@ -15581,6 +15906,42 @@
               "mask"
             ],
             "title": "SimulationObservationLayout",
+            "type": "object"
+          },
+          "SimulationPredictiveReport": {
+            "additionalProperties": false,
+            "description": "Model implications, independently of whether a causal contrast is certified.",
+            "properties": {
+              "states": {
+                "additionalProperties": {
+                  "$ref": "#/$defs/SimulationSeriesSummary"
+                },
+                "propertyNames": {
+                  "$ref": "#/$defs/ConstructId"
+                },
+                "title": "States",
+                "type": "object"
+              },
+              "indicators": {
+                "additionalProperties": {
+                  "$ref": "#/$defs/SimulationSeriesSummary"
+                },
+                "propertyNames": {
+                  "$ref": "#/$defs/IndicatorId"
+                },
+                "title": "Indicators",
+                "type": "object"
+              },
+              "fit_reliability": {
+                "$ref": "#/$defs/FitReliability"
+              }
+            },
+            "required": [
+              "states",
+              "indicators",
+              "fit_reliability"
+            ],
+            "title": "SimulationPredictiveReport",
             "type": "object"
           },
           "SimulationReplicateRef": {
@@ -15630,6 +15991,31 @@
                 "minimum": 0,
                 "title": "Seed",
                 "type": "integer"
+              },
+              "time_origin": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Known calendar instant of model day zero.",
+                "title": "Time Origin"
+              },
+              "origin_panel_revision": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/GitOid"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Panel that supplied the time origin: the fit's panel for fitted laws, otherwise the current panel when present."
               },
               "state_ids": {
                 "items": {
@@ -15699,6 +16085,9 @@
                 "title": "Findings",
                 "type": "array"
               },
+              "predictive": {
+                "$ref": "#/$defs/SimulationPredictiveReport"
+              },
               "causal_result": {
                 "anyOf": [
                   {
@@ -15729,13 +16118,45 @@
               "times",
               "draws",
               "seed",
+              "time_origin",
               "state_ids",
               "parameter_draws",
               "latent_paths",
               "observations",
-              "observation_layout"
+              "observation_layout",
+              "predictive"
             ],
             "title": "SimulationReport",
+            "type": "object"
+          },
+          "SimulationSeriesSummary": {
+            "additionalProperties": false,
+            "description": "One state's or indicator's generated distribution in each simulated arm.",
+            "properties": {
+              "label": {
+                "title": "Label",
+                "type": "string"
+              },
+              "action": {
+                "$ref": "#/$defs/PredictiveSummary"
+              },
+              "reference": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/PredictiveSummary"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              }
+            },
+            "required": [
+              "label",
+              "action"
+            ],
+            "title": "SimulationSeriesSummary",
             "type": "object"
           },
           "SimulationSpec": {
@@ -15773,36 +16194,6 @@
               "end"
             ],
             "title": "SimulationSpec",
-            "type": "object"
-          },
-          "SimulationTrajectory": {
-            "additionalProperties": false,
-            "description": "One construct's mean reference and intervention paths across simulated draws.",
-            "properties": {
-              "reference_mean": {
-                "description": "Mean natural latent path on the result's time_grid_days, including day zero.",
-                "items": {
-                  "type": "number"
-                },
-                "minItems": 2,
-                "title": "Reference Mean",
-                "type": "array"
-              },
-              "action_mean": {
-                "description": "Mean latent path under the dated interventions on the same full time grid.",
-                "items": {
-                  "type": "number"
-                },
-                "minItems": 2,
-                "title": "Action Mean",
-                "type": "array"
-              }
-            },
-            "required": [
-              "reference_mean",
-              "action_mean"
-            ],
-            "title": "SimulationTrajectory",
             "type": "object"
           },
           "SpecificationFinding": {
@@ -15881,6 +16272,75 @@
             ],
             "title": "TemporalStatus",
             "type": "string"
+          },
+          "TrajectorySummary": {
+            "additionalProperties": false,
+            "description": "Pointwise means and fixed 95% quantiles across generated numeric draws.",
+            "properties": {
+              "kind": {
+                "const": "numeric",
+                "default": "numeric",
+                "title": "Kind",
+                "type": "string"
+              },
+              "mean": {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "title": "Mean",
+                "type": "array"
+              },
+              "lower": {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "title": "Lower",
+                "type": "array"
+              },
+              "upper": {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "title": "Upper",
+                "type": "array"
+              },
+              "n_draws": {
+                "items": {
+                  "type": "integer"
+                },
+                "title": "N Draws",
+                "type": "array"
+              }
+            },
+            "required": [
+              "mean",
+              "lower",
+              "upper",
+              "n_draws"
+            ],
+            "title": "TrajectorySummary",
+            "type": "object"
           },
           "ValidationIssue": {
             "additionalProperties": false,

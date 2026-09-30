@@ -8,6 +8,8 @@ from nof1_causal_lab.artifacts.checks import SpecificationFinding, Specification
 from nof1_causal_lab.compilation_errors import IncompleteModelError
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 
@@ -59,7 +61,9 @@ def check_specification(model: ModelSpec) -> SpecificationReport:
     return SpecificationReport(findings=tuple(findings))
 
 
-def check_model_data(model: ModelSpec, panel) -> SpecificationReport:
+def check_model_data(
+    model: ModelSpec, panel, *, time_origin: datetime | None
+) -> SpecificationReport:
     """Evaluate fitting input compatibility without running a sampler or simulator."""
     from nof1_causal_lab.models.ssm.preflight import validate_observations_for_fit
     from nof1_causal_lab.models.ssm.runtime import prepare_model_runtime
@@ -75,7 +79,9 @@ def check_model_data(model: ModelSpec, panel) -> SpecificationReport:
             )
         )
     try:
-        runtime = prepare_model_runtime(data_for_model=panel, model_spec=model)
+        runtime = prepare_model_runtime(
+            data_for_model=panel, model_spec=model, time_origin=time_origin
+        )
         validate_observations_for_fit(runtime.model, runtime.observations)
     except ValueError as exc:
         finding = SpecificationFinding(check="fit_preflight", status="failed", message=str(exc))

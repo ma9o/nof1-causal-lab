@@ -66,20 +66,25 @@ def test_intervention_times_values_and_conflicts_are_explicit(events):
 
 
 def _response():
+    def series(reference, action):
+        def numeric(values):
+            return {
+                "kind": "numeric",
+                "mean": values,
+                "lower": values,
+                "upper": values,
+                "n_draws": [100] * 3,
+            }
+
+        return {"label": "Saved series", "reference": numeric(reference), "action": numeric(action)}
+
     result = {
         "outcome": "construct:y",
-        "time_grid_days": [0.0, 1.0, 2.0],
         "labels": {"construct:x": "Treatment", "construct:y": "Outcome"},
-        "trajectories": {
-            "construct:x": {
-                "reference_mean": [1.0, 1.0, 1.0],
-                "action_mean": [0.5, 0.5, 0.5],
-            },
-            "construct:y": {
-                "reference_mean": [1.0, 1.0, 1.0],
-                "action_mean": [1.0, 1.1, 1.2],
-            },
-        },
+        "effect_trajectory": [
+            {"day": day, "effect": 0.1 * day, "lower_95": 0.0, "upper_95": 0.2 * day}
+            for day in (0, 1, 2)
+        ],
         "summary": {
             "mean": 0.2,
             "median": 0.2,
@@ -98,6 +103,15 @@ def _response():
         "times": [0, 1, 2],
         "draws": 100,
         "seed": 0,
+        "time_origin": None,
+        "predictive": {
+            "states": {
+                "construct:x": series([1.0, 1.0, 1.0], [0.5, 0.5, 0.5]),
+                "construct:y": series([1.0, 1.0, 1.0], [1.0, 1.1, 1.2]),
+            },
+            "indicators": {"indicator:y": series([1.0, 1.0, 1.0], [1.0, 1.1, 1.2])},
+            "fit_reliability": "converged",
+        },
         "model": {"workspace_id": "QUERY", "revision": "a" * 40, "path": "model.json"},
         "state_ids": ["construct:x", "construct:y"],
         "observation_layout": {
@@ -140,20 +154,20 @@ def test_one_request_can_produce_independently_pinned_responses():
 )
 def test_simulation_trajectories_share_a_grid_and_resolve_constructs(violation):
     value = _response()
-    trajectories = value["causal_result"]["trajectories"]
+    trajectories = value["predictive"]["states"]
     if violation in {"reference_length", "action_length"}:
-        field = "reference_mean" if violation == "reference_length" else "action_mean"
-        trajectories["construct:x"][field].pop()
-        message = "align with time_grid_days"
+        field = "reference" if violation == "reference_length" else "action"
+        trajectories["construct:x"][field]["mean"].pop()
+        message = "align with simulation times"
     elif violation == "missing_series":
-        del trajectories["construct:x"]["action_mean"]
+        del trajectories["construct:x"]["action"]
         message = "Field required"
     elif violation == "missing_target":
         del trajectories["construct:x"]
         message = "include the outcome and interventions"
     else:
         trajectories["construct:unknown"] = trajectories["construct:x"]
-        message = "must have construct labels"
+        message = "cover the recorded simulation layout"
     with pytest.raises(ValidationError, match=message):
         SimulationReport.model_validate(value)
 
@@ -164,3 +178,137 @@ def test_causal_reports_require_their_effects_and_paired_draws(missing):
     del payload[missing]
     with pytest.raises(ValidationError, match="paired reference"):
         TypeAdapter(SimulationReport).validate_python(payload)
+
+
+@pytest.mark.parametrize(
+    ("kind", "current_panel", "reliable"),
+    [
+        ("authored", True, "not_fitted"),
+        ("authored", False, "not_fitted"),
+        ("fitted", True, "converged"),
+        ("fitted", True, "unconverged"),
+        ("unknown", True, "unknown"),
+    ],
+)
+def test_runner_derives_origin_and_reliability_from_current_panel_or_fit(
+    tmp_path, monkeypatch, kind, current_panel, reliable
+):
+    from datetime import UTC, datetime
+    from importlib import import_module
+
+    import jax.numpy as jnp
+
+    from nof1_causal_lab.actions import scenarios
+    from nof1_causal_lab.machine.artifacts import EpisodeState
+    from nof1_causal_lab.machine.execution import SimulateOperation
+    from nof1_causal_lab.machine.history import StudyRepository
+    from nof1_causal_lab.machine.runners import execute_transition
+    from nof1_causal_lab.machine.store import ArtifactStore
+    from nof1_causal_lab.models.ssm.inference.persistence import condition_model
+    from nof1_causal_lab.models.ssm.inference.types import (
+        JointPosteriorDraws,
+        ParticleMCMCPosterior,
+    )
+    from nof1_causal_lab.utils import data
+    from tests.helpers import run_async
+    from tests.inference_fixtures import inference_log
+    from tests.integration.transition_runner_fixtures import panel_metadata, scientific_model
+    from tests.model_fixtures import parameter_draws
+
+    monkeypatch.setattr(data, "_DATA_URI", str(tmp_path))
+    store = ArtifactStore("ORIGIN")
+    model = scientific_model()
+    prior = store.write_artifact(
+        "model",
+        derived_from={},
+        produced_by="write:model",
+        json_files={"model.json": model.model_dump(mode="json")},
+    )
+    fit_panel = store.write_artifact(
+        "panel",
+        derived_from={},
+        produced_by="run:measurements",
+        json_files={"metadata.json": panel_metadata().model_dump(mode="json")},
+    )
+    record = prior
+    fit_origin = datetime(2024, 1, 2, tzinfo=UTC)
+    if kind in {"fitted", "unknown"}:
+        model = condition_model(
+            model,
+            ParticleMCMCPosterior(
+                JointPosteriorDraws(parameter_draws(model, 2), jnp.zeros((2, 2, 2)))
+            ),
+            times=jnp.array([0.0, 1.0]),
+        )
+        record = store.write_artifact(
+            "model",
+            derived_from={"model": prior.revision, "panel": fit_panel.revision}
+            if kind == "fitted"
+            else {},
+            produced_by="run:posterior" if kind == "fitted" else "write:model",
+            json_files={"model.json": model.model_dump(mode="json")},
+        )
+        if kind == "fitted":
+            fit = inference_log(
+                model, revision=record.revision, prior_revision=prior.revision, seq=1
+            )
+            fit.diagnostics["report"]["time_origin"] = fit_origin.isoformat()
+            if reliable == "unconverged":
+                fit.diagnostics["report"]["inference_diagnostics"]["mcmc"]["per_parameter"][0][
+                    "r_hat"
+                ] = 1.2
+            StudyRepository("ORIGIN").append(
+                fit.model_copy(update={"produced": [prior, fit_panel, record]})
+            )
+    current_origin = datetime(2026, 1, 1, tzinfo=UTC)
+    panel = store.write_artifact(
+        "panel",
+        derived_from={},
+        produced_by="run:measurements",
+        json_files={
+            "metadata.json": panel_metadata()
+            .model_copy(update={"time_origin": current_origin})
+            .model_dump(mode="json")
+        },
+    )
+    state = EpisodeState().with_artifacts([record, panel] if current_panel else [record])
+    expected_origin = fit_origin if kind == "fitted" else current_origin if current_panel else None
+    expected_panel = (
+        fit_panel.revision if kind == "fitted" else panel.revision if current_panel else None
+    )
+    response = SimulationReport.model_validate(_response())
+
+    def generate(_model, _design, *, revision, time_origin, fit_reliability, **_kwargs):
+        assert time_origin == expected_origin
+        assert fit_reliability == reliable
+        return response.model_copy(
+            update={
+                "model": revision,
+                "time_origin": time_origin,
+                "predictive": response.predictive.model_copy(
+                    update={"fit_reliability": fit_reliability}
+                ),
+            }
+        )
+
+    monkeypatch.setattr(import_module("nof1_causal_lab.actions.simulate"), "simulate", generate)
+    monkeypatch.setattr(
+        scenarios, "summarize_causal_simulation", lambda _model, report, **_kwargs: report
+    )
+    effects = run_async(
+        execute_transition(
+            "ORIGIN",
+            SimulateOperation(design=response.design),
+            state,
+            selected_inputs={"model": record.revision},
+        )
+    )
+    saved = SimulationReport.model_validate(effects.diagnostics["report"])
+    assert saved.time_origin == expected_origin
+    assert saved.origin_panel_revision == expected_panel
+    assert saved.predictive.fit_reliability == reliable
+    assert saved.law is not None
+    assert saved.law.kind == kind
+    assert effects.diagnostics["input_pins"].get("panel") == (
+        panel.revision if current_panel else None
+    )

@@ -1,30 +1,11 @@
-"""Support-window formatting and chunking for worker extraction.
+"""Support-window formatting for worker extraction.
 
-Converts bucketed DataFrames into LLM-ready text and groups support windows
-into chunks for parallel worker calls.
+Converts bucketed DataFrames into LLM-ready text for one-variable, one-window worker calls.
 """
 
 from datetime import datetime
 
 import polars as pl
-
-
-def chunk_windows(
-    windows: list[tuple[str, pl.DataFrame]],
-    windows_per_chunk: int,
-) -> list[list[tuple[str, pl.DataFrame]]]:
-    """Group support windows into chunks of N windows each.
-
-    Args:
-        windows: List of (window_start, events_df) from bucket_by_clock.
-        windows_per_chunk: Maximum windows per chunk.
-
-    Returns:
-        List of chunks, each a list of (window_start, events_df).
-    """
-    if not windows:
-        return []
-    return [windows[i : i + windows_per_chunk] for i in range(0, len(windows), windows_per_chunk)]
 
 
 def format_window_chunk(

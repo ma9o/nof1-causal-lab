@@ -14,9 +14,14 @@ import numpy as np
 import polars as pl
 
 from nof1_causal_lab.utils.data import ensure_datetime_column, support_window_tick_frame
-from nof1_causal_lab.utils.observation_semantics import derive_indicator_observation_semantics
+from nof1_causal_lab.utils.observation_semantics import (
+    derive_indicator_observation_semantics,
+    normalize_level_label,
+)
 
 if TYPE_CHECKING:
+    from datetime import date
+
     from polars._typing import FillNullStrategy
 
     from nof1_causal_lab.json_types import UncheckedJsonObject
@@ -395,6 +400,9 @@ def compute_indicators(
     indicators: list[UncheckedJsonObject],
     model_clock: str,
     time_col: str,
+    *,
+    start: date | None = None,
+    end: date | None = None,
 ) -> pl.DataFrame:
     """Compute indicator values directly via Polars aggregation.
 
@@ -430,6 +438,14 @@ def compute_indicators(
         agg_name = ind["aggregation"]
         measurement_dtype = ind.get("measurement_dtype", "continuous")
         observation_window = ind.get("observation_window") or model_clock
+        tick_frame = support_window_tick_frame(
+            df, observation_window, time_col, start=start, end=end
+        )
+        selected = (
+            df.with_columns(pl.col(time_col).dt.truncate(observation_window).alias("__tick__"))
+            .join(tick_frame, on="__tick__", how="semi")
+            .drop("__tick__")
+        )
         source_columns = list(ind.get("source_columns", []))
         computed_rule = ind.get("computed_rule")
         fill_null = ind.get("fill_null")
@@ -451,9 +467,8 @@ def compute_indicators(
 
         if computed_rule:
             derive_indicator_observation_semantics(agg_name, measurement_dtype, computed_rule)
-            tick_frame = support_window_tick_frame(df, observation_window, time_col)
             prepared = _prepare_computed_rule_frame(
-                df,
+                selected,
                 time_col=time_col,
                 source_columns=source_columns,
                 observation_window=observation_window,
@@ -468,9 +483,8 @@ def compute_indicators(
             agg_df = prepared.group_by("__tick__", maintain_order=True).agg(expr)
         else:
             source_col = source_columns[0]
-            tick_frame = support_window_tick_frame(df, observation_window, time_col)
             prepared = _prepare_computed_indicator_frame(
-                df,
+                selected,
                 time_col=time_col,
                 source_col=source_col,
                 observation_window=observation_window,
@@ -581,7 +595,7 @@ def _computed_value_expr(
     if measurement_dtype == "ordinal":
         max_code = len(ordinal_levels or []) - 1
         label_map = {
-            str(level).strip().lower(): idx for idx, level in enumerate(ordinal_levels or [])
+            normalize_level_label(level): idx for idx, level in enumerate(ordinal_levels or [])
         }
         return source.map_elements(
             lambda value, _max=max_code, _label_map=label_map: _coerce_ordinal_code(
@@ -608,13 +622,13 @@ def _coerce_ordinal_code(
         if value.is_integer():
             code = int(value)
     elif isinstance(value, str):
-        stripped = value.strip()
-        if not stripped:
+        normalized = normalize_level_label(value)
+        if not normalized:
             return None
         try:
-            numeric = float(stripped)
+            numeric = float(normalized)
         except ValueError:
-            code = label_map.get(stripped.lower())
+            code = label_map.get(normalized)
         else:
             if numeric.is_integer():
                 code = int(numeric)
@@ -697,7 +711,7 @@ def _encode_non_continuous(
             levels = (ordinal_levels_lookup if dtype == "ordinal" else categorical_levels_lookup)[
                 name
             ]
-            label_map = {label.strip().lower(): index for index, label in enumerate(levels)}
+            label_map = {normalize_level_label(label): index for index, label in enumerate(levels)}
             max_code = len(levels) - 1
             subset = subset.with_columns(
                 pl.col("value")

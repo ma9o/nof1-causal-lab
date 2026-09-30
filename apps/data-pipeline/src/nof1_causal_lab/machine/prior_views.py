@@ -1,8 +1,9 @@
-"""Ephemeral prior curves on the declared authoring scale, evaluated by NumPyro."""
+"""Ephemeral prior curves on the authoring and quantity scales, evaluated by NumPyro."""
 
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
@@ -11,7 +12,11 @@ import numpyro.distributions as dist
 from pydantic import TypeAdapter
 
 from nof1_causal_lab.machine.view_models import DensityPoint
-from nof1_causal_lab.numpyro_json import NumPyroDistribution
+from nof1_causal_lab.numpyro_json import NumPyroDistribution, distribution_shape
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.identity import ParameterId
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 _PRIOR = TypeAdapter(NumPyroDistribution)
 
@@ -25,6 +30,26 @@ def prior_density(prior: dist.Distribution) -> tuple[DensityPoint, ...]:
     if prior.batch_shape or prior.event_shape or prior.is_discrete or isinstance(prior, dist.Delta):
         return ()
     return _density_curve(_PRIOR.dump_json(prior))
+
+
+def quantity_prior_densities(model: ModelSpec) -> dict[ParameterId, tuple[DensityPoint, ...]]:
+    """Plot each scalar law on the quantity scale where fitting reports its posterior.
+
+    Laws pass through the compilation the engine conditions on, so persistence and
+    interval-effect priors share an axis with the decay and rate posteriors.
+    """
+    from nof1_causal_lab.models.ssm.compile.prior_compilation import compile_parameter_law
+    from nof1_causal_lab.models.ssm.compile.prior_indexing import build_semantic_prior_bindings
+
+    semantics = build_semantic_prior_bindings(model).by_parameter
+    return {
+        parameter.id: prior_density(
+            compile_parameter_law(model, parameter, semantics[parameter.id])[0]
+        )
+        for parameter in model.execution_parameters
+        if parameter.distribution is not None
+        and not any(distribution_shape(model.distributions[parameter.distribution]))
+    }
 
 
 @lru_cache(maxsize=128)

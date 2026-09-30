@@ -1,6 +1,7 @@
 """Tests for Stage 5 inference task logging and orchestration."""
 
 import logging
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast, override
 
 import jax.numpy as jnp
@@ -162,6 +163,7 @@ def test_fit_model_logs_runtime_summary_and_diagnostic_boundaries(monkeypatch, c
         result = stage5_inference.fit_model(
             fake_model.spec,
             data_for_model,
+            time_origin=datetime(2024, 1, 1, tzinfo=UTC),
             sampler_config=cast(
                 "SamplerConfigOverride",
                 {"method": "marginal_particle_gibbs"},
@@ -211,6 +213,7 @@ def test_fit_model_can_skip_loo_diagnostics(monkeypatch, caplog):
         result = stage5_inference.fit_model(
             fake_model.spec,
             data_for_model,
+            time_origin=datetime(2024, 1, 1, tzinfo=UTC),
             sampler_config=cast(
                 "SamplerConfigOverride",
                 {"method": "marginal_particle_gibbs"},
@@ -253,6 +256,7 @@ def test_fit_model_restores_compile_cache_before_preparing_runtime(monkeypatch):
     result = stage5_inference.fit_model(
         fake_model.spec,
         data_for_model,
+        time_origin=datetime(2024, 1, 1, tzinfo=UTC),
         sampler_config=cast(
             "SamplerConfigOverride",
             {"method": "marginal_particle_gibbs"},

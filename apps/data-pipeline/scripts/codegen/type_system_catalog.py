@@ -61,7 +61,7 @@ CONCERNS = {
     ),
     "read_models": (
         "Read models",
-        ("machine.snapshot_models", "machine.view_models"),
+        ("machine.snapshot_models", "machine.view_models", "machine.visual_models"),
     ),
     "api_tools": (
         "API & tool contracts",

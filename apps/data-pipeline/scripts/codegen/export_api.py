@@ -27,7 +27,6 @@ from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.artifacts.scenarios import (
     CausalEffectResult,
     EffectTrajectoryPoint,
-    SimulationTrajectory,
 )
 from nof1_causal_lab.distributions import OBSERVATION_FAMILY_SPECS
 from nof1_causal_lab.episode_api import (
@@ -45,9 +44,17 @@ from nof1_causal_lab.episode_api import (
 from nof1_causal_lab.flows.context_tools import CONTEXT_TOOLS
 from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.machine.artifact_files import ARTIFACT_FILE_SPECS
-from nof1_causal_lab.machine.snapshot_models import ModelSnapshot, Sourced
+from nof1_causal_lab.machine.snapshot_models import ModelSnapshot
 from nof1_causal_lab.machine.status import EpisodeStatus
-from nof1_causal_lab.machine.view_models import ArtifactViewResponse, SimulationTrajectories
+from nof1_causal_lab.machine.view_models import ArtifactViewResponse
+from nof1_causal_lab.machine.visual_models import (
+    MechanismCurves,
+    MechanismViewRequest,
+    ObservationHistory,
+    ParameterDraws,
+    PredictiveHistory,
+    SimulationPaths,
+)
 from nof1_causal_lab.utils.llm import LLMTrace
 from scripts.codegen.type_system_catalog import annotate_definitions
 
@@ -75,8 +82,12 @@ EXPORTED_API_MODELS: tuple[type[BaseModel], ...] = (
     LLMTrace,
     ModelSnapshot,
     ArtifactViewResponse,
-    SimulationTrajectories,
-    Sourced[SimulationTrajectories],
+    MechanismCurves,
+    MechanismViewRequest,
+    ObservationHistory,
+    ParameterDraws,
+    PredictiveHistory,
+    SimulationPaths,
     EpisodeStatus,
     ActionReceipt,
     ActionPoll,
@@ -85,7 +96,6 @@ EXPORTED_API_MODELS: tuple[type[BaseModel], ...] = (
 EXPORTED_TOOL_MODELS: tuple[type[BaseModel], ...] = (
     EffectSummary,
     EffectTrajectoryPoint,
-    SimulationTrajectory,
     CausalEffectResult,
 )
 
