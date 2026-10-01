@@ -1,27 +1,18 @@
 """Tests for the fit-time observation/prior preflight checks."""
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from pathlib import Path
 
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
-from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
-from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.ssm.inference import fit
 from nof1_causal_lab.models.ssm.model import SSMModel
 from nof1_causal_lab.models.ssm.preflight import (
     ObservationPreflightError,
     validate_observations_for_fit,
 )
-from nof1_causal_lab.models.ssm.priors import (
-    PriorDistributionFamily,
-)
-from nof1_causal_lab.models.ssm.structure import SparseVectorBlockSpec
-from nof1_causal_lab.prior_distributions import distribution_from_params
-from tests.dynamics_fixtures import decay_term
 from tests.model_fixtures import compile_fit_fixture
 
 pytestmark = pytest.mark.contract

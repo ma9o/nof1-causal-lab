@@ -1,15 +1,12 @@
 """Small canonical artifacts for fixture-backed runner contract tests."""
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from pathlib import Path
-
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import polars as pl
 
-from nof1_causal_lab.artifacts.construct import replace_constructs
-from nof1_causal_lab.study.state import StudyState
-from tests.helpers import fixture_entity_id, make_model
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from tests.helpers import fixture_entity_id
 
 
 def scientific_model():

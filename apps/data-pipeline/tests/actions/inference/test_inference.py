@@ -1,10 +1,8 @@
 """Tests for Stage 5 inference task logging and orchestration."""
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from pathlib import Path
-
 import logging
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, cast, override
 
 import jax.numpy as jnp
@@ -13,13 +11,16 @@ import polars as pl
 import pytest
 
 from nof1_causal_lab.actions.inference import fit as stage5_inference
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.ssm.execution.planning import InferenceStructurePlan
 from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior
 from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
 from nof1_causal_lab.models.ssm.model import SSMModel
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 from nof1_causal_lab.models.ssm.runtime import PreparedModelRuntime
-from tests.model_fixtures import compile_fit_fixture, default_diffusion_block, default_lambda_block, default_manifest_chol_block, default_manifest_means_block, default_static_state_sd_block, default_t0_chol_block, default_t0_means_block, full_dense_matrix_dynamics_spec
+from tests.model_fixtures import (
+    compile_fit_fixture,
+)
 
 pytestmark = pytest.mark.contract
 

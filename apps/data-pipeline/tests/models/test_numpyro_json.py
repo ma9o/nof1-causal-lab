@@ -1,9 +1,7 @@
 """The persistence boundary preserves native laws, dimensions, and scientific evidence."""
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from pathlib import Path
-
 import json
+from pathlib import Path
 
 import jax.numpy as jnp
 import numpy as np
@@ -11,10 +9,10 @@ import numpyro.distributions as dist
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 from nof1_causal_lab.numpyro_json import NumPyroDistribution
 from nof1_causal_lab.prior_distributions import persistence_to_decay
-from tests.helpers import make_model
 
 _ADAPTER = TypeAdapter(NumPyroDistribution)
 
@@ -110,7 +108,6 @@ def test_parameter_tool_boundary_validates_the_reference_interval():
 def test_completed_model_requires_a_prior_on_each_parameter():
 
     from nof1_causal_lab.compilation_errors import IncompleteModelError
-    from tests.helpers import make_model
 
     science = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'numpyro_json/completed_model_requires_a_prior_on_each_parameter_complete_test_model.json').read_text())
     draft = science.revised(

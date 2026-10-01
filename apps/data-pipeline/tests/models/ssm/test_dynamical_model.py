@@ -1,10 +1,7 @@
 """Native model execution across inference, warmup, simulation, and prediction."""
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from pathlib import Path
-
-from dataclasses import replace
 from importlib import import_module
+from pathlib import Path
 from types import SimpleNamespace
 
 import dynestyx as dsx
@@ -14,6 +11,7 @@ import numpy as np
 import pytest
 
 from nof1_causal_lab.artifacts.likelihood import LinkFunction
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.ssm.dynamics.intervention import Intervention
 from nof1_causal_lab.models.ssm.inference import problem as problem_module
@@ -27,10 +25,7 @@ def runtime(monkeypatch):
     # Only parameter discovery is stubbed. The declared drift, observation model,
     # model partition, discretizer, and particle target are the actual code paths.
     times = jnp.array([2.0, 2.1, 2.35])
-    from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
     from nof1_causal_lab.models.ssm.execution.parameters import assemble_model_matrices
-    from nof1_causal_lab.models.ssm.structure import DiffusionBlockSpec
-    from tests.model_fixtures import default_lambda_block, default_manifest_chol_block, default_t0_chol_block, default_t0_means_block
 
     spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'dynamical_model/runtime_model_fixture.json').read_text())
     model = SimpleNamespace(

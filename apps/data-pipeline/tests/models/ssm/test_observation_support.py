@@ -1,12 +1,12 @@
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from pathlib import Path
+
 import polars as pl
 import pytest
 
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.observation_support import validate_discrete_manifest_metadata
-from tests.models.ssm._support import complex_mixed_runtime_spec
 
 pytestmark = pytest.mark.contract
 

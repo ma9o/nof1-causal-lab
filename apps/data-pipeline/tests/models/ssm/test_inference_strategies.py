@@ -5,9 +5,7 @@ and particle sampling with ``inference``. Recovery checks live in
 ``test_parameter_recovery.py``.
 """
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from pathlib import Path
-
 from types import SimpleNamespace
 
 import jax
@@ -19,7 +17,7 @@ from dynestyx import StochasticContinuousTimeStateEvolution
 from numpyro.distributions import MultivariateNormal
 
 from nof1_causal_lab.artifacts.likelihood import LinkFunction
-from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.ssm import SSMModel
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
@@ -64,15 +62,10 @@ from nof1_causal_lab.models.ssm.inference.utils import _discover_sites
 from nof1_causal_lab.models.ssm.inference.warmup.map import (
     _build_map_laplace_bundle,
 )
-from nof1_causal_lab.models.ssm.structure import (
-    ManifestCholBlockSpec,
-    SparseMatrixBlockSpec,
-    SparseVectorBlockSpec,
-    T0CholBlockSpec,
+from tests.model_fixtures import (
+    compile_fit_fixture,
+    make_observation_support_runtime,
 )
-from tests.model_fixtures import compile_fit_fixture, dense_matrix_dynamics_spec, diagonal_diffusion_block, make_observation_support_runtime
-
-
 
 
 def _runtime_dynamics(

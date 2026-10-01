@@ -1,6 +1,5 @@
 """Scientific entities gain detail through stable component references."""
 
-from nof1_causal_lab.artifacts.likelihood import ObservationLawSpec
 from pathlib import Path
 
 import numpyro.distributions as dist
@@ -12,7 +11,9 @@ from nof1_causal_lab.artifacts.construct import (
 )
 from nof1_causal_lab.artifacts.expressions import coefficient, hill, state
 from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId, scientific_id
-from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
+from nof1_causal_lab.artifacts.likelihood import (
+    ObservationLawSpec,
+)
 from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from tests.helpers import graph_constructs

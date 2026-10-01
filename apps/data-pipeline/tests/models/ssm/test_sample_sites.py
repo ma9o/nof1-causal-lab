@@ -1,32 +1,16 @@
 """Fixed model parameters do not declare sample sites."""
 
 from __future__ import annotations
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 from pathlib import Path
-
 from typing import TYPE_CHECKING
 
-import jax.numpy as jnp
-import numpy as np
 import pytest
 
-from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
 from nof1_causal_lab.models.ssm import numerics as numeric
-from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
-from nof1_causal_lab.models.ssm.structure import (
-    DiffusionBlockSpec,
-    ManifestCholBlockSpec,
-    SparseMatrixBlockSpec,
-    SparseVectorBlockSpec,
-    T0CholBlockSpec,
-)
-from tests.dynamics_fixtures import decay_term
-from tests.model_fixtures import default_static_state_sd_block
 
 pytestmark = pytest.mark.contract
-
-if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 
 

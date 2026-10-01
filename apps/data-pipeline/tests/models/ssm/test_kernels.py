@@ -8,7 +8,6 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from nof1_causal_lab.artifacts.identity import ConstructId
 from nof1_causal_lab.artifacts.likelihood import LinkFunction
 from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.ssm.execution.observation_model import (

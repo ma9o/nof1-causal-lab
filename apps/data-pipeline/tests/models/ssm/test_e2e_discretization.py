@@ -4,10 +4,9 @@ Checks reference intervals, construct-specific priors, structural support,
 and parameter identity.
 """
 
-from pathlib import Path
-
 import math
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -24,7 +23,7 @@ from nof1_causal_lab.models.ssm.compile.inputs import (
     compile_priors as compile_ssm_priors,
 )
 from nof1_causal_lab.prior_distributions import prior_reference_value
-from tests.helpers import graph_constructs, make_model
+from tests.helpers import graph_constructs
 from tests.model_fixtures import compile_fit_fixture
 
 pytestmark = pytest.mark.contract

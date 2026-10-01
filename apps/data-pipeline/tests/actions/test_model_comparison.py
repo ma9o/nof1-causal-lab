@@ -1,6 +1,5 @@
 """Graph comparisons isolate topology from other scientific definition changes."""
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from pathlib import Path
 
 import jax.numpy as jnp
@@ -14,6 +13,7 @@ from nof1_causal_lab.actions.revisions import (
 )
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.expressions import coefficient, state
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.model_structure import model_graph_entities
 from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
 from tests.helpers import make_model

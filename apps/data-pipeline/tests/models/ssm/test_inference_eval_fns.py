@@ -1,9 +1,7 @@
 """Focused behavioral matrix for shared inference evaluators."""
 
-from pathlib import Path
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
-
 import functools
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -16,16 +14,15 @@ import pytest
 from numpyro import handlers
 
 import nof1_causal_lab.models.ssm.inference.utils as inference_utils
-from nof1_causal_lab.artifacts.likelihood import LinkFunction
-from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
-from nof1_causal_lab.distributions import DistributionFamily
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.ssm import SSMModel
 from nof1_causal_lab.models.ssm.autoreparam import AutoReparam
 from nof1_causal_lab.models.ssm.constants import MIN_DT
 from nof1_causal_lab.models.ssm.inference.parameter_transform import ParameterTransform
 from nof1_causal_lab.models.ssm.inference.utils import _build_eval_fns, prepare_model_parameters
-from nof1_causal_lab.models.ssm.structure import SparseVectorBlockSpec
-from tests.model_fixtures import compile_fit_fixture, dense_matrix_dynamics_spec, diagonal_diffusion_block
+from tests.model_fixtures import (
+    compile_fit_fixture,
+)
 
 
 class _RecordingBackend:

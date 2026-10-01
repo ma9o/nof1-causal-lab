@@ -1,9 +1,7 @@
 """The workbench retains irregular timing, modes, paired draws and nonlinear mechanisms."""
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from pathlib import Path
-
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -20,6 +18,7 @@ from nof1_causal_lab.artifacts.expressions import (
 )
 from nof1_causal_lab.artifacts.identity import IndicatorId, MechanismId
 from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.study.mechanism_views import mechanism_curves
 from nof1_causal_lab.study.snapshots import ModelReader
 from nof1_causal_lab.study.visual_models import MechanismViewRequest

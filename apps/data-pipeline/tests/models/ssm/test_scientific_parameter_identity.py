@@ -1,34 +1,21 @@
 """Stable scientific subjects through authoring, compilation, and retained results."""
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.artifacts.likelihood import ObservationLawSpec
 from pathlib import Path
 
-import numpyro.distributions as dist
 import pytest
 
 from nof1_causal_lab.actions.inference.subjects import reference_posterior_findings
 from nof1_causal_lab.artifacts.construct import replace_constructs
-from nof1_causal_lab.artifacts.expressions import (
-    hill as expr_hill,
+from nof1_causal_lab.artifacts.likelihood import (
+    LikelihoodSpec,
+    ObservationLawSpec,
 )
-from nof1_causal_lab.artifacts.expressions import (
-    state as expr_state,
-)
-from nof1_causal_lab.artifacts.identity import ConstructRef, EdgeRef, MechanismRef
-from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LikelihoodSpec, LinkFunction
-from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
-from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 from nof1_causal_lab.models.model_checks import check_execution
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
-from tests.helpers import make_model
 from tests.model_fixtures import compile_fit_fixture
-
-
-
-
 
 
 @pytest.mark.contract

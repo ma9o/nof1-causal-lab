@@ -4,14 +4,8 @@ Check project strategy selection, trace structure, and exact location-scale
 reconstruction with deterministic standardized variates.
 """
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from pathlib import Path
-
-from pathlib import Path
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.models.ssm.model import SSMModel
-
 import functools
+from pathlib import Path
 
 import jax
 import jax.numpy as jnp
@@ -23,20 +17,18 @@ from numpy.testing import assert_allclose
 from numpyro import handlers
 from numpyro.infer.reparam import LocScaleReparam, ProjectedNormalReparam
 
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.ssm.autoreparam import (
     AutoReparam,
     _is_unconstrained,
     _loc_scale_reparam,
     _minimal_reparam,
 )
-from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
 from nof1_causal_lab.models.ssm.inference.problem import build_particle_problem
 from nof1_causal_lab.models.ssm.inference.utils import _DummyLikelihoodBackend
-from nof1_causal_lab.models.ssm.priors import PriorDistributionFamily
+from nof1_causal_lab.models.ssm.model import SSMModel
 from nof1_causal_lab.models.ssm.transition_kinds import LATENT_TRANSITION_EULER_MARUYAMA
-from nof1_causal_lab.prior_distributions import distribution_from_params
-from tests.dynamics_fixtures import decay_term, hill_term
-from tests.model_fixtures import MinimalReparam, compile_fit_fixture, default_diffusion_block, default_lambda_block, default_manifest_chol_block, default_manifest_means_block, default_static_state_sd_block, default_t0_chol_block, default_t0_means_block, full_dense_matrix_dynamics_spec
+from tests.model_fixtures import MinimalReparam, compile_fit_fixture
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -482,9 +474,6 @@ class TestAutoReparamSSM:
     def test_particle_runtime_reconstructs_log_normal_hill_sites(self):
         """Nested TransformReparam + LocScaleReparam restores the public Hill site."""
         from nof1_causal_lab.models.ssm.model import SSMModel
-
-
-        from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
 
         spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'autoreparam/testautoreparamssm_test_particle_runtime_reconstructs_log_normal_hill_sites_with_parameter_distributions.json').read_text())
         model = SSMModel(compile_fit_fixture(spec))

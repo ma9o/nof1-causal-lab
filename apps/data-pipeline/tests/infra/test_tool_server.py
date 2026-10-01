@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from pathlib import Path
-
 from typing import Any
 
 import jax.numpy as jnp
@@ -12,11 +10,11 @@ from pydantic import TypeAdapter
 from pydantic.json_schema import JsonSchemaValue
 
 import nof1_causal_lab.tool_server as tool_server
-from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.identification import (
     IdentificationReport,
     IdentifiedTreatmentStatus,
 )
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.posterior import InferenceMetadata, InferenceReport
 from nof1_causal_lab.json_types import JsonObject
 from nof1_causal_lab.models.ssm import numerics as numeric
@@ -105,7 +103,6 @@ def test_build_analysis_context_loads_joint_laws_without_fit_compilation(monkeyp
     from nof1_causal_lab.study.records import AttemptRecord
     from nof1_causal_lab.study.store import ArtifactStore
     from nof1_causal_lab.utils import data as data_module
-    from tests.helpers import make_model
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
     design = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'tool_server/build_analysis_context_loads_joint_laws_without_fit_compilation_complete_test_model.json').read_text())
@@ -253,7 +250,6 @@ def test_get_tool_schemas_exposes_declared_result_schema():
 
 def test_get_model_info_uses_structure_for_variables_and_treatments():
 
-    from tests.helpers import make_model
 
     model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'tool_server/get_model_info_uses_structure_for_variables_and_treatments_complete_test_model.json').read_text())
     ctx: tool_server.ToolContext = {

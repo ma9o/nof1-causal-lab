@@ -1,9 +1,6 @@
 """Numerical acceptance of Dynestyx model interpretation with local inference."""
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from pathlib import Path
-
-from dataclasses import replace
 
 import jax
 import jax.numpy as jnp
@@ -11,14 +8,11 @@ import numpy as np
 import numpyro.distributions as dist
 import pytest
 
-from nof1_causal_lab.artifacts.likelihood import LinkFunction
-from nof1_causal_lab.distributions import DistributionFamily
-from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.ssm.inference import fit
 from nof1_causal_lab.models.ssm.inference.problem import build_particle_problem
 from nof1_causal_lab.models.ssm.model import SSMModel
-from tests.dynamics_fixtures import potential_term
-from tests.model_fixtures import compile_fit_fixture, default_lambda_block
+from tests.model_fixtures import compile_fit_fixture
 
 pytestmark = pytest.mark.inference(concern="sampling")
 

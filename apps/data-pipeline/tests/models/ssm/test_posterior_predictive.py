@@ -1,6 +1,5 @@
 """Tests for posterior predictive checks (PPCs)."""
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from pathlib import Path
 
 import jax.numpy as jnp
@@ -9,6 +8,7 @@ import numpy as np
 import pytest
 
 from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.posterior_predictive import (
     _check_calibration,
     _check_residual_autocorrelation,
@@ -24,7 +24,6 @@ from nof1_causal_lab.models.ssm.execution.observation_families import (
     get_posterior_predictive_switch_index,
 )
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
-from tests.model_fixtures import full_dense_matrix_dynamics_spec
 from tests.models.ssm._support import complex_mixed_family_config
 from tests.predictive_fixtures import sample_observation_fixture
 

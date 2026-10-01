@@ -1,24 +1,20 @@
 """Predictive runtime and diagnostic-report integration on a small mixed model."""
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from pathlib import Path
-
-from dataclasses import replace
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorPredictiveChecks
 from nof1_causal_lab.models.posterior_predictive import measure_predictive_checks
-from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
 from nof1_causal_lab.models.ssm.model import SSMModel
 from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
     sample_prior_predictive_from_runtime,
 )
-from tests.dynamics_fixtures import potential_term
-from tests.model_fixtures import compile_fit_fixture, default_lambda_block
+from tests.model_fixtures import compile_fit_fixture
 
 pytestmark = pytest.mark.inference(concern="predictive")
 

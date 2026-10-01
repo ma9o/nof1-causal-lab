@@ -1,8 +1,6 @@
 """Scientific actions depend on selected inputs, independently of authoring recipes."""
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from pathlib import Path
-
 from typing import TYPE_CHECKING
 
 import jax
@@ -13,13 +11,13 @@ from fastapi.testclient import TestClient
 from pydantic import TypeAdapter
 
 from nof1_causal_lab.actions.contracts import PrepareDataRequest, SimulateRequest
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.simulation import SimulationSpec
 from nof1_causal_lab.models.ssm.inference.persistence import condition_model
 from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws, ParticleMCMCPosterior
 from nof1_causal_lab.models.ssm.predictive.parameters import sample_model_laws
 from nof1_causal_lab.study.state import StudyState
 from tests.git_fixtures import artifact_revision, commit_id, git_oid
-from tests.helpers import make_model
 from tests.integration.runner_fixtures import panel_metadata
 from tests.model_fixtures import compile_fit_fixture, parameter_draws
 
@@ -149,7 +147,7 @@ def test_durable_replication_preserves_current_laws_without_comparison(
     from nof1_causal_lab.utils import data as data_module
     from tests.helpers import run_async
     from tests.inference_fixtures import inference_log
-    from tests.integration.runner_fixtures import panel_frame, scientific_model
+    from tests.integration.runner_fixtures import panel_frame
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path))
     store, journal = ArtifactStore("TEST"), StudyRepository("TEST")
@@ -430,7 +428,7 @@ def test_data_profile_survives_model_edits(tmp_path, monkeypatch):
     from nof1_causal_lab.study.state import apply_effects
     from nof1_causal_lab.study.store import ArtifactStore
     from nof1_causal_lab.utils import data as data_module
-    from tests.integration.runner_fixtures import scientific_model, seed_panel
+    from tests.integration.runner_fixtures import seed_panel
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path))
     store = ArtifactStore("TEST")

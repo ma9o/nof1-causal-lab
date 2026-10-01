@@ -5,7 +5,6 @@ by the inference tests.
 """
 
 from pathlib import Path
-
 from typing import Any
 
 import jax.numpy as jnp
@@ -15,6 +14,7 @@ import numpyro.handlers as handlers
 import polars as pl
 import pytest
 
+from nof1_causal_lab.artifacts.expressions import coefficient
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.identity import ConstructRef
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
@@ -28,9 +28,10 @@ from nof1_causal_lab.models.ssm.parameterization import (
     build_site_registry,
 )
 from nof1_causal_lab.models.ssm.priors import resolve_site_priors
-from nof1_causal_lab.models.ssm.structure import SparseMatrixBlockSpec
 from nof1_causal_lab.prior_distributions import distribution_from_params
-from tests.model_fixtures import compile_fit_fixture, dense_matrix_dynamics_spec, full_vector_support, zero_loading_support
+from tests.model_fixtures import (
+    compile_fit_fixture,
+)
 
 # ═══════════════════════════════════════════════════════════════════════
 # Fixtures
@@ -345,7 +346,6 @@ class TestPerElementPriors:
 
         # Per-element prior: single off-diagonal has mu=2.0
 
-        from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
 
         spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'dag_to_ssm/testperelementpriors_test_per_element_prior_in_model_with_parameter_distributions.json').read_text())
         model = SSMModel(compile_fit_fixture(spec))
@@ -504,7 +504,6 @@ class TestRuntimeStructuralSupport:
     def test_translate_spec_rejects_initial_state_correlation_parameters_with_scientific_model(
         self,
     ):
-        from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 
 
         model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'dag_to_ssm/testruntimestructuralsupport_test_translate_spec_rejects_initial_state_correlation_parameters_with_scientific_model_attach_test_coefficients.json').read_text())
@@ -517,7 +516,6 @@ class TestRuntimeStructuralSupport:
         from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 
         model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'dag_to_ssm/testruntimestructuralsupport_test_translate_spec_rejects_self_initial_state_correlation_with_scientific_model_complete_test_model.json').read_text())
-        owners = tuple(ConstructRef(id=model.constructs[i].id) for i in (0,))
         parameter = ParameterSpec(
             id='parameter:77f3ac548e5c828bd95649d677ae53ce71c8dd33c2b1526961592ea56d79f013',
             name="cor0",
@@ -526,10 +524,18 @@ class TestRuntimeStructuralSupport:
         )
 
         with pytest.raises(ValueError, match="Joint coefficients require one other construct"):
-            attach_test_coefficients(
-                model,
-                [(SiteKind.T0_VAR_LOWER, owners, parameter.id)],
-                parameters=(parameter,),
+            type(model.constructs[0]).model_validate(
+                {
+                    **model.constructs[0].model_dump(),
+                    "coefficients": (
+                        *model.constructs[0].coefficients,
+                        coefficient(
+                            parameter.id,
+                            "initial_correlation",
+                            construct_ids=(model.constructs[0].id,),
+                        ),
+                    ),
+                }
             )
 
     def test_model_build_end_to_end(self):

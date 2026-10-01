@@ -11,16 +11,10 @@ import numpyro.distributions as dist
 import pytest
 from numpyro import handlers
 
-from nof1_causal_lab.artifacts.identity import ConstructRef
-from nof1_causal_lab.artifacts.likelihood import LinkFunction
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import PriorAuthoringTransform, SiteKind, SupportClass
 from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
-from nof1_causal_lab.distributions import (
-    DistributionFamily,
-)
 from nof1_causal_lab.models.ssm import numerics as numeric
-from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
 from nof1_causal_lab.models.ssm.inference.utils import _discover_sites, _DummyLikelihoodBackend
 from nof1_causal_lab.models.ssm.model import SSMModel
 from nof1_causal_lab.models.ssm.parameterization import (
@@ -29,16 +23,9 @@ from nof1_causal_lab.models.ssm.parameterization import (
     sample_prior_parameters,
 )
 from nof1_causal_lab.models.ssm.priors import resolve_site_priors
-from nof1_causal_lab.models.ssm.structure import (
-    DiffusionBlockSpec,
-    ManifestCholBlockSpec,
-    SparseMatrixBlockSpec,
-    SparseVectorBlockSpec,
-    T0CholBlockSpec,
+from tests.model_fixtures import (
+    compile_fit_fixture,
 )
-from tests.dynamics_fixtures import decay_term
-from tests.helpers import native_axis_metadata
-from tests.model_fixtures import compile_fit_fixture, default_diffusion_block, default_lambda_block, default_manifest_chol_block, default_manifest_means_block, default_static_state_sd_block, default_t0_chol_block, default_t0_means_block, dense_matrix_dynamics_spec, full_cholesky_support, full_dense_matrix_dynamics_spec, full_diagonal_support, full_vector_support
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -509,7 +496,6 @@ class TestCompiledArtifactIntegration:
         """A model with authored priors satisfies execution requirements."""
         from nof1_causal_lab.models.model_checks import check_execution
 
-        scientific_model, priors = scientific_model_and_priors
         check_execution(
             ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testcompiledartifactintegration_test_execution_checks_accept_complete_model_make_prior_model.json').read_text()),
         )
@@ -520,7 +506,6 @@ class TestCompiledArtifactIntegration:
 
         from nof1_causal_lab.models.ssm.runtime import build_ssm_model
 
-        scientific_model, priors = scientific_model_and_priors
         definition = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testcompiledartifactintegration_test_runtime_derives_the_authored_priors_make_prior_model.json').read_text())
         model = build_ssm_model(
             pl.DataFrame({"time": [0.0], "mood_score": [5.0]}),

@@ -1,8 +1,6 @@
 """Partial models stay inspectable; numerical operations validate their own inputs."""
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from pathlib import Path
-
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, Mock
 
@@ -12,6 +10,7 @@ import pytest
 from nof1_causal_lab.actions.contracts import EditModelRequest, FitRequest
 from nof1_causal_lab.actions.runners import run_action
 from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.posterior import FitSettingsSpec
 from nof1_causal_lab.compilation_errors import IncompleteModelError
 from nof1_causal_lab.study.history import StudyRepository

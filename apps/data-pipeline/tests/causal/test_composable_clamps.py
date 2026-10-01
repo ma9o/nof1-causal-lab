@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from pathlib import Path
 
 import jax
 import jax.numpy as jnp
 import pytest
 
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.scenarios import InterventionSpec
 from nof1_causal_lab.models.ssm.counterfactual import (
     ResolvedIntervention,
@@ -98,8 +98,6 @@ def test_explicit_start_evolves_from_given_state():
 @pytest.mark.inference(concern="simulation")
 def test_fully_fixed_dynamics_keep_the_explicit_draw_axis():
     from nof1_causal_lab.models.ssm.dynamics import dynamics_from_samples
-    from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
-    from tests.dynamics_fixtures import potential_term
 
     spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'composable_clamps/fully_fixed_dynamics_keep_the_explicit_draw_axis_model_fixture.json').read_text())
     draws = dynamics_from_samples(spec, {}, n_draws=3)

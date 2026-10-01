@@ -1,6 +1,5 @@
 """Execution planning reads canonical entities and preserves their source identities."""
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from pathlib import Path
 
 import pytest
@@ -10,6 +9,7 @@ from nof1_causal_lab.artifacts.construct import (
     TemporalStatus,
     replace_constructs,
 )
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.model_checks import check_execution
 from nof1_causal_lab.models.model_structure import StructuralCompilationError
 from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings

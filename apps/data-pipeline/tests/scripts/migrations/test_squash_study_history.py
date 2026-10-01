@@ -1,8 +1,7 @@
 """Saved-effect compaction preserves state and the reader's fresh findings."""
 
-from pathlib import Path
-
 import json
+from pathlib import Path
 from uuid import uuid4
 
 import numpyro.distributions as dist
@@ -22,7 +21,6 @@ from nof1_causal_lab.study.snapshots import ModelReader
 from nof1_causal_lab.study.state import RetractedArtifact
 from nof1_causal_lab.study.store import ArtifactStore
 from nof1_causal_lab.utils import data
-from tests.integration.runner_fixtures import scientific_model
 
 pytestmark = pytest.mark.contract
 

@@ -1,6 +1,6 @@
 """ModelSpec identity, parameter draws, and native model execution."""
 
-from nof1_causal_lab.artifacts.likelihood import ObservationLawSpec
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from pathlib import Path
 
 import dynestyx as dsx
@@ -10,7 +10,9 @@ import numpy as np
 import pytest
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
-from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
+from nof1_causal_lab.artifacts.likelihood import (
+    ObservationLawSpec,
+)
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.execution.dynamical_model import (
     HeterogeneousObservation,
@@ -22,7 +24,6 @@ from nof1_causal_lab.models.ssm.parameterization import (
     assemble_deterministics_from_registry,
     build_site_registry,
 )
-from tests.dynamics_fixtures import decay_term, interaction_term, linear_term
 from tests.helpers import make_model
 from tests.model_fixtures import compile_fit_fixture
 
@@ -39,9 +40,7 @@ def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
 ):
     from functools import cache
 
-
     from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.models.model_inputs import input_fingerprints
     from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
     from nof1_causal_lab.models.ssm.predictive.parameters import sample_model_laws
@@ -278,7 +277,6 @@ def test_predictive_edge_off_reaches_the_native_state_evolution(model, monkeypat
 
 @pytest.mark.contract
 def test_model_equality_does_not_depend_on_execution_cache(model):
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
     restored = ModelSpec.model_validate_json(model.model_dump_json())
     (model).require_execution_structure()
@@ -291,7 +289,6 @@ def test_nonlinear_fixture_declares_the_same_drift_and_measurements():
     """Compare a single true drift evaluation; no simulator or inference is run."""
     from evaluation.fixtures import synthetic_nonlinear as fixture
 
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.models.ssm.execution.parameters import assemble_model_matrices
 
     source = fixture.load_synthetic_nonlinear_spec()
@@ -330,8 +327,6 @@ def test_nonlinear_fixture_declares_the_same_drift_and_measurements():
 @pytest.mark.contract
 def test_fixed_quantities_and_interactions_remain_effective_in_edge_off_checks(monkeypatch):
     from nof1_causal_lab.artifacts.expressions import LiteralExpression, linear_coefficient
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
     from nof1_causal_lab.models.ssm.predictive import registry_runtime
     from nof1_causal_lab.models.ssm.predictive.types import PredictiveDraws, PredictiveTrajectory
     from nof1_causal_lab.models.ssm.simulation_checks import (

@@ -2,18 +2,15 @@
 
 from __future__ import annotations
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from pathlib import Path
-
-from dataclasses import replace
 
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
+from nof1_causal_lab.artifacts.likelihood import DistributionFamily
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.ssm import numerics as numeric
-from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
 from nof1_causal_lab.models.ssm.execution.observation_distributions import mean_observation_variance
 from nof1_causal_lab.models.ssm.predictive.types import PredictiveDraws, PredictiveTrajectory
 from nof1_causal_lab.models.ssm.simulation_checks import (
@@ -21,11 +18,9 @@ from nof1_causal_lab.models.ssm.simulation_checks import (
     DesignInfo,
     measure_construct_simulation,
 )
-from tests.dynamics_fixtures import hill_term, potential_term
 from tests.helpers import (
     fixture_entity_id,
 )
-from tests.model_fixtures import default_t0_means_block
 
 pytestmark = pytest.mark.inference(concern="predictive")
 
@@ -112,7 +107,6 @@ def test_fixed_hill_coefficients_participate_in_checks_and_edge_off(
 , model_fixture_payload):
     """Fixed coefficients still affect the Hill checks and the exact edge-off contrast."""
     from nof1_causal_lab.artifacts.expressions import LiteralExpression, hill_applications
-    from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
     from nof1_causal_lab.models.ssm.predictive import registry_runtime
 
     draws, ticks = 4, 21

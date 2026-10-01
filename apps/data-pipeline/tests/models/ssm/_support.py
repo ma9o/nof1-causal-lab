@@ -1,28 +1,12 @@
 """Shared fixtures for SSM contracts, inference, and predictive test suites."""
 
 from __future__ import annotations
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 from pathlib import Path
-
 from typing import TYPE_CHECKING
 
-import jax.numpy as jnp
-import numpy as np
-
 from nof1_causal_lab.artifacts.likelihood import LinkFunction
-from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
-from nof1_causal_lab.distributions import DistributionFamily
-from nof1_causal_lab.models.ssm.structure import (
-    DiffusionBlockSpec,
-    ManifestCholBlockSpec,
-    SparseMatrixBlockSpec,
-    SparseVectorBlockSpec,
-    T0CholBlockSpec,
-)
-from tests.model_fixtures import default_static_state_sd_block, dense_matrix_dynamics_spec
-
-if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 # ══════════════════════════════════════════════════════════════════════════════
 # OBSERVATION FAMILY MATRIX

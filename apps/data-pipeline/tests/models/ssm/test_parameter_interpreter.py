@@ -1,9 +1,7 @@
 """Small parameter-contract checks without fitting or forward simulation."""
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from pathlib import Path
-
 import hashlib
+from pathlib import Path
 
 import jax.numpy as jnp
 import jax.random as random
@@ -12,11 +10,12 @@ import numpyro.distributions as dist
 import pytest
 from numpyro import handlers
 
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
 from nof1_causal_lab.models.ssm import parameterization
 from nof1_causal_lab.models.ssm.model import SSMModel
 from nof1_causal_lab.models.ssm.structure.sites import make_site
-from tests.model_fixtures import compile_fit_fixture, full_dense_matrix_dynamics_spec
+from tests.model_fixtures import compile_fit_fixture
 
 
 @pytest.mark.inference(concern="predictive")

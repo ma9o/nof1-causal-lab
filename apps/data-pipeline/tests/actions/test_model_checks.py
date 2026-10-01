@@ -1,9 +1,7 @@
 """Checks follow scientific input changes and never become authoring gates."""
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from pathlib import Path
-
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import jax.numpy as jnp
 import numpy as np
@@ -13,6 +11,7 @@ from nof1_causal_lab.actions.contracts import EditModelRequest
 from nof1_causal_lab.actions.data_checks import evaluate_data_checks
 from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.actions.messages import completion_messages
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.records import AttemptRecord
 from nof1_causal_lab.study.state import StudyState, apply_effects
@@ -21,7 +20,6 @@ from tests.action_fixtures import edit_and_check
 from tests.integration.runner_fixtures import (
     panel_frame,
     panel_metadata,
-    scientific_model,
 )
 from tests.model_fixtures import compile_fit_fixture
 

@@ -1,6 +1,5 @@
 """Native node potentials preserve nonlinear drift, metadata, and causal interventions."""
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from pathlib import Path
 
 import jax
@@ -8,6 +7,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.models.ssm.dynamics import (
     ConstantValueFn,

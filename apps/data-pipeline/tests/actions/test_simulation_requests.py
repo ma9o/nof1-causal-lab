@@ -1,12 +1,12 @@
 """One forward-generation contract with dated interventions and durable histories."""
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from pathlib import Path
 
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from nof1_causal_lab.actions.contracts import SimulateRequest
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.scenarios import InterventionSpec
 from nof1_causal_lab.artifacts.simulation import SimulationReport, SimulationSpec
 from tests.model_fixtures import compile_fit_fixture
@@ -212,7 +212,7 @@ def test_runner_derives_origin_and_reliability_from_current_panel_or_fit(
     from nof1_causal_lab.utils import data
     from tests.helpers import run_async
     from tests.inference_fixtures import inference_log
-    from tests.integration.runner_fixtures import panel_metadata, scientific_model
+    from tests.integration.runner_fixtures import panel_metadata
     from tests.model_fixtures import parameter_draws
 
     monkeypatch.setattr(data, "_DATA_URI", str(tmp_path))

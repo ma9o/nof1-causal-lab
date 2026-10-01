@@ -1,11 +1,11 @@
 """Whole scientific values commit atomically and findings retain exact source revisions."""
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from pathlib import Path
 
 import pytest
 
 from nof1_causal_lab.actions.contracts import EditModelRequest
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.model_inputs import input_fingerprints
 from nof1_causal_lab.study.errors import ArtifactWriteRejected
 from nof1_causal_lab.study.state import ArtifactRecord, StudyState, is_stale

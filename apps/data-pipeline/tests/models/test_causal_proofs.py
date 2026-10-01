@@ -1,7 +1,5 @@
 """Proof-carrying boundaries for numeric causal analysis."""
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
-
 import subprocess
 from pathlib import Path
 from textwrap import dedent
@@ -15,16 +13,15 @@ from nof1_causal_lab.artifacts.identification import (
     NonIdentifiableTreatmentStatus,
 )
 from nof1_causal_lab.artifacts.identity import GitRef
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.causal_proofs import (
     CertifiedCausalAnalysis,
     certify_identified_estimand,
 )
 from nof1_causal_lab.models.ssm.inference.types import (
     JointPosteriorDraws,
-    ParticleMCMCPosterior,
 )
 from tests.git_fixtures import git_oid
-from tests.model_fixtures import compile_fit_fixture
 
 pytestmark = pytest.mark.contract
 

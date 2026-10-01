@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from pathlib import Path
 
 import jax.numpy as jnp
@@ -12,7 +11,7 @@ import pytest
 from dynestyx import StochasticContinuousTimeStateEvolution
 
 from nof1_causal_lab.artifacts.identity import scientific_id
-from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.ssm.dynamics import (
     DynamicsSpec,
     Intervention,
@@ -23,7 +22,9 @@ from nof1_causal_lab.models.ssm.dynamics import (
     infer_linearisation,
 )
 from tests.dynamics_fixtures import decay_term, hill_term, intercept_term, linear_term
-from tests.model_fixtures import compile_fit_fixture, default_manifest_means_block, default_static_state_sd_block
+from tests.model_fixtures import (
+    compile_fit_fixture,
+)
 
 
 @pytest.mark.contract
@@ -75,13 +76,6 @@ class TestSSMModelDynamicsDispatch:
         from numpyro import handlers
 
         from nof1_causal_lab.models.ssm import SSMModel
-        from nof1_causal_lab.models.ssm.structure import (
-            DiffusionBlockSpec,
-            ManifestCholBlockSpec,
-            SparseMatrixBlockSpec,
-            SparseVectorBlockSpec,
-            T0CholBlockSpec,
-        )
 
         class DynamicsAwareBackend:
 

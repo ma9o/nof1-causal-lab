@@ -1,9 +1,7 @@
 """Synthetic observations compose with the normal panel, provenance and fitting contracts."""
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from pathlib import Path
-
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import numpy as np
 import polars as pl
@@ -16,6 +14,7 @@ from nof1_causal_lab.actions.runners import run_action
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.data_preparation import SimulationReplicateRef
 from nof1_causal_lab.artifacts.identity import GitRef
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.simulation import (
     SimulationReport,
     SimulationSpec,

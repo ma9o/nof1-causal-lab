@@ -20,7 +20,6 @@ from nof1_causal_lab.models.ssm.simulation_checks import (
     ConstructSimulationTarget,
     _incoming_edge_off_target,
 )
-from tests.helpers import make_model
 
 pytestmark = pytest.mark.contract
 

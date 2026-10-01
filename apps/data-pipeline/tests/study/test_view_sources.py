@@ -1,7 +1,5 @@
 """Read findings follow their scientific revision and observational inputs."""
 
-from nof1_causal_lab.artifacts.likelihood import ObservationLawSpec
-
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -11,7 +9,7 @@ import pytest
 from pydantic import TypeAdapter
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
-from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec
+from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec, ObservationLawSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.posterior import InferenceReport
 from nof1_causal_lab.json_types import JsonObject

@@ -4,39 +4,32 @@ Covers: semantic prior binding and fit-input preparation.
 """
 
 from __future__ import annotations
-
-from pathlib import Path
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import jax.numpy as jnp
 import numpy as np
-import numpyro.distributions as dist
 import polars as pl
 import pytest
 
-from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
-from nof1_causal_lab.artifacts.parameter import PriorAuthoringTransform, SiteKind
+from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.compile.inputs import compile_priors
-from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
 from nof1_causal_lab.models.ssm.runtime import (
     build_ssm_model,
     prepare_fit_inputs,
     prepare_model_runtime,
     project_observation_data,
 )
-from nof1_causal_lab.models.ssm.structure import (
-    DiffusionBlockSpec,
-    T0CholBlockSpec,
+from tests.helpers import make_model
+from tests.model_fixtures import (
+    compile_fit_fixture,
 )
-from tests.dynamics_fixtures import decay_term
-from tests.helpers import make_model, native_axis_metadata
-from tests.model_fixtures import compile_fit_fixture, default_diffusion_block, default_lambda_block, default_manifest_chol_block, default_manifest_means_block, default_static_state_sd_block, default_t0_chol_block, default_t0_means_block, full_dense_matrix_dynamics_spec, full_diagonal_support
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.sampler_config import SamplerConfigOverride
 
 # =============================================================================
@@ -382,7 +375,6 @@ def test_compiled_inputs_own_runtime_derivations(monkeypatch):
 
 @pytest.mark.contract
 def test_compile_distinguishes_incomplete_unsupported_and_bugs(monkeypatch):
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.models.ssm.compile import inputs as compiler
 
     incomplete = compiler.compile_ssm_inputs_from_model(ModelSpec())
@@ -402,7 +394,6 @@ def test_compile_distinguishes_incomplete_unsupported_and_bugs(monkeypatch):
 @pytest.mark.contract
 def test_fit_resolves_incomplete_model_before_panel_preparation(monkeypatch):
     from nof1_causal_lab.actions.inference import fit as fitting
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
     def unexpected_panel(*_args, **_kwargs):
         raise AssertionError("panel prepared before fit capability was resolved")

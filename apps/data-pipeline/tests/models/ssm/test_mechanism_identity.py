@@ -1,25 +1,14 @@
 """Independent additive terms survive revision without tying their free coefficients."""
 
-from nof1_causal_lab.artifacts.expressions import BinaryExpression
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from pathlib import Path
 
 import numpy as np
-import numpyro.distributions as dist
 import pytest
 
-from nof1_causal_lab.artifacts.expressions import (
-    hill as expr_hill,
-)
-from nof1_causal_lab.artifacts.expressions import (
-    state as expr_state,
-)
-from nof1_causal_lab.artifacts.identity import ConstructRef, EdgeRef, MechanismRef
-from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
-from nof1_causal_lab.artifacts.parameter import SiteKind
-from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
+from nof1_causal_lab.artifacts.expressions import BinaryExpression
 from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
 from nof1_causal_lab.models.ssm.compile.prior_compilation import compile_priors
-from tests.helpers import make_model
 
 
 @pytest.fixture(scope="module")
@@ -62,7 +51,6 @@ def test_independent_hill_coefficients_survive_reorder_rename_and_submission(two
             after_priors[new[identity].site_name].log_prob(0.7),
         )
     # Incremental edits submit the whole authored model directly.
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
     submitted = ModelSpec.model_validate(revised.model_dump(mode="json"))
     assert submitted.edges[0].mechanisms == revised.edges[0].mechanisms
@@ -93,10 +81,6 @@ def test_term_identity_rejects_ambiguous_or_dangling_revisions(two_hills, change
         terms = (first, type(second).model_validate({**second.model_dump(), "id": first.id}))
     elif change == "wrong_coefficient":
 
-        from nof1_causal_lab.artifacts.expressions import (
-            CoefficientExpression,
-            expression_coefficients,
-        )
 
         terms = (
             first,

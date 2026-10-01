@@ -10,11 +10,9 @@ the helpers with real transformation or graph logic:
 """
 
 
-from typing import Any
 
 import pytest
 
-from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.utils.causal_design import (
     build_digraph,

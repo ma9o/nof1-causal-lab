@@ -1,7 +1,6 @@
 """Exact measurement semantics across authoring, compilation, and observation execution."""
 
 from pathlib import Path
-
 from types import SimpleNamespace
 
 import jax
@@ -17,7 +16,6 @@ from nof1_causal_lab.artifacts.identity import ConstructId
 from nof1_causal_lab.artifacts.likelihood import (
     DistributionFamily,
     LikelihoodSpec,
-    LinkFunction,
     ObservationLawSpec,
 )
 from nof1_causal_lab.artifacts.model_spec import ModelSpec

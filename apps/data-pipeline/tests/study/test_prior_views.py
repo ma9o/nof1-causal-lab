@@ -1,9 +1,8 @@
 """Prior display is an ephemeral read of a native law, never authored science."""
 
-from pathlib import Path
-
 import math
 from itertools import pairwise
+from pathlib import Path
 
 import jax.numpy as jnp
 import numpy as np
