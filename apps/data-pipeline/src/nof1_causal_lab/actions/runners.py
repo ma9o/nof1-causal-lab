@@ -140,6 +140,12 @@ async def _run_simulate(
         write_array=store.write_array,
         time_origin=time_origin,
         fit_reliability=reliability,
+        input_data=store.read_parquet_file(
+            "panel", origin_panel_revision, parquet_filename("panel", "panel")
+        )
+        if origin_panel_revision is not None
+        and any(construct.role == "exogenous" for construct in model.constructs)
+        else None,
     )
     report = type(report).model_validate(
         {**report.model_dump(), "law": law, "origin_panel_revision": origin_panel_revision}

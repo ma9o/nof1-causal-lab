@@ -1010,7 +1010,7 @@
         },
         "role": {
           "$ref": "#/$defs/Role",
-          "description": "'endogenous' or 'exogenous' (no modeled causal parents; may still be uncertain)"
+          "description": "'endogenous' means modeled, with or without parents; 'exogenous' means given through direct exact readings, with no law. Unmeasured constructs are endogenous."
         },
         "temporal_status": {
           "$ref": "#/$defs/TemporalStatus",

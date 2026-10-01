@@ -170,7 +170,13 @@ def _definitions(snapshot):
 
 
 def test_fitted_snapshot_keeps_joint_arrays_lazy_and_workspace_bound(workspace, monkeypatch):
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'snapshots/fitted_snapshot_keeps_joint_arrays_lazy_and_workspace_bound_complete_test_model.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1]
+            / "fixtures/models"
+            / "snapshots/fitted_snapshot_keeps_joint_arrays_lazy_and_workspace_bound_complete_test_model.json"
+        ).read_text()
+    )
     bindings, _ = parameter_bindings(model)
     layout = JointLawLayout.from_bindings(
         bindings,
@@ -404,8 +410,18 @@ def test_rename_preserves_identity_and_historical_content(workspace):
 def test_planning_preserves_ids_across_name_and_role_edits(workspace):
     original = _model()
     payload = _model().model_dump(mode="json")
-    graph_constructs(payload)[0]["name"] = "Renamed"
-    graph_constructs(payload)[0]["role"] = "exogenous"
+    given = graph_constructs(payload)[0]
+    given.update(name="Renamed", role="exogenous", coefficients=[], dynamics=[], distribution=None)
+    for indicator in given["indicators"]:
+        indicator["likelihood"] = {
+            "law": {
+                "distribution": "Delta",
+                "arguments": {"v": {"kind": "state", "construct_id": given["id"]}},
+            },
+            "standardized": False,
+            "reasoning": "The renamed input is given exactly.",
+            "sources": [],
+        }
     revised = ModelSpec.model_validate(payload)
     assert set(original.state_order) == set(revised.state_order)
     assert original.edges[0].id == revised.edges[0].id == "edge:xy"
@@ -513,7 +529,13 @@ def test_owned_likelihood_survives_reused_names(workspace, monkeypatch):
     _measured(workspace)
     payload = _model().model_dump(mode="json")
     graph_constructs(payload)[1]["indicators"][0]["likelihood"] = {
-        "law": ObservationLawSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'snapshots/owned_likelihood_survives_reused_names_observation_law.json').read_text()).model_dump(mode="json"),
+        "law": ObservationLawSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[1]
+                / "fixtures/models"
+                / "common/y_gaussian_observation_law.json"
+            ).read_text()
+        ).model_dump(mode="json"),
         "reasoning": "Test",
     }
     _commit(workspace, "model", payload)

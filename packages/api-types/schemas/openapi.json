@@ -3256,7 +3256,7 @@
           },
           "role": {
             "$ref": "#/components/schemas/Role",
-            "description": "'endogenous' or 'exogenous' (no modeled causal parents; may still be uncertain)"
+            "description": "'endogenous' means modeled, with or without parents; 'exogenous' means given through direct exact readings, with no law. Unmeasured constructs are endogenous."
           },
           "temporal_status": {
             "$ref": "#/components/schemas/TemporalStatus",
@@ -3337,7 +3337,7 @@
           },
           "role": {
             "$ref": "#/components/schemas/Role",
-            "description": "'endogenous' or 'exogenous' (no modeled causal parents; may still be uncertain)"
+            "description": "'endogenous' means modeled, with or without parents; 'exogenous' means given through direct exact readings, with no law. Unmeasured constructs are endogenous."
           },
           "temporal_status": {
             "$ref": "#/components/schemas/TemporalStatus",
@@ -4279,7 +4279,8 @@
             ]
           },
           "model": {
-            "$ref": "#/components/schemas/ModelSpec-Input"
+            "$ref": "#/components/schemas/ModelSpec-Input",
+            "description": "Endogenous constructs are modeled, with or without parents, and include every latent construct. Exogenous constructs are given by direct exact Delta readings and have no dynamics, diffusion, initial coefficients or trajectory law."
           }
         },
         "additionalProperties": false,

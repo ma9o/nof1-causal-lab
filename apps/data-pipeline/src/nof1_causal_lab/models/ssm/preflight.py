@@ -50,8 +50,14 @@ class ObservationPreflightError(ValueError):
 def validate_observation_support_for_fit(model: SSMModel) -> None:
     """Reject observation semantics the particle target cannot represent."""
     support = model.observation_support
-    if support is not None and support.requires_interval_summary_handling:
-        names = ", ".join(support.interval_summary_manifest_names)
+    intervals = [
+        indicator.name
+        for indicator in numeric.observed_indicators(model.spec)
+        if indicator.support_kind == "interval"
+        and model.spec.indicator_owner(indicator.id).role == "endogenous"
+    ]
+    if support is not None and intervals:
+        names = ", ".join(intervals)
         raise ObservationPreflightError(
             "Particle inference supports only point measurements; "
             f"unsupported interval summaries: {names}."

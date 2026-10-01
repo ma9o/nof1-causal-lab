@@ -22,7 +22,13 @@ pytestmark = pytest.mark.inference(concern="predictive")
 def test_predictive_draws_feed_mixed_family_diagnostics():
     # Exhaustive family/link domains are checked by the observation-sampling
     # test. This case checks the complete prior/runtime/report connection.
-    spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'posterior_predictive_integration/predictive_draws_feed_mixed_family_diagnostics_model_fixture.json').read_text())
+    spec = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "posterior_predictive_integration/predictive_draws_feed_mixed_family_diagnostics_model_fixture.json"
+        ).read_text()
+    )
     runtime = SSMModel(compile_fit_fixture(spec)).get_prior_runtime_bundle()
     times = jnp.array([0.0, 0.1, 0.25, 0.4, 0.7, 1.0], dtype=jnp.float32)
     samples = sample_prior_predictive_from_runtime(spec, runtime, times, num_samples=3, seed=7)

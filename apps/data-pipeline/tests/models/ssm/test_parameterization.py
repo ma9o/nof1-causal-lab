@@ -32,27 +32,15 @@ from tests.model_fixtures import (
 # ---------------------------------------------------------------------------
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 @pytest.fixture
 def simple_spec():
-    return ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/simple_spec_model.json').read_text())
+    return ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "common/two_state_gaussian_model.json"
+        ).read_text()
+    )
 
 
 @pytest.fixture
@@ -62,34 +50,18 @@ def simple_model(simple_spec):
 
 @pytest.fixture
 def dag_spec():
-    return ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/dag_spec_model.json').read_text())
+    return ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "parameterization/dag_spec_model.json"
+        ).read_text()
+    )
 
 
 @pytest.fixture
 def dag_model(dag_spec):
     return SSMModel(compile_fit_fixture(dag_spec))
-
-
-@pytest.fixture
-def scientific_model_and_priors():
-    return ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/scientific_model_and_priors_complete_test_model.json').read_text()), {
-        "rho_mood": {
-            "parameter": "rho_mood",
-            "distribution": "Beta",
-            "params": {"alpha": 2.0, "beta": 2.0},
-            "sources": [],
-            "reasoning": "r",
-        },
-        "sigma_mood": {
-            "parameter": "sigma_mood",
-            "distribution": "HalfNormal",
-            "params": {"sigma": 1.0},
-            "sources": [],
-            "reasoning": "r",
-        },
-    }
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -132,7 +104,13 @@ class TestSiteRegistry:
     @pytest.mark.inference(concern="sampling")
     def test_registry_shapes_match_trace_partial_manifest_variance_mask(self):
         """Masked manifest variance exposes only free diagonal entries as a site."""
-        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testsiteregistry_test_registry_shapes_match_trace_partial_manifest_variance_mask__make_spec.json').read_text())
+        spec = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "parameterization/partial_manifest_variance_model.json"
+            ).read_text()
+        )
         model = SSMModel(compile_fit_fixture(spec))
         registry = build_site_registry(spec)
         backend = _DummyLikelihoodBackend()
@@ -148,14 +126,26 @@ class TestSiteRegistry:
     @pytest.mark.contract
     def test_fixed_dynamics_excludes_dynamics_sites(self):
         """When dynamics is a fixed array, no dynamics sites appear."""
-        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testsiteregistry_test_fixed_dynamics_excludes_dynamics_sites__make_spec.json').read_text())
+        spec = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "common/two_state_fixed_drift_model.json"
+            ).read_text()
+        )
         registry = build_site_registry(spec)
         assert len([site for site in registry if site.site_kind == SiteKind.DYNAMICS_DECAY]) == 2
 
     @pytest.mark.contract
     def test_diag_diffusion_excludes_lower(self):
         """Diagonal diffusion has no lower-triangle sites."""
-        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testsiteregistry_test_diag_diffusion_excludes_lower__make_spec.json').read_text())
+        spec = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "parameterization/testsiteregistry_test_diag_diffusion_excludes_lower__make_spec.json"
+            ).read_text()
+        )
         registry = build_site_registry(spec)
         names = {s.name for s in registry}
         assert "diffusion_diag_free" in names
@@ -164,7 +154,13 @@ class TestSiteRegistry:
     @pytest.mark.contract
     def test_free_diffusion_includes_lower(self):
         """Free diffusion includes lower-triangle sites."""
-        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testsiteregistry_test_free_diffusion_includes_lower__make_spec.json').read_text())
+        spec = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "common/two_state_gaussian_model.json"
+            ).read_text()
+        )
         registry = build_site_registry(spec)
         names = {s.name for s in registry}
         assert "diffusion_diag_free" in names
@@ -175,7 +171,13 @@ class TestSiteRegistry:
         """Initial-state correlation sites should only exist for authored pairs."""
         mask = np.zeros((3, 3), dtype=bool)
         mask[2, 0] = True
-        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testsiteregistry_test_sparse_initial_state_correlations_only_include_authored_pairs__make_spec.json').read_text())
+        spec = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "parameterization/testsiteregistry_test_sparse_initial_state_correlations_only_include_authored_pairs__make_spec.json"
+            ).read_text()
+        )
         registry = build_site_registry(spec)
         site_map = {site.name: site for site in registry}
         assert site_map["t0_var_lower_free"].shape == (1,)
@@ -199,14 +201,26 @@ class TestSiteRegistry:
     @pytest.mark.contract
     def test_mixed_diffusion_includes_proc_df_site(self):
         """Any student-t latent in diffusion_dists should expose proc_df."""
-        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testsiteregistry_test_mixed_diffusion_includes_proc_df_site__make_spec.json').read_text())
+        spec = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "parameterization/student_innovation_model.json"
+            ).read_text()
+        )
         registry = build_site_registry(spec)
         assert "proc_df" in {site.name for site in registry}
 
     @pytest.mark.inference(concern="sampling")
     def test_mixed_diffusion_sampling_emits_proc_df(self):
         """The traced model should sample proc_df when diffusion_dists include student_t."""
-        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testsiteregistry_test_mixed_diffusion_sampling_emits_proc_df__make_spec.json').read_text())
+        spec = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "parameterization/student_innovation_model.json"
+            ).read_text()
+        )
         model = SSMModel(compile_fit_fixture(spec))
 
         with handlers.seed(rng_seed=0):
@@ -217,7 +231,13 @@ class TestSiteRegistry:
     @pytest.mark.inference(concern="sampling")
     def test_static_state_sd_site_is_registered_and_traced(self):
         """Compiled baseline factors should expose a positive static-state SD site."""
-        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testsiteregistry_test_static_state_sd_site_is_registered_and_traced__make_spec.json').read_text())
+        spec = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "parameterization/static_state_model.json"
+            ).read_text()
+        )
         model = SSMModel(compile_fit_fixture(spec))
 
         registry = build_site_registry(spec)
@@ -237,7 +257,13 @@ class TestSiteRegistry:
 class TestSpecBlockAssembly:
     def test_assemble_t0_cov_adds_low_rank_baseline_factor_covariance(self):
         """Static baseline factors should add `B diag(tau^2) B^T` to the t0 covariance."""
-        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testspecblockassembly_test_assemble_t0_cov_adds_low_rank_baseline_factor_covariance__make_spec.json').read_text())
+        spec = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "parameterization/static_state_model.json"
+            ).read_text()
+        )
         model = SSMModel(compile_fit_fixture(spec))
         values = {
             site.name: jnp.ones(site.shape)
@@ -290,7 +316,13 @@ class TestDeterministicAssembly:
     @pytest.mark.contract
     def test_assemble_deterministics_from_registry_fixed_blocks(self):
         """Fixed spec matrices are broadcast without any sampled sites."""
-        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testdeterministicassembly_test_assemble_deterministics_from_registry_fixed_blocks__make_spec.json').read_text())
+        spec = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "parameterization/testdeterministicassembly_test_assemble_deterministics_from_registry_fixed_blocks__make_spec.json"
+            ).read_text()
+        )
         det = assemble_deterministics_from_registry({}, spec, n_draws=3)
         assert jnp.allclose(
             det["diffusion"],
@@ -314,7 +346,13 @@ class TestDeterministicAssembly:
     @pytest.mark.contract
     def test_assemble_deterministics_from_registry_partial_manifest_variance_mask(self):
         """Registry assembly respects mixed fixed/free manifest-noise diagonals."""
-        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testdeterministicassembly_test_assemble_deterministics_from_registry_partial_manifest_variance_mask__make_spec.json').read_text())
+        spec = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "parameterization/partial_manifest_variance_model.json"
+            ).read_text()
+        )
         samples = {
             "diffusion_diag_free": jnp.array([[0.4, 0.6]], dtype=jnp.float32),
             "diffusion_lower_free": jnp.array([[0.25]], dtype=jnp.float32),
@@ -333,7 +371,13 @@ class TestDeterministicAssembly:
         """Initial-state off-diagonal samples are interpreted as correlations."""
         mask = np.zeros((2, 2), dtype=bool)
         mask[1, 0] = True
-        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testdeterministicassembly_test_assemble_deterministics_from_registry_initial_state_correlations__make_spec.json').read_text())
+        spec = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "common/two_state_gaussian_model.json"
+            ).read_text()
+        )
         samples = {
             "diffusion_diag_free": jnp.array([[0.4, 0.6]], dtype=jnp.float32),
             "diffusion_lower_free": jnp.array([[0.25]], dtype=jnp.float32),
@@ -358,7 +402,13 @@ class TestDeterministicAssembly:
         mask[1, 0] = True
         mask[2, 0] = True
         mask[2, 1] = True
-        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testdeterministicassembly_test_assemble_deterministics_repairs_invalid_initial_correlation_matrix__make_spec.json').read_text())
+        spec = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "parameterization/testdeterministicassembly_test_assemble_deterministics_repairs_invalid_initial_correlation_matrix__make_spec.json"
+            ).read_text()
+        )
         samples = {
             "diffusion_diag_free": jnp.array([[0.4, 0.6, 0.5]], dtype=jnp.float32),
             "diffusion_lower_free": jnp.array([[0.25, 0.1, -0.15]], dtype=jnp.float32),
@@ -451,9 +501,15 @@ class TestCompiledArtifactIntegration:
     @pytest.mark.contract
     def test_global_ordered_threshold_priors_are_not_authorable(self):
 
-        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testcompiledartifactintegration_test_global_ordered_threshold_priors_are_not_authorable__make_spec.json').read_text())
+        spec = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "parameterization/testcompiledartifactintegration_test_global_ordered_threshold_priors_are_not_authorable__make_spec.json"
+            ).read_text()
+        )
         parameter = ParameterSpec(
-            id='parameter:bd5e7c989f1fe5b6752e958831d287e988f8a43f9633886ba7281220ae168533',
+            id="parameter:bd5e7c989f1fe5b6752e958831d287e988f8a43f9633886ba7281220ae168533",
             name="obs_ordered_base",
             description="Unbound threshold",
         )
@@ -465,7 +521,13 @@ class TestCompiledArtifactIntegration:
         from nof1_causal_lab.models.ssm.compile.prior_compilation import compile_priors
 
         priors, bindings, _diagnostics = compile_priors(
-            ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testcompiledartifactintegration_test_ordered_threshold_priors_bind_per_manifest_component_and_row_model_with_prior_payloads.json').read_text())
+            ModelSpec.model_validate_json(
+                (
+                    Path(__file__).resolve().parents[2]
+                    / "fixtures/models"
+                    / "parameterization/testcompiledartifactintegration_test_ordered_threshold_priors_bind_per_manifest_component_and_row_model_with_prior_payloads.json"
+                ).read_text()
+            )
         )
 
         binding_by_parameter = {
@@ -492,21 +554,33 @@ class TestCompiledArtifactIntegration:
         np.testing.assert_allclose(gap_scales[1], 0.5)
 
     @pytest.mark.contract
-    def test_execution_checks_accept_complete_model(self, scientific_model_and_priors):
+    def test_execution_checks_accept_complete_model(self):
         """A model with authored priors satisfies execution requirements."""
         from nof1_causal_lab.models.model_checks import check_execution
 
         check_execution(
-            ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testcompiledartifactintegration_test_execution_checks_accept_complete_model_make_prior_model.json').read_text()),
+            ModelSpec.model_validate_json(
+                (
+                    Path(__file__).resolve().parents[2]
+                    / "fixtures/models"
+                    / "parameterization/mood_model.json"
+                ).read_text()
+            ),
         )
 
     @pytest.mark.inference(concern="sampling")
-    def test_runtime_derives_the_authored_priors(self, scientific_model_and_priors):
+    def test_runtime_derives_the_authored_priors(self):
         import polars as pl
 
         from nof1_causal_lab.models.ssm.runtime import build_ssm_model
 
-        definition = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testcompiledartifactintegration_test_runtime_derives_the_authored_priors_make_prior_model.json').read_text())
+        definition = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "parameterization/mood_model.json"
+            ).read_text()
+        )
         model = build_ssm_model(
             pl.DataFrame({"time": [0.0], "mood_score": [5.0]}),
             inputs=compile_fit_fixture(definition),

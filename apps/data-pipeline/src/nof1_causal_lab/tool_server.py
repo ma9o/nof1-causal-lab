@@ -262,8 +262,19 @@ class _LoadedSimulation:
     @cached_property
     def draws(self) -> JointPosteriorDraws:
         from nof1_causal_lab.models.ssm.inference.persistence import model_draws
+        from nof1_causal_lab.models.ssm.runtime import replay_input_events, replay_input_values
 
-        return model_draws(self.model)
+        events = replay_input_events(
+            self.model,
+            self.observation_data,
+            time_origin=self.report.time_origin,
+            start=self.model.time_points[0],
+            end=self.model.time_points[-1],
+            indicator_column="indicator",
+        )
+        return model_draws(
+            self.model, input_values=replay_input_values(self.model, self.model.time_points, events)
+        )
 
     @cached_property
     def dynamics(self) -> DynamicsDraws:

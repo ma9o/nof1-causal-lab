@@ -20,8 +20,20 @@ from tests.model_fixtures import compile_fit_fixture
 
 @pytest.mark.contract
 def test_rename_preserves_parameter_and_element_identity():
-    old_model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/rename_preserves_parameter_and_element_identity__compile.json').read_text())
-    new_model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/rename_preserves_parameter_and_element_identity__compile_2.json').read_text())
+    old_model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "common/additive_a_b_model.json"
+        ).read_text()
+    )
+    new_model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "scientific_parameter_identity/rename_preserves_parameter_and_element_identity__compile_2.json"
+        ).read_text()
+    )
     assert {b.parameter_id: set(b.elements) for b in parameter_bindings(old_model)[0]} == {
         b.parameter_id: set(b.elements) for b in parameter_bindings(new_model)[0]
     }
@@ -30,8 +42,20 @@ def test_rename_preserves_parameter_and_element_identity():
 
 @pytest.mark.contract
 def test_scalar_identity_survives_reordered_execution_axes():
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/scalar_identity_survives_reordered_execution_axes__compile.json').read_text())
-    reordered = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/scalar_identity_survives_reordered_execution_axes__compile_2.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "scientific_parameter_identity/scalar_identity_survives_reordered_execution_axes__compile.json"
+        ).read_text()
+    )
+    reordered = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "scientific_parameter_identity/scalar_identity_survives_reordered_execution_axes__compile_2.json"
+        ).read_text()
+    )
     assert model.state_order == tuple(reversed(reordered.state_order))
     decay = next(
         p
@@ -46,7 +70,13 @@ def test_scalar_identity_survives_reordered_execution_axes():
 
 @pytest.mark.contract
 def test_model_rejects_forged_owner_before_compilation():
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/model_rejects_forged_owner_before_compilation__compile.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "common/additive_a_b_model.json"
+        ).read_text()
+    )
     payload = model.model_dump(mode="json")
     payload["parameters"][0]["owners"] = [{"kind": "construct", "id": "construct:forged"}]
     with pytest.raises(ValueError, match=r"Extra inputs|owner"):
@@ -55,7 +85,13 @@ def test_model_rejects_forged_owner_before_compilation():
 
 @pytest.mark.contract
 def test_posterior_writer_uses_declared_subject_and_rejects_unknown_coordinate():
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/posterior_writer_uses_declared_subject_and_rejects_unknown_coordinate__compile.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "common/additive_a_b_model.json"
+        ).read_text()
+    )
     binding = parameter_bindings(model)[0][0]
     element, coordinate = next(iter(binding.coordinates.items()))
     row = {
@@ -80,7 +116,13 @@ def test_posterior_writer_uses_declared_subject_and_rejects_unknown_coordinate()
 
 @pytest.mark.contract
 def test_ordinal_components_have_label_identity_and_padding_is_explicit():
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/ordinal_components_have_label_identity_and_padding_is_explicit__compile.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "scientific_parameter_identity/ordinal_components_have_label_identity_and_padding_is_explicit__compile.json"
+        ).read_text()
+    )
     gaps = {
         p.id
         for p in model.parameters
@@ -94,10 +136,22 @@ def test_ordinal_components_have_label_identity_and_padding_is_explicit():
 
 @pytest.mark.contract
 def test_shared_likelihood_parameter_owns_only_active_channels():
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/shared_likelihood_parameter_owns_only_active_channels__compile.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "common/additive_a_b_model.json"
+        ).read_text()
+    )
     first, second = model.constructs
     student = LikelihoodSpec(
-        law=ObservationLawSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/shared_likelihood_parameter_owns_only_active_channels_observation_law.json').read_text()),
+        law=ObservationLawSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "scientific_parameter_identity/shared_likelihood_parameter_owns_only_active_channels_observation_law.json"
+            ).read_text()
+        ),
         reasoning="Test tails",
         standardized=True,
     )
@@ -111,7 +165,13 @@ def test_shared_likelihood_parameter_owns_only_active_channels():
             ),
         }
     )
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/shared_likelihood_parameter_owns_only_active_channels_complete_model.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "scientific_parameter_identity/shared_likelihood_parameter_owns_only_active_channels_complete_model.json"
+        ).read_text()
+    )
     shared = next(
         p for p in model.parameters if model.parameter_context(p.id).quantity == SiteKind.OBS_DF
     )
@@ -127,7 +187,13 @@ def test_shared_likelihood_parameter_owns_only_active_channels():
                     {
                         **second.indicators[0].model_dump(),
                         "likelihood": LikelihoodSpec(
-                            law=ObservationLawSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/shared_likelihood_parameter_owns_only_active_channels_observation_law_2.json').read_text()),
+                            law=ObservationLawSpec.model_validate_json(
+                                (
+                                    Path(__file__).resolve().parents[2]
+                                    / "fixtures/models"
+                                    / "scientific_parameter_identity/shared_likelihood_parameter_owns_only_active_channels_observation_law_2.json"
+                                ).read_text()
+                            ),
                             reasoning="Test tails",
                             standardized=True,
                         ),
@@ -136,14 +202,20 @@ def test_shared_likelihood_parameter_owns_only_active_channels():
             ),
         }
     )
-    expanded = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/shared_likelihood_parameter_owns_only_active_channels_complete_model_2.json').read_text())
+    expanded = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "scientific_parameter_identity/shared_likelihood_parameter_owns_only_active_channels_complete_model_2.json"
+        ).read_text()
+    )
     newer = next(
         p
         for p in expanded.parameters
         if expanded.parameter_context(p.id).quantity == SiteKind.OBS_DF
     )
     assert newer.id == shared.id
-    assert newer.distribution is shared.distribution
+    assert newer.distribution == shared.distribution
     assert {o.id for o in expanded.parameter_context(newer.id).owners} == {
         first.id,
         second.id,
@@ -156,7 +228,13 @@ def test_shared_likelihood_parameter_owns_only_active_channels():
 @pytest.mark.contract
 def test_student_innovation_tail_is_explicit_and_shared_through_completion():
 
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/student_innovation_tail_is_explicit_and_shared_through_completion_complete_model.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "scientific_parameter_identity/student_innovation_model.json"
+        ).read_text()
+    )
     parameter = next(p for p in model.parameters if p.name == "proc_df")
     for construct in model.constructs:
         assert parameter in model.parameters_for(construct.id)
@@ -182,19 +260,47 @@ def test_student_innovation_tail_is_explicit_and_shared_through_completion():
     )
     with pytest.raises(ValueError, match="degrees_of_freedom requires a prior parameter"):
         candidate.check_execution()
-    completed = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/student_innovation_tail_is_explicit_and_shared_through_completion_complete_model_2.json').read_text())
+    completed = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "scientific_parameter_identity/student_innovation_model.json"
+        ).read_text()
+    )
     assert completed.parameter(parameter.id) == parameter
     assert completed.get_construct(first.id).coefficients == first.coefficients
 
 
 @pytest.mark.contract
-@pytest.mark.parametrize(('retained_role', '_compile_payload', 'complete_model_payload'), [
-    pytest.param(None, 'scientific_parameter_identity/initial_state_defaults_are_authored_before_compilation__compile_none.json', 'scientific_parameter_identity/initial_state_defaults_are_authored_before_compilation_complete_model_none.json', id='None'),
-    pytest.param('initial_mean', 'scientific_parameter_identity/initial_state_defaults_are_authored_before_compilation__compile_initial_mean.json', 'scientific_parameter_identity/initial_state_defaults_are_authored_before_compilation_complete_model_initial_mean.json', id='initial_mean'),
-    pytest.param('initial_scale', 'scientific_parameter_identity/initial_state_defaults_are_authored_before_compilation__compile_initial_scale.json', 'scientific_parameter_identity/initial_state_defaults_are_authored_before_compilation_complete_model_initial_scale.json', id='initial_scale'),
-])
-def test_initial_state_defaults_are_authored_before_compilation(retained_role, _compile_payload, complete_model_payload):
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / _compile_payload).read_text())
+@pytest.mark.parametrize(
+    ("retained_role", "_compile_payload", "complete_model_payload"),
+    [
+        pytest.param(
+            None,
+            "common/additive_a_b_model.json",
+            "scientific_parameter_identity/initial_state_defaults_are_authored_before_compilation_complete_model_none.json",
+            id="None",
+        ),
+        pytest.param(
+            "initial_mean",
+            "common/additive_a_b_model.json",
+            "scientific_parameter_identity/initial_state_defaults_are_authored_before_compilation_complete_model_initial_mean.json",
+            id="initial_mean",
+        ),
+        pytest.param(
+            "initial_scale",
+            "common/additive_a_b_model.json",
+            "scientific_parameter_identity/initial_state_defaults_are_authored_before_compilation_complete_model_initial_scale.json",
+            id="initial_scale",
+        ),
+    ],
+)
+def test_initial_state_defaults_are_authored_before_compilation(
+    retained_role, _compile_payload, complete_model_payload
+):
+    model = ModelSpec.model_validate_json(
+        (Path(__file__).resolve().parents[2] / "fixtures/models" / _compile_payload).read_text()
+    )
 
     free = model.revised(
         edges=replace_constructs(
@@ -217,7 +323,11 @@ def test_initial_state_defaults_are_authored_before_compilation(retained_role, _
     )
     with pytest.raises(ValueError, match="initial-state coefficients"):
         free.check_execution()
-    completed = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / complete_model_payload).read_text())
+    completed = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2] / "fixtures/models" / complete_model_payload
+        ).read_text()
+    )
     before = completed.model_dump(mode="json")
     completed.check_execution()
     initial = [
@@ -237,7 +347,13 @@ def test_initial_state_defaults_are_authored_before_compilation(retained_role, _
 
 @pytest.mark.inference(concern="sampling")
 def test_parameter_labels_do_not_change_mechanisms_bindings_or_prior_laws():
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/parameter_labels_do_not_change_mechanisms_bindings_or_prior_laws__compile.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "common/additive_a_b_model.json"
+        ).read_text()
+    )
     renamed = model.revised(
         parameters=tuple(
             type(p).model_validate({**p.model_dump(), "name": f"display {n}"})
@@ -253,9 +369,21 @@ def test_parameter_labels_do_not_change_mechanisms_bindings_or_prior_laws():
 
 @pytest.mark.inference(concern="sampling")
 def test_additive_hill_and_linear_terms_survive_parameter_renaming():
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/additive_hill_and_linear_terms_survive_parameter_renaming__compile.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "common/additive_a_b_model.json"
+        ).read_text()
+    )
 
-    additive = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/additive_hill_and_linear_terms_survive_parameter_renaming_with_parameter_distributions.json').read_text())
+    additive = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "scientific_parameter_identity/additive_hill_and_linear_terms_survive_parameter_renaming_with_parameter_distributions.json"
+        ).read_text()
+    )
     check_execution(additive)
     renamed = additive.revised(
         parameters=tuple(

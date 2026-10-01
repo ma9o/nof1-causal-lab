@@ -148,7 +148,6 @@ def _run_one(
         latent_smoother="dsmc",
         dsmc_leaf_proposal=proposal,
         latent_block_coords=args.latent_block_coords,
-        latent_sign_flip_moves=args.latent_sign_flip_moves,
         diagnostic_metrics=args.diagnostic_metrics,
         init_method=args.init_method,
         init_scale=args.init_scale,
@@ -206,7 +205,6 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--n-particles", type=int, default=64)
     parser.add_argument("--n-parameter-particles", type=int, default=2)
     parser.add_argument("--latent-block-coords", type=int)
-    parser.add_argument("--latent-sign-flip-moves", action="store_true")
     parser.add_argument(
         "--diagnostic-metrics",
         type=_parse_metrics,

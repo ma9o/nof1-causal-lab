@@ -1,9 +1,0 @@
-{
-  "distribution": "Delta",
-  "arguments": {
-    "v": {
-      "kind": "state",
-      "construct_id": "construct:x"
-    }
-  }
-}

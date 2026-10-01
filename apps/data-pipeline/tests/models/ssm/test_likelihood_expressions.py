@@ -30,41 +30,131 @@ from nof1_causal_lab.models.ssm.execution.observation_dispatch import get_emissi
 from nof1_causal_lab.study.equations import observation_equations
 from tests.helpers import make_model
 
-CASES = [
-    ("gaussian", "identity", 0.4),
-    ("student_t", "identity", 0.4),
-    ("poisson", "log", 2),
-    ("gamma", "log", 1.2),
-    ("gamma", "inverse", 1.2),
-    ("bernoulli", "logit", 1),
-    ("bernoulli", "probit", 1),
-    ("negative_binomial", "log", 3),
-    ("beta", "logit", 0.4),
-    ("beta", "probit", 0.4),
-    ("ordered_logistic", "cumulative_logit", 1),
-    ("categorical", "softmax", 2),
-]
-
 
 @pytest.mark.inference(concern="sampling")
-@pytest.mark.parametrize(('family', 'link', 'observed', 'observation_law_payload', 'revise_law_payload'), [
-    pytest.param('gaussian', 'identity', 0.4, 'likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_observation_law_gaussian-identity-0_4.json', 'likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_revise_law_gaussian-identity-0_4.json', id='gaussian-identity-0.4'),
-    pytest.param('student_t', 'identity', 0.4, 'likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_observation_law_student_t-identity-0_4.json', 'likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_revise_law_student_t-identity-0_4.json', id='student_t-identity-0.4'),
-    pytest.param('poisson', 'log', 2, 'likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_observation_law_poisson-log-2.json', 'likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_revise_law_poisson-log-2.json', id='poisson-log-2'),
-    pytest.param('gamma', 'log', 1.2, 'likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_observation_law_gamma-log-1_2.json', 'likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_revise_law_gamma-log-1_2.json', id='gamma-log-1.2'),
-    pytest.param('gamma', 'inverse', 1.2, 'likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_observation_law_gamma-inverse-1_2.json', 'likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_revise_law_gamma-inverse-1_2.json', id='gamma-inverse-1.2'),
-    pytest.param('bernoulli', 'logit', 1, 'likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_observation_law_bernoulli-logit-1.json', 'likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_revise_law_bernoulli-logit-1.json', id='bernoulli-logit-1'),
-    pytest.param('bernoulli', 'probit', 1, 'likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_observation_law_bernoulli-probit-1.json', 'likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_revise_law_bernoulli-probit-1.json', id='bernoulli-probit-1'),
-    pytest.param('negative_binomial', 'log', 3, 'likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_observation_law_negative_binomial-log-3.json', 'likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_revise_law_negative_binomial-log-3.json', id='negative_binomial-log-3'),
-    pytest.param('beta', 'logit', 0.4, 'likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_observation_law_beta-logit-0_4.json', 'likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_revise_law_beta-logit-0_4.json', id='beta-logit-0.4'),
-    pytest.param('beta', 'probit', 0.4, 'likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_observation_law_beta-probit-0_4.json', 'likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_revise_law_beta-probit-0_4.json', id='beta-probit-0.4'),
-    pytest.param('ordered_logistic', 'cumulative_logit', 1, 'likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_observation_law_ordered_logistic-cumulative_logit-1.json', 'likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_revise_law_ordered_logistic-cumulative_logit-1.json', id='ordered_logistic-cumulative_logit-1'),
-    pytest.param('categorical', 'softmax', 2, 'likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_observation_law_categorical-softmax-2.json', 'likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_revise_law_categorical-softmax-2.json', id='categorical-softmax-2'),
-    pytest.param('delta', 'identity', 0.35, 'likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_observation_law_delta-identity-0_35.json', 'likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_revise_law_delta-identity-0_35.json', id='delta-identity-0.35'),
-    pytest.param('delta', 'identity', 0.4, 'likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_observation_law_delta-identity-0_4.json', 'likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_revise_law_delta-identity-0_4.json', id='delta-identity-0.4'),
-])
-def test_native_conditional_law_matches_exact_emission_lowering(family, link, observed, observation_law_payload, revise_law_payload):
-    likelihood = LikelihoodSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / revise_law_payload).read_text())
+@pytest.mark.parametrize(
+    ("family", "link", "observed", "observation_law_payload", "revise_law_payload"),
+    [
+        pytest.param(
+            "gaussian",
+            "identity",
+            0.4,
+            "likelihood_expressions/gaussian_identity_law.json",
+            "likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_revise_law_gaussian-identity-0_4.json",
+            id="gaussian-identity-0.4",
+        ),
+        pytest.param(
+            "student_t",
+            "identity",
+            0.4,
+            "likelihood_expressions/student_t_identity_law.json",
+            "likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_revise_law_student_t-identity-0_4.json",
+            id="student_t-identity-0.4",
+        ),
+        pytest.param(
+            "poisson",
+            "log",
+            2,
+            "likelihood_expressions/poisson_log_law.json",
+            "likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_revise_law_poisson-log-2.json",
+            id="poisson-log-2",
+        ),
+        pytest.param(
+            "gamma",
+            "log",
+            1.2,
+            "likelihood_expressions/gamma_log_law.json",
+            "likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_revise_law_gamma-log-1_2.json",
+            id="gamma-log-1.2",
+        ),
+        pytest.param(
+            "gamma",
+            "inverse",
+            1.2,
+            "likelihood_expressions/gamma_inverse_law.json",
+            "likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_revise_law_gamma-inverse-1_2.json",
+            id="gamma-inverse-1.2",
+        ),
+        pytest.param(
+            "bernoulli",
+            "logit",
+            1,
+            "likelihood_expressions/bernoulli_logit_law.json",
+            "likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_revise_law_bernoulli-logit-1.json",
+            id="bernoulli-logit-1",
+        ),
+        pytest.param(
+            "bernoulli",
+            "probit",
+            1,
+            "likelihood_expressions/bernoulli_probit_law.json",
+            "likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_revise_law_bernoulli-probit-1.json",
+            id="bernoulli-probit-1",
+        ),
+        pytest.param(
+            "negative_binomial",
+            "log",
+            3,
+            "likelihood_expressions/negative_binomial_log_law.json",
+            "likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_revise_law_negative_binomial-log-3.json",
+            id="negative_binomial-log-3",
+        ),
+        pytest.param(
+            "beta",
+            "logit",
+            0.4,
+            "likelihood_expressions/beta_logit_law.json",
+            "likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_revise_law_beta-logit-0_4.json",
+            id="beta-logit-0.4",
+        ),
+        pytest.param(
+            "beta",
+            "probit",
+            0.4,
+            "likelihood_expressions/beta_probit_law.json",
+            "likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_revise_law_beta-probit-0_4.json",
+            id="beta-probit-0.4",
+        ),
+        pytest.param(
+            "ordered_logistic",
+            "cumulative_logit",
+            1,
+            "likelihood_expressions/ordered_logistic_law.json",
+            "likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_revise_law_ordered_logistic-cumulative_logit-1.json",
+            id="ordered_logistic-cumulative_logit-1",
+        ),
+        pytest.param(
+            "categorical",
+            "softmax",
+            2,
+            "likelihood_expressions/categorical_softmax_law.json",
+            "likelihood_expressions/native_conditional_law_matches_exact_emission_lowering_revise_law_categorical-softmax-2.json",
+            id="categorical-softmax-2",
+        ),
+        pytest.param(
+            "delta",
+            "identity",
+            0.35,
+            "likelihood_expressions/exact_state_law.json",
+            "likelihood_expressions/exact_state_likelihood.json",
+            id="delta-identity-0.35",
+        ),
+        pytest.param(
+            "delta",
+            "identity",
+            0.4,
+            "likelihood_expressions/exact_state_law.json",
+            "likelihood_expressions/exact_state_likelihood.json",
+            id="delta-identity-0.4",
+        ),
+    ],
+)
+def test_native_conditional_law_matches_exact_emission_lowering(
+    family, link, observed, observation_law_payload, revise_law_payload
+):
+    likelihood = LikelihoodSpec.model_validate_json(
+        (Path(__file__).resolve().parents[2] / "fixtures/models" / revise_law_payload).read_text()
+    )
     values = {
         "loading": 0.8,
         "observation_intercept": 0.3,
@@ -146,22 +236,123 @@ def test_native_conditional_law_matches_exact_emission_lowering(family, link, ob
 
 
 @pytest.mark.contract
-@pytest.mark.parametrize(('family', 'link', '_observed', 'observation_law_payload', 'with_likelihood_coefficients_payload'), [
-    pytest.param('gaussian', 'identity', 0.4, 'likelihood_expressions/authored_laws_preserve_coefficient_identities_observation_law_gaussian-identity-0_4.json', 'likelihood_expressions/authored_laws_preserve_coefficient_identities_with_likelihood_coefficients_gaussian-identity-0_4.json', id='gaussian-identity-0.4'),
-    pytest.param('student_t', 'identity', 0.4, 'likelihood_expressions/authored_laws_preserve_coefficient_identities_observation_law_student_t-identity-0_4.json', 'likelihood_expressions/authored_laws_preserve_coefficient_identities_with_likelihood_coefficients_student_t-identity-0_4.json', id='student_t-identity-0.4'),
-    pytest.param('poisson', 'log', 2, 'likelihood_expressions/authored_laws_preserve_coefficient_identities_observation_law_poisson-log-2.json', 'likelihood_expressions/authored_laws_preserve_coefficient_identities_with_likelihood_coefficients_poisson-log-2.json', id='poisson-log-2'),
-    pytest.param('gamma', 'log', 1.2, 'likelihood_expressions/authored_laws_preserve_coefficient_identities_observation_law_gamma-log-1_2.json', 'likelihood_expressions/authored_laws_preserve_coefficient_identities_with_likelihood_coefficients_gamma-log-1_2.json', id='gamma-log-1.2'),
-    pytest.param('gamma', 'inverse', 1.2, 'likelihood_expressions/authored_laws_preserve_coefficient_identities_observation_law_gamma-inverse-1_2.json', 'likelihood_expressions/authored_laws_preserve_coefficient_identities_with_likelihood_coefficients_gamma-inverse-1_2.json', id='gamma-inverse-1.2'),
-    pytest.param('bernoulli', 'logit', 1, 'likelihood_expressions/authored_laws_preserve_coefficient_identities_observation_law_bernoulli-logit-1.json', 'likelihood_expressions/authored_laws_preserve_coefficient_identities_with_likelihood_coefficients_bernoulli-logit-1.json', id='bernoulli-logit-1'),
-    pytest.param('bernoulli', 'probit', 1, 'likelihood_expressions/authored_laws_preserve_coefficient_identities_observation_law_bernoulli-probit-1.json', 'likelihood_expressions/authored_laws_preserve_coefficient_identities_with_likelihood_coefficients_bernoulli-probit-1.json', id='bernoulli-probit-1'),
-    pytest.param('negative_binomial', 'log', 3, 'likelihood_expressions/authored_laws_preserve_coefficient_identities_observation_law_negative_binomial-log-3.json', 'likelihood_expressions/authored_laws_preserve_coefficient_identities_with_likelihood_coefficients_negative_binomial-log-3.json', id='negative_binomial-log-3'),
-    pytest.param('beta', 'logit', 0.4, 'likelihood_expressions/authored_laws_preserve_coefficient_identities_observation_law_beta-logit-0_4.json', 'likelihood_expressions/authored_laws_preserve_coefficient_identities_with_likelihood_coefficients_beta-logit-0_4.json', id='beta-logit-0.4'),
-    pytest.param('beta', 'probit', 0.4, 'likelihood_expressions/authored_laws_preserve_coefficient_identities_observation_law_beta-probit-0_4.json', 'likelihood_expressions/authored_laws_preserve_coefficient_identities_with_likelihood_coefficients_beta-probit-0_4.json', id='beta-probit-0.4'),
-    pytest.param('ordered_logistic', 'cumulative_logit', 1, 'likelihood_expressions/authored_laws_preserve_coefficient_identities_observation_law_ordered_logistic-cumulative_logit-1.json', 'likelihood_expressions/authored_laws_preserve_coefficient_identities_with_likelihood_coefficients_ordered_logistic-cumulative_logit-1.json', id='ordered_logistic-cumulative_logit-1'),
-    pytest.param('categorical', 'softmax', 2, 'likelihood_expressions/authored_laws_preserve_coefficient_identities_observation_law_categorical-softmax-2.json', 'likelihood_expressions/authored_laws_preserve_coefficient_identities_with_likelihood_coefficients_categorical-softmax-2.json', id='categorical-softmax-2'),
-])
-def test_authored_laws_preserve_coefficient_identities(family, link, _observed, observation_law_payload, with_likelihood_coefficients_payload):
-    authored = LikelihoodSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / with_likelihood_coefficients_payload).read_text())
+@pytest.mark.parametrize(
+    (
+        "family",
+        "link",
+        "_observed",
+        "observation_law_payload",
+        "with_likelihood_coefficients_payload",
+    ),
+    [
+        pytest.param(
+            "gaussian",
+            "identity",
+            0.4,
+            "likelihood_expressions/gaussian_identity_law.json",
+            "likelihood_expressions/authored_laws_preserve_coefficient_identities_with_likelihood_coefficients_gaussian-identity-0_4.json",
+            id="gaussian-identity-0.4",
+        ),
+        pytest.param(
+            "student_t",
+            "identity",
+            0.4,
+            "likelihood_expressions/student_t_identity_law.json",
+            "likelihood_expressions/authored_laws_preserve_coefficient_identities_with_likelihood_coefficients_student_t-identity-0_4.json",
+            id="student_t-identity-0.4",
+        ),
+        pytest.param(
+            "poisson",
+            "log",
+            2,
+            "likelihood_expressions/poisson_log_law.json",
+            "likelihood_expressions/authored_laws_preserve_coefficient_identities_with_likelihood_coefficients_poisson-log-2.json",
+            id="poisson-log-2",
+        ),
+        pytest.param(
+            "gamma",
+            "log",
+            1.2,
+            "likelihood_expressions/gamma_log_law.json",
+            "likelihood_expressions/authored_laws_preserve_coefficient_identities_with_likelihood_coefficients_gamma-log-1_2.json",
+            id="gamma-log-1.2",
+        ),
+        pytest.param(
+            "gamma",
+            "inverse",
+            1.2,
+            "likelihood_expressions/gamma_inverse_law.json",
+            "likelihood_expressions/authored_laws_preserve_coefficient_identities_with_likelihood_coefficients_gamma-inverse-1_2.json",
+            id="gamma-inverse-1.2",
+        ),
+        pytest.param(
+            "bernoulli",
+            "logit",
+            1,
+            "likelihood_expressions/bernoulli_logit_law.json",
+            "likelihood_expressions/authored_laws_preserve_coefficient_identities_with_likelihood_coefficients_bernoulli-logit-1.json",
+            id="bernoulli-logit-1",
+        ),
+        pytest.param(
+            "bernoulli",
+            "probit",
+            1,
+            "likelihood_expressions/bernoulli_probit_law.json",
+            "likelihood_expressions/authored_laws_preserve_coefficient_identities_with_likelihood_coefficients_bernoulli-probit-1.json",
+            id="bernoulli-probit-1",
+        ),
+        pytest.param(
+            "negative_binomial",
+            "log",
+            3,
+            "likelihood_expressions/negative_binomial_log_law.json",
+            "likelihood_expressions/authored_laws_preserve_coefficient_identities_with_likelihood_coefficients_negative_binomial-log-3.json",
+            id="negative_binomial-log-3",
+        ),
+        pytest.param(
+            "beta",
+            "logit",
+            0.4,
+            "likelihood_expressions/beta_logit_law.json",
+            "likelihood_expressions/authored_laws_preserve_coefficient_identities_with_likelihood_coefficients_beta-logit-0_4.json",
+            id="beta-logit-0.4",
+        ),
+        pytest.param(
+            "beta",
+            "probit",
+            0.4,
+            "likelihood_expressions/beta_probit_law.json",
+            "likelihood_expressions/authored_laws_preserve_coefficient_identities_with_likelihood_coefficients_beta-probit-0_4.json",
+            id="beta-probit-0.4",
+        ),
+        pytest.param(
+            "ordered_logistic",
+            "cumulative_logit",
+            1,
+            "likelihood_expressions/ordered_logistic_law.json",
+            "likelihood_expressions/authored_laws_preserve_coefficient_identities_with_likelihood_coefficients_ordered_logistic-cumulative_logit-1.json",
+            id="ordered_logistic-cumulative_logit-1",
+        ),
+        pytest.param(
+            "categorical",
+            "softmax",
+            2,
+            "likelihood_expressions/categorical_softmax_law.json",
+            "likelihood_expressions/authored_laws_preserve_coefficient_identities_with_likelihood_coefficients_categorical-softmax-2.json",
+            id="categorical-softmax-2",
+        ),
+    ],
+)
+def test_authored_laws_preserve_coefficient_identities(
+    family, link, _observed, observation_law_payload, with_likelihood_coefficients_payload
+):
+    authored = LikelihoodSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / with_likelihood_coefficients_payload
+        ).read_text()
+    )
     assert authored.terms.loadings[ConstructId("construct:x")].value == -1
     assert authored.terms.intercept.value == scientific_id("parameter", "baseline")
     assert (authored.terms.family, authored.terms.link) == (family, link)
@@ -171,10 +362,20 @@ def test_authored_laws_preserve_coefficient_identities(family, link, _observed, 
 
 @pytest.mark.contract
 def test_completion_binding_equations_and_serialization_follow_the_same_cross_loading():
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'likelihood_expressions/completion_binding_equations_and_serialization_follow_the_same_cross_loading_complete_test_model.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2] / "fixtures/models" / "common/x_y_model.json"
+        ).read_text()
+    )
     owner, other = model.constructs
     indicator = owner.indicators[0]
-    revised = LikelihoodSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'likelihood_expressions/completion_binding_equations_and_serialization_follow_the_same_cross_loading_revise_law.json').read_text())
+    revised = LikelihoodSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "likelihood_expressions/completion_binding_equations_and_serialization_follow_the_same_cross_loading_revise_law.json"
+        ).read_text()
+    )
     model = model.revised(
         edges=replace_constructs(
             model.edges,
@@ -214,7 +415,13 @@ def test_completion_binding_equations_and_serialization_follow_the_same_cross_lo
 @pytest.mark.contract
 def test_partial_law_is_explicit_and_unsupported_formulas_fail_before_execution():
     likelihood = LikelihoodSpec(
-        law=ObservationLawSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'likelihood_expressions/partial_law_is_explicit_and_unsupported_formulas_fail_before_execution_observation_law.json').read_text()),
+        law=ObservationLawSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "likelihood_expressions/gaussian_identity_law.json"
+            ).read_text()
+        ),
         reasoning="Partial",
     )
     assert all(operand.value is None for operand in likelihood.terms.operands)
@@ -238,7 +445,13 @@ def test_partial_law_is_explicit_and_unsupported_formulas_fail_before_execution(
     owner = model.constructs[0]
     indicator = owner.indicators[0]
     partial = LikelihoodSpec(
-        law=ObservationLawSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'likelihood_expressions/partial_law_is_explicit_and_unsupported_formulas_fail_before_execution_observation_law_2.json').read_text()),
+        law=ObservationLawSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "likelihood_expressions/partial_law_is_explicit_and_unsupported_formulas_fail_before_execution_observation_law_2.json"
+            ).read_text()
+        ),
         reasoning="Partial",
     )
 
@@ -265,11 +478,23 @@ def test_partial_law_is_explicit_and_unsupported_formulas_fail_before_execution(
     with pytest.raises(IncompleteModelError):
         unfinished.check_execution()
     assert "?" in observation_equations(unfinished)[indicator.id]
-    ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'likelihood_expressions/partial_law_is_explicit_and_unsupported_formulas_fail_before_execution_complete_test_model.json').read_text()).check_execution()
+    ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "likelihood_expressions/partial_law_is_explicit_and_unsupported_formulas_fail_before_execution_complete_test_model.json"
+        ).read_text()
+    ).check_execution()
     with pytest.raises(ValidationError, match="unknown constructs"):
         with_law(likelihood)
     wrong_owner = LikelihoodSpec(
-        law=ObservationLawSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'likelihood_expressions/partial_law_is_explicit_and_unsupported_formulas_fail_before_execution_observation_law_3.json').read_text()),
+        law=ObservationLawSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "common/observed_gaussian_observation_law.json"
+            ).read_text()
+        ),
         reasoning="Wrong owner",
     )
     with pytest.raises(ValidationError, match="must include its measured construct"):

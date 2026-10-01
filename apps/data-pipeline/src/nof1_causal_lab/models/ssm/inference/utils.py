@@ -168,6 +168,8 @@ def _build_eval_fns(
             original_samples,
             model.spec,
             registry=runtime_registry,
+            intervention=model.initialization_input_intervention(eval_times),
+            input_values=model.input_values,
         )
         time_intervals = (
             jnp.diff(eval_times, prepend=eval_times[0])

@@ -12,9 +12,11 @@ import numpy as np
 from jax import Array
 
 from nof1_causal_lab.models.ssm.dynamics import (
+    ConstantValueFn,
     Intervention,
     ProcessNoise,
     SimulationConfig,
+    VariableOverride,
     simulate,
 )
 
@@ -57,6 +59,7 @@ def vmap_simulate_interventions_from_state(
     time_grid: Array,
     config: SimulationConfig | None = None,
     noise: ProcessNoise | None = None,
+    input_events: tuple[ResolvedIntervention, ...] = (),
 ) -> tuple[Array, Array, Array]:
     """Generate paired natural/intervened histories with shared process streams."""
     n_latent = dynamics.vector_field.n_latent
@@ -65,12 +68,12 @@ def vmap_simulate_interventions_from_state(
     if noise is not None:
         if noise.key.ndim < 1 or noise.key.shape[0] != dynamics.n_draws:
             raise ValueError("Process keys must match the dynamics draw axis")
-        if noise.diffusion_cov.shape != (dynamics.n_draws, n_latent, n_latent):
-            raise ValueError("Diffusion covariance must match the dynamics draw and state axes")
+        if noise.diffusion.shape != (dynamics.n_draws, n_latent, n_latent):
+            raise ValueError("Diffusion factor must match the dynamics draw and state axes")
     if dynamics.n_draws == 0:
         empty = jnp.zeros((0, time_grid.shape[0], n_latent))
         return empty, empty, empty
-    segments = build_segment_bounds(time_grid, interventions)
+    segments = build_segment_bounds(time_grid, [*input_events, *interventions])
     grid = np.asarray(time_grid)
     sets = {
         i: tuple(
@@ -80,36 +83,60 @@ def vmap_simulate_interventions_from_state(
         )
         for i, time in enumerate(grid)
     }
+    records = {
+        i: tuple(
+            (event.index, event.spec.value)
+            for event in input_events
+            if np.asarray(event.spec.time, dtype=grid.dtype) == time
+        )
+        for i, time in enumerate(grid)
+    }
+    inputs = {event.index for event in input_events}
 
     def path(params, y0, process_noise: ProcessNoise | None, active):
         pieces = []
         state = y0
-        for segment, (i0, i1) in enumerate(segments):
+        overridden: set[int] = set()
+
+        def apply_at(state, index):
             if active:
-                state = _apply_events(state, sets[i0])
+                overridden.update(target for target, _ in sets[index] if target in inputs)
+            state = _apply_events(
+                state, tuple(event for event in records[index] if event[0] not in overridden)
+            )
+            return _apply_events(state, sets[index]) if active else state
+
+        for segment, (i0, i1) in enumerate(segments):
+            state = apply_at(state, i0)
+            held_inputs = Intervention(
+                tuple(
+                    VariableOverride(index, ConstantValueFn(state[index]))
+                    for index in sorted(inputs)
+                )
+            )
             ys = simulate(
                 dynamics.vector_field,
                 params,
-                Intervention.none(),
+                held_inputs,
                 state,
                 time_grid[i0 : i1 + 1],
                 config,
                 noise=(
                     ProcessNoise(
                         key=jax.random.fold_in(process_noise.key, segment),
-                        diffusion_cov=process_noise.diffusion_cov,
+                        diffusion=process_noise.diffusion,
                     )
                     if process_noise is not None
                     else None
                 ),
             )
+            for index in inputs:
+                ys = ys.at[:, index].set(state[index])
             pieces.append(ys[:-1] if segment < len(segments) - 1 else ys)
             state = ys[-1]
         result = jnp.concatenate(pieces, axis=0)
-        if active:
-            # A point event at the destination still changes the reported end state.
-            result = result.at[-1].set(_apply_events(result[-1], sets[len(grid) - 1]))
-        return result
+        # An assignment at the destination changes the reported end state too.
+        return result.at[-1].set(apply_at(result[-1], len(grid) - 1))
 
     def per_draw(params, y0, process_noise: ProcessNoise | None):
         reference = path(params, y0, process_noise, False)

@@ -33,7 +33,7 @@
             "coefficients": [],
             "innovation_family": "gaussian",
             "distribution": null,
-            "role": "exogenous",
+            "role": "endogenous",
             "temporal_status": "time_invariant"
           },
           "effect": {
@@ -1315,7 +1315,7 @@
             "coefficients": [],
             "innovation_family": "gaussian",
             "distribution": null,
-            "role": "exogenous",
+            "role": "endogenous",
             "temporal_status": "time_invariant"
           },
           "effect": {
@@ -3384,7 +3384,7 @@
     "source": {
       "ref": {
         "workspace_id": "DEMO",
-        "revision": "46fdf062d876538d7a06c137fbc974c6b58a1384",
+        "revision": "272e20b4fefca286b43f78e19e9deb930a09d355",
         "path": "model.json"
       },
       "pointer": "",
@@ -3394,7 +3394,7 @@
   "context": {
     "workspace_id": "DEMO",
     "seq": 8,
-    "commit_id": "20c327e5483202d6f3da63e0f031f80499e4a2a2",
+    "commit_id": "98bc330010364795dcd26f1f60074b6e5b3a0cda",
     "branch": "main",
     "can_simulate": false,
     "state": {
@@ -3412,9 +3412,9 @@
         },
         "identification_report": {
           "artifact_id": "identification_report",
-          "revision": "de4ee249d3aa29681162e353fbf8f2fb1f64d3c2",
+          "revision": "d050f710935792c942dcb7c90c58a264125c2a8b",
           "derived_from": {
-            "model": "0ad002e78b2469a13b89b3515b09b30086d9e637"
+            "model": "aaa71c2ad4ddc1cbd7ee3e16f863a4ed8f083aee"
           },
           "model_inputs": {},
           "consumed_model_inputs": {
@@ -3425,16 +3425,16 @@
         },
         "model": {
           "artifact_id": "model",
-          "revision": "46fdf062d876538d7a06c137fbc974c6b58a1384",
+          "revision": "272e20b4fefca286b43f78e19e9deb930a09d355",
           "derived_from": {
-            "model": "0ad002e78b2469a13b89b3515b09b30086d9e637",
+            "model": "aaa71c2ad4ddc1cbd7ee3e16f863a4ed8f083aee",
             "panel": "fa2e33d102c2ba45d099503b0a52a32b74694d7b",
-            "validation_report": "80feab382ad747a9a9027533e37c6ae5dd305cba"
+            "validation_report": "48de54062febd0588eff967d965041b61e58c0c7"
           },
           "model_inputs": {
-            "belief": "input:0322e4dbaf472300a8315be4259fda01c1ca4962c616497952ba3dd1997dd49b",
-            "compilation": "input:1ba5e740f3c4c2421edda8baa302d332ee946768a54881e5b504a48bcfc436e3",
-            "identification": "input:383a1cf4f585e83d0609afb81837b75e063d06e5b86305a2eab8cb3467c6e55f",
+            "belief": "input:b74f90199329333b284d2d8fd908400716a135f6b2848198eba2380cfb46cd0c",
+            "compilation": "input:2e4c0e501be60c0895abe8147e176982731d85d36344abc04fd2c2526719dd48",
+            "identification": "input:136410eda59b1c1e262483b1c37b4455a54539cb2b4690fefe3071ab5023543b",
             "observations": "input:3baa8f22dded838adbd82c401210e664c6e89eb4bb76418f4c503ce64a66d494"
           },
           "consumed_model_inputs": {},
@@ -3463,9 +3463,9 @@
         },
         "validation_report": {
           "artifact_id": "validation_report",
-          "revision": "80feab382ad747a9a9027533e37c6ae5dd305cba",
+          "revision": "48de54062febd0588eff967d965041b61e58c0c7",
           "derived_from": {
-            "model": "0ad002e78b2469a13b89b3515b09b30086d9e637",
+            "model": "aaa71c2ad4ddc1cbd7ee3e16f863a4ed8f083aee",
             "panel": "fa2e33d102c2ba45d099503b0a52a32b74694d7b"
           },
           "model_inputs": {},
@@ -10636,11 +10636,11 @@
       "source": {
         "ref": {
           "workspace_id": "DEMO",
-          "revision": "de4ee249d3aa29681162e353fbf8f2fb1f64d3c2",
+          "revision": "d050f710935792c942dcb7c90c58a264125c2a8b",
           "path": "identification_report.json"
         },
         "pointer": "",
-        "validity": "fresh"
+        "validity": "stale"
       }
     },
     "dispositions": {
@@ -10731,7 +10731,7 @@
             "id": "construct:1ca8eec7961c69a0cbe1"
           },
           "disposition": "marginalized",
-          "reason": "Safe unobserved exogenous root projected from the executable state vector."
+          "reason": "Safe unmeasured root projected from the executable state vector."
         },
         {
           "target": {
@@ -11193,7 +11193,7 @@
       "source": {
         "ref": {
           "workspace_id": "DEMO",
-          "revision": "46fdf062d876538d7a06c137fbc974c6b58a1384",
+          "revision": "272e20b4fefca286b43f78e19e9deb930a09d355",
           "path": "model.json"
         },
         "pointer": "",
@@ -12064,7 +12064,7 @@
       "source": {
         "ref": {
           "workspace_id": "DEMO",
-          "revision": "80feab382ad747a9a9027533e37c6ae5dd305cba",
+          "revision": "48de54062febd0588eff967d965041b61e58c0c7",
           "path": "validation_report.json"
         },
         "pointer": "",
@@ -42799,7 +42799,7 @@
       "source": {
         "ref": {
           "workspace_id": "DEMO",
-          "revision": "20c327e5483202d6f3da63e0f031f80499e4a2a2",
+          "revision": "98bc330010364795dcd26f1f60074b6e5b3a0cda",
           "path": "logs/attempt.json"
         },
         "pointer": "/diagnostics/report",

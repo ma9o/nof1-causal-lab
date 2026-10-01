@@ -1,6 +1,6 @@
 {
   "input_pins": {
-    "model": "46fdf062d876538d7a06c137fbc974c6b58a1384",
+    "model": "272e20b4fefca286b43f78e19e9deb930a09d355",
     "panel": "fa2e33d102c2ba45d099503b0a52a32b74694d7b"
   },
   "report": {
@@ -18241,7 +18241,7 @@
     "compiled_ssm_version": 1,
     "model": {
       "path": "model.json",
-      "revision": "46fdf062d876538d7a06c137fbc974c6b58a1384",
+      "revision": "272e20b4fefca286b43f78e19e9deb930a09d355",
       "workspace_id": "DEMO"
     },
     "panel_revision": "fa2e33d102c2ba45d099503b0a52a32b74694d7b"

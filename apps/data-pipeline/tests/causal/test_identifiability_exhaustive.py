@@ -175,7 +175,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "default_outcome": "construct:Y",
         "id": "pearl_verma_constraint",
         "constructs": [
-            {"name": "W", "role": "exogenous"},
+            {"name": "W", "role": "endogenous"},
             {"name": "X"},
             {"name": "Y"},
             {"name": "Z"},
@@ -196,7 +196,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "default_outcome": "construct:Y",
         "id": "backdoor_observed_confounder",
         "constructs": [
-            {"name": "Z", "role": "exogenous"},
+            {"name": "Z", "role": "endogenous"},
             {"name": "X"},
             {"name": "Y"},
         ],
@@ -212,8 +212,8 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "default_outcome": "construct:Y",
         "id": "backdoor_multiple_confounders_all_observed",
         "constructs": [
-            {"name": "Z1", "role": "exogenous"},
-            {"name": "Z2", "role": "exogenous"},
+            {"name": "Z1", "role": "endogenous"},
+            {"name": "Z2", "role": "endogenous"},
             {"name": "X"},
             {"name": "Y"},
         ],
@@ -231,8 +231,8 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "default_outcome": "construct:Y",
         "id": "backdoor_unobserved_but_iv_available",
         "constructs": [
-            {"name": "Z1", "role": "exogenous"},
-            {"name": "U", "role": "exogenous"},
+            {"name": "Z1", "role": "endogenous"},
+            {"name": "U", "role": "endogenous"},
             {"name": "X"},
             {"name": "Y"},
         ],
@@ -250,7 +250,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "default_outcome": "construct:Y",
         "id": "backdoor_chain_of_confounders",
         "constructs": [
-            {"name": "Z", "role": "exogenous"},
+            {"name": "Z", "role": "endogenous"},
             {"name": "W"},
             {"name": "X"},
             {"name": "Y"},
@@ -331,7 +331,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "default_outcome": "construct:Y",
         "id": "iv_classic",
         "constructs": [
-            {"name": "Z", "role": "exogenous"},
+            {"name": "Z", "role": "endogenous"},
             {"name": "X"},
             {"name": "Y"},
             {"name": "U"},
@@ -353,7 +353,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "default_outcome": "construct:Y",
         "id": "iv_fails_if_instrument_confounded",
         "constructs": [
-            {"name": "Z", "role": "exogenous"},
+            {"name": "Z", "role": "endogenous"},
             {"name": "X"},
             {"name": "Y"},
             {"name": "U"},
@@ -373,7 +373,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "default_outcome": "construct:Y",
         "id": "iv_fails_if_direct_path_to_outcome",
         "constructs": [
-            {"name": "Z", "role": "exogenous"},
+            {"name": "Z", "role": "endogenous"},
             {"name": "X"},
             {"name": "Y"},
             {"name": "U"},
@@ -502,7 +502,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
             {
                 "id": "construct:ca7081092c417bf11cf3",
                 "name": "Trait",
-                "role": "exogenous",
+                "role": "endogenous",
                 "temporal_status": "time_invariant",
             },
             {"name": "X", "temporal_status": "time_varying"},
@@ -523,7 +523,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
             {
                 "id": "construct:ca7081092c417bf11cf3",
                 "name": "Trait",
-                "role": "exogenous",
+                "role": "endogenous",
                 "temporal_status": "time_invariant",
             },
             {"name": "X", "temporal_status": "time_varying"},
@@ -555,7 +555,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
             {
                 "id": "construct:ca7081092c417bf11cf3",
                 "name": "Trait",
-                "role": "exogenous",
+                "role": "endogenous",
                 "temporal_status": "time_invariant",
             },
             {"name": "X", "temporal_status": "time_varying"},
@@ -938,8 +938,8 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "default_outcome": "construct:Y",
         "id": "hedge_verma_extended",
         "constructs": [
-            {"name": "V", "role": "exogenous"},
-            {"name": "W", "role": "exogenous"},
+            {"name": "V", "role": "endogenous"},
+            {"name": "W", "role": "endogenous"},
             {"name": "X"},
             {"name": "Y"},
             {"name": "Z"},
@@ -962,8 +962,8 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "default_outcome": "construct:Y",
         "id": "iv_conditional_not_supported",
         "constructs": [
-            {"name": "Z", "role": "exogenous"},
-            {"name": "C", "role": "exogenous"},
+            {"name": "Z", "role": "endogenous"},
+            {"name": "C", "role": "endogenous"},
             {"name": "X"},
             {"name": "Y"},
             {"name": "U1"},
@@ -987,8 +987,8 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "default_outcome": "construct:Y",
         "id": "iv_multiple_instruments",
         "constructs": [
-            {"name": "Z1", "role": "exogenous"},
-            {"name": "Z2", "role": "exogenous"},
+            {"name": "Z1", "role": "endogenous"},
+            {"name": "Z2", "role": "endogenous"},
             {"name": "X"},
             {"name": "Y"},
             {"name": "U"},
@@ -1008,7 +1008,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "default_outcome": "construct:Y",
         "id": "iv_weak_instrument_chain",
         "constructs": [
-            {"name": "Z", "role": "exogenous"},
+            {"name": "Z", "role": "endogenous"},
             {"name": "W"},
             {"name": "X"},
             {"name": "Y"},
@@ -1050,7 +1050,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
             {
                 "id": "construct:ca7081092c417bf11cf3",
                 "name": "Trait",
-                "role": "exogenous",
+                "role": "endogenous",
                 "temporal_status": "time_invariant",
             },
             {"name": "X", "temporal_status": "time_varying"},
@@ -1311,7 +1311,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "default_outcome": "construct:Y",
         "id": "coverage_with_iv_observed",
         "constructs": [
-            {"name": "Z", "role": "exogenous"},
+            {"name": "Z", "role": "endogenous"},
             {"name": "X"},
             {"name": "M"},
             {"name": "Y"},
@@ -1331,7 +1331,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "default_outcome": "construct:Y",
         "id": "coverage_without_iv_uses_front_door",
         "constructs": [
-            {"name": "Z", "role": "exogenous"},
+            {"name": "Z", "role": "endogenous"},
             {"name": "X"},
             {"name": "M"},
             {"name": "Y"},
@@ -1352,7 +1352,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "default_outcome": "construct:Y",
         "id": "coverage_minimal_xy_hidden_mediators",
         "constructs": [
-            {"name": "Z", "role": "exogenous"},
+            {"name": "Z", "role": "endogenous"},
             {"name": "X"},
             {"name": "M1"},
             {"name": "M2"},
@@ -1374,7 +1374,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "default_outcome": "construct:Y",
         "id": "coverage_minimal_with_z",
         "constructs": [
-            {"name": "Z", "role": "exogenous"},
+            {"name": "Z", "role": "endogenous"},
             {"name": "X"},
             {"name": "M1"},
             {"name": "M2"},
@@ -1396,7 +1396,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "default_outcome": "construct:Y",
         "id": "coverage_minimal_with_m1",
         "constructs": [
-            {"name": "Z", "role": "exogenous"},
+            {"name": "Z", "role": "endogenous"},
             {"name": "X"},
             {"name": "M1"},
             {"name": "M2"},
@@ -1420,7 +1420,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "default_outcome": "construct:Y",
         "id": "special_iv_regression_discontinuity_like",
         "constructs": [
-            {"name": "R", "role": "exogenous"},
+            {"name": "R", "role": "endogenous"},
             {"name": "D"},
             {"name": "Y"},
             {"name": "U"},
@@ -1438,7 +1438,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
         "default_outcome": "construct:Y",
         "id": "special_iv_mendelian_randomization",
         "constructs": [
-            {"name": "G", "role": "exogenous"},
+            {"name": "G", "role": "endogenous"},
             {"name": "X"},
             {"name": "Y"},
             {"name": "U"},
@@ -1483,7 +1483,7 @@ IDENTIFICATION_CASES: list[dict[str, Any]] = [
                 "id": "construct:ca7081092c417bf11cf3",
                 "name": "Trait",
                 "temporal_status": "time_invariant",
-                "role": "exogenous",
+                "role": "endogenous",
             },
             {"name": "State", "temporal_status": "time_invariant"},
             {"name": "X", "temporal_status": "time_varying"},
@@ -1677,7 +1677,6 @@ def test_marginalization(case):
         [construct["name"] for construct in case["constructs"]],
         [(edge["cause"], edge["effect"]) for edge in case["edges"]],
     )
-    children = {edge["effect"] for edge in case["edges"]}
     model = model.revised(
         edges=replace_constructs(
             model.edges,
@@ -1685,7 +1684,7 @@ def test_marginalization(case):
                 type(construct).model_validate(
                     {
                         **construct.model_dump(),
-                        "role": "endogenous" if construct.name in children else "exogenous",
+                        "role": "endogenous",
                         "temporal_status": "time_invariant",
                         "indicators": construct.indicators
                         if construct.name in case["observed"]
@@ -1737,7 +1736,7 @@ def test_marginalization(case):
 def _ar1_obs_xy() -> tuple[tuple[tuple[ConstructSpec, ...], tuple[CausalEdgeSpec, ...]], set[str]]:
     latent = make_graph(
         constructs=[
-            {"name": "X", "role": "exogenous", "temporal_status": "time_varying"},
+            {"name": "X", "role": "endogenous", "temporal_status": "time_varying"},
             {"name": "Y", "temporal_status": "time_varying"},
         ],
         edges=[{"cause": "X", "effect": "Y"}],
@@ -1798,7 +1797,7 @@ def test_unroll_dynamic_causes_use_previous_slice():
 def test_unroll_lagged_edges():
     latent = make_graph(
         constructs=[
-            {"name": "X", "role": "exogenous", "temporal_status": "time_varying"},
+            {"name": "X", "role": "endogenous", "temporal_status": "time_varying"},
             {"name": "Y", "temporal_status": "time_varying"},
         ],
         edges=[{"cause": "X", "effect": "Y"}],

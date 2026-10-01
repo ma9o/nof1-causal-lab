@@ -72,15 +72,30 @@ def test_invalid_native_constructors_are_rejected(payload):
 
 @pytest.mark.contract
 def test_parameter_changes_distribution_without_keeping_authoring_history():
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'numpyro_json/parameter_changes_distribution_without_keeping_authoring_history_complete_test_model.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1] / "fixtures/models" / "common/x_model.json"
+        ).read_text()
+    )
     parameter = model.parameters[0]
-    specified = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'numpyro_json/parameter_changes_distribution_without_keeping_authoring_history_model_with_prior_payloads.json').read_text())
+    specified = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1]
+            / "fixtures/models"
+            / "numpyro_json/parameter_changes_distribution_without_keeping_authoring_history_model_with_prior_payloads.json"
+        ).read_text()
+    )
     restored = type(model).model_validate_json(specified.model_dump_json())
     assert restored == specified
     assert restored.parameter(parameter.id).id == parameter.id
     assert isinstance(restored.distribution_for(parameter.id), dist.Normal)
     assert restored.parameter(parameter.id).reference_interval_days == 7.0
-    revised = restored.revised(distributions={**restored.distributions, restored.parameter(parameter.id).distribution: dist.Normal(0.3, 0.1)})
+    revised = restored.revised(
+        distributions={
+            **restored.distributions,
+            restored.parameter(parameter.id).distribution: dist.Normal(0.3, 0.1),
+        }
+    )
     assert (
         revised.parameter(parameter.id).distribution
         == restored.parameter(parameter.id).distribution
@@ -99,9 +114,15 @@ def test_parameter_changes_distribution_without_keeping_authoring_history():
 
 @pytest.mark.contract
 def test_parameter_tool_boundary_validates_the_reference_interval():
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'numpyro_json/parameter_tool_boundary_validates_the_reference_interval_complete_test_model.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1] / "fixtures/models" / "common/x_model.json"
+        ).read_text()
+    )
     with pytest.raises(ValidationError):
-        ParameterSpec.model_validate({**model.parameters[0].model_dump(), "reference_interval_days": -7.0})
+        ParameterSpec.model_validate(
+            {**model.parameters[0].model_dump(), "reference_interval_days": -7.0}
+        )
 
 
 @pytest.mark.contract
@@ -109,7 +130,11 @@ def test_completed_model_requires_a_prior_on_each_parameter():
 
     from nof1_causal_lab.compilation_errors import IncompleteModelError
 
-    science = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'numpyro_json/completed_model_requires_a_prior_on_each_parameter_complete_test_model.json').read_text())
+    science = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1] / "fixtures/models" / "common/x_model.json"
+        ).read_text()
+    )
     draft = science.revised(
         distributions={},
         parameters=tuple(
@@ -119,7 +144,11 @@ def test_completed_model_requires_a_prior_on_each_parameter():
     )
     with pytest.raises(IncompleteModelError, match="prior"):
         draft.require_priors()
-    completed = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'numpyro_json/completed_model_requires_a_prior_on_each_parameter_complete_parameter_priors.json').read_text())
+    completed = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1] / "fixtures/models" / "common/x_model.json"
+        ).read_text()
+    )
     completed.require_priors()
     assert [p.id for p in completed.parameters] == [p.id for p in draft.parameters]
     assert all(p.distribution is not None for p in completed.parameters)
@@ -128,7 +157,11 @@ def test_completed_model_requires_a_prior_on_each_parameter():
 
 @pytest.mark.contract
 def test_law_memberships_reject_dangling_unused_and_accidentally_shared_scalar_laws():
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'numpyro_json/law_memberships_reject_dangling_unused_and_accidentally_shared_scalar_laws_complete_test_model.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1] / "fixtures/models" / "common/x_model.json"
+        ).read_text()
+    )
     first, second = model.parameters[:2]
     assert first.distribution != second.distribution
     with pytest.raises(ValidationError, match="every reference must exist"):

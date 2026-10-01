@@ -41,7 +41,7 @@ def _model():
                         "id": "construct:x",
                         "name": "X",
                         "description": "X",
-                        "role": "exogenous",
+                        "role": "endogenous",
                         "temporal_status": "time_varying",
                     },
                     "effect": {
@@ -88,11 +88,23 @@ def test_entities_gain_detail_with_one_owner_and_native_prior():
     before = _model()
     payload = before.model_dump(mode="python")
     graph_constructs(payload)[1]["indicators"][0]["likelihood"] = {
-        "law": ObservationLawSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'additive_model/entities_gain_detail_with_one_owner_and_native_prior_observation_law.json').read_text()).model_dump(mode="json"),
+        "law": ObservationLawSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[1]
+                / "fixtures/models"
+                / "common/y_gaussian_observation_law.json"
+            ).read_text()
+        ).model_dump(mode="json"),
         "reasoning": "Continuous measurement",
     }
 
-    after = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'additive_model/entities_gain_detail_with_one_owner_and_native_prior_with_parameter_distributions.json').read_text())
+    after = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1]
+            / "fixtures/models"
+            / "additive_model/entities_gain_detail_with_one_owner_and_native_prior_with_parameter_distributions.json"
+        ).read_text()
+    )
     assert after.indicator_owner(IndicatorId("indicator:y")) is after.get_construct(
         ConstructId("construct:y")
     )
@@ -154,7 +166,13 @@ def test_inconsistent_enrichment_is_rejected(change):
         graph_constructs(payload)[0]["indicators"] = graph_constructs(payload)[1]["indicators"]
     else:
         graph_constructs(payload)[1]["indicators"][0]["likelihood"] = {
-            "law": ObservationLawSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'additive_model/inconsistent_enrichment_is_rejected_observation_law.json').read_text()),
+            "law": ObservationLawSpec.model_validate_json(
+                (
+                    Path(__file__).resolve().parents[1]
+                    / "fixtures/models"
+                    / "additive_model/inconsistent_enrichment_is_rejected_observation_law.json"
+                ).read_text()
+            ),
             "reasoning": "Wrong type",
         }
     with pytest.raises(ValidationError):

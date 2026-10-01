@@ -49,6 +49,11 @@ def condition_model(
     samples = result.get_samples()
     paths = result.draws.latent_paths
     state_ids = numeric.state_ids(model_spec)
+    modeled_ids = [
+        identity
+        for identity in state_ids
+        if model_spec.get_construct(identity).role == "endogenous"
+    ]
     grid = np.asarray(times)
     if paths is None or paths.shape[1:] != (len(grid), len(state_ids)):
         raise ValueError("Conditioning must retain the complete aligned latent trajectories")
@@ -58,7 +63,7 @@ def condition_model(
     layout = JointLawLayout.from_bindings(
         bindings,
         parameters=conditioned_parameters,
-        constructs=state_ids,
+        constructs=modeled_ids,
         time_points=grid.tolist(),
     )
     joint = layout.pack(
@@ -78,7 +83,7 @@ def condition_model(
                 {
                     **construct.model_dump(),
                     "distribution": identity
-                    if construct.id in state_ids
+                    if construct.id in modeled_ids
                     else construct.distribution,
                 }
             )
@@ -124,7 +129,11 @@ def condition_model(
 
 def _scientific_draws(model_spec: ModelSpec) -> JointPosteriorDraws:
     bindings, _ = parameter_bindings(model_spec)
-    states = numeric.state_ids(model_spec)
+    states = [
+        identity
+        for identity in numeric.state_ids(model_spec)
+        if model_spec.get_construct(identity).role == "endogenous"
+    ]
     members = [
         *[model_spec.parameter(binding.parameter_id) for binding in bindings],
         *[model_spec.get_construct(identity) for identity in states],
@@ -197,18 +206,33 @@ def assemble_parameter_draws(
     return samples
 
 
-def model_draws(model_spec: ModelSpec) -> JointPosteriorDraws:
+def model_draws(
+    model_spec: ModelSpec, *, input_values: jnp.ndarray | None = None
+) -> JointPosteriorDraws:
     """Derive native tensors from the current model's aligned particle distribution."""
     retained = _scientific_draws(model_spec)
     samples = assemble_parameter_draws(
         model_spec, retained.parameters, count=retained.describe().n_draws
     )
     paths = retained.latent_paths
+    state_ids = [
+        identity
+        for identity in numeric.state_ids(model_spec)
+        if model_spec.get_construct(identity).role == "endogenous"
+    ]
     if paths is not None:
-        state_ids = numeric.state_ids(model_spec)
         if set(retained.state_ids) != set(state_ids):
             raise ValueError("Stored trajectories do not match ModelSpec construct identities")
         paths = paths[..., [retained.state_ids.index(identity) for identity in state_ids]]
-    return JointPosteriorDraws(
-        parameters=samples, latent_paths=paths, state_ids=tuple(numeric.state_ids(model_spec))
-    )
+        if numeric.input_mask(model_spec).any():
+            if input_values is None:
+                raise ValueError(
+                    "Retained histories with exogenous inputs require the replayed panel path"
+                )
+            full_ids = numeric.state_ids(model_spec)
+            full_paths = jnp.broadcast_to(input_values, (paths.shape[0], *input_values.shape))
+            paths = full_paths.at[
+                :, :, jnp.asarray([full_ids.index(identity) for identity in state_ids])
+            ].set(paths)
+            state_ids = full_ids
+    return JointPosteriorDraws(parameters=samples, latent_paths=paths, state_ids=tuple(state_ids))

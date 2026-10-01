@@ -4,7 +4,6 @@ Covers: semantic prior binding and fit-input preparation.
 """
 
 from __future__ import annotations
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 from datetime import UTC, datetime
 from pathlib import Path
@@ -15,6 +14,7 @@ import numpy as np
 import polars as pl
 import pytest
 
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.compile.inputs import compile_priors
@@ -37,18 +37,28 @@ if TYPE_CHECKING:
 # =============================================================================
 
 
-
-
 @pytest.mark.contract
 class TestBuilderPriorConversion:
     def test_ar_prior_rejects_negative_support(self):
         with pytest.raises(ValueError, match=r"support within \[0, 1\]"):
             compile_priors(
-                ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/testbuilderpriorconversion_test_ar_prior_rejects_negative_support_make_prior_model.json').read_text())
+                ModelSpec.model_validate_json(
+                    (
+                        Path(__file__).resolve().parents[2]
+                        / "fixtures/models"
+                        / "runtime/testbuilderpriorconversion_test_ar_prior_rejects_negative_support_make_prior_model.json"
+                    ).read_text()
+                )
             )
 
     def test_initial_state_correlation_priors_are_bounded_to_correlation_scale(self):
-        model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/testbuilderpriorconversion_test_initial_state_correlation_priors_are_bounded_to_correlation_scale_with_parameter_distributions.json').read_text())
+        model = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "runtime/testbuilderpriorconversion_test_initial_state_correlation_priors_are_bounded_to_correlation_scale_with_parameter_distributions.json"
+            ).read_text()
+        )
         law = compile_priors(model)[0]["t0_var_lower_free"]
         np.testing.assert_allclose(law.base_dist.loc, [0.2])
         np.testing.assert_allclose(law.base_dist.scale, [0.8])
@@ -56,13 +66,25 @@ class TestBuilderPriorConversion:
         np.testing.assert_allclose(law.high, [1.0])
 
     def test_initial_state_mean_and_sd_priors_bind_to_t0_sites(self):
-        model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/testbuilderpriorconversion_test_initial_state_mean_and_sd_priors_bind_to_t0_sites__make_spec.json').read_text())
+        model = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "common/two_state_fixed_drift_model.json"
+            ).read_text()
+        )
         means = [
             p
             for p in model.parameters
             if model.parameter_context(p.id).quantity == SiteKind.T0_MEANS
         ]
-        model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/testbuilderpriorconversion_test_initial_state_mean_and_sd_priors_bind_to_t0_sites_with_parameter_distributions.json').read_text())
+        model = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "runtime/testbuilderpriorconversion_test_initial_state_mean_and_sd_priors_bind_to_t0_sites_with_parameter_distributions.json"
+            ).read_text()
+        )
         priors, bindings, _ = compile_priors(model)
         np.testing.assert_allclose(priors["t0_means_free"].loc, [0.2, 0.4])
         np.testing.assert_allclose(priors["t0_var_diag_free"].scale, [0.7, 0.9])
@@ -71,7 +93,13 @@ class TestBuilderPriorConversion:
     def test_initial_state_correlation_prior_indices_are_dense_after_mask_filtering(self):
         mask = np.zeros((3, 3), dtype=bool)
         mask[2, 1] = True
-        model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/testbuilderpriorconversion_test_initial_state_correlation_prior_indices_are_dense_after_mask_filtering__make_spec.json').read_text())
+        model = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "runtime/testbuilderpriorconversion_test_initial_state_correlation_prior_indices_are_dense_after_mask_filtering__make_spec.json"
+            ).read_text()
+        )
         _, bindings, _ = compile_priors(model)
         correlation = next(
             p
@@ -82,7 +110,13 @@ class TestBuilderPriorConversion:
         assert numeric.initial_covariance_block(model).correlation_positions == [(2, 1)]
 
     def test_component_dynamics_parameters_bind_to_their_own_terms(self):
-        model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/testbuilderpriorconversion_test_component_dynamics_parameters_bind_to_their_own_terms_complete_test_model.json').read_text())
+        model = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "runtime/stress_mood_model.json"
+            ).read_text()
+        )
         _, bindings, _ = compile_priors(model)
         for parameter in model.parameters:
             if any(
@@ -91,9 +125,13 @@ class TestBuilderPriorConversion:
                 assert bindings.by_parameter[parameter.id].component_index is not None
 
     def test_cross_lag_prior_requires_the_declared_measurement_clock(self):
-        model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/testbuilderpriorconversion_test_cross_lag_prior_requires_the_declared_measurement_clock_complete_test_model.json').read_text()).revised(
-            measurement_clock=None
-        )
+        model = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "runtime/stress_mood_model.json"
+            ).read_text()
+        ).revised(measurement_clock=None)
         with pytest.raises(ValueError, match="measurement clock"):
             compile_priors(model)
 
@@ -103,7 +141,13 @@ class TestObservationSupportValidation:
     def test_gamma_emission_rejects_zero_observations(self):
         """Gamma likelihoods must fail early when observed data include zeros."""
         X = pl.DataFrame({"time": [0, 1, 2], "screen_gap": [0.0, 1.0, 2.0]})
-        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/testobservationsupportvalidation_test_gamma_emission_rejects_zero_observations__make_spec.json').read_text())
+        spec = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "runtime/testobservationsupportvalidation_test_gamma_emission_rejects_zero_observations__make_spec.json"
+            ).read_text()
+        )
 
         with pytest.raises(ValueError, match="Observation support check failed"):
             build_ssm_model(X, inputs=compile_fit_fixture(spec))
@@ -113,7 +157,13 @@ class TestObservationSupportValidation:
 class TestPrepareFitInputs:
     def test_sparse_wide_nulls_become_nan_without_fill_forward(self):
         """Sparse wide cells should stay missing and never broadcast across ticks."""
-        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/testpreparefitinputs_test_sparse_wide_nulls_become_nan_without_fill_forward__make_spec.json').read_text())
+        spec = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "runtime/testpreparefitinputs_test_sparse_wide_nulls_become_nan_without_fill_forward__make_spec.json"
+            ).read_text()
+        )
         wide = pl.DataFrame(
             {
                 "time": [0.0, 1.0],
@@ -133,7 +183,13 @@ class TestPrepareFitInputs:
 
     def test_manifest_standardization_applies_only_to_standardized_channels(self):
         """prepare_fit_inputs should deterministically standardize only marked manifests."""
-        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/testpreparefitinputs_test_manifest_standardization_applies_only_to_standardized_channels__make_spec.json').read_text())
+        spec = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "runtime/testpreparefitinputs_test_manifest_standardization_applies_only_to_standardized_channels__make_spec.json"
+            ).read_text()
+        )
         wide = pl.DataFrame(
             {
                 "time": [0.0, 1.0, 2.0],
@@ -153,7 +209,13 @@ class TestPrepareFitInputs:
 
     def test_manifest_standardization_of_constant_column_centers_without_scaling(self):
         """A zero-variance standardized column becomes exactly zero (divisor 1)."""
-        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/testpreparefitinputs_test_manifest_standardization_of_constant_column_centers_without_scaling__make_spec.json').read_text())
+        spec = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "runtime/testpreparefitinputs_test_manifest_standardization_of_constant_column_centers_without_scaling__make_spec.json"
+            ).read_text()
+        )
         wide = pl.DataFrame({"time": [0.0, 1.0], "x": [4.2, 4.2]})
 
         observations, _times, _names, _wide = prepare_fit_inputs(spec, wide)
@@ -209,7 +271,13 @@ class TestPrepareModelRuntime:
         )
 
         inputs = compile_fit_fixture(
-            ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/testpreparemodelruntime_test_preserves_long_observation_metadata_and_augments_support_boundaries__make_spec.json').read_text())
+            ModelSpec.model_validate_json(
+                (
+                    Path(__file__).resolve().parents[2]
+                    / "fixtures/models"
+                    / "runtime/stress_interval_model.json"
+                ).read_text()
+            )
         )
 
         with caplog.at_level("INFO"):
@@ -278,7 +346,13 @@ class TestPrepareModelRuntime:
         )
 
         inputs = compile_fit_fixture(
-            ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/testpreparemodelruntime_test_compiles_overlapping_interval_windows_into_concurrent_slots__make_spec.json').read_text())
+            ModelSpec.model_validate_json(
+                (
+                    Path(__file__).resolve().parents[2]
+                    / "fixtures/models"
+                    / "runtime/stress_interval_model.json"
+                ).read_text()
+            )
         )
 
         runtime = prepare_model_runtime(
@@ -321,7 +395,13 @@ class TestPrepareModelRuntime:
         model = build_ssm_model(
             pl.DataFrame({"time": [0.0], "stress_score": [1.0]}),
             inputs=compile_fit_fixture(
-                ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/testpreparemodelruntime_test_prior_predictive_reuses_prepared_support_schedule__make_spec.json').read_text())
+                ModelSpec.model_validate_json(
+                    (
+                        Path(__file__).resolve().parents[2]
+                        / "fixtures/models"
+                        / "runtime/stress_interval_model.json"
+                    ).read_text()
+                )
             ),
         )
         runtime = prepare_model_runtime(
@@ -359,7 +439,15 @@ def test_compiled_inputs_own_runtime_derivations(monkeypatch):
     from nof1_causal_lab.models.ssm.compile import prior_compilation
     from nof1_causal_lab.models.ssm.model import SSMModel
 
-    inputs = compile_fit_fixture(ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/compiled_inputs_own_runtime_derivations__make_spec.json').read_text()))
+    inputs = compile_fit_fixture(
+        ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "common/one_state_gaussian_model.json"
+            ).read_text()
+        )
+    )
 
     def unexpected_compile(*_args, **_kwargs):
         raise AssertionError("runtime recompiled its evidence")
@@ -379,8 +467,20 @@ def test_compile_distinguishes_incomplete_unsupported_and_bugs(monkeypatch):
 
     incomplete = compiler.compile_ssm_inputs_from_model(ModelSpec())
     assert isinstance(incomplete, compiler.IncompleteModel)
-    spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/compile_distinguishes_incomplete_unsupported_and_bugs__make_spec.json').read_text())
-    unsupported = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/compile_distinguishes_incomplete_unsupported_and_bugs_with_parameter_distributions.json').read_text())
+    spec = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "common/one_state_gaussian_model.json"
+        ).read_text()
+    )
+    unsupported = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "runtime/compile_distinguishes_incomplete_unsupported_and_bugs_with_parameter_distributions.json"
+        ).read_text()
+    )
     assert isinstance(compiler.compile_ssm_inputs_from_model(unsupported), compiler.UnsupportedFit)
 
     def broken_compiler(_model):

@@ -27,10 +27,17 @@ def runtime(monkeypatch):
     times = jnp.array([2.0, 2.1, 2.35])
     from nof1_causal_lab.models.ssm.execution.parameters import assemble_model_matrices
 
-    spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'dynamical_model/runtime_model_fixture.json').read_text())
+    spec = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "dynamical_model/runtime_model_fixture.json"
+        ).read_text()
+    )
     model = SimpleNamespace(
         spec=spec,
         observation_support=None,
+        input_values=None,
     )
 
     def constrain(z):
@@ -295,6 +302,6 @@ def test_indexed_sde_keeps_its_brownian_path_and_uses_dynestyx_evolution(monkeyp
         initial,
         grid,
         config=simulator.SimulationConfig(brownian=simulator.IndexedBrownianSpec(step_size=0.01)),
-        noise=simulator.ProcessNoise(key=key, diffusion_cov=covariance),
+        noise=simulator.ProcessNoise(key=key, diffusion=jnp.linalg.cholesky(covariance)),
     )
     assert actual is paths

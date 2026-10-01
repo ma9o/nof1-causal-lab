@@ -220,19 +220,26 @@ def test_invalid_histories_and_duplicate_sources_are_rejected_before_comparison(
 
 
 @pytest.mark.inference(concern="predictive")
-def test_reads_saved_draws_without_generation_or_model_access(tmp_path, monkeypatch):
+def test_reads_saved_draws_without_generation_or_writing_models(tmp_path, monkeypatch):
     from nof1_causal_lab.artifacts.data_preparation import (
         PreparedDataMetadata,
         SimulationReplicateRef,
     )
     from nof1_causal_lab.utils import data as data_module
+    from tests.helpers import make_model
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path))
     store, history = ArtifactStore("DIFF"), StudyRepository("DIFF")
+    model = store.write_artifact(
+        "model",
+        produced_by="edit_model",
+        derived_from={},
+        json_files={"model.json": make_model(["X", "Y"], [("X", "Y")]).model_dump(mode="json")},
+    )
     observed = _dataset([1, 2, 3])
     values = np.asarray([[[0], [1], [2]], [[1], [2], [3]], [[2], [3], [4]]], dtype=float)
     report = SimulationReport(
-        model=GitRef(workspace_id="DIFF", revision=git_oid(99), path="model.json"),
+        model=GitRef(workspace_id="DIFF", revision=model.revision, path="model.json"),
         design=SimulationSpec(end=2),
         time_origin=datetime(2026, 1, 1, tzinfo=UTC),
         predictive={
@@ -305,7 +312,7 @@ def test_reads_saved_draws_without_generation_or_model_access(tmp_path, monkeypa
     assert result["variables"][0]["predictive_checks"]["n_subsample"] == 3
     assert history.head() == commit
     assert sorted(store.repo.references) == refs_before
-    assert store.list_revisions("model") == []
+    assert store.list_revisions("model") == [model.revision]
     assert isinstance(request.left, DataRef)
     one = type(request).model_validate(
         {

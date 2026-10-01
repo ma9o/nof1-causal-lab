@@ -297,14 +297,35 @@ def test_only_latest_fresh_simulation_survives_and_old_findings_do_not_resurface
         assert before.value == after.value
 
 
-@pytest.mark.parametrize(('inherit', 'scientific_model_payload'), [
-    pytest.param('none', 'squash_study_history/inherited_laws_keep_their_fit_but_reset_laws_do_not_scientific_model_none.json', id='none'),
-    pytest.param('all', 'squash_study_history/inherited_laws_keep_their_fit_but_reset_laws_do_not_scientific_model_all.json', id='all'),
-    pytest.param('some', 'squash_study_history/inherited_laws_keep_their_fit_but_reset_laws_do_not_scientific_model_some.json', id='some'),
-])
-def test_inherited_laws_keep_their_fit_but_reset_laws_do_not(study, inherit, scientific_model_payload):
+@pytest.mark.parametrize(
+    ("inherit", "scientific_model_payload"),
+    [
+        pytest.param(
+            "none",
+            "common/stress_sleep_model.json",
+            id="none",
+        ),
+        pytest.param(
+            "all",
+            "common/stress_sleep_model.json",
+            id="all",
+        ),
+        pytest.param(
+            "some",
+            "common/stress_sleep_model.json",
+            id="some",
+        ),
+    ],
+)
+def test_inherited_laws_keep_their_fit_but_reset_laws_do_not(
+    study, inherit, scientific_model_payload
+):
     source, destination, store, history = study
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / scientific_model_payload).read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2] / "fixtures/models" / scientific_model_payload
+        ).read_text()
+    )
     _edit(store, history, model=model)  # 1
     _prepare(store, history)  # 2
     # Saved laws are explicit test values; no inference or simulation executes.

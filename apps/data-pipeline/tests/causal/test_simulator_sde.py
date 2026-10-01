@@ -47,7 +47,7 @@ class TestSimulateSDEMode:
                     y0,
                     time_grid,
                     config=config,
-                    noise=ProcessNoise(key=key, diffusion_cov=jnp.eye(1) * 0.2),
+                    noise=ProcessNoise(key=key, diffusion=jnp.linalg.cholesky(jnp.eye(1) * 0.2)),
                 )
             )
         )(jnp.concatenate((keys, keys[:1])))
@@ -73,6 +73,8 @@ class TestSimulateSDEMode:
             Intervention.none(),
             y0,
             time_grid,
-            noise=ProcessNoise(key=jr.PRNGKey(42), diffusion_cov=jnp.eye(1) * 1e-10),
+            noise=ProcessNoise(
+                key=jr.PRNGKey(42), diffusion=jnp.linalg.cholesky(jnp.eye(1) * 1e-10)
+            ),
         )
         assert jnp.allclose(det, sde, atol=5e-3)

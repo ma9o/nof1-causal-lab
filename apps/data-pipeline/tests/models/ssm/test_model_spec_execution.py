@@ -1,6 +1,5 @@
 """ModelSpec identity, parameter draws, and native model execution."""
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from pathlib import Path
 
 import dynestyx as dsx
@@ -13,6 +12,7 @@ from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.likelihood import (
     ObservationLawSpec,
 )
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.execution.dynamical_model import (
     HeterogeneousObservation,
@@ -30,7 +30,13 @@ from tests.model_fixtures import compile_fit_fixture
 
 @pytest.fixture(scope="module")
 def model():
-    return ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'model_spec_execution/model_model.json').read_text())
+    return ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "model_spec_execution/model_model.json"
+        ).read_text()
+    )
 
 
 @pytest.mark.inference(concern="predictive")
@@ -60,12 +66,24 @@ def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
                 "categorical_levels": ("low", "medium", "high"),
                 "aggregation": "last",
                 "likelihood": LikelihoodSpec(
-                    law=ObservationLawSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'model_spec_execution/conditioning_revises_the_same_type_and_retains_joint_uncertainty_observation_law.json').read_text()),
+                    law=ObservationLawSpec.model_validate_json(
+                        (
+                            Path(__file__).resolve().parents[2]
+                            / "fixtures/models"
+                            / "model_spec_execution/conditioning_revises_the_same_type_and_retains_joint_uncertainty_observation_law.json"
+                        ).read_text()
+                    ),
                     reasoning="Joint law with category-specific parameter elements",
                 ),
             }
         )
-        model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'model_spec_execution/conditioning_revises_the_same_type_and_retains_joint_uncertainty_complete_test_model.json').read_text())
+        model = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "model_spec_execution/conditioning_revises_the_same_type_and_retains_joint_uncertainty_complete_test_model.json"
+            ).read_text()
+        )
     count = 3
     samples = {
         site.name: 100 * (index + 1)
@@ -187,14 +205,14 @@ def test_predictive_runtime_uses_native_initial_and_observation_laws(model):
     """Exercise model batching and prediction at one time point, without a trajectory solve."""
     from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
         sample_predictive_emissions,
-        simulate_predictive_latents,
+        simulate_latent_histories,
     )
 
     samples = {site.name: jnp.full((2, *site.shape), 0.5) for site in build_site_registry(model)}
     samples.update(assemble_deterministics_from_registry(samples, model))
     times = jnp.array([2.0])
     key = jax.random.PRNGKey(14)
-    latents, predictors = simulate_predictive_latents(model, samples, times, rng_key=key)
+    latents, predictors, _ = simulate_latent_histories(model, samples, times, key, None, ())
     native = build_dynamical_model(
         model, {name: values[0] for name, values in samples.items()}, t0=times[0]
     )
@@ -336,7 +354,13 @@ def test_fixed_quantities_and_interactions_remain_effective_in_edge_off_checks(m
     )
     from tests.model_fixtures import parameter_draws
 
-    source = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'model_spec_execution/fixed_quantities_and_interactions_remain_effective_in_edge_off_checks_model_fixture.json').read_text())
+    source = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "model_spec_execution/fixed_quantities_and_interactions_remain_effective_in_edge_off_checks_model_fixture.json"
+        ).read_text()
+    )
     source = ModelSpec.model_validate_json(source.model_dump_json())
     terms = numeric.dynamics_expressions(source)
     assert linear_coefficient(terms[3].expression, source.state_order[0]) == 0.7

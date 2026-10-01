@@ -26,10 +26,10 @@ if TYPE_CHECKING:
 
 
 class ProcessNoise(eqx.Module):
-    """A process covariance and its random key, optionally batched over draws."""
+    """A process diffusion factor and random key, optionally batched over draws."""
 
     key: Array
-    diffusion_cov: Array
+    diffusion: Array
 
 
 class BrownianTreeSpec(eqx.Module):
@@ -118,7 +118,7 @@ def simulate(
         )
         if noise is None
         else continuous_state_evolution(
-            vector_field, params, noise.diffusion_cov, intervention=intervention
+            vector_field, params, noise.diffusion, intervention=intervention
         )
     )
     model = dsx.DynamicalModel(

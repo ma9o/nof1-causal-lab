@@ -1,6 +1,5 @@
 """Saved scientific summaries retain masks, paired uncertainty and absolute time."""
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -14,6 +13,7 @@ from nof1_causal_lab.actions.simulation_summaries import (
 )
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.identity import GitRef
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.simulation import SimulationReport, SimulationSpec
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.predictive.simulation import generate_simulation_batch
@@ -182,7 +182,11 @@ def test_all_summary_types_and_paired_intervals_are_persisted_before_reads(tmp_p
 
 
 def test_authored_law_advances_from_zero_before_a_later_requested_start():
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'saved_simulation_summaries/authored_law_advances_from_zero_before_a_later_requested_start_complete_test_model.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1] / "fixtures/models" / "common/x_y_model.json"
+        ).read_text()
+    )
 
     fixed = {
         p.id: 0.5 if p.name.startswith("rho") else 0.0 if p.name.startswith("beta") else 1e-8

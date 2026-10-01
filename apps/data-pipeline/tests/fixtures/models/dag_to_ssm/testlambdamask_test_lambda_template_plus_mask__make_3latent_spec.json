@@ -202,10 +202,28 @@
                     "kind": "binary",
                     "operator": "add",
                     "left": {
-                      "kind": "coefficient",
-                      "role": "observation_intercept",
-                      "value": 0.0,
-                      "construct_ids": []
+                      "kind": "binary",
+                      "operator": "add",
+                      "left": {
+                        "kind": "coefficient",
+                        "role": "observation_intercept",
+                        "value": 0.0,
+                        "construct_ids": []
+                      },
+                      "right": {
+                        "kind": "binary",
+                        "operator": "multiply",
+                        "left": {
+                          "kind": "coefficient",
+                          "role": "loading",
+                          "value": 0.0,
+                          "construct_ids": []
+                        },
+                        "right": {
+                          "kind": "state",
+                          "construct_id": "construct:d90c52e59b79004188dc"
+                        }
+                      }
                     },
                     "right": {
                       "kind": "binary",
@@ -213,12 +231,12 @@
                       "left": {
                         "kind": "coefficient",
                         "role": "loading",
-                        "value": 0.0,
+                        "value": "parameter:4a482718870c06d541bb044c41ca4d9f372a25fedd43478cc495204883bb6ae5",
                         "construct_ids": []
                       },
                       "right": {
                         "kind": "state",
-                        "construct_id": "construct:d90c52e59b79004188dc"
+                        "construct_id": "construct:311c9047b5ede16a8f26"
                       }
                     }
                   },
@@ -820,7 +838,7 @@
         "coefficients": [],
         "innovation_family": "gaussian",
         "distribution": null,
-        "role": "exogenous",
+        "role": "endogenous",
         "temporal_status": "time_varying"
       },
       "effect": {
@@ -856,7 +874,7 @@
         "coefficients": [],
         "innovation_family": "gaussian",
         "distribution": null,
-        "role": "exogenous",
+        "role": "endogenous",
         "temporal_status": "time_invariant"
       },
       "effect": {
@@ -892,7 +910,7 @@
         "coefficients": [],
         "innovation_family": "gaussian",
         "distribution": null,
-        "role": "exogenous",
+        "role": "endogenous",
         "temporal_status": "time_varying"
       },
       "effect": {
@@ -928,7 +946,7 @@
         "coefficients": [],
         "innovation_family": "gaussian",
         "distribution": null,
-        "role": "exogenous",
+        "role": "endogenous",
         "temporal_status": "time_invariant"
       },
       "effect": {
@@ -964,7 +982,7 @@
         "coefficients": [],
         "innovation_family": "gaussian",
         "distribution": null,
-        "role": "exogenous",
+        "role": "endogenous",
         "temporal_status": "time_varying"
       },
       "effect": {
@@ -1000,7 +1018,7 @@
         "coefficients": [],
         "innovation_family": "gaussian",
         "distribution": null,
-        "role": "exogenous",
+        "role": "endogenous",
         "temporal_status": "time_invariant"
       },
       "effect": {
@@ -1227,6 +1245,14 @@
       "reference_interval_days": null
     },
     {
+      "id": "parameter:4a482718870c06d541bb044c41ca4d9f372a25fedd43478cc495204883bb6ae5",
+      "name": "parameter:4a482718870c06d541bb044c41ca4d9f372a25fedd43478cc495204883bb6ae5",
+      "description": "Fixture quantity",
+      "distribution_transform": "identity",
+      "distribution": "distribution:2166b9f59e6a9e5213a9fc462d4a5b7e9c270d0969e986e4752a9f1f1784987d",
+      "reference_interval_days": null
+    },
+    {
       "id": "parameter:ce55517824153f3c5ad366f24e9f78a2baf414890c8f6de734be888e3b4b31bb",
       "name": "parameter:ce55517824153f3c5ad366f24e9f78a2baf414890c8f6de734be888e3b4b31bb",
       "description": "Fixture quantity",
@@ -1439,6 +1465,14 @@
       "distribution": "HalfNormal",
       "params": {
         "scale": 1.0,
+        "validate_args": false
+      }
+    },
+    "distribution:2166b9f59e6a9e5213a9fc462d4a5b7e9c270d0969e986e4752a9f1f1784987d": {
+      "distribution": "Normal",
+      "params": {
+        "loc": 0.5,
+        "scale": 0.5,
         "validate_args": false
       }
     },

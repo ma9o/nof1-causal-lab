@@ -86,7 +86,7 @@ def _constant_runtime_dynamics() -> StochasticContinuousTimeStateEvolution:
             {"cint": jnp.array(0.07, dtype=jnp.float32)},
             {"weight": jnp.array(-0.10, dtype=jnp.float32)},
         ),
-        diffusion_cov=jnp.diag(jnp.array([0.08, 0.06, 0.04], dtype=jnp.float32)),
+        diffusion=jnp.linalg.cholesky(jnp.diag(jnp.array([0.08, 0.06, 0.04], dtype=jnp.float32))),
     )
 
 
@@ -107,7 +107,7 @@ def _trajectory_runtime_dynamics() -> StochasticContinuousTimeStateEvolution:
                 scientific_id("parameter", "exponent"): jnp.array(2.0, dtype=jnp.float32),
             },
         ),
-        diffusion_cov=jnp.diag(jnp.array([0.05, 0.07], dtype=jnp.float32)),
+        diffusion=jnp.linalg.cholesky(jnp.diag(jnp.array([0.05, 0.07], dtype=jnp.float32))),
     )
 
 
@@ -163,7 +163,7 @@ def test_initialization_covariance_handles_large_diffusion_candidates():
         dynamics = continuous_state_evolution(
             vector_field=VectorField(n_latent=1, components=(DiagonalDecay(),)),
             vf_params=({"decay": jnp.array([decay])},),
-            diffusion_cov=jnp.reshape(sigma**2, (1, 1)),
+            diffusion=jnp.linalg.cholesky(jnp.reshape(sigma**2, (1, 1))),
         )
         return build_discrete_transitions(dynamics, intervals)
 

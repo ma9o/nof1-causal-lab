@@ -57,8 +57,6 @@ class _FakeResult(ParticleMCMCPosterior):
         return []
 
 
-
-
 def _make_observation_support_runtime() -> ObservationSupportRuntime:
     return ObservationSupportRuntime(
         manifest_names=["sleep_avg", "energy"],
@@ -119,7 +117,17 @@ def _make_runtime(model: SSMModel) -> PreparedModelRuntime:
 
 def test_fit_model_logs_runtime_summary_and_diagnostic_boundaries(monkeypatch, caplog):
     fake_result = _FakeResult()
-    fake_model = SSMModel(compile_fit_fixture(ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'inference/fit_model_logs_runtime_summary_and_diagnostic_boundaries__make_fake_model.json').read_text())))
+    fake_model = SSMModel(
+        compile_fit_fixture(
+            ModelSpec.model_validate_json(
+                (
+                    Path(__file__).resolve().parents[2]
+                    / "fixtures/models"
+                    / "inference/sleep_state_model.json"
+                ).read_text()
+            )
+        )
+    )
     runtime = _make_runtime(fake_model)
 
     monkeypatch.setattr(stage5_inference, "prepare_model_runtime", lambda **_kwargs: runtime)
@@ -172,7 +180,17 @@ def test_fit_model_logs_runtime_summary_and_diagnostic_boundaries(monkeypatch, c
 
 def test_fit_model_can_skip_loo_diagnostics(monkeypatch, caplog):
     fake_result = _FakeResult()
-    fake_model = SSMModel(compile_fit_fixture(ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'inference/fit_model_can_skip_loo_diagnostics__make_fake_model.json').read_text())))
+    fake_model = SSMModel(
+        compile_fit_fixture(
+            ModelSpec.model_validate_json(
+                (
+                    Path(__file__).resolve().parents[2]
+                    / "fixtures/models"
+                    / "inference/sleep_state_model.json"
+                ).read_text()
+            )
+        )
+    )
     runtime = _make_runtime(fake_model)
 
     monkeypatch.setattr(stage5_inference, "prepare_model_runtime", lambda **_kwargs: runtime)

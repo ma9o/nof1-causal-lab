@@ -36,7 +36,13 @@ def test_description_retains_expression_constants_and_potential_semantics():
 
 
 def test_scientific_model_roundtrip_preserves_derived_dynamics():
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'dynamics_config/scientific_model_roundtrip_preserves_derived_dynamics_model_fixture.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1]
+            / "fixtures/models"
+            / "dynamics_config/scientific_model_roundtrip_preserves_derived_dynamics_model_fixture.json"
+        ).read_text()
+    )
     restored = ModelSpec.model_validate_json(model.model_dump_json())
     assert dynamics_spec_to_dict(numeric.dynamics_components(model)) == dynamics_spec_to_dict(
         numeric.dynamics_components(restored)

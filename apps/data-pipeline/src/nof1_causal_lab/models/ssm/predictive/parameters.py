@@ -35,7 +35,11 @@ def validate_simulation_laws(model: ModelSpec) -> None:
         elif parameter.distribution_transform != PriorAuthoringTransform.IDENTITY:
             raise ValueError("Joint probability laws must use native scientific coordinates")
     retained = {c.id for c in model.constructs if c.distribution is not None}
-    state_ids = set(numeric.state_ids(model))
+    state_ids = {
+        identity
+        for identity in numeric.state_ids(model)
+        if model.get_construct(identity).role == "endogenous"
+    }
     if retained & state_ids and not state_ids <= retained:
         raise ValueError("Conditional simulation requires a joint draw for every state")
 
@@ -52,7 +56,11 @@ def sample_model_laws(model: ModelSpec, *, draws: int, key: jax.Array) -> JointP
     semantics = build_semantic_prior_bindings(model).by_parameter
     values: dict[str, jnp.ndarray] = {}
     paths: dict[str, jnp.ndarray] = {}
-    state_ids = tuple(numeric.state_ids(model))
+    state_ids = tuple(
+        identity
+        for identity in numeric.state_ids(model)
+        if model.get_construct(identity).role == "endogenous"
+    )
     active_laws = {
         member.distribution
         for member in (

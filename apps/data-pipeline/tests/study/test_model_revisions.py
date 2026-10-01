@@ -88,7 +88,11 @@ def test_statistical_enrichment_preserves_structural_and_measurement_inputs():
     from tests.helpers import make_model
 
     measured = make_model(["X", "Y"], [("X", "Y")])
-    specified = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'model_revisions/statistical_enrichment_preserves_structural_and_measurement_inputs_complete_test_model.json').read_text())
+    specified = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1] / "fixtures/models" / "common/x_y_model.json"
+        ).read_text()
+    )
     before, after = input_fingerprints(measured), input_fingerprints(specified)
     for purpose in ("observations", "identification"):
         assert before[purpose] == after[purpose]

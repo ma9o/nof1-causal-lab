@@ -115,7 +115,9 @@ def test_warmup_transitions_match_local_ou_moments():
             ),
         )
     ).vector_field
-    evolution = continuous_state_evolution(field, ({}, {}), jnp.diag(jnp.asarray(variance)))
+    evolution = continuous_state_evolution(
+        field, ({}, {}), jnp.diag(jnp.sqrt(jnp.asarray(variance)))
+    )
     transitions = build_discrete_transitions(
         evolution, jnp.asarray(gaps), linearization_states=jnp.asarray(states)
     )

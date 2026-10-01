@@ -135,10 +135,11 @@ def read_data_diff(workspace_id: str, request: DataDiffRequest) -> DataDiffRepor
     from nof1_causal_lab.artifacts.simulation import SimulationReport
     from nof1_causal_lab.study.history import StudyRepository
     from nof1_causal_lab.study.lineage import read_data_metadata
-    from nof1_causal_lab.study.store import ArtifactStore
+    from nof1_causal_lab.study.store import ArtifactStore, read_model
 
     store = ArtifactStore(workspace_id)
     read_array = cache(store.read_array)
+    input_indicators: set[IndicatorId] = set()
 
     @cache
     def load(source: DataRef) -> tuple[Dataset, ...]:
@@ -162,6 +163,13 @@ def read_data_diff(workspace_id: str, request: DataDiffRequest) -> DataDiffRepor
         report = SimulationReport.model_validate(record.diagnostics["report"])
         if report.model.workspace_id != workspace_id:
             raise ValueError("The simulation must belong to the selected study")
+        model = read_model(store, report.model.revision)
+        input_indicators.update(
+            indicator.id
+            for construct in model.constructs
+            if construct.role == "exogenous"
+            for indicator in construct.indicators
+        )
         indices = range(report.draws) if source.replicate is None else (source.replicate,)
         result = []
         for replicate in indices:
@@ -180,7 +188,8 @@ def read_data_diff(workspace_id: str, request: DataDiffRequest) -> DataDiffRepor
         refs = (value,) if isinstance(value, DataRef) else value
         return tuple(dataset for source in refs for dataset in load(source))
 
-    return data_diff(selection(request.left), selection(request.right))
+    left, right = selection(request.left), selection(request.right)
+    return data_diff(left, right, input_indicators=input_indicators)
 
 
 def _series(dataset: Dataset) -> dict[IndicatorId, DataSeries]:
@@ -324,7 +333,10 @@ def _predictive_comparison(
 
 
 def data_diff(
-    left: Dataset | Sequence[Dataset], right: Dataset | Sequence[Dataset]
+    left: Dataset | Sequence[Dataset],
+    right: Dataset | Sequence[Dataset],
+    *,
+    input_indicators: set[IndicatorId] | frozenset[IndicatorId] = frozenset(),
 ) -> DataDiffReport:
     """Compare one or many saved histories on each side without pooling or resimulation."""
     sides = tuple(
@@ -342,9 +354,12 @@ def data_diff(
             raise ValueError("A dataset cannot be counted twice within a comparison side")
     left_series, right_series = (tuple(map(_series, side)) for side in sides)
     variables = sorted(set().union(*(item.keys() for item in (*left_series, *right_series))))
+    has_simulation = any(dataset.source.kind == "simulation" for side in sides for dataset in side)
     comparisons = []
     absent = DataSeries(variable=None, time_origin=None, points=())
     for identity in variables:
+        if has_simulation and identity in input_indicators:
+            continue
         a, b = (
             tuple(item.get(identity, absent) for item in side)
             for side in (left_series, right_series)

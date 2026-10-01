@@ -70,13 +70,6 @@ if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleTarget
 
 
-class SignFlipSpec(NamedTuple):
-    """Coordinate and parameter masks for an exact joint reflection move."""
-
-    coords: jnp.ndarray
-    masks: jnp.ndarray
-
-
 _DEFAULT_MIN_SCALE = 1e-6
 _DEFAULT_MAX_SCALE = 1e3
 _DEFAULT_AMALA_DELTA_INIT = 1e-2
@@ -170,7 +163,6 @@ def build_marginal_particle_gibbs_kernel(
     pilot_means: jnp.ndarray | None = None,
     pilot_vars: jnp.ndarray | None = None,
     pilot_wide_vars: jnp.ndarray | None = None,
-    sign_flip_spec: SignFlipSpec | None = None,
     parameter_reference_path: jnp.ndarray | None = None,
     exact_constraints: ExactStateConstraints | None = None,
     diagnostic_metrics_all: bool = False,
@@ -389,12 +381,7 @@ def build_marginal_particle_gibbs_kernel(
     )
 
     def _step_fn(state: TrajectoryMCMCState, key: jnp.ndarray):
-        if sign_flip_spec is not None:
-            param_key, block_key, label_key, flip_choice_key, flip_accept_key = random.split(key, 5)
-            flip_keys = (flip_choice_key, flip_accept_key)
-        else:
-            param_key, block_key, label_key = random.split(key, 3)
-            flip_keys = None
+        param_key, block_key, label_key = random.split(key, 3)
         x_ref = state.latent_trajectory
         traj_dtype = state.trajectory_log_prob.dtype
         complete_dtype = state.complete_log_posterior.dtype
@@ -442,61 +429,6 @@ def build_marginal_particle_gibbs_kernel(
             )
             next_complete = jnp.asarray(log_prior_unc_fn(next_position), dtype=complete_dtype)
             next_complete = next_complete + next_traj_lp.astype(complete_dtype)
-            sign_flip_diagnostics: dict[str, jnp.ndarray] = {}
-
-            if sign_flip_spec is not None and flip_keys is not None:
-                # Joint (latent coordinate, loading column) sign-flip MH move composed
-                # after the smoother sweep: the flip is a state-independent involution,
-                # so the acceptance is the exact joint posterior ratio — which prices
-                # the sign-asymmetric loading prior and any drift coupling. This is
-                # the escape route between the factor-sign mirror basins that the
-                # alternating conditionals cannot cross on their own.
-                flip_choice_key, flip_accept_key = flip_keys
-                n_flippable = int(sign_flip_spec.coords.shape[0])
-                flip_idx = random.randint(flip_choice_key, (), 0, n_flippable)
-                flip_coord = sign_flip_spec.coords[flip_idx]
-                position_mask = sign_flip_spec.masks[flip_idx]
-                flipped_position = jnp.where(position_mask, -next_position, next_position)
-                latent_dim = int(latent_path.shape[1])
-                coord_sign = jnp.where(
-                    jnp.arange(latent_dim, dtype=jnp.int32) == flip_coord,
-                    -jnp.ones((latent_dim,), dtype=latent_path.dtype),
-                    jnp.ones((latent_dim,), dtype=latent_path.dtype),
-                )
-                flipped_latent = latent_path * coord_sign[None, :]
-                flipped_context = latent_context_runtime_fn(flipped_position, runtime_times)
-                flipped_complete, flipped_traj_lp = target.log_posterior_from_context(
-                    flipped_position,
-                    flipped_context,
-                    flipped_latent,
-                    runtime_observations,
-                )
-                flip_delta = flipped_complete.astype(complete_dtype) - next_complete
-                flip_accepted = (
-                    jnp.log(random.uniform(flip_accept_key, dtype=flip_delta.dtype)) < flip_delta
-                )
-                next_position = jnp.where(flip_accepted, flipped_position, next_position)
-                latent_path = jnp.where(flip_accepted, flipped_latent, latent_path)
-                next_traj_lp = jnp.where(
-                    flip_accepted,
-                    jnp.asarray(flipped_traj_lp, dtype=traj_dtype),
-                    next_traj_lp,
-                )
-                next_complete = jnp.where(
-                    flip_accepted,
-                    flipped_complete.astype(complete_dtype),
-                    next_complete,
-                )
-                next_context = jax.tree_util.tree_map(
-                    lambda flipped, kept: jnp.where(flip_accepted, flipped, kept),
-                    flipped_context,
-                    next_context,
-                )
-                sign_flip_diagnostics = {
-                    "sign_flip_accepted": flip_accepted.astype(state.position.dtype),
-                    "sign_flip_delta": flip_delta.astype(jnp.float32),
-                }
-
             latent_move = latent_path - x_ref
             latent_move_rms_per_t = jnp.sqrt(
                 _masked_mean(latent_move * latent_move, latent_free_mask, axis=-1)
@@ -531,7 +463,6 @@ def build_marginal_particle_gibbs_kernel(
                 "amala_grad_norm_mean": amala_grad_norm_mean.astype(jnp.float32),
                 "amala_grad_norm_max": amala_grad_norm_max.astype(jnp.float32),
             }
-            step_info.update(sign_flip_diagnostics)
             if diagnostic_flags.parameter_movement:
                 parameter_jump = next_position - state.position
                 step_info["parameter_jump_rms"] = jnp.sqrt(

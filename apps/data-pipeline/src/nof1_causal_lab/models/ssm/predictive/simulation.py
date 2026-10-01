@@ -21,6 +21,7 @@ from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
     simulate_latent_histories,
     simulate_predictive_draws,
 )
+from nof1_causal_lab.models.ssm.runtime import replay_input_events
 from nof1_causal_lab.models.ssm.simulation_checks import (
     ConstructSimulationTarget,
     DesignInfo,
@@ -66,6 +67,7 @@ def generate_simulation_batch(
     design: SimulationSpec,
     *,
     comparison_data: pl.DataFrame | None = None,
+    input_data: pl.DataFrame | None = None,
     times: np.ndarray | jnp.ndarray | None = None,
     draws: int = SIMULATION_DRAWS,
     seed: int = SIMULATION_SEED,
@@ -87,36 +89,54 @@ def generate_simulation_batch(
     grid = _time_grid(model, design, start) if times is None else np.asarray(times)
     if len(grid) < 2 or grid[0] != start or grid[-1] != design.end or np.any(np.diff(grid) <= 0):
         raise ValueError("The prepared simulation grid must increase from start through end")
+    panel = comparison_data if input_data is None else input_data
+    input_events = replay_input_events(
+        model, panel, time_origin=time_origin, start=start, end=design.end
+    )
+    grid = np.asarray(sorted({*grid, *(event.spec.time for event in input_events)}))
     initial = None
     if laws.latent_paths is None:
         if start < 0:
             raise ValueError("Simulation cannot start before the initial law at model day zero")
         if start > 0:
+            history_events = replay_input_events(
+                model, panel, time_origin=time_origin, start=0.0, end=start
+            )
+            history_grid = sorted({0.0, start, *(event.spec.time for event in history_events)})
             history, _, _ = simulate_latent_histories(
                 model,
                 laws.parameters,
-                jnp.asarray([0.0, start]),
+                jnp.asarray(history_grid),
                 random.fold_in(predictive_keys(seed).latents, 1),
                 None,
                 (),
+                history_events,
             )
             initial = history[:, -1, :]
     if laws.latent_paths is not None:
         index = int(np.searchsorted(model.time_points, start, side="right")) - 1
         if index < 0:
             raise ValueError("Simulation cannot start before the model's first retained state")
-        initial = laws.latent_paths[:, index, :]
+        initial = jnp.zeros((draws, len(state_ids)), dtype=laws.latent_paths.dtype)
+        initial = initial.at[
+            :, jnp.asarray([state_ids.index(identity) for identity in laws.state_ids])
+        ].set(laws.latent_paths[:, index, :])
         anchor = model.time_points[index]
         if anchor < start:
             # Advance a jointly drawn state to an unrepresented start time; never interpolate
             # retained paths or condition on a second independently sampled state.
+            history_events = replay_input_events(
+                model, panel, time_origin=time_origin, start=anchor, end=start
+            )
+            history_grid = sorted({anchor, start, *(event.spec.time for event in history_events)})
             history, _, _ = simulate_latent_histories(
                 model,
                 laws.parameters,
-                jnp.asarray([anchor, start]),
+                jnp.asarray(history_grid),
                 random.fold_in(predictive_keys(seed).latents, 1),
                 initial,
                 (),
+                history_events,
             )
             initial = history[:, -1, :]
     from nof1_causal_lab.models.ssm.counterfactual.orchestration import ResolvedIntervention
@@ -137,6 +157,7 @@ def generate_simulation_batch(
         seed=seed,
         initial_states=initial,
         interventions=tuple(interventions),
+        input_events=input_events,
         observation_support=support,
         observation_mask=None if observations is None else ~jnp.isnan(observations),
     )
@@ -193,6 +214,8 @@ def measure_simulation_batch(
     for state_index, identity in enumerate(
         state_ids if set(groups) & {"dynamics", "measurement"} else ()
     ):
+        if model.get_construct(identity).role == "exogenous":
+            continue
         incoming = [
             component
             for component in components
@@ -222,17 +245,24 @@ def measure_simulation_batch(
             edge_contrasts=edge_contrasts,
         )
         findings.extend(result.finding(identity, targets[result.target]) for result in measured)
+    modeled_columns = [
+        index
+        for index, identity in enumerate(indicator_ids)
+        if model.indicator_owner(identity).role == "endogenous"
+    ]
     nonfinite = bool(
         np.any(
-            np.asarray(prediction.trajectory.observations_mask)
-            & ~np.isfinite(prediction.trajectory.observations)
+            np.asarray(prediction.trajectory.observations_mask[:, :, modeled_columns])
+            & ~np.isfinite(prediction.trajectory.observations[:, :, modeled_columns])
         )
     )
     checks = (
         None
         if observations is None or "data_comparison" not in groups or nonfinite
         else measure_predictive_checks(
-            prediction.trajectory.observations, observations, indicator_ids
+            prediction.trajectory.observations[:, :, modeled_columns],
+            observations[:, modeled_columns],
+            tuple(indicator_ids[index] for index in modeled_columns),
         )
     )
     if "data_comparison" in groups and checks is None:

@@ -16,12 +16,20 @@ from typing import TYPE_CHECKING, cast
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import numpyro
 import numpyro.distributions as dist
-from numpyro.distributions import MultivariateNormal
 
 from nof1_causal_lab.models.ssm import numerics as numeric
-from nof1_causal_lab.models.ssm.execution.dynamical_model import continuous_state_evolution
+from nof1_causal_lab.models.ssm.dynamics.intervention import (
+    Intervention,
+    PrecomputedValueFn,
+    VariableOverride,
+)
+from nof1_causal_lab.models.ssm.execution.dynamical_model import (
+    continuous_state_evolution,
+    initial_state_distribution,
+)
 from nof1_causal_lab.models.ssm.execution.parameters import assemble_model_matrices, sample_sites
 
 if TYPE_CHECKING:
@@ -32,6 +40,7 @@ if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.models.ssm.compile.bindings import CompiledParameterBinding
     from nof1_causal_lab.models.ssm.compile.inputs import CompiledFitInputs
+    from nof1_causal_lab.models.ssm.counterfactual.orchestration import ResolvedIntervention
     from nof1_causal_lab.models.ssm.execution.contracts import InitializationLikelihoodBackend
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
     from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
@@ -87,6 +96,8 @@ class SSMModel:
         self._inputs = inputs
         self._artifact_cache: dict[tuple[object, ...], object] = {}
         self.observation_support: ObservationSupportRuntime | None = None
+        self.input_values: jnp.ndarray | None = None
+        self.input_events: tuple[ResolvedIntervention, ...] = ()
 
     @property
     def inputs(self) -> CompiledFitInputs:
@@ -185,7 +196,8 @@ class SSMModel:
 
     def _sample_runtime_dynamics(
         self,
-        diffusion_cov: jnp.ndarray,
+        diffusion: jnp.ndarray,
+        times: jnp.ndarray,
     ) -> StochasticContinuousTimeStateEvolution:
         """Sample vector-field parameters inside the NumPyro trace."""
         from nof1_causal_lab.models.ssm.dynamics.spec import compile_dynamics
@@ -194,7 +206,22 @@ class SSMModel:
         return continuous_state_evolution(
             vector_field=compiled.vector_field,
             vf_params=compiled.sample_params(self._prior_distribution),
-            diffusion_cov=diffusion_cov,
+            diffusion=diffusion,
+            intervention=self.initialization_input_intervention(times),
+        )
+
+    def initialization_input_intervention(self, times: jnp.ndarray) -> Intervention:
+        """Use the given path in the Gaussian view used only to initialize particles."""
+        if self.input_values is None:
+            return Intervention.none()
+        return Intervention(
+            tuple(
+                VariableOverride(
+                    int(index),
+                    PrecomputedValueFn(times - times[0], self.input_values[:, index]),
+                )
+                for index in np.flatnonzero(numeric.input_mask(self.spec))
+            )
         )
 
     def model(
@@ -219,12 +246,12 @@ class SSMModel:
         manifest_means = sampled["manifest_means"]
         t0_means = sampled["t0_means"]
 
-        diffusion_cov = diffusion_chol @ diffusion_chol.T
         manifest_cov = sampled["manifest_cov"]
         t0_cov = sampled["t0_cov"]
         extra_params = self._sample_likelihood_extra_params(spec)
         dynamics = self._sample_runtime_dynamics(
-            diffusion_cov,
+            diffusion_chol,
+            times,
         )
 
         meas_params = MeasurementParams(
@@ -236,7 +263,7 @@ class SSMModel:
         time_intervals = jnp.diff(times, prepend=times[0])
         time_intervals = time_intervals.at[0].set(MIN_DT)
 
-        init = MultivariateNormal(loc=t0_means, covariance_matrix=t0_cov)
+        init = initial_state_distribution(spec, t0_means, t0_cov, input_values=self.input_values)
         lnc = likelihood_backend.compute_log_likelihood(
             dynamics,
             meas_params,

@@ -78,7 +78,6 @@ class TestSSMModelDynamicsDispatch:
         from nof1_causal_lab.models.ssm import SSMModel
 
         class DynamicsAwareBackend:
-
             def compute_log_likelihood(
                 self,
                 dynamics,
@@ -98,7 +97,13 @@ class TestSSMModelDynamicsDispatch:
                 )
                 return jnp.zeros_like(time_intervals)
 
-        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'runtime_ssm/testssmmodeldynamicsdispatch_test_nonlinear_dynamics_uses_vector_field_backend_method_model_fixture.json').read_text())
+        spec = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[1]
+                / "fixtures/models"
+                / "runtime_ssm/testssmmodeldynamicsdispatch_test_nonlinear_dynamics_uses_vector_field_backend_method_model_fixture.json"
+            ).read_text()
+        )
         model = SSMModel(compile_fit_fixture(spec))
         tr = handlers.trace(handlers.seed(model.model, rng_seed=0)).get_trace(
             observations=jnp.zeros((4, 2)),

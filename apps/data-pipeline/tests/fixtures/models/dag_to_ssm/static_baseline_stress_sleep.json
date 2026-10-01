@@ -1,0 +1,476 @@
+{
+  "question": null,
+  "edges": [
+    {
+      "id": "edge:0e72c3c33116c415bd39",
+      "mechanisms": [],
+      "cause": {
+        "id": "construct:766f6091724c163a3404",
+        "name": "u_shared",
+        "description": "Shared static confounder",
+        "indicators": [],
+        "dynamics": [],
+        "coefficients": [
+          {
+            "kind": "coefficient",
+            "role": "initial_mean",
+            "value": 0.0,
+            "construct_ids": []
+          },
+          {
+            "kind": "coefficient",
+            "role": "initial_scale",
+            "value": "parameter:bcea33f691b78f68f2dc48b00a1ee23f22ad1e719c1eafc353ce7419a0e618c3",
+            "construct_ids": []
+          }
+        ],
+        "innovation_family": "gaussian",
+        "distribution": null,
+        "role": "endogenous",
+        "temporal_status": "time_invariant"
+      },
+      "effect": {
+        "id": "construct:6b04dc42c531e7091eb8",
+        "name": "stress",
+        "description": "Stress",
+        "indicators": [
+          {
+            "id": "indicator:3696aef3ff6f446744e5",
+            "name": "stress_score",
+            "measurement_dtype": "continuous",
+            "aggregation": "mean",
+            "observation_window": null,
+            "fill_null": null,
+            "fill_null_limit": null,
+            "ordinal_levels": null,
+            "categorical_levels": null,
+            "likelihood": {
+              "law": {
+                "distribution": "Normal",
+                "arguments": {
+                  "loc": {
+                    "kind": "binary",
+                    "operator": "add",
+                    "left": {
+                      "kind": "coefficient",
+                      "role": "observation_intercept",
+                      "value": 0.0,
+                      "construct_ids": []
+                    },
+                    "right": {
+                      "kind": "binary",
+                      "operator": "multiply",
+                      "left": {
+                        "kind": "coefficient",
+                        "role": "loading",
+                        "value": 1.0,
+                        "construct_ids": []
+                      },
+                      "right": {
+                        "kind": "state",
+                        "construct_id": "construct:6b04dc42c531e7091eb8"
+                      }
+                    }
+                  },
+                  "scale": {
+                    "kind": "coefficient",
+                    "role": "observation_scale",
+                    "value": 0.0,
+                    "construct_ids": []
+                  }
+                }
+              },
+              "standardized": true,
+              "reasoning": "Test Gaussian emission",
+              "sources": []
+            },
+            "construct_polarity": "positive"
+          }
+        ],
+        "dynamics": [
+          {
+            "id": "mechanism:3c5844a402d4b0405e5fcf58db6c7666defa614ddbdedc0c1ad715df6885c204",
+            "kind": "potential",
+            "expression": {
+              "kind": "binary",
+              "operator": "add",
+              "left": {
+                "kind": "binary",
+                "operator": "divide",
+                "left": {
+                  "kind": "binary",
+                  "operator": "multiply",
+                  "left": {
+                    "kind": "coefficient",
+                    "role": "decay",
+                    "value": "parameter:cf1ee9c9b96a4a8d7ce3608b03090754c0d1b87a9fe9c2469341052b058ea022",
+                    "construct_ids": []
+                  },
+                  "right": {
+                    "kind": "binary",
+                    "operator": "power",
+                    "left": {
+                      "kind": "binary",
+                      "operator": "subtract",
+                      "left": {
+                        "kind": "state",
+                        "construct_id": "construct:6b04dc42c531e7091eb8"
+                      },
+                      "right": {
+                        "kind": "coefficient",
+                        "role": "center",
+                        "value": 0.0,
+                        "construct_ids": []
+                      }
+                    },
+                    "right": {
+                      "kind": "literal",
+                      "value": 2.0
+                    }
+                  }
+                },
+                "right": {
+                  "kind": "literal",
+                  "value": 2.0
+                }
+              },
+              "right": {
+                "kind": "binary",
+                "operator": "divide",
+                "left": {
+                  "kind": "binary",
+                  "operator": "multiply",
+                  "left": {
+                    "kind": "coefficient",
+                    "role": "quartic",
+                    "value": 0.0,
+                    "construct_ids": []
+                  },
+                  "right": {
+                    "kind": "binary",
+                    "operator": "power",
+                    "left": {
+                      "kind": "binary",
+                      "operator": "subtract",
+                      "left": {
+                        "kind": "state",
+                        "construct_id": "construct:6b04dc42c531e7091eb8"
+                      },
+                      "right": {
+                        "kind": "coefficient",
+                        "role": "center",
+                        "value": 0.0,
+                        "construct_ids": []
+                      }
+                    },
+                    "right": {
+                      "kind": "literal",
+                      "value": 4.0
+                    }
+                  }
+                },
+                "right": {
+                  "kind": "literal",
+                  "value": 4.0
+                }
+              }
+            }
+          }
+        ],
+        "coefficients": [
+          {
+            "kind": "coefficient",
+            "role": "diffusion_scale",
+            "value": "parameter:a2113913d29155f9c976efb0a5150ae1b3994e86c0809bc948bb615ed5ddc793",
+            "construct_ids": []
+          },
+          {
+            "kind": "coefficient",
+            "role": "initial_mean",
+            "value": 0.0,
+            "construct_ids": []
+          },
+          {
+            "kind": "coefficient",
+            "role": "initial_scale",
+            "value": 1.0,
+            "construct_ids": []
+          }
+        ],
+        "innovation_family": "gaussian",
+        "distribution": null,
+        "role": "endogenous",
+        "temporal_status": "time_varying"
+      },
+      "description": "Shared baseline causes stress",
+      "sources": []
+    },
+    {
+      "id": "edge:a1528b0e1cd05dd511ef",
+      "mechanisms": [],
+      "cause": {
+        "kind": "construct",
+        "id": "construct:766f6091724c163a3404"
+      },
+      "effect": {
+        "id": "construct:cdc0b2958a9512b2abad",
+        "name": "sleep",
+        "description": "Sleep",
+        "indicators": [
+          {
+            "id": "indicator:7f807162156d3eb1b611",
+            "name": "sleep_score",
+            "measurement_dtype": "continuous",
+            "aggregation": "mean",
+            "observation_window": null,
+            "fill_null": null,
+            "fill_null_limit": null,
+            "ordinal_levels": null,
+            "categorical_levels": null,
+            "likelihood": {
+              "law": {
+                "distribution": "Normal",
+                "arguments": {
+                  "loc": {
+                    "kind": "binary",
+                    "operator": "add",
+                    "left": {
+                      "kind": "coefficient",
+                      "role": "observation_intercept",
+                      "value": 0.0,
+                      "construct_ids": []
+                    },
+                    "right": {
+                      "kind": "binary",
+                      "operator": "multiply",
+                      "left": {
+                        "kind": "coefficient",
+                        "role": "loading",
+                        "value": 1.0,
+                        "construct_ids": []
+                      },
+                      "right": {
+                        "kind": "state",
+                        "construct_id": "construct:cdc0b2958a9512b2abad"
+                      }
+                    }
+                  },
+                  "scale": {
+                    "kind": "coefficient",
+                    "role": "observation_scale",
+                    "value": 0.0,
+                    "construct_ids": []
+                  }
+                }
+              },
+              "standardized": true,
+              "reasoning": "Test Gaussian emission",
+              "sources": []
+            },
+            "construct_polarity": "positive"
+          }
+        ],
+        "dynamics": [
+          {
+            "id": "mechanism:00d264e95695d3c84c7d9163381b12a1140a93d77c2ced58572aa906e1121fdb",
+            "kind": "potential",
+            "expression": {
+              "kind": "binary",
+              "operator": "add",
+              "left": {
+                "kind": "binary",
+                "operator": "divide",
+                "left": {
+                  "kind": "binary",
+                  "operator": "multiply",
+                  "left": {
+                    "kind": "coefficient",
+                    "role": "decay",
+                    "value": "parameter:4ac3bc41fd4b20007a0464ca5565fa3039fa65aa7f979869b38184c760453c87",
+                    "construct_ids": []
+                  },
+                  "right": {
+                    "kind": "binary",
+                    "operator": "power",
+                    "left": {
+                      "kind": "binary",
+                      "operator": "subtract",
+                      "left": {
+                        "kind": "state",
+                        "construct_id": "construct:cdc0b2958a9512b2abad"
+                      },
+                      "right": {
+                        "kind": "coefficient",
+                        "role": "center",
+                        "value": 0.0,
+                        "construct_ids": []
+                      }
+                    },
+                    "right": {
+                      "kind": "literal",
+                      "value": 2.0
+                    }
+                  }
+                },
+                "right": {
+                  "kind": "literal",
+                  "value": 2.0
+                }
+              },
+              "right": {
+                "kind": "binary",
+                "operator": "divide",
+                "left": {
+                  "kind": "binary",
+                  "operator": "multiply",
+                  "left": {
+                    "kind": "coefficient",
+                    "role": "quartic",
+                    "value": 0.0,
+                    "construct_ids": []
+                  },
+                  "right": {
+                    "kind": "binary",
+                    "operator": "power",
+                    "left": {
+                      "kind": "binary",
+                      "operator": "subtract",
+                      "left": {
+                        "kind": "state",
+                        "construct_id": "construct:cdc0b2958a9512b2abad"
+                      },
+                      "right": {
+                        "kind": "coefficient",
+                        "role": "center",
+                        "value": 0.0,
+                        "construct_ids": []
+                      }
+                    },
+                    "right": {
+                      "kind": "literal",
+                      "value": 4.0
+                    }
+                  }
+                },
+                "right": {
+                  "kind": "literal",
+                  "value": 4.0
+                }
+              }
+            }
+          }
+        ],
+        "coefficients": [
+          {
+            "kind": "coefficient",
+            "role": "diffusion_scale",
+            "value": "parameter:8bce948d54f6a98b8a7c8e55c08787dce1ef73cc78daf24034b72c41ac44f64c",
+            "construct_ids": []
+          },
+          {
+            "kind": "coefficient",
+            "role": "initial_mean",
+            "value": 0.0,
+            "construct_ids": []
+          },
+          {
+            "kind": "coefficient",
+            "role": "initial_scale",
+            "value": 1.0,
+            "construct_ids": []
+          }
+        ],
+        "innovation_family": "gaussian",
+        "distribution": null,
+        "role": "endogenous",
+        "temporal_status": "time_varying"
+      },
+      "description": "Shared baseline causes sleep",
+      "sources": []
+    }
+  ],
+  "parameters": [
+    {
+      "id": "parameter:cf1ee9c9b96a4a8d7ce3608b03090754c0d1b87a9fe9c2469341052b058ea022",
+      "name": "rho_stress",
+      "description": "stiffness of rho_stress",
+      "distribution_transform": "dt_persistence_to_ct_decay",
+      "distribution": "distribution:f9fcb060182679d7dcb683cf3ee83642b0ab3b13b778a99aea64f35b5caa651c",
+      "reference_interval_days": null
+    },
+    {
+      "id": "parameter:4ac3bc41fd4b20007a0464ca5565fa3039fa65aa7f979869b38184c760453c87",
+      "name": "rho_sleep",
+      "description": "stiffness of rho_sleep",
+      "distribution_transform": "dt_persistence_to_ct_decay",
+      "distribution": "distribution:3f4c7297700f670ab15c42ddca5cd1903bc430db6ba2c7c220ac5260e51dac64",
+      "reference_interval_days": null
+    },
+    {
+      "id": "parameter:a2113913d29155f9c976efb0a5150ae1b3994e86c0809bc948bb615ed5ddc793",
+      "name": "sigma_stress",
+      "description": "innovation.scale for sigma_stress",
+      "distribution_transform": "identity",
+      "distribution": "distribution:0e23e00ec4f5fc46b707b8697ae926d166d0623b4c712d974d86070dac45b617",
+      "reference_interval_days": null
+    },
+    {
+      "id": "parameter:8bce948d54f6a98b8a7c8e55c08787dce1ef73cc78daf24034b72c41ac44f64c",
+      "name": "sigma_sleep",
+      "description": "innovation.scale for sigma_sleep",
+      "distribution_transform": "identity",
+      "distribution": "distribution:d6c458a6b58bc50dfc0cce390e8477a668a66e5bba7042d86d8201c8e75519a7",
+      "reference_interval_days": null
+    },
+    {
+      "id": "parameter:bcea33f691b78f68f2dc48b00a1ee23f22ad1e719c1eafc353ce7419a0e618c3",
+      "name": "tau_u_shared",
+      "description": "initial state.scale for tau_u_shared",
+      "distribution_transform": "identity",
+      "distribution": "distribution:d92fccda7e9e1f070fffa894bb43432aac86200ba98bd8aa416234ad4ba0ce89",
+      "reference_interval_days": null
+    }
+  ],
+  "distributions": {
+    "distribution:f9fcb060182679d7dcb683cf3ee83642b0ab3b13b778a99aea64f35b5caa651c": {
+      "distribution": "Beta",
+      "params": {
+        "concentration1": 2.0,
+        "concentration0": 2.0,
+        "validate_args": false
+      }
+    },
+    "distribution:3f4c7297700f670ab15c42ddca5cd1903bc430db6ba2c7c220ac5260e51dac64": {
+      "distribution": "Beta",
+      "params": {
+        "concentration1": 2.0,
+        "concentration0": 2.0,
+        "validate_args": false
+      }
+    },
+    "distribution:0e23e00ec4f5fc46b707b8697ae926d166d0623b4c712d974d86070dac45b617": {
+      "distribution": "HalfNormal",
+      "params": {
+        "scale": 1.0,
+        "validate_args": false
+      }
+    },
+    "distribution:d6c458a6b58bc50dfc0cce390e8477a668a66e5bba7042d86d8201c8e75519a7": {
+      "distribution": "HalfNormal",
+      "params": {
+        "scale": 1.0,
+        "validate_args": false
+      }
+    },
+    "distribution:d92fccda7e9e1f070fffa894bb43432aac86200ba98bd8aa416234ad4ba0ce89": {
+      "distribution": "HalfNormal",
+      "params": {
+        "scale": 1.0,
+        "validate_args": false
+      }
+    }
+  },
+  "time_points": [],
+  "measurement_clock": "1d",
+  "default_outcome": "construct:cdc0b2958a9512b2abad"
+}

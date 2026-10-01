@@ -42,7 +42,11 @@ def workspace(monkeypatch, tmp_path):
 
 def test_partial_model_revisions_remain_readable_with_capability_findings(workspace):
     partial = make_model(["X", "Y"], [("X", "Y")])
-    complete = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'execution_boundaries/partial_model_revisions_remain_readable_with_capability_findings_complete_test_model.json').read_text())
+    complete = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1] / "fixtures/models" / "common/x_y_model.json"
+        ).read_text()
+    )
     missing_law = complete.revised(
         distributions={},
         parameters=tuple(
@@ -149,9 +153,11 @@ def test_refit_after_question_edit_uses_selected_model_and_preserves_current_que
     from nof1_causal_lab.actions.runners import _run_fit
     from nof1_causal_lab.study.store import read_model
 
-    prior = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'execution_boundaries/refit_after_question_edit_uses_selected_model_and_preserves_current_question_complete_test_model.json').read_text()).revised(
-        question="Does X change Y?"
-    )
+    prior = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1] / "fixtures/models" / "common/x_y_model.json"
+        ).read_text()
+    ).revised(question="Does X change Y?")
     fitted = prior.revised(time_points=(0.0, 1.0))
     edited = fitted.revised(question="How does X change Y?")
     store = ArtifactStore(workspace)

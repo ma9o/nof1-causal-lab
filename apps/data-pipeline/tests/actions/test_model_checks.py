@@ -96,7 +96,13 @@ def test_automatic_exact_batch_reuse_and_input_invalidation(study, monkeypatch):
 
     monkeypatch.setattr(simulation, "generate_simulation_batch", counted)
     store, repository = study
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'model_checks/automatic_exact_batch_reuse_and_input_invalidation_scientific_model.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1]
+            / "fixtures/models"
+            / "common/stress_sleep_model.json"
+        ).read_text()
+    )
     initial = edit_and_check(
         store.workspace_id,
         EditModelRequest(expected_revision=None, model=model),
@@ -171,11 +177,38 @@ def test_automatic_exact_batch_reuse_and_input_invalidation(study, monkeypatch):
     assert repository.state(historical).checks.predictive == report
 
 
-@pytest.mark.parametrize(('failure', 'scientific_model_payload', 'scientific_model_2_payload', 'scientific_model_3_payload'), [
-    pytest.param('paths', 'model_checks/nonfinite_findings_save_but_generator_errors_do_not_publish_scientific_model_paths.json', 'model_checks/nonfinite_findings_save_but_generator_errors_do_not_publish_scientific_model_2_paths.json', 'model_checks/nonfinite_findings_save_but_generator_errors_do_not_publish_scientific_model_3_paths.json', id='paths'),
-    pytest.param('emission_mean', 'model_checks/nonfinite_findings_save_but_generator_errors_do_not_publish_scientific_model_emission_mean.json', 'model_checks/nonfinite_findings_save_but_generator_errors_do_not_publish_scientific_model_2_emission_mean.json', 'model_checks/nonfinite_findings_save_but_generator_errors_do_not_publish_scientific_model_3_emission_mean.json', id='emission_mean'),
-])
-def test_nonfinite_findings_save_but_generator_errors_do_not_publish(study, monkeypatch, failure, scientific_model_payload, scientific_model_2_payload, scientific_model_3_payload):
+@pytest.mark.parametrize(
+    (
+        "failure",
+        "scientific_model_payload",
+        "scientific_model_2_payload",
+        "scientific_model_3_payload",
+    ),
+    [
+        pytest.param(
+            "paths",
+            "common/stress_sleep_model.json",
+            "common/stress_sleep_model.json",
+            "common/stress_sleep_model.json",
+            id="paths",
+        ),
+        pytest.param(
+            "emission_mean",
+            "common/stress_sleep_model.json",
+            "common/stress_sleep_model.json",
+            "common/stress_sleep_model.json",
+            id="emission_mean",
+        ),
+    ],
+)
+def test_nonfinite_findings_save_but_generator_errors_do_not_publish(
+    study,
+    monkeypatch,
+    failure,
+    scientific_model_payload,
+    scientific_model_2_payload,
+    scientific_model_3_payload,
+):
     from nof1_causal_lab.models.ssm.predictive.types import PredictiveDraws, PredictiveTrajectory
 
     def nonfinite(model, samples, times, **_kwargs):
@@ -209,7 +242,16 @@ def test_nonfinite_findings_save_but_generator_errors_do_not_publish(study, monk
     store, repository = study
     initial = edit_and_check(
         store.workspace_id,
-        EditModelRequest(expected_revision=None, model=ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / scientific_model_payload).read_text())),
+        EditModelRequest(
+            expected_revision=None,
+            model=ModelSpec.model_validate_json(
+                (
+                    Path(__file__).resolve().parents[1]
+                    / "fixtures/models"
+                    / scientific_model_payload
+                ).read_text()
+            ),
+        ),
         StudyState(),
     )
     state, _ = _publish(study, initial)
@@ -218,7 +260,14 @@ def test_nonfinite_findings_save_but_generator_errors_do_not_publish(study, monk
     checked = edit_and_check(
         store.workspace_id,
         EditModelRequest(
-            expected_revision=state.current["model"].revision, model=ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / scientific_model_2_payload).read_text())
+            expected_revision=state.current["model"].revision,
+            model=ModelSpec.model_validate_json(
+                (
+                    Path(__file__).resolve().parents[1]
+                    / "fixtures/models"
+                    / scientific_model_2_payload
+                ).read_text()
+            ),
         ),
         state,
     )
@@ -244,7 +293,14 @@ def test_nonfinite_findings_save_but_generator_errors_do_not_publish(study, monk
         edit_and_check(
             store.workspace_id,
             EditModelRequest(
-                expected_revision=state.current["model"].revision, model=ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / scientific_model_3_payload).read_text())
+                expected_revision=state.current["model"].revision,
+                model=ModelSpec.model_validate_json(
+                    (
+                        Path(__file__).resolve().parents[1]
+                        / "fixtures/models"
+                        / scientific_model_3_payload
+                    ).read_text()
+                ),
             ),
             selected,
         )
@@ -266,7 +322,13 @@ def test_joint_laws_can_be_checked_when_refitting_is_unsupported(study, monkeypa
     from tests.model_fixtures import parameter_draws
 
     store, _ = study
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'model_checks/joint_laws_can_be_checked_when_refitting_is_unsupported_scientific_model.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1]
+            / "fixtures/models"
+            / "common/stress_sleep_model.json"
+        ).read_text()
+    )
     initial = edit_and_check(
         store.workspace_id, EditModelRequest(expected_revision=None, model=model), StudyState()
     )

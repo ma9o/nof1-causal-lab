@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
+import numpy as np
 import numpyro
 
 from nof1_causal_lab.models.ssm import numerics as numeric
@@ -54,8 +55,13 @@ def assemble_model_matrices(
     if static_sds.size:
         loadings = jnp.asarray(numeric.static_factor_loadings(spec))
         covariance = covariance + loadings @ jnp.diag(static_sds**2) @ loadings.T
-    initial_covariance, min_eigenvalue = stabilize_covariance_for_cholesky(
-        symmetrize(covariance), min_eigenvalue=INITIAL_STATE_COV_MIN_EIGENVALUE
+    endogenous = jnp.asarray(np.flatnonzero(~numeric.input_mask(spec)))
+    endogenous_covariance, min_eigenvalue = stabilize_covariance_for_cholesky(
+        symmetrize(covariance[jnp.ix_(endogenous, endogenous)]),
+        min_eigenvalue=INITIAL_STATE_COV_MIN_EIGENVALUE,
+    )
+    initial_covariance = (
+        jnp.zeros_like(covariance).at[jnp.ix_(endogenous, endogenous)].set(endogenous_covariance)
     )
     return {
         "diffusion": numeric.diffusion_block(spec).assemble(

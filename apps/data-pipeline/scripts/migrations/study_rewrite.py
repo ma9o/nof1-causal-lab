@@ -34,8 +34,8 @@ def rewrite_study(
     `update` translates every stored JSON payload and `update_file` translates one by
     name. `rename_entry` renames a stored file, or drops it by returning None. `layout`
     names the directory holding the repository before and after the copy. Changed
-    objects get new Git identities, and references to them and to model input
-    fingerprints follow.
+    objects get new Git identities and references to them follow. Model owners
+    receive translated input fingerprints; saved readers retain their consumed inputs.
     """
     source_layout, destination_layout = layout
     if destination.exists() or destination.resolve().is_relative_to(source.resolve()):
@@ -60,12 +60,12 @@ def rewrite_study(
                     )
                 if "artifacts/model" in commit.tree:
                     models.add(str(commit.tree["artifacts/model"].id))
-    # Translation can change model serialization. Rekey stored input fingerprints
-    # without recomputing the model's numerical laws or saved findings.
-    fingerprints: dict[str, str] = {}
+    # Model owners receive their translated fingerprints. Saved readers keep
+    # their original inputs, so the existing freshness comparison marks them
+    # stale when the model's scientific meaning changed.
+    model_inputs: dict[str, dict[str, str]] = {}
     for oid in models:
         tree = repo[pygit2.Oid(hex=oid)].peel(pygit2.Tree)
-        metadata = json.loads(tree["meta.json"].peel(pygit2.Blob).data)
         model = ModelSpec.model_validate(
             update(json.loads(tree["model.json"].peel(pygit2.Blob).data)),
             context={
@@ -74,11 +74,7 @@ def rewrite_study(
                 )
             },
         )
-        current = input_fingerprints(model)
-        for purpose, old in metadata["model_inputs"].items():
-            if old in fingerprints and fingerprints[old] != current[purpose]:
-                raise ValueError(f"Ambiguous migrated model input: {old}")
-            fingerprints[old] = current[purpose]
+        model_inputs[oid] = input_fingerprints(model)
     mapping: dict[str, str] = {}
     active: set[str] = set()
 
@@ -89,8 +85,6 @@ def rewrite_study(
             return [rewrite(item) for item in value]
         if isinstance(value, str) and value in revisions:
             return migrate(value)
-        if isinstance(value, str) and value in fingerprints:
-            return fingerprints[value]
         return value
 
     def migrate(oid):
@@ -119,11 +113,16 @@ def rewrite_study(
                     replacement = pygit2.Oid(hex=migrate(str(entry.id)))
                 elif entry.name.endswith(".json"):
                     payload = json.loads(child.peel(pygit2.Blob).data)
+                    owner_payload = (
+                        {**payload, "model_inputs": model_inputs[oid]}
+                        if entry.name == "meta.json" and oid in model_inputs
+                        else payload
+                    )
                     updated = rewrite(
                         update(
-                            update_file(oid, entry.name, payload)
+                            update_file(oid, entry.name, owner_payload)
                             if update_file is not None
-                            else payload
+                            else owner_payload
                         )
                     )
                     replacement = (

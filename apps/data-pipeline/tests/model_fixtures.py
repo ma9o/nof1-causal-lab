@@ -13,18 +13,8 @@ import numpy as np
 from dynestyx.inference.configs.discretizer import ExactAffineConfig
 
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
 from nof1_causal_lab.models.ssm.autoreparam import Strategy, _minimal_reparam
-from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
-from nof1_causal_lab.models.ssm.structure import (
-    DiffusionBlockSpec,
-    ManifestCholBlockSpec,
-    SparseMatrixBlockSpec,
-    SparseVectorBlockSpec,
-    T0CholBlockSpec,
-)
-from tests.dynamics_fixtures import decay_term, intercept_term, linear_term
 
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.autoreparam import ReparamSite
@@ -47,184 +37,6 @@ class MinimalReparam(Strategy):
     @override
     def configure(self, msg: ReparamSite):
         return _minimal_reparam(msg["fn"], msg.get("is_observed", False))
-
-
-def zero_loading_support(n_manifest: int, n_latent: int) -> np.ndarray:
-    return np.zeros((n_manifest, n_latent), dtype=bool)
-
-
-def full_vector_support(n: int) -> np.ndarray:
-    return np.ones(n, dtype=bool)
-
-
-def full_diagonal_support(n: int) -> np.ndarray:
-    return np.ones(n, dtype=bool)
-
-
-def full_cholesky_support(n: int) -> np.ndarray:
-    return np.tri(n, dtype=bool)
-
-
-def default_diffusion_block(n_latent: int) -> DiffusionBlockSpec:
-    return DiffusionBlockSpec(
-        n_latent=n_latent,
-        diffusion_chol_support=np.tri(n_latent, dtype=bool),
-        diffusion_chol_template=jnp.eye(n_latent),
-    )
-
-
-def default_lambda_block(n_manifest: int, n_latent: int) -> SparseMatrixBlockSpec:
-    return SparseMatrixBlockSpec(
-        n_rows=n_manifest,
-        n_cols=n_latent,
-        free_support=np.zeros((n_manifest, n_latent), dtype=bool),
-        template=jnp.eye(n_manifest, n_latent),
-        free_site_name="lambda_free",
-        det_site_name="lambda",
-        support=SupportClass.REAL,
-        site_kind=SiteKind.LOADING,
-        assembly_group="lambda",
-        fixed_spec_field="lambda_mat",
-        priors_field="lambda_free",
-    )
-
-
-def default_manifest_means_block(n_manifest: int) -> SparseVectorBlockSpec:
-    return SparseVectorBlockSpec(
-        n=n_manifest,
-        free_support=np.zeros(n_manifest, dtype=bool),
-        template=jnp.zeros(n_manifest),
-        free_site_name="manifest_means_free",
-        det_site_name="manifest_means",
-        support=SupportClass.REAL,
-        site_kind=SiteKind.MANIFEST_MEANS,
-        assembly_group="manifest",
-        fixed_spec_field="manifest_means",
-        priors_field="manifest_means",
-    )
-
-
-def default_manifest_chol_block(n_manifest: int) -> ManifestCholBlockSpec:
-    return ManifestCholBlockSpec(
-        n_manifest=n_manifest,
-        diag_support=np.ones(n_manifest, dtype=bool),
-        template=jnp.zeros((n_manifest, n_manifest)),
-    )
-
-
-def default_t0_means_block(n_latent: int) -> SparseVectorBlockSpec:
-    return SparseVectorBlockSpec(
-        n=n_latent,
-        free_support=np.ones(n_latent, dtype=bool),
-        template=jnp.zeros(n_latent),
-        free_site_name="t0_means_free",
-        det_site_name="t0_means",
-        support=SupportClass.REAL,
-        site_kind=SiteKind.T0_MEANS,
-        assembly_group="t0",
-        fixed_spec_field="t0_means",
-        priors_field="t0_means",
-    )
-
-
-def default_t0_chol_block(n_latent: int) -> T0CholBlockSpec:
-    return T0CholBlockSpec(
-        n_latent=n_latent,
-        diag_support=np.ones(n_latent, dtype=bool),
-        correlation_support=np.tri(n_latent, k=-1, dtype=bool),
-        template=jnp.eye(n_latent),
-    )
-
-
-def default_static_state_sd_block() -> SparseVectorBlockSpec:
-    return SparseVectorBlockSpec(
-        n=0,
-        free_support=np.zeros(0, dtype=bool),
-        template=jnp.zeros(0),
-        free_site_name="static_state_sd_free",
-        det_site_name="static_state_sds",
-        support=SupportClass.POSITIVE,
-        site_kind=SiteKind.STATIC_STATE_SD,
-        assembly_group="t0",
-        fixed_spec_field="static_state_sds",
-        priors_field="static_state_sd",
-    )
-
-
-def dense_matrix_dynamics_spec(
-    *,
-    n_latent: int,
-    decay_support: np.ndarray,
-    edge_support: np.ndarray,
-    coupling_template: jnp.ndarray,
-    intercept_support: np.ndarray,
-    cint_template: jnp.ndarray,
-    time_invariant_mask: np.ndarray | None = None,
-    stability_margin: float = 0.05,
-) -> DynamicsSpec:
-    """Build a component-native dense-matrix dynamics fixture for tests."""
-    del stability_margin
-
-    components: list[Any] = []
-    diag_support = np.asarray(decay_support, dtype=bool)
-    edge_support = np.asarray(edge_support, dtype=bool)
-    coupling_template_array = np.asarray(coupling_template, dtype=float)
-    ti_mask = (
-        np.asarray(time_invariant_mask, dtype=bool)
-        if time_invariant_mask is not None
-        else np.zeros(n_latent, dtype=bool)
-    )
-
-    for target in range(n_latent):
-        if bool(ti_mask[target]):
-            continue
-        fixed_diag = float(coupling_template_array[target, target])
-        if bool(diag_support[target]) or fixed_diag < 0.0:
-            components.append(decay_term(target=target))
-        elif fixed_diag > 0.0:
-            components.append(linear_term(source=target, target=target))
-
-    for effect in range(n_latent):
-        for cause in range(n_latent):
-            if effect == cause:
-                continue
-            if bool(edge_support[effect, cause]):
-                components.append(
-                    linear_term(
-                        source=cause,
-                        target=effect,
-                    )
-                )
-                continue
-            fixed_weight = float(coupling_template_array[effect, cause])
-            if fixed_weight != 0.0:
-                components.append(
-                    linear_term(
-                        source=cause,
-                        target=effect,
-                    )
-                )
-
-    intercept_support_array = np.asarray(intercept_support, dtype=bool)
-    cint_template_array = np.asarray(cint_template, dtype=float)
-    for target in range(n_latent):
-        fixed_cint = float(cint_template_array[target])
-        if bool(intercept_support_array[target]) or fixed_cint != 0.0:
-            components.append(intercept_term(target=target))
-
-    return DynamicsSpec(n_latent=n_latent, components=tuple(components))
-
-
-def full_dense_matrix_dynamics_spec(n_latent: int) -> DynamicsSpec:
-    """Build a full-free structural dense dynamics fixture for tests."""
-    return dense_matrix_dynamics_spec(
-        n_latent=n_latent,
-        decay_support=np.ones(n_latent, dtype=bool),
-        edge_support=np.ones((n_latent, n_latent), dtype=bool) & ~np.eye(n_latent, dtype=bool),
-        coupling_template=jnp.zeros((n_latent, n_latent)),
-        intercept_support=np.zeros(n_latent, dtype=bool),
-        cint_template=jnp.zeros(n_latent),
-    )
 
 
 def make_lgss_data(
@@ -265,7 +77,13 @@ def make_lgss_data(
     observations = latent + random.normal(obs_key, (T, n_manifest)) @ R_chol.T
     times = jnp.arange(T, dtype=float) * dt
 
-    spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[0] / "fixtures/models" / 'model_fixtures/make_lgss_data_model_fixture.json').read_text())
+    spec = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[0]
+            / "fixtures/models"
+            / "model_fixtures/make_lgss_data_model_fixture.json"
+        ).read_text()
+    )
 
     return {
         "observations": observations,
@@ -276,17 +94,6 @@ def make_lgss_data(
         "true_obs_sd": obs_sd,
         "n_latent": n_latent,
     }
-
-
-
-
-def diagonal_diffusion_block(n_latent: int) -> DiffusionBlockSpec:
-    """Diagonal-only diffusion: only diagonal entries free, identity template."""
-    return DiffusionBlockSpec(
-        n_latent=n_latent,
-        diffusion_chol_support=np.diag(np.ones(n_latent, dtype=bool)),
-        diffusion_chol_template=jnp.eye(n_latent),
-    )
 
 
 def make_observation_support_runtime(**kwargs: Any) -> ObservationSupportRuntime:

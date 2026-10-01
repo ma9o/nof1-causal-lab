@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import ast
 import logging
-from typing import TYPE_CHECKING
+from datetime import date
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import polars as pl
@@ -20,8 +21,6 @@ from nof1_causal_lab.utils.observation_semantics import (
 )
 
 if TYPE_CHECKING:
-    from datetime import date
-
     from polars._typing import FillNullStrategy
 
     from nof1_causal_lab.workers.context import MeasurementIndicator
@@ -509,7 +508,7 @@ def compute_indicators(
                 expr = _missing_window_guard(_build_agg_expr(agg_name, "__value__"))
                 agg_df = prepared.group_by("__tick__", maintain_order=True).agg(expr)
 
-        if fill_null is not None:
+        if fill_null is not None and not (fill_null == "forward" and start is not None):
             agg_df = agg_df.sort("__tick__").with_columns(
                 fill_null_expression(pl.col("value"), fill_null, limit=ind.get("fill_null_limit"))
             )
@@ -518,6 +517,31 @@ def compute_indicators(
             pl.col("value").cast(pl.Utf8).alias("value"),
             pl.col("__tick__").dt.to_string("%Y-%m-%dT%H:%M:%S").alias("timestamp"),
         )
+        if fill_null == "forward" and start is not None and not agg_df.is_empty():
+            # Seed the selected span with its last eligible reading, including
+            # records preceding the first window (for example a recorded dose).
+            first = cast("str", agg_df["timestamp"].min())
+            history = (
+                compute_indicators(
+                    df,
+                    [{**ind, "fill_null": None, "fill_null_limit": None}],
+                    model_clock,
+                    time_col,
+                    end=date.fromisoformat(first[:10]),
+                )
+                .filter(pl.col("timestamp") < first)
+                .drop_nulls("value")
+                .tail(1)
+            )
+            agg_df = (
+                pl.concat([history, agg_df])
+                .with_columns(
+                    fill_null_expression(
+                        pl.col("value"), "forward", limit=ind.get("fill_null_limit")
+                    )
+                )
+                .filter(pl.col("timestamp") >= first)
+            )
         frames.append(agg_df)
 
     if not frames:

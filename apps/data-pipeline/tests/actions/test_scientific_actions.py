@@ -101,7 +101,11 @@ def test_scientific_tool_transport_shares_the_action_endpoint(monkeypatch):
 
 @pytest.mark.inference(concern="predictive")
 def test_current_law_sampling_preserves_joint_parameter_atoms():
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'scientific_actions/current_law_sampling_preserves_joint_parameter_atoms_complete_test_model.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1] / "fixtures/models" / "common/x_y_model.json"
+        ).read_text()
+    )
     original = parameter_draws(model, 3)
     # Each atom has distinct coordinated values; independently resampling marginals
     # would produce combinations absent from the joint law.
@@ -131,13 +135,24 @@ def test_current_law_sampling_preserves_joint_parameter_atoms():
 
 @pytest.mark.inference(concern="simulation")
 @pytest.mark.inference(concern="predictive")
-@pytest.mark.parametrize(('fitted_laws', 'scientific_model_payload'), [
-    pytest.param(False, 'scientific_actions/durable_replication_preserves_current_laws_without_comparison_scientific_model_false.json', id='False'),
-    pytest.param(True, 'scientific_actions/durable_replication_preserves_current_laws_without_comparison_scientific_model_true.json', id='True'),
-])
+@pytest.mark.parametrize(
+    ("fitted_laws", "scientific_model_payload"),
+    [
+        pytest.param(
+            False,
+            "common/stress_sleep_model.json",
+            id="False",
+        ),
+        pytest.param(
+            True,
+            "common/stress_sleep_model.json",
+            id="True",
+        ),
+    ],
+)
 def test_durable_replication_preserves_current_laws_without_comparison(
-    tmp_path, monkeypatch, fitted_laws
-, scientific_model_payload):
+    tmp_path, monkeypatch, fitted_laws, scientific_model_payload
+):
     from nof1_causal_lab.actions.runners import run_action_locally
     from nof1_causal_lab.artifacts.simulation import SimulationReport
     from nof1_causal_lab.study.history import StudyRepository
@@ -151,7 +166,11 @@ def test_durable_replication_preserves_current_laws_without_comparison(
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path))
     store, journal = ArtifactStore("TEST"), StudyRepository("TEST")
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / scientific_model_payload).read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1] / "fixtures/models" / scientific_model_payload
+        ).read_text()
+    )
     definition = store.write_artifact(
         "model",
         produced_by=None,
@@ -293,14 +312,29 @@ def test_durable_replication_preserves_current_laws_without_comparison(
 
 
 @pytest.mark.inference(concern="simulation")
-@pytest.mark.parametrize(('start_time', 'complete_test_model_payload'), [
-    pytest.param(None, 'scientific_actions/retained_forecast_and_timed_intervention_preserve_joint_starts_complete_test_model_none.json', id='None'),
-    pytest.param(0.0, 'scientific_actions/retained_forecast_and_timed_intervention_preserve_joint_starts_complete_test_model_0_0.json', id='0.0'),
-    pytest.param(0.25, 'scientific_actions/retained_forecast_and_timed_intervention_preserve_joint_starts_complete_test_model_0_25.json', id='0.25'),
-])
+@pytest.mark.parametrize(
+    ("start_time", "complete_test_model_payload"),
+    [
+        pytest.param(
+            None,
+            "common/x_y_model.json",
+            id="None",
+        ),
+        pytest.param(
+            0.0,
+            "common/x_y_model.json",
+            id="0.0",
+        ),
+        pytest.param(
+            0.25,
+            "common/x_y_model.json",
+            id="0.25",
+        ),
+    ],
+)
 def test_retained_forecast_and_timed_intervention_preserve_joint_starts(
-    tmp_path, monkeypatch, start_time
-, complete_test_model_payload):
+    tmp_path, monkeypatch, start_time, complete_test_model_payload
+):
     from nof1_causal_lab.actions.simulate import simulate
     from nof1_causal_lab.artifacts.identity import GitRef
     from nof1_causal_lab.artifacts.scenarios import InterventionSpec
@@ -308,7 +342,11 @@ def test_retained_forecast_and_timed_intervention_preserve_joint_starts(
     from nof1_causal_lab.utils import data as data_module
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path))
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / complete_test_model_payload).read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1] / "fixtures/models" / complete_test_model_payload
+        ).read_text()
+    )
     from nof1_causal_lab.models.ssm import numerics as numeric
 
     states = numeric.state_ids(model)
@@ -364,7 +402,11 @@ def test_causal_action_uses_common_generator_and_requires_matching_engine_eviden
     from tests.inference_fixtures import inference_log
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path))
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'scientific_actions/causal_action_uses_common_generator_and_requires_matching_engine_evidence_complete_test_model.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1] / "fixtures/models" / "common/x_y_model.json"
+        ).read_text()
+    )
     states = numeric.state_ids(model)
     model = model.revised(default_outcome=states[1])
     model = condition_model(
@@ -437,7 +479,13 @@ def test_data_profile_survives_model_edits(tmp_path, monkeypatch):
     state = apply_effects(StudyState(), effects.produced)
     assert state.current["data_profile"].derived_from == {"panel": panel.revision}
     assert not state.has("model")
-    revised_model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'scientific_actions/data_profile_survives_model_edits_scientific_model.json').read_text()).revised(question="Another scientific goal")
+    revised_model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1]
+            / "fixtures/models"
+            / "common/stress_sleep_model.json"
+        ).read_text()
+    ).revised(question="Another scientific goal")
     revised = store.write_artifact(
         "model",
         produced_by=None,
@@ -450,15 +498,34 @@ def test_data_profile_survives_model_edits(tmp_path, monkeypatch):
 
 
 @pytest.mark.inference(concern="predictive")
-@pytest.mark.parametrize(('groups', 'complete_test_model_payload'), [
-    pytest.param((), 'scientific_actions/simulation_selects_checks_before_execution_and_persists_only_parameters_complete_test_model_groups0.json', id='groups0'),
-    pytest.param(('dynamics',), 'scientific_actions/simulation_selects_checks_before_execution_and_persists_only_parameters_complete_test_model_groups1.json', id='groups1'),
-    pytest.param(('measurement',), 'scientific_actions/simulation_selects_checks_before_execution_and_persists_only_parameters_complete_test_model_groups2.json', id='groups2'),
-    pytest.param(('dynamics', 'measurement'), 'scientific_actions/simulation_selects_checks_before_execution_and_persists_only_parameters_complete_test_model_groups3.json', id='groups3'),
-])
+@pytest.mark.parametrize(
+    ("groups", "complete_test_model_payload"),
+    [
+        pytest.param(
+            (),
+            "common/x_model.json",
+            id="groups0",
+        ),
+        pytest.param(
+            ("dynamics",),
+            "common/x_model.json",
+            id="groups1",
+        ),
+        pytest.param(
+            ("measurement",),
+            "common/x_model.json",
+            id="groups2",
+        ),
+        pytest.param(
+            ("dynamics", "measurement"),
+            "common/x_model.json",
+            id="groups3",
+        ),
+    ],
+)
 def test_simulation_selects_checks_before_execution_and_persists_only_parameters(
-    monkeypatch, groups
-, complete_test_model_payload):
+    monkeypatch, groups, complete_test_model_payload
+):
     from importlib import import_module
 
     from nof1_causal_lab.artifacts.identity import GitRef
@@ -468,7 +535,11 @@ def test_simulation_selects_checks_before_execution_and_persists_only_parameters
 
     action = import_module("nof1_causal_lab.actions.simulate")
     simulation = import_module("nof1_causal_lab.models.ssm.predictive.simulation")
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / complete_test_model_payload).read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1] / "fixtures/models" / complete_test_model_payload
+        ).read_text()
+    )
     paths = jnp.zeros((2, 3, 1))
     prediction = PredictiveDraws(
         parameters={"future_parameter_site": jnp.array([1.0, 2.0])},

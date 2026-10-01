@@ -73,7 +73,7 @@ def build_structural_support_from_model(
     state_dynamics_support = np.zeros((n_latent, n_latent), dtype=bool)
     for latent_name, latent_idx_value in latent_idx.items():
         construct = latent_construct_lookup[latent_name]
-        if construct.temporal_status != "time_invariant":
+        if construct.role == "endogenous" and construct.temporal_status != "time_invariant":
             state_dynamics_support[latent_idx_value, latent_idx_value] = True
 
     for edge in edges:

@@ -32,7 +32,7 @@
           "coefficients": [],
           "innovation_family": "gaussian",
           "distribution": null,
-          "role": "exogenous",
+          "role": "endogenous",
           "temporal_status": "time_invariant"
         },
         "effect": {
@@ -1314,7 +1314,7 @@
           "coefficients": [],
           "innovation_family": "gaussian",
           "distribution": null,
-          "role": "exogenous",
+          "role": "endogenous",
           "temporal_status": "time_invariant"
         },
         "effect": {
@@ -3360,9 +3360,9 @@
   },
   "pinned_inputs": {
     "observations": "input:3baa8f22dded838adbd82c401210e664c6e89eb4bb76418f4c503ce64a66d494",
-    "identification": "input:383a1cf4f585e83d0609afb81837b75e063d06e5b86305a2eab8cb3467c6e55f",
-    "compilation": "input:462413be73b419dacab86d6f7ebb06760c4f00031448c5c3ad226c40fe15e9c9",
-    "belief": "input:aaf0fa4087ae78337a18a6a5fac85c849168f00ca6ac9fd4da166c2c34445fb7"
+    "identification": "input:136410eda59b1c1e262483b1c37b4455a54539cb2b4690fefe3071ab5023543b",
+    "compilation": "input:e3541c0a395ce80737af595412fe8f4bd0cb0097f79b4af2fe7742735d969009",
+    "belief": "input:9351645c512d1153199baf3bd52a17376dde3fec610bf7953a3d420da6a45a56"
   },
   "comparisons": {
     "64804bd3388e32f60a72845d88a9aeb4da484e47:64804bd3388e32f60a72845d88a9aeb4da484e47": {
@@ -3376,7 +3376,7 @@
       },
       "changed_inputs": []
     },
-    "64804bd3388e32f60a72845d88a9aeb4da484e47:77bfaad9a4713ee520dd15d12c6c82258ecd88a2": {
+    "64804bd3388e32f60a72845d88a9aeb4da484e47:fa7597ee73c6ff3e16faed764157f4d22e0aac49": {
       "definition_changes": [
         {
           "path": "/constructs/construct:07f8d9915eaa311c9e50",
@@ -3408,7 +3408,7 @@
             "coefficients": [],
             "innovation_family": "gaussian",
             "distribution": null,
-            "role": "exogenous",
+            "role": "endogenous",
             "temporal_status": "time_invariant"
           }
         },
@@ -3527,7 +3527,7 @@
             "coefficients": [],
             "innovation_family": "gaussian",
             "distribution": null,
-            "role": "exogenous",
+            "role": "endogenous",
             "temporal_status": "time_invariant"
           }
         },
@@ -3595,7 +3595,7 @@
             "coefficients": [],
             "innovation_family": "gaussian",
             "distribution": null,
-            "role": "exogenous",
+            "role": "endogenous",
             "temporal_status": "time_varying"
           }
         },
@@ -4196,7 +4196,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "added",
@@ -4329,7 +4329,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "added",
@@ -4405,7 +4405,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_varying"
             },
             "change": "added",
@@ -5090,7 +5090,7 @@
         "belief"
       ]
     },
-    "64804bd3388e32f60a72845d88a9aeb4da484e47:0ad002e78b2469a13b89b3515b09b30086d9e637": {
+    "64804bd3388e32f60a72845d88a9aeb4da484e47:aaa71c2ad4ddc1cbd7ee3e16f863a4ed8f083aee": {
       "definition_changes": [
         {
           "path": "/constructs/construct:07f8d9915eaa311c9e50",
@@ -5136,7 +5136,7 @@
             "coefficients": [],
             "innovation_family": "gaussian",
             "distribution": null,
-            "role": "exogenous",
+            "role": "endogenous",
             "temporal_status": "time_invariant"
           }
         },
@@ -5353,7 +5353,7 @@
             "coefficients": [],
             "innovation_family": "gaussian",
             "distribution": null,
-            "role": "exogenous",
+            "role": "endogenous",
             "temporal_status": "time_invariant"
           }
         },
@@ -5578,7 +5578,7 @@
             "coefficients": [],
             "innovation_family": "gaussian",
             "distribution": null,
-            "role": "exogenous",
+            "role": "endogenous",
             "temporal_status": "time_varying"
           }
         },
@@ -6477,7 +6477,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "added",
@@ -6738,7 +6738,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_varying"
             },
             "change": "added",
@@ -7419,7 +7419,7 @@
         "belief"
       ]
     },
-    "64804bd3388e32f60a72845d88a9aeb4da484e47:46fdf062d876538d7a06c137fbc974c6b58a1384": {
+    "64804bd3388e32f60a72845d88a9aeb4da484e47:272e20b4fefca286b43f78e19e9deb930a09d355": {
       "definition_changes": [
         {
           "path": "/constructs/construct:07f8d9915eaa311c9e50",
@@ -7602,7 +7602,7 @@
             "coefficients": [],
             "innovation_family": "gaussian",
             "distribution": null,
-            "role": "exogenous",
+            "role": "endogenous",
             "temporal_status": "time_invariant"
           }
         },
@@ -7963,7 +7963,7 @@
             "coefficients": [],
             "innovation_family": "gaussian",
             "distribution": null,
-            "role": "exogenous",
+            "role": "endogenous",
             "temporal_status": "time_invariant"
           }
         },
@@ -12484,7 +12484,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "added",
@@ -14466,7 +14466,7 @@
             "coefficients": [],
             "innovation_family": "gaussian",
             "distribution": null,
-            "role": "exogenous",
+            "role": "endogenous",
             "temporal_status": "time_invariant"
           }
         },
@@ -14827,7 +14827,7 @@
             "coefficients": [],
             "innovation_family": "gaussian",
             "distribution": null,
-            "role": "exogenous",
+            "role": "endogenous",
             "temporal_status": "time_invariant"
           }
         },
@@ -19348,7 +19348,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "added",
@@ -21330,7 +21330,7 @@
             "coefficients": [],
             "innovation_family": "gaussian",
             "distribution": null,
-            "role": "exogenous",
+            "role": "endogenous",
             "temporal_status": "time_invariant"
           }
         },
@@ -21691,7 +21691,7 @@
             "coefficients": [],
             "innovation_family": "gaussian",
             "distribution": null,
-            "role": "exogenous",
+            "role": "endogenous",
             "temporal_status": "time_invariant"
           }
         },
@@ -26212,7 +26212,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "added",
@@ -28194,7 +28194,7 @@
             "coefficients": [],
             "innovation_family": "gaussian",
             "distribution": null,
-            "role": "exogenous",
+            "role": "endogenous",
             "temporal_status": "time_invariant"
           }
         },
@@ -28555,7 +28555,7 @@
             "coefficients": [],
             "innovation_family": "gaussian",
             "distribution": null,
-            "role": "exogenous",
+            "role": "endogenous",
             "temporal_status": "time_invariant"
           }
         },
@@ -33031,7 +33031,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "added",
@@ -34830,7 +34830,7 @@
         "belief"
       ]
     },
-    "77bfaad9a4713ee520dd15d12c6c82258ecd88a2:64804bd3388e32f60a72845d88a9aeb4da484e47": {
+    "fa7597ee73c6ff3e16faed764157f4d22e0aac49:64804bd3388e32f60a72845d88a9aeb4da484e47": {
       "definition_changes": [
         {
           "path": "/constructs/construct:07f8d9915eaa311c9e50",
@@ -34861,7 +34861,7 @@
             "coefficients": [],
             "innovation_family": "gaussian",
             "distribution": null,
-            "role": "exogenous",
+            "role": "endogenous",
             "temporal_status": "time_invariant"
           },
           "after": null
@@ -34980,7 +34980,7 @@
             "coefficients": [],
             "innovation_family": "gaussian",
             "distribution": null,
-            "role": "exogenous",
+            "role": "endogenous",
             "temporal_status": "time_invariant"
           },
           "after": null
@@ -35048,7 +35048,7 @@
             "coefficients": [],
             "innovation_family": "gaussian",
             "distribution": null,
-            "role": "exogenous",
+            "role": "endogenous",
             "temporal_status": "time_varying"
           },
           "after": null
@@ -35649,7 +35649,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": null,
@@ -35782,7 +35782,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": null,
@@ -35858,7 +35858,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_varying"
             },
             "after": null,
@@ -36544,7 +36544,7 @@
         "belief"
       ]
     },
-    "77bfaad9a4713ee520dd15d12c6c82258ecd88a2:77bfaad9a4713ee520dd15d12c6c82258ecd88a2": {
+    "fa7597ee73c6ff3e16faed764157f4d22e0aac49:fa7597ee73c6ff3e16faed764157f4d22e0aac49": {
       "definition_changes": [],
       "parameters": [],
       "graph": {
@@ -36590,7 +36590,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -36602,7 +36602,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -36800,7 +36800,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -36812,7 +36812,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -36920,7 +36920,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_varying"
             },
             "after": {
@@ -36932,7 +36932,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_varying"
             },
             "change": "unchanged",
@@ -37991,7 +37991,7 @@
       },
       "changed_inputs": []
     },
-    "77bfaad9a4713ee520dd15d12c6c82258ecd88a2:0ad002e78b2469a13b89b3515b09b30086d9e637": {
+    "fa7597ee73c6ff3e16faed764157f4d22e0aac49:aaa71c2ad4ddc1cbd7ee3e16f863a4ed8f083aee": {
       "definition_changes": [
         {
           "path": "/constructs/construct:07f8d9915eaa311c9e50/indicators/indicator:21069529417a9a99ee50",
@@ -38497,7 +38497,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": null,
@@ -38509,7 +38509,7 @@
                 "id": "construct:1ca8eec7961c69a0cbe1"
               },
               "disposition": "marginalized",
-              "reason": "Safe unobserved exogenous root projected from the executable state vector."
+              "reason": "Safe unmeasured root projected from the executable state vector."
             }
           },
           {
@@ -38789,7 +38789,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -38819,7 +38819,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -39098,7 +39098,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_varying"
             },
             "after": {
@@ -39124,7 +39124,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_varying"
             },
             "change": "unchanged",
@@ -40378,7 +40378,7 @@
         "belief"
       ]
     },
-    "77bfaad9a4713ee520dd15d12c6c82258ecd88a2:46fdf062d876538d7a06c137fbc974c6b58a1384": {
+    "fa7597ee73c6ff3e16faed764157f4d22e0aac49:272e20b4fefca286b43f78e19e9deb930a09d355": {
       "definition_changes": [
         {
           "path": "/constructs/construct:07f8d9915eaa311c9e50/coefficients",
@@ -41619,6 +41619,12 @@
             },
             "construct_polarity": "positive"
           }
+        },
+        {
+          "path": "/constructs/construct:ac82920bb78125ab0aca/role",
+          "change": "revised",
+          "before": "endogenous",
+          "after": "exogenous"
         },
         {
           "path": "/constructs/construct:b7418d1841c57d53abf8/coefficients",
@@ -44580,7 +44586,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": null,
@@ -44592,7 +44598,7 @@
                 "id": "construct:1ca8eec7961c69a0cbe1"
               },
               "disposition": "marginalized",
-              "reason": "Safe unobserved exogenous root projected from the executable state vector."
+              "reason": "Safe unmeasured root projected from the executable state vector."
             }
           },
           {
@@ -45016,7 +45022,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -45046,7 +45052,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -45883,7 +45889,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_varying"
             },
             "after": {
@@ -47462,7 +47468,7 @@
         "belief"
       ]
     },
-    "77bfaad9a4713ee520dd15d12c6c82258ecd88a2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa5": {
+    "fa7597ee73c6ff3e16faed764157f4d22e0aac49:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa5": {
       "definition_changes": [
         {
           "path": "/constructs/construct:07f8d9915eaa311c9e50/coefficients",
@@ -48703,6 +48709,12 @@
             },
             "construct_polarity": "positive"
           }
+        },
+        {
+          "path": "/constructs/construct:ac82920bb78125ab0aca/role",
+          "change": "revised",
+          "before": "endogenous",
+          "after": "exogenous"
         },
         {
           "path": "/constructs/construct:b7418d1841c57d53abf8/coefficients",
@@ -51664,7 +51676,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": null,
@@ -51676,7 +51688,7 @@
                 "id": "construct:1ca8eec7961c69a0cbe1"
               },
               "disposition": "marginalized",
-              "reason": "Safe unobserved exogenous root projected from the executable state vector."
+              "reason": "Safe unmeasured root projected from the executable state vector."
             }
           },
           {
@@ -52100,7 +52112,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -52130,7 +52142,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -52967,7 +52979,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_varying"
             },
             "after": {
@@ -54546,7 +54558,7 @@
         "belief"
       ]
     },
-    "77bfaad9a4713ee520dd15d12c6c82258ecd88a2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa6": {
+    "fa7597ee73c6ff3e16faed764157f4d22e0aac49:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa6": {
       "definition_changes": [
         {
           "path": "/constructs/construct:07f8d9915eaa311c9e50/coefficients",
@@ -55787,6 +55799,12 @@
             },
             "construct_polarity": "positive"
           }
+        },
+        {
+          "path": "/constructs/construct:ac82920bb78125ab0aca/role",
+          "change": "revised",
+          "before": "endogenous",
+          "after": "exogenous"
         },
         {
           "path": "/constructs/construct:b7418d1841c57d53abf8/coefficients",
@@ -58748,7 +58766,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": null,
@@ -58760,7 +58778,7 @@
                 "id": "construct:1ca8eec7961c69a0cbe1"
               },
               "disposition": "marginalized",
-              "reason": "Safe unobserved exogenous root projected from the executable state vector."
+              "reason": "Safe unmeasured root projected from the executable state vector."
             }
           },
           {
@@ -59184,7 +59202,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -59214,7 +59232,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -60051,7 +60069,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_varying"
             },
             "after": {
@@ -61630,7 +61648,7 @@
         "belief"
       ]
     },
-    "77bfaad9a4713ee520dd15d12c6c82258ecd88a2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa7": {
+    "fa7597ee73c6ff3e16faed764157f4d22e0aac49:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa7": {
       "definition_changes": [
         {
           "path": "/constructs/construct:07f8d9915eaa311c9e50/coefficients",
@@ -62871,6 +62889,12 @@
             },
             "construct_polarity": "positive"
           }
+        },
+        {
+          "path": "/constructs/construct:ac82920bb78125ab0aca/role",
+          "change": "revised",
+          "before": "endogenous",
+          "after": "exogenous"
         },
         {
           "path": "/constructs/construct:b7418d1841c57d53abf8/coefficients",
@@ -65787,7 +65811,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": null,
@@ -65799,7 +65823,7 @@
                 "id": "construct:1ca8eec7961c69a0cbe1"
               },
               "disposition": "marginalized",
-              "reason": "Safe unobserved exogenous root projected from the executable state vector."
+              "reason": "Safe unmeasured root projected from the executable state vector."
             }
           },
           {
@@ -66223,7 +66247,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -66253,7 +66277,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -67090,7 +67114,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_varying"
             },
             "after": {
@@ -68669,7 +68693,7 @@
         "belief"
       ]
     },
-    "0ad002e78b2469a13b89b3515b09b30086d9e637:64804bd3388e32f60a72845d88a9aeb4da484e47": {
+    "aaa71c2ad4ddc1cbd7ee3e16f863a4ed8f083aee:64804bd3388e32f60a72845d88a9aeb4da484e47": {
       "definition_changes": [
         {
           "path": "/constructs/construct:07f8d9915eaa311c9e50",
@@ -68714,7 +68738,7 @@
             "coefficients": [],
             "innovation_family": "gaussian",
             "distribution": null,
-            "role": "exogenous",
+            "role": "endogenous",
             "temporal_status": "time_invariant"
           },
           "after": null
@@ -68931,7 +68955,7 @@
             "coefficients": [],
             "innovation_family": "gaussian",
             "distribution": null,
-            "role": "exogenous",
+            "role": "endogenous",
             "temporal_status": "time_invariant"
           },
           "after": null
@@ -69156,7 +69180,7 @@
             "coefficients": [],
             "innovation_family": "gaussian",
             "distribution": null,
-            "role": "exogenous",
+            "role": "endogenous",
             "temporal_status": "time_varying"
           },
           "after": null
@@ -70055,7 +70079,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": null,
@@ -70316,7 +70340,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_varying"
             },
             "after": null,
@@ -70998,7 +71022,7 @@
         "belief"
       ]
     },
-    "0ad002e78b2469a13b89b3515b09b30086d9e637:77bfaad9a4713ee520dd15d12c6c82258ecd88a2": {
+    "aaa71c2ad4ddc1cbd7ee3e16f863a4ed8f083aee:fa7597ee73c6ff3e16faed764157f4d22e0aac49": {
       "definition_changes": [
         {
           "path": "/constructs/construct:07f8d9915eaa311c9e50/indicators/indicator:21069529417a9a99ee50",
@@ -71505,7 +71529,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "added",
@@ -71515,7 +71539,7 @@
                 "id": "construct:1ca8eec7961c69a0cbe1"
               },
               "disposition": "marginalized",
-              "reason": "Safe unobserved exogenous root projected from the executable state vector."
+              "reason": "Safe unmeasured root projected from the executable state vector."
             },
             "after_disposition": null
           },
@@ -71814,7 +71838,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -71826,7 +71850,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -72119,7 +72143,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_varying"
             },
             "after": {
@@ -72131,7 +72155,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_varying"
             },
             "change": "unchanged",
@@ -73385,7 +73409,7 @@
         "belief"
       ]
     },
-    "0ad002e78b2469a13b89b3515b09b30086d9e637:0ad002e78b2469a13b89b3515b09b30086d9e637": {
+    "aaa71c2ad4ddc1cbd7ee3e16f863a4ed8f083aee:aaa71c2ad4ddc1cbd7ee3e16f863a4ed8f083aee": {
       "definition_changes": [],
       "parameters": [],
       "graph": {
@@ -73799,7 +73823,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -73829,7 +73853,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -74293,7 +74317,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_varying"
             },
             "after": {
@@ -74319,7 +74343,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_varying"
             },
             "change": "unchanged",
@@ -75472,7 +75496,7 @@
       },
       "changed_inputs": []
     },
-    "0ad002e78b2469a13b89b3515b09b30086d9e637:46fdf062d876538d7a06c137fbc974c6b58a1384": {
+    "aaa71c2ad4ddc1cbd7ee3e16f863a4ed8f083aee:272e20b4fefca286b43f78e19e9deb930a09d355": {
       "definition_changes": [
         {
           "path": "/constructs/construct:07f8d9915eaa311c9e50/coefficients",
@@ -76445,6 +76469,12 @@
             "reasoning": "The earlier model conditioned on recorded values exactly. Delta preserves that assumption at observed anchors; absent readings remain unknown.",
             "sources": []
           }
+        },
+        {
+          "path": "/constructs/construct:ac82920bb78125ab0aca/role",
+          "change": "revised",
+          "before": "endogenous",
+          "after": "exogenous"
         },
         {
           "path": "/constructs/construct:b7418d1841c57d53abf8/coefficients",
@@ -79799,7 +79829,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -79829,7 +79859,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -80851,7 +80881,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_varying"
             },
             "after": {
@@ -82328,11 +82358,12 @@
         ]
       },
       "changed_inputs": [
+        "identification",
         "compilation",
         "belief"
       ]
     },
-    "0ad002e78b2469a13b89b3515b09b30086d9e637:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa5": {
+    "aaa71c2ad4ddc1cbd7ee3e16f863a4ed8f083aee:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa5": {
       "definition_changes": [
         {
           "path": "/constructs/construct:07f8d9915eaa311c9e50/coefficients",
@@ -83305,6 +83336,12 @@
             "reasoning": "The earlier model conditioned on recorded values exactly. Delta preserves that assumption at observed anchors; absent readings remain unknown.",
             "sources": []
           }
+        },
+        {
+          "path": "/constructs/construct:ac82920bb78125ab0aca/role",
+          "change": "revised",
+          "before": "endogenous",
+          "after": "exogenous"
         },
         {
           "path": "/constructs/construct:b7418d1841c57d53abf8/coefficients",
@@ -86659,7 +86696,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -86689,7 +86726,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -87711,7 +87748,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_varying"
             },
             "after": {
@@ -89188,11 +89225,12 @@
         ]
       },
       "changed_inputs": [
+        "identification",
         "compilation",
         "belief"
       ]
     },
-    "0ad002e78b2469a13b89b3515b09b30086d9e637:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa6": {
+    "aaa71c2ad4ddc1cbd7ee3e16f863a4ed8f083aee:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa6": {
       "definition_changes": [
         {
           "path": "/constructs/construct:07f8d9915eaa311c9e50/coefficients",
@@ -90165,6 +90203,12 @@
             "reasoning": "The earlier model conditioned on recorded values exactly. Delta preserves that assumption at observed anchors; absent readings remain unknown.",
             "sources": []
           }
+        },
+        {
+          "path": "/constructs/construct:ac82920bb78125ab0aca/role",
+          "change": "revised",
+          "before": "endogenous",
+          "after": "exogenous"
         },
         {
           "path": "/constructs/construct:b7418d1841c57d53abf8/coefficients",
@@ -93519,7 +93563,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -93549,7 +93593,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -94571,7 +94615,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_varying"
             },
             "after": {
@@ -96048,11 +96092,12 @@
         ]
       },
       "changed_inputs": [
+        "identification",
         "compilation",
         "belief"
       ]
     },
-    "0ad002e78b2469a13b89b3515b09b30086d9e637:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa7": {
+    "aaa71c2ad4ddc1cbd7ee3e16f863a4ed8f083aee:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa7": {
       "definition_changes": [
         {
           "path": "/constructs/construct:07f8d9915eaa311c9e50/coefficients",
@@ -97025,6 +97070,12 @@
             "reasoning": "The earlier model conditioned on recorded values exactly. Delta preserves that assumption at observed anchors; absent readings remain unknown.",
             "sources": []
           }
+        },
+        {
+          "path": "/constructs/construct:ac82920bb78125ab0aca/role",
+          "change": "revised",
+          "before": "endogenous",
+          "after": "exogenous"
         },
         {
           "path": "/constructs/construct:b7418d1841c57d53abf8/coefficients",
@@ -100334,7 +100385,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -100364,7 +100415,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -101386,7 +101437,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_varying"
             },
             "after": {
@@ -102863,11 +102914,12 @@
         ]
       },
       "changed_inputs": [
+        "identification",
         "compilation",
         "belief"
       ]
     },
-    "46fdf062d876538d7a06c137fbc974c6b58a1384:64804bd3388e32f60a72845d88a9aeb4da484e47": {
+    "272e20b4fefca286b43f78e19e9deb930a09d355:64804bd3388e32f60a72845d88a9aeb4da484e47": {
       "definition_changes": [
         {
           "path": "/constructs/construct:07f8d9915eaa311c9e50",
@@ -103049,7 +103101,7 @@
             "coefficients": [],
             "innovation_family": "gaussian",
             "distribution": null,
-            "role": "exogenous",
+            "role": "endogenous",
             "temporal_status": "time_invariant"
           },
           "after": null
@@ -103410,7 +103462,7 @@
             "coefficients": [],
             "innovation_family": "gaussian",
             "distribution": null,
-            "role": "exogenous",
+            "role": "endogenous",
             "temporal_status": "time_invariant"
           },
           "after": null
@@ -107931,7 +107983,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": null,
@@ -109731,7 +109783,7 @@
         "belief"
       ]
     },
-    "46fdf062d876538d7a06c137fbc974c6b58a1384:77bfaad9a4713ee520dd15d12c6c82258ecd88a2": {
+    "272e20b4fefca286b43f78e19e9deb930a09d355:fa7597ee73c6ff3e16faed764157f4d22e0aac49": {
       "definition_changes": [
         {
           "path": "/constructs/construct:07f8d9915eaa311c9e50/coefficients",
@@ -110972,6 +111024,12 @@
             "construct_polarity": "positive"
           },
           "after": null
+        },
+        {
+          "path": "/constructs/construct:ac82920bb78125ab0aca/role",
+          "change": "revised",
+          "before": "exogenous",
+          "after": "endogenous"
         },
         {
           "path": "/constructs/construct:b7418d1841c57d53abf8/coefficients",
@@ -113934,7 +113992,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "added",
@@ -113944,7 +114002,7 @@
                 "id": "construct:1ca8eec7961c69a0cbe1"
               },
               "disposition": "marginalized",
-              "reason": "Safe unobserved exogenous root projected from the executable state vector."
+              "reason": "Safe unmeasured root projected from the executable state vector."
             },
             "after_disposition": null
           },
@@ -114387,7 +114445,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -114399,7 +114457,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -115275,7 +115333,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_varying"
             },
             "change": "unchanged",
@@ -116815,7 +116873,7 @@
         "belief"
       ]
     },
-    "46fdf062d876538d7a06c137fbc974c6b58a1384:0ad002e78b2469a13b89b3515b09b30086d9e637": {
+    "272e20b4fefca286b43f78e19e9deb930a09d355:aaa71c2ad4ddc1cbd7ee3e16f863a4ed8f083aee": {
       "definition_changes": [
         {
           "path": "/constructs/construct:07f8d9915eaa311c9e50/coefficients",
@@ -117788,6 +117846,12 @@
             "sources": []
           },
           "after": null
+        },
+        {
+          "path": "/constructs/construct:ac82920bb78125ab0aca/role",
+          "change": "revised",
+          "before": "exogenous",
+          "after": "endogenous"
         },
         {
           "path": "/constructs/construct:b7418d1841c57d53abf8/coefficients",
@@ -121142,7 +121206,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -121172,7 +121236,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -122233,7 +122297,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_varying"
             },
             "change": "unchanged",
@@ -123671,11 +123735,12 @@
         ]
       },
       "changed_inputs": [
+        "identification",
         "compilation",
         "belief"
       ]
     },
-    "46fdf062d876538d7a06c137fbc974c6b58a1384:46fdf062d876538d7a06c137fbc974c6b58a1384": {
+    "272e20b4fefca286b43f78e19e9deb930a09d355:272e20b4fefca286b43f78e19e9deb930a09d355": {
       "definition_changes": [],
       "parameters": [],
       "graph": {
@@ -124651,7 +124716,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -124681,7 +124746,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -128038,7 +128103,7 @@
       },
       "changed_inputs": []
     },
-    "46fdf062d876538d7a06c137fbc974c6b58a1384:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa5": {
+    "272e20b4fefca286b43f78e19e9deb930a09d355:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa5": {
       "definition_changes": [],
       "parameters": [],
       "graph": {
@@ -129014,7 +129079,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -129044,7 +129109,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -132401,7 +132466,7 @@
       },
       "changed_inputs": []
     },
-    "46fdf062d876538d7a06c137fbc974c6b58a1384:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa6": {
+    "272e20b4fefca286b43f78e19e9deb930a09d355:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa6": {
       "definition_changes": [],
       "parameters": [],
       "graph": {
@@ -133377,7 +133442,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -133407,7 +133472,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -136764,7 +136829,7 @@
       },
       "changed_inputs": []
     },
-    "46fdf062d876538d7a06c137fbc974c6b58a1384:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa7": {
+    "272e20b4fefca286b43f78e19e9deb930a09d355:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa7": {
       "definition_changes": [
         {
           "path": "/distributions/distribution:c9910822aa33032d5664671cd67ab684767ac6f1448cfe95a9af53131e85e5ba",
@@ -137831,7 +137896,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -137861,7 +137926,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -141403,7 +141468,7 @@
             "coefficients": [],
             "innovation_family": "gaussian",
             "distribution": null,
-            "role": "exogenous",
+            "role": "endogenous",
             "temporal_status": "time_invariant"
           },
           "after": null
@@ -141764,7 +141829,7 @@
             "coefficients": [],
             "innovation_family": "gaussian",
             "distribution": null,
-            "role": "exogenous",
+            "role": "endogenous",
             "temporal_status": "time_invariant"
           },
           "after": null
@@ -146285,7 +146350,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": null,
@@ -148085,7 +148150,7 @@
         "belief"
       ]
     },
-    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa5:77bfaad9a4713ee520dd15d12c6c82258ecd88a2": {
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa5:fa7597ee73c6ff3e16faed764157f4d22e0aac49": {
       "definition_changes": [
         {
           "path": "/constructs/construct:07f8d9915eaa311c9e50/coefficients",
@@ -149326,6 +149391,12 @@
             "construct_polarity": "positive"
           },
           "after": null
+        },
+        {
+          "path": "/constructs/construct:ac82920bb78125ab0aca/role",
+          "change": "revised",
+          "before": "exogenous",
+          "after": "endogenous"
         },
         {
           "path": "/constructs/construct:b7418d1841c57d53abf8/coefficients",
@@ -152288,7 +152359,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "added",
@@ -152298,7 +152369,7 @@
                 "id": "construct:1ca8eec7961c69a0cbe1"
               },
               "disposition": "marginalized",
-              "reason": "Safe unobserved exogenous root projected from the executable state vector."
+              "reason": "Safe unmeasured root projected from the executable state vector."
             },
             "after_disposition": null
           },
@@ -152741,7 +152812,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -152753,7 +152824,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -153629,7 +153700,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_varying"
             },
             "change": "unchanged",
@@ -155169,7 +155240,7 @@
         "belief"
       ]
     },
-    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa5:0ad002e78b2469a13b89b3515b09b30086d9e637": {
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa5:aaa71c2ad4ddc1cbd7ee3e16f863a4ed8f083aee": {
       "definition_changes": [
         {
           "path": "/constructs/construct:07f8d9915eaa311c9e50/coefficients",
@@ -156142,6 +156213,12 @@
             "sources": []
           },
           "after": null
+        },
+        {
+          "path": "/constructs/construct:ac82920bb78125ab0aca/role",
+          "change": "revised",
+          "before": "exogenous",
+          "after": "endogenous"
         },
         {
           "path": "/constructs/construct:b7418d1841c57d53abf8/coefficients",
@@ -159496,7 +159573,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -159526,7 +159603,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -160587,7 +160664,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_varying"
             },
             "change": "unchanged",
@@ -162025,11 +162102,12 @@
         ]
       },
       "changed_inputs": [
+        "identification",
         "compilation",
         "belief"
       ]
     },
-    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa5:46fdf062d876538d7a06c137fbc974c6b58a1384": {
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa5:272e20b4fefca286b43f78e19e9deb930a09d355": {
       "definition_changes": [],
       "parameters": [],
       "graph": {
@@ -163005,7 +163083,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -163035,7 +163113,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -167368,7 +167446,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -167398,7 +167476,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -171731,7 +171809,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -171761,7 +171839,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -176185,7 +176263,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -176215,7 +176293,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -179757,7 +179835,7 @@
             "coefficients": [],
             "innovation_family": "gaussian",
             "distribution": null,
-            "role": "exogenous",
+            "role": "endogenous",
             "temporal_status": "time_invariant"
           },
           "after": null
@@ -180118,7 +180196,7 @@
             "coefficients": [],
             "innovation_family": "gaussian",
             "distribution": null,
-            "role": "exogenous",
+            "role": "endogenous",
             "temporal_status": "time_invariant"
           },
           "after": null
@@ -184639,7 +184717,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": null,
@@ -186439,7 +186517,7 @@
         "belief"
       ]
     },
-    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa6:77bfaad9a4713ee520dd15d12c6c82258ecd88a2": {
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa6:fa7597ee73c6ff3e16faed764157f4d22e0aac49": {
       "definition_changes": [
         {
           "path": "/constructs/construct:07f8d9915eaa311c9e50/coefficients",
@@ -187680,6 +187758,12 @@
             "construct_polarity": "positive"
           },
           "after": null
+        },
+        {
+          "path": "/constructs/construct:ac82920bb78125ab0aca/role",
+          "change": "revised",
+          "before": "exogenous",
+          "after": "endogenous"
         },
         {
           "path": "/constructs/construct:b7418d1841c57d53abf8/coefficients",
@@ -190642,7 +190726,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "added",
@@ -190652,7 +190736,7 @@
                 "id": "construct:1ca8eec7961c69a0cbe1"
               },
               "disposition": "marginalized",
-              "reason": "Safe unobserved exogenous root projected from the executable state vector."
+              "reason": "Safe unmeasured root projected from the executable state vector."
             },
             "after_disposition": null
           },
@@ -191095,7 +191179,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -191107,7 +191191,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -191983,7 +192067,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_varying"
             },
             "change": "unchanged",
@@ -193523,7 +193607,7 @@
         "belief"
       ]
     },
-    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa6:0ad002e78b2469a13b89b3515b09b30086d9e637": {
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa6:aaa71c2ad4ddc1cbd7ee3e16f863a4ed8f083aee": {
       "definition_changes": [
         {
           "path": "/constructs/construct:07f8d9915eaa311c9e50/coefficients",
@@ -194496,6 +194580,12 @@
             "sources": []
           },
           "after": null
+        },
+        {
+          "path": "/constructs/construct:ac82920bb78125ab0aca/role",
+          "change": "revised",
+          "before": "exogenous",
+          "after": "endogenous"
         },
         {
           "path": "/constructs/construct:b7418d1841c57d53abf8/coefficients",
@@ -197850,7 +197940,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -197880,7 +197970,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -198941,7 +199031,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_varying"
             },
             "change": "unchanged",
@@ -200379,11 +200469,12 @@
         ]
       },
       "changed_inputs": [
+        "identification",
         "compilation",
         "belief"
       ]
     },
-    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa6:46fdf062d876538d7a06c137fbc974c6b58a1384": {
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa6:272e20b4fefca286b43f78e19e9deb930a09d355": {
       "definition_changes": [],
       "parameters": [],
       "graph": {
@@ -201359,7 +201450,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -201389,7 +201480,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -205722,7 +205813,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -205752,7 +205843,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -210085,7 +210176,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -210115,7 +210206,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -214539,7 +214630,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -214569,7 +214660,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -218111,7 +218202,7 @@
             "coefficients": [],
             "innovation_family": "gaussian",
             "distribution": null,
-            "role": "exogenous",
+            "role": "endogenous",
             "temporal_status": "time_invariant"
           },
           "after": null
@@ -218472,7 +218563,7 @@
             "coefficients": [],
             "innovation_family": "gaussian",
             "distribution": null,
-            "role": "exogenous",
+            "role": "endogenous",
             "temporal_status": "time_invariant"
           },
           "after": null
@@ -222948,7 +223039,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": null,
@@ -224748,7 +224839,7 @@
         "belief"
       ]
     },
-    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa7:77bfaad9a4713ee520dd15d12c6c82258ecd88a2": {
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa7:fa7597ee73c6ff3e16faed764157f4d22e0aac49": {
       "definition_changes": [
         {
           "path": "/constructs/construct:07f8d9915eaa311c9e50/coefficients",
@@ -225989,6 +226080,12 @@
             "construct_polarity": "positive"
           },
           "after": null
+        },
+        {
+          "path": "/constructs/construct:ac82920bb78125ab0aca/role",
+          "change": "revised",
+          "before": "exogenous",
+          "after": "endogenous"
         },
         {
           "path": "/constructs/construct:b7418d1841c57d53abf8/coefficients",
@@ -228906,7 +229003,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "added",
@@ -228916,7 +229013,7 @@
                 "id": "construct:1ca8eec7961c69a0cbe1"
               },
               "disposition": "marginalized",
-              "reason": "Safe unobserved exogenous root projected from the executable state vector."
+              "reason": "Safe unmeasured root projected from the executable state vector."
             },
             "after_disposition": null
           },
@@ -229359,7 +229456,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -229371,7 +229468,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -230247,7 +230344,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_varying"
             },
             "change": "unchanged",
@@ -231787,7 +231884,7 @@
         "belief"
       ]
     },
-    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa7:0ad002e78b2469a13b89b3515b09b30086d9e637": {
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa7:aaa71c2ad4ddc1cbd7ee3e16f863a4ed8f083aee": {
       "definition_changes": [
         {
           "path": "/constructs/construct:07f8d9915eaa311c9e50/coefficients",
@@ -232760,6 +232857,12 @@
             "sources": []
           },
           "after": null
+        },
+        {
+          "path": "/constructs/construct:ac82920bb78125ab0aca/role",
+          "change": "revised",
+          "before": "exogenous",
+          "after": "endogenous"
         },
         {
           "path": "/constructs/construct:b7418d1841c57d53abf8/coefficients",
@@ -236069,7 +236172,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -236099,7 +236202,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -237160,7 +237263,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_varying"
             },
             "change": "unchanged",
@@ -238598,11 +238701,12 @@
         ]
       },
       "changed_inputs": [
+        "identification",
         "compilation",
         "belief"
       ]
     },
-    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa7:46fdf062d876538d7a06c137fbc974c6b58a1384": {
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa7:272e20b4fefca286b43f78e19e9deb930a09d355": {
       "definition_changes": [
         {
           "path": "/distributions/distribution:c9910822aa33032d5664671cd67ab684767ac6f1448cfe95a9af53131e85e5ba",
@@ -239669,7 +239773,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -239699,7 +239803,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -244126,7 +244230,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -244156,7 +244260,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -248583,7 +248687,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -248613,7 +248717,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",
@@ -252949,7 +253053,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "after": {
@@ -252979,7 +253083,7 @@
               "coefficients": [],
               "innovation_family": "gaussian",
               "distribution": null,
-              "role": "exogenous",
+              "role": "endogenous",
               "temporal_status": "time_invariant"
             },
             "change": "unchanged",

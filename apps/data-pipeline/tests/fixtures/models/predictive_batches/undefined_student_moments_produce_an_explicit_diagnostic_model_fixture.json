@@ -72,10 +72,72 @@
             "id": "mechanism:5ced39cf0fae44636f2b",
             "kind": "drift",
             "expression": {
-              "kind": "coefficient",
-              "role": "intercept",
-              "value": 0.0,
-              "construct_ids": []
+              "kind": "binary",
+              "operator": "subtract",
+              "left": {
+                "kind": "binary",
+                "operator": "multiply",
+                "left": {
+                  "kind": "binary",
+                  "operator": "multiply",
+                  "left": {
+                    "kind": "literal",
+                    "value": -1.0
+                  },
+                  "right": {
+                    "kind": "coefficient",
+                    "role": "decay",
+                    "value": 1.0,
+                    "construct_ids": []
+                  }
+                },
+                "right": {
+                  "kind": "binary",
+                  "operator": "subtract",
+                  "left": {
+                    "kind": "state",
+                    "construct_id": "construct:98907cc586bfcf98c836"
+                  },
+                  "right": {
+                    "kind": "coefficient",
+                    "role": "center",
+                    "value": 0.0,
+                    "construct_ids": []
+                  }
+                }
+              },
+              "right": {
+                "kind": "binary",
+                "operator": "multiply",
+                "left": {
+                  "kind": "coefficient",
+                  "role": "quartic",
+                  "value": 0.0,
+                  "construct_ids": []
+                },
+                "right": {
+                  "kind": "binary",
+                  "operator": "power",
+                  "left": {
+                    "kind": "binary",
+                    "operator": "subtract",
+                    "left": {
+                      "kind": "state",
+                      "construct_id": "construct:98907cc586bfcf98c836"
+                    },
+                    "right": {
+                      "kind": "coefficient",
+                      "role": "center",
+                      "value": 0.0,
+                      "construct_ids": []
+                    }
+                  },
+                  "right": {
+                    "kind": "literal",
+                    "value": 3.0
+                  }
+                }
+              }
             }
           }
         ],
@@ -185,10 +247,72 @@
             "id": "mechanism:74c8c8e353af2d006cfb",
             "kind": "drift",
             "expression": {
-              "kind": "coefficient",
-              "role": "intercept",
-              "value": 0.0,
-              "construct_ids": []
+              "kind": "binary",
+              "operator": "subtract",
+              "left": {
+                "kind": "binary",
+                "operator": "multiply",
+                "left": {
+                  "kind": "binary",
+                  "operator": "multiply",
+                  "left": {
+                    "kind": "literal",
+                    "value": -1.0
+                  },
+                  "right": {
+                    "kind": "coefficient",
+                    "role": "decay",
+                    "value": 1.0,
+                    "construct_ids": []
+                  }
+                },
+                "right": {
+                  "kind": "binary",
+                  "operator": "subtract",
+                  "left": {
+                    "kind": "state",
+                    "construct_id": "construct:ecc61dc544b34662cb8a"
+                  },
+                  "right": {
+                    "kind": "coefficient",
+                    "role": "center",
+                    "value": 0.0,
+                    "construct_ids": []
+                  }
+                }
+              },
+              "right": {
+                "kind": "binary",
+                "operator": "multiply",
+                "left": {
+                  "kind": "coefficient",
+                  "role": "quartic",
+                  "value": 0.0,
+                  "construct_ids": []
+                },
+                "right": {
+                  "kind": "binary",
+                  "operator": "power",
+                  "left": {
+                    "kind": "binary",
+                    "operator": "subtract",
+                    "left": {
+                      "kind": "state",
+                      "construct_id": "construct:ecc61dc544b34662cb8a"
+                    },
+                    "right": {
+                      "kind": "coefficient",
+                      "role": "center",
+                      "value": 0.0,
+                      "construct_ids": []
+                    }
+                  },
+                  "right": {
+                    "kind": "literal",
+                    "value": 3.0
+                  }
+                }
+              }
             }
           }
         ],
@@ -260,7 +384,7 @@
         "coefficients": [],
         "innovation_family": "gaussian",
         "distribution": null,
-        "role": "exogenous",
+        "role": "endogenous",
         "temporal_status": "time_varying"
       },
       "effect": {
@@ -326,10 +450,72 @@
             "id": "mechanism:74c8c8e353af2d006cfb",
             "kind": "drift",
             "expression": {
-              "kind": "coefficient",
-              "role": "intercept",
-              "value": 0.0,
-              "construct_ids": []
+              "kind": "binary",
+              "operator": "subtract",
+              "left": {
+                "kind": "binary",
+                "operator": "multiply",
+                "left": {
+                  "kind": "binary",
+                  "operator": "multiply",
+                  "left": {
+                    "kind": "literal",
+                    "value": -1.0
+                  },
+                  "right": {
+                    "kind": "coefficient",
+                    "role": "decay",
+                    "value": 1.0,
+                    "construct_ids": []
+                  }
+                },
+                "right": {
+                  "kind": "binary",
+                  "operator": "subtract",
+                  "left": {
+                    "kind": "state",
+                    "construct_id": "construct:ecc61dc544b34662cb8a"
+                  },
+                  "right": {
+                    "kind": "coefficient",
+                    "role": "center",
+                    "value": 0.0,
+                    "construct_ids": []
+                  }
+                }
+              },
+              "right": {
+                "kind": "binary",
+                "operator": "multiply",
+                "left": {
+                  "kind": "coefficient",
+                  "role": "quartic",
+                  "value": 0.0,
+                  "construct_ids": []
+                },
+                "right": {
+                  "kind": "binary",
+                  "operator": "power",
+                  "left": {
+                    "kind": "binary",
+                    "operator": "subtract",
+                    "left": {
+                      "kind": "state",
+                      "construct_id": "construct:ecc61dc544b34662cb8a"
+                    },
+                    "right": {
+                      "kind": "coefficient",
+                      "role": "center",
+                      "value": 0.0,
+                      "construct_ids": []
+                    }
+                  },
+                  "right": {
+                    "kind": "literal",
+                    "value": 3.0
+                  }
+                }
+              }
             }
           }
         ],
@@ -389,7 +575,7 @@
         "coefficients": [],
         "innovation_family": "gaussian",
         "distribution": null,
-        "role": "exogenous",
+        "role": "endogenous",
         "temporal_status": "time_varying"
       },
       "effect": {
@@ -461,10 +647,72 @@
             "id": "mechanism:5ced39cf0fae44636f2b",
             "kind": "drift",
             "expression": {
-              "kind": "coefficient",
-              "role": "intercept",
-              "value": 0.0,
-              "construct_ids": []
+              "kind": "binary",
+              "operator": "subtract",
+              "left": {
+                "kind": "binary",
+                "operator": "multiply",
+                "left": {
+                  "kind": "binary",
+                  "operator": "multiply",
+                  "left": {
+                    "kind": "literal",
+                    "value": -1.0
+                  },
+                  "right": {
+                    "kind": "coefficient",
+                    "role": "decay",
+                    "value": 1.0,
+                    "construct_ids": []
+                  }
+                },
+                "right": {
+                  "kind": "binary",
+                  "operator": "subtract",
+                  "left": {
+                    "kind": "state",
+                    "construct_id": "construct:98907cc586bfcf98c836"
+                  },
+                  "right": {
+                    "kind": "coefficient",
+                    "role": "center",
+                    "value": 0.0,
+                    "construct_ids": []
+                  }
+                }
+              },
+              "right": {
+                "kind": "binary",
+                "operator": "multiply",
+                "left": {
+                  "kind": "coefficient",
+                  "role": "quartic",
+                  "value": 0.0,
+                  "construct_ids": []
+                },
+                "right": {
+                  "kind": "binary",
+                  "operator": "power",
+                  "left": {
+                    "kind": "binary",
+                    "operator": "subtract",
+                    "left": {
+                      "kind": "state",
+                      "construct_id": "construct:98907cc586bfcf98c836"
+                    },
+                    "right": {
+                      "kind": "coefficient",
+                      "role": "center",
+                      "value": 0.0,
+                      "construct_ids": []
+                    }
+                  },
+                  "right": {
+                    "kind": "literal",
+                    "value": 3.0
+                  }
+                }
+              }
             }
           }
         ],
@@ -508,7 +756,7 @@
         "coefficients": [],
         "innovation_family": "gaussian",
         "distribution": null,
-        "role": "exogenous",
+        "role": "endogenous",
         "temporal_status": "time_invariant"
       },
       "effect": {
@@ -574,10 +822,72 @@
             "id": "mechanism:74c8c8e353af2d006cfb",
             "kind": "drift",
             "expression": {
-              "kind": "coefficient",
-              "role": "intercept",
-              "value": 0.0,
-              "construct_ids": []
+              "kind": "binary",
+              "operator": "subtract",
+              "left": {
+                "kind": "binary",
+                "operator": "multiply",
+                "left": {
+                  "kind": "binary",
+                  "operator": "multiply",
+                  "left": {
+                    "kind": "literal",
+                    "value": -1.0
+                  },
+                  "right": {
+                    "kind": "coefficient",
+                    "role": "decay",
+                    "value": 1.0,
+                    "construct_ids": []
+                  }
+                },
+                "right": {
+                  "kind": "binary",
+                  "operator": "subtract",
+                  "left": {
+                    "kind": "state",
+                    "construct_id": "construct:ecc61dc544b34662cb8a"
+                  },
+                  "right": {
+                    "kind": "coefficient",
+                    "role": "center",
+                    "value": 0.0,
+                    "construct_ids": []
+                  }
+                }
+              },
+              "right": {
+                "kind": "binary",
+                "operator": "multiply",
+                "left": {
+                  "kind": "coefficient",
+                  "role": "quartic",
+                  "value": 0.0,
+                  "construct_ids": []
+                },
+                "right": {
+                  "kind": "binary",
+                  "operator": "power",
+                  "left": {
+                    "kind": "binary",
+                    "operator": "subtract",
+                    "left": {
+                      "kind": "state",
+                      "construct_id": "construct:ecc61dc544b34662cb8a"
+                    },
+                    "right": {
+                      "kind": "coefficient",
+                      "role": "center",
+                      "value": 0.0,
+                      "construct_ids": []
+                    }
+                  },
+                  "right": {
+                    "kind": "literal",
+                    "value": 3.0
+                  }
+                }
+              }
             }
           }
         ],
@@ -637,7 +947,7 @@
         "coefficients": [],
         "innovation_family": "gaussian",
         "distribution": null,
-        "role": "exogenous",
+        "role": "endogenous",
         "temporal_status": "time_invariant"
       },
       "effect": {
@@ -709,10 +1019,72 @@
             "id": "mechanism:5ced39cf0fae44636f2b",
             "kind": "drift",
             "expression": {
-              "kind": "coefficient",
-              "role": "intercept",
-              "value": 0.0,
-              "construct_ids": []
+              "kind": "binary",
+              "operator": "subtract",
+              "left": {
+                "kind": "binary",
+                "operator": "multiply",
+                "left": {
+                  "kind": "binary",
+                  "operator": "multiply",
+                  "left": {
+                    "kind": "literal",
+                    "value": -1.0
+                  },
+                  "right": {
+                    "kind": "coefficient",
+                    "role": "decay",
+                    "value": 1.0,
+                    "construct_ids": []
+                  }
+                },
+                "right": {
+                  "kind": "binary",
+                  "operator": "subtract",
+                  "left": {
+                    "kind": "state",
+                    "construct_id": "construct:98907cc586bfcf98c836"
+                  },
+                  "right": {
+                    "kind": "coefficient",
+                    "role": "center",
+                    "value": 0.0,
+                    "construct_ids": []
+                  }
+                }
+              },
+              "right": {
+                "kind": "binary",
+                "operator": "multiply",
+                "left": {
+                  "kind": "coefficient",
+                  "role": "quartic",
+                  "value": 0.0,
+                  "construct_ids": []
+                },
+                "right": {
+                  "kind": "binary",
+                  "operator": "power",
+                  "left": {
+                    "kind": "binary",
+                    "operator": "subtract",
+                    "left": {
+                      "kind": "state",
+                      "construct_id": "construct:98907cc586bfcf98c836"
+                    },
+                    "right": {
+                      "kind": "coefficient",
+                      "role": "center",
+                      "value": 0.0,
+                      "construct_ids": []
+                    }
+                  },
+                  "right": {
+                    "kind": "literal",
+                    "value": 3.0
+                  }
+                }
+              }
             }
           }
         ],

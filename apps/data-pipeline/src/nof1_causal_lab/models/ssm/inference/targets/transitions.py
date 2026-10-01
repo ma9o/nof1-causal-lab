@@ -8,6 +8,7 @@ import jax
 import jax.numpy as jnp
 from dynestyx.inference.configs.discretizer import ExactAffineConfig
 
+from nof1_causal_lab.models.ssm.covariance_utils import CHOL_JITTER
 from nof1_causal_lab.models.ssm.dynamics.linearisation import infer_linearisation
 from nof1_causal_lab.models.ssm.shapes import Array, Float
 
@@ -47,23 +48,28 @@ def build_discrete_transitions(
     # Keep its noise block near
     # unit scale so large Pathfinder draws do not exhaust expm's squaring
     # budget solely because of diffusion magnitude. Restore the exact scale
-    # afterward; no clipping, jitter, or alternative transition is introduced.
+    # afterward. The library's explicit covariance regularization is confined
+    # to this Gaussian initialization view, including lawless input coordinates.
     diffusion = dynamics.diffusion.as_matrix(x=None, u=None, t=0, state_dim=n_latent)
     scale = jax.lax.stop_gradient(jnp.maximum(1.0, jnp.max(jnp.abs(diffusion))))
     normalized = eqx.tree_at(
         lambda value: value.diffusion, dynamics, dsx.FullDiffusion(diffusion / scale)
     )
 
-    def at_interval(state, dt):
-        affine_drift = dsx.linearize_drift(normalized.total_drift, x=state, u=None, t=0.0)
+    starts = jnp.cumsum(time_intervals) - time_intervals - time_intervals[0]
+
+    def at_interval(state, start, dt):
+        affine_drift = dsx.linearize_drift(normalized.total_drift, x=state, u=None, t=start)
         affine_model = dsx.StochasticContinuousTimeStateEvolution(
             drift=affine_drift, diffusion=normalized.diffusion
         )
         evolution = cast(
             "dsx.LinearGaussianStateEvolution",
-            dsx.discretize_state_evolution(affine_model, ExactAffineConfig(covariance_jitter=0.0)),
+            dsx.discretize_state_evolution(
+                affine_model, ExactAffineConfig(covariance_jitter=CHOL_JITTER)
+            ),
         )
-        params = evolution.params_at(0.0, dt)
+        params = evolution.params_at(start, start + dt)
         return params._replace(cov=(params.cov * scale) * scale)
 
-    return jax.vmap(at_interval)(states, time_intervals)
+    return jax.vmap(at_interval)(states, starts, time_intervals)

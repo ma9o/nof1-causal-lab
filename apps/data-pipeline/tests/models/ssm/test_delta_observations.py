@@ -44,7 +44,13 @@ from tests.model_fixtures import compile_fit_fixture
 
 @pytest.fixture
 def exact_model():
-    return ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'delta_observations/exact_model_model.json').read_text())
+    return ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "delta_observations/exact_model_model.json"
+        ).read_text()
+    )
 
 
 @pytest.mark.contract
@@ -87,7 +93,13 @@ def test_delta_constructor_requires_only_its_exact_value():
 @pytest.mark.contract
 def test_authored_affine_delta_keeps_its_calibration_coefficients(exact_model):
     owner = exact_model.constructs[0]
-    predictor = ObservationLawSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'delta_observations/authored_affine_delta_keeps_its_calibration_coefficients_observation_law.json').read_text()).arguments["loc"]
+    predictor = ObservationLawSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "delta_observations/gaussian_observation_law.json"
+        ).read_text()
+    ).arguments["loc"]
     likelihood = LikelihoodSpec(
         law=ObservationLawSpec(distribution="Delta", arguments={"v": predictor}),
         reasoning="Exact measurement with an unknown calibration offset.",
@@ -95,7 +107,13 @@ def test_authored_affine_delta_keeps_its_calibration_coefficients(exact_model):
     indicator = type(owner.indicators[0]).model_validate(
         {**owner.indicators[0].model_dump(), "likelihood": likelihood}
     )
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'delta_observations/authored_affine_delta_keeps_its_calibration_coefficients_complete_model.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "delta_observations/authored_affine_delta_keeps_its_calibration_coefficients_complete_model.json"
+        ).read_text()
+    )
     completed = model.indicator(indicator.id).likelihood
     assert completed is not None
     assert isinstance(completed.terms.intercept.value, str)
@@ -104,14 +122,44 @@ def test_authored_affine_delta_keeps_its_calibration_coefficients(exact_model):
 
 
 @pytest.mark.contract
-@pytest.mark.parametrize(('dtype', 'default_family', 'observation_law_payload'), [
-    pytest.param('continuous', 'gaussian', 'delta_observations/exact_measurement_is_available_but_never_selected_by_default_observation_law_continuous-gaussian.json', id='continuous-gaussian'),
-    pytest.param('binary', 'bernoulli', 'delta_observations/exact_measurement_is_available_but_never_selected_by_default_observation_law_binary-bernoulli.json', id='binary-bernoulli'),
-    pytest.param('count', 'poisson', 'delta_observations/exact_measurement_is_available_but_never_selected_by_default_observation_law_count-poisson.json', id='count-poisson'),
-    pytest.param('ordinal', 'ordered_logistic', 'delta_observations/exact_measurement_is_available_but_never_selected_by_default_observation_law_ordinal-ordered_logistic.json', id='ordinal-ordered_logistic'),
-    pytest.param('categorical', 'categorical', 'delta_observations/exact_measurement_is_available_but_never_selected_by_default_observation_law_categorical-categorical.json', id='categorical-categorical'),
-])
-def test_exact_measurement_is_available_but_never_selected_by_default(dtype, default_family, observation_law_payload):
+@pytest.mark.parametrize(
+    ("dtype", "default_family", "observation_law_payload"),
+    [
+        pytest.param(
+            "continuous",
+            "gaussian",
+            "delta_observations/exact_state_observation_law.json",
+            id="continuous-gaussian",
+        ),
+        pytest.param(
+            "binary",
+            "bernoulli",
+            "delta_observations/exact_state_observation_law.json",
+            id="binary-bernoulli",
+        ),
+        pytest.param(
+            "count",
+            "poisson",
+            "delta_observations/exact_state_observation_law.json",
+            id="count-poisson",
+        ),
+        pytest.param(
+            "ordinal",
+            "ordered_logistic",
+            "delta_observations/exact_state_observation_law.json",
+            id="ordinal-ordered_logistic",
+        ),
+        pytest.param(
+            "categorical",
+            "categorical",
+            "delta_observations/exact_state_observation_law.json",
+            id="categorical-categorical",
+        ),
+    ],
+)
+def test_exact_measurement_is_available_but_never_selected_by_default(
+    dtype, default_family, observation_law_payload
+):
     model = make_model(["setting", "response"], [("setting", "response")])
     owner = model.constructs[0]
     updates = {"measurement_dtype": dtype, "aggregation": "last"}
@@ -130,7 +178,11 @@ def test_exact_measurement_is_available_but_never_selected_by_default(dtype, def
 
     assert VALID_LIKELIHOODS_FOR_DTYPE[indicator.measurement_dtype][0] == default_family
     exact = LikelihoodSpec(
-        law=ObservationLawSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / observation_law_payload).read_text()),
+        law=ObservationLawSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2] / "fixtures/models" / observation_law_payload
+            ).read_text()
+        ),
         reasoning="Explicit exact measurement",
     )
     model.revised(
@@ -236,7 +288,13 @@ def test_unsupported_delta_constraints_fail_before_parameter_initialization(
                     law=ObservationLawSpec(
                         distribution="Delta",
                         arguments={
-                            "v": ObservationLawSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'delta_observations/unsupported_delta_constraints_fail_before_parameter_initialization_observation_law.json').read_text()).arguments["loc"]
+                            "v": ObservationLawSpec.model_validate_json(
+                                (
+                                    Path(__file__).resolve().parents[2]
+                                    / "fixtures/models"
+                                    / "delta_observations/gaussian_observation_law.json"
+                                ).read_text()
+                            ).arguments["loc"]
                         },
                     ),
                     reasoning="An affine equality needs a different constraint parameterization.",
@@ -256,7 +314,7 @@ def test_unsupported_delta_constraints_fail_before_parameter_initialization(
     monkeypatch.setattr(problem_module, "prepare_model_parameters", unexpected_initialization)
     with pytest.raises(ValueError, match=r"setting_obs.*direct point binding"):
         problem_module.build_particle_problem(
-            SimpleNamespace(spec=exact_model, observation_support=None),
+            SimpleNamespace(spec=exact_model, observation_support=None, input_values=None),
             jnp.array([[1.0, 0.0], [jnp.nan, 0.5]]),
             jnp.array([0.0, 1.0]),
             scheme="euler_maruyama",

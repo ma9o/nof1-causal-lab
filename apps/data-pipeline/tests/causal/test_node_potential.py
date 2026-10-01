@@ -107,7 +107,13 @@ def test_invalid_potential_coefficients_are_rejected(kwargs):
 
 @pytest.mark.contract
 def test_directed_edges_cannot_be_reinterpreted_as_potentials():
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'node_potential/directed_edges_cannot_be_reinterpreted_as_potentials_model_fixture.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1]
+            / "fixtures/models"
+            / "node_potential/directed_edges_cannot_be_reinterpreted_as_potentials_model_fixture.json"
+        ).read_text()
+    )
     edge = model.execution_edges[0]
     changed = type(edge).model_validate(
         {

@@ -57,7 +57,9 @@ def lower_mechanisms(model: ModelSpec) -> tuple[ExpressionComponentSpec, ...]:
         else:
             modeled_nodes.add(owner.id)
     expected_nodes = {
-        key for key in states if model.get_construct(key).temporal_status != "time_invariant"
+        key
+        for key in states
+        if model.get_construct(key).is_dynamic and model.get_construct(key).role == "endogenous"
     }
     if modeled_nodes != expected_nodes or modeled_edges != retained_edges:
         raise IncompleteModelError(

@@ -21,7 +21,12 @@ from pydantic import (
 from nof1_causal_lab.distributions import DistributionFamily
 
 from .evidence import LiteratureSource
-from .expressions import CONSTRUCT_COEFFICIENT_ROLES, CoefficientExpression, CoefficientRole
+from .expressions import (
+    CONSTRUCT_COEFFICIENT_ROLES,
+    CoefficientExpression,
+    CoefficientRole,
+    StateExpression,
+)
 from .identity import (
     ConstructId,
     ConstructRef,
@@ -71,7 +76,7 @@ class ConstructSpec(BaseModel):
         description="Membership in a trajectory law in ModelSpec.distributions on ModelSpec.time_points.",
     )
     role: Role = Field(
-        description="'endogenous' or 'exogenous' (no modeled causal parents; may still be uncertain)"
+        description="'endogenous' means modeled, with or without parents; 'exogenous' means given through direct exact readings, with no law. Unmeasured constructs are endogenous."
     )
     temporal_status: TemporalStatus = Field(
         description="'time_varying' (changes over time) or 'time_invariant' (fixed)"
@@ -97,6 +102,31 @@ class ConstructSpec(BaseModel):
 
     @model_validator(mode="after")
     def validate_coefficients(self) -> ConstructSpec:
+        if self.role == Role.EXOGENOUS:
+            if not self.indicators:
+                raise ValueError(
+                    "Exogenous constructs require exact readings; latent constructs are endogenous"
+                )
+            if self.dynamics or self.coefficients or self.distribution is not None:
+                raise ValueError(
+                    "Exogenous constructs have no dynamics, diffusion, initial coefficients or trajectory law"
+                )
+            for indicator in self.indicators:
+                likelihood = indicator.likelihood
+                if (
+                    likelihood is None
+                    or likelihood.law.distribution != "Delta"
+                    or not isinstance(expression := likelihood.law.arguments["v"], StateExpression)
+                    or expression.construct_id != self.id
+                    or likelihood.standardized
+                ):
+                    raise ValueError(
+                        "Exogenous readings require Delta(v=state(the owning construct)) in recorded units"
+                    )
+                if indicator.summary_operator == "std":
+                    raise ValueError(
+                        "A constant input cannot reproduce a standard-deviation reading"
+                    )
         seen = set()
         for operand in self.coefficients:
             if operand.role not in CONSTRUCT_COEFFICIENT_ROLES:

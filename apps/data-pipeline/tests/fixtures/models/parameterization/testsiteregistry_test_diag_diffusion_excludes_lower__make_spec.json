@@ -429,7 +429,7 @@
         "coefficients": [],
         "innovation_family": "gaussian",
         "distribution": null,
-        "role": "exogenous",
+        "role": "endogenous",
         "temporal_status": "time_invariant"
       },
       "effect": {

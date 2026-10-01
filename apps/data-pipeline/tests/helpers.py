@@ -1,6 +1,5 @@
 """Shared model fixtures and async test helpers."""
 
-
 import asyncio
 from collections.abc import Sequence
 from hashlib import sha256
@@ -41,10 +40,6 @@ def run_async(coro):
 
 def invalid_dict_payload(value: object) -> Any:
     return value
-
-
-
-
 
 
 def make_model(state_names: list[str], edges: Sequence[tuple[str, str]] = ()):
@@ -107,25 +102,3 @@ def graph_constructs(payload):
         for endpoint in (edge["cause"], edge["effect"])
         if "name" in endpoint
     ]
-
-
-
-
-
-
-def native_axis_metadata(n_latent, n_manifest, metadata):
-    """Declare stable scientific axes when constructing a new native test model."""
-    latent_names = metadata.get("latent_names") or [f"latent_{index}" for index in range(n_latent)]
-    manifest_names = metadata.get("manifest_names") or [
-        f"manifest_{index}" for index in range(n_manifest)
-    ]
-    return {
-        "latent_names": latent_names,
-        "manifest_names": manifest_names,
-        "latent_ids": [fixture_entity_id("construct", name) for name in latent_names],
-        "manifest_ids": [fixture_entity_id("indicator", name) for name in manifest_names],
-        "static_factor_ids": [],
-        **metadata,
-    }
-
-

@@ -13,7 +13,7 @@
             "id": "indicator:06ac50310de3251cd28e",
             "name": "fill_quantity",
             "measurement_dtype": "continuous",
-            "aggregation": "mean",
+            "aggregation": "sum",
             "observation_window": null,
             "fill_null": null,
             "fill_null_limit": null,
@@ -55,7 +55,7 @@
                   }
                 }
               },
-              "standardized": true,
+              "standardized": false,
               "reasoning": "test",
               "sources": []
             },

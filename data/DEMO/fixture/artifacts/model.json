@@ -645,7 +645,7 @@
         ],
         "innovation_family": "gaussian",
         "name": "natural_recovery_propensity",
-        "role": "exogenous",
+        "role": "endogenous",
         "temporal_status": "time_invariant"
       },
       "description": "Underlying remission and relapse propensity changes symptom burden independently of the taper pathway.",
@@ -1905,7 +1905,7 @@
         "indicators": [],
         "innovation_family": "gaussian",
         "name": "stable_withdrawal_susceptibility",
-        "role": "exogenous",
+        "role": "endogenous",
         "temporal_status": "time_invariant"
       },
       "description": "Underlying discontinuation susceptibility causally affects current withdrawal burden, while prior history is treated as a marker and belief-shaper.",

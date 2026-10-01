@@ -15,18 +15,22 @@ These are the scientific commitments behind every result: what the model can exp
 
 The model is one connected DAG over constructs. A theorized common cause appears as an explicit latent confounder node; the graph has no bidirected edges. Indicators belong to their construct and never cause it.
 
+Endogenous means modeled, with or without causal parents. Every latent construct is endogenous. Exogenous means given through direct exact readings, `Delta(v=state(x))`, with no dynamics, diffusion, initial law or noise coupling; it cannot be an effect.
+
 | Role | Temporal status | Example |
 | --- | --- | --- |
-| Exogenous | Time-varying | Weather, day of week |
-| Exogenous | Time-invariant | Age, person intercept |
+| Exogenous | Time-varying | Recorded dose, daily stressor count |
+| Exogenous | Time-invariant | Exactly recorded baseline age |
 | Endogenous | Time-varying | Mood, stress, sleep quality |
-| Endogenous | Time-invariant | Baseline severity, a stable trait outcome |
+| Endogenous | Time-invariant | Latent person intercept, stable susceptibility |
 
 Declared edges specify direct causal parents. Their [temporal interpretation](../apps/data-pipeline/src/nof1_causal_lab/utils/identifiability.py) follows the constructs’ temporal status.
 
 ### A3. Markov dynamics
 
-All time-varying states follow first-order Markov dynamics: the current state summarizes earlier history, including for exogenous constructs. Explicit delay equations and higher-order lags are not modeled. Residual autocorrelation can indicate missing state dynamics or confounders. First-order within-person dynamics are the standard starting point in [dynamic SEM](https://doi.org/10.1080/10705511.2017.1406803).
+Time-varying endogenous states follow first-order Markov dynamics: the current state summarizes earlier history. Explicit delay equations and higher-order lags are not modeled. Residual autocorrelation can indicate missing state dynamics or confounders. First-order within-person dynamics are the standard starting point in [dynamic SEM](https://doi.org/10.1080/10705511.2017.1406803).
+
+An input reading sets a constant level over its own window: the recorded point or mean value, or a count or sum divided by the window length in model days. That level holds until the next reading, including beyond the record. Preparation carries the last eligible reading into the first selected window; a missing starting value is an error, and standard-deviation readings are unsupported. Fit pins this replay on every grid point and assigns it no initial or transition density. Simulation replays the same panel in both arms; an input intervention overrides the record from its date until the next intervention. Copied inputs are omitted from simulation checks and data comparisons involving a simulation.
 
 ### A4. Acyclic within a time slice
 

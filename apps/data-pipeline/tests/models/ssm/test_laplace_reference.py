@@ -72,7 +72,7 @@ def test_student_t_laplace_value_and_gradient_match_scalar_reference(monkeypatch
     )
     dynamics = _runtime_dynamics(
         dynamics=jnp.array([[-0.09]], dtype=jnp.float32),
-        diffusion_cov=jnp.array([[0.07]], dtype=jnp.float32),
+        diffusion=jnp.linalg.cholesky(jnp.array([[0.07]], dtype=jnp.float32)),
     )
     initial = MultivariateNormal(
         loc=jnp.array([0.05], dtype=jnp.float32),
@@ -137,7 +137,7 @@ def test_student_t_laplace_value_and_gradient_match_scalar_reference(monkeypatch
 def _runtime_dynamics(
     *,
     dynamics: jnp.ndarray,
-    diffusion_cov: jnp.ndarray,
+    diffusion: jnp.ndarray,
     cint: jnp.ndarray | None = None,
 ) -> StochasticContinuousTimeStateEvolution:
     params = {"drift": dynamics}
@@ -149,7 +149,7 @@ def _runtime_dynamics(
             components=(DenseLinear(),),
         ),
         vf_params=(params,),
-        diffusion_cov=diffusion_cov,
+        diffusion=diffusion,
     )
 
 
@@ -183,7 +183,7 @@ class TestLaplaceSupportAware:
         )
         ct_params = _runtime_dynamics(
             dynamics=jnp.array([[-0.4]], dtype=jnp.float32),
-            diffusion_cov=jnp.array([[0.1]], dtype=jnp.float32),
+            diffusion=jnp.linalg.cholesky(jnp.array([[0.1]], dtype=jnp.float32)),
             cint=jnp.array([0.0], dtype=jnp.float32),
         )
         meas_params = MeasurementParams(

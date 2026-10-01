@@ -344,22 +344,6 @@ def sample_prior_parameters_from_runtime(
     return {**constrained_samples, **deterministic_samples}
 
 
-def simulate_predictive_latents(
-    spec: ModelSpec,
-    samples: dict[str, jnp.ndarray],
-    times: jnp.ndarray,
-    *,
-    rng_key: jax.Array,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
-    """Simulate exact nonlinear latent paths and their linear predictors."""
-    return _simulate_vector_field_predictive_latents(
-        spec,
-        samples,
-        times,
-        rng_key=rng_key,
-    )
-
-
 def sample_predictive_emissions(
     spec: ModelSpec,
     samples: dict[str, jnp.ndarray],
@@ -375,7 +359,7 @@ def sample_predictive_emissions(
     indices = jnp.linspace(
         0, linear_predictors.shape[0] - 1, min(num_samples, linear_predictors.shape[0])
     ).astype(int)
-    return sample_model_observations(
+    observations, mask, means = sample_model_observations(
         _predictive_models(
             spec, {name: values[indices] for name, values in samples.items()}, times
         ),
@@ -385,7 +369,13 @@ def sample_predictive_emissions(
         observation_support=observation_support,
         observation_mask=observation_mask,
         manifest_names=list(numeric.observation_names(spec)),
+        held_channels=tuple(
+            index
+            for index, indicator in enumerate(numeric.observed_indicators(spec))
+            if spec.indicator_owner(indicator.id).role == "exogenous"
+        ),
     )
+    return observations, mask, means
 
 
 def sample_prior_predictive_from_runtime(
@@ -397,6 +387,7 @@ def sample_prior_predictive_from_runtime(
     observation_mask: jnp.ndarray | None = None,
     num_samples: int = 100,
     seed: int = 0,
+    input_events=(),
 ) -> PredictiveDraws:
     """Sample prior predictive draws from a prepared runtime bundle."""
     keys = predictive_keys(seed)
@@ -414,6 +405,7 @@ def sample_prior_predictive_from_runtime(
         observation_support=observation_support,
         observation_mask=observation_mask,
         seed=seed,
+        input_events=input_events,
     )
 
 
@@ -427,6 +419,7 @@ def simulate_predictive_draws(
     seed: int = 0,
     initial_states: jax.Array | None = None,
     interventions=(),
+    input_events=(),
 ) -> PredictiveDraws:
     """Generate one shared path/observation batch from aligned parameter draws."""
     _ensure_gaussian_process_diffusion(spec)
@@ -436,7 +429,13 @@ def simulate_predictive_draws(
     )
     keys = predictive_keys(seed)
     latents, linear_predictors, reference_latents = simulate_latent_histories(
-        spec, samples, times, random.fold_in(keys.latents, 0), initial_states, interventions
+        spec,
+        samples,
+        times,
+        random.fold_in(keys.latents, 0),
+        initial_states,
+        interventions,
+        input_events,
     )
     observations, observations_mask, expected_observations = sample_predictive_emissions(
         spec,
@@ -486,11 +485,17 @@ def simulate_predictive_draws(
     )
 
 
-def simulate_latent_histories(spec, samples, times, key, initial_states, interventions):
+def simulate_latent_histories(
+    spec, samples, times, key, initial_states, interventions, input_events=()
+):
     """Execute the same nonlinear field with explicit starts, noise and paired do-operations."""
-    if initial_states is None and not interventions:
+    if numeric.input_mask(spec).any() and not input_events:
+        raise ValueError("Exogenous inputs require replayed panel readings")
+    if initial_states is None and not interventions and not input_events:
         # The initial-law case retains caching and microbatching of the same exact solver.
-        latents, predictors = simulate_predictive_latents(spec, samples, times, rng_key=key)
+        latents, predictors = _simulate_vector_field_predictive_latents(
+            spec, samples, times, rng_key=key
+        )
         return latents, predictors, None
 
     from nof1_causal_lab.models.ssm.counterfactual.orchestration import (
@@ -516,8 +521,9 @@ def simulate_latent_histories(spec, samples, times, key, initial_states, interve
         config=_predictive_sde_config(jnp.max(max_rates), span),
         noise=ProcessNoise(
             key=jax.vmap(lambda k: random.split(k)[1])(draw_keys),
-            diffusion_cov=samples["diffusion"] @ jnp.swapaxes(samples["diffusion"], -1, -2),
+            diffusion=samples["diffusion"],
         ),
+        input_events=tuple(input_events),
     )
     predictors = eqx.filter_vmap(
         lambda model, path: jax.vmap(model.observation_model.linear_predictor)(path)

@@ -1,10 +1,6 @@
 """Shared fixtures for SSM contracts, inference, and predictive test suites."""
 
 from __future__ import annotations
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
-
-from pathlib import Path
-from typing import TYPE_CHECKING
 
 from nof1_causal_lab.artifacts.likelihood import LinkFunction
 
@@ -57,7 +53,3 @@ def complex_mixed_family_config() -> tuple[list[str], list[str], list[int], list
 # ══════════════════════════════════════════════════════════════════════════════
 # PRIOR-PREDICTIVE RUNTIME SPEC
 # ══════════════════════════════════════════════════════════════════════════════
-
-
-def complex_mixed_runtime_spec() -> ModelSpec:
-    return ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / '_support/complex_mixed_runtime_spec_model_fixture.json').read_text())

@@ -103,15 +103,21 @@ class SupportObservationStepResult(NamedTuple):
 @overload
 def compile_observation_operator(
     observation_support: ObservationSupportRuntime,
+    *,
+    held_channels: tuple[int, ...] = (),
 ) -> ObservationOperator: ...
 
 
 @overload
-def compile_observation_operator(observation_support: None = None) -> None: ...
+def compile_observation_operator(
+    observation_support: None = None, *, held_channels: tuple[int, ...] = ()
+) -> None: ...
 
 
 def compile_observation_operator(
     observation_support: ObservationSupportRuntime | None = None,
+    *,
+    held_channels: tuple[int, ...] = (),
 ) -> ObservationOperator | None:
     """Compile reusable observation-window semantics from runtime metadata."""
     if observation_support is None:
@@ -120,13 +126,23 @@ def compile_observation_operator(
     interval_summary_indices = tuple(
         idx for idx, kind in enumerate(observation_support.support_kinds) if kind == "interval"
     )
+    prev_coeffs = jnp.asarray(observation_support.interval_prev_coeffs)
+    curr_coeffs = jnp.asarray(observation_support.interval_curr_coeffs)
+    if held_channels:
+        # Inputs hold their left-hand level through each segment. Reuse the
+        # compiled overlap weights instead of interpolating across assignments.
+        channels = jnp.asarray(held_channels)
+        prev_coeffs = prev_coeffs.at[:, channels, :].set(
+            jnp.asarray(observation_support.interval_weights)[:, channels, :]
+        )
+        curr_coeffs = curr_coeffs.at[:, channels, :].set(0.0)
     return ObservationOperator(
         observation_support=observation_support,
         support_kind_codes=get_support_kind_codes(observation_support),
         summary_operator_codes=get_summary_operator_codes(observation_support),
         interval_summary_indices=interval_summary_indices,
-        prev_coeffs=jnp.asarray(observation_support.interval_prev_coeffs),
-        curr_coeffs=jnp.asarray(observation_support.interval_curr_coeffs),
+        prev_coeffs=prev_coeffs,
+        curr_coeffs=curr_coeffs,
         interval_weights=jnp.asarray(observation_support.interval_weights),
         emission_slots=jnp.asarray(observation_support.emission_slot_indices, dtype=jnp.int32),
         max_active_windows=observation_support.max_active_windows,

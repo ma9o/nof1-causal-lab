@@ -37,7 +37,15 @@ def test_specification_reports_each_distinct_fit_law_reason_once(monkeypatch):
         )
 
     monkeypatch.setattr(prior_compilation, "compile_priors", unsupported)
-    report = check_specification(ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'model_data_preflight/specification_reports_each_distinct_fit_law_reason_once_scientific_model.json').read_text()))
+    report = check_specification(
+        ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[1]
+                / "fixtures/models"
+                / "common/stress_sleep_model.json"
+            ).read_text()
+        )
+    )
     finding = next(finding for finding in report.findings if finding.check == "fit_laws")
     assert finding.status == "failed"
     assert finding.message.count("Unsupported joint law.") == 1
@@ -45,7 +53,16 @@ def test_specification_reports_each_distinct_fit_law_reason_once(monkeypatch):
 
 
 def test_interval_summary_fails_shared_preflight_before_particle_dispatch():
-    model, panel = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'model_data_preflight/interval_summary_fails_shared_preflight_before_particle_dispatch_scientific_model.json').read_text()), panel_frame(n_days=4)
+    model, panel = (
+        ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[1]
+                / "fixtures/models"
+                / "common/stress_sleep_model.json"
+            ).read_text()
+        ),
+        panel_frame(n_days=4),
+    )
     report = check_model_data(model, panel, time_origin=panel_metadata().time_origin)
     finding = report.findings[0]
     assert finding.check == "fit_preflight"
@@ -85,7 +102,18 @@ def test_edit_with_missing_panel_variable_saves_compatibility_findings(tmp_path,
     prepared = evaluate_data_checks("TEST", StudyState(), ActionEffects(produced=[record]))
     state = StudyState().with_artifacts(prepared.produced)
     edited = edit_and_check(
-        "TEST", EditModelRequest(expected_revision=None, model=ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'model_data_preflight/edit_with_missing_panel_variable_saves_compatibility_findings_scientific_model.json').read_text())), state
+        "TEST",
+        EditModelRequest(
+            expected_revision=None,
+            model=ModelSpec.model_validate_json(
+                (
+                    Path(__file__).resolve().parents[1]
+                    / "fixtures/models"
+                    / "common/stress_sleep_model.json"
+                ).read_text()
+            ),
+        ),
+        state,
     )
     assert "model" in {item.artifact_id for item in edited.produced}
     validation = next(item for item in edited.produced if item.artifact_id == "validation_report")

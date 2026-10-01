@@ -136,12 +136,12 @@
             }
           },
           {
-            "id": "mechanism:d2026e332e3faacbe952",
+            "id": "mechanism:17123abba54446181667",
             "kind": "drift",
             "expression": {
               "kind": "coefficient",
               "role": "intercept",
-              "value": "parameter:2c2fecdc649c30e47b8ce851b9a16ca781993920eac85a372fc946e7b9a98238",
+              "value": "parameter:a138740781a8a1db8e91384ec76bb5c7c0001261488418938e88c92fc1e0ff95",
               "construct_ids": []
             }
           }
@@ -321,12 +321,12 @@
             }
           },
           {
-            "id": "mechanism:b8fe00a102c320154c9e",
+            "id": "mechanism:fa4b846dd529ce264f8c",
             "kind": "drift",
             "expression": {
               "kind": "coefficient",
               "role": "intercept",
-              "value": "parameter:cc722a45cc3a5bb85ec026ea187865d24c2f0a47de808e0e3f7ff0477ccbf150",
+              "value": "parameter:cc1aa30afe6402edae51f761a4befb199b327adf83f72fe657322b05de6e020e",
               "construct_ids": []
             }
           }
@@ -514,12 +514,12 @@
             }
           },
           {
-            "id": "mechanism:17123abba54446181667",
+            "id": "mechanism:fa6e895ea5f50cf65cbf",
             "kind": "drift",
             "expression": {
               "kind": "coefficient",
               "role": "intercept",
-              "value": "parameter:dc034b571a2181b4f9a24c0e05b24d8d7777078e72d2f7b84f81d80453bc6351",
+              "value": "parameter:26a9af1216e5983b67d5aaeaac8d835e5eecbd06ec50c95006c5cd95e4a4599c",
               "construct_ids": []
             }
           }
@@ -589,6 +589,72 @@
       "sources": []
     },
     {
+      "id": "edge:810c972f8c643d724cd2",
+      "mechanisms": [
+        {
+          "id": "mechanism:d2026e332e3faacbe952",
+          "kind": "drift",
+          "expression": {
+            "kind": "binary",
+            "operator": "multiply",
+            "left": {
+              "kind": "coefficient",
+              "role": "weight",
+              "value": "parameter:549c45b1d696b394b539575cc0284f00a75afb3a6d5b8a0423067f4d14ab57fb",
+              "construct_ids": []
+            },
+            "right": {
+              "kind": "state",
+              "construct_id": "construct:98907cc586bfcf98c836"
+            }
+          }
+        }
+      ],
+      "cause": {
+        "kind": "construct",
+        "id": "construct:98907cc586bfcf98c836"
+      },
+      "effect": {
+        "kind": "construct",
+        "id": "construct:ecc61dc544b34662cb8a"
+      },
+      "description": "Fixture causal assumption",
+      "sources": []
+    },
+    {
+      "id": "edge:06790f042d210f5df5b2",
+      "mechanisms": [
+        {
+          "id": "mechanism:b8fe00a102c320154c9e",
+          "kind": "drift",
+          "expression": {
+            "kind": "binary",
+            "operator": "multiply",
+            "left": {
+              "kind": "coefficient",
+              "role": "weight",
+              "value": "parameter:27568978e65e218038072ba7ea8663361dfe8a78653839fae5606e098a0987e4",
+              "construct_ids": []
+            },
+            "right": {
+              "kind": "state",
+              "construct_id": "construct:ecc61dc544b34662cb8a"
+            }
+          }
+        }
+      ],
+      "cause": {
+        "kind": "construct",
+        "id": "construct:ecc61dc544b34662cb8a"
+      },
+      "effect": {
+        "kind": "construct",
+        "id": "construct:bdd133b02bb7223d3cf2"
+      },
+      "description": "Fixture causal assumption",
+      "sources": []
+    },
+    {
       "id": "edge:fcf13fa40222a0910f6c",
       "mechanisms": [],
       "cause": {
@@ -600,7 +666,7 @@
         "coefficients": [],
         "innovation_family": "gaussian",
         "distribution": null,
-        "role": "exogenous",
+        "role": "endogenous",
         "temporal_status": "time_varying"
       },
       "effect": {
@@ -636,7 +702,7 @@
         "coefficients": [],
         "innovation_family": "gaussian",
         "distribution": null,
-        "role": "exogenous",
+        "role": "endogenous",
         "temporal_status": "time_invariant"
       },
       "effect": {
@@ -672,7 +738,7 @@
         "coefficients": [],
         "innovation_family": "gaussian",
         "distribution": null,
-        "role": "exogenous",
+        "role": "endogenous",
         "temporal_status": "time_varying"
       },
       "effect": {
@@ -708,7 +774,7 @@
         "coefficients": [],
         "innovation_family": "gaussian",
         "distribution": null,
-        "role": "exogenous",
+        "role": "endogenous",
         "temporal_status": "time_invariant"
       },
       "effect": {
@@ -744,7 +810,7 @@
         "coefficients": [],
         "innovation_family": "gaussian",
         "distribution": null,
-        "role": "exogenous",
+        "role": "endogenous",
         "temporal_status": "time_varying"
       },
       "effect": {
@@ -780,7 +846,7 @@
         "coefficients": [],
         "innovation_family": "gaussian",
         "distribution": null,
-        "role": "exogenous",
+        "role": "endogenous",
         "temporal_status": "time_invariant"
       },
       "effect": {
@@ -831,27 +897,43 @@
       "reference_interval_days": null
     },
     {
-      "id": "parameter:2c2fecdc649c30e47b8ce851b9a16ca781993920eac85a372fc946e7b9a98238",
-      "name": "parameter:2c2fecdc649c30e47b8ce851b9a16ca781993920eac85a372fc946e7b9a98238",
+      "id": "parameter:549c45b1d696b394b539575cc0284f00a75afb3a6d5b8a0423067f4d14ab57fb",
+      "name": "parameter:549c45b1d696b394b539575cc0284f00a75afb3a6d5b8a0423067f4d14ab57fb",
       "description": "Fixture quantity",
       "distribution_transform": "identity",
-      "distribution": "distribution:c6540e44488b60fc8b962cc902b96367cc8dce9c2ceec69705672eb4c495a34a",
+      "distribution": "distribution:8df5c580a7c8cfc0ea540e21fe4578b824e2dd7f4968170d8bdc0bca2c9b69f6",
       "reference_interval_days": null
     },
     {
-      "id": "parameter:cc722a45cc3a5bb85ec026ea187865d24c2f0a47de808e0e3f7ff0477ccbf150",
-      "name": "parameter:cc722a45cc3a5bb85ec026ea187865d24c2f0a47de808e0e3f7ff0477ccbf150",
+      "id": "parameter:27568978e65e218038072ba7ea8663361dfe8a78653839fae5606e098a0987e4",
+      "name": "parameter:27568978e65e218038072ba7ea8663361dfe8a78653839fae5606e098a0987e4",
       "description": "Fixture quantity",
       "distribution_transform": "identity",
-      "distribution": "distribution:18a502e52d6cd3db5c90160ea697c0d678d731677032f2cf2da859b4c63e91e7",
+      "distribution": "distribution:517692dce5cc453a015fe7d7c9d8bba4c0285e6122338afc3e0af6701e3189b8",
       "reference_interval_days": null
     },
     {
-      "id": "parameter:dc034b571a2181b4f9a24c0e05b24d8d7777078e72d2f7b84f81d80453bc6351",
-      "name": "parameter:dc034b571a2181b4f9a24c0e05b24d8d7777078e72d2f7b84f81d80453bc6351",
+      "id": "parameter:a138740781a8a1db8e91384ec76bb5c7c0001261488418938e88c92fc1e0ff95",
+      "name": "parameter:a138740781a8a1db8e91384ec76bb5c7c0001261488418938e88c92fc1e0ff95",
       "description": "Fixture quantity",
       "distribution_transform": "identity",
-      "distribution": "distribution:0be8b79121120592e70467e524b1df19187754cbbc7f04504127fbe5972387c9",
+      "distribution": "distribution:cc5cec304fe3f6109a9f89747e865d7720df6746eb0205dd59723f9c6756ba5a",
+      "reference_interval_days": null
+    },
+    {
+      "id": "parameter:cc1aa30afe6402edae51f761a4befb199b327adf83f72fe657322b05de6e020e",
+      "name": "parameter:cc1aa30afe6402edae51f761a4befb199b327adf83f72fe657322b05de6e020e",
+      "description": "Fixture quantity",
+      "distribution_transform": "identity",
+      "distribution": "distribution:c365071a74d1e0796db4d7ff6b9d9b49e726d6c2852fd3f0b6a84bba878b5b89",
+      "reference_interval_days": null
+    },
+    {
+      "id": "parameter:26a9af1216e5983b67d5aaeaac8d835e5eecbd06ec50c95006c5cd95e4a4599c",
+      "name": "parameter:26a9af1216e5983b67d5aaeaac8d835e5eecbd06ec50c95006c5cd95e4a4599c",
+      "description": "Fixture quantity",
+      "distribution_transform": "identity",
+      "distribution": "distribution:297bdbfba0693b01315f84b5e1cc2d5ee4d29dc515634c4d6e150fd7113dddca",
       "reference_interval_days": null
     },
     {
@@ -1021,7 +1103,7 @@
         "validate_args": false
       }
     },
-    "distribution:c6540e44488b60fc8b962cc902b96367cc8dce9c2ceec69705672eb4c495a34a": {
+    "distribution:8df5c580a7c8cfc0ea540e21fe4578b824e2dd7f4968170d8bdc0bca2c9b69f6": {
       "distribution": "Normal",
       "params": {
         "loc": 0.0,
@@ -1029,7 +1111,7 @@
         "validate_args": false
       }
     },
-    "distribution:18a502e52d6cd3db5c90160ea697c0d678d731677032f2cf2da859b4c63e91e7": {
+    "distribution:517692dce5cc453a015fe7d7c9d8bba4c0285e6122338afc3e0af6701e3189b8": {
       "distribution": "Normal",
       "params": {
         "loc": 0.0,
@@ -1037,7 +1119,23 @@
         "validate_args": false
       }
     },
-    "distribution:0be8b79121120592e70467e524b1df19187754cbbc7f04504127fbe5972387c9": {
+    "distribution:cc5cec304fe3f6109a9f89747e865d7720df6746eb0205dd59723f9c6756ba5a": {
+      "distribution": "Normal",
+      "params": {
+        "loc": 0.0,
+        "scale": 0.5,
+        "validate_args": false
+      }
+    },
+    "distribution:c365071a74d1e0796db4d7ff6b9d9b49e726d6c2852fd3f0b6a84bba878b5b89": {
+      "distribution": "Normal",
+      "params": {
+        "loc": 0.0,
+        "scale": 0.5,
+        "validate_args": false
+      }
+    },
+    "distribution:297bdbfba0693b01315f84b5e1cc2d5ee4d29dc515634c4d6e150fd7113dddca": {
       "distribution": "Normal",
       "params": {
         "loc": 0.0,

@@ -611,6 +611,72 @@
       "sources": []
     },
     {
+      "id": "edge:f5f57fae4920e9593b62",
+      "mechanisms": [
+        {
+          "id": "mechanism:d2026e332e3faacbe952",
+          "kind": "drift",
+          "expression": {
+            "kind": "binary",
+            "operator": "multiply",
+            "left": {
+              "kind": "coefficient",
+              "role": "weight",
+              "value": "parameter:d21b51c422ba6c123298a5209806c029bb5e167cd29cba43ebe09c26b8784c59",
+              "construct_ids": []
+            },
+            "right": {
+              "kind": "state",
+              "construct_id": "construct:311c9047b5ede16a8f26"
+            }
+          }
+        }
+      ],
+      "cause": {
+        "kind": "construct",
+        "id": "construct:311c9047b5ede16a8f26"
+      },
+      "effect": {
+        "kind": "construct",
+        "id": "construct:d90c52e59b79004188dc"
+      },
+      "description": "Fixture causal assumption",
+      "sources": []
+    },
+    {
+      "id": "edge:552b8c8f4eea071d71a7",
+      "mechanisms": [
+        {
+          "id": "mechanism:b8fe00a102c320154c9e",
+          "kind": "drift",
+          "expression": {
+            "kind": "binary",
+            "operator": "multiply",
+            "left": {
+              "kind": "coefficient",
+              "role": "weight",
+              "value": "parameter:3570bdbdfc432626703b57f79fcf6ee270a558391bbb05461267079d7e5611ce",
+              "construct_ids": []
+            },
+            "right": {
+              "kind": "state",
+              "construct_id": "construct:d90c52e59b79004188dc"
+            }
+          }
+        }
+      ],
+      "cause": {
+        "kind": "construct",
+        "id": "construct:d90c52e59b79004188dc"
+      },
+      "effect": {
+        "kind": "construct",
+        "id": "construct:a6b7873d58dac1ff1a02"
+      },
+      "description": "Fixture causal assumption",
+      "sources": []
+    },
+    {
       "id": "edge:43cee48eb020daeaf066",
       "mechanisms": [],
       "cause": {
@@ -622,7 +688,7 @@
         "coefficients": [],
         "innovation_family": "gaussian",
         "distribution": null,
-        "role": "exogenous",
+        "role": "endogenous",
         "temporal_status": "time_varying"
       },
       "effect": {
@@ -658,7 +724,7 @@
         "coefficients": [],
         "innovation_family": "gaussian",
         "distribution": null,
-        "role": "exogenous",
+        "role": "endogenous",
         "temporal_status": "time_invariant"
       },
       "effect": {
@@ -694,7 +760,7 @@
         "coefficients": [],
         "innovation_family": "gaussian",
         "distribution": null,
-        "role": "exogenous",
+        "role": "endogenous",
         "temporal_status": "time_varying"
       },
       "effect": {
@@ -730,7 +796,7 @@
         "coefficients": [],
         "innovation_family": "gaussian",
         "distribution": null,
-        "role": "exogenous",
+        "role": "endogenous",
         "temporal_status": "time_invariant"
       },
       "effect": {
@@ -766,7 +832,7 @@
         "coefficients": [],
         "innovation_family": "gaussian",
         "distribution": null,
-        "role": "exogenous",
+        "role": "endogenous",
         "temporal_status": "time_varying"
       },
       "effect": {
@@ -802,7 +868,7 @@
         "coefficients": [],
         "innovation_family": "gaussian",
         "distribution": null,
-        "role": "exogenous",
+        "role": "endogenous",
         "temporal_status": "time_invariant"
       },
       "effect": {
@@ -850,6 +916,22 @@
       "description": "Fixture quantity",
       "distribution_transform": "identity",
       "distribution": "distribution:046e9a97db17714cba6c31e262cb423b2c86f64d41ea48bf4ca1b25891f4f510",
+      "reference_interval_days": null
+    },
+    {
+      "id": "parameter:d21b51c422ba6c123298a5209806c029bb5e167cd29cba43ebe09c26b8784c59",
+      "name": "parameter:d21b51c422ba6c123298a5209806c029bb5e167cd29cba43ebe09c26b8784c59",
+      "description": "Fixture quantity",
+      "distribution_transform": "identity",
+      "distribution": "distribution:b1de91c1c4429363d070d0088594d573f25dc5111a49a8814fef4963b6ab9ef3",
+      "reference_interval_days": null
+    },
+    {
+      "id": "parameter:3570bdbdfc432626703b57f79fcf6ee270a558391bbb05461267079d7e5611ce",
+      "name": "parameter:3570bdbdfc432626703b57f79fcf6ee270a558391bbb05461267079d7e5611ce",
+      "description": "Fixture quantity",
+      "distribution_transform": "identity",
+      "distribution": "distribution:bf2a8ecbc6f3c4a4758dae9328163692189da86fdf1ac18a1a88400a17dccff4",
       "reference_interval_days": null
     },
     {
@@ -1024,6 +1106,22 @@
       "distribution": "HalfNormal",
       "params": {
         "scale": 1.0,
+        "validate_args": false
+      }
+    },
+    "distribution:b1de91c1c4429363d070d0088594d573f25dc5111a49a8814fef4963b6ab9ef3": {
+      "distribution": "Normal",
+      "params": {
+        "loc": 0.0,
+        "scale": 0.5,
+        "validate_args": false
+      }
+    },
+    "distribution:bf2a8ecbc6f3c4a4758dae9328163692189da86fdf1ac18a1a88400a17dccff4": {
+      "distribution": "Normal",
+      "params": {
+        "loc": 0.0,
+        "scale": 0.5,
         "validate_args": false
       }
     },

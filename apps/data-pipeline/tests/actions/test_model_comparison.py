@@ -22,7 +22,13 @@ pytestmark = pytest.mark.contract
 
 
 def test_complete_definition_diff_includes_laws_and_question_without_list_order_noise():
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'model_comparison/complete_definition_diff_includes_laws_and_question_without_list_order_noise_complete_test_model.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1]
+            / "fixtures/models"
+            / "model_comparison/y_z_model.json"
+        ).read_text()
+    )
     parameter = model.parameters[0]
     revised = model.revised(
         question="A revised scientific question",
@@ -42,7 +48,13 @@ def test_complete_definition_diff_includes_laws_and_question_without_list_order_
 
 
 def test_parameter_decisions_and_law_changes_leave_topology_unchanged():
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'model_comparison/parameter_decisions_and_law_changes_leave_topology_unchanged_complete_test_model.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1]
+            / "fixtures/models"
+            / "model_comparison/y_z_model.json"
+        ).read_text()
+    )
     edge = model.edges[0]
     parameter = model.parameters_for(edge.id)[0]
     pinned = model.revised(
@@ -87,7 +99,11 @@ def test_parameter_decisions_and_law_changes_leave_topology_unchanged():
 
 
 def test_fitted_state_laws_and_time_points_leave_topology_unchanged():
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'model_comparison/fitted_state_laws_and_time_points_leave_topology_unchanged_complete_test_model.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1] / "fixtures/models" / "common/x_y_model.json"
+        ).read_text()
+    )
     layout = JointLawLayout.from_bindings(
         (), parameters=(), constructs=model.state_order, time_points=(0.0, 1.0)
     )
@@ -201,7 +217,7 @@ def test_execution_exclusions_use_the_same_graph_comparison_in_both_directions()
             model.edges,
             (
                 type(constructs["U"]).model_validate(
-                    {**constructs["U"].model_dump(), "role": "exogenous", "indicators": ()}
+                    {**constructs["U"].model_dump(), "role": "endogenous", "indicators": ()}
                 ),
                 type(constructs["V"]).model_validate(
                     {**constructs["V"].model_dump(), "indicators": ()}

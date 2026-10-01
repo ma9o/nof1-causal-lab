@@ -515,6 +515,14 @@
           },
           {
             "kind": "coefficient",
+            "role": "initial_correlation",
+            "value": "parameter:c45a6249a379697f655449195873000139af861429cb2080abcd0ae6eff748fc",
+            "construct_ids": [
+              "construct:98907cc586bfcf98c836"
+            ]
+          },
+          {
+            "kind": "coefficient",
             "role": "diffusion_loading",
             "value": "parameter:506c2756f40872a74d72b7ade6bff66a2d73d0d7018f8a1cc65bb183a906df6e",
             "construct_ids": [
@@ -744,7 +752,7 @@
         "coefficients": [],
         "innovation_family": "gaussian",
         "distribution": null,
-        "role": "exogenous",
+        "role": "endogenous",
         "temporal_status": "time_varying"
       },
       "effect": {
@@ -780,7 +788,7 @@
         "coefficients": [],
         "innovation_family": "gaussian",
         "distribution": null,
-        "role": "exogenous",
+        "role": "endogenous",
         "temporal_status": "time_varying"
       },
       "effect": {
@@ -805,6 +813,42 @@
       "sources": []
     },
     {
+      "id": "edge:9e6780478fbc59183157",
+      "mechanisms": [],
+      "cause": {
+        "id": "construct:a27776e72d790f41c889",
+        "name": "initial_2_0",
+        "description": "Explicit latent common cause",
+        "indicators": [],
+        "dynamics": [],
+        "coefficients": [],
+        "innovation_family": "gaussian",
+        "distribution": null,
+        "role": "endogenous",
+        "temporal_status": "time_invariant"
+      },
+      "effect": {
+        "kind": "construct",
+        "id": "construct:bdd133b02bb7223d3cf2"
+      },
+      "description": "Fixture causal assumption",
+      "sources": []
+    },
+    {
+      "id": "edge:4e2b8dc6bf5dee855f4d",
+      "mechanisms": [],
+      "cause": {
+        "kind": "construct",
+        "id": "construct:a27776e72d790f41c889"
+      },
+      "effect": {
+        "kind": "construct",
+        "id": "construct:98907cc586bfcf98c836"
+      },
+      "description": "Fixture causal assumption",
+      "sources": []
+    },
+    {
       "id": "edge:de4b61a846f9032fe73d",
       "mechanisms": [],
       "cause": {
@@ -816,7 +860,7 @@
         "coefficients": [],
         "innovation_family": "gaussian",
         "distribution": null,
-        "role": "exogenous",
+        "role": "endogenous",
         "temporal_status": "time_varying"
       },
       "effect": {
@@ -1003,6 +1047,14 @@
       "reference_interval_days": null
     },
     {
+      "id": "parameter:c45a6249a379697f655449195873000139af861429cb2080abcd0ae6eff748fc",
+      "name": "parameter:c45a6249a379697f655449195873000139af861429cb2080abcd0ae6eff748fc",
+      "description": "Fixture quantity",
+      "distribution_transform": "identity",
+      "distribution": "distribution:fcfe6f095f70e1fdfab250a3a5ea486f819a9ac190567ebe043ab8d810015617",
+      "reference_interval_days": null
+    },
+    {
       "id": "parameter:506c2756f40872a74d72b7ade6bff66a2d73d0d7018f8a1cc65bb183a906df6e",
       "name": "parameter:506c2756f40872a74d72b7ade6bff66a2d73d0d7018f8a1cc65bb183a906df6e",
       "description": "Fixture quantity",
@@ -1184,6 +1236,14 @@
       "params": {
         "loc": 0.0,
         "scale": 0.5,
+        "validate_args": false
+      }
+    },
+    "distribution:fcfe6f095f70e1fdfab250a3a5ea486f819a9ac190567ebe043ab8d810015617": {
+      "distribution": "Uniform",
+      "params": {
+        "low": -1.0,
+        "high": 1.0,
         "validate_args": false
       }
     },

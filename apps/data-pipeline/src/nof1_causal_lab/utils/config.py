@@ -200,11 +200,6 @@ class MarginalParticleGibbsConfig:
     paid_mix_pilot_weight: float = 0.10
     paid_mix_pilot_var_scale: float = 0.25
     paid_mix_wide_mult: float = 4.0
-    # Joint (latent coordinate, loading column) sign-flip MH move composed after the
-    # smoother sweep — the escape route between factor-sign mirror basins that
-    # alternating conditionals cannot cross. Requires unconstrained (identity
-    # transform) free loadings.
-    latent_sign_flip_moves: bool = False
     diagnostic_metrics_all: bool = False
     diagnostic_metrics: tuple[str, ...] = ()
     param_step_size: float = 0.02

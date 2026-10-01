@@ -1,6 +1,5 @@
 """Small analytic checks for native prior laws and their JSON boundary."""
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 import math
 from pathlib import Path
 
@@ -12,6 +11,7 @@ import pytest
 from numpyro.distributions import constraints, transforms
 from pydantic import TypeAdapter
 
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.numpyro_json import NumPyroDistribution
 from nof1_causal_lab.prior_distributions import (
@@ -202,7 +202,13 @@ def test_mixture_reference_uses_its_weights_instead_of_treating_components_as_co
 def test_scientific_roundtrip_preserves_distinct_native_coordinate_laws():
     from nof1_causal_lab.models.ssm.compile.prior_compilation import compile_priors
 
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'prior_distributions/scientific_roundtrip_preserves_distinct_native_coordinate_laws_with_parameter_distributions.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "prior_distributions/scientific_roundtrip_preserves_distinct_native_coordinate_laws_with_parameter_distributions.json"
+        ).read_text()
+    )
     restored = ModelSpec.model_validate_json(model.model_dump_json())
     assert restored == model
     before = compile_priors(model)[0]["t0_means_free"]
@@ -221,19 +227,33 @@ def test_compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law():
     from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
     from nof1_causal_lab.models.ssm.model import SSMModel
 
-    definition = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'prior_distributions/compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law_complete_test_model.json').read_text())
+    definition = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "prior_distributions/compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law_complete_test_model.json"
+        ).read_text()
+    )
     decay = next(
         p
         for p in definition.parameters
         if definition.parameter_context(p.id).quantity == SiteKind.DYNAMICS_DECAY
     )
-    definition = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'prior_distributions/compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law_with_parameter_distributions.json').read_text())
+    definition = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "prior_distributions/compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law_with_parameter_distributions.json"
+        ).read_text()
+    )
     restored = ModelSpec.model_validate_json(definition.model_dump_json())
     model = SSMModel(compile_fit_fixture(restored))
     binding = next(b for b in parameter_bindings(restored)[0] if b.parameter_id == decay.id)
     value = jnp.array(0.2)
     with handlers.substitute(data={binding.site_name: value}):
-        trace = handlers.trace(model._sample_runtime_dynamics).get_trace(jnp.eye(1))
+        trace = handlers.trace(model._sample_runtime_dynamics).get_trace(
+            jnp.eye(1), jnp.array([0.0])
+        )
     law = trace[binding.site_name]["fn"]
     expected = dist.Beta(2.0, 3.0).log_prob(jnp.exp(-7.0 * value)) + jnp.log(7.0) - 7.0 * value
     np.testing.assert_allclose(law.log_prob(value), expected, atol=2e-6)

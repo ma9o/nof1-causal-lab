@@ -60,7 +60,13 @@ def test_recorded_replicate_becomes_a_compatible_panel(tmp_path, monkeypatch):
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path))
     store, history = ArtifactStore("TEST"), StudyRepository("TEST")
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'prepare_simulation_data/recorded_replicate_becomes_a_compatible_panel_complete_test_model.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1]
+            / "fixtures/models"
+            / "prepare_simulation_data/recorded_replicate_becomes_a_compatible_panel_complete_test_model.json"
+        ).read_text()
+    )
     model_info = store.write_artifact(
         "model",
         derived_from={},

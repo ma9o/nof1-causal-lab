@@ -7,8 +7,10 @@ from typing import TYPE_CHECKING
 
 import dynestyx as dsx
 import equinox as eqx
+import numpy as np
 from dynestyx.inference.configs.discretizer import EulerMaruyamaConfig
 
+from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.covariance_utils import CHOL_JITTER
 from nof1_causal_lab.models.ssm.execution.dynamical_model import build_dynamical_model
 from nof1_causal_lab.models.ssm.inference.conditioning import (
@@ -42,7 +44,9 @@ def build_particle_problem(model, observations, times, *, scheme, trace_key, rep
     """Prepare the parameter transform and the exact discrete model for sampling."""
     if scheme != LATENT_TRANSITION_EULER_MARUYAMA:
         raise ValueError(f"Particle inference requires 'euler_maruyama'; got {scheme!r}.")
-    exact_constraints = compile_exact_state_constraints(model.spec, observations)
+    exact_constraints = compile_exact_state_constraints(
+        model.spec, observations, input_values=model.input_values
+    )
     if has_student_t_diffusion(model.spec):
         raise ValueError(
             "Particle inference currently requires Gaussian latent diffusion for every state."
@@ -66,7 +70,7 @@ def build_particle_problem(model, observations, times, *, scheme, trace_key, rep
     def context_fn(position, runtime_times):
         return eqx.filter(continuous_model(position, runtime_times), eqx.is_array), runtime_times
 
-    def discrete_model(context):
+    def declared_model(context):
         return dsx.discretize_dynamics(
             eqx.combine(context[0], static_model),
             EulerMaruyamaConfig(covariance_jitter=CHOL_JITTER),
@@ -75,9 +79,10 @@ def build_particle_problem(model, observations, times, *, scheme, trace_key, rep
     runtime = ParticleTarget(
         parameters,
         context_fn,
-        discrete_model,
+        declared_model,
         observations,
         times,
+        tuple(int(index) for index in np.flatnonzero(~numeric.input_mask(model.spec))),
     )
     return ParticleProblem(
         runtime, site_info, public_sites, LATENT_TRANSITION_EULER_MARUYAMA, exact_constraints

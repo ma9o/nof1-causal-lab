@@ -184,16 +184,49 @@ def test_causal_reports_require_their_effects_and_paired_draws(missing):
         TypeAdapter(SimulationReport).validate_python(payload)
 
 
-@pytest.mark.parametrize(('kind', 'current_panel', 'reliable', 'scientific_model_payload'), [
-    pytest.param('authored', True, 'not_fitted', 'simulation_requests/runner_derives_origin_and_reliability_from_current_panel_or_fit_scientific_model_authored-true-not_fitted.json', id='authored-True-not_fitted'),
-    pytest.param('authored', False, 'not_fitted', 'simulation_requests/runner_derives_origin_and_reliability_from_current_panel_or_fit_scientific_model_authored-false-not_fitted.json', id='authored-False-not_fitted'),
-    pytest.param('fitted', True, 'converged', 'simulation_requests/runner_derives_origin_and_reliability_from_current_panel_or_fit_scientific_model_fitted-true-converged.json', id='fitted-True-converged'),
-    pytest.param('fitted', True, 'unconverged', 'simulation_requests/runner_derives_origin_and_reliability_from_current_panel_or_fit_scientific_model_fitted-true-unconverged.json', id='fitted-True-unconverged'),
-    pytest.param('unknown', True, 'unknown', 'simulation_requests/runner_derives_origin_and_reliability_from_current_panel_or_fit_scientific_model_unknown-true-unknown.json', id='unknown-True-unknown'),
-])
+@pytest.mark.parametrize(
+    ("kind", "current_panel", "reliable", "scientific_model_payload"),
+    [
+        pytest.param(
+            "authored",
+            True,
+            "not_fitted",
+            "common/stress_sleep_model.json",
+            id="authored-True-not_fitted",
+        ),
+        pytest.param(
+            "authored",
+            False,
+            "not_fitted",
+            "common/stress_sleep_model.json",
+            id="authored-False-not_fitted",
+        ),
+        pytest.param(
+            "fitted",
+            True,
+            "converged",
+            "common/stress_sleep_model.json",
+            id="fitted-True-converged",
+        ),
+        pytest.param(
+            "fitted",
+            True,
+            "unconverged",
+            "common/stress_sleep_model.json",
+            id="fitted-True-unconverged",
+        ),
+        pytest.param(
+            "unknown",
+            True,
+            "unknown",
+            "common/stress_sleep_model.json",
+            id="unknown-True-unknown",
+        ),
+    ],
+)
 def test_runner_derives_origin_and_reliability_from_current_panel_or_fit(
-    tmp_path, monkeypatch, kind, current_panel, reliable
-, scientific_model_payload):
+    tmp_path, monkeypatch, kind, current_panel, reliable, scientific_model_payload
+):
     from datetime import UTC, datetime
     from importlib import import_module
 
@@ -217,7 +250,11 @@ def test_runner_derives_origin_and_reliability_from_current_panel_or_fit(
 
     monkeypatch.setattr(data, "_DATA_URI", str(tmp_path))
     store = ArtifactStore("ORIGIN")
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / scientific_model_payload).read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1] / "fixtures/models" / scientific_model_payload
+        ).read_text()
+    )
     prior = store.write_artifact(
         "model",
         derived_from={},

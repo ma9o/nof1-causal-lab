@@ -71,7 +71,7 @@ from tests.model_fixtures import (
 def _runtime_dynamics(
     *,
     drift: jnp.ndarray,
-    diffusion_cov: jnp.ndarray,
+    diffusion: jnp.ndarray,
     cint: jnp.ndarray | None = None,
 ) -> StochasticContinuousTimeStateEvolution:
     params = {"drift": drift}
@@ -83,10 +83,8 @@ def _runtime_dynamics(
             components=(DenseLinear(),),
         ),
         vf_params=(params,),
-        diffusion_cov=diffusion_cov,
+        diffusion=diffusion,
     )
-
-
 
 
 @pytest.mark.contract
@@ -658,7 +656,7 @@ class TestLaplaceBackendCaching:
         )
         ct_params = _runtime_dynamics(
             drift=jnp.array([[-0.4]], dtype=jnp.float32),
-            diffusion_cov=jnp.array([[0.1]], dtype=jnp.float32),
+            diffusion=jnp.linalg.cholesky(jnp.array([[0.1]], dtype=jnp.float32)),
             cint=jnp.array([0.0], dtype=jnp.float32),
         )
         meas_params = MeasurementParams(
@@ -827,7 +825,13 @@ class TestInferenceCaching:
 
     @pytest.mark.contract
     def test_model_reuses_backend_instances(self):
-        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'inference_strategies/testinferencecaching_test_model_reuses_backend_instances__one_dim_block_spec.json').read_text())
+        spec = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "common/one_state_gaussian_model.json"
+            ).read_text()
+        )
         model = SSMModel(compile_fit_fixture(spec))
 
         backend_a = get_laplace_backend(model, 6)
@@ -842,7 +846,13 @@ class TestInferenceCaching:
 
     @pytest.mark.inference(concern="sampling")
     def test_discover_sites_uses_dummy_backend_for_structural_trace(self):
-        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'inference_strategies/testinferencecaching_test_discover_sites_uses_dummy_backend_for_structural_trace__one_dim_block_spec.json').read_text())
+        spec = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "common/one_state_gaussian_model.json"
+            ).read_text()
+        )
         model = SSMModel(compile_fit_fixture(spec))
         observations = jnp.array([[1.0], [2.0]], dtype=jnp.float32)
         times = jnp.array([0.0, 1.0], dtype=jnp.float32)
@@ -871,14 +881,26 @@ class TestDefaultMethodRouting:
         """Default routing resolves to marginalized Particle Gibbs for all model types."""
         from nof1_causal_lab.models.ssm.execution.planning import plan_inference_structure
 
-        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'inference_strategies/testdefaultmethodrouting_test_default_always_routes_to_marginal_particle_gibbs__one_dim_block_spec.json').read_text())
+        spec = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "common/one_state_gaussian_model.json"
+            ).read_text()
+        )
 
         plan = plan_inference_structure(spec)
         assert plan.resolved_method == "marginal_particle_gibbs"
         assert plan.structural_backend == "laplace"
 
     def test_fit_without_method_dispatches_to_marginal_particle_gibbs(self, monkeypatch):
-        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'inference_strategies/testdefaultmethodrouting_test_fit_without_method_dispatches_to_marginal_particle_gibbs__one_dim_block_spec.json').read_text())
+        spec = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "common/one_state_gaussian_model.json"
+            ).read_text()
+        )
         model = SSMModel(compile_fit_fixture(spec))
         observations = jnp.zeros((2, 1), dtype=jnp.float32)
         times = jnp.array([0.0, 1.0], dtype=jnp.float32)
@@ -901,89 +923,6 @@ class TestDefaultMethodRouting:
         result = fit(model, observations=observations, times=times)
 
         assert result.method == "marginal_particle_gibbs"
-
-
-
-
-def _small_kalman_observations_and_times():
-    return (
-        jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32),
-        jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32),
-    )
-
-
-def _assert_small_particle_mcmc_result(result, *, method: str, num_samples: int) -> None:
-    assert result.method == method
-    assert method in result.diagnostics
-    samples = result.get_samples()
-    assert samples["diffusion_diag_free"].shape == (num_samples, 1)
-    assert samples["manifest_var_diag_free"].shape == (num_samples, 1)
-    assert samples["t0_var_diag_free"].shape == (num_samples, 1)
-    assert bool(jnp.isfinite(samples["diffusion_diag_free"]).all())
-    assert bool(jnp.isfinite(samples["manifest_var_diag_free"]).all())
-    assert bool(jnp.isfinite(samples["t0_var_diag_free"]).all())
-    latent_summary = result.diagnostics.get("latent_posterior_summary")
-    assert latent_summary is not None
-    assert latent_summary["mean"].shape == (3, 1)
-    assert bool(jnp.isfinite(latent_summary["mean"]).all())
-    latent_paths = result.draws.latent_paths
-    assert latent_paths is not None
-    assert latent_paths.shape == (num_samples, 3, 1)
-
-
-@pytest.mark.inference(concern="sampling")
-def test_particle_fit_preserves_public_draws_and_sign_flip_moves(monkeypatch):
-    from nof1_causal_lab.models.ssm.inference.warmup import latent_init
-
-    spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'inference_strategies/particle_fit_preserves_public_draws_and_sign_flip_moves__make_aux_kalman_mcmc_smoke_spec.json').read_text())
-    model = SSMModel(compile_fit_fixture(spec))
-    observations, times = _small_kalman_observations_and_times()
-
-    def _unexpected_ieks(*_args, **_kwargs):
-        raise AssertionError("supplied trajectories must skip IEKS initialization")
-
-    monkeypatch.setattr(latent_init, "compute_ieks_latent_paths", _unexpected_ieks)
-    result = fit(
-        model,
-        observations=observations,
-        times=times,
-        method="marginal_particle_gibbs",
-        num_warmup=1,
-        num_samples=2,
-        num_chains=1,
-        seed=23,
-        n_particles=3,
-        n_parameter_particles=2,
-        latent_smoother="dsmc",
-        dsmc_leaf_proposal="amala_exact",
-        param_step_size=0.001,
-        parameter_proposal="random_walk",
-        adaptation_scheme="simple",
-        latent_sign_flip_moves=True,
-        init_method="random",
-        auto_preconditioner_method="none",
-        init_scale=0.0,
-        initial_latent_trajectories=jnp.zeros((1, 3, 1), dtype=jnp.float32),
-        retain_latent_paths=True,
-        reparam=None,
-    )
-
-    _assert_small_particle_mcmc_result(result, method="marginal_particle_gibbs", num_samples=2)
-    diag = result.diagnostics["marginal_particle_gibbs"]
-    assert diag["parameter_kernel"] == "m_pgibbs_random_walk"
-    assert diag["parameter_proposal"] == "random_walk"
-    assert diag["adaptation_scheme"] == "simple"
-    assert diag["param_target_accept"] == pytest.approx(0.35)
-    assert diag["latent_smoother"] == "dsmc"
-    assert diag["dsmc_leaf_proposal"] == "amala_exact"
-    assert diag["latent_transition_kind"] == "euler_maruyama"
-    assert diag["latent_sign_flip_moves"] is True
-    frozen_fraction = diag["latent_frozen_fraction"]
-    assert isinstance(frozen_fraction, int | float)
-    assert 0.0 <= frozen_fraction <= 1.0
-    flip_accept_rate = diag["sign_flip_accept_rate"]
-    assert isinstance(flip_accept_rate, int | float)
-    assert 0.0 <= flip_accept_rate <= 1.0
 
 
 @pytest.mark.inference(concern="warmup")
@@ -1074,7 +1013,17 @@ def test_map_bundle_reuses_runtime_objectives_across_same_shape_datasets(monkeyp
         fake_build_eval_fns,
     )
 
-    model = SSMModel(compile_fit_fixture(ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'inference_strategies/map_bundle_reuses_runtime_objectives_across_same_shape_datasets__make_aux_kalman_mcmc_smoke_spec.json').read_text())))
+    model = SSMModel(
+        compile_fit_fixture(
+            ModelSpec.model_validate_json(
+                (
+                    Path(__file__).resolve().parents[2]
+                    / "fixtures/models"
+                    / "inference_strategies/map_bundle_reuses_runtime_objectives_across_same_shape_datasets__make_aux_kalman_mcmc_smoke_spec.json"
+                ).read_text()
+            )
+        )
+    )
     backend = SimpleNamespace()
     bundle_a = _build_map_laplace_bundle(
         model,

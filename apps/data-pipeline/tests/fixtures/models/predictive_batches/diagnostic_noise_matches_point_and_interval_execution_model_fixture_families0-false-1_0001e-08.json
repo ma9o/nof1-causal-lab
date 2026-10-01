@@ -66,10 +66,72 @@
             "id": "mechanism:5ced39cf0fae44636f2b",
             "kind": "drift",
             "expression": {
-              "kind": "coefficient",
-              "role": "intercept",
-              "value": 0.0,
-              "construct_ids": []
+              "kind": "binary",
+              "operator": "subtract",
+              "left": {
+                "kind": "binary",
+                "operator": "multiply",
+                "left": {
+                  "kind": "binary",
+                  "operator": "multiply",
+                  "left": {
+                    "kind": "literal",
+                    "value": -1.0
+                  },
+                  "right": {
+                    "kind": "coefficient",
+                    "role": "decay",
+                    "value": 1.0,
+                    "construct_ids": []
+                  }
+                },
+                "right": {
+                  "kind": "binary",
+                  "operator": "subtract",
+                  "left": {
+                    "kind": "state",
+                    "construct_id": "construct:98907cc586bfcf98c836"
+                  },
+                  "right": {
+                    "kind": "coefficient",
+                    "role": "center",
+                    "value": 0.0,
+                    "construct_ids": []
+                  }
+                }
+              },
+              "right": {
+                "kind": "binary",
+                "operator": "multiply",
+                "left": {
+                  "kind": "coefficient",
+                  "role": "quartic",
+                  "value": 0.0,
+                  "construct_ids": []
+                },
+                "right": {
+                  "kind": "binary",
+                  "operator": "power",
+                  "left": {
+                    "kind": "binary",
+                    "operator": "subtract",
+                    "left": {
+                      "kind": "state",
+                      "construct_id": "construct:98907cc586bfcf98c836"
+                    },
+                    "right": {
+                      "kind": "coefficient",
+                      "role": "center",
+                      "value": 0.0,
+                      "construct_ids": []
+                    }
+                  },
+                  "right": {
+                    "kind": "literal",
+                    "value": 3.0
+                  }
+                }
+              }
             }
           }
         ],

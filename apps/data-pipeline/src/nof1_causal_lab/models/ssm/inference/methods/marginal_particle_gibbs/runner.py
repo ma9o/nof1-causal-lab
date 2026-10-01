@@ -74,7 +74,7 @@ def _initialize_chain_state(
 ) -> TrajectoryMCMCState:
     context = target.context(init_position, times)
     latent_trajectory = (
-        target.initial_path(context)
+        target.initial_path(context, exact_constraints=exact_constraints)
         if initial_latent_trajectory is None
         else jnp.asarray(initial_latent_trajectory, dtype=target.initial_moments(context)[0].dtype)
     )
@@ -283,7 +283,6 @@ def run_marginal_particle_gibbs(
     latent_move_rms_per_t_history: list[jnp.ndarray] = []
     latent_frozen_frac_history: list[jnp.ndarray] = []
     latent_frozen_frac_by_d_history: list[jnp.ndarray] = []
-    sign_flip_accept_history: list[jnp.ndarray] = []
     parameter_jump_rms_history: list[jnp.ndarray] = []
     final_label_log_probs_history: list[jnp.ndarray] = []
     amala_grad_norm_mean_history: list[jnp.ndarray] = []
@@ -393,8 +392,6 @@ def run_marginal_particle_gibbs(
             latent_move_rms_per_t_history.append(step_info["latent_move_rms_per_t"])
             latent_frozen_frac_history.append(step_info["latent_frozen_frac"])
             latent_frozen_frac_by_d_history.append(step_info["latent_frozen_frac_by_d"])
-            if "sign_flip_accepted" in step_info:
-                sign_flip_accept_history.append(step_info["sign_flip_accepted"])
             final_label_log_probs_history.append(step_info["final_label_log_probs"])
             amala_grad_norm_mean_history.append(step_info["amala_grad_norm_mean"])
             amala_grad_norm_max_history.append(step_info["amala_grad_norm_max"])
@@ -622,13 +619,6 @@ def run_marginal_particle_gibbs(
             dtype=chain_init_positions.dtype,
         ),
     }
-    if sign_flip_accept_history:
-        all_chain_extra_fields["sign_flip_accept_prob"] = _stack_sample_history(
-            sign_flip_accept_history,
-            num_chains=num_chains,
-            trailing_shape=(),
-            dtype=chain_init_positions.dtype,
-        )
     if diagnostic_flags.particle_identity:
         all_chain_extra_fields.update(
             {

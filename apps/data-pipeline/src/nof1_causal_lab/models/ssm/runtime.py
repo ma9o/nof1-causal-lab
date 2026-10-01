@@ -7,9 +7,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
+import numpy as np
 import polars as pl
 
+from nof1_causal_lab.artifacts.scenarios import InterventionSpec
 from nof1_causal_lab.models.ssm import numerics as numeric
+from nof1_causal_lab.models.ssm.counterfactual.orchestration import ResolvedIntervention
 from nof1_causal_lab.models.ssm.execution.planning import (
     InferenceStructurePlan,
     plan_inference_structure,
@@ -24,6 +27,7 @@ from nof1_causal_lab.models.ssm.observation_support import (
 )
 from nof1_causal_lab.models.ssm.preflight import ObservationPreflightError
 from nof1_causal_lab.utils.data import pivot_to_wide
+from nof1_causal_lab.utils.time_coordinates import serialization_origin
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -37,6 +41,67 @@ if TYPE_CHECKING:
     )
 
 logger = logging.getLogger(__name__)
+
+
+def replay_input_events(
+    spec: ModelSpec,
+    panel: pl.DataFrame | None,
+    *,
+    time_origin: datetime | None,
+    start: float,
+    end: float,
+    indicator_column: str = "indicator_id",
+) -> tuple[ResolvedIntervention, ...]:
+    """Read constant input levels over their windows, then hold to the next reading."""
+    events = []
+    for index in np.flatnonzero(numeric.input_mask(spec)):
+        construct = spec.get_construct(spec.state_order[index])
+        if panel is None or time_origin is None:
+            raise ValueError(f"Input {construct.name!r} requires a panel with a time origin")
+        origin = serialization_origin(time_origin)
+        readings: dict[float, float] = {}
+        for indicator in construct.indicators:
+            identity = indicator.id if indicator_column == "indicator_id" else indicator.name
+            rows = panel.filter(pl.col(indicator_column) == identity).drop_nulls("value")
+            for row in rows.iter_rows(named=True):
+                at = row["support_start"]
+                time = (at.replace(tzinfo=None) - origin).total_seconds() / 86400.0
+                value = float(row["value"])
+                if indicator.summary_operator in {"count", "sum"}:
+                    duration = (row["support_end"] - row["support_start"]).total_seconds() / 86400.0
+                    value /= duration
+                if not np.isfinite(value):
+                    raise ValueError(f"Input {construct.name!r} requires finite readings")
+                if time in readings and readings[time] != value:
+                    raise ValueError(f"Input {construct.name!r} has conflicting readings at {time}")
+                readings[time] = value
+        eligible = sorted(time for time in readings if time <= start)
+        if not eligible:
+            raise ValueError(
+                f"Input {construct.name!r} has no value at the start of the requested history"
+            )
+        record = [(start, readings[eligible[-1]])]
+        record.extend((time, readings[time]) for time in sorted(readings) if start < time <= end)
+        if not construct.is_dynamic and len({value for _, value in record}) != 1:
+            raise ValueError(f"Time-invariant input {construct.name!r} has varying readings")
+        events.extend(
+            ResolvedIntervention(
+                int(index), InterventionSpec(target=construct.id, time=time, value=value)
+            )
+            for time, value in record
+        )
+    return tuple(sorted(events, key=lambda event: (event.spec.time, event.index)))
+
+
+def replay_input_values(spec: ModelSpec, times, events) -> jnp.ndarray:
+    """Expand dated readings on every fit grid point; modeled coordinates stay unknown."""
+    grid = np.asarray(times)
+    values = np.full((len(grid), numeric.n_states(spec)), np.nan, dtype=grid.dtype)
+    for event in events:
+        values[grid >= np.asarray(event.spec.time, dtype=grid.dtype), event.index] = (
+            event.spec.value
+        )
+    return jnp.asarray(values)
 
 
 def _standardize_manifest_columns(
@@ -156,6 +221,22 @@ def prepare_wide_model_runtime(
         time_origin=time_origin,
     )
     model.set_observation_support(observation_support)
+    model.input_events = replay_input_events(
+        spec,
+        observation_data,
+        time_origin=time_origin,
+        start=float(times[0]),
+        end=float(times[-1]),
+        indicator_column="indicator",
+    )
+    if model.input_events:
+        model.input_values = replay_input_values(spec, times, model.input_events)
+        input_columns = [
+            index
+            for index, indicator in enumerate(numeric.observed_indicators(spec))
+            if spec.indicator_owner(indicator.id).role == "exogenous"
+        ]
+        observations = observations.at[:, jnp.asarray(input_columns)].set(jnp.nan)
     inference_structure = plan_inference_structure(
         spec,
         observation_support=observation_support,

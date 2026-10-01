@@ -3,7 +3,6 @@
 Covers variance functions and build_observation_kernel.
 """
 
-
 import jax
 import jax.numpy as jnp
 import pytest
@@ -17,7 +16,6 @@ from nof1_causal_lab.models.ssm.execution.observation_model import (
 
 
 class TestBuildObservationKernel:
-
     @pytest.mark.inference(concern="sampling")
     @pytest.mark.inference(concern="predictive")
     def test_compiled_model_shares_predictor_semantics_for_likelihood_and_sampling(self):

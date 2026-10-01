@@ -373,6 +373,15 @@ class ModelSpec(BaseModel):
                 raise ValueError(
                     f"Construct coefficients reference unknown constructs: {sorted(unknown)}"
                 )
+            if any(
+                operand.role in {"diffusion_loading", "initial_correlation"}
+                and any(
+                    self.get_construct(identity).role == Role.EXOGENOUS
+                    for identity in operand.construct_ids
+                )
+                for operand in construct.coefficients
+            ):
+                raise ValueError("Noise and initial correlations cannot reference exogenous inputs")
         for use in iter_coefficient_uses(self):
             if isinstance(use.value, str) and use.value not in self._parameters:
                 raise ValueError(f"Coefficient {use.slot!r} references an undeclared parameter")

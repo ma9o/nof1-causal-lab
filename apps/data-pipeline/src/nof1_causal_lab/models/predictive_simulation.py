@@ -222,8 +222,11 @@ def _predictive_observation_grid(
     n_manifest: int,
     observation_support: ObservationSupportRuntime | None,
     observation_mask: jax.Array | None,
+    held_channels: tuple[int, ...],
 ) -> tuple[jax.Array | None, ObservationOperator | None]:
-    observation_operator = compile_observation_operator(observation_support)
+    observation_operator = compile_observation_operator(
+        observation_support, held_channels=held_channels
+    )
     mask = None if observation_mask is None else jnp.asarray(observation_mask, dtype=bool)
     if mask is not None and mask.shape != (times.shape[0], n_manifest):
         raise ValueError(
@@ -247,11 +250,12 @@ def sample_model_observations(
     observation_support,
     observation_mask,
     manifest_names,
+    held_channels=(),
 ):
     """Draw point observations from the fitted model's law, then project interval summaries."""
     observation = models.observation_model
     mask, operator = _predictive_observation_grid(
-        times, linear_predictors.shape[-1], observation_support, observation_mask
+        times, linear_predictors.shape[-1], observation_support, observation_mask, held_channels
     )
     _raise_if_log_link_mean_overflow(
         linear_predictors,

@@ -14,11 +14,11 @@ import dynestyx as dsx
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import numpy as np
 import numpyro.distributions as dist
 from numpyro.distributions import MultivariateNormal
 
 from nof1_causal_lab.models.ssm import numerics as numeric
-from nof1_causal_lab.models.ssm.covariance_utils import symmetrize
 from nof1_causal_lab.models.ssm.dynamics.intervention import Intervention
 from nof1_causal_lab.models.ssm.dynamics.spec import (
     compile_dynamics,
@@ -44,13 +44,12 @@ if TYPE_CHECKING:
 def continuous_state_evolution(
     vector_field: VectorField,
     vf_params: tuple[dict[str, jax.Array], ...],
-    diffusion_cov: jax.Array,
+    diffusion: jax.Array,
     *,
     intervention: Intervention | None = None,
 ) -> dsx.StochasticContinuousTimeStateEvolution:
     """Declare the nonlinear SDE without selecting a numerical approximation."""
     intervention = Intervention.none() if intervention is None else intervention
-    diffusion = jnp.linalg.cholesky(symmetrize(diffusion_cov))
     for clamp in intervention.variable_overrides():
         diffusion = diffusion.at[clamp.index].set(0.0)
     return vector_field.evolution(
@@ -132,12 +131,33 @@ class _ObservationDistribution(dist.Distribution):
         )
 
 
+def initial_state_distribution(
+    spec: ModelSpec,
+    mean: jax.Array,
+    covariance: jax.Array,
+    *,
+    input_values: jax.Array | None = None,
+) -> MultivariateNormal:
+    """Embed the modeled initial law in a state vector with lawless inputs."""
+    endogenous = jnp.asarray(np.flatnonzero(~numeric.input_mask(spec)))
+    factor = (
+        jnp.zeros_like(covariance)
+        .at[jnp.ix_(endogenous, endogenous)]
+        .set(jnp.linalg.cholesky(covariance[jnp.ix_(endogenous, endogenous)]))
+    )
+    if input_values is not None:
+        mean = jnp.where(numeric.input_mask(spec), input_values[0], mean)
+    return MultivariateNormal(mean, scale_tril=factor)
+
+
 def assemble_likelihood_inputs(
     samples: dict[str, jnp.ndarray],
     spec: ModelSpec,
     *,
     registry: list[SiteDescriptor],
     dynamics: DynamicsSpec | None = None,
+    intervention: Intervention | None = None,
+    input_values: jax.Array | None = None,
 ) -> tuple[
     StochasticContinuousTimeStateEvolution,
     MeasurementParams,
@@ -153,14 +173,17 @@ def assemble_likelihood_inputs(
     evolution = continuous_state_evolution(
         vector_field=compiled.vector_field,
         vf_params=pack_component_params_from_samples(dynamics_spec, samples),
-        diffusion_cov=diffusion_chol @ diffusion_chol.T,
+        diffusion=diffusion_chol,
+        intervention=intervention,
     )
     measurement = MeasurementParams(
         lambda_mat=samples["lambda"],
         manifest_means=samples["manifest_means"],
         manifest_cov=samples["manifest_cov"],
     )
-    initial = MultivariateNormal(samples["t0_means"], covariance_matrix=samples["t0_cov"])
+    initial = initial_state_distribution(
+        spec, samples["t0_means"], samples["t0_cov"], input_values=input_values
+    )
     extra = assemble_extra_params_from_registry(spec, samples, registry)
     return evolution, measurement, initial, extra or None
 

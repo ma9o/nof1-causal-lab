@@ -34,7 +34,11 @@ def test_runtime_diagnostic_subjects_match_posterior_marginals():
     from nof1_causal_lab.actions.inference.subjects import reference_posterior_findings
     from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
 
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'view_sources/runtime_diagnostic_subjects_match_posterior_marginals_complete_test_model.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1] / "fixtures/models" / "common/x_y_model.json"
+        ).read_text()
+    )
     bindings, auxiliary = parameter_bindings(model)
     coordinates = [coordinate for b in bindings for coordinate in b.coordinates.values()]
     rows = [
@@ -219,11 +223,28 @@ def test_inference_log_keeps_findings_across_authoring_log_updates_and_tracks_ch
 
 
 @pytest.mark.inference(concern="predictive")
-@pytest.mark.parametrize(('family', 'link', 'observed', 'observation_law_payload'), [
-    pytest.param('gaussian', 'identity', [0.0, 1.0, 2.0], 'view_sources/likelihood_plot_requires_its_pinned_panel_observation_law_gaussian-identity-observed0.json', id='gaussian-identity-observed0'),
-    pytest.param('bernoulli', 'logit', [0.0, 0.0], 'view_sources/likelihood_plot_requires_its_pinned_panel_observation_law_bernoulli-logit-observed1.json', id='bernoulli-logit-observed1'),
-])
-def test_likelihood_plot_requires_its_pinned_panel(monkeypatch, tmp_path, family, link, observed, observation_law_payload):
+@pytest.mark.parametrize(
+    ("family", "link", "observed", "observation_law_payload"),
+    [
+        pytest.param(
+            "gaussian",
+            "identity",
+            [0.0, 1.0, 2.0],
+            "common/observed_gaussian_observation_law.json",
+            id="gaussian-identity-observed0",
+        ),
+        pytest.param(
+            "bernoulli",
+            "logit",
+            [0.0, 0.0],
+            "view_sources/likelihood_plot_requires_its_pinned_panel_observation_law_bernoulli-logit-observed1.json",
+            id="bernoulli-logit-observed1",
+        ),
+    ],
+)
+def test_likelihood_plot_requires_its_pinned_panel(
+    monkeypatch, tmp_path, family, link, observed, observation_law_payload
+):
     from nof1_causal_lab.utils import data as data_module
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path))
@@ -257,7 +278,14 @@ def test_likelihood_plot_requires_its_pinned_panel(monkeypatch, tmp_path, family
             "measurement_dtype": "binary" if family == "bernoulli" else "continuous",
             "aggregation": "last" if family == "bernoulli" else "mean",
             "likelihood": LikelihoodSpec(
-                law=ObservationLawSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / observation_law_payload).read_text()), reasoning="Test"
+                law=ObservationLawSpec.model_validate_json(
+                    (
+                        Path(__file__).resolve().parents[1]
+                        / "fixtures/models"
+                        / observation_law_payload
+                    ).read_text()
+                ),
+                reasoning="Test",
             ),
         }
     )

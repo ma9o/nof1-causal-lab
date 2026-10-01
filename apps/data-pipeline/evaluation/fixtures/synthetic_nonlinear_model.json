@@ -1444,38 +1444,8 @@
             "construct_polarity": "positive"
           }
         ],
-        "dynamics": [
-          {
-            "id": "mechanism:driver-serotonergic_exposure",
-            "kind": "drift",
-            "expression": {
-              "kind": "coefficient",
-              "role": "intercept",
-              "value": 0.0,
-              "construct_ids": []
-            }
-          }
-        ],
-        "coefficients": [
-          {
-            "kind": "coefficient",
-            "role": "initial_mean",
-            "value": 0.0,
-            "construct_ids": []
-          },
-          {
-            "kind": "coefficient",
-            "role": "initial_scale",
-            "value": 1.0,
-            "construct_ids": []
-          },
-          {
-            "kind": "coefficient",
-            "role": "diffusion_scale",
-            "value": 1.0,
-            "construct_ids": []
-          }
-        ],
+        "dynamics": [],
+        "coefficients": [],
         "innovation_family": "gaussian",
         "distribution": null,
         "role": "exogenous",
@@ -1608,38 +1578,8 @@
             "construct_polarity": "positive"
           }
         ],
-        "dynamics": [
-          {
-            "id": "mechanism:driver-seasonal_load",
-            "kind": "drift",
-            "expression": {
-              "kind": "coefficient",
-              "role": "intercept",
-              "value": 0.0,
-              "construct_ids": []
-            }
-          }
-        ],
-        "coefficients": [
-          {
-            "kind": "coefficient",
-            "role": "initial_mean",
-            "value": 0.0,
-            "construct_ids": []
-          },
-          {
-            "kind": "coefficient",
-            "role": "initial_scale",
-            "value": 1.0,
-            "construct_ids": []
-          },
-          {
-            "kind": "coefficient",
-            "role": "diffusion_scale",
-            "value": 1.0,
-            "construct_ids": []
-          }
-        ],
+        "dynamics": [],
+        "coefficients": [],
         "innovation_family": "gaussian",
         "distribution": null,
         "role": "exogenous",

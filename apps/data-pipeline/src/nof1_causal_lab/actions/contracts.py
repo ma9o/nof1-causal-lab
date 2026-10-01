@@ -23,7 +23,9 @@ class EditModelRequest(BaseModel):
 
     action: Literal["edit_model"] = "edit_model"
     expected_revision: GitOid | None
-    model: ModelSpec
+    model: ModelSpec = Field(
+        description="Endogenous constructs are modeled, with or without parents, and include every latent construct. Exogenous constructs are given by direct exact Delta readings and have no dynamics, diffusion, initial coefficients or trajectory law."
+    )
 
 
 class PrepareDataRequest(BaseModel):

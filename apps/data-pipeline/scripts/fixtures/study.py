@@ -36,7 +36,6 @@ from nof1_causal_lab.study.store import ArtifactStore, trace_log_path
 from nof1_causal_lab.utils import data as data_module
 
 if TYPE_CHECKING:
-
     from nof1_causal_lab.artifacts.identity import ArtifactId
     from nof1_causal_lab.study.state import StudyState
 
@@ -213,7 +212,7 @@ def build_outputs():
             capture_output=True,
         )
         subprocess.run(
-            ["git", "--git-dir", str(history), "config", "nof1.format", "8"],
+            ["git", "--git-dir", str(history), "config", "nof1.format", "9"],
             check=True,
             capture_output=True,
         )

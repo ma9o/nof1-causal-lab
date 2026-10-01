@@ -520,6 +520,14 @@
             "construct_ids": [
               "construct:ecc61dc544b34662cb8a"
             ]
+          },
+          {
+            "kind": "coefficient",
+            "role": "initial_correlation",
+            "value": "parameter:a509c81d86a107a991d402bf80d9f3ab53fcba247ea51e7250be41faa774fc12",
+            "construct_ids": [
+              "construct:ecc61dc544b34662cb8a"
+            ]
           }
         ],
         "innovation_family": "gaussian",
@@ -546,7 +554,7 @@
         "coefficients": [],
         "innovation_family": "gaussian",
         "distribution": null,
-        "role": "exogenous",
+        "role": "endogenous",
         "temporal_status": "time_varying"
       },
       "effect": {
@@ -582,7 +590,7 @@
         "coefficients": [],
         "innovation_family": "gaussian",
         "distribution": null,
-        "role": "exogenous",
+        "role": "endogenous",
         "temporal_status": "time_varying"
       },
       "effect": {
@@ -618,7 +626,7 @@
         "coefficients": [],
         "innovation_family": "gaussian",
         "distribution": null,
-        "role": "exogenous",
+        "role": "endogenous",
         "temporal_status": "time_varying"
       },
       "effect": {
@@ -634,6 +642,42 @@
       "cause": {
         "kind": "construct",
         "id": "construct:f5a4e9331ccfed28d333"
+      },
+      "effect": {
+        "kind": "construct",
+        "id": "construct:ecc61dc544b34662cb8a"
+      },
+      "description": "Fixture causal assumption",
+      "sources": []
+    },
+    {
+      "id": "edge:678e98a0d69b2d29ed27",
+      "mechanisms": [],
+      "cause": {
+        "id": "construct:0ded8856e281dbfdb34a",
+        "name": "initial_2_1",
+        "description": "Explicit latent common cause",
+        "indicators": [],
+        "dynamics": [],
+        "coefficients": [],
+        "innovation_family": "gaussian",
+        "distribution": null,
+        "role": "endogenous",
+        "temporal_status": "time_invariant"
+      },
+      "effect": {
+        "kind": "construct",
+        "id": "construct:bdd133b02bb7223d3cf2"
+      },
+      "description": "Fixture causal assumption",
+      "sources": []
+    },
+    {
+      "id": "edge:1f50d1443bd60e6c8b37",
+      "mechanisms": [],
+      "cause": {
+        "kind": "construct",
+        "id": "construct:0ded8856e281dbfdb34a"
       },
       "effect": {
         "kind": "construct",
@@ -762,6 +806,14 @@
       "description": "Fixture quantity",
       "distribution_transform": "identity",
       "distribution": "distribution:65fc9c9c9bd8cd710cd753077aa3beb03a7090dc2c6c5b4d1f32b54b41016755",
+      "reference_interval_days": null
+    },
+    {
+      "id": "parameter:a509c81d86a107a991d402bf80d9f3ab53fcba247ea51e7250be41faa774fc12",
+      "name": "parameter:a509c81d86a107a991d402bf80d9f3ab53fcba247ea51e7250be41faa774fc12",
+      "description": "Fixture quantity",
+      "distribution_transform": "identity",
+      "distribution": "distribution:cd5e683cd8217e1dca423b3fe5a0df67d2877c0163dfd65ce7506f82c534ef3b",
       "reference_interval_days": null
     },
     {
@@ -898,6 +950,14 @@
       "params": {
         "loc": 0.0,
         "scale": 0.5,
+        "validate_args": false
+      }
+    },
+    "distribution:cd5e683cd8217e1dca423b3fe5a0df67d2877c0163dfd65ce7506f82c534ef3b": {
+      "distribution": "Uniform",
+      "params": {
+        "low": -1.0,
+        "high": 1.0,
         "validate_args": false
       }
     },

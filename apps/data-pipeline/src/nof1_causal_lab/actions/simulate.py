@@ -19,6 +19,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from datetime import datetime
 
+    import polars as pl
+
     from nof1_causal_lab.artifacts.identity import GitRef
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.simulation import FitReliability, SimulationSpec
@@ -32,9 +34,10 @@ def simulate(
     write_array: Callable[[np.ndarray], str],
     time_origin: datetime | None,
     fit_reliability: FitReliability = "not_fitted",
+    input_data: pl.DataFrame | None = None,
 ) -> SimulationReport:
     """Generate current model histories; data_diff compares the saved observations separately."""
-    batch = generate_simulation_batch(model, design, time_origin=time_origin)
+    batch = generate_simulation_batch(model, design, time_origin=time_origin, input_data=input_data)
     findings, _ = measure_simulation_batch(model, batch)
     support = batch.measurement_design.observation_support
     if support is None:

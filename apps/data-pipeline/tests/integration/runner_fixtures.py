@@ -6,11 +6,8 @@ from pathlib import Path
 import polars as pl
 
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.study.state import StudyState
 from tests.helpers import fixture_entity_id
-
-
-def scientific_model():
-    return ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'runner_fixtures/scientific_model_complete_test_model.json').read_text())
 
 
 def panel_frame(n_days=20):
@@ -37,6 +34,8 @@ def panel_frame(n_days=20):
     )
 
 
+def state_from(*infos):
+    return StudyState().with_artifacts(list(infos))
 
 
 def seed_model(store):
@@ -44,7 +43,15 @@ def seed_model(store):
         "model",
         derived_from={},
         produced_by="edit_model",
-        json_files={"model.json": ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'runner_fixtures/seed_model_scientific_model.json').read_text()).model_dump(mode="json")},
+        json_files={
+            "model.json": ModelSpec.model_validate_json(
+                (
+                    Path(__file__).resolve().parents[1]
+                    / "fixtures/models"
+                    / "common/stress_sleep_model.json"
+                ).read_text()
+            ).model_dump(mode="json")
+        },
     )
 
 

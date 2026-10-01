@@ -197,7 +197,11 @@ def test_every_parameter_coordinate_and_joint_draw_survives_the_read(monkeypatch
     from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
     from nof1_causal_lab.numpyro_json import empirical_distribution
 
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'visuals/every_parameter_coordinate_and_joint_draw_survives_the_read_complete_test_model.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1] / "fixtures/models" / "visuals/x_y_z_model.json"
+        ).read_text()
+    )
     bindings, _ = parameter_bindings(model)
     layout = JointLawLayout.from_bindings(
         bindings,
@@ -229,7 +233,7 @@ def test_every_parameter_coordinate_and_joint_draw_survives_the_read(monkeypatch
         time_points=(0, 10),
     )
     monkeypatch.setattr(
-        "nof1_causal_lab.actions.predictive_checks.law_provenance",
+        "nof1_causal_lab.study.lineage.law_provenance",
         lambda *_args: SimpleNamespace(kind="fitted"),
     )
     reader = Mock(
@@ -248,7 +252,11 @@ def test_every_parameter_coordinate_and_joint_draw_survives_the_read(monkeypatch
 
 @pytest.mark.inference(concern="simulation")
 def test_declared_scalar_law_can_be_inspected_with_unfinished_unrelated_mechanisms():
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'visuals/declared_scalar_law_can_be_inspected_with_unfinished_unrelated_mechanisms_complete_test_model.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1] / "fixtures/models" / "visuals/x_y_z_model.json"
+        ).read_text()
+    )
     edge, unfinished = model.edges
     removed = {
         operand.value
@@ -280,7 +288,11 @@ def test_declared_scalar_law_can_be_inspected_with_unfinished_unrelated_mechanis
 def test_predictive_overlay_uses_pinned_schedule_including_support_boundaries(monkeypatch):
     from nof1_causal_lab.artifacts.posterior_diagnostics import PPCOverlay
 
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'visuals/predictive_overlay_uses_pinned_schedule_including_support_boundaries_complete_test_model.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1] / "fixtures/models" / "common/x_y_model.json"
+        ).read_text()
+    )
     origin = datetime(2026, 1, 1)
     panel = pl.DataFrame(
         [

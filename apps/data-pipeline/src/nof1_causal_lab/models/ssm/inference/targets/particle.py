@@ -8,12 +8,14 @@ from typing import TYPE_CHECKING, cast
 import dynestyx as dsx
 import jax
 import jax.numpy as jnp
+import numpyro.distributions as dist
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from dynestyx.models.core import DiscreteStateTransition
 
+    from nof1_causal_lab.models.ssm.inference.conditioning import ExactStateConstraints
     from nof1_causal_lab.models.ssm.inference.parameter_transform import ParameterTransform
 
 
@@ -35,6 +37,7 @@ class ParticleTarget:
     model: Callable[[ParticleContext], dsx.DynamicalModel]
     observations: jax.Array
     times: jax.Array
+    density_indices: tuple[int, ...] | None = None
 
     @property
     def initial_position(self):
@@ -48,7 +51,18 @@ class ParticleTarget:
         return jnp.asarray(distribution.mean), jnp.asarray(distribution.covariance_matrix)
 
     def initial_log_prob(self, context, state):
-        return jnp.sum(self.model(context).initial_condition.log_prob(state))
+        return self._modeled_log_prob(self.model(context).initial_condition, state)
+
+    def _modeled_log_prob(self, distribution, state):
+        indices = jnp.asarray(
+            self.density_indices
+            if self.density_indices is not None
+            else tuple(range(state.shape[-1]))
+        )
+        return dist.MultivariateNormal(
+            distribution.mean[indices],
+            covariance_matrix=distribution.covariance_matrix[jnp.ix_(indices, indices)],
+        ).log_prob(state[indices])
 
     def _transition_distribution(self, context, previous, index):
         times = context[1]
@@ -56,7 +70,9 @@ class ParticleTarget:
         return evolution(previous, None, times[jnp.maximum(index - 1, 0)], times[index])
 
     def transition_log_prob(self, context, previous, current, index):
-        return jnp.sum(self._transition_distribution(context, previous, index).log_prob(current))
+        return self._modeled_log_prob(
+            self._transition_distribution(context, previous, index), current
+        )
 
     def aligned_transition_log_prob(self, context, previous, current, index):
         return jax.vmap(lambda a, b: self.transition_log_prob(context, a, b, index))(
@@ -70,11 +86,19 @@ class ParticleTarget:
             )(current)
         )(previous)
 
-    def initial_path(self, context):
+    def initial_path(self, context, *, exact_constraints: ExactStateConstraints | None = None):
         initial = jnp.asarray(self.model(context).initial_condition.mean)
+        if exact_constraints is not None:
+            initial = jnp.where(
+                exact_constraints.free_mask[0], initial, exact_constraints.values[0]
+            )
 
         def step(previous, index):
             current = self._transition_distribution(context, previous, index).mean
+            if exact_constraints is not None:
+                current = jnp.where(
+                    exact_constraints.free_mask[index], current, exact_constraints.values[index]
+                )
             return current, current
 
         _, tail = jax.lax.scan(step, initial, jnp.arange(1, context[1].size))

@@ -1,19 +1,25 @@
 """Independent additive terms survive revision without tying their free coefficients."""
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from pathlib import Path
 
 import numpy as np
 import pytest
 
 from nof1_causal_lab.artifacts.expressions import BinaryExpression
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
 from nof1_causal_lab.models.ssm.compile.prior_compilation import compile_priors
 
 
 @pytest.fixture(scope="module")
 def two_hills():
-    return ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'mechanism_identity/two_hills_model.json').read_text())
+    return ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "mechanism_identity/two_hills_model.json"
+        ).read_text()
+    )
 
 
 @pytest.mark.inference(concern="sampling")
@@ -80,14 +86,18 @@ def test_term_identity_rejects_ambiguous_or_dangling_revisions(two_hills, change
     if change == "duplicate":
         terms = (first, type(second).model_validate({**second.model_dump(), "id": first.id}))
     elif change == "wrong_coefficient":
-
-
         terms = (
             first,
             type(second).model_validate(
                 {
                     **second.model_dump(),
-                    "expression": BinaryExpression.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'mechanism_identity/term_identity_rejects_ambiguous_or_dangling_revisions_map_expression.json').read_text()),
+                    "expression": BinaryExpression.model_validate_json(
+                        (
+                            Path(__file__).resolve().parents[2]
+                            / "fixtures/models"
+                            / "mechanism_identity/term_identity_rejects_ambiguous_or_dangling_revisions_map_expression.json"
+                        ).read_text()
+                    ),
                 }
             ),
         )

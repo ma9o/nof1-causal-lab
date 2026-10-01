@@ -7,7 +7,9 @@ from typing import TYPE_CHECKING
 import pytest
 
 from nof1_causal_lab.artifacts.construct import ConstructSpec, Role, TemporalStatus
+from nof1_causal_lab.artifacts.expressions import state
 from nof1_causal_lab.artifacts.indicator import IndicatorPolarity, IndicatorSpec
+from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec, ObservationLawSpec
 from tests.helpers import fixture_entity_id
 
 if TYPE_CHECKING:
@@ -29,12 +31,30 @@ def construct_factory():
         role: Role = Role.ENDOGENOUS,
         temporal_status: TemporalStatus = TemporalStatus.TIME_VARYING,
     ) -> ConstructSpec:
+        identity = fixture_entity_id("construct", name)
         return ConstructSpec(
-            id=fixture_entity_id("construct", name),
+            id=identity,
             name=name,
             description=f"{name} description",
             role=role,
             temporal_status=temporal_status,
+            indicators=(
+                IndicatorSpec(
+                    id=fixture_entity_id("indicator", name),
+                    name=name + "_reading",
+                    measurement_dtype="continuous",
+                    aggregation="last",
+                    construct_polarity="positive",
+                    likelihood=LikelihoodSpec(
+                        law=ObservationLawSpec(
+                            distribution="Delta", arguments={"v": state(identity)}
+                        ),
+                        reasoning="Given reading",
+                    ),
+                ),
+            )
+            if role == Role.EXOGENOUS
+            else (),
         )
 
     return _make

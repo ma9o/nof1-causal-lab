@@ -56,13 +56,17 @@ def _build_test_evaluators(monkeypatch, *, runtime: bool, backend: _RecordingBac
     bound_times = jnp.asarray([0.0, 0.5, 1.5])
     model = SimpleNamespace(
         spec=object(),
+        input_values=None,
+        initialization_input_intervention=lambda _times: None,
     )
 
     monkeypatch.setattr(inference_utils, "build_site_registry", lambda _spec: registry)
 
-    def assemble(samples, spec, *, registry: object):
+    def assemble(samples, spec, *, registry: object, intervention, input_values):
         assert spec is model.spec
         assert registry is not None
+        assert intervention is None
+        assert input_values is None
         assembled_samples.append(samples)
         return "dynamics", "measurement", "initial", {"obs_df": 5.0}
 
@@ -214,7 +218,12 @@ class TestPureJaxLikelihoodEvaluator:
 
     @staticmethod
     def _build_poisson_case():
-        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models/inference_eval_fns/poisson_parameter_evaluator.json").read_text())
+        spec = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models/inference_eval_fns/poisson_parameter_evaluator.json"
+            ).read_text()
+        )
         model = SSMModel(compile_fit_fixture(spec))
         observations = jnp.array([[4.0], [3.0], [5.0], [6.0]], dtype=jnp.float32)
         times = jnp.arange(observations.shape[0], dtype=jnp.float32) * 0.5

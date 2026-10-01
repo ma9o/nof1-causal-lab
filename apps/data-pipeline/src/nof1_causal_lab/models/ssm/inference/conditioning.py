@@ -35,7 +35,7 @@ class ExactStateConstraints:
 
 
 def compile_exact_state_constraints(
-    spec: ModelSpec, observations: jnp.ndarray
+    spec: ModelSpec, observations: jnp.ndarray, *, input_values: jnp.ndarray | None = None
 ) -> ExactStateConstraints | None:
     """Condition direct state bindings without discarding their dynamics density."""
     exact = [
@@ -49,6 +49,10 @@ def compile_exact_state_constraints(
     values = np.full((len(observed), numeric.n_states(spec)), np.nan, dtype=observed.dtype)
     state_indices = {identity: index for index, identity in enumerate(spec.state_order)}
     for column, indicator, likelihood in exact:
+        if spec.indicator_owner(indicator.id).role == "exogenous":
+            if input_values is None:
+                raise ValueError("Exogenous inputs require a replayed panel path")
+            continue
         expression = likelihood.law.arguments["v"]
         if indicator.support_kind != "point" or not isinstance(expression, StateExpression):
             raise ValueError(
@@ -68,4 +72,7 @@ def compile_exact_state_constraints(
                 f"at model rows {np.flatnonzero(conflict).tolist()}"
             )
         values[present, index] = readings[present]
+    if input_values is not None:
+        inputs = numeric.input_mask(spec)
+        values[:, inputs] = np.asarray(input_values)[:, inputs]
     return ExactStateConstraints(jnp.asarray(values))

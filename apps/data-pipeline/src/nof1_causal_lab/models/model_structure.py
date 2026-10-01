@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Literal
 from nof1_causal_lab.artifacts.construct import (
     CausalEdgeSpec,
     ConstructSpec,
-    Role,
     TemporalStatus,
 )
 from nof1_causal_lab.artifacts.execution import StructuralDisposition, StructuralItemDisposition
@@ -32,7 +31,7 @@ class StructuralCompilationError(AggregatedCompileError):
 
 
 def marginalized_construct_ids(model: ModelSpec) -> frozenset[ConstructId]:
-    """Identify eligible unobserved exogenous roots without changing the scientific DAG."""
+    """Identify eligible unmeasured roots without changing the scientific DAG."""
     from nof1_causal_lab.models.identification import identify_model
 
     observed = {construct.id for construct in model.constructs if construct.indicators}
@@ -46,9 +45,7 @@ def marginalized_construct_ids(model: ModelSpec) -> frozenset[ConstructId]:
     return frozenset(
         construct.id
         for construct in model.constructs
-        if construct.id not in observed | blocked
-        and construct.role == Role.EXOGENOUS
-        and construct.id not in children
+        if construct.id not in observed | blocked and construct.id not in children
     )
 
 
@@ -206,7 +203,7 @@ def structural_dispositions(model: ModelSpec) -> tuple[StructuralItemDisposition
             reason = "Required cause outside the retained states has no supported marginalization semantics."
         elif construct.id in model.marginalized_construct_ids:
             disposition = StructuralDisposition.MARGINALIZED
-            reason = "Safe unobserved exogenous root projected from the executable state vector."
+            reason = "Safe unmeasured root projected from the executable state vector."
         else:
             disposition = StructuralDisposition.IDENTIFICATION_ONLY
             reason = (

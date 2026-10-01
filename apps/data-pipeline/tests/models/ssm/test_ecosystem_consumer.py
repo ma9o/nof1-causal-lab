@@ -17,8 +17,6 @@ from tests.model_fixtures import compile_fit_fixture
 pytestmark = pytest.mark.inference(concern="sampling")
 
 
-
-
 def test_nonlinear_mixed_missing_irregular_particle_fit_and_exact_diagnostics(monkeypatch):
     from nof1_causal_lab.models.ssm.inference.warmup import latent_init
 
@@ -26,7 +24,17 @@ def test_nonlinear_mixed_missing_irregular_particle_fit_and_exact_diagnostics(mo
         raise AssertionError("supplied trajectories must skip IEKS initialization")
 
     monkeypatch.setattr(latent_init, "compute_ieks_latent_paths", _unexpected_ieks)
-    model = SSMModel(compile_fit_fixture(ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'ecosystem_consumer/nonlinear_mixed_missing_irregular_particle_fit_and_exact_diagnostics_nonlinear_model.json').read_text())))
+    model = SSMModel(
+        compile_fit_fixture(
+            ModelSpec.model_validate_json(
+                (
+                    Path(__file__).resolve().parents[2]
+                    / "fixtures/models"
+                    / "ecosystem_consumer/nonlinear_mixed_missing_irregular_particle_fit_and_exact_diagnostics_nonlinear_model.json"
+                ).read_text()
+            )
+        )
+    )
     times = jnp.array([0.0, 0.05, 0.17, 0.4, 0.9])
     observations = jnp.array(
         [[0.2, 1.0], [jnp.nan, 2.0], [0.3, jnp.nan], [jnp.nan, jnp.nan], [-0.2, 0.0]]

@@ -73,7 +73,13 @@ def test_time_invariant_construct_omits_temporal_transmission_check():
             observations_mask=jnp.ones(expected.shape, dtype=bool),
         ),
     )
-    spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'simulation_checks/time_invariant_construct_omits_temporal_transmission_check_model_fixture.json').read_text())
+    spec = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "simulation_checks/time_invariant_construct_omits_temporal_transmission_check_model_fixture.json"
+        ).read_text()
+    )
     obs_idx = np.arange(times)
     design = DesignInfo(
         manifest_ids=(fixture_entity_id("indicator", "static_indicator"),),
@@ -96,21 +102,48 @@ def test_time_invariant_construct_omits_temporal_transmission_check():
     )
 
 
-@pytest.mark.parametrize(('dynamics', 'measurement', 'model_fixture_payload'), [
-    pytest.param(True, True, 'simulation_checks/fixed_hill_coefficients_participate_in_checks_and_edge_off_model_fixture_true-true.json', id='True-True'),
-    pytest.param(True, False, 'simulation_checks/fixed_hill_coefficients_participate_in_checks_and_edge_off_model_fixture_true-false.json', id='True-False'),
-    pytest.param(False, True, 'simulation_checks/fixed_hill_coefficients_participate_in_checks_and_edge_off_model_fixture_false-true.json', id='False-True'),
-    pytest.param(False, False, 'simulation_checks/fixed_hill_coefficients_participate_in_checks_and_edge_off_model_fixture_false-false.json', id='False-False'),
-])
+@pytest.mark.parametrize(
+    ("dynamics", "measurement", "model_fixture_payload"),
+    [
+        pytest.param(
+            True,
+            True,
+            "simulation_checks/fixed_hill_model.json",
+            id="True-True",
+        ),
+        pytest.param(
+            True,
+            False,
+            "simulation_checks/fixed_hill_model.json",
+            id="True-False",
+        ),
+        pytest.param(
+            False,
+            True,
+            "simulation_checks/fixed_hill_model.json",
+            id="False-True",
+        ),
+        pytest.param(
+            False,
+            False,
+            "simulation_checks/fixed_hill_model.json",
+            id="False-False",
+        ),
+    ],
+)
 def test_fixed_hill_coefficients_participate_in_checks_and_edge_off(
-    monkeypatch, dynamics, measurement
-, model_fixture_payload):
+    monkeypatch, dynamics, measurement, model_fixture_payload
+):
     """Fixed coefficients still affect the Hill checks and the exact edge-off contrast."""
     from nof1_causal_lab.artifacts.expressions import LiteralExpression, hill_applications
     from nof1_causal_lab.models.ssm.predictive import registry_runtime
 
     draws, ticks = 4, 21
-    spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / model_fixture_payload).read_text())
+    spec = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2] / "fixtures/models" / model_fixture_payload
+        ).read_text()
+    )
     latents = np.broadcast_to(np.linspace(0.2, 2, ticks)[None, :, None], (draws, ticks, 2)).copy()
     predictive = PredictiveDraws(
         parameters={"manifest_cov": jnp.broadcast_to(jnp.eye(2) * 0.25, (draws, 2, 2))},

@@ -393,10 +393,18 @@ class TestLocScalePreservation:
 class TestAutoReparamSSM:
     """Test AutoReparam with the actual SSM model."""
 
-
     def test_ssm_site_classification(self):
         """Verify which SSM sites get reparameterized and which don't."""
-        model = SSMModel(compile_fit_fixture(ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models/autoreparam/simple_ssm.json").read_text())))
+        model = SSMModel(
+            compile_fit_fixture(
+                ModelSpec.model_validate_json(
+                    (
+                        Path(__file__).resolve().parents[2]
+                        / "fixtures/models/common/two_state_gaussian_model.json"
+                    ).read_text()
+                )
+            )
+        )
         strategy = AutoReparam(centered=0.0)
 
         model_fn = functools.partial(model.model, likelihood_backend=_DummyLikelihoodBackend())
@@ -445,7 +453,16 @@ class TestAutoReparamSSM:
         )
         from nof1_causal_lab.models.ssm.parameterization import build_site_registry
 
-        model = SSMModel(compile_fit_fixture(ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models/autoreparam/simple_ssm.json").read_text())))
+        model = SSMModel(
+            compile_fit_fixture(
+                ModelSpec.model_validate_json(
+                    (
+                        Path(__file__).resolve().parents[2]
+                        / "fixtures/models/common/two_state_gaussian_model.json"
+                    ).read_text()
+                )
+            )
+        )
         observations = jnp.zeros((5, 2))
         times = jnp.linspace(0, 1, 5)
         parameters, _, public_sites = prepare_model_parameters(
@@ -475,7 +492,13 @@ class TestAutoReparamSSM:
         """Nested TransformReparam + LocScaleReparam restores the public Hill site."""
         from nof1_causal_lab.models.ssm.model import SSMModel
 
-        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'autoreparam/testautoreparamssm_test_particle_runtime_reconstructs_log_normal_hill_sites_with_parameter_distributions.json').read_text())
+        spec = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "autoreparam/testautoreparamssm_test_particle_runtime_reconstructs_log_normal_hill_sites_with_parameter_distributions.json"
+            ).read_text()
+        )
         model = SSMModel(compile_fit_fixture(spec))
         observations = jnp.zeros((3, 2))
         times = jnp.arange(3, dtype=jnp.float32)

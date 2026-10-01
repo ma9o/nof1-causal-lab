@@ -28,7 +28,7 @@ def test_planner_rejects_retained_static_target_edge():
                 type(x).model_validate(
                     {
                         **x.model_dump(),
-                        "role": Role.EXOGENOUS,
+                        "role": Role.ENDOGENOUS,
                         "temporal_status": TemporalStatus.TIME_INVARIANT,
                     }
                 ),
@@ -69,7 +69,7 @@ def test_projected_coefficients_require_literals():
     root = type(root).model_validate(
         {
             **root.model_dump(),
-            "role": Role.EXOGENOUS,
+            "role": Role.ENDOGENOUS,
             "temporal_status": TemporalStatus.TIME_INVARIANT,
             "indicators": (),
             "coefficients": (coefficient(0.0, "initial_mean"), coefficient(1.0, "initial_scale")),
@@ -140,7 +140,7 @@ def _model_with_exact_measurement():
                 ),
                 history,
                 type(u).model_validate(
-                    {**u.model_dump(), "role": Role.EXOGENOUS, "indicators": ()}
+                    {**u.model_dump(), "role": Role.ENDOGENOUS, "indicators": ()}
                 ),
             ),
         )
@@ -182,7 +182,11 @@ def test_source_ids_are_stable_across_authoring_reordering():
 
 @pytest.mark.contract
 def test_execution_checks_preserve_the_scientific_model():
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'structural_compiler/execution_checks_preserve_the_scientific_model_complete_test_model.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2] / "fixtures/models" / "common/x_y_model.json"
+        ).read_text()
+    )
     before = model.model_dump(mode="json")
     check_execution(model)
     from nof1_causal_lab.models.ssm import numerics as numeric
@@ -232,7 +236,13 @@ def test_severed_components_do_not_require_priors_or_bind_numerical_parameters()
         [("A", "B"), ("B", "Sink"), ("Y", "Sink"), ("X", "Y")],
     )
     nodes = {item.name: item for item in model.constructs}
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'structural_compiler/severed_components_do_not_require_priors_or_bind_numerical_parameters_complete_test_model.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "structural_compiler/severed_components_do_not_require_priors_or_bind_numerical_parameters_complete_test_model.json"
+        ).read_text()
+    )
     island_parameter = model.parameters_for(nodes["A"].id)[0]
     selected = model.revised(
         default_outcome=nodes["Y"].id,
@@ -291,7 +301,7 @@ def test_projected_latent_dependencies_keep_their_connected_states():
             model.edges,
             (
                 type(nodes["U"]).model_validate(
-                    {**nodes["U"].model_dump(), "role": Role.EXOGENOUS, "indicators": ()}
+                    {**nodes["U"].model_dump(), "role": Role.ENDOGENOUS, "indicators": ()}
                 ),
             ),
         ),

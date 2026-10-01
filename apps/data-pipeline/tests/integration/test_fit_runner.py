@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
@@ -10,6 +11,7 @@ import pytest
 
 from nof1_causal_lab.actions.contracts import FitRequest
 from nof1_causal_lab.actions.runners import run_action_locally
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.ssm.inference.persistence import model_draws
 from nof1_causal_lab.study.lineage import inference_is_current
 from nof1_causal_lab.study.state import apply_effects
@@ -39,7 +41,13 @@ def test_inference_advances_model_and_uses_the_selected_input(
 
     original = fx.seed_model(artifact_store)
     panel = fx.seed_panel(artifact_store, model_revision=original.revision)
-    authored = fx.scientific_model()
+    authored = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1]
+            / "fixtures/models"
+            / "common/stress_sleep_model.json"
+        ).read_text()
+    )
     telemetry = {"new_kernel": {"accepted": [True, False], "tuning": {"step": 0.25}}, "note": None}
     parameters = parameter_draws(authored, 4)
     states = tuple(numerics.state_ids(authored))

@@ -196,7 +196,13 @@ class TestForwardSimulation:
         )
         from nof1_causal_lab.models.ssm.predictive import registry_runtime
 
-        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'posterior_predictive/testforwardsimulation_test_posterior_runtime_assembles_ordered_cutpoints_from_sample_sites_model_fixture.json').read_text())
+        spec = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "posterior_predictive/testforwardsimulation_test_posterior_runtime_assembles_ordered_cutpoints_from_sample_sites_model_fixture.json"
+            ).read_text()
+        )
         n_draws = 2
         ordered_base = jnp.zeros((n_draws, 2), dtype=jnp.float32)
         ordered_base = ordered_base.at[:, 1].set(-1.0)

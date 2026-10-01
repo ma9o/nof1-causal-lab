@@ -120,4 +120,5 @@ def prior_predictive(
         times,
         num_samples=num_samples,
         seed=seed,
+        input_events=model.input_events,
     )

@@ -51,6 +51,79 @@ def test_segment_bounds_split_at_exact_event_times():
     assert build_segment_bounds(grid, []) == [(0, 30)]
 
 
+@pytest.mark.contract
+def test_given_inputs_replay_windows_hold_and_override_later_records(monkeypatch):
+    from datetime import UTC, datetime, timedelta, timezone
+
+    import numpy as np
+    import polars as pl
+
+    from nof1_causal_lab.artifacts.construct import replace_constructs
+    from nof1_causal_lab.artifacts.expressions import state
+    from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec, ObservationLawSpec
+    from nof1_causal_lab.models.ssm.counterfactual import orchestration
+    from nof1_causal_lab.models.ssm.inference.conditioning import compile_exact_state_constraints
+    from nof1_causal_lab.models.ssm.runtime import replay_input_events, replay_input_values
+    from tests.helpers import make_model
+
+    model = make_model(["dose", "response"], [("dose", "response")])
+    dose = model.constructs[0]
+    indicator = type(dose.indicators[0]).model_validate(
+        {
+            **dose.indicators[0].model_dump(),
+            "aggregation": "sum",
+            "likelihood": LikelihoodSpec(
+                law=ObservationLawSpec(distribution="Delta", arguments={"v": state(dose.id)}),
+                reasoning="Given dose total",
+            ),
+        }
+    )
+    dose = type(dose).model_validate(
+        {**dose.model_dump(), "role": "exogenous", "indicators": (indicator,)}
+    )
+    model = model.revised(edges=replace_constructs(model.edges, (dose,)), measurement_clock="1d")
+    origin = datetime(2026, 1, 1, tzinfo=UTC)
+    panel = pl.DataFrame(
+        {
+            "indicator_id": [indicator.id] * 3,
+            "value": [20.0, 16.0, 24.0],
+            "anchor_time": [origin + timedelta(days=day) for day in (0, 4, 6)],
+            "support_start": [origin + timedelta(days=day) for day in (-2, 2, 4)],
+            "support_end": [origin + timedelta(days=day) for day in (0, 4, 6)],
+        }
+    )
+    grid = jnp.arange(8.0)
+    events = replay_input_events(
+        model, panel, time_origin=origin.astimezone(timezone(timedelta(hours=2))), start=0, end=7
+    )
+    values = replay_input_values(model, grid, events)
+    np.testing.assert_array_equal(values[:, 0], [10, 10, 8, 8, 12, 12, 12, 12])
+    constraints = compile_exact_state_constraints(
+        model, jnp.full((8, 2), jnp.nan), input_values=values
+    )
+    assert constraints is not None
+    assert not constraints.free_mask[:, 0].any()
+    with pytest.raises(ValueError, match="no value at the start"):
+        replay_input_events(model, panel, time_origin=origin, start=-3, end=7)
+    # Isolate dated assignment control flow; no scientific solver runs in this contract.
+    monkeypatch.setattr(
+        orchestration,
+        "simulate",
+        lambda _field, _params, _intervention, initial, times, _config, **_kwargs: jnp.broadcast_to(
+            initial, (len(times), len(initial))
+        ),
+    )
+    reference, action, _ = vmap_simulate_interventions_from_state(
+        DynamicsDraws(_vf(), jax.tree.map(lambda x: x[None], _PARAMS), n_draws=1),
+        jnp.zeros((1, 2)),
+        [_event(0, time=1.0, value=3.0), _event(0, time=5.0, value=6.0)],
+        time_grid=grid,
+        input_events=events,
+    )
+    np.testing.assert_array_equal(reference[0, :, 0], values[:, 0])
+    np.testing.assert_array_equal(action[0, :, 0], [10, 3, 3, 3, 3, 6, 6, 6])
+
+
 @pytest.mark.inference(concern="simulation")
 def test_repeated_and_simultaneous_assignments_resume_natural_dynamics():
     baseline, action, effect = _run(
@@ -99,7 +172,13 @@ def test_explicit_start_evolves_from_given_state():
 def test_fully_fixed_dynamics_keep_the_explicit_draw_axis():
     from nof1_causal_lab.models.ssm.dynamics import dynamics_from_samples
 
-    spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'composable_clamps/fully_fixed_dynamics_keep_the_explicit_draw_axis_model_fixture.json').read_text())
+    spec = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1]
+            / "fixtures/models"
+            / "composable_clamps/fully_fixed_dynamics_keep_the_explicit_draw_axis_model_fixture.json"
+        ).read_text()
+    )
     draws = dynamics_from_samples(spec, {}, n_draws=3)
     times = jnp.array([0.0, 0.2, 0.4])
     initial = jnp.array([[-1.0], [0.0], [1.0]])
@@ -139,7 +218,7 @@ def test_event_simulation_rejects_misaligned_draw_inputs(bad_axis):
             initial,
             [],
             time_grid=_TIME_GRID,
-            noise=ProcessNoise(key=keys, diffusion_cov=covariances),
+            noise=ProcessNoise(key=keys, diffusion=jnp.linalg.cholesky(covariances)),
         )
 
 
@@ -154,7 +233,7 @@ def test_stochastic_paths_share_noise_before_a_noninteger_event():
         time_grid=grid,
         noise=ProcessNoise(
             key=jax.random.split(jax.random.key(0), 1),
-            diffusion_cov=jnp.eye(2)[None] * 0.1,
+            diffusion=jnp.linalg.cholesky(jnp.eye(2)[None] * 0.1),
         ),
     )
     assert jnp.array_equal(baseline[:, :2], action[:, :2])

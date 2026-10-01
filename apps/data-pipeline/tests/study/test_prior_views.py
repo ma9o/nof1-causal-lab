@@ -46,7 +46,13 @@ def test_prior_curves_preserve_native_gamma_and_transforms_without_mutating_the_
 
 
 def test_quantity_curves_put_authored_laws_on_the_posterior_scale():
-    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'prior_views/quantity_curves_put_authored_laws_on_the_posterior_scale_complete_test_model.json').read_text())
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1]
+            / "fixtures/models"
+            / "prior_views/quantity_curves_put_authored_laws_on_the_posterior_scale_complete_test_model.json"
+        ).read_text()
+    )
     curves = quantity_prior_densities(model)
     transforms = {parameter.distribution_transform for parameter in model.parameters}
     assert "dt_persistence_to_ct_decay" in transforms

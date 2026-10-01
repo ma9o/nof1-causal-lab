@@ -9,8 +9,6 @@ the helpers with real transformation or graph logic:
 - ModelSpec state and marginalized-scale accessors
 """
 
-
-
 import pytest
 
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
@@ -33,7 +31,7 @@ def _full_spec():
         "latent": {
             "default_outcome": "construct:bbc87212909e45b9e6c3",
             "constructs": [
-                {"id": "construct:6b04dc42c531e7091eb8", "name": "stress", "role": "exogenous"},
+                {"id": "construct:6b04dc42c531e7091eb8", "name": "stress", "role": "endogenous"},
                 {
                     "id": "construct:bbc87212909e45b9e6c3",
                     "name": "mood",
@@ -215,5 +213,3 @@ class TestModelSpecAccessors:
     def test_get_state_names_preserves_compiled_order(self):
         plan = make_model(["stress", "mood"], [("stress", "mood")])
         assert get_state_names(ModelSpec.model_validate(plan)) == ["stress", "mood"]
-
-

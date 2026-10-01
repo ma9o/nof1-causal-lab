@@ -91,7 +91,6 @@ def fit_marginal_particle_gibbs(
     paid_mix_pilot_weight: float = 0.10,
     paid_mix_pilot_var_scale: float = 0.25,
     paid_mix_wide_mult: float = 4.0,
-    latent_sign_flip_moves: bool = False,
     diagnostic_metrics_all: bool = False,
     diagnostic_metrics: tuple[str, ...] | list[str] | None = None,
     param_step_size: float = 0.02,
@@ -257,14 +256,6 @@ def fit_marginal_particle_gibbs(
         pilot_vars = paid_mix_pilot_var_scale * core_var
         pilot_wide_vars = paid_mix_wide_mult * core_var
 
-    sign_flip_spec = None
-    if latent_sign_flip_moves:
-        from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.flip import (
-            build_sign_flip_spec,
-        )
-
-        sign_flip_spec = build_sign_flip_spec(model, bundle)
-
     phase_t0 = time.monotonic()
     logger.info("phase 3/4: building marginalized Particle Gibbs joint kernel...")
     kernel = build_marginal_particle_gibbs_kernel(
@@ -305,7 +296,6 @@ def fit_marginal_particle_gibbs(
             if initial_latent_trajectories is None
             else jnp.asarray(initial_latent_trajectories)[0]
         ),
-        sign_flip_spec=sign_flip_spec,
         diagnostic_metrics_all=diagnostic_metrics_all,
         diagnostic_metrics=diagnostic_metrics,
     )
@@ -403,16 +393,6 @@ def fit_marginal_particle_gibbs(
             "latent_update_fraction": float(jnp.mean(summary_extra_fields["latent_accept_prob"])),
             "latent_frozen_fraction": float(jnp.mean(summary_extra_fields["latent_frozen_frac"])),
             "latent_block_coords": kernel.latent_block_coords,
-            "latent_sign_flip_moves": bool(latent_sign_flip_moves),
-            **(
-                {
-                    "sign_flip_accept_rate": float(
-                        jnp.mean(summary_extra_fields["sign_flip_accept_prob"])
-                    )
-                }
-                if "sign_flip_accept_prob" in summary_extra_fields
-                else {}
-            ),
             "initial_param_step_size": jax.device_get(
                 run_result["initial_param_step_size"]
             ).tolist(),

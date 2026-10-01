@@ -277,13 +277,21 @@ def time_invariant_mask(model: ModelSpec) -> np.ndarray:
     )
 
 
+def input_mask(model: ModelSpec) -> np.ndarray:
+    """Coordinates read from the panel instead of generated under a state law."""
+    return np.asarray(
+        [model.get_construct(identity).role == "exogenous" for identity in state_ids(model)],
+        dtype=bool,
+    )
+
+
 def diffusion_families(model: ModelSpec) -> list[DistributionFamily]:
     from nof1_causal_lab.distributions import DistributionFamily
 
     result = []
     for identity in state_ids(model):
         construct = model.get_construct(identity)
-        if construct.temporal_status == "time_invariant":
+        if construct.role == "exogenous" or construct.temporal_status == "time_invariant":
             result.append(DistributionFamily.GAUSSIAN)
         elif construct.coefficient("diffusion_scale") is None:
             raise IncompleteModelError(f"Construct {construct.name!r} requires a diffusion scale")
@@ -300,13 +308,17 @@ def diffusion_block(model: ModelSpec) -> DiffusionBlockSpec:
         if kind == "innovation_correlation":
             first, second = axis[first_id], axis[second_id]
             support[max(first, second), min(first, second)] = True
-    static = time_invariant_mask(model)
+    static = time_invariant_mask(model) | input_mask(model)
     support[static, :] = False
     support[:, static] = False
     template, support = _quantity_values(
         model, SiteKind.DIFFUSION_DIAG, np.eye(count), np.zeros_like(support), diagonal=True
     )
     template, support = _quantity_values(model, SiteKind.DIFFUSION_LOWER, template, support)
+    template[static, :] = 0.0
+    template[:, static] = 0.0
+    support[static, :] = False
+    support[:, static] = False
     return DiffusionBlockSpec(
         n_latent=count,
         diffusion_chol_support=support,
@@ -338,6 +350,7 @@ def initial_covariance_block(model: ModelSpec) -> T0CholBlockSpec:
     count = n_states(model)
     support = np.zeros(count, dtype=bool)
     std, support = _quantity_values(model, SiteKind.T0_VAR_DIAG, np.ones(count), support)
+    std[input_mask(model)] = 0.0
     correlations, correlation_support = _quantity_values(
         model, SiteKind.T0_VAR_LOWER, np.eye(count), np.zeros((count, count), dtype=bool)
     )
@@ -450,6 +463,8 @@ def validate_execution(model: ModelSpec) -> None:
         raise NumericalSupportError(intercept_errors)
     for identity in state_ids(model):
         construct = model.get_construct(identity)
+        if construct.role == "exogenous":
+            continue
         if any(construct.coefficient(role) is None for role in ("initial_mean", "initial_scale")):
             raise IncompleteModelError(
                 f"Construct {construct.name!r} requires initial-state coefficients"

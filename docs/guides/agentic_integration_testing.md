@@ -129,29 +129,29 @@ New studies initialize their local bare repository on first use. On a fresh chec
 
 ```bash
 git clone --mirror data/DEMO/study/history.bundle data/DEMO/study/history.git
-git --git-dir=data/DEMO/study/history.git config nof1.format 8
+git --git-dir=data/DEMO/study/history.git config nof1.format 9
 ```
 
 #### Migrating a local study
 
-The current runtime requires format 8. To convert a format-7 study into a new copy:
+The current runtime requires format 9. To convert a format-8 study:
 
-1. Stop work on the study and close its workflow. A format-7 study's workflow is still named `episode-STUDY`:
-
-   ```bash
-   temporal workflow signal --workflow-id episode-STUDY --name close
-   ```
-
-2. Run the [format-8 converter](../../apps/data-pipeline/scripts/migrations/migrate_format_8.py). The destination must be new and outside the source, and the source is left untouched.
+1. Stop work on the study and close its workflow:
 
    ```bash
-   uv run --directory apps/data-pipeline python -m scripts.migrations.migrate_format_8 \
-     ../../data/STUDY /tmp/format8/STUDY
+   temporal workflow signal --workflow-id study-STUDY --name close
    ```
 
-   It drops operation IDs, resume references and stored progress events from attempt records, renames each commit's `logs/transition.json` to `logs/attempt.json`, names each artifact's producer by its action, and moves the repository from `episode/` to `study/`. Saved artifacts, numerical files and results are otherwise unchanged. Changed Git objects get new identities, and references to them follow.
-3. Review the migrated snapshots, then select the new workspace while offline.
-4. Restart the workers with the new code and start a fresh `study-STUDY` workflow from the migrated Git state; don't replay the previous workflow. Regenerate any fixture bundle from the migrated repository.
+2. Run the [format-9 converter](../../apps/data-pipeline/scripts/migrations/migrate_format_9.py). The destination must be new and outside the source, and the source is left untouched.
+
+   ```bash
+   uv run --directory apps/data-pipeline python -m scripts.migrations.migrate_format_9 \
+     ../../data/STUDY /tmp/format9/STUDY
+   ```
+
+   It rewrites each stored model. An exogenous construct read only through exact readings loses its law and becomes a given input. Every other exogenous construct becomes endogenous. Stored joint laws drop the inputs' trajectories. Saved artifacts, numerical files and results are otherwise unchanged. Changed Git objects get new identities, and references to them follow.
+3. Review the migrated snapshots. Then, while offline, back up the original outside `data/` and replace `data/STUDY` with the migrated repository, keeping one study per ID.
+4. Restart the workers with the new code and start a fresh `study-STUDY` workflow from the migrated Git state; don't replay the previous workflow. Regenerate any fixture bundle from the migrated repository. Re-prepare a study whose saved panel gives an input no value at its start; fit and simulate reject it.
 
 Earlier formats have no route to the current runtime.
 

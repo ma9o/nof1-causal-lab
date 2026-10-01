@@ -45,7 +45,13 @@ def test_prior_draws_keep_native_values_and_the_existing_random_streams():
 
 @pytest.mark.inference(concern="sampling")
 def test_parameter_trace_preserves_site_order_shapes_and_public_deterministics():
-    spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameter_interpreter/parameter_trace_preserves_site_order_shapes_and_public_deterministics_model_fixture.json').read_text())
+    spec = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "common/two_state_gaussian_model.json"
+        ).read_text()
+    )
     model = SSMModel(compile_fit_fixture(spec))
     values = {
         "diffusion_diag_free": jnp.array([0.4, 0.6]),

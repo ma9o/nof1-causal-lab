@@ -34,7 +34,6 @@ class _MarginalParticleGibbsMethodOptions(TypedDict, total=False):
     paid_mix_pilot_weight: float
     paid_mix_pilot_var_scale: float
     paid_mix_wide_mult: float
-    latent_sign_flip_moves: bool
     diagnostic_metrics_all: bool
     diagnostic_metrics: tuple[str, ...] | list[str]
     param_step_size: float
